@@ -4,32 +4,38 @@ Strategy: [openspec/strategy.md](strategy.md) · Architecture: [openspec/archite
 
 Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes the gaps between the code and the architecture baseline that most often force a manual rescue. Issue numbers refer to sh1ny/specwright. Versions follow the pre-1.0 rule in [strategy.md](strategy.md#assumptions): one minor version per feature, configuration key or workflow change, and a patch version per fix.
 
-## Now: M1 - Hardening
+## Now: M2 - Ship flow
 
-**Outcome:** a change runs from branch to merged PR, including an interrupted or concurrent feedback pass, without manual git or PR rescue; subagents can load project skills.
+**Outcome:** a change is reviewed before it ships and, when the project opts in, merged and cleaned up by the agent, with identity fencing on by default and the PR-flow gaps found during M1 closed.
 
 **Exit criteria:**
 - Every issue in the changes below is closed by a merged PR, and each code fix has a regression test in `evals/pr-pair` or `evals/git-workflow`. (agent)
-- `evals/pr-pair` passes, and `eval-apply-three-tasks`, including its subject-length check, passes 3 runs in a row. (agent)
-- In a fresh Claude Code session, `specwright-implementer` and `specwright-reviewer` list `Skill` among their tools and load a project skill. (user)
-- `CONTRIBUTING.md` states the versioning rule. (agent)
-- Each change ships as its own release: 0.1.9, 0.1.10 and 0.1.11. (agent)
+- `evals/pr-pair` and `evals/git-workflow` pass. (agent)
+- The pre-ship review has a recorded trial run on each reviewer CLI (OMP, Codex, Claude), and a review whose output fails the findings schema stops ship. (agent)
+- With `github.login` empty, the #38 regression cases prove every `gh` and git network call is fenced or refused. (agent)
+- An agent-merge eval merges a ready PR and runs cleanup when the project opts in, and never merges when it does not. (agent)
+- One change in a dogfood project goes from ship to merge through the pre-ship review and agent merge. (user)
+- Each change ships as its own release: 0.1.12, 0.1.13, 0.2.0, 0.3.0 and 0.4.0. (agent)
 
 **Changes** (in order; each about one PR):
-1. `fix-agent-skills-and-subjects` (0.1.9) - #24 add `Skill` to both agent definitions, plus the restart note; #21 agents keep task commit subjects within the existing 72-character limit (the format is unchanged, so a fix); #43 the store branch check and gate lock for roadmap init/close; #44 baseline ADRs stay `proposed` until the review gate passes; #49 the baseline review's round limit follows the schema's (escalate after 2 consecutive REVISE rounds); #50 roadmap **next** commits its gap-closing roadmap edit before the branch gate; #45 the Python dependency in the README and `specwright-pr`, with #46 making `pass write` work on the stated minimum and keeping errors in the JSON contract; the versioning rule in `CONTRIBUTING.md`.
-2. `fix-workflow-recovery` (0.1.10) - interrupted and concurrent feedback passes, and interrupted finish: #48 finish resumes from git evidence after the archive commit or the store merge; #25 rerun reactions, #26 checking the intent before writing, #29 round counting, #30 pair-link repair, #32 pass ownership and collision-free feedback-record keys, #34 repo-local recovery; #61, one closing keyword per issue in PR descriptions, a check of what GitHub will close, and a cleanup backstop that closes intended issues a merged PR left open (added 2026-10-10 with the user's approval: PR #59 closed only 1 of its 8 issues, which the first exit criterion depends on; part 3, the backstop, added the same day so the change closes #61).
-3. `fix-pr-evidence-freshness` (0.1.11) - evidence that matches the current state: #31 readiness bound to the snapshot's PR and head, including current-head reviewer evidence when push activity is missing, #33 replies bound to the item revision they answer, #35 store git calls under the store's login, #39 watch token race and collision-free watch keys, #47 clipped bodies fetched in full before they are judged.
+1. `fix-roadmap-milestone-end` (0.1.12) - #51 `next` offers **close** at a milestone end and `close` keeps an agreed Next split; #60 roll back a roadmap branch left by a failing post-checkout hook; #66 split the over-long `planning-stores` requirements so strict validation passes.
+2. `fix-ship-flow-gaps` (0.1.13) - known gaps in ship, feedback and finish: #58 the store PR opens only after the code push succeeds; #57 no re-request on every resume when the push time is missing; #56 no marker-only reply when the body file is missing; #54 reply temp files removed on failure; #55 cleanup never deletes a branch with commits main lacks; #63 and #65 finish resume after a squash or bulk archive, and after a merged PR's branch is already deleted.
+3. `add-preship-review` (0.2.0) - #27 the pre-ship review: OMP, Codex or Claude, each with its own configurable model; one brief and findings schema owned by Specwright; the reviewer runs isolated from the user's installed skills; output validated against the schema, failing closed; a spec amendment is a clarification the agent may make, or a behaviour change the user must approve. Its first task is a trial run on each reviewer CLI; the design is recorded on #27, with credits to compound-engineering `ce-code-review` and oh-my-pi `reviewer.md`. Also #69, a setting that skips the review round on the archive commit. Main risk retired: review quality across harnesses.
+4. `default-identity-fencing` (0.3.0) - #38 fencing by default, which an agent merge relies on, closing every exception it tracks with regression coverage: the empty default login; `specwright-finish`'s post-merge `gh pr view`; `git fetch` and `git pull` on main (branch gate, roadmap status, finish and pr cleanup); and credential-bearing remote URLs, with cases for credential-free HTTPS URLs and credential-bearing fetch and push URLs (including several push URLs) that prove git receives the verified token or refuses to publish.
+5. `add-agent-merge` (0.4.0) - #15 the opt-in agent merge mode.
 
-## Next: M2 - Ship flow
+## Next: M3 - Distribution
 
-A change is reviewed before it ships and can be merged by the agent when the project opts in. #27 adds the pre-ship review (0.2.0): OMP, Codex or Claude, each with its own configurable model; one brief and findings schema owned by Specwright; the reviewer runs isolated from the user's installed skills; output validated against the schema, failing closed; a spec amendment is a clarification the agent may make, or a behaviour change the user must approve. #38 makes identity fencing the default (0.3.0), which an agent merge relies on, and closes every exception it tracks, each with regression coverage: the empty default login; `specwright-finish`'s post-merge `gh pr view`; `git fetch` and `git pull` on main (branch gate, roadmap status, finish and pr cleanup); and credential-bearing remote URLs, with cases for credential-free HTTPS URLs and credential-bearing fetch and push URLs (including several push URLs) that prove git receives the verified token or refuses to publish. #15 adds the opt-in agent merge mode (0.4.0). Main risk retired: review quality across harnesses. #27's first task is a trial run on each reviewer CLI. The design is recorded on #27; credits go to compound-engineering `ce-code-review` and oh-my-pi `reviewer.md`.
+Specwright installs, updates and pins safely across projects. #28 versions, tags and GitHub releases; #36 an update lifecycle that is safe for running sessions and shared planning stores; #37 the pinned OpenSpec version enforced, not just documented.
 
 ## Later
 
-- M3 - Distribution: #28 versions, tags and releases; #36 a safe update lifecycle; #37 enforcing the OpenSpec pin.
-- M4 - Cost tier: #22 Haiku for bounded work, evals first; #40 bounds and deadlines in the PR scripts.
+- M4 - Cost tier: #22 Haiku for bounded work, evals first; #40 bounds and deadlines in the PR scripts; #64 the closing-reference parser reads GitHub's rendered Markdown; #53 `specwright-debug` recovers an interrupted stash.
 - M5 - Commits and VCS backends: #20 one commit per task group, made at the group boundary only, with `Specwright-Task:` trailers; then #19 jj; GitButler as a separate change after that.
-- Unscheduled `known-gap` issues (filed after this baseline, such as #52 and #53) are placed into a milestone at the next **close**, or into an earlier change that touches the same code.
+- Unplanned features, placed at a later **close**: #68 packs (opt-in domain extensions, first gamedev); #42 stealth mode.
+- Unscheduled `known-gap` issues filed after a milestone is planned are placed into a milestone at the next **close**, or into an earlier change that touches the same code.
 - Parked: #9 snapshot pagination beyond 100 items; revisit if large PRs become routine.
 
 ## Done
+
+- **M1 - Hardening** (closed 2026-10-11; PRs #59, #62, #67; releases 0.1.9-0.1.11). Learned: PR-flow gaps surfaced faster than they closed (16 issues filed during M1), and local cross-model reviews before push caught what Codex would have (it found nothing on #67), so M2 opens with two gap-fix changes and makes the pre-ship review a step.
