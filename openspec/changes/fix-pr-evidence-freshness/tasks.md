@@ -89,7 +89,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - **Output:** `head_cutoff: {source, at}`.
 
   Verify that the 3.1 tests pass, and flip the rows green.
-- [ ] 3.3 Update `openspec/architecture.md`: the "Reviewer report cutoff" resource row, and a State ownership row for the first-seen record. Verify with `grep -n "first-seen" openspec/architecture.md`.
+- [x] 3.3 Update `openspec/architecture.md`: the "Reviewer report cutoff" resource row, and a State ownership row for the first-seen record. Verify with `grep -n "first-seen" openspec/architecture.md`.
 
 ## 4. Replies bound to the revision they answer (#33, D3)
 
