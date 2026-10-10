@@ -129,6 +129,20 @@ class MarkerBinding(SnapCase):
         self.react(ic["node_id"], "me")  # ... is answered by a reaction alone
         self.assertEqual(self.snapshot()["comments"], [])
 
+    def test_snapshot_later_edit_does_not_fake_a_rebound(self):
+        tid, c = self.add_thread("rev", "please fix")  # t0
+        self.advance(5)
+        self.edit(c["id"], "please fix, edited")  # t1, before the judgement
+        judged = self.snapshot()["threads"][0]["rev"]
+        self.advance(5)
+        self.add_reply(tid, "me", self.mark(tid, judged, resolve=True))  # t2: answers the text as of t1
+        self.resolve_thread(tid)
+        self.advance(5)
+        self.edit(c["id"], "please fix, edited twice")  # t3 overwrites lastEditedAt
+        self.advance(1)
+        self.react(c["id"], "me")  # the second edit is acknowledged
+        self.assertEqual(self.snapshot()["threads"], [], "the reply matched the thread it answered")
+
     def test_snapshot_bound_reply_keeps_items_answered(self):
         ic = self.add_comment("rev", "ping")
         tid, c = self.add_thread("rev", "please fix")

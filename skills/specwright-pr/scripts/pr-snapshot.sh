@@ -248,16 +248,21 @@ def norm: sub("\\[bot\\]$"; "");
      # comments before it). A difference means the reviewer edited, or added, a
      # comment between your re-read and the reply, so the reply answered older
      # text: $rebound lists the thread again, even resolved. An edit made after
-     # the reply is not counted here ($edited and $open catch it), so a comment's
-     # edit time counts only up to the reply's own time.
+     # the reply is not counted here ($edited and $open catch it). GitHub keeps
+     # only a comment's latest edit time, so a comment edited again after the
+     # reply hides the edit time it had then: it is known only to lie between
+     # its creation and the reply. With such a comment, only a judged time
+     # outside that range ($low .. the reply) counts as a mismatch.
      ([ .comments.nodes[] | select((.author.login // "") == $me) | . as $c | ($c.body // "")
         | scan("specwright:(?:handled|waiting) " + $tid + "(?: resolve)?(?: rev=([A-Za-z0-9@:._+-]+))?(?: |$)")
         | { id: $c.databaseId, at: $c.createdAt, rev: .[0] } ] | max_by(.id)) as $mark |
      (if $mark == null or $mark.rev == null then false else
         ([ .comments.nodes[] | select(.databaseId < $mark.id) ]) as $before
-        | ((($before[-1].databaseId // 0) | tostring) + "@"
-           + ([ $before[] | (if (.lastEditedAt // "") > $mark.at then null else .lastEditedAt end) // .createdAt // "" ] | max // ""))
-          != $mark.rev
+        | ($mark.rev | split("@")) as $j
+        | ([ $before[] | select((.lastEditedAt // "") > $mark.at) ] | length > 0) as $unknown
+        | ([ $before[] | (if (.lastEditedAt // "") > $mark.at then null else .lastEditedAt end) // .createdAt // "" ] | max // "") as $low
+        | ((($before[-1].databaseId // 0) | tostring) != $j[0])
+          or (if $unknown then ($j[1] < $low or $j[1] > $mark.at) else $low != $j[1] end)
       end) as $rebound |
      ($replied != "" and ($waiting[$tid] // "") == $replied and ($rebound | not)) as $held |
      select((.isResolved | not) or ($open | length > 0) or $held or $rebound) |
