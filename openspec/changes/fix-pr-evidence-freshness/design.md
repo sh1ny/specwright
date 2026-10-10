@@ -77,9 +77,10 @@ The proposal lists the six defects. Current code, as read:
 
 - **Choice:**
   - **Key:** each PR gets a directory `<state>/watch/v2/<owner>/<name>/<pr>/`, with owner and name in lower case. GitHub names cannot contain `/`, so distinct PRs never share a directory.
-  - **Claim:** take the highest number `n` in the directory and create `n+1` with `set -C`. On a collision, try the next number. Then remove every claim lower than its own.
-  - **Ownership:** `still_owner` is true while the watcher's own file exists and no higher number does.
+  - **Claim:** take the highest number `n` in the directory and create `<n+1>-<nonce>` with `set -C`, where the nonce is the process id plus random digits. Claims order by number, then by nonce, so two watchers that pick the same number still have a single winner. Then remove every claim lower than its own.
+  - **Ownership:** `still_owner` is true while the watcher's own file exists and no higher claim does.
   - **Release:** `rm` of the watcher's own file only.
+  - **Why the nonce** (amended after the local review): a number alone comes back once the directory empties. A claims 1; B claims 2, removes 1 and exits; C then claims 1 again, and A would take C's file for its own, poll beside C and remove C's claim on exit. A name that is never reused keeps the old owner out.
   - No clock and no read-then-remove of a shared file, so cleanup cannot touch another watcher's claim. A crashed owner's file is beaten by the next claim. An unwritable directory turns ownership off with a stderr notice.
 - **Rejected:** keep one token file and make release atomic with rename-and-check. It loses because after the rename, the file may turn out to be a newer watcher's token, and putting it back can overwrite a third watcher's token. Each repair opens another window. Also rejected: ownership by timestamp-named files. It loses because it needs sub-second clocks (`EPOCHREALTIME` is missing in macOS's bash 3.2), and ties are broken arbitrarily.
 - **Reversal cost:** low. It is local and per watch.
@@ -166,7 +167,7 @@ flowchart LR
 |---|---|---|---|---|
 | Reply markers (`specwright:handled <id>[ resolve] rev=<rev>`, `specwright:waiting <id> rev=<rev>`) | `pr-reply.sh` | Life of the PR | A marker counts only while its `rev` matches (D3); markers without `rev=` use the time rule | GitHub |
 | First-seen head record `<state>/heads/<o>/<n>/<pr>/<oid>` | The first `pr-snapshot.sh` with `--reviewer` that sees the head with no push activity (temp file published by a no-clobber hard link; later processes only read) | Until a new head of the same PR is recorded, which removes it | Deleted or lost → the next snapshot records a later time (stricter cutoff) | Local disk; nothing else holds it |
-| Watch claims `<state>/watch/v2/<o>/<n>/<pr>/<k>` | Each watcher writes only its own `<k>`; a new claim also removes lower numbers (they have lost anyway) | One watch | Exit removes its own file; a crashed owner's file is beaten by the next claim | Local disk |
+| Watch claims `<state>/watch/v2/<o>/<n>/<pr>/<k>-<nonce>` | Each watcher writes only its own claim; a new claim also removes lower numbers (they have lost anyway) | One watch | Exit removes its own file; a crashed owner's file is beaten by the next claim | Local disk |
 | Snapshot file kept by watch | The skill (watch step 1) | Until the next wake of that PR | `refresh` blocker → replaced by a one-off snapshot (D1) | GitHub; the file is a cache |
 | Old watch token `watch/<owner>-<name>-<pr>` | 0.1.10 watchers only | Until those watchers end | Not read by 0.1.11; left in place | — |
 
