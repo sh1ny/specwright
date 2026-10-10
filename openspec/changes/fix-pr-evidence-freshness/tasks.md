@@ -36,8 +36,8 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | planning-stores → Commands run where they resolve correctly | Store push with a repository-local auth header | evals/pr-pair/test_as_sh.py | test_scrubs_header_local_to_the_store | green |
 | planning-stores → Commands run where they resolve correctly | Store login override | evals/pr-pair/test_pr_pair.py | test_context_login_per_repo | green |
 | planning-stores → Commands run where they resolve correctly | Schema lookup with a root nested in the store repo | evals/git-workflow/evals.json | eval-install-nested-store | green |
-| planning-stores → Commands run where they resolve correctly | Private store readable only by the store login | evals/pr-pair/test_pr_pair.py | test_rounds_and_pass_plan_read_a_private_store_remote_as_the_store_login | red |
-| planning-stores → Commands run where they resolve correctly | Store login has no credential | evals/pr-pair/test_pr_pair.py | test_store_git_reads_stop_without_a_store_credential | red |
+| planning-stores → Commands run where they resolve correctly | Private store readable only by the store login | evals/pr-pair/test_pr_pair.py | test_rounds_and_pass_plan_read_a_private_store_remote_as_the_store_login | green |
+| planning-stores → Commands run where they resolve correctly | Store login has no credential | evals/pr-pair/test_pr_pair.py | test_store_git_reads_stop_without_a_store_credential | green |
 | planning-stores → Watch covers the expected PR set | Code PR green, store PR waiting | evals/pr-pair/test_pr_pair.py | test_pair_state_waits_for_both | green |
 | planning-stores → Watch covers the expected PR set | Store PR alone is ready | evals/pr-pair/test_pr_pair.py | test_pair_state_single_store_pr_ready | green |
 | planning-stores → Watch covers the expected PR set | One PR of the pair merged | evals/pr-pair/test_pr_pair.py | test_pair_state_split_hands_off | green |
@@ -138,7 +138,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - **Missing credential:** without a credential for `planning_store.login`, both `rounds` and `pass plan` exit 3 with `no_credential`, and the shim log shows no store network call.
 
   Verify that they fail with `remote_unreadable`.
-- [ ] 5.2 Implement D4 in `pr-pair.sh`:
+- [x] 5.2 Implement D4 in `pr-pair.sh`:
   - the wrapper exports an absolute `PR_PAIR_DIR` (`pwd -P`, plus `cygpath -m` where available);
   - `git_net(d, *args)` maps `identity(d)` through `REPO_LOGIN`, calls `token_for` first, then runs `bash $PR_PAIR_DIR/as.sh <login> git ...` with `cwd=d`, or plain `git` when the repo is unmapped;
   - `remote_contains` uses `git_net`;
