@@ -71,6 +71,21 @@ class ReplyRev(ReplyCase):
         self.assertIn("101 comments", r.stderr)
         self.assert_untouched(tid, n=101)
 
+    def test_resolve_retry_after_a_posted_reply_takes_a_fresh_rev(self):
+        tid, c = self.add_thread("rev", "please fix")
+        judged = self.rev_of(c)
+        self.mutate(lambda st: st.update({"fail": [{"match": "resolveReviewThread", "exit": 1, "stderr": "boom"}]}))
+        r = self.reply("thread", tid, c["databaseId"], "BODY", "--resolve", "--rev", judged, body="done")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("fresh snapshot", r.stderr, "the retry hint must not suggest the judged rev")
+        self.mutate(lambda st: st.update({"fail": []}))
+        self.assertEqual(self.reply("resolve", tid, "--rev", judged).returncode, 5, "your own reply changed the thread's rev")
+        t = self.snapshot()["threads"][0]
+        self.assertTrue(t["resolve_pending"])
+        r = self.reply("resolve", tid, "--rev", t["rev"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.thread_state()["isResolved"])
+
     def test_reply_without_rev_posts_as_before(self):
         tid, c = self.add_thread("rev", "please fix")
         r = self.reply("thread", tid, c["databaseId"], "BODY", "--resolve", body="done")

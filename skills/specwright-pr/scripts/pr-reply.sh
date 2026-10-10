@@ -134,7 +134,11 @@ case $kind in
     pending_check
     if [ "$resolve" = 1 ]; then
       resolve_thread "$thread" || {
-        echo "pr-reply: reply posted but resolution failed; retry only the resolution: pr-reply.sh $pr resolve $thread" >&2
+        if [ -n "$rev" ]; then  # the reply is part of the thread's rev: the judged one would now exit 5
+          echo "pr-reply: reply posted but resolution failed; retry only the resolution, with the thread's rev from a fresh snapshot that lists it resolve_pending (your reply changed it): pr-reply.sh $pr resolve $thread --rev <rev>" >&2
+        else
+          echo "pr-reply: reply posted but resolution failed; retry only the resolution: pr-reply.sh $pr resolve $thread" >&2
+        fi
         failed=1
       }
     fi

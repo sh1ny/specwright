@@ -200,6 +200,17 @@ class SkillText(unittest.TestCase):
         self.assertRegex(resume, r"`revision\.rev`", "`resume` does not pass the finding's recorded `revision.rev`")
         self.assertRegex(resume, r"--rev", "`resume` does not pass it as `--rev`")
 
+    def test_resolution_retry_takes_a_fresh_rev(self):
+        # the reply is part of the thread's rev: a resolution retried after it needs the rev as it stands after the reply
+        step = self.feedback_steps()[8]
+        m = re.search(r"(?i)exit 1 after a posted reply[^\n]*", step)
+        self.assertTrue(m, "step 8 never handles exit 1 after a posted reply")
+        self.assertRegex(m.group(0), r"(?i)fresh snapshot", "a resolution retry does not take a fresh snapshot")
+        self.assertRegex(m.group(0), r"resolve_pending", "a resolution retry does not require `resolve_pending`")
+        self.assertRegex(m.group(0), r"(?i)never[^.]*(judged|revision\.rev)", "a resolution retry may reuse the pre-reply rev")
+        resume = next((l for l in self.section("feedback").splitlines() if l.lstrip().startswith("- `resume`")), "")
+        self.assertRegex(resume, r"(?i)resol[^.]*fresh snapshot", "`resume` retries a resolution with the recorded rev")
+
     def test_feedback_uses_pass_record_for_repo_local(self):
         # a repo-local change (no store) uses the same pass record and rounds, with `--store` left out
         repos = self.section("the repos and prs of a change")
