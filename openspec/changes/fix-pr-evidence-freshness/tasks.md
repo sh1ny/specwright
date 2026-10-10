@@ -188,7 +188,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 8. Release 0.1.11
 
-- [ ] 8.1 Bump to 0.1.11:
+- [x] 8.1 Bump to 0.1.11:
   - `VERSION`;
   - the README badge;
   - `metadata.version` in all six `skills/*/SKILL.md`.
