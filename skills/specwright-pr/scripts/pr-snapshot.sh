@@ -15,9 +15,12 @@
 #             (default 1800s, interval 300s); "incomplete" at once if the first
 #             snapshot is already cut off; exits 1 if the last poll failed.
 #             One watcher per PR on this machine: a newer --wait on the same
-#             PR (from any agent) takes over, and the older one exits 4
-#             before its next poll, so a lost or forgotten watcher stops
-#             spending the account's API budget.
+#             PR (from any agent; owner/name compared case-insensitively) takes
+#             over, and the older one exits 4 before its next poll, so a lost
+#             or forgotten watcher stops spending the account's API budget. A
+#             watcher's exit never ends a newer watcher's ownership. If the
+#             state directory cannot be created, it polls unowned and says so
+#             on stderr.
 # "head_cutoff": {source, at} says where reports start to count and each
 # reviewer's timeout starts: source push | first_seen | first_seen_unsaved (the
 # push is not in the activity log; see prepare_cfg).
@@ -54,24 +57,51 @@ done
 [ -n "$pr" ] || pr=$(gh pr view --json number --jq .number)
 owner=${repo%%/*} name=${repo#*/}
 
-# Watch ownership: the newest --wait on a PR writes its token; any older one
-# sees a different token before its next poll and exits 4. $HOME, not a temp
-# dir, because each harness may have its own temp dir.
-owner_file= token=
+# Watch ownership: a directory of numbered claims per PR,
+# <state>/watch/v2/<owner>/<name>/<pr>/ (lower case). A new --wait takes the
+# highest number plus one (created with set -C, so two watchers never share a
+# number; a collision tries the next) and then removes the lower claims. A
+# watcher owns the PR while its own file exists and no higher number does, so
+# the newest claim wins and an older watcher exits 4 before its next poll. Exit
+# removes only the watcher's own file: no clock, and no read-then-remove of a
+# file another watcher may have replaced. $HOME, not a temp dir, because each
+# harness may have its own temp dir. 0.1.10's token file (watch/<owner>-<name>-<pr>)
+# is not read and is left in place.
+owner_file= claim_dir= claim_no=
+ownership_off() { echo "pr-snapshot: cannot create the watch state directory; ownership is off for PR $pr (this watcher polls unowned)" >&2; }
+claim_nums() {  # prints the claim numbers in $claim_dir, one per line
+  local f n
+  for f in "$claim_dir"/*; do
+    [ -e "$f" ] || continue
+    n=${f##*/}
+    case $n in ''|*[!0-9]*) continue ;; esac
+    echo "$((10#$n))"
+  done
+}
 claim_watch() {
-  local dir=${SPECWRIGHT_STATE_DIR:-$HOME/.cache/specwright}/watch
-  mkdir -p "$dir" || return 0
-  owner_file="$dir/$owner-$name-$pr" token="$$-$RANDOM-$(date +%s)"
-  printf '%s
-' "$token" > "$owner_file"
+  local base=${SPECWRIGHT_STATE_DIR:-$HOME/.cache/specwright} n top=0 limit
+  claim_dir="$base/watch/v2/$(printf '%s/%s/%s' "$owner" "$name" "$pr" | tr 'A-Z' 'a-z')"
+  if ! mkdir -p "$claim_dir" 2>/dev/null; then claim_dir=; ownership_off; return 0; fi
+  for n in $(claim_nums); do if [ "$n" -gt "$top" ]; then top=$n; fi; done
+  n=$((top + 1)) limit=$((top + 1000))
+  until (set -C; : > "$claim_dir/$n") 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -gt "$limit" ]; then claim_dir=; ownership_off; return 0; fi
+  done
+  owner_file="$claim_dir/$n" claim_no=$n
   trap 'release_watch' EXIT
+  for n in $(claim_nums); do if [ "$n" -lt "$claim_no" ]; then rm -f "$claim_dir/$n" 2>/dev/null || true; fi; done
 }
 release_watch() {
-  [ -n "$owner_file" ] && [ "$(cat "$owner_file" 2>/dev/null)" = "$token" ] && rm -f "$owner_file"
+  if [ -n "$owner_file" ]; then rm -f "$owner_file" 2>/dev/null || true; fi
   return 0
 }
 still_owner() {
-  [ -z "$owner_file" ] || [ "$(cat "$owner_file" 2>/dev/null)" = "$token" ]
+  local n
+  [ -n "$owner_file" ] || return 0
+  [ -e "$owner_file" ] || return 1
+  for n in $(claim_nums); do if [ "$n" -gt "$claim_no" ]; then return 1; fi; done
+  return 0
 }
 
 read -r -d '' QUERY <<'GQL' || true

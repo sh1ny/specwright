@@ -26,13 +26,13 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | pr-evidence → Clipped items are read in full before they are judged | Finding after the cut | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_full_prints_the_unclipped_body; test_feedback_reads_clipped_items_in_full | red |
 | pr-evidence → Clipped items are read in full before they are judged | Full body cannot be read | evals/pr-pair/test_skill_text.py | test_feedback_hands_over_an_unreadable_clipped_item | red |
 | pr-evidence → Clipped items are read in full before they are judged | Unknown item id | evals/pr-pair/test_pr_snapshot.py | test_full_unknown_id_is_not_found | red |
-| pr-watch → The newest watcher owns a PR | Newer watcher takes over | evals/pr-pair/test_pr_snapshot.py | test_watch_newer_watcher_takes_over | red |
-| pr-watch → The newest watcher owns a PR | Cleanup interleaved with a takeover | evals/pr-pair/test_pr_snapshot.py | test_watch_exit_leaves_a_newer_claim | red |
-| pr-watch → The newest watcher owns a PR | Two watchers claim at once | evals/pr-pair/test_pr_snapshot.py | test_watch_simultaneous_claims_leave_one_owner | red |
-| pr-watch → The newest watcher owns a PR | Owner crashed | evals/pr-pair/test_pr_snapshot.py | test_watch_claim_beats_a_crashed_owner | red |
-| pr-watch → Watch keys are unique per repository and PR | Hyphenated owners and names | evals/pr-pair/test_pr_snapshot.py | test_watch_keys_do_not_alias_hyphenated_identities | red |
-| pr-watch → Watch keys are unique per repository and PR | Same PR spelled with different case | evals/pr-pair/test_pr_snapshot.py | test_watch_key_ignores_case | red |
-| pr-watch → Watch keys are unique per repository and PR | State directory cannot be created | evals/pr-pair/test_pr_snapshot.py | test_watch_without_a_state_dir_polls_unowned | red |
+| pr-watch → The newest watcher owns a PR | Newer watcher takes over | evals/pr-pair/test_pr_snapshot.py | test_watch_newer_watcher_takes_over | green |
+| pr-watch → The newest watcher owns a PR | Cleanup interleaved with a takeover | evals/pr-pair/test_pr_snapshot.py | test_watch_exit_leaves_a_newer_claim | green |
+| pr-watch → The newest watcher owns a PR | Two watchers claim at once | evals/pr-pair/test_pr_snapshot.py | test_watch_simultaneous_claims_leave_one_owner | green |
+| pr-watch → The newest watcher owns a PR | Owner crashed | evals/pr-pair/test_pr_snapshot.py | test_watch_claim_beats_a_crashed_owner | green |
+| pr-watch → Watch keys are unique per repository and PR | Hyphenated owners and names | evals/pr-pair/test_pr_snapshot.py | test_watch_keys_do_not_alias_hyphenated_identities | green |
+| pr-watch → Watch keys are unique per repository and PR | Same PR spelled with different case | evals/pr-pair/test_pr_snapshot.py | test_watch_key_ignores_case | green |
+| pr-watch → Watch keys are unique per repository and PR | State directory cannot be created | evals/pr-pair/test_pr_snapshot.py | test_watch_without_a_state_dir_polls_unowned | green |
 | planning-stores → Commands run where they resolve correctly | Store push with a repository-local auth header | evals/pr-pair/test_as_sh.py | test_scrubs_header_local_to_the_store | green |
 | planning-stores → Commands run where they resolve correctly | Store login override | evals/pr-pair/test_pr_pair.py | test_context_login_per_repo | green |
 | planning-stores → Commands run where they resolve correctly | Schema lookup with a root nested in the store repo | evals/git-workflow/evals.json | eval-install-nested-store | green |
@@ -158,7 +158,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - **Unwritable state directory:** the watcher polls and prints the ownership-off notice on stderr.
 
   Verify that they fail against the current token file. Use no signals, so the tests also run on Windows.
-- [ ] 6.2 Implement D5 in `pr-snapshot.sh`:
+- [x] 6.2 Implement D5 in `pr-snapshot.sh`:
   - key directory `<state>/watch/v2/<owner>/<name>/<pr>/` in lower case;
   - claim `n+1` with `set -C` (retry the next number on a collision), then remove lower claims;
   - `still_owner` = own file exists and none higher;
