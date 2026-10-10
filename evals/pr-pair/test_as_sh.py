@@ -44,7 +44,7 @@ class Recorder(BaseHTTPRequestHandler):
 class AsShHeaderScrub(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         Recorder.seen = []
         self.server = HTTPServer(("127.0.0.1", 0), Recorder)
         self.base = f"http://127.0.0.1:{self.server.server_port}/"

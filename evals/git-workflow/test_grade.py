@@ -1,4 +1,6 @@
 """Offline checks of grade.py: the store-resume code-merge graders must notice a recovery that merged without keeping the code."""
+import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -59,6 +61,19 @@ class ResumeCodeMergeTree(unittest.TestCase):
             res = self.results(name, repo)
             self.assertIn(TREE_CHECK, res, name)
             self.assertTrue(res[TREE_CHECK][0], f"{name}: {res[TREE_CHECK][1]}")
+
+
+class Rmtree(unittest.TestCase):
+    def test_rmtree_removes_read_only_files(self):
+        # git marks its objects read-only; on Windows shutil.rmtree(ignore_errors=True) leaves them, and the test dir, in TEMP
+        d = Path(tempfile.mkdtemp())
+        f = d / "objects" / "ab" / "cdef"
+        f.parent.mkdir(parents=True)
+        f.write_text("blob", encoding="utf-8")
+        os.chmod(f, stat.S_IREAD)
+        os.chmod(f.parent, stat.S_IREAD | stat.S_IEXEC)
+        fixtures.rmtree(d)
+        self.assertFalse(d.exists())
 
 
 if __name__ == "__main__":

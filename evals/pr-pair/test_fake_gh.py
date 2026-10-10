@@ -26,7 +26,7 @@ JQ = shutil.which("gojq") or shutil.which("jq")  # the evaluator for filters the
 class FakeGhCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         self.state = self.tmp / "state.json"
         self.logf = self.tmp / "log.jsonl"
         self.seed({"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok-k", "sh1ny": "tok-s"}})

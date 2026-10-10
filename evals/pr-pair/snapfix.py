@@ -42,7 +42,7 @@ class SnapCase(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"

@@ -48,7 +48,7 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
         self.gh_state = self.tmp / "gh-state.json"
@@ -1951,7 +1951,7 @@ class RecordLock(unittest.TestCase):
     def setUp(self):
         self.ns = PublishFallback.namespace()
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, str(self.tmp), True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         self.path = self.tmp / "rec.json"
 
     def held(self, body, path):
@@ -1993,7 +1993,7 @@ class PublishFallback(unittest.TestCase):
         from unittest import mock
         publish = self.namespace()["publish"]
         tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(fixtures.rmtree, tmp)
         src, dst = tmp / "src.json", tmp / "dst.json"
         src.write_bytes(b'{"a": 1}')
         real_fdopen = os.fdopen
