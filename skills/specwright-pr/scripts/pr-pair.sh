@@ -1225,7 +1225,10 @@ def cmd_rounds(argv):
     rounds = top or max(p["subject_count"] for p in per.values())
     unpushed, unreadable = {}, []
     if top:
-        if a.get("store"):  # the store may need its own login; stop on a missing credential before the per-repo loop
+        shas_of = {k: [s for s, n in per[k]["trailers"].items() if n == top] for k, _ in repos}
+        if a.get("store") and shas_of.get("store"):
+            # the store may need its own login: stop on a missing credential before the per-repo loop, but only when
+            # the store has top-round commits to look for on its remote
             try:
                 slug = identity(a["store"])["repo"]
             except Stop:  # no GitHub origin: plain git, as before
@@ -1234,7 +1237,7 @@ def cmd_rounds(argv):
             if slug and REPO_LOGIN.get(slug.lower()):
                 token_for(REPO_LOGIN[slug.lower()])
         for k, d in repos:
-            shas = [s for s, n in per[k]["trailers"].items() if n == top]
+            shas = shas_of[k]
             try:
                 missing = [s for s in shas if not remote_contains(d, a["branch"], s)]
             except Stop:  # the count does not depend on the remote; say which side could not be checked

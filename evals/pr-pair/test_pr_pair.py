@@ -1762,13 +1762,13 @@ fi
 exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
 """
 
-    def private_store(self, login):
+    def private_store(self, login, fix="store"):
         """The store reads only as `login`'s token; `login` is planning_store.login, the code login is KintsugiBot."""
         self.settings("github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n"
                       "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n"
                       f"planning_store:\n  login: {login}\n")
         self.write_record([self.finding()])
-        self.sha = self.fix_store()
+        self.sha = self.fix_store() if fix == "store" else self.fix_code()
         self.push_all()
         bare = self.tmp / "store.bare.git"
         self.git(self.store, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
@@ -1807,6 +1807,13 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         p = self.plan_store(expect=3)
         self.assertEqual(p["error"], "no_credential")
         self.assertEqual(self.shim_calls(), [])  # no store network call, with the code login or without a credential
+
+
+    def test_code_only_rounds_need_no_store_credential(self):
+        self.private_store("nobody", fix="code")  # the round's fix is in the code repo; the store has nothing to check
+        r = self.rounds()
+        self.assertEqual((r["rounds"], r["unpushed"], r["remote_unreadable"]), (2, {}, []))
+        self.assertEqual(self.shim_calls(), [])
 
 
 # =======================================================================================================
