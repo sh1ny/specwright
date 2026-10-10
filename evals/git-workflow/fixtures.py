@@ -22,7 +22,9 @@ def rmtree(path):
     rmtree fails on them, and with ignore_errors=True every test that built a repository left its directory in TEMP."""
     def again(func, p, _exc):
         try:
-            os.chmod(p, 0o700)
+            if os.path.islink(p):  # never change the mode of what a link points at
+                raise OSError
+            os.chmod(p, 0o700)  # only the entry that failed, which is being removed
             func(p)
         except OSError:
             pass  # still held (a process that has not exited): leave it rather than fail the test

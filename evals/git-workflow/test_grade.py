@@ -70,8 +70,7 @@ class Rmtree(unittest.TestCase):
         f = d / "objects" / "ab" / "cdef"
         f.parent.mkdir(parents=True)
         f.write_text("blob", encoding="utf-8")
-        os.chmod(f, stat.S_IREAD)
-        os.chmod(f.parent, stat.S_IREAD | stat.S_IEXEC)
+        os.chmod(f, stat.S_IREAD)  # the file only: its directory stays writable, as git leaves it
         fixtures.rmtree(d)
         self.assertFalse(d.exists())
 
