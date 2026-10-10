@@ -175,14 +175,17 @@ class Base(unittest.TestCase):
         return self.write(rel, json.dumps(obj))
 
 
-def snap(threads=(), comments=(), reviews=(), viewer="KintsugiBot", **over):
-    """A pr-snapshot.sh result that passes the readiness test unless overridden."""
+def snap(threads=(), comments=(), reviews=(), viewer="KintsugiBot", pr=None, **over):
+    """A pr-snapshot.sh result that passes the readiness test unless overridden.
+    pr is a fake PR (Base.pull): the snapshot then takes its number, url and head_oid."""
     s = {"viewer": viewer, "number": 1, "url": "https://github.com/acme/x/pull/1", "state": "OPEN", "draft": False,
          "mergeable": "MERGEABLE", "merge_state": "CLEAN", "pending_review": False,
          "checks": {"total": 3, "pending": 0, "advisory_pending": 0, "failing": []},
          "threads": list(threads), "comments": list(comments), "reviews": list(reviews), "stale_verdicts": [],
          "reviewers": [{"login": "chatgpt-codex-connector", "role": "required", "timeout": 1200, "state": "reported"}],
          "complete": True, "truncated": []}
+    if pr is not None:
+        s.update(number=pr["number"], url=pr["html_url"], head_oid=pr["head"]["sha"])
     s.update(over)
     return s
 
@@ -580,6 +583,11 @@ class PairState(Base):
         for d in (self.code, self.store):
             self.git(d, "checkout", "-q", "-b", BRANCH)
 
+    def snap(self, slug, n=1, **kw):
+        """A passing snapshot of the fake PR slug#n, as pr-snapshot.sh would report it."""
+        pr = next(p for p in self.pulls(slug) if p["number"] == n)
+        return snap(pr=pr, **kw)
+
     def state(self, code=None, store=None, dropped=(), expect=0):
         args = ["pair-state", "--code", self.code, "--store", self.store, "--branch", BRANCH]
         for name, s in (("code", code), ("store", store)):
@@ -594,7 +602,7 @@ class PairState(Base):
         self.add_pull(CODE, 1)
         self.add_pull(STORE, 1)
         unresolved = thread(comments=[{"id": "C1", "author": "chatgpt-codex-connector", "at": T0, "edited": None}])
-        r = self.state(code=snap(), store=snap(threads=[unresolved]))
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE, threads=[unresolved]))
         self.assertEqual(r["set"], ["store", "code"])
         self.assertEqual(r["action"], "wait")
         self.assertEqual(r["ready"], {"code": True, "store": False})
@@ -602,22 +610,52 @@ class PairState(Base):
         self.assertIn("threads", r["blocking"]["store"])
         self.assertEqual(sorted(r["waits"]), ["code", "store"])
 
+    def test_pair_state_refreshes_an_old_head_snapshot(self):
+        self.add_pull(STORE, 1, sha="b" * 40)
+        old = snap(number=1, url=f"https://github.com/{STORE}/pull/1", head_oid="a" * 40)
+        r = self.state(store=old)
+        self.assertEqual(r["action"], "wait")
+        self.assertEqual(r["ready"], {"store": False})
+        self.assertEqual(r["refresh"], ["store"])
+        self.assertIn("refresh:head:aaaaaaa!=bbbbbbb", r["blocking"]["store"])
+
+    def test_pair_state_refreshes_a_snapshot_of_another_pr(self):
+        self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
+        self.add_pull(CODE, 9)
+        self.add_pull(STORE, 1)
+        other = snap(number=7, url=f"https://github.com/{CODE}/pull/7", head_oid=f"{9:040x}")
+        r = self.state(code=other, store=self.snap(STORE))
+        self.assertEqual(r["action"], "wait")
+        self.assertEqual(r["ready"], {"code": False, "store": True})
+        self.assertEqual(r["refresh"], ["code"])
+        self.assertIn("refresh:pr:7!=9", r["blocking"]["code"])
+
+    def test_pair_state_refreshes_a_snapshot_without_a_head(self):
+        self.add_pull(STORE, 1)
+        for drop in ("head_oid", "number"):
+            s = self.snap(STORE)
+            del s[drop]
+            r = self.state(store=s)
+            self.assertEqual(r["action"], "wait", drop)
+            self.assertEqual(r["refresh"], ["store"], drop)
+            self.assertTrue([b for b in r["blocking"]["store"] if b.startswith("refresh:")], drop)
+
     def test_pair_state_ready_only_when_both_pass(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
         self.add_pull(STORE, 1)
-        r = self.state(code=snap(), store=snap())
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE))
         self.assertEqual((r["action"], r["ready"]), ("ready", {"code": True, "store": True}))
-        r = self.state(code=snap(checks={"total": 2, "pending": 1, "advisory_pending": 0, "failing": []}), store=snap())
+        r = self.state(code=self.snap(CODE, checks={"total": 2, "pending": 1, "advisory_pending": 0, "failing": []}), store=self.snap(STORE))
         self.assertEqual((r["action"], r["waiting_on"]), ("wait", ["code"]))
         # a dropped item (id@rev) does not block
         t = thread()
-        r = self.state(code=snap(), store=snap(threads=[t]), dropped=[f"T1@{REV0}"])
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE, threads=[t]), dropped=[f"T1@{REV0}"])
         self.assertEqual(r["action"], "ready")
 
     def test_pair_state_single_store_pr_ready(self):
         self.add_pull(STORE, 1)
-        r = self.state(store=snap())
+        r = self.state(store=self.snap(STORE))
         self.assertEqual(r["set"], ["store"])
         self.assertEqual((r["action"], r["ready"]), ("ready", {"store": True}))
         self.assertFalse(r.get("share_store_by_hand"))
@@ -626,7 +664,7 @@ class PairState(Base):
         self.git(self.store, "remote", "remove", "origin")
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
-        r = self.state(code=snap())
+        r = self.state(code=self.snap(CODE))
         self.assertEqual((r["set"], r["action"], r["share_store_by_hand"]), (["code"], "ready", True))
 
     def test_pair_state_empty_set_does_not_watch(self):
@@ -638,7 +676,7 @@ class PairState(Base):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
         self.add_pull(STORE, 1, state="closed", merged="2026-10-08T09:00:00Z")
-        r = self.state(code=snap(), store=snap(state="MERGED"))
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE, state="MERGED"))
         self.assertEqual(r["action"], "split_hand_off")
         self.assertTrue(r["stop_waits"])
         self.assertEqual(r["states"], {"store": "MERGED", "code": "OPEN"})
@@ -653,7 +691,7 @@ class PairState(Base):
         e = self.pp("expected", "--code", self.code, "--store", self.store, "--branch", BRANCH)
         self.assertEqual(e["set"], ["store", "code"])
         self.assertEqual((e["code"]["commits"], e["code"]["reason"]), (0, "pr_exists"))
-        r = self.state(store=snap())
+        r = self.state(store=self.snap(STORE, 2))
         self.assertEqual(r["action"], "split_hand_off")
         self.assertEqual(r["states"], {"store": "OPEN", "code": "MERGED"})
         self.assertTrue(r["stop_waits"])
@@ -667,7 +705,7 @@ class PairState(Base):
     def test_pair_state_missing_pr_needs_ship(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(STORE, 1)
-        r = self.state(store=snap())
+        r = self.state(store=self.snap(STORE))
         self.assertEqual((r["action"], r["missing"]), ("ship", ["code"]))
 
 

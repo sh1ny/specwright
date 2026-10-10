@@ -70,7 +70,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - a `refresh` blocker for a snapshot with no `head_oid` or `number`.
 
   Verify that they fail because `pair-state` reports `ready`.
-- [ ] 2.2 Update the `snap()` helper in `evals/pr-pair/test_pr_pair.py` to take the PR's `number`, `url` and `head_oid` from the fake PR state. Verify that the green rows `test_pair_state_waits_for_both`, `test_pair_state_single_store_pr_ready` and `test_pair_state_split_hands_off` still pass.
+- [x] 2.2 Update the `snap()` helper in `evals/pr-pair/test_pr_pair.py` to take the PR's `number`, `url` and `head_oid` from the fake PR state. Verify that the green rows `test_pair_state_waits_for_both`, `test_pair_state_single_store_pr_ready` and `test_pair_state_split_hands_off` still pass.
 - [ ] 2.3 Implement the binding in `cmd_pair_state` (`pr-pair.sh`): compare each snapshot's `url` (owner/name, number) and `head_oid` with the discovered PR's `url`, `number` and `head_sha`. Add the `refresh:*` blockers and `refresh: [<side>]`, and never report ready on a mismatch. Verify that the 2.1 tests pass, and flip their `pr-pair` rows green.
 - [ ] 2.4 Write the failing skill-text tests `test_watch_refreshes_on_a_refresh_blocker` and `test_watch_moves_its_wait_to_the_replaced_pr`. Then edit SKILL.md watch step 2 (store-backed) with the D1 rules:
   - `refresh:head` → a one-off snapshot of the same PR;
