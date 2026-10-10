@@ -198,7 +198,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 9. Integration checks
 
-- [ ] 9.1 Run `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`. Both must pass, with the jq evaluator used reported. Every Test map row must be green.
+- [x] 9.1 Run `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`. Both must pass, with the jq evaluator used reported. Every Test map row must be green.
 - [ ] 9.2 Run `openspec validate fix-pr-evidence-freshness --strict` and `openspec schema validate specwright`. Both must pass.
 
 ## Workflow follow-up
