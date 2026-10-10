@@ -526,6 +526,20 @@ class PrEvidence(FakeGhCase):
         self.assertEqual(self.gql(self.REACT, ("subjectId", "nope"), ("content", "THUMBS_UP"), check=False).returncode, 1)
         self.assertEqual(self.gql(self.RESOLVE, ("threadId", "nope"), check=False).returncode, 1)
 
+    def test_repeated_reaction_keeps_the_first(self):
+        rest = f"repos/o/n/pulls/comments/{self.c2['databaseId']}/reactions"
+        self.gh("api", "--method", "POST", rest, "-f", "content=+1")
+        self.gql(self.REACT, ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"))
+        st = self.st()
+        fake_gh.advance_clock(st, 60)
+        self.seed(st)
+        self.gh("api", "--method", "POST", rest, "-f", "content=+1")
+        self.gql(self.REACT, ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"))
+        self.assertEqual(json.loads(self.gh("api", rest).stdout), [{"user": {"login": "KintsugiBot"}, "content": "+1"}])
+        for nid in (self.c2["id"], self.ic["node_id"]):
+            self.assertEqual(self.st()["nodes"][nid]["reactions"],
+                             [{"login": "KintsugiBot", "content": "THUMBS_UP", "createdAt": "2026-10-10T10:01:00Z"}], nid)
+
     def test_failure_injection_applies_to_the_new_calls(self):
         st = self.st()
         st["fail"] = [{"match": r"rate_limit", "exit": 7, "stderr": "rl"}, {"match": r"graphql", "exit": 8, "stderr": "gql"},

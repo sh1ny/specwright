@@ -90,6 +90,7 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   GQL mutations  `resolveReviewThread(input:{threadId:$threadId})` -> {"data":{"resolveReviewThread":{"thread":{id,isResolved}}}};
         `addReaction(input:{subjectId:$subjectId,content:$content})` -> {"data":{"addReaction":{"reaction":{"content"}}}}.
   Each write records the clock's time and the viewer (reactions as "createdAt"/"login").
+  A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
 """
 import json
 import os
@@ -339,6 +340,14 @@ def add_node_reaction(st, slug, node_id, login, content, at=None):
     node.setdefault("reactions", []).append({"login": login, "content": content, **({"createdAt": at} if at else {})})
 
 
+def react_once(st, slug, node_id, login, content):
+    """A viewer's reaction as GitHub records it: one per login and content. A repeat returns the existing reaction and
+    keeps its time, so a retried --react never looks like fresh evidence."""
+    if not any(r["login"] == login and r["content"] == content
+               for r in st.get("nodes", {}).get(node_id, {}).get("reactions", [])):
+        add_node_reaction(st, slug, node_id, login, content, at=now(st))
+
+
 def set_closing_refs(st, slug, number, refs, has_next=False):
     """refs: [(number, "owner/name"), ...] for PR `number` of `slug`."""
     for p in st["repos"][slug]["pulls"]:
@@ -559,7 +568,7 @@ def cmd_graphql_evidence(st, q, fields):
             raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{sid}'. (addReaction)")
         if content not in ("THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"):
             raise Fail(f"GraphQL: Variable $content of type ReactionContent! was provided invalid value ({content})")
-        add_node_reaction(st, found[0], sid, viewer, content, at=now(st))
+        react_once(st, found[0], sid, viewer, content)
         return {"data": {"addReaction": {"reaction": {"content": content}}}}
     if "reviewThreads(" in q:
         slug, repo, p, viewer = read_pull(st, fields)
@@ -716,8 +725,10 @@ def cmd_api(st, args):
         content = fields.get("content", "")
         if hit is None or content not in ("+1", "-1"):
             raise Fail("gh: Not Found (HTTP 404)" if hit is None else "gh: Validation Failed (HTTP 422)")
-        add_review_comment_reaction(st, slug, m.group(1), viewer, content)
-        add_node_reaction(st, slug, hit["id"], viewer, "THUMBS_UP" if content == "+1" else "THUMBS_DOWN", at=now(st))
+        if not any(r["user"]["login"] == viewer and r["content"] == content
+                   for r in repo.get("review_comment_reactions", {}).get(m.group(1), [])):
+            add_review_comment_reaction(st, slug, m.group(1), viewer, content)
+        react_once(st, slug, hit["id"], viewer, "THUMBS_UP" if content == "+1" else "THUMBS_DOWN")
         return emit({"content": content, "user": {"login": viewer}}, expr)
     m = re.fullmatch(r"pulls/comments/(\d+)/reactions", rest)
     if m and method == "GET":
