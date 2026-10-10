@@ -19,9 +19,10 @@
 # --rev REV is the item's `rev` from the snapshot (or the pass record's
 # revision.rev): the script re-reads the item first and posts, resolves and
 # reacts to nothing when its revision now differs (exit 5, "judged A, now B" on
-# stderr) or cannot be read (exit 3). The marker then carries `rev=REV`, which
-# binds the reply to the text that was judged. Without --rev it behaves as in
-# 0.1.10: no re-read, a marker without a revision.
+# stderr) or cannot be read, or is a thread of more than 100 comments (exit 3).
+# The marker then carries `rev=REV`, which binds the reply to the text that
+# was judged. Without --rev it behaves as in 0.1.10: no re-read, a marker
+# without a revision.
 # Thread replies use REST (GraphQL replies can attach to a pending review and
 # stay invisible). Exit 2: a pending review of yours exists - submit or
 # discard it on GitHub first. Wrap with as.sh to pin the GitHub identity.
@@ -55,6 +56,7 @@ pending_check() {
 }
 
 # With --rev: read the item now and compare its revision with the one judged.
+# A thread longer than one page (100 comments) cannot be compared: exit 3.
 # The formula is the snapshot's: thread <last databaseId>@<newest of lastEditedAt|createdAt>,
 # comment lastEditedAt // createdAt, review lastEditedAt // submittedAt.
 rev_check() {  # <node id>
@@ -62,10 +64,12 @@ rev_check() {  # <node id>
   local now
   now=$(gh api graphql -f id="$1" -f query='
     query($id:ID!){ node(id:$id){ __typename
-      ... on PullRequestReviewThread { comments(first:100){ nodes{ databaseId createdAt lastEditedAt } } }
+      ... on PullRequestReviewThread { comments(first:100){ totalCount nodes{ databaseId createdAt lastEditedAt } } }
       ... on IssueComment { createdAt lastEditedAt }
       ... on PullRequestReview { submittedAt lastEditedAt } } }' \
     --jq '.data.node | if . == null then error("item not found")
+      elif .__typename == "PullRequestReviewThread" and .comments.totalCount > (.comments.nodes | length) then
+        "long:" + (.comments.totalCount | tostring)
       elif .__typename == "PullRequestReviewThread" then
         ((.comments.nodes[-1].databaseId // 0 | tostring) + "@" + ([ .comments.nodes[] | .lastEditedAt // .createdAt // "" ] | max // ""))
       elif .__typename == "PullRequestReview" then (.lastEditedAt // .submittedAt)
@@ -73,6 +77,10 @@ rev_check() {  # <node id>
     echo "pr-reply: cannot read $1 to check its revision; nothing was posted" >&2
     exit 3
   }
+  case $now in long:*)
+    echo "pr-reply: $1 has ${now#long:} comments, more than one read returns, so its revision cannot be checked; nothing was posted. Answer it on GitHub." >&2
+    exit 3 ;;
+  esac
   if [ "$now" != "$rev" ]; then
     echo "pr-reply: $1 changed since it was judged (judged $rev, now $now); nothing was posted. Take a fresh snapshot and judge it again." >&2
     exit 5

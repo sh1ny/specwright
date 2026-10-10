@@ -8,7 +8,7 @@ Run: python -m unittest discover evals/pr-pair -p test_pr_reply.py
 import unittest
 
 import snapfix
-from snapfix import SnapCase
+from snapfix import SnapCase, fake_gh
 
 
 def setUpModule():
@@ -59,6 +59,17 @@ class ReplyRev(ReplyCase):
         r = self.reply("thread", tid, c["databaseId"], "BODY", "--resolve", "--rev", self.rev_of(c), body="done")
         self.assertEqual(r.returncode, 3, r.stderr)
         self.assert_untouched(tid)
+
+    def test_reply_refuses_a_thread_too_long_to_reread(self):
+        tid, c = self.add_thread("rev", "please fix")
+        last = self.mutate(lambda st: [fake_gh.add_thread_comment(st, self.SLUG, self.PR, tid, "rev", f"note {i}")
+                                       for i in range(99)][-1])
+        judged = self.rev_of(last)  # the thread as judged: 100 comments
+        self.add_reply(tid, "rev", "one more thing")  # the 101st is past the re-read's first page
+        r = self.reply("thread", tid, c["databaseId"], "BODY", "--resolve", "--rev", judged, body="done")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("101 comments", r.stderr)
+        self.assert_untouched(tid, n=101)
 
     def test_reply_without_rev_posts_as_before(self):
         tid, c = self.add_thread("rev", "please fix")
