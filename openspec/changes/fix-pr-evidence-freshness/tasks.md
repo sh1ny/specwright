@@ -145,7 +145,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - `cmd_rounds` with `--store` resolves the store slug and calls `read_store_as`, and resolves the store token before its `except Stop` loop, so a missing credential exits 3 instead of turning into `remote_unreadable`.
 
   Verify that the 5.1 tests pass and the whole `test_pr_pair.py` passes, and flip the rows green.
-- [ ] 5.3 Update `openspec/architecture.md`: the GitHub identity paragraph of Boundaries and contracts (store git calls now use the store login; #35 resolved). Verify by reading it.
+- [x] 5.3 Update `openspec/architecture.md`: the GitHub identity paragraph of Boundaries and contracts (store git calls now use the store login; #35 resolved). Verify by reading it.
 
 ## 6. Watch ownership by numbered claims (#39, D5)
 
