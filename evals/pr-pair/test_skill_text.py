@@ -141,6 +141,43 @@ class SkillText(unittest.TestCase):
         self.assertLess(resume.index("react"), resume.rindex("plan again"), "`resume` does not plan again after the react and link rows")
         self.assertNotRegex(TEXT, r"(?<!gh run )\brerun\b", "SKILL.md still mentions the removed `rerun` reaction state")  # `gh run rerun` is unrelated
 
+    def feedback_steps(self):
+        fb = self.section("feedback")
+        return {int(m.group(1)): fb[m.start():(nxt.start() if (nxt := re.compile(r"^\d+\. ", re.M).search(fb, m.end())) else len(fb))]
+                for m in re.finditer(r"^(\d+)\. ", fb, re.M)}
+
+    def test_feedback_judges_rebound_threads(self):
+        step = self.feedback_steps()[4]
+        at = step.find("`rebound: true`")
+        self.assertNotEqual(at, -1, "feedback step 4 never reads `rebound: true`")
+        rule = step[at:at + 600]
+        self.assertRegex(rule, r"(?is)edited by the reviewer before your reply", "the rebound rule does not say the edit came before the reply")
+        self.assertRegex(rule, r"(?is)answered an older text", "the rebound rule does not say the reply answered older text")
+        self.assertRegex(rule, r"(?is)judge its current comments as a new finding", "a rebound thread is not judged as a new finding")
+        self.assertRegex(rule, r"(?is)without `--resolve` if it is already resolved", "a resolved rebound thread is not replied to without `--resolve`")
+        self.assertRegex(rule, r"(?is)never re-open", "the rebound rule never says not to re-open the thread")
+
+    def test_feedback_step_8_passes_rev(self):
+        steps = self.feedback_steps()
+        step = steps[8]
+        for line in (l for l in step.splitlines() if "pr-reply.sh" in l and re.search(r"pr-reply\.sh <pr> (thread|comment)", l)):
+            self.assertIn("--rev", line, f"step 8 does not pass `--rev` on: {line.strip()[:100]!r}")
+        self.assertRegex(step, r"`--rev <[^>`]*rev[^>`]*>`", "step 8 never says what `--rev` takes")
+        exit5 = re.search(r"(?i)exit 5[^.;]*", step)
+        self.assertTrue(exit5, "step 8 never handles exit 5")
+        self.assertRegex(exit5.group(0), r"(?i)fresh snapshots", "exit 5 does not send the pass back to fresh snapshots")
+        self.assertRegex(exit5.group(0), r"(?i)judge[^.;]*again", "exit 5 does not judge the item again")
+        exit3 = re.search(r"(?i)exit 3[^.;]*", step)
+        self.assertTrue(exit3, "step 8 never handles exit 3")
+        self.assertRegex(exit3.group(0), r"(?i)stop", "exit 3 does not stop")
+        self.assertRegex(exit3.group(0), r"(?i)report", "exit 3 does not report")
+        self.assertRegex(step, r"(?i)--rev.*every `pr-reply\.sh [a-z|]*resolve", "step 8 does not pass `--rev` to `resolve`")
+        self.assertRegex(step, r"(?is)never[^.]*`--full`", "step 8 does not forbid taking `--rev` from `--full`")
+        self.assertRegex(step, r"revision\.rev", "step 8 does not name the pass record's `revision.rev`")
+        resume = next((l for l in self.section("feedback").splitlines() if l.lstrip().startswith("- `resume`")), "")
+        self.assertRegex(resume, r"`revision\.rev`", "`resume` does not pass the finding's recorded `revision.rev`")
+        self.assertRegex(resume, r"--rev", "`resume` does not pass it as `--rev`")
+
     def test_feedback_uses_pass_record_for_repo_local(self):
         # a repo-local change (no store) uses the same pass record and rounds, with `--store` left out
         repos = self.section("the repos and prs of a change")

@@ -18,7 +18,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | pr-evidence → A reply is posted only for the revision that was judged | Item cannot be read | evals/pr-pair/test_pr_reply.py | test_reply_exits_3_when_the_item_is_unreadable | green |
 | pr-evidence → A reply is posted only for the revision that was judged | Reply from an older session | evals/pr-pair/test_pr_reply.py | test_reply_without_rev_posts_as_before | green |
 | pr-evidence → Handled markers are bound to a revision | Edit lands between the re-read and the reply | evals/pr-pair/test_pr_snapshot.py | test_snapshot_relists_comment_edited_before_bound_reply | green |
-| pr-evidence → Handled markers are bound to a revision | Thread edited before a resolving reply | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_snapshot_relists_resolved_thread_as_rebound; test_feedback_judges_rebound_threads | red |
+| pr-evidence → Handled markers are bound to a revision | Thread edited before a resolving reply | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_snapshot_relists_resolved_thread_as_rebound; test_feedback_judges_rebound_threads | green |
 | pr-evidence → Handled markers are bound to a revision | Answered item stays answered | evals/pr-pair/test_pr_snapshot.py | test_snapshot_bound_reply_keeps_items_answered | green |
 | pr-evidence → Handled markers are bound to a revision | Marker from 0.1.10 | evals/pr-pair/test_pr_snapshot.py | test_snapshot_legacy_marker_uses_the_time_rule | green |
 | pr-evidence → Clipped bodies are marked | Long review | evals/pr-pair/test_pr_snapshot.py | test_snapshot_marks_a_clipped_review | red |
@@ -122,7 +122,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - **Mixed versions:** the duplicate-reply edge (review S1) is fail-safe and goes in the script comment.
 
   Verify that the 4.3 tests pass and `test_pr_reply.py` still passes, and flip the rows green.
-- [ ] 4.5 Edit SKILL.md feedback with failing skill-text tests first (`test_feedback_judges_rebound_threads`, plus a test that step 8 passes `--rev`):
+- [x] 4.5 Edit SKILL.md feedback with failing skill-text tests first (`test_feedback_judges_rebound_threads`, plus a test that step 8 passes `--rev`):
   - **Step 8:** pass `--rev <the item's snapshot rev>` on every `pr-reply.sh thread|comment|resolve` call. Exit 5 → take fresh snapshots and judge the item again. Exit 3 → stop and report.
   - **Step 2 resume:** reply rows pass the finding's recorded `revision.rev`.
   - **Step 4:** the `rebound` rule worded as in design D3.
