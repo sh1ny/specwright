@@ -64,7 +64,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 2. Pair readiness bound to the discovered PR and head (#31, D1)
 
-- [ ] 2.1 Write the failing tests (rows "Store snapshot of an old head", "Snapshot of another PR", "Snapshot without a head"):
+- [x] 2.1 Write the failing tests (rows "Store snapshot of an old head", "Snapshot of another PR", "Snapshot without a head"):
   - `pair-state` returns `action: wait`, `refresh: ["store"]` and a `refresh:head:<a7>!=<b7>` blocker for a ready snapshot of an old head;
   - a `refresh:pr:7!=9` blocker for a snapshot of another PR;
   - a `refresh` blocker for a snapshot with no `head_oid` or `number`.
