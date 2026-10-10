@@ -167,7 +167,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - update the header comment.
 
   Verify that the 6.1 tests pass, and flip the rows green.
-- [ ] 6.3 Update `openspec/architecture.md`: the Watch ownership row of State ownership (claim directory, both #39 gaps resolved) and the Watch polling row of Resource bounds. Verify by reading them.
+- [x] 6.3 Update `openspec/architecture.md`: the Watch ownership row of State ownership (claim directory, both #39 gaps resolved) and the Watch polling row of Resource bounds. Verify by reading them.
 
 ## 7. Clipped bodies flagged and read in full (#47, D6)
 
