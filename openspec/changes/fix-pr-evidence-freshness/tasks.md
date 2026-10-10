@@ -194,7 +194,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - `metadata.version` in all six `skills/*/SKILL.md`.
 
   Verify with `grep -rn "0\.1\.10" VERSION README.md skills/*/SKILL.md`, which must print nothing.
-- [ ] 8.2 Check the README against the behaviour changes (CONTRIBUTING "README follows behaviour"). Wherever it describes `pr-reply.sh`, snapshot fields or watch ownership, update it. Verify by naming the sections checked in the commit body.
+- [x] 8.2 Check the README against the behaviour changes (CONTRIBUTING "README follows behaviour"). Wherever it describes `pr-reply.sh`, snapshot fields or watch ownership, update it. Verify by naming the sections checked in the commit body.
 
 ## 9. Integration checks
 
