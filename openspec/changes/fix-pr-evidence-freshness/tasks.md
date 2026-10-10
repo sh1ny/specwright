@@ -171,7 +171,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 7. Clipped bodies flagged and read in full (#47, D6)
 
-- [ ] 7.1 Write the failing snapshot tests:
+- [x] 7.1 Write the failing snapshot tests:
   - a 5000-character review → `clipped: true`;
   - a 1200-character PR comment → whole body with `clipped: false`;
   - `--full <id>` prints `{"ok":true,"id","kind","body","rev","url"}` with the raw body, for a review, a PR comment and a thread comment;
