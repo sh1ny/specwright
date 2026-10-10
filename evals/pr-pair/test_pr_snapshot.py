@@ -254,6 +254,22 @@ class HeadCutoff(SnapCase):
         self.assertTrue(rec.is_file(), "the record is <state>/heads/<owner>/<name>/<pr>/<oid>")
         self.assertEqual([p.name for p in rec.parent.iterdir()], [B], "no temp file is left behind")
 
+    def test_ordinary_snapshot_records_the_first_sighting(self):
+        self.head_b()
+        self.set_clock(f"{D}12:00:00Z")
+        self.snapshot()  # no --reviewer: it still saw B at 12:00
+        self.add_comment("genrev", "looks good", at=f"{D}12:10:00Z")
+        self.set_clock(f"{D}12:40:00Z")
+        snap = self.snapshot(*self.both())
+        self.assertEqual(snap["head_cutoff"], {"source": "first_seen", "at": f"{D}12:00:00Z"})
+        self.assertEqual(self.revs(snap)["genrev"], "reported")
+
+    def test_ordinary_snapshot_survives_an_unwritable_state_dir(self):
+        self.head_b()
+        self.state_dir.write_text("a file, not a directory")
+        snap = self.snapshot()
+        self.assertEqual((snap["head_cutoff"], snap["reviewers"]), (None, []))
+
     def test_snapshot_removes_sibling_heads_once_the_record_is_published(self):
         d = self.state_dir / "heads" / "o" / "n" / "7"
         d.mkdir(parents=True)

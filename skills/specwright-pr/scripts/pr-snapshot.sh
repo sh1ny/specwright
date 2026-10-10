@@ -402,18 +402,22 @@ resolve_first_seen() {
   if printf '%s' "$d" | grep -Eq "$DATE_RE"; then seen_date=$d seen_src=first_seen; fi
   return 0
 }
+# A snapshot without --reviewer only records its sighting of the head (so a
+# later reviewer check counts from it), and never fails over it: any error
+# there returns 0 and leaves cfg unset.
 prepare_cfg() {
-  [ -n "$reviewers" ] || return 0
-  local info oid branch hrepo date pushed cutoff
+  local info oid branch hrepo date pushed cutoff fail=1
+  [ -n "$reviewers" ] || fail=0
   info=$(gh api graphql -f owner="$owner" -f name="$name" -F pr="$pr" -f query='
     query($owner:String!,$name:String!,$pr:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$pr){
       headRefOid headRefName headRepository { nameWithOwner } } } }' \
-    --jq '.data.repository.pullRequest | [.headRefOid, .headRefName, (.headRepository.nameWithOwner // "-")] | join(" ")') || return 1
+    --jq '.data.repository.pullRequest | [.headRefOid, .headRefName, (.headRepository.nameWithOwner // "-")] | join(" ")') || return $fail
   read -r oid branch hrepo <<<"$info"
   date=$(gh api -i rate_limit 2>/dev/null | tr -d '\r' | sed -n 's/^[Dd]ate: //p' | head -n 1) || date=
-  printf '%s' "$oid" | grep -Eq '^[0-9a-f]{40}$' || return 1
-  printf '%s' "$date" | grep -Eq "$DATE_RE" || return 1
+  printf '%s' "$oid" | grep -Eq '^[0-9a-f]{40}$' || return $fail
+  printf '%s' "$date" | grep -Eq "$DATE_RE" || return $fail
   [ "$oid" = "$pushed_oid" ] || { pushed_oid=$oid pushed_at= first_seen=$date seen_src= seen_date=; }
+  if [ -z "$reviewers" ]; then [ -n "$seen_src" ] || resolve_first_seen; return 0; fi
   # look the push up until found; it can reach the log after the first poll
   if [ -z "$pushed_at" ] && [ "$hrepo" != - ]; then
     pushed_at=$(gh api "repos/$hrepo/activity?ref=refs/heads/$branch&per_page=100" \
