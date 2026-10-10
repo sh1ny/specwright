@@ -149,7 +149,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 6. Watch ownership by numbered claims (#39, D5)
 
-- [ ] 6.1 Write the failing tests for the seven pr-watch rows, using `--wait --interval 1` with short timeouts against the fake `gh`:
+- [x] 6.1 Write the failing tests for the seven pr-watch rows, using `--wait --interval 1` with short timeouts against the fake `gh`:
   - **Takeover:** A exits 4 when B starts.
   - **Exit after a takeover:** while A waits, a higher claim file is placed in the key directory. A exits at its timeout, and the higher claim is still present, so a watcher holding it keeps polling.
   - **Simultaneous claims:** two start together; exactly one exits 4.

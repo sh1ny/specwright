@@ -4,6 +4,8 @@ Run: python -m unittest discover evals/pr-pair -p test_pr_snapshot.py
 """
 import json
 import stat
+import subprocess
+import time
 import unittest
 
 import snapfix
@@ -287,6 +289,122 @@ class WaitUnwritable(SnapCase):
         self.assertEqual((out["wake"], states), ("changed", {"genrev": "waiting", "silent": "timed_out"}))
         self.assertEqual(self.clock(), f"{D}12:20:00Z", "the first poll at or after 12:20 timed it out")
         self.assertEqual(out["snapshot"]["head_cutoff"], {"source": "first_seen_unsaved", "at": f"{D}12:00:00Z"})
+
+
+class WatchOwnership(SnapCase):
+    """pr-watch: the newest --wait owns a PR (a directory of numbered claims under <state>/watch/v2/<owner>/<name>/<pr>/).
+
+    Watchers are real processes against the fake gh. A `sleep` shim on PATH sleeps 0.3 s whatever the interval, and
+    --timeout counts polls, so a run takes seconds. No signals: every watcher ends by itself (timeout or exit 4)."""
+
+    def setUp(self):
+        super().setUp()
+        sleep = self.tmp / "bin" / "sleep"
+        sleep.write_text('#!/bin/sh\nexec python -c "import time; time.sleep(0.3)"\n', encoding="utf-8", newline="\n")
+        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        self.procs = []
+        self.addCleanup(self._reap)
+
+    def _reap(self):
+        for p in self.procs:
+            if p.poll() is None:
+                p.kill()
+            p.communicate()
+
+    def add_repo(self, slug, pr):
+        def f(st):
+            p = self._pull()
+            p.update({"number": pr, "html_url": f"https://github.com/{slug}/pull/{pr}"})
+            st["repos"][slug] = {"pulls": [p]}
+        self.mutate(f)
+
+    def start(self, slug, pr, timeout=6):
+        env = self.env()
+        p = subprocess.Popen(["bash", str(snapfix.SNAPSHOT), str(pr), "--repo", slug, "--wait", "--interval", "1",
+                              "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             encoding="utf-8", env=env, cwd=self.tmp)
+        self.procs.append(p)
+        return p
+
+    def finish(self, p):
+        out, err = p.communicate(timeout=90)
+        return p.returncode, out, err
+
+    def calls(self):
+        return len(self.gh_calls())
+
+    def until(self, cond, what):
+        end = time.time() + 60
+        while time.time() < end:
+            if cond():
+                return
+            time.sleep(0.05)
+        self.fail(f"timed out waiting for {what}")
+
+    def claims(self, owner="o", name="n", pr=7):
+        d = self.state_dir / "watch" / "v2" / owner / name / str(pr)
+        return sorted(x.name for x in d.iterdir()) if d.is_dir() else []
+
+    def test_watch_newer_watcher_takes_over(self):
+        a = self.start(self.SLUG, 7, timeout=60)
+        self.until(lambda: self.calls() > 0, "A's first snapshot")
+        b = self.start(self.SLUG, 7, timeout=5)
+        rc_a, _, err_a = self.finish(a)
+        self.assertEqual(rc_a, 4, err_a)
+        self.assertIn("took over", err_a)
+        rc_b, out_b, err_b = self.finish(b)
+        self.assertEqual(rc_b, 0, err_b)
+        self.assertEqual(json.loads(out_b.strip().splitlines()[-1])["wake"], "timeout")
+
+    def test_watch_exit_leaves_a_newer_claim(self):
+        a = self.start(self.SLUG, 7, timeout=4)
+        self.until(lambda: self.calls() > 0, "A's first snapshot")
+        d = self.state_dir / "watch" / "v2" / "o" / "n" / "7"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "99999").write_text("", encoding="utf-8")  # a newer watcher's claim
+        rc, _, err = self.finish(a)
+        self.assertEqual(rc, 4, err)
+        self.assertEqual(self.claims(), ["99999"], "A gave up only its own claim")
+
+    def test_watch_simultaneous_claims_leave_one_owner(self):
+        a, b = self.start(self.SLUG, 7), self.start(self.SLUG, 7)
+        rcs = sorted([self.finish(a)[0], self.finish(b)[0]])
+        self.assertEqual(rcs, [0, 4])
+
+    def test_watch_claim_beats_a_crashed_owner(self):
+        d = self.state_dir / "watch" / "v2" / "o" / "n" / "7"
+        d.mkdir(parents=True)
+        (d / "9").write_text("", encoding="utf-8")  # killed without cleanup; 9 < 10 only numerically
+        rc, out, err = self.finish(self.start(self.SLUG, 7, timeout=3))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["wake"], "timeout")
+        self.assertEqual(self.claims(), [], "the crashed owner's claim was beaten and the new one released")
+
+    def test_watch_keys_do_not_alias_hyphenated_identities(self):
+        self.add_repo("acme-tools/widget", 5)
+        self.add_repo("acme/tools-widget", 5)
+        a = self.start("acme-tools/widget", 5)
+        self.until(lambda: self.calls() > 0, "A's first snapshot")
+        b = self.start("acme/tools-widget", 5)
+        (rc_a, _, err_a), (rc_b, _, err_b) = self.finish(a), self.finish(b)
+        self.assertEqual((rc_a, rc_b), (0, 0), f"{err_a} / {err_b}")
+
+    def test_watch_key_ignores_case(self):
+        self.add_repo("Acme/Widget", 5)
+        self.add_repo("acme/widget", 5)
+        a = self.start("Acme/Widget", 5, timeout=60)
+        self.until(lambda: self.calls() > 0, "A's first snapshot")
+        b = self.start("acme/widget", 5, timeout=4)
+        rc_a, _, err_a = self.finish(a)
+        self.assertEqual(rc_a, 4, err_a)
+        self.assertEqual(self.finish(b)[0], 0)
+
+    def test_watch_without_a_state_dir_polls_unowned(self):
+        self.state_dir.write_text("a file, not a directory")
+        rc, out, err = self.finish(self.start(self.SLUG, 7, timeout=3))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["wake"], "timeout")
+        self.assertIn("ownership is off", err)
 
 
 if __name__ == "__main__":
