@@ -42,8 +42,8 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | planning-stores → Watch covers the expected PR set | Store PR alone is ready | evals/pr-pair/test_pr_pair.py | test_pair_state_single_store_pr_ready | green |
 | planning-stores → Watch covers the expected PR set | One PR of the pair merged | evals/pr-pair/test_pr_pair.py | test_pair_state_split_hands_off | green |
 | planning-stores → Watch covers the expected PR set | Archive before merge with no store PR | evals/git-workflow/evals.json | eval-store-archive-before-merge-local-store | green |
-| planning-stores → Watch covers the expected PR set | Store snapshot of an old head | evals/pr-pair/test_pr_pair.py; evals/pr-pair/test_skill_text.py | test_pair_state_refreshes_an_old_head_snapshot; test_watch_refreshes_on_a_refresh_blocker | red |
-| planning-stores → Watch covers the expected PR set | Snapshot of another PR | evals/pr-pair/test_pr_pair.py; evals/pr-pair/test_skill_text.py | test_pair_state_refreshes_a_snapshot_of_another_pr; test_watch_moves_its_wait_to_the_replaced_pr | red |
+| planning-stores → Watch covers the expected PR set | Store snapshot of an old head | evals/pr-pair/test_pr_pair.py; evals/pr-pair/test_skill_text.py | test_pair_state_refreshes_an_old_head_snapshot; test_watch_refreshes_on_a_refresh_blocker | green |
+| planning-stores → Watch covers the expected PR set | Snapshot of another PR | evals/pr-pair/test_pr_pair.py; evals/pr-pair/test_skill_text.py | test_pair_state_refreshes_a_snapshot_of_another_pr; test_watch_moves_its_wait_to_the_replaced_pr | green |
 | planning-stores → Watch covers the expected PR set | Snapshot without a head | evals/pr-pair/test_pr_pair.py | test_pair_state_refreshes_a_snapshot_without_a_head | green |
 
 ## 1. Test harness for the snapshot and reply scripts
@@ -72,7 +72,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   Verify that they fail because `pair-state` reports `ready`.
 - [x] 2.2 Update the `snap()` helper in `evals/pr-pair/test_pr_pair.py` to take the PR's `number`, `url` and `head_oid` from the fake PR state. Verify that the green rows `test_pair_state_waits_for_both`, `test_pair_state_single_store_pr_ready` and `test_pair_state_split_hands_off` still pass.
 - [x] 2.3 Implement the binding in `cmd_pair_state` (`pr-pair.sh`): compare each snapshot's `url` (owner/name, number) and `head_oid` with the discovered PR's `url`, `number` and `head_sha`. Add the `refresh:*` blockers and `refresh: [<side>]`, and never report ready on a mismatch. Verify that the 2.1 tests pass, and flip their `pr-pair` rows green.
-- [ ] 2.4 Write the failing skill-text tests `test_watch_refreshes_on_a_refresh_blocker` and `test_watch_moves_its_wait_to_the_replaced_pr`. Then edit SKILL.md watch step 2 (store-backed) with the D1 rules:
+- [x] 2.4 Write the failing skill-text tests `test_watch_refreshes_on_a_refresh_blocker` and `test_watch_moves_its_wait_to_the_replaced_pr`. Then edit SKILL.md watch step 2 (store-backed) with the D1 rules:
   - `refresh:head` → a one-off snapshot of the same PR;
   - `refresh:pr` → stop that side's wait, snapshot the PR in `prs.<side>`, and restart the wait on that number;
   - still mismatched → back to waiting.

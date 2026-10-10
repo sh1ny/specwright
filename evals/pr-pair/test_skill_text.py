@@ -87,6 +87,40 @@ class SkillText(unittest.TestCase):
                         f"`cleanup-plan` is in {homes}, neither watch nor a cleanup section")
         self.assertLess(positions(sub("pair-state"))[0], plans[0], "`cleanup-plan` is described before `pair-state`")
 
+    def refresh_bullet(self):
+        watch = self.section("watch")
+        at = watch.find("refresh:head")
+        self.assertNotEqual(at, -1, "the watch section never reads a `refresh:head` blocker")
+        start = watch.rfind("\n   - ", 0, at) + 1
+        end = watch.find("\n   - ", at)
+        return watch[start:end if end != -1 else len(watch)]
+
+    def test_watch_refreshes_on_a_refresh_blocker(self):
+        watch = self.section("watch")
+        b = self.refresh_bullet()
+        self.assertLess(positions(sub("pair-state"), watch)[0], watch.index("refresh:head"), "`refresh:head` is described before `pair-state`")
+        self.assertRegex(b, r"`refresh`", "the bullet never reads the `refresh` field of `pair-state`")
+        head = re.search(r"`refresh:head[^`]*`[^;]*", b)
+        self.assertTrue(head, "`refresh:head` has no rule")
+        self.assertRegex(head.group(0), r"(?i)one-off snapshot", "`refresh:head` does not take a one-off snapshot")
+        self.assertRegex(head.group(0), r"same PR", "`refresh:head` does not snapshot the same PR")
+        self.assertRegex(b, r"(?i)once per wake", "the refresh is not limited to once per wake")
+        self.assertRegex(b, r"(?is)`pair-state` again", "`pair-state` is not called again after the refresh")
+
+    def test_watch_moves_its_wait_to_the_replaced_pr(self):
+        b = self.refresh_bullet()
+        pr = re.search(r"`refresh:pr[^`]*`[^;]*", b)
+        self.assertTrue(pr, "`refresh:pr` has no rule")
+        rule = pr.group(0)
+        stop, snap, restart = (re.search(p, rule) for p in (r"(?i)stop that side's wait", r"`prs\.<side>`", r"(?i)restart[^.;,]*wait[^.;]*number"))
+        self.assertTrue(stop, "`refresh:pr` does not stop that side's wait")
+        self.assertTrue(snap, "`refresh:pr` does not take the PR number from `prs.<side>`")
+        self.assertTrue(restart, "`refresh:pr` does not restart the wait on that number")
+        self.assertLess(stop.start(), snap.start(), "the snapshot is taken before the old wait is stopped")
+        self.assertLess(snap.start(), restart.start(), "the wait is restarted before the snapshot")
+        self.assertRegex(b, r"(?is)still mismatched[^;.]*back to waiting", "a still-mismatched snapshot does not go back to waiting")
+        self.assertRegex(b[b.index("still mismatched"):], r"`prs\.<side>`", "the wait after a mismatch is not on the PR `prs.<side>` names")
+
     def test_feedback_uses_pass_record_and_rounds(self):
         fb = self.section("feedback")
         for verb in ("write", "plan", "done"):
