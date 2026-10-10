@@ -105,6 +105,30 @@ class MarkerBinding(SnapCase):
         self.assertEqual(len(t), 1, "the resolved thread is listed again")
         self.assertEqual((t[0]["id"], t[0]["resolved"], t[0]["rebound"], t[0]["awaiting_reviewer"]), (tid, True, True, False))
 
+    def test_snapshot_reaction_does_not_answer_a_raced_edit(self):
+        ic = self.add_comment("rev", "ping")
+        rv = self.add_review("rev", "looks off")
+        snap = self.snapshot()
+        judged = {x["id"]: x["rev"] for x in snap["comments"] + snap["reviews"]}
+        self.advance(5)
+        self.edit(ic["node_id"], "ping, edited")  # both edits land after the re-read ...
+        self.edit(rv["id"], "looks off, edited")
+        self.advance(1)
+        for item in (ic["node_id"], rv["id"]):  # ... and before the reply and its reaction
+            self.add_comment("me", self.mark(item, judged[item]))
+            self.react(item, "me")
+        after = self.snapshot()
+        self.assertEqual([x["id"] for x in after["comments"]], [ic["node_id"]], "the reaction came with the stale reply")
+        self.assertEqual([x["id"] for x in after["reviews"]], [rv["id"]])
+        self.advance(5)
+        self.edit(ic["node_id"], "ping, edited again")  # a follow-up edit after the reply ...
+        self.add_comment("me", self.mark(ic["node_id"], self.snapshot()["comments"][0]["rev"]))
+        self.advance(5)
+        self.edit(ic["node_id"], "ping, one more")
+        self.advance(1)
+        self.react(ic["node_id"], "me")  # ... is answered by a reaction alone
+        self.assertEqual(self.snapshot()["comments"], [])
+
     def test_snapshot_bound_reply_keeps_items_answered(self):
         ic = self.add_comment("rev", "ping")
         tid, c = self.add_thread("rev", "please fix")

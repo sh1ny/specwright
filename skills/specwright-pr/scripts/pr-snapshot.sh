@@ -193,6 +193,17 @@ def holds($w; $r): .id as $id | (.lastEditedAt // .createdAt // .submittedAt // 
 # Fetching reaction lists in the main query would cost ~200 points a call.
 def thumbs: [ .reactionGroups[]? | select(.viewerHasReacted and (.content | IN("THUMBS_UP","THUMBS_DOWN"))) ] | length > 0;
 def reacted: thumbs and (.lastEditedAt == null or (rtimes[.id] // "") >= .lastEditedAt);
+# Is a comment or review still to answer? With rev-bound markers, a marker for
+# the current revision answers it. An edit made before your latest marked reply
+# means that reply raced the edit: it stays listed, and the reaction posted with
+# the reply answers nothing. Only an edit after the reply (a follow-up) can be
+# answered by a reaction alone. Without rev-bound markers: the time rule.
+def still_open($h; $r): .id as $id | (.lastEditedAt // .createdAt // .submittedAt // "") as $rev
+  | if (($r[$id] // []) | length) > 0 then
+      if ([ $r[$id][] | select(. == $rev) ] | length) > 0 then false
+      elif $rev <= ($h[$id] // "") then true
+      else (reacted | not) end
+    else unhandled($h; $r) and (reacted | not) end;
 def norm: sub("\\[bot\\]$"; "");
 .data.viewer.login as $me
 | .data.repository.pullRequest as $p
@@ -262,12 +273,12 @@ def norm: sub("\\[bot\\]$"; "");
          and (($last.body // "") | contains("specwright:handled " + $tid + " resolve"))),
        comments: [ .comments.nodes[] | { id, author: (.author.login // "ghost"), body: (.body | clip(2500)), clipped: (.body | clipped(2500)),
                                         at: .createdAt, edited: .lastEditedAt, url, reacted: reacted } ] } ]) as $threads
-| ([ $p.comments.nodes[] | select((.author.login // "") != $me and unhandled($handled; $hrevs) and (reacted | not)) |
+| ([ $p.comments.nodes[] | select((.author.login // "") != $me and still_open($handled; $hrevs)) |
      { id, rev: (.lastEditedAt // .createdAt), author: (.author.login // "ghost"),
        waiting_owner: holds($waiting; $wrevs),
        body: (.body | clip(1200)), clipped: (.body | clipped(1200)), at: .createdAt, url } ]) as $comments
 | ([ $p.reviews.nodes[] | select(.state != "PENDING" and (.body // "") != ""
-       and (.author.login // "") != $me and unhandled($handled; $hrevs) and (reacted | not)) |
+       and (.author.login // "") != $me and still_open($handled; $hrevs)) |
      { id, rev: (.lastEditedAt // .submittedAt), author: (.author.login // "ghost"), state,
        waiting_owner: holds($waiting; $wrevs),
        body: (.body | clip(1200)), clipped: (.body | clipped(1200)), at: .submittedAt, url } ]) as $reviews
