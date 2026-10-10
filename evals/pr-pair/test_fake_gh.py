@@ -374,6 +374,168 @@ class ReactionsAndGraphql(FakeGhCase):
             self.assertEqual((r.returncode, r.stderr.strip()), (5, "gql boom"))
 
 
+class PrEvidence(FakeGhCase):
+    """The PR snapshot query, the clock, node(id) reads and the writes the PR scripts use."""
+    SNAP_Q = ("query($owner:String!, $name:String!, $pr:Int!) { viewer { login } repository(owner:$owner, name:$name) "
+              "{ pullRequest(number:$pr) { number reviewThreads(first:100) { nodes { id } } } } }")
+    NODE_Q = "query($id:ID!){ node(id:$id) { ... on IssueComment { id } ... on PullRequestReview { id } } }"
+    RESOLVE = "mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id isResolved } } }"
+    REACT = ("mutation($subjectId:ID!,$content:ReactionContent!){ addReaction(input:{subjectId:$subjectId,content:$content})"
+             "{ reaction{ content } } }")
+    T0 = "2026-10-10T10:00:00Z"
+
+    def setUp(self):
+        super().setUp()
+        st = self.st()
+        st["tokens"]["rev"] = "tok-rev"
+        st["clock"] = self.T0
+        st["repos"] = {"o/n": {"pulls": [self.pull(7, "b7")]}}
+        self.t = fake_gh.add_thread(st, "o/n", 7, path="a.py", line=3)
+        self.c1 = fake_gh.add_thread_comment(st, "o/n", 7, self.t["id"], "rev", "root")
+        fake_gh.advance_clock(st, 30)
+        self.c2 = fake_gh.add_thread_comment(st, "o/n", 7, self.t["id"], "KintsugiBot", "answer")
+        fake_gh.advance_clock(st, 30)
+        self.ic = fake_gh.add_pr_comment(st, "o/n", 7, "rev", "pr comment")
+        self.rv = fake_gh.add_review(st, "o/n", 7, "rev", "review body", state="APPROVED")
+        fake_gh.edit_item(st, "o/n", 7, self.c1["id"], "root edited")
+        fake_gh.set_checks(st, "o/n", 7, [{"__typename": "CheckRun", "name": "ci", "status": "COMPLETED", "conclusion": "SUCCESS"}])
+        fake_gh.set_head(st, "o/n", 7, "b" * 40, "2026-10-10T09:00:00Z")
+        fake_gh.add_node_reaction(st, "o/n", self.c1["id"], "KintsugiBot", "THUMBS_UP", at="2026-10-10T10:02:00Z")
+        self.seed(st)
+
+    def gql(self, query, *fields, env=None, check=True):
+        args = ["api", "graphql", "-f", "query=" + query]
+        for k, v in fields:
+            args += ["-F" if k.startswith("+") else "-f", f"{k.lstrip('+')}={v}"]
+        return self.gh(*args, env=env, check=check)
+
+    def snap(self, env=None):
+        r = self.gql(self.SNAP_Q, ("owner", "o"), ("name", "n"), ("+pr", 7), env=env)
+        return json.loads(r.stdout)["data"]
+
+    def node(self, nid, env=None):
+        return json.loads(self.gql(self.NODE_Q, ("id", nid), env=env).stdout)["data"]["node"]
+
+    def test_snapshot_shape(self):
+        # the query names few fields on purpose: the fake returns every field it has
+        d = self.snap()
+        self.assertEqual(d["viewer"], {"login": "KintsugiBot"})
+        pr = d["repository"]["pullRequest"]
+        self.assertEqual((pr["number"], pr["state"], pr["headRefName"], pr["headRefOid"], pr["baseRefName"]), (7, "OPEN", "b7", "b" * 40, "main"))
+        self.assertEqual(pr["commits"]["nodes"][0]["commit"]["committedDate"], "2026-10-10T09:00:00Z")
+        ctx = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]
+        self.assertEqual((ctx["pageInfo"], ctx["nodes"][0]["name"]), ({"hasNextPage": False}, "ci"))
+        th = pr["reviewThreads"]["nodes"][0]
+        self.assertEqual((th["id"], th["isResolved"], th["path"], th["line"], th["comments"]["totalCount"]), (self.t["id"], False, "a.py", 3, 2))
+        c1, c2 = th["comments"]["nodes"]
+        self.assertEqual((c1["databaseId"], c1["author"], c1["body"], c1["createdAt"], c1["lastEditedAt"]),
+                         (self.c1["databaseId"], {"login": "rev"}, "root edited", self.T0, "2026-10-10T10:01:00Z"))
+        self.assertIsNone(c2["lastEditedAt"])
+        self.assertEqual(c1["reactionGroups"], [{"content": "THUMBS_UP", "viewerHasReacted": True}])
+        self.assertEqual(c2["reactionGroups"], [])
+        self.assertEqual(pr["comments"]["nodes"][0]["body"], "pr comment")
+        self.assertEqual((pr["reviews"]["nodes"][0]["state"], pr["reviews"]["nodes"][0]["submittedAt"]), ("APPROVED", "2026-10-10T10:01:00Z"))
+
+    def test_snapshot_viewer_follows_gh_token_and_jq_runs_unchanged(self):
+        self.assertEqual(self.snap(env={"GH_TOKEN": "tok-rev"})["viewer"], {"login": "rev"})
+        self.assertEqual(self.snap(env={"GH_TOKEN": "tok-s"})["viewer"], {"login": "sh1ny"})
+        out = self.gh("api", "graphql", "-f", "query=" + self.SNAP_Q, "-f", "owner=o", "-f", "name=n", "-F", "pr=7", "--jq",
+                      '.data.viewer.login as $me | [.data.repository.pullRequest.reviewThreads.nodes[] | .id] | join(",") + "/" + $me').stdout.strip()
+        self.assertEqual(out, f"{self.t['id']}/KintsugiBot")
+
+    @unittest.skipUnless(shutil.which("jq"), "needs jq")
+    def test_jq_evaluator_is_selectable(self):
+        args = ("api", "graphql", "-f", "query=" + self.SNAP_Q, "-f", "owner=o", "-f", "name=n", "-F", "pr=7", "--jq", ".data.viewer | .login")
+        self.assertEqual(self.gh(*args, env={"FAKE_GH_JQ": shutil.which("jq")}).stdout.strip(), "KintsugiBot")
+        r = self.gh(*args, env={"FAKE_GH_JQ": str(self.tmp / "no-such-evaluator")}, check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no-such-evaluator", r.stderr)
+
+    def test_rate_limit_date_header_follows_the_clock(self):
+        def date():
+            out = self.gh("api", "-i", "rate_limit").stdout.replace("\r", "")
+            head, _, body = out.partition("\n\n")
+            self.assertIn("resources", json.loads(body))
+            return next(l for l in head.splitlines() if l.startswith("Date: "))
+        self.assertEqual(date(), "Date: Sat, 10 Oct 2026 10:01:00 GMT")
+        st = self.st()
+        fake_gh.advance_clock(st, 3661)
+        self.seed(st)
+        self.assertEqual(date(), "Date: Sat, 10 Oct 2026 11:02:01 GMT")
+
+    def test_node_reads(self):
+        th = self.node(self.t["id"])
+        self.assertEqual([c["databaseId"] for c in th["comments"]["nodes"]], [self.c1["databaseId"], self.c2["databaseId"]])
+        self.assertEqual(th["comments"]["nodes"][0]["lastEditedAt"], "2026-10-10T10:01:00Z")
+        ic = self.node(self.ic["node_id"])
+        self.assertEqual((ic["body"], ic["createdAt"], ic["lastEditedAt"], ic["author"], ic["url"]),
+                         ("pr comment", "2026-10-10T10:01:00Z", None, {"login": "rev"}, self.ic["html_url"]))
+        rv = self.node(self.rv["id"])
+        self.assertEqual((rv["state"], rv["submittedAt"], rv["lastEditedAt"], rv["databaseId"]),
+                         ("APPROVED", "2026-10-10T10:01:00Z", None, self.rv["databaseId"]))
+        rc = self.node(self.c1["id"])
+        self.assertEqual((rc["databaseId"], rc["body"], rc["createdAt"], rc["lastEditedAt"], rc["url"]),
+                         (self.c1["databaseId"], "root edited", self.T0, "2026-10-10T10:01:00Z", self.c1["url"]))
+
+    def test_node_ids_agree_with_the_snapshot_and_reactions(self):
+        pr = self.snap()["repository"]["pullRequest"]
+        ids = [pr["reviewThreads"]["nodes"][0]["id"], pr["reviewThreads"]["nodes"][0]["comments"]["nodes"][0]["id"],
+               pr["comments"]["nodes"][0]["id"], pr["reviews"]["nodes"][0]["id"]]
+        for nid in ids:
+            self.assertEqual(self.node(nid)["id"], nid)
+        r = self.gql(ReactionsAndGraphql.GQL_REACTIONS % "THUMBS_UP", ("id", ids[1]))
+        self.assertEqual(json.loads(r.stdout)["data"]["node"]["reactions"]["nodes"], [{"user": {"login": "KintsugiBot"}}])
+
+    def test_unknown_node_is_null(self):
+        self.assertIsNone(self.node("PRRT_nope"))
+        self.assertEqual(json.loads(self.gql(self.NODE_Q, ("id", "nope")).stdout), {"data": {"node": None}})
+
+    def test_reply_post_appends_to_the_thread(self):
+        (self.tmp / "b.md").write_text("reply text\n<!-- m -->", encoding="utf-8", newline="\n")
+        st = self.st()
+        fake_gh.advance_clock(st, 120)
+        self.seed(st)
+        url = self.gh("api", "--method", "POST", f"repos/o/n/pulls/7/comments/{self.c1['databaseId']}/replies",
+                      "-F", f"body=@{self.tmp / 'b.md'}", "--jq", ".html_url", env={"GH_TOKEN": "tok-rev"}).stdout.strip()
+        th = self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]
+        added = th["comments"][-1]
+        self.assertEqual((len(th["comments"]), added["author"], added["body"], added["createdAt"], added["url"]),
+                         (3, "rev", "reply text\n<!-- m -->", "2026-10-10T10:03:00Z", url))
+        r = self.gh("api", "--method", "POST", "repos/o/n/pulls/7/comments/99999/replies", "-f", "body=x", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("404", r.stderr)
+
+    def test_pr_comment_body_file_is_listed_with_clock_and_viewer(self):
+        (self.tmp / "c.md").write_text("from file", encoding="utf-8", newline="\n")
+        self.gh("pr", "comment", "7", "--repo", "o/n", "--body-file", str(self.tmp / "c.md"), env={"GH_TOKEN": "tok-s"})
+        last = self.snap()["repository"]["pullRequest"]["comments"]["nodes"][-1]
+        self.assertEqual((last["body"], last["author"], last["createdAt"]), ("from file", {"login": "sh1ny"}, "2026-10-10T10:01:00Z"))
+
+    def test_resolve_and_react_mutations(self):
+        r = self.gql(self.RESOLVE, ("threadId", self.t["id"]), env={"GH_TOKEN": "tok-rev"})
+        self.assertEqual(json.loads(r.stdout)["data"]["resolveReviewThread"]["thread"], {"id": self.t["id"], "isResolved": True})
+        th = self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]
+        self.assertEqual((th["isResolved"], th["resolvedBy"], th["resolvedAt"]), (True, "rev", "2026-10-10T10:01:00Z"))
+        self.assertTrue(self.snap()["repository"]["pullRequest"]["reviewThreads"]["nodes"][0]["isResolved"])
+        r = self.gql(self.REACT, ("subjectId", self.ic["node_id"]), ("content", "THUMBS_DOWN"), env={"GH_TOKEN": "tok-rev"})
+        self.assertEqual(json.loads(r.stdout)["data"]["addReaction"]["reaction"], {"content": "THUMBS_DOWN"})
+        self.assertEqual(self.st()["nodes"][self.ic["node_id"]]["reactions"],
+                         [{"login": "rev", "content": "THUMBS_DOWN", "createdAt": "2026-10-10T10:01:00Z"}])
+        groups = self.snap(env={"GH_TOKEN": "tok-rev"})["repository"]["pullRequest"]["comments"]["nodes"][0]["reactionGroups"]
+        self.assertEqual(groups, [{"content": "THUMBS_DOWN", "viewerHasReacted": True}])
+        self.assertEqual(self.gql(self.REACT, ("subjectId", "nope"), ("content", "THUMBS_UP"), check=False).returncode, 1)
+        self.assertEqual(self.gql(self.RESOLVE, ("threadId", "nope"), check=False).returncode, 1)
+
+    def test_failure_injection_applies_to_the_new_calls(self):
+        st = self.st()
+        st["fail"] = [{"match": r"rate_limit", "exit": 7, "stderr": "rl"}, {"match": r"graphql", "exit": 8, "stderr": "gql"},
+                      {"match": r"/replies", "exit": 9, "stderr": "rp"}]
+        self.seed(st)
+        for argv, code in ((("api", "-i", "rate_limit"), 7), (("api", "graphql", "-f", "query=" + self.SNAP_Q), 8),
+                           (("api", "--method", "POST", "repos/o/n/pulls/7/comments/1/replies", "-f", "body=x"), 9)):
+            self.assertEqual(self.gh(*argv, check=False).returncode, code)
+
+
 @unittest.skipUnless(shutil.which("sh"), "needs sh")
 class Shim(FakeGhCase):
     def test_install_fake_gh_shim(self):

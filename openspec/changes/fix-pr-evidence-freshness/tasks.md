@@ -48,7 +48,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 1. Test harness for the snapshot and reply scripts
 
-- [ ] 1.1 Extend the fake `gh` (`evals/fakes/gh.py`) and document each new form in its docstring:
+- [x] 1.1 Extend the fake `gh` (`evals/fakes/gh.py`) and document each new form in its docstring:
   - **PR snapshot GraphQL query:** a query containing `reviewThreads(` returns `data.viewer` and `data.repository.pullRequest` from per-PR state: threads with comments (`databaseId`, author, body, `createdAt`, `lastEditedAt`, `isResolved`), PR comments, reviews, check contexts, `headRefOid`/`headRefName`/`headRepository`, `commits.committedDate`. `GH_TOKEN` picks the viewer. The shipped `--jq` filter runs unchanged.
   - **`api -i rate_limit`:** a `Date:` header from a fake clock (`st["clock"]`, RFC 1123), which tests advance.
   - **`node(id)` reads:** a thread's comments; an IssueComment or PullRequestReview; a PullRequestReviewComment. Unknown ids → `node: null`.
