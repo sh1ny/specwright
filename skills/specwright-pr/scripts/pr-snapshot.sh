@@ -102,8 +102,22 @@ read -r -d '' SHAPE <<'JQ' || true
 def clip($n): (. // "") | gsub("(?s)<!--.*?-->"; "") | gsub("\n{3,}"; "\n\n")
   | if length > $n then .[0:$n] + " …[truncated, see url]" else . end;
 # Unhandled: no reply of yours marks it handled, or it was edited after that reply.
-def unhandled($h): (.lastEditedAt // .createdAt // .submittedAt // "") as $rev
-  | ($h[.id] == null) or ($rev > $h[.id]);
+# A marker may carry `rev=<revision it answered>` (pr-reply.sh --rev). $r maps an
+# item id to the revisions its markers name; when there are any, the item is
+# handled only while one of them is the item's current revision, whatever the
+# times say (a reply that raced an edit therefore leaves the item listed).
+# Markers without a revision (0.1.10) keep the time rule. Mixed versions: a
+# 0.1.10 session that answers after an edit, once a 0.1.11 marker exists for the
+# item, adds a marker without rev, which is ignored; the item is listed again
+# and gets one more reply. That duplicate is the safe failure: an item never
+# stays unanswered.
+def unhandled($h; $r): .id as $id | (.lastEditedAt // .createdAt // .submittedAt // "") as $rev
+  | if (($r[$id] // []) | length) > 0 then ([ $r[$id][] | select(. == $rev) ] | length) == 0
+    else ($h[$id] == null) or ($rev > $h[$id]) end;
+# The same rules for a "waiting on owner" reply: does one still hold the item?
+def holds($w; $r): .id as $id | (.lastEditedAt // .createdAt // .submittedAt // "") as $rev
+  | if (($r[$id] // []) | length) > 0 then ([ $r[$id][] | select(. == $rev) ] | length) > 0
+    else ($w[$id] // "") >= $rev end;
 # A 👍/👎 of yours answers an item too (the reaction-only answer to a
 # reviewer's follow-up), but only until the item is edited after it. Other
 # reactions (👀 and the like) answer nothing. reactionGroups say whether you
@@ -123,7 +137,10 @@ def norm: sub("\\[bot\\]$"; "");
   as $mine
 | def marks($kind): [ $mine[] | .t as $t | .b | [scan("specwright:" + $kind + " ([A-Za-z0-9_=-]+)") | {(.[0]): $t}] | add // {} ]
     | reduce .[] as $m ({}; reduce ($m | to_entries[]) as $e (.; .[$e.key] = ([.[$e.key] // "", $e.value] | max)));
+  def marksrev($kind): [ $mine[] | .b | scan("specwright:" + $kind + " ([A-Za-z0-9_=-]+) rev=([A-Za-z0-9@:._+-]+)") | { id: .[0], rev: .[1] } ]
+    | group_by(.id) | map({ (.[0].id): map(.rev) }) | add // {};
   marks("handled") as $handled | marks("waiting") as $waiting
+| marksrev("handled") as $hrevs | marksrev("waiting") as $wrevs
 | ([ $p.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]? |
      if .__typename == "CheckRun" then
        { name, url: .detailsUrl, run_id: .checkSuite.workflowRun.databaseId, app: .checkSuite.app.slug,
@@ -147,27 +164,45 @@ def norm: sub("\\[bot\\]$"; "");
      ([ .comments.nodes[] | select((.author.login // "") != $me and (.lastEditedAt // "") > $replied) ] | length > 0) as $edited |
      ([ .comments.nodes[] | select((.author.login // "") != $me
           and (.lastEditedAt // .createdAt // "") > $replied and (reacted | not)) ]) as $open |
-     ($replied != "" and ($waiting[$tid] // "") == $replied) as $held |
-     select((.isResolved | not) or ($open | length > 0) or $held) |
+     # $mark: your latest reply that carries a marker for this thread. When it
+     # names a revision (pr-reply.sh --rev), that is the thread as you judged it;
+     # compare it with the thread as it stood when the reply was posted (the
+     # comments before it). A difference means the reviewer edited, or added, a
+     # comment between your re-read and the reply, so the reply answered older
+     # text: $rebound lists the thread again, even resolved. An edit made after
+     # the reply is not counted here ($edited and $open catch it), so a comment's
+     # edit time counts only up to the reply's own time.
+     ([ .comments.nodes[] | select((.author.login // "") == $me) | . as $c | ($c.body // "")
+        | scan("specwright:(?:handled|waiting) " + $tid + "(?: resolve)?(?: rev=([A-Za-z0-9@:._+-]+))?(?: |$)")
+        | { id: $c.databaseId, at: $c.createdAt, rev: .[0] } ] | max_by(.id)) as $mark |
+     (if $mark == null or $mark.rev == null then false else
+        ([ .comments.nodes[] | select(.databaseId < $mark.id) ]) as $before
+        | ((($before[-1].databaseId // 0) | tostring) + "@"
+           + ([ $before[] | (if (.lastEditedAt // "") > $mark.at then null else .lastEditedAt end) // .createdAt // "" ] | max // ""))
+          != $mark.rev
+      end) as $rebound |
+     ($replied != "" and ($waiting[$tid] // "") == $replied and ($rebound | not)) as $held |
+     select((.isResolved | not) or ($open | length > 0) or $held or $rebound) |
      { id, root_id: .comments.nodes[0].databaseId, path, line: (.line // .originalLine),
        outdated: .isOutdated, resolved: .isResolved,
        rev: (($last.databaseId // 0 | tostring) + "@"
              + ([ .comments.nodes[] | .lastEditedAt // .createdAt // "" ] | max // "")),
        # your latest reply said "waiting on owner": still to fix once allowed
        waiting_owner: (($open | length == 0) and $held),
-       awaiting_reviewer: ($replied != "" and ($open | length == 0) and ($held | not)),
+       awaiting_reviewer: ($replied != "" and ($open | length == 0) and ($held | not) and ($rebound | not)),
+       rebound: $rebound,
        resolve_pending: ((.isResolved | not) and (($last.author.login // "") == $me) and ($edited | not)
          and (($last.body // "") | contains("specwright:handled " + $tid + " resolve"))),
        comments: [ .comments.nodes[] | { id, author: (.author.login // "ghost"), body: (.body | clip(2500)),
                                         at: .createdAt, edited: .lastEditedAt, url, reacted: reacted } ] } ]) as $threads
-| ([ $p.comments.nodes[] | select((.author.login // "") != $me and unhandled($handled) and (reacted | not)) |
+| ([ $p.comments.nodes[] | select((.author.login // "") != $me and unhandled($handled; $hrevs) and (reacted | not)) |
      { id, rev: (.lastEditedAt // .createdAt), author: (.author.login // "ghost"),
-       waiting_owner: (($waiting[.id] // "") >= (.lastEditedAt // .createdAt)),
+       waiting_owner: holds($waiting; $wrevs),
        body: (.body | clip(1200)), at: .createdAt, url } ]) as $comments
 | ([ $p.reviews.nodes[] | select(.state != "PENDING" and (.body // "") != ""
-       and (.author.login // "") != $me and unhandled($handled) and (reacted | not)) |
+       and (.author.login // "") != $me and unhandled($handled; $hrevs) and (reacted | not)) |
      { id, rev: (.lastEditedAt // .submittedAt), author: (.author.login // "ghost"), state,
-       waiting_owner: (($waiting[.id] // "") >= (.lastEditedAt // .submittedAt)),
+       waiting_owner: holds($waiting; $wrevs),
        body: (.body | clip(1200)), at: .submittedAt, url } ]) as $reviews
 # A reviewer's latest verdict stays CHANGES_REQUESTED until they approve or it
 # is dismissed. Stale: none of the threads they started is still open.
@@ -241,7 +276,7 @@ def norm: sub("\\[bot\\]$"; "");
     # base64 keeps the signature free of quotes, so sig_of can cut it out safely
     sig: ([ $p.state, $p.headRefOid, $p.mergeStateStatus,
             ($checks | map(.name + "=" + .state) | sort | join(",")),
-            ($threads | map(.id + ":" + .rev) | join(",")),
+            ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end)) | join(",")),
             ($comments | map(.id + ":" + .rev) | join(",")),
             ($reviews | map(.id + ":" + .rev) | join(",")),
             ($stale_verdicts | map(.author + ":" + .review_id) | join(",")),

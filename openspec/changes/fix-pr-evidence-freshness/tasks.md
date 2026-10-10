@@ -17,10 +17,10 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | pr-evidence → A reply is posted only for the revision that was judged | Reviewer edited the finding during the fix | evals/pr-pair/test_pr_reply.py | test_reply_refuses_a_changed_rev | green |
 | pr-evidence → A reply is posted only for the revision that was judged | Item cannot be read | evals/pr-pair/test_pr_reply.py | test_reply_exits_3_when_the_item_is_unreadable | green |
 | pr-evidence → A reply is posted only for the revision that was judged | Reply from an older session | evals/pr-pair/test_pr_reply.py | test_reply_without_rev_posts_as_before | green |
-| pr-evidence → Handled markers are bound to a revision | Edit lands between the re-read and the reply | evals/pr-pair/test_pr_snapshot.py | test_snapshot_relists_comment_edited_before_bound_reply | red |
+| pr-evidence → Handled markers are bound to a revision | Edit lands between the re-read and the reply | evals/pr-pair/test_pr_snapshot.py | test_snapshot_relists_comment_edited_before_bound_reply | green |
 | pr-evidence → Handled markers are bound to a revision | Thread edited before a resolving reply | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_snapshot_relists_resolved_thread_as_rebound; test_feedback_judges_rebound_threads | red |
-| pr-evidence → Handled markers are bound to a revision | Answered item stays answered | evals/pr-pair/test_pr_snapshot.py | test_snapshot_bound_reply_keeps_items_answered | red |
-| pr-evidence → Handled markers are bound to a revision | Marker from 0.1.10 | evals/pr-pair/test_pr_snapshot.py | test_snapshot_legacy_marker_uses_the_time_rule | red |
+| pr-evidence → Handled markers are bound to a revision | Answered item stays answered | evals/pr-pair/test_pr_snapshot.py | test_snapshot_bound_reply_keeps_items_answered | green |
+| pr-evidence → Handled markers are bound to a revision | Marker from 0.1.10 | evals/pr-pair/test_pr_snapshot.py | test_snapshot_legacy_marker_uses_the_time_rule | green |
 | pr-evidence → Clipped bodies are marked | Long review | evals/pr-pair/test_pr_snapshot.py | test_snapshot_marks_a_clipped_review | red |
 | pr-evidence → Clipped bodies are marked | Body at the limit | evals/pr-pair/test_pr_snapshot.py | test_snapshot_body_at_the_limit_is_not_clipped | red |
 | pr-evidence → Clipped items are read in full before they are judged | Finding after the cut | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_full_prints_the_unclipped_body; test_feedback_reads_clipped_items_in_full | red |
@@ -114,7 +114,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - a marker without `rev=` follows the time rule.
 
   Verify that they fail.
-- [ ] 4.4 Implement the snapshot marker rules in `pr-snapshot.sh`:
+- [x] 4.4 Implement the snapshot marker rules in `pr-snapshot.sh`:
   - **Parsing:** `marks()` reads an optional `rev=`.
   - **PR comments and reviews:** with any `rev=` marker for the item, it is handled only while one equals its `rev`; otherwise the time rule applies.
   - **Threads:** `$rebound` compares the latest marker reply's `rev` with the revision over the comments whose `databaseId` is lower than the reply's. The `select` includes `$rebound`. Output `rebound`, and add it to `sig`.
