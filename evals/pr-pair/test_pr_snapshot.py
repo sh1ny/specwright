@@ -407,5 +407,90 @@ class WatchOwnership(SnapCase):
         self.assertIn("ownership is off", err)
 
 
+class ClippedBodies(SnapCase):
+    """A body the snapshot shortened says so (`clipped`), and --full reads it whole."""
+
+    def full(self, item_id, *args):
+        return self.run_script(snapfix.SNAPSHOT, "--full", item_id, "--repo", self.SLUG, *args)
+
+    def test_snapshot_marks_a_clipped_review(self):
+        self.add_review("rev", "r" * 5000)
+        review = self.snapshot()["reviews"][0]
+        self.assertTrue(review["clipped"])
+        self.assertLess(len(review["body"]), 5000)
+        self.assertTrue(review["body"].startswith("r" * 1200))
+
+    def test_snapshot_marks_clipped_thread_comments_and_comments(self):
+        self.add_thread("rev", "t" * 3000)
+        self.add_comment("rev", "c" * 1500)
+        snap = self.snapshot()
+        self.assertIs(snap["threads"][0]["comments"][0]["clipped"], True)
+        self.assertIs(snap["comments"][0]["clipped"], True)
+
+    def test_snapshot_body_at_the_limit_is_not_clipped(self):
+        self.add_comment("rev", "c" * 1200)
+        comment = self.snapshot()["comments"][0]
+        self.assertEqual((comment["body"], comment["clipped"]), ("c" * 1200, False))
+
+    def test_snapshot_stripping_html_comments_is_not_clipping(self):
+        self.add_thread("rev", "short <!-- " + "h" * 4000 + " --> text")
+        self.add_review("rev", "<!-- " + "h" * 4000 + " -->ok")
+        snap = self.snapshot()
+        self.assertEqual(snap["threads"][0]["comments"][0]["clipped"], False)
+        self.assertEqual((snap["reviews"][0]["body"], snap["reviews"][0]["clipped"]), ("ok", False))
+
+    def test_snapshot_sig_does_not_depend_on_clipped(self):
+        self.add_comment("rev", "c" * 1200)
+        self.assertNotIn("clipped", self.snapshot()["sig"])
+
+    def test_full_prints_the_unclipped_body(self):
+        raw = "x" * 5000
+        tid, tc = self.add_thread("rev", raw)
+        ic = self.add_comment("rev", raw)
+        rv = self.add_review("rev", raw)
+        self.advance(60)
+        self.edit(ic["node_id"], raw + "!")
+        for item, kind, body, rev in (
+                (tc, "thread_comment", raw, T0),
+                (ic, "comment", raw + "!", "2026-10-10T10:01:00Z"),
+                (rv, "review", raw, T0)):
+            nid = item.get("node_id") or item["id"]
+            r = self.full(nid)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = r.stdout.strip().splitlines()
+            self.assertEqual(len(lines), 1, r.stdout)
+            out = json.loads(lines[0])
+            self.assertEqual(out, {"ok": True, "id": nid, "kind": kind, "body": body, "rev": rev, "url": out["url"]})
+            self.assertTrue(out["url"].startswith("https://github.com/o/n/pull/7#"), out["url"])
+
+    def test_full_rev_prefers_the_edit_time(self):
+        tid, tc = self.add_thread("rev", "first")
+        rv = self.add_review("rev", "first")
+        self.advance(60)
+        self.edit(tc["id"], "second")
+        self.edit(rv["id"], "second")
+        for nid in (tc["id"], rv["id"]):
+            self.assertEqual(json.loads(self.full(nid).stdout)["rev"], "2026-10-10T10:01:00Z")
+
+    def test_full_unknown_id_is_not_found(self):
+        r = self.full("PRR_nope")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": False, "error": "not_found"})
+
+    def test_full_a_read_failure_exits_3(self):
+        rv = self.add_review("rev", "r" * 5000)
+        self.mutate(lambda st: st.update({"fail": ["graphql"]}))
+        r = self.full(rv["id"])
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_full_needs_no_reviewer_and_no_watch_claim(self):
+        rv = self.add_review("rev", "r" * 5000)
+        r = self.full(rv["id"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.state_dir / "watch").exists())
+        self.assertFalse(any("reviewThreads" in " ".join(c) for c in self.gh_calls()), "ran the snapshot query")
+
+
 if __name__ == "__main__":
     unittest.main()

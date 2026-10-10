@@ -5,10 +5,18 @@
 # Usage: bash pr-snapshot.sh [PR-number|PR-url] [--repo owner/name] [--logs]
 #                            [--reviewer LOGIN:ROLE:SECONDS]...
 #                            [--wait [--timeout SECONDS] [--interval SECONDS]]
+#        bash pr-snapshot.sh --full NODE_ID [--repo owner/name]
 #   (no PR)   the PR for the current branch
 #   --reviewer  report whether LOGIN (required|advisory, timeout in seconds)
 #             has reported on the current head: "reviewers" in the output
 #   --logs    append the last 80 lines of each failing run's failed-step log
+#   --full    read one item whole: the NODE_ID of a thread comment, PR comment or review
+#             (the snapshot's "id"). Prints {"ok":true,"id","kind","body","rev","url"}
+#             with the raw body; kind is thread_comment | comment | review; rev is the
+#             item's own revision (lastEditedAt, else createdAt/submittedAt), never what
+#             pr-reply.sh --rev takes. An unknown id prints {"ok":false,"error":"not_found"}
+#             and exits 1; exits 3 when GitHub cannot be read. One call; no snapshot, no
+#             --reviewer, no watch claim. Read every item with "clipped":true this way.
 #   --wait    poll inside this process; print {"wake":..., "snapshot":...}
 #             once anything changes (checks, threads, comments, reviews, head,
 #             state, edits, a list getting cut off) or the timeout passes
@@ -24,12 +32,15 @@
 # "head_cutoff": {source, at} says where reports start to count and each
 # reviewer's timeout starts: source push | first_seen | first_seen_unsaved (the
 # push is not in the activity log; see prepare_cfg).
+# "clipped": true on a thread comment, PR comment or review means its body was cut
+# at 2500 (thread comments) or 1200 (the others) characters; stripping HTML comments
+# alone does not count.
 # "complete": false means a list was cut off at its page size - do not treat
 # missing items as absent.
 # Wrap with as.sh to pin the GitHub identity.
 set -euo pipefail
 
-pr= repo= logs=0 wait=0 timeout=1800 interval=300 reviewers=
+pr= repo= full= logs=0 wait=0 timeout=1800 interval=300 reviewers=
 while [ $# -gt 0 ]; do
   case $1 in
     --repo) repo=${2:?--repo needs owner/name}; shift 2 ;;
@@ -40,6 +51,7 @@ while [ $# -gt 0 ]; do
       IFS=: read -r rl rr rt <<<"$r"
       reviewers="$reviewers${reviewers:+,}{\"login\":\"$rl\",\"role\":\"$rr\",\"timeout\":$rt}"; shift 2 ;;
     --logs) logs=1; shift ;;
+    --full) full=${2:?--full needs a node id}; shift 2 ;;
     --wait) wait=1; shift ;;
     --timeout) timeout=${2:?--timeout needs seconds}; shift 2 ;;
     --interval)
@@ -53,6 +65,24 @@ while [ $# -gt 0 ]; do
     *) echo "pr-snapshot: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+if [ -n "$full" ]; then
+  printf '%s' "$full" | grep -Eq '^[A-Za-z0-9_=-]+$' \
+    || { echo "pr-snapshot: bad --full id '$full'" >&2; exit 2; }
+  out=$(gh api graphql -f id="$full" -f query='
+    query($id:ID!){ node(id:$id) { __typename
+      ... on IssueComment { id body createdAt lastEditedAt url }
+      ... on PullRequestReview { id body submittedAt lastEditedAt url }
+      ... on PullRequestReviewComment { id body createdAt lastEditedAt url } } }' \
+    --jq '.data.node as $n
+      | ({IssueComment: "comment", PullRequestReview: "review", PullRequestReviewComment: "thread_comment"}[$n.__typename // ""]) as $kind
+      | if $kind == null then {ok: false, error: "not_found"}
+        else {ok: true, id: $n.id, kind: $kind, body: ($n.body // ""),
+              rev: ($n.lastEditedAt // $n.createdAt // $n.submittedAt), url: $n.url} end
+      | tojson') || { echo "pr-snapshot: cannot read $full" >&2; exit 3; }
+  printf '%s\n' "$out"
+  # key order depends on the evaluator, so look for the error member, not a prefix
+  case $out in *'"error":"not_found"'*) exit 1 ;; *) exit 0 ;; esac
+fi
 [ -n "$repo" ] || repo=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')
 [ -n "$pr" ] || pr=$(gh pr view --json number --jq .number)
 owner=${repo%%/*} name=${repo#*/}
@@ -129,8 +159,10 @@ query($owner:String!, $name:String!, $pr:Int!) {
 GQL
 
 read -r -d '' SHAPE <<'JQ' || true
-def clip($n): (. // "") | gsub("(?s)<!--.*?-->"; "") | gsub("\n{3,}"; "\n\n")
+def tidy: (. // "") | gsub("(?s)<!--.*?-->"; "") | gsub("\n{3,}"; "\n\n");
+def clip($n): tidy
   | if length > $n then .[0:$n] + " …[truncated, see url]" else . end;
+def clipped($n): tidy | length > $n;
 # Unhandled: no reply of yours marks it handled, or it was edited after that reply.
 # A marker may carry `rev=<revision it answered>` (pr-reply.sh --rev). $r maps an
 # item id to the revisions its markers name; when there are any, the item is
@@ -223,17 +255,17 @@ def norm: sub("\\[bot\\]$"; "");
        rebound: $rebound,
        resolve_pending: ((.isResolved | not) and (($last.author.login // "") == $me) and ($edited | not)
          and (($last.body // "") | contains("specwright:handled " + $tid + " resolve"))),
-       comments: [ .comments.nodes[] | { id, author: (.author.login // "ghost"), body: (.body | clip(2500)),
+       comments: [ .comments.nodes[] | { id, author: (.author.login // "ghost"), body: (.body | clip(2500)), clipped: (.body | clipped(2500)),
                                         at: .createdAt, edited: .lastEditedAt, url, reacted: reacted } ] } ]) as $threads
 | ([ $p.comments.nodes[] | select((.author.login // "") != $me and unhandled($handled; $hrevs) and (reacted | not)) |
      { id, rev: (.lastEditedAt // .createdAt), author: (.author.login // "ghost"),
        waiting_owner: holds($waiting; $wrevs),
-       body: (.body | clip(1200)), at: .createdAt, url } ]) as $comments
+       body: (.body | clip(1200)), clipped: (.body | clipped(1200)), at: .createdAt, url } ]) as $comments
 | ([ $p.reviews.nodes[] | select(.state != "PENDING" and (.body // "") != ""
        and (.author.login // "") != $me and unhandled($handled; $hrevs) and (reacted | not)) |
      { id, rev: (.lastEditedAt // .submittedAt), author: (.author.login // "ghost"), state,
        waiting_owner: holds($waiting; $wrevs),
-       body: (.body | clip(1200)), at: .submittedAt, url } ]) as $reviews
+       body: (.body | clip(1200)), clipped: (.body | clipped(1200)), at: .submittedAt, url } ]) as $reviews
 # A reviewer's latest verdict stays CHANGES_REQUESTED until they approve or it
 # is dismissed. Stale: none of the threads they started is still open.
 | ([ $p.reviews.nodes[] | select(.state | IN("APPROVED","CHANGES_REQUESTED","DISMISSED")) ]

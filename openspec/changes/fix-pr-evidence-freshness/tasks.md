@@ -21,11 +21,11 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | pr-evidence → Handled markers are bound to a revision | Thread edited before a resolving reply | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_snapshot_relists_resolved_thread_as_rebound; test_feedback_judges_rebound_threads | green |
 | pr-evidence → Handled markers are bound to a revision | Answered item stays answered | evals/pr-pair/test_pr_snapshot.py | test_snapshot_bound_reply_keeps_items_answered | green |
 | pr-evidence → Handled markers are bound to a revision | Marker from 0.1.10 | evals/pr-pair/test_pr_snapshot.py | test_snapshot_legacy_marker_uses_the_time_rule | green |
-| pr-evidence → Clipped bodies are marked | Long review | evals/pr-pair/test_pr_snapshot.py | test_snapshot_marks_a_clipped_review | red |
-| pr-evidence → Clipped bodies are marked | Body at the limit | evals/pr-pair/test_pr_snapshot.py | test_snapshot_body_at_the_limit_is_not_clipped | red |
+| pr-evidence → Clipped bodies are marked | Long review | evals/pr-pair/test_pr_snapshot.py | test_snapshot_marks_a_clipped_review | green |
+| pr-evidence → Clipped bodies are marked | Body at the limit | evals/pr-pair/test_pr_snapshot.py | test_snapshot_body_at_the_limit_is_not_clipped | green |
 | pr-evidence → Clipped items are read in full before they are judged | Finding after the cut | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_full_prints_the_unclipped_body; test_feedback_reads_clipped_items_in_full | red |
 | pr-evidence → Clipped items are read in full before they are judged | Full body cannot be read | evals/pr-pair/test_skill_text.py | test_feedback_hands_over_an_unreadable_clipped_item | red |
-| pr-evidence → Clipped items are read in full before they are judged | Unknown item id | evals/pr-pair/test_pr_snapshot.py | test_full_unknown_id_is_not_found | red |
+| pr-evidence → Clipped items are read in full before they are judged | Unknown item id | evals/pr-pair/test_pr_snapshot.py | test_full_unknown_id_is_not_found | green |
 | pr-watch → The newest watcher owns a PR | Newer watcher takes over | evals/pr-pair/test_pr_snapshot.py | test_watch_newer_watcher_takes_over | green |
 | pr-watch → The newest watcher owns a PR | Cleanup interleaved with a takeover | evals/pr-pair/test_pr_snapshot.py | test_watch_exit_leaves_a_newer_claim | green |
 | pr-watch → The newest watcher owns a PR | Two watchers claim at once | evals/pr-pair/test_pr_snapshot.py | test_watch_simultaneous_claims_leave_one_owner | green |
@@ -178,7 +178,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - an unknown id prints `not_found` and exits 1.
 
   Verify that they fail.
-- [ ] 7.2 Implement `clipped` on thread comments, PR comments and reviews, and `--full <node id> [--repo]` in `pr-snapshot.sh`. A GitHub read failure exits 3. Update the usage header. Verify that the 7.1 tests pass, and flip the rows green.
+- [x] 7.2 Implement `clipped` on thread comments, PR comments and reviews, and `--full <node id> [--repo]` in `pr-snapshot.sh`. A GitHub read failure exits 3. Update the usage header. Verify that the 7.1 tests pass, and flip the rows green.
 - [ ] 7.3 Edit SKILL.md feedback step 1 with failing skill-text tests first (`test_feedback_reads_clipped_items_in_full`, `test_feedback_hands_over_an_unreadable_clipped_item`):
   - read every `clipped: true` item with `--full` before step 5 judges it;
   - a failed read → the item is reported as needing a manual read, neither dropped nor answered.
