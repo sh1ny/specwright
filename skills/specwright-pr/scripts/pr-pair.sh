@@ -1097,6 +1097,23 @@ def read_snapshots(a):
     return out
 
 
+def snapshot_refresh(s, pr):
+    """The refresh blocker when snapshot s is not of the discovered PR (repo, number, head commit), else None."""
+    m = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)", (s.get("url") or "") if isinstance(s.get("url"), str) else "")
+    want_m = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)", pr.get("url") or "")
+    number = s.get("number")
+    same_repo = bool(m and want_m and m.group(1).lower() == want_m.group(1).lower())
+    if number != pr["number"] or not same_repo:
+        got = "?" if number is None else str(number)
+        if number == pr["number"] and m:
+            got = f"{m.group(1)}#{number}"
+        return f"refresh:pr:{got}!={pr['number']}"
+    got, want = s.get("head_oid") or "", pr.get("head_sha") or ""
+    if not got or got != want:
+        return f"refresh:head:{got[:7] or '?'}!={want[:7]}"
+    return None
+
+
 def cmd_pair_state(argv):
     a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch", "--snapshot": "+snapshot", "--dropped": "+dropped"})
     need(a, "code", "store", "branch")
@@ -1104,7 +1121,7 @@ def cmd_pair_state(argv):
     snaps, dropped = read_snapshots(a), set(a.get("dropped", []))
     members = e["set"]
     states = {k: (e[k]["pr"]["state"] if e[k]["pr"] else None) for k in members}
-    r = {"ok": True, "set": members, "states": states, "waits": [], "ready": {}, "waiting_on": [], "blocking": {}, "missing": [],
+    r = {"ok": True, "set": members, "states": states, "waits": [], "ready": {}, "waiting_on": [], "blocking": {}, "missing": [], "refresh": [],
          "merged": [], "closed": [], "open": [], "stop_waits": False, "archive": False, "rerequest": False,
          "share_store_by_hand": "code" in members and "store" not in members,
          "prs": {k: e[k]["pr"] for k in members}, "ship": e["ship"]}
@@ -1123,6 +1140,10 @@ def cmd_pair_state(argv):
         return {**r, "action": "cleanup", "stop_waits": True}
     for k in members:
         ok, blockers, stale_only = readiness(snaps.get(k), dropped)
+        stale = snapshot_refresh(snaps[k], e[k]["pr"]) if snaps.get(k) is not None else None
+        if stale:
+            ok, blockers, stale_only = False, [stale] + blockers, False
+            r["refresh"].append(k)
         r["ready"][k] = ok
         if not ok:
             r["blocking"][k] = blockers
