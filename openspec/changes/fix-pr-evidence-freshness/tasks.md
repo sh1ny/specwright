@@ -93,7 +93,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 4. Replies bound to the revision they answer (#33, D3)
 
-- [ ] 4.1 Write the failing `pr-reply.sh` tests for the four "A reply is posted only for the revision that was judged" rows:
+- [x] 4.1 Write the failing `pr-reply.sh` tests for the four "A reply is posted only for the revision that was judged" rows:
   - matching `--rev` → posts and resolves, exit 0;
   - changed `--rev` → exit 5 with nothing posted, resolved or reacted;
   - unreadable item (fake `fail` pattern on the node read) → exit 3 with nothing posted;
