@@ -129,7 +129,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - `--rev` never takes a value from `--full` (review S2).
 
   Verify with `python -m unittest evals.pr-pair.test_skill_text`, and flip the rows green.
-- [ ] 4.6 Update `openspec/architecture.md`: the PR markers row of State ownership (`rev=` suffix, binding rule; the #33 gap is resolved). Verify by reading the row.
+- [x] 4.6 Update `openspec/architecture.md`: the PR markers row of State ownership (`rev=` suffix, binding rule; the #33 gap is resolved). Verify by reading the row.
 
 ## 5. Store git transport under the store login (#35, D4)
 
