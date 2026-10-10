@@ -157,6 +157,28 @@ class SkillText(unittest.TestCase):
         self.assertRegex(rule, r"(?is)without `--resolve` if it is already resolved", "a resolved rebound thread is not replied to without `--resolve`")
         self.assertRegex(rule, r"(?is)never re-open", "the rebound rule never says not to re-open the thread")
 
+    def test_feedback_reads_clipped_items_in_full(self):
+        step = self.feedback_steps()[1]
+        at = step.find("`clipped: true`")
+        self.assertNotEqual(at, -1, "feedback step 1 never reads `clipped: true`")
+        rule = step[max(0, at - 80):at + 600]
+        self.assertRegex(rule, r"(?i)\bevery\b", "step 1 does not read every clipped item")
+        self.assertRegex(rule, r"pr-snapshot\.sh[^`]*--full", "step 1 does not read clipped items with `pr-snapshot.sh --full`")
+        self.assertRegex(rule, r"(?is)before[^.;]*step 5", "step 1 does not put the full read before step 5 judges")
+        self.assertRegex(rule, r"(?is)full body", "step 1 does not judge on the full body")
+
+    def test_feedback_hands_over_an_unreadable_clipped_item(self):
+        step = self.feedback_steps()[1]
+        at = step.find("`clipped: true`")
+        self.assertNotEqual(at, -1, "feedback step 1 never reads `clipped: true`")
+        rule = step[at:]
+        fail = re.search(r"(?is)(fails|cannot be read|exits? non-zero|unreadable)[^.]*\.", rule)
+        self.assertTrue(fail, "step 1 never says what a failed `--full` read does")
+        self.assertRegex(rule, r"(?i)manual read", "an unreadable clipped item is not reported as needing a manual read")
+        self.assertRegex(rule, r"(?is)neither (drop|answer)[^.]*(drop|answer)|not (drop|answer)[^.]*(or|nor)[^.]*(drop|answer)",
+                         "an unreadable clipped item may still be dropped or answered")
+        self.assertRegex(rule, r"(?i)report", "an unreadable clipped item is not reported to the user")
+
     def test_feedback_step_8_passes_rev(self):
         steps = self.feedback_steps()
         step = steps[8]
