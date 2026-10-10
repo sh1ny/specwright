@@ -81,7 +81,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 3. Reviewer cutoff when push activity is missing (#31, D2)
 
-- [ ] 3.1 Write the failing tests for the seven "Reviewer reports count only for the current head" rows. Model the sequences on the fake clock: commit(B) 09:00, report(A) 10:00, push(B) 11:00 absent from activity, first snapshot 12:00. Use Mira (`kintsugimira`) and a required generic reviewer. The `--wait` case uses `--interval 1` and advances the clock between polls, with the state directory replaced by a regular file so it cannot be created. Verify that they fail for the expected reason: the commit-date cutoff marks A's report `reported`.
+- [x] 3.1 Write the failing tests for the seven "Reviewer reports count only for the current head" rows. Model the sequences on the fake clock: commit(B) 09:00, report(A) 10:00, push(B) 11:00 absent from activity, first snapshot 12:00. Use Mira (`kintsugimira`) and a required generic reviewer. The `--wait` case uses `--interval 1` and advances the clock between polls, with the state directory replaced by a regular file so it cannot be created. Verify that they fail for the expected reason: the commit-date cutoff marks A's report `reported`.
 - [ ] 3.2 Implement D2 in `prepare_cfg` (`pr-snapshot.sh`):
   - **Record:** `<state>/heads/<owner>/<name>/<pr>/<oid>`, lower case, written to a temp file and published by a no-clobber hard link. Remove the temp file. Remove the sibling heads of the same PR once the record is published.
   - **Read:** a later process reads the record. An unreadable or unparseable record falls back to the in-process first-seen time, kept across polls.
