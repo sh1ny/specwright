@@ -87,50 +87,55 @@ fi
 [ -n "$pr" ] || pr=$(gh pr view --json number --jq .number)
 owner=${repo%%/*} name=${repo#*/}
 
-# Watch ownership: a directory of numbered claims per PR,
-# <state>/watch/v2/<owner>/<name>/<pr>/ (lower case). A new --wait takes the
-# highest number plus one (created with set -C, so two watchers never share a
-# number; a collision tries the next) and then removes the lower claims. A
-# watcher owns the PR while its own file exists and no higher number does, so
-# the newest claim wins and an older watcher exits 4 before its next poll. Exit
-# removes only the watcher's own file: no clock, and no read-then-remove of a
-# file another watcher may have replaced. $HOME, not a temp dir, because each
-# harness may have its own temp dir. 0.1.10's token file (watch/<owner>-<name>-<pr>)
-# is not read and is left in place.
-owner_file= claim_dir= claim_no=
+# Watch ownership: a directory of claims per PR,
+# <state>/watch/v2/<owner>/<name>/<pr>/ (lower case). A claim is a file named
+# <n>-<nonce>: a new --wait takes the highest number plus one and a nonce of
+# its own, so no two claims ever share a name, even when a number comes back
+# after the directory emptied. Claims order by number, then by nonce. A new
+# claim removes the lower ones. A watcher owns the PR while its own file exists
+# and no higher claim does, so the newest claim wins and an older watcher exits
+# 4 before its next poll. Exit removes only the watcher's own file, by its
+# unique name: no clock, and no read-then-remove. $HOME, not a temp dir,
+# because each harness may have its own temp dir. 0.1.10's token file
+# (watch/<owner>-<name>-<pr>) is not read and is left in place.
+owner_file= claim_dir= claim_no= claim_nonce=
 ownership_off() { echo "pr-snapshot: cannot create the watch state directory; ownership is off for PR $pr (this watcher polls unowned)" >&2; }
-claim_nums() {  # prints the claim numbers in $claim_dir, one per line
-  local f n
+claim_list() {  # prints "<n> <nonce> <file name>" per claim in $claim_dir (a bare <n> has an empty nonce)
+  local f b n
   for f in "$claim_dir"/*; do
     [ -e "$f" ] || continue
-    n=${f##*/}
+    b=${f##*/} n=${b%%-*}
     case $n in ''|*[!0-9]*) continue ;; esac
-    echo "$((10#$n))"
+    case $b in *-*) echo "$((10#$n)) ${b#*-} $b" ;; *) echo "$((10#$n)) - $b" ;; esac
   done
 }
+claim_above() {  # <n> <nonce>: is claim <n>-<nonce> above ours?
+  [ "$1" -gt "$claim_no" ] || { [ "$1" -eq "$claim_no" ] && [[ $2 > $claim_nonce ]]; }
+}
 claim_watch() {
-  local base=${SPECWRIGHT_STATE_DIR:-$HOME/.cache/specwright} n top=0 limit
+  local base=${SPECWRIGHT_STATE_DIR:-$HOME/.cache/specwright} n s b top=0
   claim_dir="$base/watch/v2/$(printf '%s/%s/%s' "$owner" "$name" "$pr" | tr 'A-Z' 'a-z')"
   if ! mkdir -p "$claim_dir" 2>/dev/null; then claim_dir=; ownership_off; return 0; fi
-  for n in $(claim_nums); do if [ "$n" -gt "$top" ]; then top=$n; fi; done
-  n=$((top + 1)) limit=$((top + 1000))
-  until (set -C; : > "$claim_dir/$n") 2>/dev/null; do
-    n=$((n + 1))
-    if [ "$n" -gt "$limit" ]; then claim_dir=; ownership_off; return 0; fi
-  done
-  owner_file="$claim_dir/$n" claim_no=$n
+  while read -r n s b; do if [ "$n" -gt "$top" ]; then top=$n; fi; done < <(claim_list)
+  claim_no=$((top + 1)) claim_nonce=$(printf '%d.%05d%05d' "$$" "$RANDOM" "$RANDOM")
+  owner_file="$claim_dir/$claim_no-$claim_nonce"
+  if ! (set -C; : > "$owner_file") 2>/dev/null; then owner_file= claim_dir=; ownership_off; return 0; fi
   trap 'release_watch' EXIT
-  for n in $(claim_nums); do if [ "$n" -lt "$claim_no" ]; then rm -f "$claim_dir/$n" 2>/dev/null || true; fi; done
+  while read -r n s b; do
+    [ "$b" = "${owner_file##*/}" ] || claim_above "$n" "$s" || rm -f "$claim_dir/$b" 2>/dev/null || true
+  done < <(claim_list)
 }
 release_watch() {
   if [ -n "$owner_file" ]; then rm -f "$owner_file" 2>/dev/null || true; fi
   return 0
 }
 still_owner() {
-  local n
+  local n s b
   [ -n "$owner_file" ] || return 0
   [ -e "$owner_file" ] || return 1
-  for n in $(claim_nums); do if [ "$n" -gt "$claim_no" ]; then return 1; fi; done
+  while read -r n s b; do
+    if [ "$b" != "${owner_file##*/}" ] && claim_above "$n" "$s"; then return 1; fi
+  done < <(claim_list)
   return 0
 }
 

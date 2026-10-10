@@ -366,6 +366,19 @@ class WatchOwnership(SnapCase):
         self.assertEqual(rc, 4, err)
         self.assertEqual(self.claims(), ["99999"], "A gave up only its own claim")
 
+    def test_watch_reused_claim_number_does_not_revive_an_old_owner(self):
+        # A claims; B claims, removes A's claim and exits; C finds the directory empty and takes A's old number.
+        a = self.start(self.SLUG, 7, timeout=60)
+        self.until(lambda: self.calls() > 0, "A's first snapshot")
+        d = self.state_dir / "watch" / "v2" / "o" / "n" / "7"
+        (old,) = self.claims()
+        for f in d.iterdir():
+            f.unlink()
+        (d / old.split("-")[0]).write_text("", encoding="utf-8")  # C's claim, under A's number
+        rc, _, err = self.finish(a)
+        self.assertEqual(rc, 4, err)
+        self.assertEqual(self.claims(), [old.split("-")[0]], "A's exit left C's claim")
+
     def test_watch_simultaneous_claims_leave_one_owner(self):
         a, b = self.start(self.SLUG, 7), self.start(self.SLUG, 7)
         rcs = sorted([self.finish(a)[0], self.finish(b)[0]])
