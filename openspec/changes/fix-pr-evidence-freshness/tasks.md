@@ -13,10 +13,10 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 | pr-evidence → Reviewer reports count only for the current head | First-seen record cannot be written | evals/pr-pair/test_pr_snapshot.py | test_snapshot_first_seen_unsaved_keeps_process_time | green |
 | pr-evidence → Reviewer reports count only for the current head | Waiting with an unwritable state directory | evals/pr-pair/test_pr_snapshot.py | test_wait_unwritable_state_reports_and_times_out | green |
 | pr-evidence → Reviewer reports count only for the current head | Commit-precise reviewers | evals/pr-pair/test_pr_snapshot.py | test_snapshot_codex_sha_counts_without_push_activity | green |
-| pr-evidence → A reply is posted only for the revision that was judged | Item unchanged | evals/pr-pair/test_pr_reply.py | test_reply_with_matching_rev_posts_and_resolves | red |
-| pr-evidence → A reply is posted only for the revision that was judged | Reviewer edited the finding during the fix | evals/pr-pair/test_pr_reply.py | test_reply_refuses_a_changed_rev | red |
-| pr-evidence → A reply is posted only for the revision that was judged | Item cannot be read | evals/pr-pair/test_pr_reply.py | test_reply_exits_3_when_the_item_is_unreadable | red |
-| pr-evidence → A reply is posted only for the revision that was judged | Reply from an older session | evals/pr-pair/test_pr_reply.py | test_reply_without_rev_posts_as_before | red |
+| pr-evidence → A reply is posted only for the revision that was judged | Item unchanged | evals/pr-pair/test_pr_reply.py | test_reply_with_matching_rev_posts_and_resolves | green |
+| pr-evidence → A reply is posted only for the revision that was judged | Reviewer edited the finding during the fix | evals/pr-pair/test_pr_reply.py | test_reply_refuses_a_changed_rev | green |
+| pr-evidence → A reply is posted only for the revision that was judged | Item cannot be read | evals/pr-pair/test_pr_reply.py | test_reply_exits_3_when_the_item_is_unreadable | green |
+| pr-evidence → A reply is posted only for the revision that was judged | Reply from an older session | evals/pr-pair/test_pr_reply.py | test_reply_without_rev_posts_as_before | green |
 | pr-evidence → Handled markers are bound to a revision | Edit lands between the re-read and the reply | evals/pr-pair/test_pr_snapshot.py | test_snapshot_relists_comment_edited_before_bound_reply | red |
 | pr-evidence → Handled markers are bound to a revision | Thread edited before a resolving reply | evals/pr-pair/test_pr_snapshot.py; evals/pr-pair/test_skill_text.py | test_snapshot_relists_resolved_thread_as_rebound; test_feedback_judges_rebound_threads | red |
 | pr-evidence → Handled markers are bound to a revision | Answered item stays answered | evals/pr-pair/test_pr_snapshot.py | test_snapshot_bound_reply_keeps_items_answered | red |
@@ -100,7 +100,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - no `--rev` → as before, with no node read in `$FAKE_GH_LOG`.
 
   Verify that they fail because `--rev` is unknown.
-- [ ] 4.2 Implement `--rev` in `pr-reply.sh` for `thread`, `comment` and `resolve`:
+- [x] 4.2 Implement `--rev` in `pr-reply.sh` for `thread`, `comment` and `resolve`:
   - re-read through `node(id)` and compute the revision with the snapshot's formula;
   - exit 5 naming both revisions, or exit 3 on a read failure;
   - add `rev=<rev>` to the `handled` and `waiting` markers, after `resolve`;
