@@ -6,13 +6,13 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| pr-evidence → Reviewer reports count only for the current head | Push time known | evals/pr-pair/test_pr_snapshot.py | test_snapshot_cutoff_uses_push_time | red |
-| pr-evidence → Reviewer reports count only for the current head | Previous-head report with push activity missing | evals/pr-pair/test_pr_snapshot.py | test_snapshot_rejects_previous_head_reports_without_push_activity | red |
-| pr-evidence → Reviewer reports count only for the current head | Report after the head was first seen | evals/pr-pair/test_pr_snapshot.py | test_snapshot_counts_report_after_first_seen | red |
-| pr-evidence → Reviewer reports count only for the current head | First-seen time survives a new process | evals/pr-pair/test_pr_snapshot.py | test_snapshot_first_seen_persists_across_processes | red |
-| pr-evidence → Reviewer reports count only for the current head | First-seen record cannot be written | evals/pr-pair/test_pr_snapshot.py | test_snapshot_first_seen_unsaved_keeps_process_time | red |
-| pr-evidence → Reviewer reports count only for the current head | Waiting with an unwritable state directory | evals/pr-pair/test_pr_snapshot.py | test_wait_unwritable_state_reports_and_times_out | red |
-| pr-evidence → Reviewer reports count only for the current head | Commit-precise reviewers | evals/pr-pair/test_pr_snapshot.py | test_snapshot_codex_sha_counts_without_push_activity | red |
+| pr-evidence → Reviewer reports count only for the current head | Push time known | evals/pr-pair/test_pr_snapshot.py | test_snapshot_cutoff_uses_push_time | green |
+| pr-evidence → Reviewer reports count only for the current head | Previous-head report with push activity missing | evals/pr-pair/test_pr_snapshot.py | test_snapshot_rejects_previous_head_reports_without_push_activity | green |
+| pr-evidence → Reviewer reports count only for the current head | Report after the head was first seen | evals/pr-pair/test_pr_snapshot.py | test_snapshot_counts_report_after_first_seen | green |
+| pr-evidence → Reviewer reports count only for the current head | First-seen time survives a new process | evals/pr-pair/test_pr_snapshot.py | test_snapshot_first_seen_persists_across_processes | green |
+| pr-evidence → Reviewer reports count only for the current head | First-seen record cannot be written | evals/pr-pair/test_pr_snapshot.py | test_snapshot_first_seen_unsaved_keeps_process_time | green |
+| pr-evidence → Reviewer reports count only for the current head | Waiting with an unwritable state directory | evals/pr-pair/test_pr_snapshot.py | test_wait_unwritable_state_reports_and_times_out | green |
+| pr-evidence → Reviewer reports count only for the current head | Commit-precise reviewers | evals/pr-pair/test_pr_snapshot.py | test_snapshot_codex_sha_counts_without_push_activity | green |
 | pr-evidence → A reply is posted only for the revision that was judged | Item unchanged | evals/pr-pair/test_pr_reply.py | test_reply_with_matching_rev_posts_and_resolves | red |
 | pr-evidence → A reply is posted only for the revision that was judged | Reviewer edited the finding during the fix | evals/pr-pair/test_pr_reply.py | test_reply_refuses_a_changed_rev | red |
 | pr-evidence → A reply is posted only for the revision that was judged | Item cannot be read | evals/pr-pair/test_pr_reply.py | test_reply_exits_3_when_the_item_is_unreadable | red |
@@ -82,7 +82,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 ## 3. Reviewer cutoff when push activity is missing (#31, D2)
 
 - [x] 3.1 Write the failing tests for the seven "Reviewer reports count only for the current head" rows. Model the sequences on the fake clock: commit(B) 09:00, report(A) 10:00, push(B) 11:00 absent from activity, first snapshot 12:00. Use Mira (`kintsugimira`) and a required generic reviewer. The `--wait` case uses `--interval 1` and advances the clock between polls, with the state directory replaced by a regular file so it cannot be created. Verify that they fail for the expected reason: the commit-date cutoff marks A's report `reported`.
-- [ ] 3.2 Implement D2 in `prepare_cfg` (`pr-snapshot.sh`):
+- [x] 3.2 Implement D2 in `prepare_cfg` (`pr-snapshot.sh`):
   - **Record:** `<state>/heads/<owner>/<name>/<pr>/<oid>`, lower case, written to a temp file and published by a no-clobber hard link. Remove the temp file. Remove the sibling heads of the same PR once the record is published.
   - **Read:** a later process reads the record. An unreadable or unparseable record falls back to the in-process first-seen time, kept across polls.
   - **Cutoff:** `since` = push time, else first-seen. Never the commit date.

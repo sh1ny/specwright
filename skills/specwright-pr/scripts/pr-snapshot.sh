@@ -18,6 +18,9 @@
 #             PR (from any agent) takes over, and the older one exits 4
 #             before its next poll, so a lost or forgotten watcher stops
 #             spending the account's API budget.
+# "head_cutoff": {source, at} says where reports start to count and each
+# reviewer's timeout starts: source push | first_seen | first_seen_unsaved (the
+# push is not in the activity log; see prepare_cfg).
 # "complete": false means a list was cut off at its page size - do not treat
 # missing items as absent.
 # Wrap with as.sh to pin the GitHub identity.
@@ -178,9 +181,8 @@ def norm: sub("\\[bot\\]$"; "");
 # Bots that are known get a precise signal; any other login counts as reported
 # once it posts anything at or after the push.
 | (if cfg.head == $p.headRefOid then cfg.pushed else null end) as $pushed
-# Output counts as a report from $since on: the push time, or the commit date
-# when the push is unknown (the earliest it can have been pushed), so a review
-# that came before this watcher first saw the head is not thrown away.
+# Output counts as a report from $since on: the push time, or when the push is
+# unknown the time a snapshot first saw the head (never the commit date).
 | (if cfg.head == $p.headRefOid then cfg.since else null end) as $since
 | $p.headRefOid as $head
 | ([ ($p.comments.nodes[]), ($p.reviews.nodes[]), ($p.reviewThreads.nodes[].comments.nodes[]) ]) as $all
@@ -232,6 +234,7 @@ def norm: sub("\\[bot\\]$"; "");
     fail_run_ids: ([ $checks[] | select(.state == "fail" and .run_id != null) | .run_id ] | unique),
     threads: $threads, comments: $comments, reviews: $reviews, stale_verdicts: $stale_verdicts,
     reviewers: $reviewers, head_pushed_at: $pushed,
+    head_cutoff: (if cfg.head == $p.headRefOid then cfg.cutoff else null end),
     recheck: [ ($p.comments.nodes[], $p.reviews.nodes[], $p.reviewThreads.nodes[].comments.nodes[])
                | select(thumbs and .lastEditedAt != null and rtimes[.id] == null) | .id ],
     complete: ($truncated | length == 0), truncated: $truncated,
@@ -251,38 +254,63 @@ JQ
 # cfg for the reviewer check: the head's push time from the repository's
 # activity log (cached per head) and GitHub's clock from a Date header, so
 # timeouts never depend on the local clock. If the push is not in the log, the
-# GitHub time this process first saw the head starts the timeout: never
-# earlier than the push, so a timeout can come late but never early (a commit
-# date can be hours before the push). Reports are then accepted from the commit
-# date on (since), so one that came before this process started still counts.
+# cutoff and the timeout start are the earliest GitHub time any snapshot on this
+# machine saw the head, kept in <state>/heads/<owner>/<name>/<pr>/<oid>: never
+# earlier than the push, so a timeout can come late but never early, and a
+# report made before the head was first seen is not counted (never the commit
+# date, which can precede the push by hours and so admits reports of a
+# previous head). The record is written to a temp file and published with a
+# no-clobber hard link, so the first writer wins and nobody sees an empty
+# record; publishing it removes the records of the PR's other heads. If it can
+# be neither published nor read (or does not parse), this process's own first
+# sighting is used and kept across polls ("first_seen_unsaved").
 # Sets CFG in the current shell; call it outside $(...).
-CFG='def cfg: {reviewers: [], head: null, pushed: null, since: null, now: 0};' pushed_oid= pushed_at= first_seen=
+CFG='def cfg: {reviewers: [], head: null, pushed: null, since: null, cutoff: null, now: 0};' pushed_oid= pushed_at= first_seen= seen_src= seen_date=
+DATE_RE='^[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT$'
+# Sets seen_date (an HTTP date) and seen_src (first_seen | first_seen_unsaved).
+resolve_first_seen() {
+  local base dir rec tmp d f
+  base=${SPECWRIGHT_STATE_DIR:-$HOME/.cache/specwright}
+  dir="$base/heads/$(printf '%s/%s' "$owner/$name" "$pr" | tr 'A-Z' 'a-z')"
+  rec="$dir/$pushed_oid"
+  seen_date=$first_seen seen_src=first_seen_unsaved
+  if mkdir -p "$dir" 2>/dev/null && tmp=$(mktemp "$dir/.tmp.XXXXXX" 2>/dev/null); then
+    if printf '%s\n' "$first_seen" > "$tmp" 2>/dev/null && ln "$tmp" "$rec" 2>/dev/null; then
+      for f in "$dir"/*; do [ "$f" = "$rec" ] || rm -f "$f" 2>/dev/null || true; done
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+  fi
+  d=$(head -n 1 "$rec" 2>/dev/null | tr -d '\r') || d=
+  if printf '%s' "$d" | grep -Eq "$DATE_RE"; then seen_date=$d seen_src=first_seen; fi
+  return 0
+}
 prepare_cfg() {
   [ -n "$reviewers" ] || return 0
-  local info oid branch hrepo committed date pushed since
+  local info oid branch hrepo date pushed cutoff
   info=$(gh api graphql -f owner="$owner" -f name="$name" -F pr="$pr" -f query='
     query($owner:String!,$name:String!,$pr:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$pr){
-      headRefOid headRefName headRepository { nameWithOwner } commits(last:1) { nodes { commit { committedDate } } } } } }' \
-    --jq '.data.repository.pullRequest | [.headRefOid, .headRefName, (.headRepository.nameWithOwner // "-"),
-      (.commits.nodes[0].commit.committedDate // "-")] | join(" ")') || return 1
-  read -r oid branch hrepo committed <<<"$info"
-  printf '%s' "$committed" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' || committed=
+      headRefOid headRefName headRepository { nameWithOwner } } } }' \
+    --jq '.data.repository.pullRequest | [.headRefOid, .headRefName, (.headRepository.nameWithOwner // "-")] | join(" ")') || return 1
+  read -r oid branch hrepo <<<"$info"
   date=$(gh api -i rate_limit 2>/dev/null | tr -d '\r' | sed -n 's/^[Dd]ate: //p' | head -n 1) || date=
   printf '%s' "$oid" | grep -Eq '^[0-9a-f]{40}$' || return 1
-  printf '%s' "$date" | grep -Eq '^[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT$' || return 1
-  [ "$oid" = "$pushed_oid" ] || { pushed_oid=$oid pushed_at= first_seen=$date; }
+  printf '%s' "$date" | grep -Eq "$DATE_RE" || return 1
+  [ "$oid" = "$pushed_oid" ] || { pushed_oid=$oid pushed_at= first_seen=$date seen_src= seen_date=; }
   # look the push up until found; it can reach the log after the first poll
   if [ -z "$pushed_at" ] && [ "$hrepo" != - ]; then
     pushed_at=$(gh api "repos/$hrepo/activity?ref=refs/heads/$branch&per_page=100" \
       --jq "[.[] | select(.after == \"$oid\")][0].timestamp // empty" 2>/dev/null) || pushed_at=
     printf '%s' "$pushed_at" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' || pushed_at=
   fi
-  if [ -n "$pushed_at" ]; then pushed="\"$pushed_at\"" since=$pushed
+  if [ -n "$pushed_at" ]; then
+    pushed="\"$pushed_at\"" cutoff="{source: \"push\", at: $pushed}"
   else
-    pushed="(\"$first_seen\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime | todate)"
-    if [ -n "$committed" ]; then since="\"$committed\""; else since=$pushed; fi
+    # decided once per head per process, so the cutoff and timeout start stay fixed
+    [ -n "$seen_src" ] || resolve_first_seen
+    pushed="(\"$seen_date\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime | todate)"
+    cutoff="{source: \"$seen_src\", at: $pushed}"
   fi
-  CFG="def cfg: {reviewers: [$reviewers], head: \"$oid\", pushed: $pushed, since: $since,
+  CFG="def cfg: {reviewers: [$reviewers], head: \"$oid\", pushed: $pushed, since: $pushed, cutoff: $cutoff,
     now: (\"$date\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime)};"
 }
 query_pr() {  # <rtimes def>
