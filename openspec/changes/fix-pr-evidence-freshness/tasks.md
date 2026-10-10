@@ -55,7 +55,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - **Writes:** the REST reply POST `repos/<o>/<n>/pulls/<pr>/comments/<id>/replies`; `pr comment --body-file`; the `resolveReviewThread` and `addReaction` mutations. Each is appended to the PR state with the clock's time and the token's viewer.
 
   Verify with new cases in `evals/pr-pair/test_fake_gh.py` (each form returns the documented shape; an unknown node returns null) and `python -m unittest evals.pr-pair.test_fake_gh`.
-- [ ] 1.2 Add the shared fixture module for the new tests:
+- [x] 1.2 Add the shared fixture module for the new tests:
   - pick `gojq` when on `PATH`, else `jq`, and expose which one in the test output;
   - run `pr-snapshot.sh` and `pr-reply.sh` with `SPECWRIGHT_STATE_DIR` in a temp directory;
   - helpers to add threads, comments, reviews and edits at a clock time.
