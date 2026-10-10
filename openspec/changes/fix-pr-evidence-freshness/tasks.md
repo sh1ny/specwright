@@ -184,7 +184,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - a failed read → the item is reported as needing a manual read, neither dropped nor answered.
 
   Verify that the tests pass, and flip the rows green.
-- [ ] 7.4 Update `openspec/architecture.md`: the "PR snapshot bodies" resource row (#47 resolved). Verify by reading it.
+- [x] 7.4 Update `openspec/architecture.md`: the "PR snapshot bodies" resource row (#47 resolved). Verify by reading it.
 
 ## 8. Release 0.1.11
 
