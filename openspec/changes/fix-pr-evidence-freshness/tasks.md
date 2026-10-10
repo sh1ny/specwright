@@ -133,7 +133,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
 
 ## 5. Store git transport under the store login (#35, D4)
 
-- [ ] 5.1 Write the failing tests:
+- [x] 5.1 Write the failing tests:
   - **Private store remote:** put a `git` shim first on `PATH`. For `ls-remote`/`fetch` against the store's GitHub URL, it asks `git credential fill` for `github.com` over HTTPS and fails with `Authentication failed` unless the password is the store login's token. Otherwise it forwards to the real git, mapping the URL to a local bare repository. `rounds` must report the store fix commit as pushed, and `pass plan` must report its `push` row `done`, with no `remote_unreadable`.
   - **Missing credential:** without a credential for `planning_store.login`, both `rounds` and `pass plan` exit 3 with `no_credential`, and the shim log shows no store network call.
 

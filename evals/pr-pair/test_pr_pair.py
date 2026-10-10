@@ -1739,6 +1739,77 @@ class PassOwnership(PassBase):
 
 
 # =======================================================================================================
+class StoreTransport(PassBase):
+    """The store's git network reads authenticate as planning_store.login.
+
+    A `git` shim first on PATH guards the store's GitHub URL: ls-remote/fetch ask `git credential fill` for
+    github.com over HTTPS and fail unless the password is the store login's token, else they run against a local
+    bare repository. The store's own config has no insteadOf, and an unreachable http.proxy, so a git that does not
+    go through the shim (which is how pr-pair.sh reaches the store today) cannot read it."""
+
+    SHIM = """#!/bin/sh
+real="$SHIM_REAL_GIT"
+case "$1" in ls-remote|fetch) ;; *) exec "$real" "$@" ;; esac
+url=$("$real" remote get-url origin 2>/dev/null) || exec "$real" "$@"
+case $url in *github.com/acme/plans*) ;; *) exec "$real" "$@" ;; esac
+cred=$(printf 'protocol=https\\nhost=github.com\\n\\n' | "$real" credential fill 2>/dev/null) || cred=
+pw=$(printf '%s\\n' "$cred" | sed -n 's/^password=//p' | tr -d '\\r')
+echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"
+if [ "$pw" != "$SHIM_STORE_TOKEN" ]; then
+  echo "fatal: Authentication failed for '$url'" >&2
+  exit 128
+fi
+exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
+"""
+
+    def private_store(self, login):
+        """The store reads only as `login`'s token; `login` is planning_store.login, the code login is KintsugiBot."""
+        self.settings("github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n"
+                      "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n"
+                      f"planning_store:\n  login: {login}\n")
+        self.write_record([self.finding()])
+        self.sha = self.fix_store()
+        self.push_all()
+        bare = self.tmp / "store.bare.git"
+        self.git(self.store, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
+        self.git(self.store, "config", "http.proxy", "http://127.0.0.1:9")
+        self.shim_log = self.tmp / "git-shim.log"
+        self.write("bin/git", self.SHIM)
+        os.chmod(self.tmp / "bin" / "git", 0o755)
+        self.extra_env.update({"SHIM_REAL_GIT": fixtures.posix(shutil.which("git")), "SHIM_LOG": fixtures.posix(self.shim_log),
+                               "SHIM_STORE_TOKEN": "tok-s", "SHIM_BARE": fixtures.posix(bare)})
+
+    def rounds(self, expect=0):
+        return self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, expect=expect)
+
+    def plan_store(self, expect=0):
+        return self.pp("pass", "plan", *self.common(),
+                       "--snapshot", f"code={self.write_json('code-snap.json', snap(threads=[thread()]))}",
+                       "--snapshot", f"store={self.write_json('store-snap.json', snap())}", env={"GH_TOKEN": "tok-k"}, expect=expect)
+
+    def shim_calls(self):
+        return self.shim_log.read_text(encoding="utf-8").splitlines() if self.shim_log.exists() else []
+
+    def test_rounds_and_pass_plan_read_a_private_store_remote_as_the_store_login(self):
+        self.private_store("sh1ny")
+        r = self.rounds()
+        self.assertEqual((r["unpushed"], r["remote_unreadable"]), ({}, []))
+        p = self.plan_store()
+        self.assertEqual(self.row(p, "push", "store")["state"], "done")
+        self.assertNotIn("remote_unreadable", json.dumps(p))
+        self.assertTrue(self.shim_calls())
+        self.assertTrue(all(c.endswith("with-credential") for c in self.shim_calls()), self.shim_calls())
+
+    def test_store_git_reads_stop_without_a_store_credential(self):
+        self.private_store("nobody")  # no gh credential for this login
+        r = self.rounds(expect=3)
+        self.assertEqual(r["error"], "no_credential")
+        p = self.plan_store(expect=3)
+        self.assertEqual(p["error"], "no_credential")
+        self.assertEqual(self.shim_calls(), [])  # no store network call, with the code login or without a credential
+
+
+# =======================================================================================================
 class PassRepoLocal(Base):
     """A repo-local change (no store): the same pass record, plan and rounds, with `--store` left out."""
 
