@@ -53,6 +53,10 @@ unset GH_REPO
 PR_PAIR_BASH=${BASH:-}
 if [ -n "$PR_PAIR_BASH" ] && command -v cygpath >/dev/null 2>&1; then PR_PAIR_BASH=$(cygpath -w "$PR_PAIR_BASH"); fi
 export PR_PAIR_BASH
+# absolute, so the python below can hand as.sh to bash from any working directory (-m: forward slashes bash accepts)
+PR_PAIR_DIR=$(cd "$(dirname "$0")" && pwd -P)
+if command -v cygpath >/dev/null 2>&1; then PR_PAIR_DIR=$(cygpath -m "$PR_PAIR_DIR"); fi
+export PR_PAIR_DIR
 
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import contextlib
@@ -108,6 +112,23 @@ def run(cmd, cwd=None):
 
 def git(d, *args):
     return run(["git", *args], cwd=d)
+
+
+IDENT = {}
+
+
+def git_net(d, *args):
+    """git ls-remote / fetch in `d`, authenticated as the login that reads d's repo (as.sh pins the transport)."""
+    if d not in IDENT:
+        try:
+            IDENT[d] = identity(d)["repo"].lower()
+        except Stop:  # no GitHub origin: plain git, as before
+            IDENT[d] = None
+    login = REPO_LOGIN.get(IDENT[d] or "")
+    if not login:
+        return git(d, *args)
+    token_for(login)  # no credential / wrong identity stops here, before any git network command
+    return run([BASH, f"{os.environ['PR_PAIR_DIR']}/as.sh", login, "git", *args], cwd=d)
 
 
 REPO_LOGIN, TOKENS = {}, {}  # repo slug (lower) -> login that reads it; login -> its verified token
@@ -1097,6 +1118,23 @@ def read_snapshots(a):
     return out
 
 
+def snapshot_refresh(s, pr):
+    """The refresh blocker when snapshot s is not of the discovered PR (repo, number, head commit), else None."""
+    m = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)", (s.get("url") or "") if isinstance(s.get("url"), str) else "")
+    want_m = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)", pr.get("url") or "")
+    number = s.get("number")
+    same_repo = bool(m and want_m and m.group(1).lower() == want_m.group(1).lower())
+    if number != pr["number"] or not same_repo:
+        got = "?" if number is None else str(number)
+        if number == pr["number"] and m:
+            got = f"{m.group(1)}#{number}"
+        return f"refresh:pr:{got}!={pr['number']}"
+    got, want = s.get("head_oid") or "", pr.get("head_sha") or ""
+    if not got or got != want:
+        return f"refresh:head:{got[:7] or '?'}!={want[:7]}"
+    return None
+
+
 def cmd_pair_state(argv):
     a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch", "--snapshot": "+snapshot", "--dropped": "+dropped"})
     need(a, "code", "store", "branch")
@@ -1104,7 +1142,7 @@ def cmd_pair_state(argv):
     snaps, dropped = read_snapshots(a), set(a.get("dropped", []))
     members = e["set"]
     states = {k: (e[k]["pr"]["state"] if e[k]["pr"] else None) for k in members}
-    r = {"ok": True, "set": members, "states": states, "waits": [], "ready": {}, "waiting_on": [], "blocking": {}, "missing": [],
+    r = {"ok": True, "set": members, "states": states, "waits": [], "ready": {}, "waiting_on": [], "blocking": {}, "missing": [], "refresh": [],
          "merged": [], "closed": [], "open": [], "stop_waits": False, "archive": False, "rerequest": False,
          "share_store_by_hand": "code" in members and "store" not in members,
          "prs": {k: e[k]["pr"] for k in members}, "ship": e["ship"]}
@@ -1123,6 +1161,10 @@ def cmd_pair_state(argv):
         return {**r, "action": "cleanup", "stop_waits": True}
     for k in members:
         ok, blockers, stale_only = readiness(snaps.get(k), dropped)
+        stale = snapshot_refresh(snaps[k], e[k]["pr"]) if snaps.get(k) is not None else None
+        if stale:
+            ok, blockers, stale_only = False, [stale] + blockers, False
+            r["refresh"].append(k)
         r["ready"][k] = ok
         if not ok:
             r["blocking"][k] = blockers
@@ -1134,7 +1176,7 @@ def cmd_pair_state(argv):
 
 
 def remote_contains(d, branch, sha):
-    r = git(d, "ls-remote", "origin", f"refs/heads/{branch}")
+    r = git_net(d, "ls-remote", "origin", f"refs/heads/{branch}")
     if r.returncode != 0:
         raise Stop("remote_unreadable", f"git ls-remote origin failed in {d}: {r.stderr.strip()}", code=3, unknown=True)
     line = r.stdout.strip().split("\n")[0].strip()
@@ -1145,7 +1187,7 @@ def remote_contains(d, branch, sha):
         return True
     if git(d, "cat-file", "-e", remote + "^{commit}").returncode != 0:
         # another checkout pushed a tip this repo lacks: fetch it (FETCH_HEAD only, no local ref moves) before the ancestry test
-        git(d, "fetch", "-q", "origin", f"refs/heads/{branch}")
+        git_net(d, "fetch", "-q", "origin", f"refs/heads/{branch}")
     r = git(d, "merge-base", "--is-ancestor", sha, remote)
     if r.returncode in (0, 1):
         return r.returncode == 0
@@ -1183,8 +1225,19 @@ def cmd_rounds(argv):
     rounds = top or max(p["subject_count"] for p in per.values())
     unpushed, unreadable = {}, []
     if top:
+        shas_of = {k: [s for s, n in per[k]["trailers"].items() if n == top] for k, _ in repos}
+        if a.get("store") and shas_of.get("store"):
+            # the store may need its own login: stop on a missing credential before the per-repo loop, but only when
+            # the store has top-round commits to look for on its remote
+            try:
+                slug = identity(a["store"])["repo"]
+            except Stop:  # no GitHub origin: plain git, as before
+                slug = None
+            read_store_as(ctx, slug)
+            if slug and REPO_LOGIN.get(slug.lower()):
+                token_for(REPO_LOGIN[slug.lower()])
         for k, d in repos:
-            shas = [s for s, n in per[k]["trailers"].items() if n == top]
+            shas = shas_of[k]
             try:
                 missing = [s for s in shas if not remote_contains(d, a["branch"], s)]
             except Stop:  # the count does not depend on the remote; say which side could not be checked

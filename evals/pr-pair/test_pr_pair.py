@@ -48,7 +48,7 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
         self.gh_state = self.tmp / "gh-state.json"
@@ -175,14 +175,17 @@ class Base(unittest.TestCase):
         return self.write(rel, json.dumps(obj))
 
 
-def snap(threads=(), comments=(), reviews=(), viewer="KintsugiBot", **over):
-    """A pr-snapshot.sh result that passes the readiness test unless overridden."""
+def snap(threads=(), comments=(), reviews=(), viewer="KintsugiBot", pr=None, **over):
+    """A pr-snapshot.sh result that passes the readiness test unless overridden.
+    pr is a fake PR (Base.pull): the snapshot then takes its number, url and head_oid."""
     s = {"viewer": viewer, "number": 1, "url": "https://github.com/acme/x/pull/1", "state": "OPEN", "draft": False,
          "mergeable": "MERGEABLE", "merge_state": "CLEAN", "pending_review": False,
          "checks": {"total": 3, "pending": 0, "advisory_pending": 0, "failing": []},
          "threads": list(threads), "comments": list(comments), "reviews": list(reviews), "stale_verdicts": [],
          "reviewers": [{"login": "chatgpt-codex-connector", "role": "required", "timeout": 1200, "state": "reported"}],
          "complete": True, "truncated": []}
+    if pr is not None:
+        s.update(number=pr["number"], url=pr["html_url"], head_oid=pr["head"]["sha"])
     s.update(over)
     return s
 
@@ -580,6 +583,11 @@ class PairState(Base):
         for d in (self.code, self.store):
             self.git(d, "checkout", "-q", "-b", BRANCH)
 
+    def snap(self, slug, n=1, **kw):
+        """A passing snapshot of the fake PR slug#n, as pr-snapshot.sh would report it."""
+        pr = next(p for p in self.pulls(slug) if p["number"] == n)
+        return snap(pr=pr, **kw)
+
     def state(self, code=None, store=None, dropped=(), expect=0):
         args = ["pair-state", "--code", self.code, "--store", self.store, "--branch", BRANCH]
         for name, s in (("code", code), ("store", store)):
@@ -594,7 +602,7 @@ class PairState(Base):
         self.add_pull(CODE, 1)
         self.add_pull(STORE, 1)
         unresolved = thread(comments=[{"id": "C1", "author": "chatgpt-codex-connector", "at": T0, "edited": None}])
-        r = self.state(code=snap(), store=snap(threads=[unresolved]))
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE, threads=[unresolved]))
         self.assertEqual(r["set"], ["store", "code"])
         self.assertEqual(r["action"], "wait")
         self.assertEqual(r["ready"], {"code": True, "store": False})
@@ -602,22 +610,52 @@ class PairState(Base):
         self.assertIn("threads", r["blocking"]["store"])
         self.assertEqual(sorted(r["waits"]), ["code", "store"])
 
+    def test_pair_state_refreshes_an_old_head_snapshot(self):
+        self.add_pull(STORE, 1, sha="b" * 40)
+        old = snap(number=1, url=f"https://github.com/{STORE}/pull/1", head_oid="a" * 40)
+        r = self.state(store=old)
+        self.assertEqual(r["action"], "wait")
+        self.assertEqual(r["ready"], {"store": False})
+        self.assertEqual(r["refresh"], ["store"])
+        self.assertIn("refresh:head:aaaaaaa!=bbbbbbb", r["blocking"]["store"])
+
+    def test_pair_state_refreshes_a_snapshot_of_another_pr(self):
+        self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
+        self.add_pull(CODE, 9)
+        self.add_pull(STORE, 1)
+        other = snap(number=7, url=f"https://github.com/{CODE}/pull/7", head_oid=f"{9:040x}")
+        r = self.state(code=other, store=self.snap(STORE))
+        self.assertEqual(r["action"], "wait")
+        self.assertEqual(r["ready"], {"code": False, "store": True})
+        self.assertEqual(r["refresh"], ["code"])
+        self.assertIn("refresh:pr:7!=9", r["blocking"]["code"])
+
+    def test_pair_state_refreshes_a_snapshot_without_a_head(self):
+        self.add_pull(STORE, 1)
+        for drop in ("head_oid", "number"):
+            s = self.snap(STORE)
+            del s[drop]
+            r = self.state(store=s)
+            self.assertEqual(r["action"], "wait", drop)
+            self.assertEqual(r["refresh"], ["store"], drop)
+            self.assertTrue([b for b in r["blocking"]["store"] if b.startswith("refresh:")], drop)
+
     def test_pair_state_ready_only_when_both_pass(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
         self.add_pull(STORE, 1)
-        r = self.state(code=snap(), store=snap())
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE))
         self.assertEqual((r["action"], r["ready"]), ("ready", {"code": True, "store": True}))
-        r = self.state(code=snap(checks={"total": 2, "pending": 1, "advisory_pending": 0, "failing": []}), store=snap())
+        r = self.state(code=self.snap(CODE, checks={"total": 2, "pending": 1, "advisory_pending": 0, "failing": []}), store=self.snap(STORE))
         self.assertEqual((r["action"], r["waiting_on"]), ("wait", ["code"]))
         # a dropped item (id@rev) does not block
         t = thread()
-        r = self.state(code=snap(), store=snap(threads=[t]), dropped=[f"T1@{REV0}"])
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE, threads=[t]), dropped=[f"T1@{REV0}"])
         self.assertEqual(r["action"], "ready")
 
     def test_pair_state_single_store_pr_ready(self):
         self.add_pull(STORE, 1)
-        r = self.state(store=snap())
+        r = self.state(store=self.snap(STORE))
         self.assertEqual(r["set"], ["store"])
         self.assertEqual((r["action"], r["ready"]), ("ready", {"store": True}))
         self.assertFalse(r.get("share_store_by_hand"))
@@ -626,7 +664,7 @@ class PairState(Base):
         self.git(self.store, "remote", "remove", "origin")
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
-        r = self.state(code=snap())
+        r = self.state(code=self.snap(CODE))
         self.assertEqual((r["set"], r["action"], r["share_store_by_hand"]), (["code"], "ready", True))
 
     def test_pair_state_empty_set_does_not_watch(self):
@@ -638,7 +676,7 @@ class PairState(Base):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
         self.add_pull(STORE, 1, state="closed", merged="2026-10-08T09:00:00Z")
-        r = self.state(code=snap(), store=snap(state="MERGED"))
+        r = self.state(code=self.snap(CODE), store=self.snap(STORE, state="MERGED"))
         self.assertEqual(r["action"], "split_hand_off")
         self.assertTrue(r["stop_waits"])
         self.assertEqual(r["states"], {"store": "MERGED", "code": "OPEN"})
@@ -653,7 +691,7 @@ class PairState(Base):
         e = self.pp("expected", "--code", self.code, "--store", self.store, "--branch", BRANCH)
         self.assertEqual(e["set"], ["store", "code"])
         self.assertEqual((e["code"]["commits"], e["code"]["reason"]), (0, "pr_exists"))
-        r = self.state(store=snap())
+        r = self.state(store=self.snap(STORE, 2))
         self.assertEqual(r["action"], "split_hand_off")
         self.assertEqual(r["states"], {"store": "OPEN", "code": "MERGED"})
         self.assertTrue(r["stop_waits"])
@@ -667,7 +705,7 @@ class PairState(Base):
     def test_pair_state_missing_pr_needs_ship(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(STORE, 1)
-        r = self.state(store=snap())
+        r = self.state(store=self.snap(STORE))
         self.assertEqual((r["action"], r["missing"]), ("ship", ["code"]))
 
 
@@ -1701,6 +1739,84 @@ class PassOwnership(PassBase):
 
 
 # =======================================================================================================
+class StoreTransport(PassBase):
+    """The store's git network reads authenticate as planning_store.login.
+
+    A `git` shim first on PATH guards the store's GitHub URL: ls-remote/fetch ask `git credential fill` for
+    github.com over HTTPS and fail unless the password is the store login's token, else they run against a local
+    bare repository. The store's own config has no insteadOf, and an unreachable http.proxy, so a git that does not
+    go through the shim (which is how pr-pair.sh reaches the store today) cannot read it."""
+
+    SHIM = """#!/bin/sh
+real="$SHIM_REAL_GIT"
+case "$1" in ls-remote|fetch) ;; *) exec "$real" "$@" ;; esac
+url=$("$real" remote get-url origin 2>/dev/null) || exec "$real" "$@"
+case $url in *github.com/acme/plans*) ;; *) exec "$real" "$@" ;; esac
+cred=$(printf 'protocol=https\\nhost=github.com\\n\\n' | "$real" credential fill 2>/dev/null) || cred=
+pw=$(printf '%s\\n' "$cred" | sed -n 's/^password=//p' | tr -d '\\r')
+echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"
+if [ "$pw" != "$SHIM_STORE_TOKEN" ]; then
+  echo "fatal: Authentication failed for '$url'" >&2
+  exit 128
+fi
+exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
+"""
+
+    def private_store(self, login, fix="store"):
+        """The store reads only as `login`'s token; `login` is planning_store.login, the code login is KintsugiBot."""
+        self.settings("github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n"
+                      "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n"
+                      f"planning_store:\n  login: {login}\n")
+        self.write_record([self.finding()])
+        self.sha = self.fix_store() if fix == "store" else self.fix_code()
+        self.push_all()
+        bare = self.tmp / "store.bare.git"
+        self.git(self.store, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
+        self.git(self.store, "config", "http.proxy", "http://127.0.0.1:9")
+        self.shim_log = self.tmp / "git-shim.log"
+        self.write("bin/git", self.SHIM)
+        os.chmod(self.tmp / "bin" / "git", 0o755)
+        self.extra_env.update({"SHIM_REAL_GIT": fixtures.posix(shutil.which("git")), "SHIM_LOG": fixtures.posix(self.shim_log),
+                               "SHIM_STORE_TOKEN": "tok-s", "SHIM_BARE": fixtures.posix(bare)})
+
+    def rounds(self, expect=0):
+        return self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, expect=expect)
+
+    def plan_store(self, expect=0):
+        return self.pp("pass", "plan", *self.common(),
+                       "--snapshot", f"code={self.write_json('code-snap.json', snap(threads=[thread()]))}",
+                       "--snapshot", f"store={self.write_json('store-snap.json', snap())}", env={"GH_TOKEN": "tok-k"}, expect=expect)
+
+    def shim_calls(self):
+        return self.shim_log.read_text(encoding="utf-8").splitlines() if self.shim_log.exists() else []
+
+    def test_rounds_and_pass_plan_read_a_private_store_remote_as_the_store_login(self):
+        self.private_store("sh1ny")
+        r = self.rounds()
+        self.assertEqual((r["unpushed"], r["remote_unreadable"]), ({}, []))
+        p = self.plan_store()
+        self.assertEqual(self.row(p, "push", "store")["state"], "done")
+        self.assertNotIn("remote_unreadable", json.dumps(p))
+        self.assertTrue(self.shim_calls())
+        self.assertTrue(all(c.endswith("with-credential") for c in self.shim_calls()), self.shim_calls())
+
+    def test_store_git_reads_stop_without_a_store_credential(self):
+        self.private_store("nobody")  # no gh credential for this login
+        r = self.rounds(expect=3)
+        self.assertEqual(r["error"], "no_credential")
+        p = self.plan_store(expect=3)
+        self.assertEqual(p["error"], "no_credential")
+        self.assertEqual(self.shim_calls(), [])  # no store network call, with the code login or without a credential
+
+
+    def test_code_only_rounds_need_no_store_credential(self):
+        self.private_store("nobody", fix="code")  # the round's fix is in the code repo; the store has nothing to check
+        r = self.rounds()
+        self.assertEqual((r["rounds"], r["unpushed"], r["remote_unreadable"]), (2, {}, []))
+        self.assertEqual(self.shim_calls(), [])
+
+
+# =======================================================================================================
 class PassRepoLocal(Base):
     """A repo-local change (no store): the same pass record, plan and rounds, with `--store` left out."""
 
@@ -1842,7 +1958,7 @@ class RecordLock(unittest.TestCase):
     def setUp(self):
         self.ns = PublishFallback.namespace()
         self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, str(self.tmp), True)
+        self.addCleanup(fixtures.rmtree, self.tmp)
         self.path = self.tmp / "rec.json"
 
     def held(self, body, path):
@@ -1884,7 +2000,7 @@ class PublishFallback(unittest.TestCase):
         from unittest import mock
         publish = self.namespace()["publish"]
         tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(fixtures.rmtree, tmp)
         src, dst = tmp / "src.json", tmp / "dst.json"
         src.write_bytes(b'{"a": 1}')
         real_fdopen = os.fdopen

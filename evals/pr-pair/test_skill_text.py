@@ -87,6 +87,40 @@ class SkillText(unittest.TestCase):
                         f"`cleanup-plan` is in {homes}, neither watch nor a cleanup section")
         self.assertLess(positions(sub("pair-state"))[0], plans[0], "`cleanup-plan` is described before `pair-state`")
 
+    def refresh_bullet(self):
+        watch = self.section("watch")
+        at = watch.find("refresh:head")
+        self.assertNotEqual(at, -1, "the watch section never reads a `refresh:head` blocker")
+        start = watch.rfind("\n   - ", 0, at) + 1
+        end = watch.find("\n   - ", at)
+        return watch[start:end if end != -1 else len(watch)]
+
+    def test_watch_refreshes_on_a_refresh_blocker(self):
+        watch = self.section("watch")
+        b = self.refresh_bullet()
+        self.assertLess(positions(sub("pair-state"), watch)[0], watch.index("refresh:head"), "`refresh:head` is described before `pair-state`")
+        self.assertRegex(b, r"`refresh`", "the bullet never reads the `refresh` field of `pair-state`")
+        head = re.search(r"`refresh:head[^`]*`[^;]*", b)
+        self.assertTrue(head, "`refresh:head` has no rule")
+        self.assertRegex(head.group(0), r"(?i)one-off snapshot", "`refresh:head` does not take a one-off snapshot")
+        self.assertRegex(head.group(0), r"same PR", "`refresh:head` does not snapshot the same PR")
+        self.assertRegex(b, r"(?i)once per wake", "the refresh is not limited to once per wake")
+        self.assertRegex(b, r"(?is)`pair-state` again", "`pair-state` is not called again after the refresh")
+
+    def test_watch_moves_its_wait_to_the_replaced_pr(self):
+        b = self.refresh_bullet()
+        pr = re.search(r"`refresh:pr[^`]*`[^;]*", b)
+        self.assertTrue(pr, "`refresh:pr` has no rule")
+        rule = pr.group(0)
+        stop, snap, restart = (re.search(p, rule) for p in (r"(?i)stop that side's wait", r"`prs\.<side>`", r"(?i)restart[^.;,]*wait[^.;]*number"))
+        self.assertTrue(stop, "`refresh:pr` does not stop that side's wait")
+        self.assertTrue(snap, "`refresh:pr` does not take the PR number from `prs.<side>`")
+        self.assertTrue(restart, "`refresh:pr` does not restart the wait on that number")
+        self.assertLess(stop.start(), snap.start(), "the snapshot is taken before the old wait is stopped")
+        self.assertLess(snap.start(), restart.start(), "the wait is restarted before the snapshot")
+        self.assertRegex(b, r"(?is)still mismatched[^;.]*back to waiting", "a still-mismatched snapshot does not go back to waiting")
+        self.assertRegex(b[b.index("still mismatched"):], r"`prs\.<side>`", "the wait after a mismatch is not on the PR `prs.<side>` names")
+
     def test_feedback_uses_pass_record_and_rounds(self):
         fb = self.section("feedback")
         for verb in ("write", "plan", "done"):
@@ -106,6 +140,76 @@ class SkillText(unittest.TestCase):
             self.assertIn(token, resume, f"`resume` does not pass the link row's {token}")
         self.assertLess(resume.index("react"), resume.rindex("plan again"), "`resume` does not plan again after the react and link rows")
         self.assertNotRegex(TEXT, r"(?<!gh run )\brerun\b", "SKILL.md still mentions the removed `rerun` reaction state")  # `gh run rerun` is unrelated
+
+    def feedback_steps(self):
+        fb = self.section("feedback")
+        return {int(m.group(1)): fb[m.start():(nxt.start() if (nxt := re.compile(r"^\d+\. ", re.M).search(fb, m.end())) else len(fb))]
+                for m in re.finditer(r"^(\d+)\. ", fb, re.M)}
+
+    def test_feedback_judges_rebound_threads(self):
+        step = self.feedback_steps()[4]
+        at = step.find("`rebound: true`")
+        self.assertNotEqual(at, -1, "feedback step 4 never reads `rebound: true`")
+        rule = step[at:at + 600]
+        self.assertRegex(rule, r"(?is)edited by the reviewer before your reply", "the rebound rule does not say the edit came before the reply")
+        self.assertRegex(rule, r"(?is)answered an older text", "the rebound rule does not say the reply answered older text")
+        self.assertRegex(rule, r"(?is)judge its current comments as a new finding", "a rebound thread is not judged as a new finding")
+        self.assertRegex(rule, r"(?is)without `--resolve` if it is already resolved", "a resolved rebound thread is not replied to without `--resolve`")
+        self.assertRegex(rule, r"(?is)never re-open", "the rebound rule never says not to re-open the thread")
+
+    def test_feedback_reads_clipped_items_in_full(self):
+        step = self.feedback_steps()[1]
+        at = step.find("`clipped: true`")
+        self.assertNotEqual(at, -1, "feedback step 1 never reads `clipped: true`")
+        rule = step[max(0, at - 80):at + 600]
+        self.assertRegex(rule, r"(?i)\bevery\b", "step 1 does not read every clipped item")
+        self.assertRegex(rule, r"pr-snapshot\.sh[^`]*--full", "step 1 does not read clipped items with `pr-snapshot.sh --full`")
+        self.assertRegex(rule, r"(?is)before[^.;]*step 5", "step 1 does not put the full read before step 5 judges")
+        self.assertRegex(rule, r"(?is)full body", "step 1 does not judge on the full body")
+
+    def test_feedback_hands_over_an_unreadable_clipped_item(self):
+        step = self.feedback_steps()[1]
+        at = step.find("`clipped: true`")
+        self.assertNotEqual(at, -1, "feedback step 1 never reads `clipped: true`")
+        rule = step[at:]
+        fail = re.search(r"(?is)(fails|cannot be read|exits? non-zero|unreadable)[^.]*\.", rule)
+        self.assertTrue(fail, "step 1 never says what a failed `--full` read does")
+        self.assertRegex(rule, r"(?i)manual read", "an unreadable clipped item is not reported as needing a manual read")
+        self.assertRegex(rule, r"(?is)neither (drop|answer)[^.]*(drop|answer)|not (drop|answer)[^.]*(or|nor)[^.]*(drop|answer)",
+                         "an unreadable clipped item may still be dropped or answered")
+        self.assertRegex(rule, r"(?i)report", "an unreadable clipped item is not reported to the user")
+
+    def test_feedback_step_8_passes_rev(self):
+        steps = self.feedback_steps()
+        step = steps[8]
+        for line in (l for l in step.splitlines() if "pr-reply.sh" in l and re.search(r"pr-reply\.sh <pr> (thread|comment)", l)):
+            self.assertIn("--rev", line, f"step 8 does not pass `--rev` on: {line.strip()[:100]!r}")
+        self.assertRegex(step, r"`--rev <[^>`]*rev[^>`]*>`", "step 8 never says what `--rev` takes")
+        exit5 = re.search(r"(?i)exit 5[^.;]*", step)
+        self.assertTrue(exit5, "step 8 never handles exit 5")
+        self.assertRegex(exit5.group(0), r"(?i)fresh snapshots", "exit 5 does not send the pass back to fresh snapshots")
+        self.assertRegex(exit5.group(0), r"(?i)judge[^.;]*again", "exit 5 does not judge the item again")
+        exit3 = re.search(r"(?i)exit 3[^.;]*", step)
+        self.assertTrue(exit3, "step 8 never handles exit 3")
+        self.assertRegex(exit3.group(0), r"(?i)stop", "exit 3 does not stop")
+        self.assertRegex(exit3.group(0), r"(?i)report", "exit 3 does not report")
+        self.assertRegex(step, r"(?i)--rev.*every `pr-reply\.sh [a-z|]*resolve", "step 8 does not pass `--rev` to `resolve`")
+        self.assertRegex(step, r"(?is)never[^.]*`--full`", "step 8 does not forbid taking `--rev` from `--full`")
+        self.assertRegex(step, r"revision\.rev", "step 8 does not name the pass record's `revision.rev`")
+        resume = next((l for l in self.section("feedback").splitlines() if l.lstrip().startswith("- `resume`")), "")
+        self.assertRegex(resume, r"`revision\.rev`", "`resume` does not pass the finding's recorded `revision.rev`")
+        self.assertRegex(resume, r"--rev", "`resume` does not pass it as `--rev`")
+
+    def test_resolution_retry_takes_a_fresh_rev(self):
+        # the reply is part of the thread's rev: a resolution retried after it needs the rev as it stands after the reply
+        step = self.feedback_steps()[8]
+        m = re.search(r"(?i)exit 1 after a posted reply[^\n]*", step)
+        self.assertTrue(m, "step 8 never handles exit 1 after a posted reply")
+        self.assertRegex(m.group(0), r"(?i)fresh snapshot", "a resolution retry does not take a fresh snapshot")
+        self.assertRegex(m.group(0), r"resolve_pending", "a resolution retry does not require `resolve_pending`")
+        self.assertRegex(m.group(0), r"(?i)never[^.]*(judged|revision\.rev)", "a resolution retry may reuse the pre-reply rev")
+        resume = next((l for l in self.section("feedback").splitlines() if l.lstrip().startswith("- `resume`")), "")
+        self.assertRegex(resume, r"(?i)resol[^.]*fresh snapshot", "`resume` retries a resolution with the recorded rev")
 
     def test_feedback_uses_pass_record_for_repo_local(self):
         # a repo-local change (no store) uses the same pass record and rounds, with `--store` left out

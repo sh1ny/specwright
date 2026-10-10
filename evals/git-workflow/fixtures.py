@@ -16,6 +16,20 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+
+def rmtree(path):
+    """shutil.rmtree that also removes read-only entries (git marks its objects read-only). On Windows a plain
+    rmtree fails on them, and with ignore_errors=True every test that built a repository left its directory in TEMP."""
+    def again(func, p, _exc):
+        try:
+            if os.path.islink(p):  # never change the mode of what a link points at
+                raise OSError
+            os.chmod(p, 0o700)  # only the entry that failed, which is being removed
+            func(p)
+        except OSError:
+            pass  # still held (a process that has not exited): leave it rather than fail the test
+    shutil.rmtree(path, **({"onexc": again} if sys.version_info >= (3, 12) else {"onerror": again}))
+
 ROOT = Path(__file__).resolve().parents[2]  # specwright repo
 
 
@@ -574,7 +588,7 @@ def build_store(name, dest):
         git(other, "add", "-A")
         git(other, "commit", "-q", "-m", "merge: add-csv-export")
         git(other, "push", "-q", "origin", "main")
-        shutil.rmtree(other, onerror=lambda f, p, _: (os.chmod(p, 0o700), f(p)))
+        rmtree(other)
     elif name == "eval-store-branch-locked":
         store_base(dest)
         gate_lock(store, datetime.now(timezone.utc))  # another session is in its gate right now
