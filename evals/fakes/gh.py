@@ -91,6 +91,7 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
         `addReaction(input:{subjectId:$subjectId,content:$content})` -> {"data":{"addReaction":{"reaction":{"content"}}}}.
   Each write records the clock's time and the viewer (reactions as "createdAt"/"login").
   A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
+  A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
 """
 import json
 import os
@@ -348,6 +349,17 @@ def react_once(st, slug, node_id, login, content):
         add_node_reaction(st, slug, node_id, login, content, at=now(st))
 
 
+REST_CONTENT = {"THUMBS_UP": "+1", "THUMBS_DOWN": "-1", "LAUGH": "laugh", "HOORAY": "hooray", "CONFUSED": "confused",
+                "HEART": "heart", "ROCKET": "rocket", "EYES": "eyes"}
+
+
+def rest_react_once(st, slug, comment_id, login, content):
+    """react_once for the REST list of a review comment (content in the REST form)."""
+    if not any(r["user"]["login"] == login and r["content"] == content
+               for r in st.get("repos", {}).get(slug, {}).get("review_comment_reactions", {}).get(str(comment_id), [])):
+        add_review_comment_reaction(st, slug, comment_id, login, content)
+
+
 def set_closing_refs(st, slug, number, refs, has_next=False):
     """refs: [(number, "owner/name"), ...] for PR `number` of `slug`."""
     for p in st["repos"][slug]["pulls"]:
@@ -569,6 +581,8 @@ def cmd_graphql_evidence(st, q, fields):
         if content not in ("THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"):
             raise Fail(f"GraphQL: Variable $content of type ReactionContent! was provided invalid value ({content})")
         react_once(st, found[0], sid, viewer, content)
+        if found[2] == "review_comment":  # REST reads the same reaction
+            rest_react_once(st, found[0], found[3]["databaseId"], viewer, REST_CONTENT[content])
         return {"data": {"addReaction": {"reaction": {"content": content}}}}
     if "reviewThreads(" in q:
         slug, repo, p, viewer = read_pull(st, fields)
@@ -725,9 +739,7 @@ def cmd_api(st, args):
         content = fields.get("content", "")
         if hit is None or content not in ("+1", "-1"):
             raise Fail("gh: Not Found (HTTP 404)" if hit is None else "gh: Validation Failed (HTTP 422)")
-        if not any(r["user"]["login"] == viewer and r["content"] == content
-                   for r in repo.get("review_comment_reactions", {}).get(m.group(1), [])):
-            add_review_comment_reaction(st, slug, m.group(1), viewer, content)
+        rest_react_once(st, slug, m.group(1), viewer, content)
         react_once(st, slug, hit["id"], viewer, "THUMBS_UP" if content == "+1" else "THUMBS_DOWN")
         return emit({"content": content, "user": {"login": viewer}}, expr)
     m = re.fullmatch(r"pulls/comments/(\d+)/reactions", rest)

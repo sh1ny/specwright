@@ -540,6 +540,13 @@ class PrEvidence(FakeGhCase):
             self.assertEqual(self.st()["nodes"][nid]["reactions"],
                              [{"login": "KintsugiBot", "content": "THUMBS_UP", "createdAt": "2026-10-10T10:01:00Z"}], nid)
 
+    def test_graphql_reaction_on_a_review_comment_is_visible_to_rest(self):
+        self.gql(self.REACT, ("subjectId", self.c2["id"]), ("content", "THUMBS_DOWN"))
+        rest = f"repos/o/n/pulls/comments/{self.c2['databaseId']}/reactions"
+        self.assertEqual(json.loads(self.gh("api", rest).stdout), [{"user": {"login": "KintsugiBot"}, "content": "-1"}])
+        self.gh("api", "--method", "POST", rest, "-f", "content=-1")  # the same reaction, through REST
+        self.assertEqual(len(json.loads(self.gh("api", rest).stdout)), 1)
+
     def test_failure_injection_applies_to_the_new_calls(self):
         st = self.st()
         st["fail"] = [{"match": r"rate_limit", "exit": 7, "stderr": "rl"}, {"match": r"graphql", "exit": 8, "stderr": "gql"},
