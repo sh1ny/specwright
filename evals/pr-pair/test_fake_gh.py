@@ -20,6 +20,7 @@ import fixtures  # noqa: E402
 _spec = importlib.util.spec_from_file_location("fake_gh", GH)
 fake_gh = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fake_gh)
+JQ = shutil.which("gojq") or shutil.which("jq")  # the evaluator for filters the fake does not evaluate itself
 
 
 class FakeGhCase(unittest.TestCase):
@@ -436,11 +437,13 @@ class PrEvidence(FakeGhCase):
         self.assertEqual(pr["comments"]["nodes"][0]["body"], "pr comment")
         self.assertEqual((pr["reviews"]["nodes"][0]["state"], pr["reviews"]["nodes"][0]["submittedAt"]), ("APPROVED", "2026-10-10T10:01:00Z"))
 
+    @unittest.skipUnless(JQ, "needs gojq or jq on PATH")
     def test_snapshot_viewer_follows_gh_token_and_jq_runs_unchanged(self):
         self.assertEqual(self.snap(env={"GH_TOKEN": "tok-rev"})["viewer"], {"login": "rev"})
         self.assertEqual(self.snap(env={"GH_TOKEN": "tok-s"})["viewer"], {"login": "sh1ny"})
         out = self.gh("api", "graphql", "-f", "query=" + self.SNAP_Q, "-f", "owner=o", "-f", "name=n", "-F", "pr=7", "--jq",
-                      '.data.viewer.login as $me | [.data.repository.pullRequest.reviewThreads.nodes[] | .id] | join(",") + "/" + $me').stdout.strip()
+                      '.data.viewer.login as $me | [.data.repository.pullRequest.reviewThreads.nodes[] | .id] | join(",") + "/" + $me',
+                      env={"FAKE_GH_JQ": JQ}).stdout.strip()
         self.assertEqual(out, f"{self.t['id']}/KintsugiBot")
 
     @unittest.skipUnless(shutil.which("jq"), "needs jq")
