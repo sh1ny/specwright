@@ -107,7 +107,7 @@ Script behaviour is tested at the real boundary: the scripts run through `bash` 
   - update the usage header.
 
   Verify that the 4.1 tests pass, plus one test that the `rev` from a real snapshot is accepted unchanged. Flip the rows green.
-- [ ] 4.3 Write the failing snapshot tests for the four "Handled markers are bound to a revision" rows:
+- [x] 4.3 Write the failing snapshot tests for the four "Handled markers are bound to a revision" rows:
   - a PR comment edited before a bound reply is listed again;
   - a resolved thread edited before a bound `--resolve` reply is listed with `rebound: true` and `awaiting_reviewer: false`;
   - a bound reply with no later activity keeps the item answered;

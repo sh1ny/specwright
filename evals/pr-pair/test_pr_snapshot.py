@@ -71,6 +71,76 @@ class Smoke(SnapCase):
         self.assertEqual((mine["user"]["login"], mine["created_at"]), ("me", T0))
 
 
+class MarkerBinding(SnapCase):
+    """A handled marker with `rev=` answers an item only while the item still has that revision."""
+
+    def mark(self, item, rev=None, resolve=False, kind="handled"):
+        tail = f"{' resolve' if resolve else ''}{f' rev={rev}' if rev else ''}"
+        return "done" + chr(10) * 2 + f"<!-- specwright:{kind} {item}{tail} -->"
+
+    def resolve_thread(self, tid):
+        self.mutate(lambda st: next(t for t in st["repos"]["o/n"]["pulls"][0]["threads"] if t["id"] == tid).update(isResolved=True))
+
+    def test_snapshot_relists_comment_edited_before_bound_reply(self):
+        ic = self.add_comment("rev", "ping")
+        judged = self.snapshot()["comments"][0]["rev"]
+        self.advance(5)
+        self.edit(ic["node_id"], "ping, edited")  # lands after the re-read ...
+        self.advance(1)
+        self.add_comment("me", self.mark(ic["node_id"], judged))  # ... and before the reply
+        listed = self.snapshot()["comments"]
+        self.assertEqual([(x["id"], x["rev"]) for x in listed], [(ic["node_id"], "2026-10-10T10:00:05Z")])
+
+    def test_snapshot_relists_resolved_thread_as_rebound(self):
+        tid, c = self.add_thread("rev", "please fix")
+        judged = self.snapshot()["threads"][0]["rev"]
+        self.advance(5)
+        self.edit(c["id"], "please fix, and more")
+        self.advance(1)
+        self.add_reply(tid, "me", self.mark(tid, judged, resolve=True))
+        self.resolve_thread(tid)
+        t = self.snapshot()["threads"]
+        self.assertEqual(len(t), 1, "the resolved thread is listed again")
+        self.assertEqual((t[0]["id"], t[0]["resolved"], t[0]["rebound"], t[0]["awaiting_reviewer"]), (tid, True, True, False))
+
+    def test_snapshot_bound_reply_keeps_items_answered(self):
+        ic = self.add_comment("rev", "ping")
+        tid, c = self.add_thread("rev", "please fix")
+        snap = self.snapshot()
+        self.advance(5)
+        self.add_comment("me", self.mark(ic["node_id"], snap["comments"][0]["rev"]))
+        self.add_reply(tid, "me", self.mark(tid, snap["threads"][0]["rev"]))
+        after = self.snapshot()
+        self.assertEqual(after["comments"], [], "a bound reply to the current revision answers the comment")
+        self.assertEqual([(t["id"], t["rebound"], t["awaiting_reviewer"]) for t in after["threads"]], [(tid, False, True)])
+
+    def test_snapshot_legacy_marker_uses_the_time_rule(self):
+        ic = self.add_comment("rev", "ping")
+        self.advance(5)
+        self.edit(ic["node_id"], "ping, edited")
+        self.advance(5)
+        self.add_comment("me", self.mark(ic["node_id"]))  # a 0.1.10 marker: no rev=
+        self.assertEqual(self.snapshot()["comments"], [], "edited before the reply: handled")
+        self.advance(5)
+        self.edit(ic["node_id"], "ping, edited again")
+        self.assertEqual([x["id"] for x in self.snapshot()["comments"]], [ic["node_id"]], "edited after the reply: listed")
+
+    def test_snapshot_waiting_marker_follows_the_same_binding(self):
+        ic = self.add_comment("rev", "ping")
+        judged = self.snapshot()["comments"][0]["rev"]
+        self.advance(5)
+        self.add_comment("me", self.mark(ic["node_id"], judged, kind="waiting"))
+        self.assertTrue(self.snapshot()["comments"][0]["waiting_owner"], "bound to the current revision: still waiting")
+        ic2 = self.add_comment("rev", "pong")
+        judged2 = self.snapshot()["comments"][-1]["rev"]
+        self.advance(5)
+        self.edit(ic2["node_id"], "pong, edited")  # edited before the reply, which is bound to the older text
+        self.advance(5)
+        self.add_comment("me", self.mark(ic2["node_id"], judged2, kind="waiting"))
+        later = {x["id"]: x for x in self.snapshot()["comments"]}
+        self.assertFalse(later[ic2["node_id"]]["waiting_owner"], "a waiting reply bound to an older revision does not hold the item")
+
+
 A, B = "a" * 40, "b" * 40
 MIRA = "kintsugimira"
 WALK = "<!-- mira-walkthrough -->\nWalkthrough: looks fine"
