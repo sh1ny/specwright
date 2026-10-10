@@ -359,7 +359,7 @@ def norm: sub("\\[bot\\]$"; "");
     # base64 keeps the signature free of quotes, so sig_of can cut it out safely
     sig: ([ $p.state, $p.headRefOid, $p.mergeStateStatus,
             ($checks | map(.name + "=" + .state) | sort | join(",")),
-            ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end)) | join(",")),
+            ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end) + (if .resolved then ":resolved" else "" end)) | join(",")),
             ($comments | map(.id + ":" + .rev) | join(",")),
             ($reviews | map(.id + ":" + .rev) | join(",")),
             ($stale_verdicts | map(.author + ":" + .review_id) | join(",")),

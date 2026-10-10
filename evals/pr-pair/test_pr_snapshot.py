@@ -143,6 +143,19 @@ class MarkerBinding(SnapCase):
         self.react(c["id"], "me")  # the second edit is acknowledged
         self.assertEqual(self.snapshot()["threads"], [], "the reply matched the thread it answered")
 
+    def test_snapshot_signature_follows_a_rebound_thread_resolution(self):
+        tid, c = self.add_thread("rev", "please fix")
+        judged = self.snapshot()["threads"][0]["rev"]
+        self.advance(5)
+        self.edit(c["id"], "please fix, and more")
+        self.advance(1)
+        self.add_reply(tid, "me", self.mark(tid, judged))
+        before = self.snapshot()
+        self.resolve_thread(tid)
+        after = self.snapshot()
+        self.assertEqual((before["threads"][0]["rebound"], after["threads"][0]["resolved"]), (True, True))
+        self.assertNotEqual(before["sig"], after["sig"], "--wait wakes when the rebound thread is resolved")
+
     def test_snapshot_bound_reply_keeps_items_answered(self):
         ic = self.add_comment("rev", "ping")
         tid, c = self.add_thread("rev", "please fix")
