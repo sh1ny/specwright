@@ -698,6 +698,15 @@ class RecordGateTests(Base):
         self.assertTrue(out["ok"])
         self.assertEqual(self.record_files(), [])
 
+    def test_record_design_subagent_returns_receipt(self):
+        review = self.put("review.md", VERDICT_OK)
+        sel = {"route": "subagent", "skipped": [{"route": "codex", "reason": "not installed"}]}
+        out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
+                          "--settings", self.settings, "--selection", self.put("selection.json", json.dumps(sel)))
+        self.assertEqual(out["receipt"]["route"], "subagent")
+        self.assertEqual(out["receipt"]["skipped"], sel["skipped"])
+        self.assertEqual(out["receipt"]["actual_model"], "unknown")
+
     def test_record_design_two_verdicts_invalid(self):
         review = self.put("review.md", "VERDICT: a\nVERDICT: b\nCHANGES_APPLIED: none\n")
         out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",

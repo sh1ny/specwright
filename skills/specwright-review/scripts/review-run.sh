@@ -1032,7 +1032,8 @@ def cmd_record(argv):
         err = validate_design(text)
         if err:
             invalid(err)
-        return {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"])}
+        return {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"]),
+                "receipt": make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown"))}
     parsed = json_from_text(text)
     if parsed is None:
         invalid("output is not JSON: " + (text.strip()[:120] or "(empty)"))
