@@ -60,6 +60,31 @@ class SkillText(unittest.TestCase):
         self.assertTrue(s_push, "the ship section has no push command")
         self.assertLess(s_ident[0], s_push[0], "ship pushes before it runs `pr-pair.sh identity`")
 
+    def test_ship_pushes_every_repo_before_any_pr(self):
+        ship = self.section("ship")
+        a, b = re.search(r"^4a\. ", ship, re.M), re.search(r"^4b\. ", ship, re.M)
+        self.assertTrue(a, "ship has no step 4a (validate and push each repo)")
+        self.assertTrue(b, "ship has no step 4b (find or open each PR)")
+        self.assertLess(a.start(), b.start(), "ship step 4b comes before step 4a")
+        end = re.search(r"^5\. ", ship[b.end():], re.M)
+        s4a, s4b = ship[a.start():b.start()], ship[b.start():b.end() + (end.start() if end else len(ship))]
+        pushes, ensures = positions(PUSH, ship), positions(sub("ensure-pr"), ship)
+        self.assertTrue(pushes and ensures)
+        self.assertLess(max(pushes), min(ensures), "a push comes after the first `ensure-pr`")
+        self.assertTrue(positions(PUSH, s4a), "step 4a has no push command")
+        self.assertFalse(positions(PUSH, s4b), "step 4b pushes: every push belongs in 4a")
+        self.assertFalse(positions(sub("ensure-pr"), s4a), "step 4a finds or opens a PR: that belongs in 4b")
+        self.assertTrue(positions(sub("ensure-pr"), s4b), "step 4b never runs `pr-pair.sh ensure-pr`")
+        self.assertRegex(s4a, r"(?i)store first", "step 4a does not push the store first")
+        self.assertRegex(s4a, r"(?is)validate", "step 4a does not validate before it pushes")
+        self.assertLess(re.search(r"(?i)validate", s4a).start(), positions(PUSH, s4a)[0], "4a pushes before it validates")
+        stop = re.search(r"(?is)\b(validate|push)\b[^.]*\bfail[^.]*\bstop\b", s4a)
+        self.assertTrue(stop, "step 4a does not say a failed validate or push stops")
+        self.assertRegex(s4a, r"(?i)(open|update)s? no PR in either repo", "4a does not say that no PR is opened or updated in either repo")
+        self.assertRegex(s4a, r"(?i)never report the change ready", "4a does not forbid reporting the change ready")
+        self.assertRegex(s4a, r"(?i)which repo's push failed and its error", "4a does not report which push failed and its error")
+        self.assertRegex(s4b, r"(?i)only (when|after|once) (every|all)[^.]*push", "step 4b does not wait for every push")
+
     def test_discover_replaces_gh_pr_list_for_change_prs(self):
         self.assertTrue(positions(sub("discover")), "SKILL.md never runs `pr-pair.sh discover`")
         ship = self.section("ship")
@@ -283,8 +308,8 @@ class ClosingReferences(unittest.TestCase):
 
     def ship_43(self):
         ship = SECTIONS["ship"][1]
-        m = re.search(r"^   3\. .*$", ship, re.M)
-        self.assertTrue(m, "ship step 4.3 not found")
+        m = re.search(r"^4b\. .*$", ship, re.M)
+        self.assertTrue(m, "ship step 4b not found")
         end = re.search(r"^5\. ", ship[m.end():], re.M)
         return ship[m.start():m.end() + (end.start() if end else len(ship))]
 

@@ -6,7 +6,7 @@ Script behaviour runs through `bash` against real git repos and the fake `gh`: `
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| planning-stores → Ship pushes every expected repo before it opens a PR | Both pushes succeed | evals/pr-pair/test_skill_text.py | test_ship_pushes_every_repo_before_any_pr | red |
+| planning-stores → Ship pushes every expected repo before it opens a PR | Both pushes succeed | evals/pr-pair/test_skill_text.py | test_ship_pushes_every_repo_before_any_pr | green |
 | planning-stores → Ship pushes every expected repo before it opens a PR | Code push rejected after the store push | evals/git-workflow/evals.json | eval-store-ship-code-push-rejected | red |
 | planning-stores → Ship pushes every expected repo before it opens a PR | Code push rejected with an existing store PR | evals/git-workflow/evals.json | eval-store-ship-code-push-rejected-store-pr-open | red |
 | planning-stores → Ship pushes every expected repo before it opens a PR | Store push rejected | evals/git-workflow/evals.json | eval-store-ship-push-rejected | green |
@@ -43,7 +43,7 @@ Script behaviour runs through `bash` against real git repos and the fake `gh`: `
 
 - [x] 1.1 Check the eval mechanism first (design Risks, M1). Add a `git` shim fixture to `evals/git-workflow/fixtures.py`. It runs the real git, except that a `push` in the store checkout goes to a local bare repo and updates `refs/remotes/origin/<branch>` and the branch upstream, as `push -u` would. Run `pr-pair.sh identity` and `bash as.sh eval-bot git push -u origin HEAD` in both fixture repos with the shim on `PATH`. Verify: identity passes in both, both URLs report `https://github.com/...`, the store push succeeds and the code push dies at the unreachable proxy. If any of these fails, record the fallback in this task's commit body and skip 1.4's two new evals: the `test_skill_text.py` test from 1.2 is then the #58 regression test.
 - [x] 1.2 Write `test_ship_pushes_every_repo_before_any_pr` in `evals/pr-pair/test_skill_text.py`. It asserts that in **ship**, every push instruction comes before the first `ensure-pr`, and that a failed validate or push stops before any PR call in either repo. Verify it fails on the current text.
-- [ ] 1.3 Edit `skills/specwright-pr/SKILL.md` ship step 4 into 4a (validate and push each repo of the set, store first) and 4b (find or open each PR and run closing-check, only after every push succeeded), per design D1. Keep steps 5-7. Verify that 1.2 passes and flip its row green.
+- [x] 1.3 Edit `skills/specwright-pr/SKILL.md` ship step 4 into 4a (validate and push each repo of the set, store first) and 4b (find or open each PR and run closing-check, only after every push succeeded), per design D1. Keep steps 5-7. Verify that 1.2 passes and flip its row green.
 - [ ] 1.4 Agent evals in `evals/git-workflow/evals.json`, `fixtures.py` and `grade.py`:
   - `eval-store-ship-code-push-rejected`: the store push succeeds through the shim and the code push fails. Grade: no PR in either fake repo, no PR or comment mutation by gh, the store branch is on the local bare repo, the report names the code push and its error, and nothing is called ready.
   - `eval-store-ship-code-push-rejected-store-pr-open`: the same, with store PR #3 already open. Grade: no code PR, store PR #3 unchanged (body, comments, no link marker, no review request), and the report names the code push.
