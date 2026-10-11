@@ -24,11 +24,11 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 | project-planning → Gap-closing roadmap edit is committed on the new change's branch | Criterion fails with no change left | evals/git-workflow/evals.json | eval-roadmap-next-gap (prompt now runs close) | red |
 | project-planning → Gap-closing roadmap edit is committed on the new change's branch | Branch gate stops | evals/git-workflow/evals.json | eval-roadmap-next-gap-dirty-main (prompt now runs close) | red |
 | project-planning → Gap-closing roadmap edit is committed on the new change's branch | No criterion shown failing | evals/git-workflow/test_instructions.py | test_roadmap_gap_change_needs_a_shown_failure | red |
-| planning-stores → A failed store gate branch leaves no new branch | Store hook fails after the branch is created | evals/git-workflow/test_instructions.py | test_roadmap_store_branch_error_rolls_back_every_branched_repo | red |
+| planning-stores → A failed store gate branch leaves no new branch | Store hook fails after the branch is created | evals/git-workflow/test_instructions.py | test_roadmap_store_branch_error_rolls_back_every_branched_repo | green |
 | planning-stores → A failed store gate branch leaves no new branch | Store hook fails after the code branch exists | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_branch_store_error_rolls_back_every_branched_repo; eval-store-branch-hook-fail | red |
 | planning-stores → A failed store gate branch leaves no new branch | Code hook fails after the store branch exists | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_store_branch_error_rolls_back_every_branched_repo; eval-store-roadmap-close-hook-fail | red |
-| planning-stores → A failed store gate branch leaves no new branch | Branch creation refused outright | evals/git-workflow/test_instructions.py | test_roadmap_store_branch_error_rolls_back_every_branched_repo | red |
-| planning-stores → A failed store gate branch leaves no new branch | One repo cannot switch back | evals/git-workflow/test_instructions.py | test_gate_rollback_judges_switch_by_current_branch | red |
+| planning-stores → A failed store gate branch leaves no new branch | Branch creation refused outright | evals/git-workflow/test_instructions.py | test_roadmap_store_branch_error_rolls_back_every_branched_repo | green |
+| planning-stores → A failed store gate branch leaves no new branch | One repo cannot switch back | evals/git-workflow/test_instructions.py | test_gate_rollback_judges_switch_by_current_branch | green |
 | planning-stores → A failed store gate branch leaves no new branch | Gate passes without errors | evals/git-workflow/evals.json | eval-store-branch-clean | green |
 | planning-stores → Git network reads authenticate as each repo's login | Store and code logins differ | evals/pr-pair/test_pr_pair.py | test_rounds_reads_each_remote_as_its_login | red |
 | planning-stores → Git network reads authenticate as each repo's login | Code remote accepts only the code login | evals/pr-pair/test_pr_pair.py | test_code_remote_reads_keep_the_code_login | red |
@@ -81,7 +81,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
   - `test_gate_rollback_judges_switch_by_current_branch`: both skills check `git branch --show-current`, not the switch's exit status; a repo still on `<branch>` keeps it, the other repo is still rolled back, and the stop names that repo and both branches.
 
   Verify that they fail against the current text.
-- [ ] 2.2 Rewrite `skills/specwright-roadmap/SKILL.md` Committing project files step 3 and `skills/specwright-branch/SKILL.md` Store-backed changes step 3 as the single rule in D3. Keep the lock release in step 4 and every other stop unchanged. Verify that the 2.1 tests and the rest of `test_instructions.py` pass, and flip the rows green.
+- [x] 2.2 Rewrite `skills/specwright-roadmap/SKILL.md` Committing project files step 3 and `skills/specwright-branch/SKILL.md` Store-backed changes step 3 as the single rule in D3. Keep the lock release in step 4 and every other stop unchanged. Verify that the 2.1 tests and the rest of `test_instructions.py` pass, and flip the rows green.
 - [ ] 2.3 Add the agent evals to `evals/git-workflow/evals.json`, `fixtures.py` and `grade.py`:
   - `eval-store-roadmap-close-hook-fail`: local mode, planning in a store, M1 done with a passing agent criterion, the roadmap in the code repo. The code repo's `.git/hooks/post-checkout` exits 1 and the store has no hook. Prompt: close M1.
   - `eval-store-branch-hook-fail`: a clean store pair. The store's `post-checkout` exits 1. Prompt: start change `add-csv-export`, scaffold only.
