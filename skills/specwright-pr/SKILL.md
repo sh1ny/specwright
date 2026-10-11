@@ -2,7 +2,7 @@
 name: specwright-pr
 description: "GitHub pull request workflow for Specwright projects, in three modes. ship: push the branch and open or update its PR with a good description, then request review. feedback: fetch all unresolved review threads and comments, judge them, fix, reply and resolve. watch: wait for CI and reviews in the background and handle what arrives until the PR is ready to merge. Triggers: 'open a PR', 'ship this', 'push and create PR', 'address/resolve PR comments', 'handle review feedback', 'babysit/watch the PR', 'fix CI on the PR', or the specwright-commit/specwright-finish skills handing off in pr mode."
 metadata:
-  version: 0.1.13
+  version: 0.2.0
 ---
 
 # Specwright PR
@@ -132,7 +132,7 @@ Loop until a stop condition:
    - Store-backed: report ready only when `pair-state` says `ready`, so every expected PR passes in the same iteration. When only the code PR is expected, the ready report names the store branch to share by hand.
    - **Archive before merge:** if `finish` is `pr`, the branch is `<prefix>/<change-name>` and `<P>/changes/<change-name>/` still exists in the planning repo, ask `Ready. Archive <change-name> on this branch now?`. On yes, run the OpenSpec archive workflow for it (`/opsx:archive`, or `openspec archive <change-name>` where the harness has no slash commands); `specwright-finish` then commits the archive in the planning repo and ships it. Store-backed: the archive commit is on the store branch; push it and re-request review on the store PR only when a store PR is expected, otherwise report the store branch to share by hand, with no push and no review request. The archive commit does not count toward `max_fix_rounds`. After its push, run the `specwright-review` skill's `bash scripts/review-run.sh archive-only --base <ready head> --head <archive head> --change <change-name> --dir <planning repo toplevel> --prefix <P>`, where the ready head is the head this step last reported ready, before it offered the archive:
      - `archive_only: true` (and `pr.review_after_archive` is not `true`) → post no review request, and watch the archive head in step 1 without `--reviewer` arguments: readiness needs CI, mergeability and no new feedback. Every required reviewer already reported on the ready head, so their reports carry over.
-     - `archive_only: false` (another commit, or a path outside the archive), or `pr.review_after_archive: true` → **re-request review** as after a fix, on the PR it was pushed to (the 0.1.13 behaviour), and watch with the reviewers.
+     - `archive_only: false` (another commit, or a path outside the archive), or `pr.review_after_archive: true` → **re-request review** as after a fix, on the PR it was pushed to (the behaviour before 0.2.0), and watch with the reviewers.
      - When the archive head is short of ready only because `merge_state` is BLOCKED and `review_decision` is `REVIEW_REQUIRED` (branch protection dismissed the approval on the new head), do not loop: report `archive head needs a fresh approval` and ask once whether to post the review requests on it. On yes, re-request review as above and watch with the reviewers. On no, report ready except for the approval and stop.
      Go back to step 1 and watch the new head until ready again. If the user asks to merge before the change is archived, offer the archive the same way first.
    - Otherwise (already archived, declined, or not a Specwright change) report ready and stop; the user merges.
