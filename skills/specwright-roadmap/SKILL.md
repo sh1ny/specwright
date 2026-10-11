@@ -57,7 +57,7 @@ Input: the user's project idea (any size), plus the repo if code exists. Work on
 
 1. Read the roadmap's Now section. Run `openspec list --json` for active changes, and derive done changes from the main branch as above.
 2. Active change in progress → offer to resume it instead.
-3. Otherwise, the milestone end comes first. When every change of the Now milestone is done (a change that is planning merged, code pending, unverified or unknown is not done), the milestone is at its end: unless an exit criterion was shown failing, report `milestone end: run close`, offer **close** and stop. Start no change, create no branch and edit no file.
+3. Otherwise, the milestone end comes first. When every change of the Now milestone is done (a change that is planning merged, code pending, unverified or unknown is not done), the milestone is at its end: unless an exit criterion was shown failing by **close** or reported failing by the user, report `milestone end: run close`, offer **close** and stop. Start no change, create no branch and edit no file.
 
    next starts only changes of the Now milestone, never one under Next, even when Next already lists an agreed split: **close** promotes it first. Before the milestone end, pick the first planned change of Now that has no archive and whose prerequisites are all **done** (a prerequisite that is planning merged, code pending, unverified or unknown is not done). An archived change whose code is pending is never started again: report it and what it is waiting for (its code PR or merge).
 
@@ -82,7 +82,7 @@ Input: the user's project idea (any size), plus the repo if code exists. Work on
 
 ## status
 
-One answer, no edits: current milestone, its changes (done / planning merged, code pending / code unverified / code state unknown / active / planned, derived as above, one status per change with its proof), the stale note when a fetch failed, exit criteria state, and what **next** would start, or `milestone end: run close` when every change of the Now milestone is done.
+One answer, no edits: current milestone, its changes (done / planning merged, code pending / code unverified / code state unknown / active / planned, derived as above, one status per change with its proof), the stale note when a fetch failed, exit criteria state, and what **next** would start, or `milestone end: run close` when every change of the Now milestone is done, unless an exit criterion was shown failing by **close** or reported failing by the user: then the gap-closing change **next** would propose.
 
 ## Rules
 

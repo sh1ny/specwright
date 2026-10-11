@@ -22,11 +22,15 @@ When every change of the Now milestone is done, roadmap **next** SHALL report a 
 - **THEN** next proposes a gap-closing change instead of offering close again, and follows the gap-closing requirement
 
 ### Requirement: Status names a milestone end
-Roadmap **status** SHALL name `milestone end: run close` as what **next** would do when every change of the Now milestone is done, and the change next would start otherwise.
+Roadmap **status** SHALL name `milestone end: run close` as what **next** would do when every change of the Now milestone is done, unless an exit criterion was shown failing by **close** or reported failing by the user: then it SHALL name the gap-closing change next would propose. Otherwise it SHALL name the change next would start.
 
 #### Scenario: Status at a milestone end
 - **WHEN** every change of M1 is done and the user asks for roadmap status
 - **THEN** status reports each change as done and names `milestone end: run close` as what next would do, instead of a change
+
+#### Scenario: Status after close found a criterion failing
+- **WHEN** every change of M1 is done, close found an exit criterion failing, and the user asks for roadmap status
+- **THEN** status names the gap-closing change next would propose, not `milestone end: run close`
 
 #### Scenario: Status with a change left
 - **WHEN** M1 has a planned change whose prerequisites are done and the user asks for roadmap status

@@ -362,6 +362,13 @@ class ProjectPlanning(unittest.TestCase):
     def test_roadmap_status_names_milestone_end(self):
         sec = section(read(ROADMAP), r"status\b")
         self.assertRegex(sec, r"`milestone end: run close`", "status does not name the milestone end as what next would do")
+        self.assertRegex(sec, r"(?s)`milestone end: run close`.{0,160}unless an exit criterion was shown failing by \*\*close\*\* or reported failing by the user",
+                         "status names the milestone end even after close found a criterion failing")
+
+    def test_roadmap_milestone_end_names_both_gap_triggers(self):
+        end = find_block(mode_step("next", 3), r"(?i)milestone end")
+        self.assertRegex(end, r"unless an exit criterion was shown failing by \*\*close\*\* or reported failing by the user",
+                         "the milestone end does not name who shows a criterion failing")
 
     def test_roadmap_milestone_end_needs_every_change_done(self):
         end = find_block(mode_step("next", 3), r"(?i)milestone end")
