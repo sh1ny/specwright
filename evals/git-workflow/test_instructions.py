@@ -820,5 +820,47 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertTrue(resume_row(s, r"code repo with no A, M or B; store done; no such marker"), "the code repo's existing no-A rows are gone")
 
 
+class InstallSettingsKeys(unittest.TestCase):
+    """README install Steps 6-7 compare settings by dotted path; commented-out template keys are optional (#78)."""
+
+    def s6(self):
+        s = step(read(README), "Step 6")
+        self.assertTrue(s, "README install prompt has no Step 6")
+        return s
+
+    def test_install_compares_dotted_paths(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?i)dotted path", "Step 6 does not compare keys by dotted path")
+        self.assertRegex(s6, r"(?i)never by (the )?bare (key )?name", "Step 6 does not forbid comparing bare names")
+        self.assertRegex(s6, r"planning_store\.login", "Step 6 gives no example of the same name at two paths")
+
+    def test_install_step6_commented_paths_optional(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?is)comment(ed)?[- ]out.{0,300}optional", "commented-out template paths are not optional")
+        self.assertRegex(s6, r"(?is)comment(ed)?[- ]out.{0,600}never (list|listed).{0,40}remov",
+                         "a commented-out path the project sets may still be listed as removed")
+        self.assertRegex(s6, r"(?is)indentation.{0,80}#|#.{0,80}indentation", "the path of a commented-out line is not read from its indentation after #")
+
+    def test_install_step6_never_adds_commented(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?is)comment(ed)?[- ]out.{0,600}never add", "Step 6 may add a commented-out key")
+
+    def test_install_reviewer_entries_user_data(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"pr\.reviewers\.", "pr.reviewers entries are not named")
+        self.assertRegex(s6, r"planning_store\.reviewers\.", "planning_store.reviewers entries are not named")
+        self.assertRegex(s6, r"(?is)user data.{0,200}never (compared|compare)", "reviewer entries are still compared")
+
+    def test_install_step7_uncommented_only(self):
+        s7 = step(read(README), "Step 7")
+        self.assertTrue(s7, "README install prompt has no Step 7")
+        self.assertRegex(s7, r"(?is)every uncommented (dotted )?path", "Step 7 requires keys the template only has commented out")
+
+    def test_install_step6_asks_before_removing(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?is)no longer has.{0,120}(list|ask).{0,80}before removing",
+                         "the removed-key question is gone")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -108,7 +108,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 
 ## 7. Settings, install prompt and docs
 
-- [ ] 7.1 Write failing text checks in `evals/git-workflow/test_instructions.py` for the README install prompt:
+- [x] 7.1 Write failing text checks in `evals/git-workflow/test_instructions.py` for the README install prompt:
   - Step 6 compares dotted paths;
   - commented-out paths are optional, never removed or added;
   - `pr.reviewers.*` and `planning_store.reviewers.*` are user data;
