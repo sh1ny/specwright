@@ -152,5 +152,82 @@ class ReviewSkill(unittest.TestCase):
         self.assertRegex(self.text, r"reviewer\.md")
 
 
+COMMIT = ROOT / "skills" / "specwright-commit" / "SKILL.md"
+PR = ROOT / "skills" / "specwright-pr" / "SKILL.md"
+FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
+PRESHIP = re.compile(r"(?i)pre-ship review")
+GATE = sub("gate")
+
+
+class Wiring(unittest.TestCase):
+    """specwright-commit, -pr and -finish run the pre-ship review and its gate where the spec says."""
+
+    def commit_step3(self):
+        s = sections(read(COMMIT))
+        found = [t for t in s if t.startswith("3.")]
+        self.assertTrue(found, "specwright-commit has no '## 3.' section")
+        return s[found[0]]
+
+    def test_commit_step3_runs_preship_before_handoff(self):
+        s3 = self.commit_step3()
+        review = PRESHIP.search(s3)
+        self.assertTrue(review, "commit step 3 does not run the pre-ship review")
+        self.assertRegex(s3, r"specwright-review", "commit step 3 does not name the specwright-review skill")
+        clean = re.search(r"tree clean", s3)
+        self.assertTrue(clean and clean.start() < review.start(), "the review does not come after the completion check")
+        handoff = re.search(r"(?m)^Then read `finish`", s3)
+        self.assertTrue(handoff, "commit step 3 has no hand-off paragraph")
+        self.assertLess(review.start(), handoff.start(), "the review comes after the hand-off")
+        self.assertRegex(s3[review.start():handoff.start()], r"(?i)(pass|passes|passed)",
+                         "the hand-off does not wait for a passing review")
+
+    def test_commit_step3_preship_false_skips(self):
+        s3 = self.commit_step3()
+        self.assertRegex(s3, r"(?is)review\.preship: false.{0,120}(skip|no (pre-ship )?review)",
+                         "commit step 3 does not skip the review with review.preship: false")
+
+    def ship(self):
+        s = sections(read(PR))
+        self.assertIn("ship", s)
+        return s["ship"]
+
+    def test_ship_gate_before_first_push(self):
+        ship = self.ship()
+        g = positions(GATE, ship)
+        self.assertTrue(g, "ship never runs `review-run.sh gate`")
+        a = re.search(r"^4a\. ", ship, re.M)
+        self.assertTrue(a)
+        self.assertLess(g[0], a.start(), "the gate runs after step 4a's push")
+        before = ship[:a.start()]
+        self.assertRegex(before, r"discover", "ship does not run `discover` before the gate")
+        self.assertLess(before.find("discover"), g[0], "the gate runs before `discover`")
+        self.assertRegex(before, r"(?i)missing.{0,200}pre-ship review", "a missing pass does not run the review first")
+        self.assertRegex(before, r"(?i)blocked.{0,200}stop", "a blocked review does not stop ship")
+
+    def test_ship_gate_only_when_no_pr_in_change(self):
+        ship = self.ship()
+        g = positions(GATE, ship)[0]
+        around = ship[max(0, g - 700):g + 300]
+        self.assertRegex(around, r"(?i)no PR (exists )?in any (repo|repository)", "the gate is not limited to a change with no PR")
+        self.assertRegex(around, r"(?i)per change", "'first PR' is not per change")
+        self.assertRegex(around, r"review\.preship: false", "ship does not skip the gate with review.preship: false")
+
+    def test_ship_failed_review_stops(self):
+        ship = self.ship()
+        self.assertRegex(ship, r"(?is)(exit 3|fail(s|ed)?).{0,160}(push nothing|no push|stop)",
+                         "a failed pre-ship review does not stop ship")
+
+    def test_finish_local_gate_before_merge(self):
+        local = sections(read(FINISH)).get("local", "")
+        self.assertTrue(local, "specwright-finish has no '## local' section")
+        g, m = positions(GATE, local), positions(re.compile(r"git merge --no-ff"), local)
+        self.assertTrue(g, "the local finish never runs `review-run.sh gate`")
+        self.assertTrue(m)
+        self.assertLess(g[0], m[0], "the gate runs after the merge")
+        self.assertRegex(local[:m[0]], r"(?i)missing.{0,200}pre-ship review", "a missing pass does not run the review first")
+        self.assertRegex(local[:m[0]], r"(?i)blocked.{0,160}stop", "a blocked review does not stop the merge")
+        self.assertRegex(local[:m[0]], r"review\.preship: false", "the gate is not skipped with review.preship: false")
+
+
 if __name__ == "__main__":
     unittest.main()

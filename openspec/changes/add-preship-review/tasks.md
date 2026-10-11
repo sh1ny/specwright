@@ -97,7 +97,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 
 ## 6. Wiring into commit, ship, finish and watch
 
-- [ ] 6.1 Write failing text checks: `specwright-commit` step 3 runs the pre-ship review (skipped with `review.preship: false`) before the hand-off (`evals/review-routes/test_skill_text.py`). In `evals/pr-pair/test_skill_text.py`:
+- [x] 6.1 Write failing text checks: `specwright-commit` step 3 runs the pre-ship review (skipped with `review.preship: false`) before the hand-off (`evals/review-routes/test_skill_text.py`). In `evals/pr-pair/test_skill_text.py`:
   - ship runs `discover` and `gate` before the first push, only when no PR exists in the change;
   - a failed review stops ship;
   - watch's archive rule (`archive-only`, no request and no reviewers, the `REVIEW_REQUIRED` ask, `pr.review_after_archive: true` keeping 0.1.13 behaviour);
