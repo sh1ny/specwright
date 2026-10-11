@@ -382,7 +382,8 @@ done
 if [ "${a[0]:-}" = push ]; then
   top=$("$REAL" -C "$dir" rev-parse --show-toplevel 2>/dev/null)
   branch=$("$REAL" -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)
-  if [ "${top,,}" = "${STORE,,}" ] && [ -n "$branch" ]; then
+  lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }  # no bash 4 case expansion: macOS /bin/bash is 3.2
+  if [ "$(lc "$top")" = "$(lc "$STORE")" ] && [ -n "$branch" ]; then
     "$REAL" -C "$dir" push -q "$BARE" "HEAD:refs/heads/$branch" || exit $?
     "$REAL" -C "$dir" update-ref "refs/remotes/origin/$branch" HEAD || exit $?
     url=$("$REAL" -C "$dir" remote get-url origin)

@@ -175,6 +175,21 @@ class ReplyBody(ReplyCase):
         self.refused(self.reply("thread", tid, c["databaseId"], path), path)
         self.refused(self.reply("comment", "IC_x", path), path)
 
+    def test_reply_refuses_missing_body_file_without_repo(self):
+        """Without --repo the script resolves the repository through gh: that must wait until the body is checked."""
+        tid, c = self.add_thread("rev", "please fix")
+        path = fixtures.posix(self.tmp / "nope.md")
+        self.refused(self.reply("thread", tid, c["databaseId"], path, repo=False), path)
+        self.refused(self.reply("comment", "IC_x", path, repo=False), path)
+
+    def test_bad_arguments_are_refused_before_any_github_call(self):
+        for args in (("thread", "T", "1"), ("comment", "IC_x"), ("react", "IC_x"), ("react", "IC_x", "+2"),
+                     ("resolve",), ("nope",)):
+            for repo in (True, False):
+                r = self.reply(*args, repo=repo)
+                self.assertEqual(r.returncode, 2, (args, repo, r.stderr))
+                self.assertEqual(self.gh_calls(), [], (args, repo, "no GitHub request at all"))
+
     def test_reply_refuses_empty_body_file(self):
         tid, c = self.add_thread("rev", "please fix")
         path = fixtures.posix(self.tmp / "empty.md")
