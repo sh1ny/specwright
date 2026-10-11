@@ -18,7 +18,7 @@ Commit type: the branch prefix, except `bugfix` → `fix`. Archive paths, in the
 Applies when the change directory is gone and finish runs again: the user asks to finish it, or the archive workflow reports the change already archived. Resolve the **Planning repo** first. On any branch, a repo where A (below) is found resumes here instead of running steps 1-3. Never repeat a done step.
 
 For each repo of the change (repo-local: one; store-backed: the store, then the code repo), find `<branch>` from `<main>`: `<prefix>/<change-name>` by the prefix rule of `specwright-branch` step 6, else a local `chore/archive-<change-name>`, else the one local branch matching `*/<change-name>`; several candidates → list them and ask. Then read three facts:
-- **A** - an archive commit: a subject matching `^[a-z]+\(<change-name>\): archive change$` in `git log --format=%s <main>..<branch>`, or on `<main>`.
+- **A** - an archive commit: a subject matching `^[a-z]+\(<change-name>\): archive change$` in `git log --format=%s <main>..<branch>`, or on `<main>`; or, on `<main>`, the archive directory: `git ls-tree -d --name-only <main> -- <P>/changes/archive/` lists `<archived-name>` (the **Archive name** rule), even with no such subject (an archive squash-merged or bulk-archived). `ls-tree` prints full paths, so match the last path component: a change name without a date matches exactly `^\d{4}-\d{2}-\d{2}-<change-name>$`, a dated name the dated name itself, never a substring. The directory is planning repo only (repo-local: the one repo; store-backed: the store) and never gives the code repo an A.
 - **M** - the exact subject `merge: <change-name>` in `git log --first-parent --format=%s <main>`, and, when B, the branch tip is on `<main>` (`git merge-base --is-ancestor <branch> <main>`): an archive-recovery branch made after the change merged holds a new archive commit, so the earlier merge does not count for it.
 - **B** - `<branch>` exists.
 
@@ -31,16 +31,18 @@ None of A, M, B in any repo → report that no archive of `<change-name>` was fo
 | code repo, the newest store A's body has the line `Archive-Scope: store-only` | out of scope: report the code branch and its PR state, touch nothing; the repo counts as done |
 | M and B | `git checkout <main> && git branch -d <branch>`, no merge |
 | M, not B | repo done |
+| `local`, A on main through the archive directory, not M, not B | repo done (another change's merge carried the archive) |
 | code repo with no A, M or B; store done; the store's archive is marked `code_changes: none` | repo done (a planning-only change) |
 | code repo with no A, M or B; store done; no such marker | report and ask; touch nothing |
 | store done; code branch with commits, code not M, `local` | code merge (`## local` store-backed step 2) |
 | store done; code branch without commits | `git checkout <main> && git branch -d <branch>`, no merge |
 | `pr`, A on branch, PR not merged | `## pr` ship; push and PR are idempotent |
-| `pr`, the branch's PR merged | **After the PR is merged** cleanup, not ship |
+| `pr`, the branch's PR merged, B | **After the PR is merged** cleanup, not ship |
+| `pr`, the branch's PR merged, not B | only the issues-left-open backstop (`closed-check`, `specwright-pr` **Cleanup after merge**), no branch deletion; repo done. `closed-check` exits 3 → repo not done, report that the backstop did not run |
 | `pr`, store done; code branch with commits, code not M, no PR or an open PR | `## pr` ship for the code branch; push and PR are idempotent. Merge nothing, delete nothing |
 | `pr`, store done; code branch with commits, its PR closed unmerged | report the closed PR and ask. Merge nothing, delete nothing |
 
-Report `Nothing to finish - archive is on <main>` only when every repo is done.
+The merged PR is found with `[as] bash scripts/pr-pair.sh discover --repo <owner>/<name> --branch <branch> --base <main> --state merged` (the `specwright-pr` conventions). Report `Nothing to finish - archive is on <main>` only when every repo is done; a backstop `closed-check` exit 3 is not done.
 
 - **Planning-only test:** it runs only before an archive commit. A resume that finds archive paths uncommitted and no A runs steps 1-3 in order, the test included; once A exists, a resume never writes the marker.
 - **Store-only recovery:** step 3 writes the body line `Archive-Scope: store-only` when the change is store-backed and the store is on `chore/archive-<change-name>`. Read it from the newest store A: `git log -1 --format=%B <A>`, matching that exact line. When it is there, the code repo is out of scope: no code merge, ship or branch deletion; report the code branch's state and leave it to its own PR or finish. This counts as done for `Nothing to finish`.
