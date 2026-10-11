@@ -190,7 +190,7 @@ With `finish: local`, a store-backed change SHALL be merged into main with `--no
 - **THEN** finish does not report `Nothing to finish`, makes no store commit or merge, merges the code branch into the code main as `merge: <change-name>`, and deletes the code branch
 
 ### Requirement: Commands run where they resolve correctly
-Every git or `gh` command that acts on the store SHALL run with the store's checkout toplevel as the working directory. OpenSpec commands without root selection (`openspec templates`, `openspec schema validate`) SHALL run with the resolved root as the working directory. Authenticated pushes SHALL go through the identity wrapper started inside the target checkout, as the resolved store login. Git network reads of the store (`ls-remote`, `fetch`) made by the PR scripts SHALL authenticate as the resolved store login too, and those of the code repo as the code login.
+Every git or `gh` command that acts on the store SHALL run with the store's checkout toplevel as the working directory. OpenSpec commands without root selection (`openspec templates`, `openspec schema validate`) SHALL run with the resolved root as the working directory. Authenticated pushes SHALL go through the identity wrapper started inside the target checkout, as the resolved store login.
 
 #### Scenario: Store push with a repository-local auth header
 - **WHEN** the store has a repository-local URL-scoped `http.extraHeader` that the code repo lacks, and `planning_store.login` is unset while `github.login` is set
@@ -271,7 +271,7 @@ When both PRs are expected, each SHALL link the other: in its description when t
 - **THEN** Specwright reports the store push error, does not open or update the store PR, and does not report the change as ready
 
 ### Requirement: Watch covers the expected PR set
-For a store-backed change in `pr` mode, watch SHALL run one wait per expected PR and report ready only when every expected PR is open and ready. A snapshot SHALL count toward readiness only when its repository, PR number and head commit match the PR that discovery reports at that call. When an expected PR merges or closes while another expected PR is open, watch SHALL stop all waits and hand off to the user. Archive-before-merge SHALL publish the store archive commit only when a store PR is expected.
+For a store-backed change in `pr` mode, watch SHALL run one wait per expected PR and report ready only when every expected PR is open and ready. When an expected PR merges or closes while another expected PR is open, watch SHALL stop all waits and hand off to the user. Archive-before-merge SHALL publish the store archive commit only when a store PR is expected.
 
 #### Scenario: Code PR green, store PR waiting
 - **WHEN** the code PR's checks and required reviews pass but the store PR still has an unresolved required review
@@ -302,7 +302,7 @@ For a store-backed change in `pr` mode, watch SHALL run one wait per expected PR
 - **THEN** `pair-state` treats it as not matching and reports a `refresh` blocker, never `ready`
 
 ### Requirement: Feedback rounds span the PR pair
-For a store-backed change, one feedback pass SHALL cover every expected PR. A fix to `<root>/openspec/**` SHALL be committed on the store branch, and any other fix on the code branch, whichever PR the finding came from. Each fix commit SHALL carry the trailer `Feedback-Round: <n>`. The round limit SHALL count the highest `n` across both branches and SHALL apply only to starting a new pass. Fix commits without a trailer SHALL be counted by their `address review feedback` subject only when neither branch has a `Feedback-Round` trailer.
+For a store-backed change, one feedback pass SHALL cover every expected PR. A fix to `<root>/openspec/**` SHALL be committed on the store branch, and any other fix on the code branch, whichever PR the finding came from.
 
 #### Scenario: Spec fix requested on the code PR
 - **WHEN** a reviewer on the code PR asks for a change to a requirement in the change's spec delta
@@ -325,7 +325,7 @@ For a store-backed change, one feedback pass SHALL cover every expected PR. A fi
 - **THEN** the round count is 2
 
 ### Requirement: An interrupted feedback pass is completed first
-A feedback pass SHALL record its round, findings, their destination repos, the edits each fix needs and each finding's intended disposition before its first fix. A run that finds a record SHALL finish that pass under its original round before any new fix, even at the round limit, reading each step's progress from git and GitHub so that no action is repeated. The record SHALL be removed once every applicable step of the pass is done, as limited by the settings and each finding's disposition. A reaction counts as done only when GitHub shows it; a code PR adopted by the pass counts as linked only when both PRs link each other.
+A feedback pass SHALL record its round, findings, their destination repos, the edits each fix needs and each finding's intended disposition before its first fix. A run that finds a record SHALL finish that pass under its original round before any new fix, even at the round limit, reading each step's progress from git and GitHub so that no action is repeated.
 
 #### Scenario: Interrupted between the two fix commits
 - **WHEN** `max_fix_rounds` is 2 and pass 2 committed its code fix but stopped before committing its store fix
@@ -460,3 +460,74 @@ For store-backed roadmap **init** and **close**, each step that writes project f
 #### Scenario: Store switched before a commit
 - **WHEN** another session switches the store to `feat/add-csv-export` after close wrote its files but before it commits
 - **THEN** close makes no commit, `feat/add-csv-export` gains no commit, and the report names `docs/close-m1` as expected and `feat/add-csv-export` as found
+
+### Requirement: A failed store gate branch leaves no new branch
+When a store gate's `git checkout -b <branch>` errors in either repo (`specwright-branch`, or roadmap **init** or **close**), the gate SHALL, in each repo where it ran `git checkout -b` and `<branch>` exists, switch back to that repo's main and delete `<branch>`. It SHALL judge the switch by the repo's current branch, not by the command's exit status. It SHALL then release the gate lock it took and stop with the error.
+
+#### Scenario: Store hook fails after the branch is created
+- **WHEN** close runs store-backed with project files in both repos, and the store's `post-checkout` hook exits non-zero, so `git checkout -b docs/close-m1` errors after creating and switching to the branch
+- **THEN** both repos are on their main, `docs/close-m1` exists in neither, the gate lock no longer exists, nothing is committed, and the report shows the hook's error
+
+#### Scenario: Store hook fails after the code branch exists
+- **WHEN** `specwright-branch` has created `feat/add-csv-export` in the code repo, and the store's `post-checkout` hook exits non-zero on the store's `git checkout -b`
+- **THEN** both repos are on their main, `feat/add-csv-export` exists in neither, the gate lock no longer exists, no change directory exists, and the report shows the hook's error
+
+#### Scenario: Code hook fails after the store branch exists
+- **WHEN** close runs store-backed with project files in both repos, has created `docs/close-m1` in the store, and the code repo's `post-checkout` hook exits non-zero on its `git checkout -b docs/close-m1`
+- **THEN** both repos are on their main, `docs/close-m1` exists in neither, the gate lock no longer exists, nothing is committed, and the report shows the hook's error
+
+#### Scenario: Branch creation refused outright
+- **WHEN** the store's `git checkout -b docs/close-m1` errors without creating the branch
+- **THEN** no repo holds `docs/close-m1`, both repos are on their main, and the gate lock no longer exists
+
+#### Scenario: One repo cannot switch back
+- **WHEN** after a hook failure the code repo is still on `docs/close-m1` after `git checkout main`, and the store is on `docs/close-m1` too
+- **THEN** the store is switched to its main and its `docs/close-m1` deleted, the code repo's `docs/close-m1` is kept, the gate lock no longer exists, and the report names the code repo, `docs/close-m1` and its main
+
+#### Scenario: Gate passes without errors
+- **WHEN** both repos' `git checkout -b docs/close-m1` succeed
+- **THEN** both repos are on `docs/close-m1` and no rollback runs
+
+### Requirement: Git network reads authenticate as each repo's login
+Git network reads of the store (`ls-remote`, `fetch`) made by the PR scripts SHALL authenticate as the resolved store login, and those of the code repo as the code login.
+
+#### Scenario: Store and code logins differ
+- **WHEN** `planning_store.login` is `plans-bot`, `github.login` is `code-bot`, and `rounds` reads both remotes
+- **THEN** the store's `ls-remote` authenticates as `plans-bot` and the code repo's as `code-bot`
+
+#### Scenario: Code remote accepts only the code login
+- **WHEN** `planning_store.login` differs from `github.login`, and the code remote accepts only `github.login`'s credential
+- **THEN** the code repo's `ls-remote` authenticates as `github.login` and reports the code branch's real state, never as `planning_store.login`
+
+### Requirement: A snapshot counts only for the PR and head discovery reports
+A snapshot SHALL count toward readiness only when its repository, PR number and head commit match the PR that discovery reports at that call.
+
+#### Scenario: Snapshot matches discovery
+- **WHEN** the code snapshot is of PR 9 at head B and passes every readiness check, and discovery reports the code PR as PR 9 at head B
+- **THEN** `pair-state` counts the code PR as ready
+
+#### Scenario: Code snapshot of an old head
+- **WHEN** the code snapshot is of PR 9 at head A and passes every readiness check, while discovery reports PR 9 at head B
+- **THEN** `pair-state` reports `wait` with a `refresh` blocker for the code PR naming heads A and B
+
+### Requirement: Fix rounds are counted across both branches
+Each fix commit SHALL carry the trailer `Feedback-Round: <n>`. The round limit SHALL count the highest `n` across both branches and SHALL apply only to starting a new pass. Fix commits without a trailer SHALL be counted by their `address review feedback` subject only when neither branch has a `Feedback-Round` trailer.
+
+#### Scenario: Round below the limit
+- **WHEN** `max_fix_rounds` is 2 and only the store branch has a fix commit, with `Feedback-Round: 1`
+- **THEN** the next pass is round 2, and each of its fix commits carries `Feedback-Round: 2`
+
+#### Scenario: Trailer and legacy commits mixed
+- **WHEN** the store branch has a fix commit with `Feedback-Round: 1` and the code branch has two `address review feedback` commits without a trailer
+- **THEN** the round count is 1: the commits without a trailer are not counted
+
+### Requirement: A pass record is removed only when its pass is done
+A feedback pass's record SHALL be removed once every applicable step of the pass is done, as limited by the settings and each finding's disposition. A reaction counts as done only when GitHub shows it; a code PR adopted by the pass counts as linked only when both PRs link each other.
+
+#### Scenario: Every step done
+- **WHEN** pass 2's fixes are pushed in both repos, review is re-requested on both PRs, and every finding of pass 2 is answered and resolved as recorded
+- **THEN** `pass done` removes the pass record
+
+#### Scenario: Reply posted, push missing
+- **WHEN** pass 2's replies are posted but its store fix commit is not on the store's remote
+- **THEN** `pass done` keeps the record, and the next plan lists the store push as to do
