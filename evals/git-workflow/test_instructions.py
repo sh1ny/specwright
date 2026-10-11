@@ -699,6 +699,16 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(row, r"(?i)repo done", "the local bulk-archive row does not finish the repo")
         self.assertLess(s.index("| M, not B"), s.index("`local`, A on main through the archive directory"), "the local row is not after M, not B")
 
+    def test_finish_resume_local_archive_directory_alone_asks(self):
+        """A reused change name can match an older generation's archive directory, so the directory alone does not finish
+        the repo: the row shows the directory and the commit that added it and asks."""
+        row = resume_row(resume_section(), r"`local`, A on main through the archive directory, not M, not B[^|]*")
+        self.assertRegex(row, r"(?i)\bask", "the row declares the repo done on the directory alone")
+        self.assertRegex(row, r"the commit that added it", "the row does not show the commit that added the directory")
+        self.assertRegex(row, r"git log -1[^`]*<main> -- ", "the row does not find that commit with git log on main")
+        self.assertRegex(row, r"(?i)reused", "the row does not say why it asks (a reused change name)")
+        self.assertRegex(row, r"(?i)\bno\b[^|]*touch nothing", "a no does not leave the repo untouched")
+
     def merged_bullet(self):
         text = read(FINISH)
         at = text.index("- **After the PR is merged**")

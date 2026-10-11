@@ -347,6 +347,7 @@ BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--point
 BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
                 "--unset-upstream", "--edit-description", "-t", "--track"}
 ALWAYS_WRITE = {"commit", "merge", "rebase", "cherry-pick", "reset", "revert", "push", "tag", "am", "stash"}
+CHECKOUT_WRITE = {"-b", "-B", "-c", "-C", "--orphan", "--detach", "-d"}
 
 
 def branch_deletes(cmds):
@@ -354,7 +355,8 @@ def branch_deletes(cmds):
 
 
 def changing_git(cmds):
-    """The git commands that commit, merge, push or change a branch; `git branch` and `git checkout`/`switch` count only when they write."""
+    """The git commands that commit, merge, push or change a branch; `git branch` counts only when it writes, and `git checkout`/`switch`
+    whenever it names a target (`checkout main`, `switch main`, `checkout -- <path>`) or creates or detaches a branch."""
     bad = []
     for c in cmds:
         sub, rest = (c[0] if c else ""), c[1:]
@@ -364,20 +366,24 @@ def changing_git(cmds):
             positional = [a for a in rest if not a.startswith("-")]
             if BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & set(rest)):
                 bad.append(c)
-        elif sub in ("checkout", "switch") and {"-b", "-B", "-c", "-C", "--orphan", "--detach", "-d"} & set(rest):
+        elif sub in ("checkout", "switch") and (CHECKOUT_WRITE & set(rest) or any(not a.startswith("-") or a == "--" for a in rest)):
             bad.append(c)
     return bad
 
 
 def changing_gh(calls):
-    """gh calls that create or change something on GitHub: a pr/issue write command, or a REST call with a method or fields."""
+    """gh calls that create or change something on GitHub: a pr/issue write command, a GraphQL call whose query is a mutation, or a
+    REST call with a method or fields."""
     out = []
     for c in calls:
         a = c.get("argv", [])
         joined = " ".join(a)
         if a[:1] in (["pr"], ["issue"]) and len(a) > 1 and a[1] in ("create", "edit", "merge", "close", "comment", "reopen", "ready", "review"):
             out.append(joined)
-        elif a[:1] == ["api"] and "graphql" not in a[1:2]:
+        elif a[:1] == ["api"] and "graphql" in a[1:2]:
+            if any(re.match(r"query=\s*mutation\b", x) for x in a):
+                out.append(joined)
+        elif a[:1] == ["api"]:
             m = re.search(r"(?:-X|--method)[= ](\w+)", joined)
             if (m and m.group(1).upper() != "GET") or {"-f", "-F", "--field", "--raw-field", "--input"} & set(a):
                 out.append(joined)

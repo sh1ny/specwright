@@ -75,5 +75,25 @@ class Rmtree(unittest.TestCase):
         self.assertFalse(d.exists())
 
 
+class ChangingCommands(unittest.TestCase):
+    """The finish-resume graders' "nothing changed" checks must see every git branch change and every GitHub write."""
+
+    def test_positional_checkout_and_switch_are_changes(self):
+        for c in (["checkout", "main"], ["checkout", "HEAD~1"], ["checkout", "--", "a.txt"], ["switch", "main"],
+                  ["checkout", "-q", "main"], ["checkout", "-b", "x"], ["switch", "-c", "x"], ["switch", "--detach", "HEAD"]):
+            self.assertEqual(grade.changing_git([c]), [c], c)
+        for c in (["status"], ["log", "--oneline"], ["branch", "--show-current"], ["checkout"], ["switch"]):
+            self.assertEqual(grade.changing_git([c]), [], c)
+
+    def test_graphql_mutation_is_a_change(self):
+        q = lambda body: {"argv": ["api", "graphql", "-f", "threadId=T", "-f", "query=" + body]}
+        for body in ("mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }",
+                     "\n    mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"):
+            self.assertEqual(len(grade.changing_gh([q(body)])), 1, body)
+        read = q("query($owner:String!){ repository(owner:$owner){ pullRequest(number:7){ mergedAt } } }")
+        self.assertEqual(grade.changing_gh([read]), [], "a GraphQL read is not a change")
+        self.assertEqual(grade.changing_gh([{"argv": ["api", "graphql", "-f", "query={ viewer { login } }"]}]), [])
+
+
 if __name__ == "__main__":
     unittest.main()
