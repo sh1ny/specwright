@@ -81,7 +81,7 @@ Script behaviour runs through `bash` against real git repos and the fake `gh`: `
 ## 6. Docs and release 0.1.13
 
 - [x] 6.1 Check the README against the behaviour (CONTRIBUTING "README follows behaviour"): ship order, cleanup after merge, and the finish resume description. Update where they differ. Verify by naming the sections checked in the commit body.
-- [ ] 6.2 Bump to 0.1.13: `VERSION`, the README badge and `metadata.version` in all six `skills/*/SKILL.md`. Note the `cleanup-plan` contract change (the removed `force_delete` and `force_delete_allowed`) in the README's changelog or release notes, wherever the repo keeps them. Verify with `grep -rn "0\.1\.1[23]" VERSION README.md skills/*/SKILL.md`: only 0.1.13 appears where a version belongs.
+- [x] 6.2 Bump to 0.1.13: `VERSION`, the README badge and `metadata.version` in all six `skills/*/SKILL.md`. Note the `cleanup-plan` contract change (the removed `force_delete` and `force_delete_allowed`) in the README's changelog or release notes, wherever the repo keeps them. Verify with `grep -rn "0\.1\.1[23]" VERSION README.md skills/*/SKILL.md`: only 0.1.13 appears where a version belongs.
 
 ## 7. Integration checks
 
