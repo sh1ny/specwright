@@ -394,8 +394,15 @@ def changing_gh(calls):
             if opaque or any(re.match(r"\s*(?:#[^\n]*\n\s*)*mutation\b", q) for q in qs):
                 out.append(joined)
         elif a[:1] == ["api"]:
-            m = re.search(r"(?:-X\s*|--method[= ])(\w+)", joined)
-            method = m.group(1).upper() if m else None
+            # the method comes from its own argv token: `-X GET`, `--method GET`, `-XGET`, `--method=GET`; never from inside a path
+            method = None
+            for i, x in enumerate(a):
+                if x in ("-X", "--method") and i + 1 < len(a):
+                    method = a[i + 1].upper()
+                elif x.startswith("--method="):
+                    method = x.split("=", 1)[1].upper()
+                elif re.fullmatch(r"-X\w+", x):
+                    method = x[2:].upper()
             # fields or a body make gh send a POST unless the method is forced: --method GET sends them as a query string
             body = any(re.match(r"-[fF]|--(?:raw-)?field\b|--input\b", x) for x in a)
             if (method and method != "GET") or (method is None and body):

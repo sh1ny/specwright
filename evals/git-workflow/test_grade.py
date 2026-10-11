@@ -120,7 +120,8 @@ class ChangingCommands(unittest.TestCase):
     def test_explicit_get_with_fields_is_a_read(self):
         for argv in (["api", "--method", "GET", "search/issues", "-f", "q=repo:o/n"], ["api", "-X", "GET", "search/issues", "-f", "q=x"],
                      ["api", "-XGET", "search/issues", "-f", "q=x"], ["api", "--method=get", "search/issues", "-F", "q=x"],
-                     ["api", "repos/o/n/pulls/7"]):
+                     ["api", "repos/o/n/pulls/7"], ["api", "repos/acme/greeter-Xcode/pulls/7"],
+                     ["api", "repos/o/n/pulls?head=o:fix-Xmethod"]):
             self.assertEqual(grade.changing_gh([{"argv": argv}]), [], argv)
         for argv in (["api", "repos/o/n/issues/7/comments", "-f", "body=x"], ["api", "-X", "PATCH", "repos/o/n/pulls/7"],
                      ["api", "--method", "POST", "repos/o/n/issues/7/reactions", "-f", "content=+1"],

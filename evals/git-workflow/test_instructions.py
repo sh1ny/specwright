@@ -735,6 +735,16 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(rule, r"(?i)\bask", "a reused branch name does not ask the user")
         self.assertRegex(rule, r"(?i)never `closed-check` the older", "the older merged PR still gets the backstop")
 
+    def test_finish_resume_reused_branch_rule_takes_precedence(self):
+        """First match wins in the table, so the reused-name stop must say it comes first, except that a branch with an
+        open newest PR is the current change in progress and still ships."""
+        s = resume_section()
+        at = s.index("The branch's PR is")
+        rule = s[at:s.index("\n", at)]
+        self.assertRegex(rule, r"checked before the table", "the reused-name rule does not take precedence over the table")
+        self.assertRegex(rule, r"no-archive report", "a reused name can still reach the no-archive report")
+        self.assertRegex(rule, r"B holds and the newest PR is open", "an in-progress branch with an open newest PR no longer ships")
+
     def test_finish_resume_local_archive_directory_alone_asks(self):
         """A reused change name can match an older generation's archive directory, so the directory alone does not finish
         the repo: the row shows the directory and the commit that added it and asks."""
