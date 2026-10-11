@@ -30,7 +30,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 | preship-review → Passing review recorded per head | Clean review | evals/review-routes/test_review_run.py | test_gate_pass_with_only_p2_p3 | red |
 | preship-review → Passing review recorded per head | Blocking finding | evals/review-routes/test_review_run.py | test_gate_blocked_with_p1 | red |
 | preship-review → Passing review recorded per head | Fix after a blocking finding | evals/review-routes/test_review_run.py | test_gate_missing_after_new_commit; evals/review-routes/test_skill_text.py test_fix_subject_and_preship_round_trailer | red |
-| preship-review → Passing review recorded per head | Pre-ship fixes do not use up PR fix rounds | evals/pr-pair/test_pr_pair.py | test_rounds_ignore_preship_fix_commits | red |
+| preship-review → Passing review recorded per head | Pre-ship fixes do not use up PR fix rounds | evals/pr-pair/test_pr_pair.py | test_rounds_ignore_preship_fix_commits | green |
 | preship-review → Waiver only from the user | User waives a finding | evals/review-routes/test_review_run.py | test_waive_turns_blocked_into_pass | red |
 | preship-review → Waiver only from the user | No answer | evals/review-routes/test_skill_text.py | test_waive_only_after_user_answer | green |
 | preship-review → Ship and local merge require a pass | Ship with a pass on the head | evals/review-routes/test_skill_text.py | test_ship_gate_before_first_push | green |
@@ -87,7 +87,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 
 - [ ] 4.1 Write failing tests in `evals/review-routes/test_review_run.py` for `record` (preship and design), `waive`, `gate` (repo-local and store-backed, archive matching), `archive-only` and `rounds`, using temp git repos and `SPECWRIGHT_STATE_DIR`. Verify: the new tests fail for the missing subcommands.
 - [ ] 4.2 Implement `record`, `waive`, `gate`, `archive-only` and `rounds` per D2, D5 and D6: atomic rename, no stored outcome, records keyed by head(s), `Preship-Round:` from `git log`. Verify: the preship-review and pr-watch rows mapped to `test_review_run.py` pass; flip them green.
-- [ ] 4.3 Add `test_rounds_ignore_preship_fix_commits` to `evals/pr-pair/test_pr_pair.py`: a branch with two `address pre-ship review` commits carrying `Preship-Round:` gives `rounds` 0, so the next pass is round 1. Verify: it passes against the current `pr-pair.sh` (the subject is distinct by design); flip it green, and if it fails, fix `pr-pair.sh` matching first.
+- [x] 4.3 Add `test_rounds_ignore_preship_fix_commits` to `evals/pr-pair/test_pr_pair.py`: a branch with two `address pre-ship review` commits carrying `Preship-Round:` gives `rounds` 0, so the next pass is round 1. Verify: it passes against the current `pr-pair.sh` (the subject is distinct by design); flip it green, and if it fails, fix `pr-pair.sh` matching first.
 
 ## 5. The specwright-review skill and review steps
 
