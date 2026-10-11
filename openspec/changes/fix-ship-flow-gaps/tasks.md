@@ -85,7 +85,7 @@ Script behaviour runs through `bash` against real git repos and the fake `gh`: `
 
 ## 7. Integration checks
 
-- [ ] 7.1 Run `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`. Both must pass, and every Test map row must be green or carry a recorded skip reason.
+- [x] 7.1 Run `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`. Both must pass, and every Test map row must be green or carry a recorded skip reason.
 - [ ] 7.2 Run `openspec validate fix-ship-flow-gaps --strict` and `openspec schema validate specwright`. Both must pass.
 
 ## Workflow follow-up
