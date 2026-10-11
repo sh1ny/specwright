@@ -87,7 +87,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
   - `eval-store-branch-hook-fail`: a clean store pair. The store's `post-checkout` exits 1. Prompt: start change `add-csv-export`, scaffold only.
 
   Grade both: each repo on main, the new branch in neither, no gate lock, mains unchanged, no change directory, no amend, and the report quotes the hook failure. The fixture writes a POSIX `sh` hook, which Git for Windows runs through its bundled shell. Verify with one graded run of each (`python evals/git-workflow/grade.py <iteration-dir>`). Verify too that `eval-store-roadmap-close-locked` and `eval-store-branch-clean` still pass. Flip those rows green.
-- [ ] 2.4 Update `openspec/architecture.md`'s Resource bounds and failure visibility "Store gate" row: a `git checkout -b` that errors is rolled back in every repo the gate branched (#60). Do not edit the frozen Known gaps table or any accepted ADR. Verify by reading the row.
+- [x] 2.4 Update `openspec/architecture.md`'s Resource bounds and failure visibility "Store gate" row: a `git checkout -b` that errors is rolled back in every repo the gate branched (#60). Do not edit the frozen Known gaps table or any accepted ADR. Verify by reading the row.
 
 ## 3. Milestone end, kept split and finish offer (#51, D1, D2)
 
