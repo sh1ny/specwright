@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: A milestone end offers close, not a new change
-When every change of the Now milestone is done, roadmap **next** SHALL report a milestone end, offer **close** and start no change, create no branch and edit no file. **next** SHALL start only changes of the Now milestone. Roadmap **status** SHALL name `milestone end: run close` as what **next** would do. A change that is not done keeps the milestone open: next reports what it waits for.
+When every change of the Now milestone is done, roadmap **next** SHALL report a milestone end, offer **close** and start no change, create no branch and edit no file, unless an exit criterion was shown failing by **close** or reported failing by the user: then the gap-closing requirement applies. **next** SHALL start only changes of the Now milestone. A change that is not done keeps the milestone open: next reports what it waits for.
 
 #### Scenario: All changes done, criteria not yet walked
 - **WHEN** every change of M1 is done, M1 has a user-verified exit criterion with no recorded result, and the user runs next
@@ -13,13 +13,24 @@ When every change of the Now milestone is done, roadmap **next** SHALL report a 
 - **WHEN** every change of M1 is done and Next (M2) lists agreed changes, and the user runs next
 - **THEN** next offers close and does not start M2's first change
 
+#### Scenario: Last change archived but code pending
+- **WHEN** M1's last change is archived on the store's main but its code PR is still open
+- **THEN** next does not offer close: it reports the change as planning merged, code pending, and names the code PR it waits for
+
+#### Scenario: Close found a criterion failing
+- **WHEN** every change of M1 is done, close found an exit criterion failing and routed to next
+- **THEN** next proposes a gap-closing change instead of offering close again, and follows the gap-closing requirement
+
+### Requirement: Status names a milestone end
+Roadmap **status** SHALL name `milestone end: run close` as what **next** would do when every change of the Now milestone is done, and the change next would start otherwise.
+
 #### Scenario: Status at a milestone end
 - **WHEN** every change of M1 is done and the user asks for roadmap status
 - **THEN** status reports each change as done and names `milestone end: run close` as what next would do, instead of a change
 
-#### Scenario: Last change archived but code pending
-- **WHEN** M1's last change is archived on the store's main but its code PR is still open
-- **THEN** next does not offer close: it reports the change as planning merged, code pending, and names the code PR it waits for
+#### Scenario: Status with a change left
+- **WHEN** M1 has a planned change whose prerequisites are done and the user asks for roadmap status
+- **THEN** status names that change as what next would start and does not report a milestone end
 
 ### Requirement: Finish offers close after the milestone's last change
 When the roadmap exists and a change reaches main, `specwright-finish` SHALL offer roadmap **close** when every change of the Now milestone is then done, and **next** otherwise. It SHALL NOT offer both as alternatives.
