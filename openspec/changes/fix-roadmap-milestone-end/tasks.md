@@ -75,7 +75,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 
 ## 2. Store gates roll back a failed `git checkout -b` (#60, D3)
 
-- [ ] 2.1 Write the failing text checks in `evals/git-workflow/test_instructions.py`:
+- [x] 2.1 Write the failing text checks in `evals/git-workflow/test_instructions.py`:
   - Rewrite `test_roadmap_store_checks_code_repo_before_any_branch`'s step 3 assertions as `test_roadmap_store_branch_error_rolls_back_every_branched_repo`. After any `git checkout -b` error, each repo where the gate ran it and `<branch>` exists is switched to main and `<branch>` deleted with `git branch -d`, then the lock is released and the error shown. Its step 2 assertions stay in the original test.
   - `test_branch_store_error_rolls_back_every_branched_repo`, the same for `specwright-branch` Store-backed changes step 3, including the code-side error.
   - `test_gate_rollback_judges_switch_by_current_branch`: both skills check `git branch --show-current`, not the switch's exit status; a repo still on `<branch>` keeps it, the other repo is still rolled back, and the stop names that repo and both branches.

@@ -197,6 +197,16 @@ BRANCH_TEST_STORE = r'test "\$\(git -C "<store toplevel>" branch --show-current\
 BRANCH_TEST_CD = r'cd "<store toplevel>" && test "\$\(git branch --show-current\)" = <branch> &&'
 
 
+BRANCH = ROOT / "skills" / "specwright-branch" / "SKILL.md"
+
+
+def branch_store_section():
+    """specwright-branch's "Store-backed changes" section."""
+    s = section(read(BRANCH), r"Store-backed changes")
+    assert s, "specwright-branch SKILL.md has no ## Store-backed changes"
+    return s
+
+
 def mode_block(text, n):
     """Numbered item `n` of a list in `text`, up to the next numbered item or blank line."""
     m = re.search(r"^%d\. .*?(?=^\d+\. |\n\n|\Z)" % n, text, re.M | re.S)
@@ -233,12 +243,46 @@ class PlanningStores(unittest.TestCase):
         self.assertRegex(check, r"(?i)code repo", "step 2 does not check the code repo")
         self.assertRegex(check, r"(?s)(?i)code repo.{0,200}(clean|on its main).{0,200}<branch>.{0,40}exist",
                          "step 2 does not check that the code repo is clean, on main and without <branch>")
-        branch = mode_block(s, 3)
-        self.assertRegex(branch, r"(?s)(?i)(fails|errors).{0,200}(switch|checkout).{0,80}store.{0,120}(delete|branch -D)",
-                         "a failed code branch does not roll the store branch back")
-        self.assertRegex(branch, r"(?i)releas", "the rollback does not release the lock")
-        self.assertRegex(branch, r"(?s)(?i)store's `git checkout -b` errors.{0,120}releas",
-                         "an error creating the store branch does not release the lock")
+
+    def assert_one_rollback_rule(self, step, branch, label):
+        """A store gate's branch step rolls back after any `git checkout -b` error, by what exists (D3)."""
+        self.assertRegex(step, r"(?s)(?i)\bany\b.{0,20}`git checkout -b[^`]*`.{0,20}errors",
+                         f"{label}: the rollback does not cover any `git checkout -b` error")
+        self.assertRegex(step, r"(?s)(?i)each repo where.{0,60}ran `git checkout -b`.{0,40}`" + re.escape(branch) + r"` exists",
+                         f"{label}: the rollback is not scoped to each repo the gate branched where the branch exists")
+        self.assertRegex(step, r"`git checkout <main>`", f"{label}: the rollback does not switch back to main")
+        self.assertRegex(step, r"`git branch -d " + re.escape(branch) + r"`",
+                         f"{label}: the rollback does not delete the branch with `git branch -d`")
+        self.assertRegex(step, r"(?s)(?i)\brelease.{0,40}lock.{0,80}\bstop.{0,60}(original )?error",
+                         f"{label}: the rollback does not release the lock, then stop showing the error")
+        self.assertNotRegex(step, r"(?i)nothing was branched", f"{label}: an error still assumes nothing was branched")
+
+    def test_roadmap_store_branch_error_rolls_back_every_branched_repo(self):
+        step = mode_block(store_part(committing_project_files()), 3)
+        self.assert_one_rollback_rule(step, "<branch>", "roadmap step 3")
+        self.assertRegex(step, r"(?i)post-checkout", "roadmap step 3 does not name the hook case")
+
+    def test_branch_store_error_rolls_back_every_branched_repo(self):
+        step = mode_block(branch_store_section(), 3)
+        self.assert_one_rollback_rule(step, "<prefix>/<change-name>", "specwright-branch store step 3")
+        self.assertRegex(step, r"(?i)code repo", "specwright-branch store step 3 does not cover the code repo")
+        self.assertNotRegex(step, r"(?i)if the store creation fails",
+                            "specwright-branch store step 3 still rolls back only a store-side failure")
+
+    def test_gate_rollback_judges_switch_by_current_branch(self):
+        for label, step, branch in (("roadmap step 3", mode_block(store_part(committing_project_files()), 3), "<branch>"),
+                                    ("specwright-branch store step 3", mode_block(branch_store_section(), 3),
+                                     "<prefix>/<change-name>")):
+            with self.subTest(label):
+                self.assertRegex(step, r"`git branch --show-current`", f"{label}: the switch is not checked by the current branch")
+                self.assertRegex(step, r"(?i)ignore its exit status|never by (its|the) exit status|not by (its|the) exit status",
+                                 f"{label}: the switch is judged by its exit status")
+                self.assertRegex(step, r"(?s)(?i)still on `" + re.escape(branch) + r"`.{0,80}(keeps it|delete nothing)",
+                                 f"{label}: a repo that could not switch back has its branch deleted")
+                self.assertRegex(step, r"(?s)(?i)still roll back the other repo",
+                                 f"{label}: one stuck repo stops the other repo's rollback")
+                self.assertRegex(step, r"(?s)(?i)name.{0,20}that repo.{0,40}`" + re.escape(branch) + r"`.{0,20}(its )?main",
+                                 f"{label}: the stop does not name the stuck repo and both branches")
 
     def test_roadmap_store_commits_check_branch_in_same_call(self):
         s = store_part(committing_project_files())
