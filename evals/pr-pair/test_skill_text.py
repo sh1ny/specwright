@@ -430,5 +430,46 @@ class CleanupClosingReferences(unittest.TestCase):
         self.assertRegex(m.group(0), r"(?i)later cleanup")
 
 
+class BodyFiles(unittest.TestCase):
+    """A step that writes a body or message to a temp file also removes it once the command that reads it has run."""
+
+    REMOVE = r"(?i)remove (the|that|each|this) (body |temp(orary)? )?files?\b.{0,120}\bwhatever (its|the|that command's) outcome"
+
+    def step(self, section, label, nxt):
+        body = SECTIONS[section][1]
+        m = re.search(r"^%s " % re.escape(label), body, re.M)
+        self.assertTrue(m, f"the {section} section has no step {label}")
+        end = re.search(r"^%s " % re.escape(nxt), body[m.end():], re.M) if nxt else None
+        return body[m.start():m.end() + end.start()] if end else body[m.start():]
+
+    def test_every_body_file_step_removes_its_file(self):
+        passages = {
+            "ship 4b (description and closing-line rewrite)": self.step("ship", "4b.", "5."),
+            "ship 6 (review request)": self.step("ship", "6.", "7."),
+            "feedback 8 (replies)": self.step("feedback", "8.", "9."),
+        }
+        limit = SECTIONS["feedback"][1]
+        at = limit.index("**After the limit**")
+        passages["after the limit (issue bodies)"] = limit[at:]
+        for name, text in passages.items():
+            self.assertRegex(text, r"(?i)\b(temp file|body file|--body-file|<file>)", f"{name}: no file is written; the test is stale")
+            self.assertRegex(text, self.REMOVE, f"{name} does not tell the agent to remove the file whatever the command's outcome")
+        ship4b = passages["ship 4b (description and closing-line rewrite)"]
+        self.assertGreaterEqual(len(re.findall(self.REMOVE, ship4b)), 2, "ship 4b removes only one of its description and closing-line rewrite files")
+
+    def test_every_mktemp_in_a_script_has_a_failure_path_cleanup(self):
+        scripts = sorted(SKILL.parents[1].glob("*/scripts/*.sh"))
+        self.assertTrue(scripts, "found no skills/*/scripts/*.sh")
+        seen = 0
+        for path in scripts:
+            text = path.read_text(encoding="utf-8")
+            if "mktemp" not in text:
+                continue
+            seen += 1
+            self.assertRegex(text, r"""trap\s+'[^']*rm -f[^']*'\s+\S*EXIT|rm -f "\$tmp\"""",
+                             f"{path.name} calls mktemp but has neither an EXIT trap nor an `rm -f \"$tmp\"` that removes the file")
+        self.assertTrue(seen, "no script calls mktemp; the check is vacuous")
+
+
 if __name__ == "__main__":
     unittest.main()
