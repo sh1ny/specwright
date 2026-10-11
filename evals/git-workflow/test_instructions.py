@@ -125,6 +125,25 @@ class AgentDelegation(unittest.TestCase):
         self.assertTrue(init5, "roadmap init has no step 5 Review")
         self.assertRegex(init5.group(0), r"SKILL\.md", "roadmap init step 5's request does not name skills with paths")
 
+    def test_design_reviews_use_review_routes(self):
+        review = schema_block("- id: review")
+        self.assertNotRegex(review, r"(?i)author on\s+Claude\s*→\s*`codex`", "the review step still has the hardcoded pairing")
+        self.assertNotRegex(review, r"(?i)read its current flags", "the agent still builds the reviewer command line")
+        for name, block in (("design review", review), ("roadmap init step 5", mode_step("init", 5))):
+            self.assertRegex(block, r"specwright-review", f"{name}: does not use the specwright-review routes")
+            self.assertRegex(block, r"(?s)review-run\.sh\s+select|review-run\.sh select", f"{name}: no route selection")
+            self.assertRegex(block, r"(?s)run\s+--kind\s+design", f"{name}: a CLI route is not run through review-run.sh")
+            self.assertRegex(block, r"(?s)record\s+--kind\s+design", f"{name}: a subagent review is not validated")
+        self.assertRegex(review, r"(?i)never try the next route", "an invalid review falls through to another route")
+        self.assertRegex(review, r"review\.cross_model: false", "cross_model false no longer means the agent only")
+
+    def test_reviewer_agents_have_preship_mode(self):
+        for p in [*CLAUDE_AGENTS[1:], ROOT / "agents" / "omp" / "specwright-reviewer.md"]:
+            text = read(p)
+            self.assertRegex(text, r"(?m)^description:.*pre-ship", f"{p.name}: description has no pre-ship mode")
+            self.assertRegex(text, r"(?i)for a pre-ship review", f"{p.name}: no pre-ship mode")
+            self.assertRegex(text, r"(?is)pre-ship review.{0,900}findings file.{0,400}schema", f"{p.name}: no findings file output")
+
     def test_install_report_requires_new_session_for_agents(self):
         s8 = step(read(README), "Step 8")
         self.assertTrue(s8, "README install prompt has no Step 8")

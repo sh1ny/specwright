@@ -39,7 +39,7 @@ Every review (design or pre-ship) picks its reviewer the same way:
 ## Design reviews
 
 The schema's review step (FULL tier) and the `specwright-roadmap` baseline review use the routes above:
-- **CLI route:** write the review request (the same request the review step describes: the files to read, the installed project skills that apply, the review template) to a temp file, then `bash scripts/review-run.sh run --kind design --route <route> --prompt-file <request file> --out <review file> --change <change-name> --selection <select output>`. `<review file>` is the change's `review.md` (or `openspec/architecture-review.md` for the baseline). The script writes it only after the output has exactly one `VERDICT:` line and a `CHANGES_APPLIED:` line; on exit 3 the file is untouched.
+- **CLI route:** write the review request (the same request the review step describes: the files to read, the installed project skills that apply, the review template) to a temp file, then `bash scripts/review-run.sh run --kind design --route <route> --prompt-file <request file> --out <review file> --change <change-name> --selection <select output>`. `<review file>` is the change's `review.md`; for the roadmap baseline it is `openspec/architecture-review.md` and `<change-name>` is `baseline`. The script writes it only after the output has exactly one `VERDICT:` line and a `CHANGES_APPLIED:` line; on exit 3 the file is untouched.
 - **`subagent`:** the `specwright-reviewer` agent writes the review file, then `bash scripts/review-run.sh record --kind design --change <change-name> --result <review file> --route subagent`. Exit 3 → the review is invalid: the tasks step does not start; run the review again.
 
 ## Pre-ship review
