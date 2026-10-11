@@ -29,6 +29,12 @@ The diff is already on GitHub. The description explains what the diff cannot sho
 - Verification (commands run and results; a test map summary if there is one)
 - Review focus (where a reviewer should look hardest)
 
+**Review** (a section of its own, only when it has content; omit it when none of the three lists below has an entry). What the pre-ship review left for the PR's readers:
+- Spec amendments made in response to it: the commits in `<main>..HEAD` of either repo with an `Amendment:` trailer, each with its class (clarification or behaviour-change) and what it changed. Drift amendments from apply have no `Amendment:` trailer and were already re-reviewed by the design review, so they are not listed.
+- P2 and P3 findings left open: priority, file, line and title.
+- Waived P0/P1 findings, each with the user's reason.
+Read the findings and waivers from the record that `review-run.sh gate` matched (its `open` and the record's findings and `waivers`), never from memory of the review.
+
 **References:** `Fixes #N` only when the PR fully resolves issue N; otherwise `Related: #N` (a partly resolved issue gets `Related`, never a closing keyword). Never invent issue numbers.
 - One keyword per issue, each on its own line: `Fixes #21`, `Fixes #24`. Never `Fixes #21, #24`: GitHub reads only the first reference after a keyword.
 - Closing lines go on the PR in the repository that holds the issue (normally the code PR). In a store-backed change the store PR uses `Related: <owner>/<repo>#N` for those issues.
