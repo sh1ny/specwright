@@ -662,7 +662,7 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertTrue(row, "no Resume row for a merged PR with no branch")
         self.assertRegex(row, r"closed-check", "the row does not run the issues-left-open backstop")
         self.assertIn("discover", row + s, "the merged PR is not found with discover")
-        self.assertRegex(s, r"discover[^\n]*--state merged", "the merged PR is not found with discover --state merged")
+        self.assertRegex(s, r"`newest`[^\n]*discover|discover[^\n]*`newest`", "the branch's PR is not the newest one discover lists")
         self.assertNotRegex(row, r"git branch -[dD]", "the row deletes a branch that is already gone")
         self.assertRegex(row, r"(?i)no branch delet", "the row does not forbid a branch deletion")
         self.assertRegex(row, r"(?i)repo done|\bdone\b", "the row does not count the repo as done")
@@ -708,9 +708,23 @@ class ChangeFinishResume(unittest.TestCase):
         no_archive = rule.index("no archive of `<change-name>` was found")
         before = rule[:no_archive]
         self.assertRegex(before, r"`pr` mode", "the no-archive rule has no pr-mode check")
-        self.assertRegex(before, r"discover[^`]*--state merged", "the merged PR is not looked up before reporting no archive")
+        self.assertRegex(before, r"discover", "the branch's PR is not looked up before reporting no archive")
+        self.assertRegex(before, r"newest PR is merged", "main is pulled for an older merged PR, not the newest one")
         self.assertRegex(before, r"pull --ff-only", "main is not pulled before reporting no archive")
         self.assertRegex(before, r"read the three facts again", "the facts are not read again after the pull")
+
+    def test_finish_resume_merged_pr_is_the_newest_of_any_state(self):
+        """A reused branch name can leave an older generation's merged PR behind a newer open one: `--state merged` would
+        hide the newer PR and finish the new change on the old archive. The branch's PR is the newest of any state."""
+        s = resume_section()
+        at = s.index("The branch's PR is")
+        rule = s[at:s.index("\n", at)]
+        self.assertRegex(rule, r"discover[^`]*--base <main>`", "the branch's PR is not found with discover")
+        self.assertNotRegex(rule, r"discover[^`]*--state merged", "discover filters out a newer open or closed PR")
+        self.assertRegex(rule, r"`newest`", "the branch's PR is not discover's newest")
+        self.assertRegex(rule, r"(?i)reused", "a newer unmerged PR beside an older merged one is not treated as a reused name")
+        self.assertRegex(rule, r"(?i)\bask", "a reused branch name does not ask the user")
+        self.assertRegex(rule, r"(?i)never `closed-check` the older", "the older merged PR still gets the backstop")
 
     def test_finish_resume_local_archive_directory_alone_asks(self):
         """A reused change name can match an older generation's archive directory, so the directory alone does not finish

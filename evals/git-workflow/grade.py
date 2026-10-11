@@ -346,7 +346,7 @@ def git_trace(repo):
 BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}
 BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
                 "--unset-upstream", "--edit-description", "-t", "--track"}
-ALWAYS_WRITE = {"commit", "merge", "rebase", "cherry-pick", "reset", "revert", "push", "tag", "am", "stash"}
+ALWAYS_WRITE = {"commit", "merge", "rebase", "cherry-pick", "reset", "revert", "push", "tag", "am", "stash", "pull"}
 CHECKOUT_WRITE = {"-b", "-B", "-c", "-C", "--orphan", "--detach", "-d"}
 
 
@@ -355,7 +355,7 @@ def branch_deletes(cmds):
 
 
 def changing_git(cmds):
-    """The git commands that commit, merge, push or change a branch; `git branch` counts only when it writes, and `git checkout`/`switch`
+    """The git commands that commit, merge, pull, push or change a branch; `git branch` counts only when it writes, and `git checkout`/`switch`
     whenever it names a target (`checkout main`, `switch main`, `checkout -- <path>`) or creates or detaches a branch."""
     bad = []
     for c in cmds:
@@ -371,9 +371,14 @@ def changing_git(cmds):
     return bad
 
 
+def gql_queries(a):
+    """The query texts a `gh api graphql` call passes: `query=...` on its own (after -f/-F) or attached (-fquery=, --field=query=)."""
+    return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
+
+
 def changing_gh(calls):
-    """gh calls that create or change something on GitHub: a pr/issue write command, a GraphQL call whose query is a mutation, or a
-    REST call with a method or fields."""
+    """gh calls that create or change something on GitHub: a pr/issue write command, a GraphQL call whose query is a mutation or
+    cannot be classified from argv, or a REST call with a non-GET method, or with fields or a body and no forced method."""
     out = []
     for c in calls:
         a = c.get("argv", [])
@@ -381,11 +386,17 @@ def changing_gh(calls):
         if a[:1] in (["pr"], ["issue"]) and len(a) > 1 and a[1] in ("create", "edit", "merge", "close", "comment", "reopen", "ready", "review"):
             out.append(joined)
         elif a[:1] == ["api"] and "graphql" in a[1:2]:
-            if any(re.match(r"query=\s*mutation\b", x) for x in a):
+            qs = gql_queries(a)
+            # a query read from a file or --input cannot be classified from argv: count it as a possible write
+            opaque = any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
+            if opaque or any(re.match(r"\s*(?:#[^\n]*\n\s*)*mutation\b", q) for q in qs):
                 out.append(joined)
         elif a[:1] == ["api"]:
-            m = re.search(r"(?:-X|--method)[= ](\w+)", joined)
-            if (m and m.group(1).upper() != "GET") or {"-f", "-F", "--field", "--raw-field", "--input"} & set(a):
+            m = re.search(r"(?:-X\s*|--method[= ])(\w+)", joined)
+            method = m.group(1).upper() if m else None
+            # fields or a body make gh send a POST unless the method is forced: --method GET sends them as a query string
+            body = any(re.match(r"-[fF]|--(?:raw-)?field\b|--input\b", x) for x in a)
+            if (method and method != "GET") or (method is None and body):
                 out.append(joined)
     return out
 

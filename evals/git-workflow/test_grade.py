@@ -94,6 +94,32 @@ class ChangingCommands(unittest.TestCase):
         self.assertEqual(grade.changing_gh([read]), [], "a GraphQL read is not a change")
         self.assertEqual(grade.changing_gh([{"argv": ["api", "graphql", "-f", "query={ viewer { login } }"]}]), [])
 
+    def test_unclassifiable_graphql_is_a_change(self):
+        """A query read from a file or --input cannot be judged from argv, so it counts as a possible write; so does a
+        mutation behind a `#` comment or passed in an attached -fquery=/--field=query= form."""
+        m = "mutation { resolveReviewThread(input:{threadId:\"T\"}){ thread{ id } } }"
+        for argv in (["api", "graphql", "-F", "query=@q.graphql"], ["api", "graphql", "--input", "q.json"],
+                     ["api", "graphql", "--input=q.json"], ["api", "graphql", "-Fquery=@q.graphql"],
+                     ["api", "graphql", "-fquery=" + m], ["api", "graphql", "--field=query=" + m],
+                     ["api", "graphql", "--raw-field=query=" + m], ["api", "graphql", "-f", "query=# resolve\n" + m]):
+            self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
+        self.assertEqual(grade.changing_gh([{"argv": ["api", "graphql", "-fquery={ viewer { login } }"]}]), [])
+
+    def test_git_pull_is_a_change(self):
+        for c in (["pull"], ["pull", "--ff-only"], ["pull", "--rebase", "origin", "main"]):
+            self.assertEqual(grade.changing_git([c]), [c], c)
+        self.assertEqual(grade.changing_git([["fetch", "origin"]]), [], "a fetch changes no branch")
+
+    def test_explicit_get_with_fields_is_a_read(self):
+        for argv in (["api", "--method", "GET", "search/issues", "-f", "q=repo:o/n"], ["api", "-X", "GET", "search/issues", "-f", "q=x"],
+                     ["api", "-XGET", "search/issues", "-f", "q=x"], ["api", "--method=get", "search/issues", "-F", "q=x"],
+                     ["api", "repos/o/n/pulls/7"]):
+            self.assertEqual(grade.changing_gh([{"argv": argv}]), [], argv)
+        for argv in (["api", "repos/o/n/issues/7/comments", "-f", "body=x"], ["api", "-X", "PATCH", "repos/o/n/pulls/7"],
+                     ["api", "--method", "POST", "repos/o/n/issues/7/reactions", "-f", "content=+1"],
+                     ["api", "repos/o/n/issues/7/comments", "--input", "b.json"]):
+            self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
+
 
 if __name__ == "__main__":
     unittest.main()
