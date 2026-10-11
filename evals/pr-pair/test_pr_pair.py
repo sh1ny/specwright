@@ -1618,6 +1618,20 @@ class RerequestCutoff(PassBase):
         self.request("2026-10-08T12:05:00Z")
         self.check(self.rr(), "done", "2026-10-08T11:50:00Z", "pass_written")
 
+    def test_rerequest_old_record_keeps_its_cutoff_after_adopt(self):
+        """Adopting a 0.1.12 record replaces the owner (and its `at`): the pass start moves into written_at first, so a
+        request posted between the pass start and the adoption still counts."""
+        rec = json.loads(self.record_path().read_text(encoding="utf-8"))
+        rec.pop("written_at", None)
+        rec["owner"]["at"] = "2026-10-08T11:50:00Z"
+        self.record_path().write_text(json.dumps(rec), encoding="utf-8")
+        self.request("2026-10-08T12:05:00Z")
+        out = self.pp("pass", "adopt", *self.common(), "--owner", "b" * 32, "--from", rec["owner"]["id"])
+        self.assertTrue(out["ok"], out)
+        self.owner = "b" * 32
+        self.assertEqual(json.loads(self.record_path().read_text(encoding="utf-8"))["written_at"], "2026-10-08T11:50:00Z")
+        self.check(self.rr(), "done", "2026-10-08T11:50:00Z", "pass_written")
+
 
 class PassOwnership(PassBase):
     """One owner per feedback pass, and a record key that never aliases two repositories."""

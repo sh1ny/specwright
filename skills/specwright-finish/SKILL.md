@@ -22,7 +22,7 @@ For each repo of the change (repo-local: one; store-backed: the store, then the 
 - **M** - the exact subject `merge: <change-name>` in `git log --first-parent --format=%s <main>`, and, when B, the branch tip is on `<main>` (`git merge-base --is-ancestor <branch> <main>`): an archive-recovery branch made after the change merged holds a new archive commit, so the earlier merge does not count for it.
 - **B** - `<branch>` exists.
 
-None of A, M, B in any repo → report that no archive of `<change-name>` was found, and do nothing. `git status --porcelain` showing changes under `<P>/changes/<change-name>/` or the archive directory (with A found) → stop, list the files and ask the user; merge nothing. Otherwise continue at the first step not done, per repo. Rows are checked top to bottom, and the first match wins:
+None of A, M, B in any repo → in `pr` mode, first look for each repo's merged PR (`discover ... --state merged`, below), since a cleanup can delete the branch before main is pulled; for each repo that has one, `git checkout <main> && git pull --ff-only` and read the three facts again, then continue with the table. Still none (or `local` mode) → report that no archive of `<change-name>` was found, and do nothing. `git status --porcelain` showing changes under `<P>/changes/<change-name>/` or the archive directory (with A found) → stop, list the files and ask the user; merge nothing. Otherwise continue at the first step not done, per repo. Rows are checked top to bottom, and the first match wins:
 
 | Facts | Next |
 |---|---|

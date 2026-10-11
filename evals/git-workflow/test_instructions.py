@@ -699,6 +699,19 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(row, r"(?i)repo done", "the local bulk-archive row does not finish the repo")
         self.assertLess(s.index("| M, not B"), s.index("`local`, A on main through the archive directory"), "the local row is not after M, not B")
 
+    def test_finish_resume_pulls_main_before_no_archive(self):
+        """A cleanup can delete the branch before main is pulled: locally A, M and B are all false although the PR merged.
+        pr mode looks for the merged PR and pulls main before it reports that no archive was found."""
+        text = read(FINISH)
+        at = text.index("None of A, M, B in any repo")
+        rule = text[at:text.index("\n", at)]
+        no_archive = rule.index("no archive of `<change-name>` was found")
+        before = rule[:no_archive]
+        self.assertRegex(before, r"`pr` mode", "the no-archive rule has no pr-mode check")
+        self.assertRegex(before, r"discover[^`]*--state merged", "the merged PR is not looked up before reporting no archive")
+        self.assertRegex(before, r"pull --ff-only", "main is not pulled before reporting no archive")
+        self.assertRegex(before, r"read the three facts again", "the facts are not read again after the pull")
+
     def test_finish_resume_local_archive_directory_alone_asks(self):
         """A reused change name can match an older generation's archive directory, so the directory alone does not finish
         the repo: the row shows the directory and the commit that added it and asks."""

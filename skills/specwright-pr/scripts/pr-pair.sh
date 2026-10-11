@@ -1872,7 +1872,11 @@ def pass_adopt(argv):
         if cur != (None if a["frm"] == "none" else a["frm"]):
             raise Stop("not_owner", f"the record at {norm(path)} is owned by {cur or 'no session'}, not {a['frm']}; nothing changed",
                        owner=rec.get("owner"))
-        rec = {**rec, "version": 2, "owner": new_owner(a["owner"], a["code"])}
+        # an older record has no written_at and falls back to the owner's at: keep that pass start before the owner changes
+        rec = {**rec, "version": 2, "written_at": rec.get("written_at") or (rec.get("owner") or {}).get("at"),
+               "owner": new_owner(a["owner"], a["code"])}
+        if rec["written_at"] is None:
+            rec.pop("written_at")
         f, tmp = temp_beside(path)
         try:
             with f:
