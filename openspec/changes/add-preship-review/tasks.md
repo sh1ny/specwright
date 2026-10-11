@@ -64,7 +64,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 ## 1. ADR and architecture
 
 - [x] 1.1 Write `docs/adr/0007-reviewer-routes-with-a-specwright-owned-contract.md` (`Status: accepted`, `Supersedes: 0005`), restating 0005's orchestrator/implementer/reviewer split and recording design D2-D4, D8 and the ADR 0003 exception (machine-local records and waivers; escalation from `Preship-Round:` trailers). Leave 0005's file unchanged. Verify: `git diff --stat docs/adr/0005*` is empty and the new file has every MADR-short heading.
-- [ ] 1.2 Update `openspec/architecture.md`. Components: `specwright-review` plus `review-run.sh`, and the flowchart edges (D1 diagram). Add State ownership rows for review records and `Preship-Round:`/`Amendment:` trailers. Replace the Cross-model review contract with the route contract. Add Resource-bound rows for the review deadline and diff bound. In the in-force index, swap 0005 for 0007. Verify: `grep -n "0007\|review-run.sh\|Preship-Round" openspec/architecture.md` shows each, and the index has no 0005 row.
+- [x] 1.2 Update `openspec/architecture.md`. Components: `specwright-review` plus `review-run.sh`, and the flowchart edges (D1 diagram). Add State ownership rows for review records and `Preship-Round:`/`Amendment:` trailers. Replace the Cross-model review contract with the route contract. Add Resource-bound rows for the review deadline and diff bound. In the in-force index, swap 0005 for 0007. Verify: `grep -n "0007\|review-run.sh\|Preship-Round" openspec/architecture.md` shows each, and the index has no 0005 row.
 
 ## 2. Trial run on each reviewer CLI
 
