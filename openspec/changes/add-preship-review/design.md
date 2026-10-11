@@ -49,9 +49,11 @@ TIER: FULL
 ### D3: Fixed, isolated command lines per route, set by a trial run
 
 - **Choice:** Each route has one command line in the script, never assembled by the agent.
-  - `codex exec -s read-only --ephemeral --ignore-rules --ignore-user-config --output-schema <schema> -o <out> [-m <model>] [-c model_reasoning_effort=<t>]`.
-  - `claude -p --safe-mode --disable-slash-commands --tools Read,Grep,Glob [--restricted] --json-schema <schema> --output-format json [--model <m>] [--effort <t>]`. This is an allowlist, not a denylist, so `NotebookEdit`, `WebFetch` and the Windows `PowerShell` tool are never available. `--restricted` is kept only if the trial confirms it.
-  - `omp -p --no-skills --no-extensions --no-rules --tools read,grep,find,ls --session-dir <fresh temp dir> --mode json --model <@role|provider/id> [--thinking <t> only with a provider/id]`.
+  - `codex exec -s read-only --ephemeral --ignore-rules --ignore-user-config --skip-git-repo-check --output-schema <schema> -o <out> --json [-m <model>] [-c model_reasoning_effort=<t>] -` (prompt on stdin).
+  - `claude -p --safe-mode --disable-slash-commands --tools Read,Grep,Glob --restricted --json-schema <schema JSON without $schema> --output-format json [--model <m>] [--effort <t>]` (prompt on stdin). This is an allowlist, not a denylist, so `NotebookEdit`, `WebFetch` and the Windows `PowerShell` tool are never available. The trial confirmed `--restricted`.
+  - `omp -p --no-skills --no-extensions --no-rules --tools read,grep,find,glob --session-dir <fresh temp dir> --mode json --model <@role|provider/id> [--thinking <t> only with a provider/id] @<prompt file>`.
+
+  These lines are the ones the trial ran (`evals/review-routes/trial.md`, which lists the changes from the first draft).
 
   **The review input is built by the script, not by the reviewer.** For a pre-ship review, `run` computes `git diff --no-color <base>...<head>` for the code range and, with `--store`, for the store range. It also adds the list of changed files and the change's artifact paths. It embeds all of this in the prompt file inside a nonce-delimited untrusted region (a fresh random nonce per run, so diff text cannot close the region). Every route therefore sees the same change, whether or not it has a shell or the store in its working directories. The tools above are for reading surrounding code only. When the combined diff exceeds `review.max_diff_kb` (default 1024 KB), `run` exits 1 with `diff_too_large` and the size, before any reviewer starts. The user raises the bound or opts out (`review.preship: false`). A truncated review never runs.
 
@@ -61,7 +63,7 @@ TIER: FULL
 
 ### D4: Route selection walks `review.order`, skipping only the current harness
 
-- **Choice:** The agent passes `--runtime` (it knows its own harness; `other` skips nothing). For each route in order, skip it if it is the runtime; otherwise run its probe: `<cli> --version` exits 0, and for `omp` a model-resolution probe (fixed by the trial). The first route that passes wins. Unknown names stop with exit 1. `review.cross_model: false` → `subagent` without probing. A probe failure means unavailable and moves on. A failure after the review started (invalid output, timeout, crash) is a failed review: it exits 3 and never moves on (#27). OMP `Model "<m>" not found` at probe time counts as unavailable.
+- **Choice:** The agent passes `--runtime` (it knows its own harness; `other` skips nothing). For each route in order, skip it if it is the runtime; otherwise run its probe: `<cli> --version` exits 0, and for `omp` a model-resolution probe that makes no model call (set by the trial: `omp config get modelRoles --json` lists the role, or `omp models find <id> --json` returns the `provider/id` selector). The first route that passes wins. Unknown names stop with exit 1. `review.cross_model: false` → `subagent` without probing. A probe failure means unavailable and moves on. A failure after the review started (invalid output, timeout, crash) is a failed review: it exits 3 and never moves on (#27). OMP `Model "<m>" not found` at probe time counts as unavailable.
 - **Rejected:** also skipping routes by model family, because the model behind an OMP `@role` is known only after OMP starts, and the user chose harness-only. The receipt shows the actual model instead.
 - **Reversal cost:** low.
 
