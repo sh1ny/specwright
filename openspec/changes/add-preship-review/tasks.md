@@ -44,11 +44,11 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 | preship-review → Spec findings classed | Contradictory wording | evals/review-routes/test_skill_text.py | test_clarification_amend_commit_and_rereview | green |
 | preship-review → Spec findings classed | Edit would change behaviour | evals/review-routes/test_skill_text.py | test_behaviour_change_asks_user | green |
 | preship-review → Spec findings classed | Approved behaviour change | evals/review-routes/test_skill_text.py | test_behaviour_change_follows_drift_rule | green |
-| install-update → Commented-out template keys optional | Project sets an optional key | evals/git-workflow/test_instructions.py | test_install_step6_commented_paths_optional | red |
-| install-update → Commented-out template keys optional | Project lacks an optional key | evals/git-workflow/test_instructions.py | test_install_step6_never_adds_commented; test_install_step7_uncommented_only | red |
-| install-update → Commented-out template keys optional | Reviewer entries are user data | evals/git-workflow/test_instructions.py | test_install_reviewer_entries_user_data | red |
-| install-update → Commented-out template keys optional | Same name at two paths | evals/git-workflow/test_instructions.py | test_install_compares_dotted_paths | red |
-| install-update → Commented-out template keys optional | Key really removed upstream | evals/git-workflow/test_instructions.py | test_install_step6_asks_before_removing (existing rule kept) | red |
+| install-update → Commented-out template keys optional | Project sets an optional key | evals/git-workflow/test_instructions.py | test_install_step6_commented_paths_optional | green |
+| install-update → Commented-out template keys optional | Project lacks an optional key | evals/git-workflow/test_instructions.py | test_install_step6_never_adds_commented; test_install_step7_uncommented_only | green |
+| install-update → Commented-out template keys optional | Reviewer entries are user data | evals/git-workflow/test_instructions.py | test_install_reviewer_entries_user_data | green |
+| install-update → Commented-out template keys optional | Same name at two paths | evals/git-workflow/test_instructions.py | test_install_compares_dotted_paths | green |
+| install-update → Commented-out template keys optional | Key really removed upstream | evals/git-workflow/test_instructions.py | test_install_step6_asks_before_removing (existing rule kept) | green |
 | pr-watch → Archive head gets no new review round | Archive pushed after a clean review | evals/review-routes/test_review_run.py | test_archive_only_true_for_archive_commit; evals/pr-pair/test_skill_text.py test_watch_archive_head_no_request_no_reviewers | red |
 | pr-watch → Archive head gets no new review round | Setting turned on | evals/pr-pair/test_skill_text.py | test_watch_review_after_archive_true_rerequests | green |
 | pr-watch → Archive head gets no new review round | Archive commit touches other files | evals/review-routes/test_review_run.py | test_archive_only_false_outside_paths | red |
@@ -116,7 +116,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
   - the removed-key question stays.
 
   Verify: they fail.
-- [ ] 7.2 Edit the README install prompt Steps 6-7 (D10). Add `review.order`, `review.models`, `review.thinking`, `review.timeout`, `review.max_diff_kb`, `review.preship` and `pr.review_after_archive`, with comments and safe defaults, to `templates/openspec/specwright.yaml` and to this repo's `openspec/specwright.yaml`, keeping `cross_model: false`. Update the README settings example, skills table, the pre-ship review section with the opt-out and the BREAKING note, and credits. Update the `CONTRIBUTING.md` copy table and its Reviews section. Verify: the 7.1 checks pass; flip their rows green. Then run the key comparison by hand: this repo's file against the new template, by dotted path, which lists no removed key.
+- [x] 7.2 Edit the README install prompt Steps 6-7 (D10). Add `review.order`, `review.models`, `review.thinking`, `review.timeout`, `review.max_diff_kb`, `review.preship` and `pr.review_after_archive`, with comments and safe defaults, to `templates/openspec/specwright.yaml` and to this repo's `openspec/specwright.yaml`, keeping `cross_model: false`. Update the README settings example, skills table, the pre-ship review section with the opt-out and the BREAKING note, and credits. Update the `CONTRIBUTING.md` copy table and its Reviews section. Verify: the 7.1 checks pass; flip their rows green. Then run the key comparison by hand: this repo's file against the new template, by dotted path, which lists no removed key.
 
 ## 8. Release and integration
 

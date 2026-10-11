@@ -16,7 +16,7 @@ Specwright is built with Specwright: changes to it go through the same branch â†
 | `skills/specwright-*/` | `.claude/skills/`, `.agents/skills/` |
 | `agents/claude/`, `agents/omp/` | `.claude/agents/`, `.omp/agents/` |
 | `schemas/specwright/` | `openspec/schemas/specwright/` |
-| `templates/openspec/` | `openspec/config.yaml`, `openspec/specwright.yaml` |
+| `templates/openspec/` | `openspec/config.yaml`, `openspec/specwright.yaml` (merged by dotted path; commented-out template keys are optional) |
 | `VERSION` | `openspec/.specwright/VERSION` |
 
 Never edit the installed copies; your changes would be lost on the next install. `templates/openspec/` is what ships to users, while `openspec/` holds this repo's own settings, specs and changes, so keep project-specific values out of `templates/`.
@@ -40,6 +40,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 
 - Git-skill changes: run the [`evals/git-workflow`](evals/git-workflow/) cases (see the README's Evals section) and add a case when the change adds a stop condition or branch-state rule.
 - Schema or template changes: `openspec schema validate specwright` after re-installing.
+- Reviewer routes (`review-run.sh`): run `python -m unittest discover evals/review-routes`; it uses fake CLIs from `evals/fakes/` and hides any real `codex`, `claude` or `omp` on `PATH`. A change to a route's command line needs a new trial against the real CLIs, recorded in `evals/review-routes/trial.md`.
 - PR scripts: exercise the changed path against a real PR, and keep them to bash, git, `gh` and the Python 3.8+ standard library. Run `python -m unittest discover evals/pr-pair`. `test_pass_write_on_python38` runs a pass write on Python 3.8: install one with `uv python install 3.8` (or point `SPECWRIGHT_PY38` at a 3.8 interpreter); without one the test is skipped and names the missing interpreter.
 
 ## Releases
@@ -52,3 +53,5 @@ Your agent follows the installed copies, not the source. A change that edits a s
 ## Reviews
 
 PRs are reviewed by the bots listed under `pr.reviewers` in `openspec/specwright.yaml`; `specwright-pr` **watch** waits for them and answers every finding. Reviewers that only run when tagged (Codex) need their request posted again after every pushed round.
+
+Before the first PR, `specwright-commit` runs the pre-ship review (`specwright-review`) on the finished change. This repo keeps `review.cross_model: false`, so the `specwright-reviewer` agent does that review. The archive commit is pushed without new review requests when it only archives the change (`pr.review_after_archive: false`).

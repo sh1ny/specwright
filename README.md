@@ -7,6 +7,7 @@ A lightweight spec-driven development bundle for AI coding agents, built on [Ope
 ## ✨ What it adds
 
 - 🏗️ **Architecture reasoning, scaled to the change.** Every design starts with a six-trigger triage. No trigger → a few lines. Any trigger → state ownership, failure visibility, resource bounds, flow gaps and a mechanism ledger, then a fresh-context, ideally cross-model review that gates the tasks.
+- 🔍 **Pre-ship review.** Before the first PR or a local merge, a different model's CLI (Codex, Claude Code or OMP, read-only and isolated) reviews the finished change. Blocking findings are fixed, or waived by you, before anything ships.
 - 🧪 **Test discipline.** Every requirement needs a failure scenario; every scenario maps to a named test that goes red → green during apply.
 - 📜 **Durable decisions.** Immutable, supersedable ADRs, indexed in the project's architecture file.
 - 🌿 **Git workflow.** A branch per change, one commit per task, and a finish step that merges locally or goes through a GitHub PR.
@@ -20,8 +21,8 @@ A lightweight spec-driven development bundle for AI coding agents, built on [Ope
 flowchart LR
     R["specwright-roadmap<br/>init · next · close"] -.-> P
     B["specwright-branch"] --> P[proposal] --> S[specs] --> D["design<br/>LIGHT | FULL"] --> V[review] --> T[tasks]
-    T --> A["apply<br/>specwright-commit"] --> F["archive<br/>specwright-finish"]
-    A -. "finish: pr" .-> PR["specwright-pr<br/>ship · feedback · watch"]
+    T --> A["apply<br/>specwright-commit"] --> Q["pre-ship review<br/>specwright-review"] --> F["archive<br/>specwright-finish"]
+    Q -. "finish: pr" .-> PR["specwright-pr<br/>ship · feedback · watch"]
     PR -.-> F
     F -.-> R
 ```
@@ -31,6 +32,7 @@ flowchart LR
 | Start a change | [`specwright-branch`](skills/specwright-branch/SKILL.md) | Clean `main` check, then `<prefix>/<change-name>` branch |
 | proposal → specs → design → review → tasks | [`schemas/specwright`](schemas/specwright/schema.yaml) | Artifacts with architecture triage and a review gate |
 | Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) | One commit per task, orchestrator re-verifies delegated work |
+| Pre-ship review | [`specwright-review`](skills/specwright-review/SKILL.md) | Cross-model review of the finished change; ship and the local merge wait for a pass |
 | PR | [`specwright-pr`](skills/specwright-pr/SKILL.md) | Ship, address feedback, watch CI (`finish: pr`) |
 | Archive | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive commit, then local `--no-ff` merge or push to the PR |
 | Across changes | [`specwright-roadmap`](skills/specwright-roadmap/SKILL.md) | Strategy, architecture baseline, milestones |
@@ -133,16 +135,29 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   finish mode (`local` merges to main locally; `pr` goes through GitHub PRs),
   the GitHub login for pushes/PRs/replies, an optional review-request comment
   and the login that posts it, whether design reviews may call a different
-  model's CLI (`review.cross_model`), and an optional pre-push validation command.
+  model's CLI (`review.cross_model`), whether to review each finished change
+  before its first PR or local merge (`review.preship`), and an optional
+  pre-push validation command.
   If the project already has strategy, architecture or roadmap documents
   (e.g. STRATEGY.md, docs/architecture*, a roadmap or milestone plan), ask
   whether to point the `project:` paths at them instead of the defaults.
   Write their answers into the file.
 - If it exists, keep the user's values and add only keys that are missing,
-  with the downloaded defaults. List each added key with its default and its
-  comment from the downloaded `templates/openspec/specwright.yaml`, and ask
-  whether to keep the default. If the user's file has keys the downloaded
-  file no longer has, list them and ask before removing them.
+  with the downloaded defaults. Compare keys by dotted path (`pr.request_as`,
+  `planning_store.login`), never by bare name: `github.login` and
+  `planning_store.login` are different keys.
+  - A commented-out template line `#  key:` gets its path from its
+    indentation after the `#`, under the nearest parent above it (commented
+    or not). A path the template has only commented out is optional and
+    still supported: never list it as removed when the user's file sets it,
+    and never add it when the user's file lacks it.
+  - Entries under `pr.reviewers.` and `planning_store.reviewers.` are
+    user data (one per reviewer login): never compared, added or listed as
+    removed.
+  List each added key with its default and its comment from the downloaded
+  `templates/openspec/specwright.yaml`, and ask whether to keep the default.
+  If the user's file has keys the downloaded file no longer has (uncommented
+  or commented out), list them and ask before removing them.
 
 Step 7 - Verify, stamp the version, clean up
 - Run `openspec schema validate specwright` inside `<root>`.
@@ -154,9 +169,9 @@ Step 7 - Verify, stamp the version, clean up
 - `<root>/openspec/config.yaml` has `schema: specwright` (or the schema the user
   chose to keep - then report "installed, but not the default schema"),
   every downloaded context line exactly once, and no other managed line.
-- `openspec/specwright.yaml` has every key in the downloaded
-  `templates/openspec/specwright.yaml`, unless
-  the user chose otherwise in Step 6.
+- `openspec/specwright.yaml` has every uncommented dotted path in the
+  downloaded `templates/openspec/specwright.yaml` (commented-out paths are
+  optional), unless the user chose otherwise in Step 6.
 - If every check passes, copy `VERSION` to `openspec/.specwright/VERSION`.
   If any fails, do not write it: report each failed check and how to fix it,
   and never claim success.
@@ -182,6 +197,8 @@ example `PR workflow not ready: Python 3.8+`).
    - `/opsx:new <name>` scaffolds it, then `/opsx:continue` writes one artifact per run.
 2. **Review gate:** the design triage picks LIGHT or FULL; FULL designs are reviewed in a fresh context (by a different model unless `review.cross_model: false`) before tasks can be written.
 3. **Apply** with `/opsx:apply` — task groups go to `specwright-implementer`, each verified task becomes its own commit.
+   - **Pre-ship review:** once every task is committed, `specwright-review` has another model's CLI review the whole change (`review.order`, skipping the harness you run in; the `specwright-reviewer` agent when none is available). P0/P1 findings block: fix them (commits `address pre-ship review`; after two rounds it asks you) or waive them with your reason. `specwright-pr` ship and the local merge first check for a pass on the current head. Opt out with `review.preship: false`.
+   - **BREAKING (0.2.0):** the pre-ship review is on by default, so apply ends with a review that can take up to `review.timeout` (20m). Set `review.preship: false` to keep the 0.1.x flow.
 4. **PR mode:** the PR opens when apply finishes; `specwright-pr` **watch** handles reviews and CI, and once it is green offers to archive on the branch. Then merge on GitHub.
 5. **Archive** with `/opsx:archive` — `specwright-finish` merges locally or pushes the archive commit to the PR.
 
@@ -212,6 +229,7 @@ example `PR workflow not ready: Python 3.8+`).
 | [`specwright-branch`](skills/specwright-branch/SKILL.md) | New change (`/opsx:new`, `/opsx:propose`, `/opsx:ff`) | Clean-main gate, prefix, feature branch |
 | [`specwright-commit`](skills/specwright-commit/SKILL.md) | Apply (`/opsx:apply`) | Planning commit, one commit per task, end-of-apply check, PR handoff |
 | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive (`/opsx:archive`) | Archive commit, local merge or PR push, post-merge cleanup (a branch is deleted only when main or the merged PR's head holds its commits) |
+| [`specwright-review`](skills/specwright-review/SKILL.md) | End of apply, ship and local merge (pre-ship); design reviews | Reviewer routes (`review-run.sh`: select, run, record, gate), pre-ship fix and waiver rules — see the [brief](skills/specwright-review/references/brief.md) and [findings schema](skills/specwright-review/references/findings.schema.json) |
 | [`specwright-pr`](skills/specwright-pr/SKILL.md) | "open a PR", "address review comments", "watch the PR" | `ship` / `feedback` / `watch` — see [description guide](skills/specwright-pr/references/description.md) and [feedback rubric](skills/specwright-pr/references/rubric.md) |
 | [`specwright-debug`](skills/specwright-debug/SKILL.md) | Unexpected failures, bug reports, failing CI | Reproduce → trace → hypothesis → test-first fix; CI mode |
 | [`specwright-roadmap`](skills/specwright-roadmap/SKILL.md) | "plan this project", "what's next on the roadmap", "close the milestone" | `init` / `next` / `close` / `status` — templates for [strategy](skills/specwright-roadmap/references/strategy.md), [architecture](skills/specwright-roadmap/references/architecture.md), [roadmap](skills/specwright-roadmap/references/roadmap.md) |
@@ -221,18 +239,19 @@ example `PR workflow not ready: Python 3.8+`).
 | Agent | Claude Code | OMP | Role |
 |---|---|---|---|
 | `specwright-implementer` | [`sonnet`](agents/claude/specwright-implementer.md) | [`pi/smol`](agents/omp/specwright-implementer.md) | Implements one task group test-first from a packet; never commits |
-| `specwright-reviewer` | [`inherit`](agents/claude/specwright-reviewer.md) | [`pi/slow`](agents/omp/specwright-reviewer.md) | Read-only reviewer; fallback when no cross-model CLI is available or `review.cross_model: false` |
+| `specwright-reviewer` | [`inherit`](agents/claude/specwright-reviewer.md) | [`pi/slow`](agents/omp/specwright-reviewer.md) | Read-only reviewer for design and pre-ship reviews; used when no reviewer CLI is available or `review.cross_model: false` |
 
 Change the model in each file's `model:` line (Claude Code), or map the role aliases in `~/.omp/agent/config.yml` (OMP).
 
 ### Scripts
 
-All in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scripts/); bash + `gh` only.
+The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scripts/) (bash + `gh`); `review-run.sh` is in [`skills/specwright-review/scripts/`](skills/specwright-review/scripts/) (bash, git and Python 3.8+, no `gh`).
 
 | Script | Does |
 |---|---|
 | [`as.sh`](skills/specwright-pr/scripts/as.sh) | Runs a command as one GitHub login: pins the token per process, verifies it, and feeds it to both `gh` and `git push` (HTTPS to github.com only; SSH, prompts and inherited `http.extraHeader` auth are disabled inside it; run git from inside the target repo, since extraHeaders are scrubbed for the current repository only). Safe against a concurrent `gh auth switch`. |
 | [`pr-snapshot.sh`](skills/specwright-pr/scripts/pr-snapshot.sh) | One GraphQL call → the whole PR as JSON (checks, unresolved threads and resolved ones with an unanswered reviewer comment, unhandled or edited comments, stale `CHANGES_REQUESTED` verdicts, and a `complete` flag when a list was cut off). `--reviewer login:role:seconds` adds whether each reviewer has reported on the current head (`reported` / `waiting` / `timed_out`), counting reports from the head's push, or from when a snapshot first saw the head if the push is not in the activity log (`head_cutoff` says which). Bodies cut for length are marked `clipped: true`; `--full <id>` prints one item whole. `--wait` polls in-process and wakes once (at once if the snapshot is already incomplete); one watcher per PR: a newer `--wait` on the same PR takes over and the older one exits 4, and a watcher's exit never ends a newer one's ownership; `--logs` appends failed CI logs. |
+| [`review-run.sh`](skills/specwright-review/scripts/review-run.sh) | Picks the reviewer route (`select`), runs it with one fixed read-only command line per CLI and a deadline (`run`), validates the output against the findings schema and fails closed (exit 3, never the next route), and keeps one record per reviewed head in the state dir. `gate` derives pass / missing / blocked from the record and the user's waivers; `archive-only` tells watch that a new head only archives the change; `rounds` reads `Preship-Round:` trailers. |
 | [`pr-reply.sh`](skills/specwright-pr/scripts/pr-reply.sh) | Replies over REST, checks for a pending review, resolves the thread, optionally adds a 👍/👎 (`--react`), and marks the item handled on GitHub itself. `--rev` binds the reply to the revision that was judged: the item is read again first and nothing is posted if it changed (exit 5), and the marker counts only while the item keeps that revision. `react` answers a follow-up with a reaction only; `--waiting` marks a "waiting on owner" reply, which keeps the item listed; `resolve` retries only a failed resolution. A missing, unreadable or empty body file is refused before any GitHub call, and the temp file is removed on every exit. |
 
 ---
@@ -253,7 +272,13 @@ github:
     after_fixes: true           # post again after each pushed fix round (reviewers that only run when tagged)
 
 review:
-  cross_model: true             # false = design reviews use the specwright-reviewer agent, never another model's CLI
+  cross_model: true             # false = design and pre-ship reviews use the specwright-reviewer agent, never another model's CLI
+  order: [codex, claude, omp]   # reviewer CLIs tried in order; the harness you run in is skipped
+  models: { omp: "@slow" }      # per route; omit = the CLI's default (OMP: @default)
+  thinking: { codex: high }     # per route; omp only with a provider/id model
+  timeout: 20m                  # a review still running after this fails
+  max_diff_kb: 1024             # pre-ship input bound (code + store diff); over it no review runs
+  preship: true                 # false = no pre-ship review and no ship / local-merge gate
 
 project:                        # point at existing docs instead of duplicating them
   strategy: openspec/strategy.md
@@ -267,6 +292,7 @@ pr:
   after_limit: ask              # at the limit: ask = reply "waiting on owner" and stop, issues = file each new finding as an issue and reply with the link, stop = like ask, without offering more rounds
   react: true                   # 👍/👎 on every finding answered (right / wrong); default false
   poll_interval: 5m             # how often watch polls GitHub; default 5m
+  review_after_archive: false   # true = re-request review on the archive head too; false = reviews of the head before it carry over
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
     chatgpt-codex-connector: { role: required, request: "@codex review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
@@ -352,9 +378,9 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 | Mode | Does | Never |
 |---|---|---|
-| `ship` | Push every repo of the change (store first), then create/update the PRs with `--body-file`, post the review request | Push the default branch; open or update a PR when a push failed |
+| `ship` | Before the change's first PR, check for a pre-ship review pass on the head; push every repo of the change (store first), then create/update the PRs with `--body-file`, post the review request | Push the default branch; open or update a PR when a push failed |
 | `feedback` | One snapshot → judge all items → fix → validate once → one commit → one reply (and 👍/👎) per finding, resolve; acknowledgement follow-ups get a reaction only (and resolve the thread if it was still open) | Resolve needs-human threads; go past `max_fix_rounds` |
-| `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch; report stale `CHANGES_REQUESTED` verdicts | Merge, rebase, force-push, approve workflow runs, dismiss reviews |
+| `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch (an archive-only head gets no new review requests unless `pr.review_after_archive: true`); report stale `CHANGES_REQUESTED` verdicts | Merge, rebase, force-push, approve workflow runs, dismiss reviews |
 </details>
 
 ---
@@ -365,7 +391,7 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 Store evals (`eval-store-*`) need two repos, so the fixture is a directory, not a repo: `code/` is the project, `store/` is its OpenSpec store. The fixture also writes `eval.env`. The agent under test must run `source <repo>/eval.env` first and work from `<repo>/code`. The file points the OpenSpec registry and config (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`) and Specwright's watch state (`SPECWRIGHT_STATE_DIR`) at the run directory, and puts a fake `gh` first on `PATH`. Your own registry and state are never touched. The fake `gh` ([`evals/fakes/gh.py`](evals/fakes/gh.py)) keeps its state in `gh-state.json` and logs every call to `gh-log.jsonl`; `grade.py` reads both repos and that log.
 
-Test the fake `gh` with `python -m unittest discover evals/pr-pair`.
+Test the fake `gh` with `python -m unittest discover evals/pr-pair`, and the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`.
 
 To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
 
@@ -395,4 +421,5 @@ Specwright is developed with Specwright. See [CONTRIBUTING.md](CONTRIBUTING.md) 
 - Schema forked from OpenSpec's `spec-driven` ([MIT](schemas/specwright/LICENSE-OpenSpec)).
 - Planning and PR workflow ideas from [Compound Engineering](https://github.com/EveryInc/compound-engineering-plugin).
 - Review gate and test plan from the [anvil](https://github.com/jikkujoyce/openspec-schemas) schema; ADRs from [intent-driven](https://github.com/intent-driven-dev/openspec-schemas).
+- Pre-ship reviewer brief and findings format from compound-engineering's [`ce-code-review`](https://github.com/EveryInc/compound-engineering-plugin) and oh-my-pi's [`reviewer.md`](https://github.com/can1357/oh-my-pi).
 - Git workflow from [openspec-git-flow](https://github.com/sh1ny/openspec-git-flow), which Specwright replaces.
