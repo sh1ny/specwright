@@ -2299,6 +2299,11 @@ class Cleanup(Base):
     def cmds(entry):
         return [c["cmd"] for c in entry["commands"]]
 
+    @staticmethod
+    def check_cmd(entry, head, main="main"):
+        """The branch-check command a merged side runs after the pull: --head is the merged PR's head commit."""
+        return ["pr-pair.sh", "branch-check", "--dir", entry["dir"], "--branch", BRANCH, "--main", main, "--head", head]
+
     def test_cleanup_plan_both_merged(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)  # squash: not the local tip
         self.add_pull(STORE, 2, state="closed", merged=self.merged, sha=self.tip(self.store))
@@ -2307,19 +2312,21 @@ class Cleanup(Base):
             e = p[repo]
             self.assertTrue(e["merged"])
             self.assertEqual(self.cmds(e)[:2], [["git", "checkout", "main"], ["git", "pull", "--ff-only"]])
-            self.assertEqual(self.cmds(e)[2], ["git", "branch", "-d", BRANCH])
+            self.assertEqual(self.cmds(e)[2], self.check_cmd(e, "a" * 40 if repo == "code" else self.tip(self.store)))
+            self.assertEqual(len(e["commands"]), 3)
+            self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])
+            self.assertNotIn("force_delete", e)
+            self.assertNotIn("force_delete_allowed", e)
             self.assertEqual(e["commands"][0]["cwd"], str(self.code if repo == "code" else self.store).replace("\\", "/"))
-        self.assertFalse(p["code"]["force_delete_allowed"])  # head differs from the local tip: ask
-        self.assertTrue(p["store"]["force_delete_allowed"])  # head equals the local tip
         self.assertEqual(p["keep"], [])
-        self.assertEqual(p["store"]["force_delete"], ["git", "branch", "-D", BRANCH])
 
     def test_cleanup_plan_split(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged)
         self.add_pull(STORE, 2)  # open
         p = self.plan()
         self.assertTrue(p["code"]["merged"])
-        self.assertEqual(self.cmds(p["code"])[-1], ["git", "branch", "-d", BRANCH])
+        self.assertEqual(self.cmds(p["code"])[-1][:2], ["pr-pair.sh", "branch-check"])
+        self.assertEqual(p["code"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertFalse(p["store"]["merged"])
         self.assertEqual(p["store"]["commands"], [])
         self.assertEqual(len(p["keep"]), 1)
@@ -2338,7 +2345,8 @@ class Cleanup(Base):
         self.assertFalse(p["code"]["branch_exists"])
         self.assertEqual(p["code"]["commands"], [])
         self.assertEqual(self.cmds(p["store"])[:2], [["git", "checkout", "main"], ["git", "pull", "--ff-only"]])
-        self.assertEqual(self.cmds(p["store"])[2], ["git", "branch", "-d", BRANCH])
+        self.assertEqual(self.cmds(p["store"])[2], self.check_cmd(p["store"], self.tip(self.store)))
+        self.assertEqual(p["store"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertEqual(p["keep"], [])
 
     def test_cleanup_plan_deletes_an_empty_code_branch_with_d(self):
@@ -2349,14 +2357,28 @@ class Cleanup(Base):
         p = self.plan()
         self.assertFalse(p["code"]["expected"])
         self.assertEqual(self.cmds(p["code"]), [["git", "branch", "-d", BRANCH]])
-        self.assertIsNone(p["code"].get("force_delete"))
+        self.assertNotIn("delete", p["code"])
+        self.assertNotIn("force_delete", p["code"])
+        self.assertNotIn("force_delete_allowed", p["code"])
+
+    def test_cleanup_plan_runs_branch_check_after_pull(self):
+        self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="b" * 40)
+        self.add_pull(STORE, 2, state="closed", merged=self.merged, sha="c" * 40)
+        p = self.plan()
+        for repo, head in (("code", "b" * 40), ("store", "c" * 40)):
+            e = p[repo]
+            self.assertEqual(self.cmds(e), [["git", "checkout", "main"], ["git", "pull", "--ff-only"], self.check_cmd(e, head)])
+            self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])  # run only when branch-check says delete: true
+            self.assertNotIn("force_delete", e)
+            self.assertNotIn("force_delete_allowed", e)
+            self.assertTrue(all(c["cwd"] == e["dir"] for c in e["commands"]))
 
     def test_cleanup_plan_keeps_a_store_branch_shared_by_hand(self):
         # no GitHub origin on the store: no PR merges its branch, so cleanup must not finish silently
         self.git(self.store, "remote", "remove", "origin")
         self.add_pull(CODE, 5, state="closed", merged=self.merged)
         p = self.plan()
-        self.assertEqual(self.cmds(p["code"])[-1], ["git", "branch", "-d", BRANCH])
+        self.assertEqual(self.cmds(p["code"])[-1][:2], ["pr-pair.sh", "branch-check"])
         self.assertEqual(p["store"]["commands"], [])
         self.assertEqual([(k["repo"], k["state"], k["branch"]) for k in p["keep"]], [("store", "SHARE_BY_HAND", BRANCH)])
 
@@ -2366,6 +2388,71 @@ class Cleanup(Base):
         self.assertEqual(p["store"]["commands"], [])
         self.assertEqual(p["code"]["commands"], [])  # code has commits but no PR yet: nothing merged
         self.assertTrue(p["keep"])
+
+
+class BranchCheck(Base):
+    """branch-check (task 4.1): may a change branch be deleted after the merge? Read-only, local refs only."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("code", None)
+        self.git(self.repo, "checkout", "-q", "-b", BRANCH)
+        self.a = self.commit(self.repo, {"a.txt": "a\n"}, "feat: A")
+
+    def refs(self):
+        return self.git(self.repo, "for-each-ref", "--format=%(refname) %(objectname)") + "|" + self.git(self.repo, "symbolic-ref", "HEAD")
+
+    def check(self, head=None):
+        before = self.refs()
+        args = ["branch-check", "--dir", self.repo, "--branch", BRANCH, "--main", "main"] + (["--head", head] if head else [])
+        out = self.pp(*args)
+        self.assertEqual(self.refs(), before, "branch-check changes no ref")
+        self.assertTrue(out["ok"])
+        return out
+
+    def squash_to_main(self):
+        """main gets the branch's work as one new commit, so the tip is not on main."""
+        self.git(self.repo, "checkout", "-q", "main")
+        self.commit(self.repo, {"a.txt": "a\n"}, "feat: A (squash)")
+        self.git(self.repo, "checkout", "-q", BRANCH)
+
+    def test_branch_check_on_main(self):
+        self.git(self.repo, "checkout", "-q", "main")
+        self.git(self.repo, "merge", "-q", "--no-ff", "-m", "merge", BRANCH)
+        out = self.check("e" * 40)  # a head that is not here does not matter
+        self.assertEqual((out["delete"], out["reason"], out["lacking"]), (True, "on_main", []))
+
+    def test_branch_check_pr_head(self):
+        self.squash_to_main()
+        out = self.check(self.a)
+        self.assertEqual((out["delete"], out["reason"], out["lacking"]), (True, "pr_head", []))
+
+    def test_branch_check_ancestor_of_pr_head(self):
+        c = self.commit(self.repo, {"c.txt": "c\n"}, "feat: C")
+        self.git(self.repo, "update-ref", f"refs/remotes/origin/{BRANCH}", c)  # head C is here through origin/<branch>
+        self.git(self.repo, "reset", "-q", "--hard", self.a)  # the local branch is behind the merged head
+        self.squash_to_main()
+        out = self.check(c)
+        self.assertEqual((out["delete"], out["reason"], out["lacking"]), (True, "pr_head", []))
+
+    def test_branch_check_keeps_commit_pushed_after_merge(self):
+        self.squash_to_main()
+        b = self.commit(self.repo, {"b.txt": "b\n"}, "feat: B after the merge")
+        out = self.check(self.a)
+        self.assertEqual((out["delete"], out["reason"]), (False, "lacking"))
+        self.assertEqual(out["lacking"], [{"sha": b, "subject": "feat: B after the merge"}])
+
+    def test_branch_check_head_unknown_keeps_branch(self):
+        self.squash_to_main()
+        out = self.check("d" * 40)  # the merged head is not in this checkout
+        self.assertEqual((out["delete"], out["reason"]), (False, "head_unknown"))
+        self.assertEqual(out["lacking"], [{"sha": self.a, "subject": "feat: A"}])
+        out = self.check()  # no head at all
+        self.assertEqual((out["delete"], out["reason"]), (False, "head_unknown"))
+
+    def test_branch_check_git_error_stops(self):
+        out = self.pp("branch-check", "--dir", self.repo, "--branch", "no-such-branch", "--main", "main", expect=1)
+        self.assertFalse(out["ok"])
 
 
 class ClosingCheck(Base):

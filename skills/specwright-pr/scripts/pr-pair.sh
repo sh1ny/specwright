@@ -37,7 +37,12 @@
 #                                     (first_seen), else, only with no such record, when the record was written (pass_written;
 #                                     written_at, or the owner's at in an older record); none = no cutoff, the row stays todo
 #   cleanup-plan --code d --store d --branch b
-#                                     post-merge commands per repo whose expected PR is MERGED
+#                                     post-merge commands per repo whose expected PR is MERGED: checkout, pull, then
+#                                     branch-check (--head: the merged PR's head); `delete` (git branch -D) runs only on delete: true
+#   branch-check --dir d --branch b --main m [--head sha]
+#                                     delete true when the branch tip is on main (on_main) or is the merged head or an ancestor of
+#                                     it (pr_head); else false with reason lacking | head_unknown and the commits "lacking" (sha,
+#                                     subject). Read-only, no network; a git error stops (ok false, exit 1)
 # Exit: 0 answered, 1 stop (the JSON has "error" and "message"; an unexpected failure is
 #       error "internal_error"), 2 usage or missing input,
 #       3 GitHub state unknown (a lookup failed; never read it as "no PR").
@@ -1886,6 +1891,46 @@ def cmd_pass(argv):
     return {"write": pass_write, "plan": pass_plan, "done": pass_done, "adopt": pass_adopt}[argv[0]](argv[1:])
 
 
+def cmd_branch_check(argv):
+    """May a change branch be deleted once its PR merged and main is updated? Local refs only; changes nothing."""
+    a, _ = parse_args(argv, {"--dir": "dir", "--branch": "branch", "--main": "main", "--head": "head"})
+    need(a, "dir", "branch", "main")
+    d, b, m, head = a["dir"], a["branch"], a["main"], a.get("head")
+    if head is not None and not re.match(r"^[0-9a-fA-F]{4,64}$", head):
+        raise Stop("usage", f"--head must be a commit id, got {head!r}", code=2)
+
+    def fail(what, r):
+        raise Stop("git_error", f"{what} in {d}: {(r.stderr or r.stdout).strip()}")
+
+    for ref in (f"refs/heads/{b}", f"refs/heads/{m}"):
+        r = git(d, "rev-parse", "--verify", "-q", ref + "^{commit}")
+        if r.returncode != 0:
+            fail(f"cannot resolve {ref}", r)
+
+    def ancestor(x, y, what):
+        r = git(d, "merge-base", "--is-ancestor", x, y)
+        if r.returncode not in (0, 1):
+            fail(what, r)
+        return r.returncode == 0
+
+    def lacking(*rng):
+        r = git(d, "log", "--format=%H%x1f%s%x1e", *rng)
+        if r.returncode != 0:
+            fail("git log failed", r)
+        rows = [(rec.strip("\n").split("\x1f") + [""])[:2] for rec in r.stdout.split("\x1e") if rec.strip()]
+        return [{"sha": sha.strip(), "subject": subject} for sha, subject in rows]
+
+    tip, mref = f"refs/heads/{b}", f"refs/heads/{m}"
+    if ancestor(tip, mref, f"cannot compare {b} with {m}"):
+        return {"ok": True, "delete": True, "reason": "on_main", "lacking": []}
+    known = bool(head) and git(d, "cat-file", "-e", head + "^{commit}").returncode == 0
+    if not known:
+        return {"ok": True, "delete": False, "reason": "head_unknown", "lacking": lacking(f"{mref}..{tip}")}
+    if ancestor(tip, head, f"cannot compare {b} with {head}"):
+        return {"ok": True, "delete": True, "reason": "pr_head", "lacking": []}
+    return {"ok": True, "delete": False, "reason": "lacking", "lacking": lacking(f"{mref}..{tip}", "--not", head)}
+
+
 def cmd_cleanup(argv):
     a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch"})
     need(a, "code", "store", "branch")
@@ -1902,10 +1947,10 @@ def cmd_cleanup(argv):
         if side["expected"] and pr and pr["state"] == "MERGED":
             ent["merged"] = True
             if exists:
-                tipsha = git(d, "rev-parse", f"refs/heads/{branch}").stdout.strip()
-                ent["commands"] = [cmd("git", "checkout", main), cmd("git", "pull", "--ff-only"), cmd("git", "branch", "-d", branch)]
-                ent["force_delete"] = ["git", "branch", "-D", branch]  # only when -d refuses and the PR head is this tip
-                ent["force_delete_allowed"] = bool(pr.get("head_sha")) and pr["head_sha"] == tipsha
+                # after the pull, branch-check decides: the skill runs `delete` only when it answers delete: true
+                check = ["pr-pair.sh", "branch-check", "--dir", cwd, "--branch", branch, "--main", main] + (["--head", pr["head_sha"]] if pr.get("head_sha") else [])
+                ent["commands"] = [cmd("git", "checkout", main), cmd("git", "pull", "--ff-only"), cmd(*check)]
+                ent["delete"] = ["git", "branch", "-D", branch]
         elif side["expected"]:
             keep.append({"repo": k, "slug": side["repo"], "state": pr["state"] if pr else "NONE", "branch": branch,
                          "url": pr["url"] if pr else None})
@@ -1921,7 +1966,7 @@ def cmd_cleanup(argv):
 COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
-            "pass": cmd_pass, "cleanup-plan": cmd_cleanup}
+            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check}
 
 args = sys.argv[1:]
 try:
