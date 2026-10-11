@@ -91,7 +91,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 
 ## 3. Milestone end, kept split and finish offer (#51, D1, D2)
 
-- [ ] 3.1 Write the failing text checks in `evals/git-workflow/test_instructions.py` for the project-planning rows:
+- [x] 3.1 Write the failing text checks in `evals/git-workflow/test_instructions.py` for the project-planning rows:
   - `test_roadmap_next_offers_close_at_milestone_end`
   - `test_roadmap_next_starts_only_now_changes`
   - `test_roadmap_status_names_milestone_end`

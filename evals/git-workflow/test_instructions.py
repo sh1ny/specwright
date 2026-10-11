@@ -344,6 +344,86 @@ class ProjectPlanning(unittest.TestCase):
         self.assertRegex(s5, r"(?i)never edit an accepted ADR|superseded (ADR|file).{0,40}(unchanged|untouched|not touched)",
                          "close may edit the superseded ADR")
 
+    def test_roadmap_next_offers_close_at_milestone_end(self):
+        s3 = mode_step("next", 3)
+        end = find_block(s3, r"(?i)every change of the Now milestone is done", r"(?i)milestone end")
+        self.assertTrue(end, "next step 3 has no milestone end for when every Now change is done")
+        self.assertRegex(end, r"(?i)offer\w* \*\*close\*\*", "the milestone end does not offer close")
+        for what in ("change", "branch", "file"):
+            self.assertRegex(end, r"(?i)\b(start|create|edit)\w* no %s\b|no %s (is )?(started|created|edited)" % (what, what),
+                             f"the milestone end does not rule out a new {what}")
+
+    def test_roadmap_next_starts_only_now_changes(self):
+        s3 = mode_step("next", 3)
+        self.assertRegex(s3, r"(?i)starts only changes of the Now milestone", "next may start a change outside Now")
+        self.assertRegex(s3, r"(?s)(?i)Next.{0,120}(agreed split|lists).{0,120}\*\*close\*\* promotes",
+                         "next does not leave an already split Next to close")
+
+    def test_roadmap_status_names_milestone_end(self):
+        sec = section(read(ROADMAP), r"status\b")
+        self.assertRegex(sec, r"`milestone end: run close`", "status does not name the milestone end as what next would do")
+
+    def test_roadmap_milestone_end_needs_every_change_done(self):
+        end = find_block(mode_step("next", 3), r"(?i)milestone end")
+        self.assertTrue(end, "next step 3 has no milestone end")
+        self.assertRegex(end, r"(?s)(?i)planning merged, code pending.{0,80}not done",
+                         "a planning-merged, code-pending change may count toward a milestone end")
+
+    def test_finish_offers_close_after_last_change(self):
+        offer = find_block(read(FINISH), r"project\.roadmap", r"(?i)\boffer")
+        self.assertTrue(offer, "finish has no roadmap offer")
+        self.assertRegex(offer, r"(?s)(?i)\*\*close\*\*.{0,40}when every change of the Now milestone is (then )?done",
+                         "finish does not offer close when the milestone's changes are all done")
+        self.assertRegex(offer, r"(?i)otherwise \*\*next\*\*", "finish does not offer next otherwise")
+        self.assertRegex(offer, r"(?i)never (offer )?both", "finish may offer next and close together")
+        self.assertNotRegex(offer, r"\*\*next\*\* \(or \*\*close\*\*", "finish still offers next or close as alternatives")
+
+    def test_roadmap_init_records_agreed_next_split(self):
+        s6 = mode_step("init", 6)
+        self.assertRegex(s6, r"(?i)only the current milestone is split", "init splits more than the current milestone")
+        self.assertRegex(s6, r"(?s)(?i)explicitly agree\w*.{0,80}split.{0,40}Next.{0,200}`\*\*Split agreed:\*\* <YYYY-MM-DD>`",
+                         "init does not record an explicitly agreed Next split with a `Split agreed:` line")
+        self.assertRegex(s6, r"(?i)never add the line", "init may mark a split the author did not agree")
+        tpl = read(ROOT / "skills" / "specwright-roadmap" / "references" / "roadmap.md")
+        nxt = section(tpl, r"Next:")
+        self.assertRegex(nxt or "", r"\*\*Split agreed:\*\* <YYYY-MM-DD>", "the roadmap template does not document the line")
+
+    def test_roadmap_close_records_agreed_split_for_new_next(self):
+        s5 = mode_step("close", 5)
+        self.assertRegex(s5, r"(?s)(?i)new Next.{0,200}explicitly agree\w*.{0,200}`\*\*Split agreed:\*\* <today>`",
+                         "close does not record a split agreed for the new Next")
+
+    def test_roadmap_close_keeps_agreed_split(self):
+        s5 = mode_step("close", 5)
+        marked = find_block(s5, r"Split agreed:", r"(?i)\bkeep")
+        self.assertTrue(marked, "close does not keep a marked Next split")
+        self.assertRegex(marked, r"(?i)names.{0,30}order|order.{0,30}names", "close may rename or reorder an agreed split")
+        self.assertRegex(marked, r"(?i)drop\w* the line", "close does not drop the line on promotion")
+        self.assertRegex(s5, r"(?s)(?i)no changes.{0,60}split it into changes", "a Next without changes is no longer split")
+        self.assertNotRegex(s5, r"(?i)promote Next to Now and split it into changes",
+                            "close still re-splits every Next unconditionally")
+
+    def test_roadmap_close_proposes_split_amendments(self):
+        s5 = mode_step("close", 5)
+        self.assertRegex(s5, r"(?s)(?i)amendment.{0,160}propose it to the user.{0,80}only if they agree",
+                         "close may amend an agreed split without the user")
+        self.assertRegex(s5, r"(?i)never re-plan an agreed split silently", "close may re-plan an agreed split silently")
+
+    def test_roadmap_close_asks_about_unmarked_split(self):
+        s5 = mode_step("close", 5)
+        unmarked = find_block(s5, r"(?i)without that line")
+        self.assertTrue(unmarked, "close has no rule for a Next that lists changes without the line")
+        self.assertRegex(unmarked, r"(?i)ask the user whether", "close does not ask about an unmarked split")
+        self.assertRegex(unmarked, r"(?s)(?i)yes.{0,40}keep.{0,80}no.{0,40}split", "the yes and no answers are not both covered")
+
+    def test_roadmap_gap_change_needs_a_shown_failure(self):
+        s3 = mode_step("next", 3)
+        self.assertRegex(s3, r"(?s)(?i)shown failing.{0,40}by \*\*close\*\*.{0,40}reported failing by the user",
+                         "the gap path is not limited to a criterion close or the user showed failing")
+        self.assertRegex(s3, r"(?i)never propose a gap-closing change for criteria nobody has shown failing",
+                         "next may invent a gap-closing change at an unwalked milestone end")
+        self.assertNotRegex(s3, r"(?i)if none is left but exit criteria still fail", "the old gap trigger is still there")
+
     def test_roadmap_review_escalates_after_two_consecutive_revise(self):
         s5 = mode_step("init", 5)
         self.assertNotRegex(s5, r"(?i)at most two rounds", "init step 5 still caps the review at two rounds")
