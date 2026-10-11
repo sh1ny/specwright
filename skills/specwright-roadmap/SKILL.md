@@ -1,6 +1,6 @@
 ---
 name: specwright-roadmap
-description: "Project-level planning above OpenSpec changes: strategy, architecture baseline (foundational ADRs) and a milestone roadmap. Modes: init (turn a big project idea or brief into strategy, architecture and roadmap), next (start the next change of the current milestone), close (verify a milestone's exit criteria and plan the next one), status. Triggers: a project idea too big for one change, 'plan this project', 'create a roadmap', 'what's next on the roadmap', 'next change/milestone', 'close the milestone', 'roadmap status', or specwright-finish offering next/close."
+description: "Project-level planning above OpenSpec changes: strategy, architecture baseline (foundational ADRs) and a milestone roadmap. Modes: init (turn a big project idea or brief into strategy, architecture and roadmap), next (start the next change of the current milestone, or offer close at its end), close (verify a milestone's exit criteria and plan the next one), status. Triggers: a project idea too big for one change, 'plan this project', 'create a roadmap', 'what's next on the roadmap', 'next change/milestone', 'close the milestone', 'roadmap status', or specwright-finish offering next/close."
 metadata:
   version: 0.1.11
 ---
@@ -50,13 +50,18 @@ Input: the user's project idea (any size), plus the repo if code exists. Work on
    - M1 is a walking skeleton: the thinnest end-to-end slice through the architecture, which proves the riskiest assumptions first.
    - Each milestone has a demoable outcome and exit criteria that can be checked, each marked agent- or user-verified.
    - Only the current milestone is split into changes (2-6, each about one PR). Next gets a paragraph, Later one line each.
+   - Exception: when the author explicitly agrees a split for Next, list Next's changes in the same Changes format and add a `**Split agreed:** <YYYY-MM-DD>` line (today's date) above them, so close keeps that split. Never add the line for a split the author did not agree.
 7. Commit and finish (see Committing project files). Then offer **next**.
 
 ## next
 
 1. Read the roadmap's Now section. Run `openspec list --json` for active changes, and derive done changes from the main branch as above.
 2. Active change in progress → offer to resume it instead.
-3. Otherwise pick the first planned change that has no archive and whose prerequisites are all **done** (a prerequisite that is planning merged, code pending, unverified or unknown is not done). An archived change whose code is pending is never started again: report it and what it is waiting for (its code PR or merge). If none is left but exit criteria still fail, propose a new change that closes the gap, without editing any file yet: the roadmap entry is written in step 4, on the change's branch.
+3. Otherwise, the milestone end comes first. When every change of the Now milestone is done (a change that is planning merged, code pending, unverified or unknown is not done), the milestone is at its end: unless an exit criterion was shown failing, report `milestone end: run close`, offer **close** and stop. Start no change, create no branch and edit no file.
+
+   next starts only changes of the Now milestone, never one under Next, even when Next already lists an agreed split: **close** promotes it first. Before the milestone end, pick the first planned change of Now that has no archive and whose prerequisites are all **done** (a prerequisite that is planning merged, code pending, unverified or unknown is not done). An archived change whose code is pending is never started again: report it and what it is waiting for (its code PR or merge).
+
+   At the milestone end with an exit criterion shown failing by **close** or reported failing by the user, propose a new change that closes the gap, without editing any file yet: the roadmap entry is written in step 4, on the change's branch. Never propose a gap-closing change for criteria nobody has shown failing: offer **close**, which walks them.
 4. Start `/opsx:propose <change-name>` (`specwright-branch` runs first). For a gap-closing change from step 3, as soon as `specwright-branch` has created `<prefix>/<change-name>` and before any planning artifact is written: add the change to the current milestone's Changes, then commit only the roadmap file by name in the repo that holds it, in one call with the branch check: `cd "<that repo's toplevel>" && test "$(git branch --show-current)" = <prefix>/<change-name> && git add -- <roadmap file> && git commit -F <msgfile> -- <roadmap file>`, subject `docs(<change-name>): add <change-name> to the roadmap` (store-backed: also run the store branch check from Committing project files first). Then propose continues. If the gate stops, nothing was edited: leave the roadmap untouched. The entry merges with the change. Give the proposal its context: the milestone, the exit criteria this change serves, and the ADRs that constrain it. The proposal names its milestone.
 
 ## close
@@ -65,12 +70,19 @@ Input: the user's project idea (any size), plus the repo if code exists. Work on
 2. Walk the exit criteria. Run agent-verifiable checks yourself. Ask the user to run user-verified ones and record their results; anything skipped is recorded as unverified, never passed.
 3. Any criterion fails → propose the change that fixes it (via **next**); do not close. Any criterion unverified → list it and stop; the milestone stays in Now until it has a passing result.
 4. Close on branch `docs/close-<milestone>` (see Committing project files): move the milestone to Done with the date and one line on what was learned.
-5. Re-plan with what the milestone taught: promote Next to Now and split it into changes; revise Later. If an architecture assumption broke, write a new ADR with `Status: proposed` and `Supersedes: <number>`, review it as init step 5 reviews the baseline (a new round in `openspec/architecture-review.md`, same escalation rule), and accept it only after that gate passes (`Status: accepted` with the date, its index row in, the superseded ADR's row out). Never edit an accepted ADR: the superseded ADR's file stays unchanged.
+5. Re-plan with what the milestone taught: promote Next to Now and revise Later. How Next becomes Now depends on its split:
+   - Next has a `**Split agreed:** <date>` line: keep its changes, their names and their order, and drop the line. When the finished milestone suggests an amendment (a change no longer needed, a new one, another order), propose it to the user and apply it only if they agree. Never re-plan an agreed split silently.
+   - Next lists changes without that line: ask the user whether that split is agreed. On yes, keep it as above (no line is written); on no, split it as below.
+   - Next has no changes: split it into changes (2-6, each about one PR).
+
+   The new Next gets a paragraph, unless the author explicitly agrees its split now: then list its changes in the same Changes format and add `**Split agreed:** <today>` above them.
+
+   If an architecture assumption broke, write a new ADR with `Status: proposed` and `Supersedes: <number>`, review it as init step 5 reviews the baseline (a new round in `openspec/architecture-review.md`, same escalation rule), and accept it only after that gate passes (`Status: accepted` with the date, its index row in, the superseded ADR's row out). Never edit an accepted ADR: the superseded ADR's file stays unchanged.
 6. Commit and finish like init.
 
 ## status
 
-One answer, no edits: current milestone, its changes (done / planning merged, code pending / code unverified / code state unknown / active / planned, derived as above, one status per change with its proof), the stale note when a fetch failed, exit criteria state, and what **next** would start.
+One answer, no edits: current milestone, its changes (done / planning merged, code pending / code unverified / code state unknown / active / planned, derived as above, one status per change with its proof), the stale note when a fetch failed, exit criteria state, and what **next** would start, or `milestone end: run close` when every change of the Now milestone is done.
 
 ## Rules
 

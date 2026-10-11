@@ -105,7 +105,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
   - `test_roadmap_gap_change_needs_a_shown_failure`: the gap path only for a criterion close found failing or the user reports failing.
 
   Verify that they fail against the current text.
-- [ ] 3.2 Edit `skills/specwright-roadmap/SKILL.md`:
+- [x] 3.2 Edit `skills/specwright-roadmap/SKILL.md`:
   - **next** step 3: the milestone end comes first, then the existing planned-change and gap paths, the gap path now limited to a shown failure.
   - **close** step 5: keep a marked split, propose amendments, ask about an unmarked list, drop the line on promotion, and record a split agreed for the new Next.
   - **init** step 6 roadmap rules: the agreed Next split exception and its line.

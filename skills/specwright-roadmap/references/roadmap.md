@@ -16,7 +16,13 @@ Strategy: <path> · Architecture: <path>
 
 ## Next: M<n+1> - <name>
 
-<!-- One paragraph: outcome and the main risk it retires. Split into changes at the close of the current milestone. -->
+<!-- One paragraph: outcome and the main risk it retires. Split into changes at the close of the current milestone, unless the author explicitly agrees a split now. Then list the changes under a Split agreed line with that day's date; close keeps that split and drops the line when it promotes this milestone:
+
+**Split agreed:** <YYYY-MM-DD>
+
+**Changes** (in order; each about one PR):
+1. `<change-name>` - one line; prerequisites if not the previous one
+-->
 
 ## Later
 
