@@ -32,18 +32,18 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 | preship-review → Passing review recorded per head | Fix after a blocking finding | evals/review-routes/test_review_run.py | test_gate_missing_after_new_commit; evals/review-routes/test_skill_text.py test_fix_subject_and_preship_round_trailer | red |
 | preship-review → Passing review recorded per head | Pre-ship fixes do not use up PR fix rounds | evals/pr-pair/test_pr_pair.py | test_rounds_ignore_preship_fix_commits | red |
 | preship-review → Waiver only from the user | User waives a finding | evals/review-routes/test_review_run.py | test_waive_turns_blocked_into_pass | red |
-| preship-review → Waiver only from the user | No answer | evals/review-routes/test_skill_text.py | test_waive_only_after_user_answer | red |
+| preship-review → Waiver only from the user | No answer | evals/review-routes/test_skill_text.py | test_waive_only_after_user_answer | green |
 | preship-review → Ship and local merge require a pass | Ship with a pass on the head | evals/review-routes/test_skill_text.py | test_ship_gate_before_first_push | red |
 | preship-review → Ship and local merge require a pass | Ship after an unreviewed commit | evals/review-routes/test_review_run.py | test_gate_missing_after_non_archive_commit | red |
 | preship-review → Ship and local merge require a pass | Local merge after archive | evals/review-routes/test_review_run.py | test_gate_accepts_archive_commit_repo_local; evals/review-routes/test_skill_text.py test_finish_local_gate_before_merge | red |
 | preship-review → Ship and local merge require a pass | Store-backed local merge after archive | evals/review-routes/test_review_run.py | test_gate_accepts_store_archive_commit | red |
 | preship-review → Ship and local merge require a pass | PR already exists | evals/review-routes/test_skill_text.py | test_ship_gate_only_when_no_pr_in_change | red |
-| preship-review → A failed review stops ship | Invalid output | evals/review-routes/test_skill_text.py | test_failed_review_stops_ship_and_merge | red |
+| preship-review → A failed review stops ship | Invalid output | evals/review-routes/test_skill_text.py | test_failed_review_stops_ship_and_merge | green |
 | preship-review → Repeated blocking reviews escalate | Blocked after the second round | evals/review-routes/test_review_run.py | test_rounds_reads_preship_round_trailers; evals/review-routes/test_skill_text.py test_escalate_after_round_2 | red |
 | preship-review → Repeated blocking reviews escalate | New session after two rounds | evals/review-routes/test_review_run.py | test_rounds_without_records_from_git | red |
-| preship-review → Spec findings classed | Contradictory wording | evals/review-routes/test_skill_text.py | test_clarification_amend_commit_and_rereview | red |
-| preship-review → Spec findings classed | Edit would change behaviour | evals/review-routes/test_skill_text.py | test_behaviour_change_asks_user | red |
-| preship-review → Spec findings classed | Approved behaviour change | evals/review-routes/test_skill_text.py | test_behaviour_change_follows_drift_rule | red |
+| preship-review → Spec findings classed | Contradictory wording | evals/review-routes/test_skill_text.py | test_clarification_amend_commit_and_rereview | green |
+| preship-review → Spec findings classed | Edit would change behaviour | evals/review-routes/test_skill_text.py | test_behaviour_change_asks_user | green |
+| preship-review → Spec findings classed | Approved behaviour change | evals/review-routes/test_skill_text.py | test_behaviour_change_follows_drift_rule | green |
 | install-update → Commented-out template keys optional | Project sets an optional key | evals/git-workflow/test_instructions.py | test_install_step6_commented_paths_optional | red |
 | install-update → Commented-out template keys optional | Project lacks an optional key | evals/git-workflow/test_instructions.py | test_install_step6_never_adds_commented; test_install_step7_uncommented_only | red |
 | install-update → Commented-out template keys optional | Reviewer entries are user data | evals/git-workflow/test_instructions.py | test_install_reviewer_entries_user_data | red |
@@ -92,7 +92,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 ## 5. The specwright-review skill and review steps
 
 - [x] 5.1 Write failing text checks in `evals/review-routes/test_skill_text.py` for `skills/specwright-review/SKILL.md`: route selection via `select`, background run, fail closed with no fallthrough, waiver only after the user's answer, fix commit subject and trailer, escalation after round 2, clarification versus behaviour-change handling and the drift rule. Verify: they fail on the missing skill.
-- [ ] 5.2 Write `skills/specwright-review/SKILL.md` (frontmatter `metadata.version: 0.2.0`; pre-ship mode; route rules cited by other skills; credits). Verify: the 5.1 checks pass; flip their rows green.
+- [x] 5.2 Write `skills/specwright-review/SKILL.md` (frontmatter `metadata.version: 0.2.0`; pre-ship mode; route rules cited by other skills; credits). Verify: the 5.1 checks pass; flip their rows green.
 - [ ] 5.3 Replace the hardcoded pairing in `schemas/specwright/schema.yaml` (review step) with `specwright-review` route selection, including validation of subagent-written review files via `record --kind design`. Point the `specwright-roadmap` baseline review at the same routes. Add a pre-ship mode with findings-file output to `agents/claude/specwright-reviewer.md` and `agents/omp/specwright-reviewer.md` (descriptions too). Verify: `openspec schema validate specwright` passes after copying the schema into `openspec/schemas/specwright/`, and `python -m unittest discover evals/git-workflow -p "test_instructions.py"` passes, with its checks on the old pairing updated to the route rule.
 
 ## 6. Wiring into commit, ship, finish and watch
