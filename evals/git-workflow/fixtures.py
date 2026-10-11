@@ -492,10 +492,21 @@ def build_roadmap(name, dest):
                             ("add-metrics", "usage metrics (after `2026-10-08-add-logging`)")])
 
 
-def build_roadmap_close_locked(dest):
+HOOK_MESSAGE = "post-checkout: hook failed (eval)"
+
+
+def failing_post_checkout(repo):
+    """A post-checkout hook that fails after git has created and switched to the branch. Write it last: the fixture's own
+    checkouts would trigger it. Git for Windows runs it through its bundled sh."""
+    write(repo, ".git/hooks/post-checkout", f'#!/bin/sh\necho "{HOOK_MESSAGE}" >&2\nexit 1\n')
+    (repo / ".git" / "hooks" / "post-checkout").chmod(0o755)
+
+
+def build_roadmap_close_locked(dest, hook=False):
     """Local mode, planning in a store. M1's only change (add-greeting) is done: its archive is on the store's main and
     code main has merge: add-greeting. Its exit criterion is agent-verified and passes. Another session holds the
-    store's gate lock right now. Both repos are clean on main. fixture-state.json records the tips and the owner file."""
+    store's gate lock right now. Both repos are clean on main. fixture-state.json records the tips and the owner file.
+    hook: no lock is held; instead the code repo's post-checkout hook fails (the store has none)."""
     code, store = dest / "code", dest / "store"
     store_base(dest, settings="finish: local\n" + ROADMAP_SETTINGS)
     archive_in_store(store, "2026-10-07-add-greeting", "feat(add-greeting): archive change")
@@ -515,12 +526,53 @@ def build_roadmap_close_locked(dest):
           "## Later\n\n- M3 - Sharing: greetings shared between teams\n\n## Done\n")
     git(code, "add", "-A")
     git(code, "commit", "-q", "-m", "docs: add project roadmap")
+    tip = lambda r: subprocess.run(["git", "rev-parse", "main"], cwd=r, check=True, capture_output=True, text=True).stdout.strip()
+    if hook:
+        write(dest, "fixture-state.json", json.dumps({"code_main": tip(code), "store_main": tip(store)}, indent=2))
+        failing_post_checkout(code)
+        return
     gate_lock(store, datetime.now(timezone.utc), change="add-csv-export")  # another session is in its gate right now
     lock = Path(subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=store,
                                check=True, capture_output=True, text=True).stdout.strip()) / "specwright-gate.lock"
-    tip = lambda r: subprocess.run(["git", "rev-parse", "main"], cwd=r, check=True, capture_output=True, text=True).stdout.strip()
     write(dest, "fixture-state.json", json.dumps({"code_main": tip(code), "store_main": tip(store),
                                                   "owner": (lock / "owner").read_text(encoding="utf-8")}, indent=2))
+
+
+MILESTONE_END_ROADMAP = (
+    "# Greeter Roadmap\n\nStrategy: openspec/strategy.md · Architecture: openspec/architecture.md\n\n"
+    "<!-- Status is derived: a change is done when archived; a milestone is done when its changes are done and its exit criteria pass. Do not add status checkboxes for changes. -->\n\n"
+    "## Now: M1 - Greetings\n\n**Outcome:** Users get a greeting by name.\n\n"
+    "**Exit criteria:**\n- {criterion}\n\n"
+    "**Changes** (in order; each about one PR):\n1. `add-greeting` - greet function\n\n"
+    "## Next: M2 - Farewells\n\nFarewells and shouting greetings.\n\n"
+    "**Split agreed:** 2026-10-01\n\n"
+    "**Changes** (in order; each about one PR):\n1. `add-farewell` - farewell function\n2. `add-shout` - shout function (after `add-farewell`)\n\n"
+    "## Later\n\n- M3 - Sharing: greetings shared between teams\n\n## Done\n")
+
+
+def build_roadmap_milestone_end(repo, user_verified):
+    """Repo-local, local mode. M1's only change (add-greeting) is archived and merged on main (greet() and its tests are real).
+    Its exit criterion is user-verified with no recorded result (user_verified) or agent-verified and passing. Next (M2) lists
+    two changes under a `Split agreed:` line. .git/fixture-state.json records main's tip and the roadmap text."""
+    base(repo)
+    write(repo, "openspec/specwright.yaml", "finish: local\n" + ROADMAP_SETTINGS)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore: roadmap settings")
+    code_branch(repo, "add-greeting")
+    git(repo, "checkout", "-q", "feat/add-greeting")
+    task_code(repo, "1.1")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "feat(add-greeting): task 1.1 Add greet(name) with tests")
+    archive_in_store(repo, "2026-10-07-add-greeting", "feat(add-greeting): archive change")
+    merge_into_main(repo, "feat/add-greeting", "add-greeting")
+    criterion = ("Users find the greetings friendly after trying them (user)" if user_verified
+                 else "`python -c \"from greet import greet; assert greet('Ada') == 'Hello, Ada!'\"` exits 0 on main (agent)")
+    write(repo, "openspec/roadmap.md", MILESTONE_END_ROADMAP.format(criterion=criterion))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "docs: add project roadmap")
+    rev = lambda r: subprocess.run(["git", "rev-parse", r], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    write(repo, ".git/fixture-state.json", json.dumps({"main": rev("main"), "roadmap_commit": rev("HEAD"),
+                                                       "roadmap": (repo / "openspec/roadmap.md").read_text(encoding="utf-8")}, indent=2))
 
 
 def build_roadmap_next_gap(repo, dirty):
@@ -589,6 +641,9 @@ def build_store(name, dest):
         git(other, "commit", "-q", "-m", "merge: add-csv-export")
         git(other, "push", "-q", "origin", "main")
         rmtree(other)
+    elif name == "eval-store-branch-hook-fail":
+        store_base(dest)  # as eval-store-branch-clean, then the store's post-checkout hook fails
+        failing_post_checkout(store)
     elif name == "eval-store-branch-locked":
         store_base(dest)
         gate_lock(store, datetime.now(timezone.utc))  # another session is in its gate right now
@@ -682,6 +737,8 @@ def build_store(name, dest):
         pr_pair_base(dest, store_origin=False, code_pr=True)  # code PR #7 is open and ready; the store has no GitHub origin
     elif name == "eval-store-roadmap-close-locked":
         build_roadmap_close_locked(dest)
+    elif name == "eval-store-roadmap-close-hook-fail":
+        build_roadmap_close_locked(dest, hook=True)
     elif name in ("eval-store-roadmap-local", "eval-store-roadmap-pr"):
         build_roadmap(name, dest)
     elif name == "eval-nested-root-finish":
@@ -769,6 +826,8 @@ def build(name, repo):
         return build_store(name, repo)
     if name in ("eval-roadmap-next-gap", "eval-roadmap-next-gap-dirty-main"):
         return build_roadmap_next_gap(repo, dirty=name.endswith("dirty-main"))
+    if name in ("eval-roadmap-next-milestone-end", "eval-roadmap-close-agreed-split"):
+        return build_roadmap_milestone_end(repo, user_verified=name.endswith("milestone-end"))
     base(repo)
     if name == "eval-branch-dirty-main":
         write(repo, "README.md", "# greeter\n\nA tiny greeting library. WIP edit.\n")

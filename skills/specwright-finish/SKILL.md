@@ -2,7 +2,7 @@
 name: specwright-finish
 description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:archive, /opsx:bulk-archive, openspec-archive-change, `openspec archive`, or the user asks to archive/finish a change. Commits the archive move, then merges locally (finish: local) or pushes to the PR (finish: pr). Also handles 'the PR was merged' cleanup."
 metadata:
-  version: 0.1.11
+  version: 0.1.12
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *)
 ---
@@ -75,7 +75,7 @@ Report `Nothing to finish - archive is on <main>` only when every repo is done.
 - If `specwright-pr` **watch** started this archive, hand back to it: it waits for CI and reviews on the archive head before reporting ready. Otherwise report the PR URL and `Ready to merge on GitHub once checks and reviews are green.`, and offer **watch**. Never merge the PR.
 - **After the PR is merged** (the user says so, or `gh pr view <branch> --json state,headRefOid` shows MERGED): `git checkout <main> && git pull --ff-only && git branch -d <branch>`. If `-d` refuses because GitHub squashed or rebased, use `-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip; otherwise ask. Then follow `specwright-pr` **Cleanup after merge** for the issues the merged PR's closing lines name: its `closed-check` lists any that GitHub left open and closes the ones the user confirms. Store-backed: that section also cleans both repos, so follow it instead of the commands above.
 
-If the roadmap (`project.roadmap`) exists, offer `specwright-roadmap` **next** (or **close** if this was the milestone's last change) once the change is on main: after the local merge, or after the PR is merged.
+If the roadmap (`project.roadmap`) exists, once the change is on main (after the local merge, or after the PR is merged), offer exactly one `specwright-roadmap` mode: **close** when every change of the Now milestone is then done, derived as `specwright-roadmap` derives it; otherwise **next**. Never offer both.
 
 ## Planning repo
 

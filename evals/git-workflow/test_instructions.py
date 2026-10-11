@@ -197,6 +197,16 @@ BRANCH_TEST_STORE = r'test "\$\(git -C "<store toplevel>" branch --show-current\
 BRANCH_TEST_CD = r'cd "<store toplevel>" && test "\$\(git branch --show-current\)" = <branch> &&'
 
 
+BRANCH = ROOT / "skills" / "specwright-branch" / "SKILL.md"
+
+
+def branch_store_section():
+    """specwright-branch's "Store-backed changes" section."""
+    s = section(read(BRANCH), r"Store-backed changes")
+    assert s, "specwright-branch SKILL.md has no ## Store-backed changes"
+    return s
+
+
 def mode_block(text, n):
     """Numbered item `n` of a list in `text`, up to the next numbered item or blank line."""
     m = re.search(r"^%d\. .*?(?=^\d+\. |\n\n|\Z)" % n, text, re.M | re.S)
@@ -233,12 +243,46 @@ class PlanningStores(unittest.TestCase):
         self.assertRegex(check, r"(?i)code repo", "step 2 does not check the code repo")
         self.assertRegex(check, r"(?s)(?i)code repo.{0,200}(clean|on its main).{0,200}<branch>.{0,40}exist",
                          "step 2 does not check that the code repo is clean, on main and without <branch>")
-        branch = mode_block(s, 3)
-        self.assertRegex(branch, r"(?s)(?i)(fails|errors).{0,200}(switch|checkout).{0,80}store.{0,120}(delete|branch -D)",
-                         "a failed code branch does not roll the store branch back")
-        self.assertRegex(branch, r"(?i)releas", "the rollback does not release the lock")
-        self.assertRegex(branch, r"(?s)(?i)store's `git checkout -b` errors.{0,120}releas",
-                         "an error creating the store branch does not release the lock")
+
+    def assert_one_rollback_rule(self, step, branch, label):
+        """A store gate's branch step rolls back after any `git checkout -b` error, by what exists (D3)."""
+        self.assertRegex(step, r"(?s)(?i)\bany\b.{0,20}`git checkout -b[^`]*`.{0,20}errors",
+                         f"{label}: the rollback does not cover any `git checkout -b` error")
+        self.assertRegex(step, r"(?s)(?i)each repo where.{0,60}ran `git checkout -b`.{0,40}`" + re.escape(branch) + r"` exists",
+                         f"{label}: the rollback is not scoped to each repo the gate branched where the branch exists")
+        self.assertRegex(step, r"`git checkout <main>`", f"{label}: the rollback does not switch back to main")
+        self.assertRegex(step, r"`git branch -d " + re.escape(branch) + r"`",
+                         f"{label}: the rollback does not delete the branch with `git branch -d`")
+        self.assertRegex(step, r"(?s)(?i)\brelease.{0,40}lock.{0,80}\bstop.{0,60}(original )?error",
+                         f"{label}: the rollback does not release the lock, then stop showing the error")
+        self.assertNotRegex(step, r"(?i)nothing was branched", f"{label}: an error still assumes nothing was branched")
+
+    def test_roadmap_store_branch_error_rolls_back_every_branched_repo(self):
+        step = mode_block(store_part(committing_project_files()), 3)
+        self.assert_one_rollback_rule(step, "<branch>", "roadmap step 3")
+        self.assertRegex(step, r"(?i)post-checkout", "roadmap step 3 does not name the hook case")
+
+    def test_branch_store_error_rolls_back_every_branched_repo(self):
+        step = mode_block(branch_store_section(), 3)
+        self.assert_one_rollback_rule(step, "<prefix>/<change-name>", "specwright-branch store step 3")
+        self.assertRegex(step, r"(?i)code repo", "specwright-branch store step 3 does not cover the code repo")
+        self.assertNotRegex(step, r"(?i)if the store creation fails",
+                            "specwright-branch store step 3 still rolls back only a store-side failure")
+
+    def test_gate_rollback_judges_switch_by_current_branch(self):
+        for label, step, branch in (("roadmap step 3", mode_block(store_part(committing_project_files()), 3), "<branch>"),
+                                    ("specwright-branch store step 3", mode_block(branch_store_section(), 3),
+                                     "<prefix>/<change-name>")):
+            with self.subTest(label):
+                self.assertRegex(step, r"`git branch --show-current`", f"{label}: the switch is not checked by the current branch")
+                self.assertRegex(step, r"(?i)ignore its exit status|never by (its|the) exit status|not by (its|the) exit status",
+                                 f"{label}: the switch is judged by its exit status")
+                self.assertRegex(step, r"(?s)(?i)still on `" + re.escape(branch) + r"`.{0,80}(keeps it|delete nothing)",
+                                 f"{label}: a repo that could not switch back has its branch deleted")
+                self.assertRegex(step, r"(?s)(?i)still roll back the other repo",
+                                 f"{label}: one stuck repo stops the other repo's rollback")
+                self.assertRegex(step, r"(?s)(?i)name.{0,20}that repo.{0,40}`" + re.escape(branch) + r"`.{0,20}(its )?main",
+                                 f"{label}: the stop does not name the stuck repo and both branches")
 
     def test_roadmap_store_commits_check_branch_in_same_call(self):
         s = store_part(committing_project_files())
@@ -299,6 +343,100 @@ class ProjectPlanning(unittest.TestCase):
                          "close accepts the superseding ADR before the gate passes")
         self.assertRegex(s5, r"(?i)never edit an accepted ADR|superseded (ADR|file).{0,40}(unchanged|untouched|not touched)",
                          "close may edit the superseded ADR")
+
+    def test_roadmap_next_offers_close_at_milestone_end(self):
+        s3 = mode_step("next", 3)
+        end = find_block(s3, r"(?i)every change of the Now milestone is done", r"(?i)milestone end")
+        self.assertTrue(end, "next step 3 has no milestone end for when every Now change is done")
+        self.assertRegex(end, r"(?i)offer\w* \*\*close\*\*", "the milestone end does not offer close")
+        for what in ("change", "branch", "file"):
+            self.assertRegex(end, r"(?i)\b(start|create|edit)\w* no %s\b|no %s (is )?(started|created|edited)" % (what, what),
+                             f"the milestone end does not rule out a new {what}")
+
+    def test_roadmap_next_starts_only_now_changes(self):
+        s3 = mode_step("next", 3)
+        self.assertRegex(s3, r"(?i)starts only changes of the Now milestone", "next may start a change outside Now")
+        self.assertRegex(s3, r"(?s)(?i)Next.{0,120}(agreed split|lists).{0,120}\*\*close\*\* promotes",
+                         "next does not leave an already split Next to close")
+
+    def test_roadmap_status_names_milestone_end(self):
+        sec = section(read(ROADMAP), r"status\b")
+        self.assertRegex(sec, r"`milestone end: run close`", "status does not name the milestone end as what next would do")
+        self.assertRegex(sec, r"(?s)`milestone end: run close`.{0,160}unless an exit criterion was shown failing by \*\*close\*\* or reported failing by the user",
+                         "status names the milestone end even after close found a criterion failing")
+        self.assertRegex(sec, r"(?i)what it waits for when no change is ready to start",
+                         "status does not name what next waits for when no change is ready")
+
+    def test_roadmap_next_reports_what_it_waits_for(self):
+        s3 = mode_step("next", 3)
+        self.assertRegex(s3, r"(?s)When no planned change is ready to start.{0,200}report what it waits for.{0,80}start nothing",
+                         "next does not say what to report when every planned change waits on a prerequisite")
+
+    def test_roadmap_milestone_end_names_both_gap_triggers(self):
+        end = find_block(mode_step("next", 3), r"(?i)milestone end")
+        self.assertRegex(end, r"unless an exit criterion was shown failing by \*\*close\*\* or reported failing by the user",
+                         "the milestone end does not name who shows a criterion failing")
+
+    def test_roadmap_milestone_end_needs_every_change_done(self):
+        end = find_block(mode_step("next", 3), r"(?i)milestone end")
+        self.assertTrue(end, "next step 3 has no milestone end")
+        self.assertRegex(end, r"(?s)(?i)planning merged, code pending.{0,80}not done",
+                         "a planning-merged, code-pending change may count toward a milestone end")
+
+    def test_finish_offers_close_after_last_change(self):
+        offer = find_block(read(FINISH), r"project\.roadmap", r"(?i)\boffer")
+        self.assertTrue(offer, "finish has no roadmap offer")
+        self.assertRegex(offer, r"(?s)(?i)\*\*close\*\*.{0,40}when every change of the Now milestone is (then )?done",
+                         "finish does not offer close when the milestone's changes are all done")
+        self.assertRegex(offer, r"(?i)otherwise \*\*next\*\*", "finish does not offer next otherwise")
+        self.assertRegex(offer, r"(?i)never (offer )?both", "finish may offer next and close together")
+        self.assertNotRegex(offer, r"\*\*next\*\* \(or \*\*close\*\*", "finish still offers next or close as alternatives")
+
+    def test_roadmap_init_records_agreed_next_split(self):
+        s6 = mode_step("init", 6)
+        self.assertRegex(s6, r"(?i)only the current milestone is split", "init splits more than the current milestone")
+        self.assertRegex(s6, r"(?s)(?i)explicitly agree\w*.{0,80}split.{0,40}Next.{0,200}`\*\*Split agreed:\*\* <YYYY-MM-DD>`",
+                         "init does not record an explicitly agreed Next split with a `Split agreed:` line")
+        self.assertRegex(s6, r"(?i)never add the line", "init may mark a split the author did not agree")
+        tpl = read(ROOT / "skills" / "specwright-roadmap" / "references" / "roadmap.md")
+        nxt = section(tpl, r"Next:")
+        self.assertRegex(nxt or "", r"\*\*Split agreed:\*\* <YYYY-MM-DD>", "the roadmap template does not document the line")
+
+    def test_roadmap_close_records_agreed_split_for_new_next(self):
+        s5 = mode_step("close", 5)
+        self.assertRegex(s5, r"(?s)(?i)new Next.{0,200}explicitly agree\w*.{0,200}`\*\*Split agreed:\*\* <today>`",
+                         "close does not record a split agreed for the new Next")
+
+    def test_roadmap_close_keeps_agreed_split(self):
+        s5 = mode_step("close", 5)
+        marked = find_block(s5, r"Split agreed:", r"(?i)\bkeep")
+        self.assertTrue(marked, "close does not keep a marked Next split")
+        self.assertRegex(marked, r"(?i)names.{0,30}order|order.{0,30}names", "close may rename or reorder an agreed split")
+        self.assertRegex(marked, r"(?i)drop\w* the line", "close does not drop the line on promotion")
+        self.assertRegex(s5, r"(?s)(?i)no changes.{0,60}split it into changes", "a Next without changes is no longer split")
+        self.assertNotRegex(s5, r"(?i)promote Next to Now and split it into changes",
+                            "close still re-splits every Next unconditionally")
+
+    def test_roadmap_close_proposes_split_amendments(self):
+        s5 = mode_step("close", 5)
+        self.assertRegex(s5, r"(?s)(?i)amendment.{0,160}propose it to the user.{0,80}only if they agree",
+                         "close may amend an agreed split without the user")
+        self.assertRegex(s5, r"(?i)never re-plan an agreed split silently", "close may re-plan an agreed split silently")
+
+    def test_roadmap_close_asks_about_unmarked_split(self):
+        s5 = mode_step("close", 5)
+        unmarked = find_block(s5, r"(?i)without that line")
+        self.assertTrue(unmarked, "close has no rule for a Next that lists changes without the line")
+        self.assertRegex(unmarked, r"(?i)ask the user whether", "close does not ask about an unmarked split")
+        self.assertRegex(unmarked, r"(?s)(?i)yes.{0,40}keep.{0,80}no.{0,40}split", "the yes and no answers are not both covered")
+
+    def test_roadmap_gap_change_needs_a_shown_failure(self):
+        s3 = mode_step("next", 3)
+        self.assertRegex(s3, r"(?s)(?i)shown failing.{0,40}by \*\*close\*\*.{0,40}reported failing by the user",
+                         "the gap path is not limited to a criterion close or the user showed failing")
+        self.assertRegex(s3, r"(?i)never propose a gap-closing change for criteria nobody has shown failing",
+                         "next may invent a gap-closing change at an unwalked milestone end")
+        self.assertNotRegex(s3, r"(?i)if none is left but exit criteria still fail", "the old gap trigger is still there")
 
     def test_roadmap_review_escalates_after_two_consecutive_revise(self):
         s5 = mode_step("init", 5)

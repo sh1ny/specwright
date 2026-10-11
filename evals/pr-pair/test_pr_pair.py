@@ -619,6 +619,17 @@ class PairState(Base):
         self.assertEqual(r["refresh"], ["store"])
         self.assertIn("refresh:head:aaaaaaa!=bbbbbbb", r["blocking"]["store"])
 
+    def test_pair_state_refreshes_an_old_head_code_snapshot(self):
+        self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
+        self.add_pull(CODE, 9, sha="b" * 40)
+        self.add_pull(STORE, 1)
+        old = snap(number=9, url=f"https://github.com/{CODE}/pull/9", head_oid="a" * 40)  # passes every readiness check
+        r = self.state(code=old, store=self.snap(STORE))
+        self.assertEqual(r["action"], "wait")
+        self.assertEqual(r["ready"], {"code": False, "store": True})
+        self.assertEqual(r["refresh"], ["code"])
+        self.assertIn("refresh:head:aaaaaaa!=bbbbbbb", r["blocking"]["code"])
+
     def test_pair_state_refreshes_a_snapshot_of_another_pr(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 9)
@@ -750,6 +761,22 @@ class Rounds(Base):
         self.commit(self.code, {"a.py": "2\n"}, "fix(add-greeting): address review feedback\n\nFeedback-Round: 1")
         r = self.rounds()
         self.assertEqual((r["rounds"], r["limit_reached"]), (1, False))
+
+    def test_rounds_store_only_round_makes_the_next_pass_round_two(self):
+        # max_fix_rounds is 2; only the store branch has a fix commit, so the code branch counts for nothing
+        self.commit(self.store, {"a.md": "1\n"}, "fix(add-greeting): address review feedback\n\nFeedback-Round: 1")
+        r = self.rounds()
+        self.assertEqual((r["rounds"], r["code"]["max_trailer"], r["store"]["max_trailer"]), (1, 0, 1))
+        self.assertEqual((r["max_fix_rounds"], r["limit_reached"]), (2, False))
+        self.assertEqual(r["rounds"] + 1, 2)  # the next pass is round 2, within the limit
+
+    def test_rounds_ignores_code_subjects_when_store_has_a_trailer(self):
+        self.commit(self.store, {"a.md": "1\n"}, "fix(add-greeting): address review feedback\n\nFeedback-Round: 1")
+        self.commit(self.code, {"a.py": "1\n"}, "fix(add-greeting): address review feedback")
+        self.commit(self.code, {"a.py": "2\n"}, "fix(add-greeting): address review feedback")
+        r = self.rounds()
+        self.assertEqual((r["rounds"], r["limit_reached"]), (1, False))
+        self.assertEqual(r["code"]["subject_count"], 2)  # seen, but not the round: a trailer exists on the store branch
 
     def test_rounds_unpushed_top_round_commits(self):
         for d, slug in ((self.code, CODE), (self.store, STORE)):
@@ -1102,6 +1129,53 @@ class PassPlan(PassBase):
         d = self.plan(code=snap(threads=[]), sub="done")
         self.assertTrue(d["deleted"])
         self.assertFalse(self.record_path().exists())
+
+    def finished_pass(self, push_store=True):
+        """Pass 2 with a fix in each repo, both PRs re-requested after their pushes; the replies and resolutions are on
+        GitHub (the threads are gone from the snapshots). With push_store=False the store's fix commit stays local."""
+        self.write_record([self.finding("F1", dest="store", react=None),
+                           self.finding("F2", dest="code", item="T2", source="store", react=None)])
+        self.fix_code()
+        self.fix_store()
+        self.push_all(*((self.code, self.store) if push_store else (self.code,)))
+        self.pushed_at(CODE, BRANCH, self.tip(self.code), "2026-10-08T12:00:00Z")
+        self.add_comment(CODE, 5, "@codex review", "KintsugiBot", 2002, created_at="2026-10-08T12:00:03Z")
+        if push_store:
+            self.pushed_at(STORE, BRANCH, self.tip(self.store), "2026-10-08T12:00:05Z")
+            self.add_comment(STORE, 3, "@codex review", "KintsugiBot", 2001, created_at="2026-10-08T12:00:06Z")
+
+    def test_pass_done_removes_a_finished_record(self):
+        self.finished_pass()
+        p = self.plan(code=snap(threads=[]), store=snap(threads=[]))
+        self.assertFalse([r for r in p["rows"] if r["state"] in ("todo", "ask", "rerun", "stopped")])
+        for repo in ("code", "store"):
+            self.assertEqual(self.row(p, "push", repo)["state"], "done")
+            self.assertEqual(self.row(p, "rerequest", repo)["state"], "done")
+        for fid in ("F1", "F2"):
+            self.assertEqual(self.row(p, "reply", finding=fid)["state"], "done")
+            self.assertEqual(self.row(p, "resolve", finding=fid)["state"], "done")
+        self.assertEqual((p["status"], p["delete_record"]), ("complete", True))
+        self.assertTrue(self.record_path().exists())  # planning alone never removes it
+        d = self.plan(code=snap(threads=[]), store=snap(threads=[]), sub="done")
+        self.assertEqual((d["ok"], d["deleted"]), (True, True))
+        self.assertFalse(self.record_path().exists())
+
+    def test_pass_done_keeps_record_while_store_push_pending(self):
+        self.finished_pass(push_store=False)
+        # the replies are posted and the threads are gone, but the store's fix commit is not on its remote
+        p = self.plan(code=snap(threads=[]), store=snap(threads=[]))
+        self.assertEqual(self.row(p, "fix_commit", "store")["state"], "done")
+        self.assertEqual(self.row(p, "push", "store")["state"], "todo")
+        self.assertEqual(self.row(p, "reply", finding="F1")["state"], "done")
+        self.assertEqual(self.row(p, "reply", finding="F2")["state"], "done")
+        self.assertEqual((p["status"], p["delete_record"]), ("resume", False))
+        d = self.plan(code=snap(threads=[]), store=snap(threads=[]), sub="done", expect=1)
+        self.assertEqual(d["error"], "not_complete")
+        self.assertTrue(self.record_path().exists())
+        # the next plan still lists the store push as to do
+        p = self.plan(code=snap(threads=[]), store=snap(threads=[]))
+        self.assertEqual(self.row(p, "push", "store")["state"], "todo")
+        self.assertTrue(self.record_path().exists())
 
     def test_pass_plan_first_code_fix_on_store_only_change_needs_code_pr(self):
         # a store-only change (no code PR) gets a code fix: the pass is not complete until the code PR exists
@@ -1808,6 +1882,59 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         self.assertEqual(p["error"], "no_credential")
         self.assertEqual(self.shim_calls(), [])  # no store network call, with the code login or without a credential
 
+
+    # Both remotes guarded; every network read is logged "<repo> <token>" in one file. The store is guarded as in
+    # private_store, by a git shim that runs ahead of the store's (as.sh) reads. The code repo is read as the caller, with
+    # plain `git` that a shim cannot intercept on Windows, so its origin is an ext:: remote (insteadOf in the repo's
+    # config) whose command accepts only the code login's token from GH_TOKEN. The script runs with GH_TOKEN set to that
+    # token, as the skill runs it under as.sh.
+    SHIM_LOGGED = SHIM.replace('echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"', 'echo "store $pw" >> "$SHIM_LOG"')
+    EXT = """#!/bin/sh
+echo "code ${GH_TOKEN:-none}" >> "$SHIM_LOG"
+if [ "$GH_TOKEN" != "$1" ]; then
+  echo "fatal: Authentication failed for the code repository" >&2
+  exit 128
+fi
+exec git "${3#git-}" "$2"
+"""
+
+    def two_private_remotes(self, push_code):
+        """planning_store.login is sh1ny (tok-s), github.login KintsugiBot (tok-k). The store accepts only tok-s and the
+        code repo only tok-k. Both repos hold a pass-2 fix; the code fix is pushed only when push_code."""
+        self.private_store("sh1ny")  # record, store fix pushed, store guarded by the shim
+        self.sha = self.fix_code()
+        if push_code:
+            self.push_all(self.code)
+        self.write("bin/git", self.SHIM_LOGGED)
+        os.chmod(self.tmp / "bin" / "git", 0o755)
+        bare = self.tmp / "code.bare.git"
+        self.git(self.code, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
+        self.git(self.code, "config", "protocol.ext.allow", "always")
+        ext = fixtures.posix(self.write("ext-remote.sh", self.EXT))
+        self.git(self.code, "config", f"url.ext::sh {ext} tok-k {fixtures.posix(bare)} %S.insteadOf", f"https://github.com/{CODE}.git")
+        self.extra_env["GH_TOKEN"] = "tok-k"
+
+    def reads(self):
+        """repo -> the set of tokens its git network reads carried."""
+        out = {}
+        for line in self.shim_calls():
+            repo, tok = line.split(" ", 1)
+            out.setdefault(repo, set()).add(tok)
+        return out
+
+    def test_rounds_reads_each_remote_as_its_login(self):
+        self.two_private_remotes(push_code=True)
+        r = self.rounds()
+        self.assertEqual((r["rounds"], r["unpushed"], r["remote_unreadable"]), (2, {}, []))
+        self.assertEqual(self.reads(), {"store": {"tok-s"}, "code": {"tok-k"}})
+
+    def test_code_remote_reads_keep_the_code_login(self):
+        # the code remote accepts only the code login: its unpushed fix is reported as such, not as an unreadable remote
+        self.two_private_remotes(push_code=False)
+        r = self.rounds()
+        self.assertEqual((r["unpushed"], r["remote_unreadable"]), ({"code": [self.sha]}, []))
+        self.assertEqual(self.reads()["code"], {"tok-k"})  # never the store login's token
+        self.assertEqual(self.reads()["store"], {"tok-s"})
 
     def test_code_only_rounds_need_no_store_credential(self):
         self.private_store("nobody", fix="code")  # the round's fix is in the code repo; the store has nothing to check

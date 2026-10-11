@@ -721,8 +721,8 @@
         "specwright-roadmap",
         "specwright-branch"
       ],
-      "prompt": "Run next on the roadmap. If it proposes a new change to close a gap, I accept it: call it add-farewell. Just scaffold the change (don't write the artifacts yet).",
-      "expected_output": "Repo-local, local mode. M1's only change is done but its agent-verified farewell criterion fails, so next proposes add-farewell without editing anything. The branch gate creates feat/add-farewell from the clean main; roadmap then adds add-farewell to M1 and commits only the roadmap file on that branch; the change is scaffolded uncommitted. main is unchanged.",
+      "prompt": "Close milestone M1 on the roadmap. If it proposes a new change to close a gap, I accept it: call it add-farewell. Just scaffold the change (don't write the artifacts yet).",
+      "expected_output": "Repo-local, local mode. M1's only change is done but its agent-verified farewell criterion fails. Close walks the criteria, finds that one failing and proposes add-farewell via next, without editing anything. The branch gate creates feat/add-farewell from the clean main; roadmap then adds add-farewell to M1 and commits only the roadmap file on that branch; the change is scaffolded uncommitted. main is unchanged.",
       "assertions": [
         "main is unchanged",
         "Branch feat/add-farewell has exactly one commit, which changes only the roadmap file and adds add-farewell",
@@ -737,8 +737,8 @@
         "specwright-roadmap",
         "specwright-branch"
       ],
-      "prompt": "Run next on the roadmap. If it proposes a new change to close a gap, I accept it: call it add-farewell. Just scaffold the change (don't write the artifacts yet).",
-      "expected_output": "Same as eval-roadmap-next-gap, but main has an uncommitted README edit, so the branch gate stops. The roadmap was never edited, so it is unchanged and no roadmap commit exists anywhere.",
+      "prompt": "Close milestone M1 on the roadmap. If it proposes a new change to close a gap, I accept it: call it add-farewell. Just scaffold the change (don't write the artifacts yet).",
+      "expected_output": "Same as eval-roadmap-next-gap (close walks the criteria, finds the agent-verified farewell criterion failing and proposes add-farewell via next), but main has an uncommitted README edit, so the branch gate stops. The roadmap was never edited, so it is unchanged and no roadmap commit exists anywhere.",
       "assertions": [
         "The roadmap file is unchanged",
         "No roadmap commit exists on any branch beyond the fixture's",
@@ -817,6 +817,80 @@
         "Both working trees are clean",
         "The report does not say Nothing to finish",
         "No commit was amended in either repo"
+      ]
+    },
+    {
+      "id": 47,
+      "name": "eval-store-roadmap-close-hook-fail",
+      "skills": [
+        "specwright-roadmap"
+      ],
+      "prompt": "Close milestone M1 on the roadmap.",
+      "expected_output": "Local mode, planning in a store, M1 done (add-greeting archived on the store's main and merged into code main; its agent-verified exit criterion passes). No gate lock is held, but the code repo's post-checkout hook exits 1. Close takes the lock, creates docs/close-m1 in the store, then the code repo's git checkout -b docs/close-m1 errors after creating the branch. The gate rolls back both repos (no docs/close-m1 in either, lock released, mains unchanged, trees clean), stops, and the report quotes the hook failure.",
+      "assertions": [
+        "Both repos are on main",
+        "No docs/close-* branch exists in either repo",
+        "No gate lock is left in the store",
+        "The report quotes the hook failure",
+        "No commit was amended in either repo",
+        "Both mains are unchanged",
+        "No project file was written: both working trees are clean"
+      ]
+    },
+    {
+      "id": 48,
+      "name": "eval-store-branch-hook-fail",
+      "skills": [
+        "specwright-branch"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV. Just scaffold the change (don't write the artifacts yet).",
+      "expected_output": "Both the code repo and the store are clean on main, but the store's post-checkout hook exits 1. The gate creates feat/add-csv-export in the code repo, then the store's git checkout -b errors after creating its branch. The gate rolls back both repos (no feat/add-csv-export in either, lock released, mains unchanged), writes no change directory, stops, and the report quotes the hook failure.",
+      "assertions": [
+        "Both repos are on main",
+        "No feat/add-csv-export* branch exists in either repo",
+        "No gate lock is left in the store",
+        "The report quotes the hook failure",
+        "No commit was amended in either repo",
+        "Both mains are unchanged",
+        "No change directory add-csv-export exists in either repo"
+      ]
+    },
+    {
+      "id": 49,
+      "name": "eval-roadmap-next-milestone-end",
+      "skills": [
+        "specwright-roadmap"
+      ],
+      "prompt": "Run next on the roadmap.",
+      "expected_output": "Repo-local, local mode. M1's only change (add-greeting) is done, but its exit criterion is user-verified with no recorded result. Next (M2) lists add-farewell and add-shout under a Split agreed line. This is the end of M1, so next offers close and starts no change: no branch, no change directory, no edit, and the report names no M2 change as started.",
+      "assertions": [
+        "Still on main and main is unchanged",
+        "No branch other than main exists",
+        "No change directory exists under openspec/changes (apart from archive)",
+        "The working tree is clean",
+        "The roadmap file is unchanged",
+        "The report offers to close the milestone",
+        "The report does not say it is starting or proposing an M2 change",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 50,
+      "name": "eval-roadmap-close-agreed-split",
+      "skills": [
+        "specwright-roadmap"
+      ],
+      "prompt": "Close milestone M1 on the roadmap. If you ask me anything, I accept your recommended default.",
+      "expected_output": "Same roadmap as eval-roadmap-next-milestone-end, but M1's exit criterion is agent-verified and passes. Close keeps the agreed M2 split (add-farewell then add-shout), promotes M2 to Now and drops its Split agreed line, moves M1 to Done with a date, and merges the docs/close-m1 branch into main with merge: docs/close-m1, leaving no close branch.",
+      "assertions": [
+        "main's first-parent history has merge: docs/close-m1",
+        "Branch docs/close-m1 was deleted and the repo is on main",
+        "The working tree is clean",
+        "Now is M2",
+        "Now lists the same two changes in the same order: add-farewell, add-shout",
+        "Now has no Split agreed line",
+        "M1 is in Done with a date",
+        "No commit was amended"
       ]
     }
   ]
