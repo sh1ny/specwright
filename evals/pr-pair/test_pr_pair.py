@@ -9,6 +9,7 @@ prints one JSON line; exit 0 = answered, 1 = stop (error object), 2 = usage,
 
 Run: python -m unittest discover evals/pr-pair
 """
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -1539,6 +1540,83 @@ class PassPlan(PassBase):
         bad = self.finding(edits=[{"file": "greet.py", "contains": ["x"]}])  # destination store, not under openspec/
         self.assertEqual(self.write_record([bad], expect=1)["error"], "misrouted")
         self.assertFalse(self.record_path().exists())
+
+
+# ---- task 3.1: the re-request cutoff (design D2) ----
+class RerequestCutoff(PassBase):
+    """A fix on the store branch, pushed; `pass plan` judges the store re-request against the cutoff it can establish."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_record([self.finding()])
+        self.fix_store()
+        self.push_all()
+        self.head = self.tip(self.store)
+
+    def first_seen(self, iso, oid=None):
+        """A pr-snapshot.sh first-sighting record: <state>/heads/<owner/name/pr, lowercased>/<oid>, one HTTP-date line."""
+        t = datetime.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")
+        p = self.state_dir / "heads" / STORE.lower() / "3" / (oid or self.head)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(t.strftime("%a, %d %b %Y %H:%M:%S GMT") + "\n", encoding="utf-8", newline="\n")
+
+    def request(self, at, cid=2001):
+        self.save_gh({**self.gh(), "repos": self.gh().get("repos", {})})
+        self.add_comment(STORE, 3, "@codex review", "KintsugiBot", cid, created_at=at)
+
+    def rr(self):
+        return self.row(self.plan(code=snap(threads=[thread()])), "rerequest", "store")
+
+    def check(self, row, state, cutoff, source):
+        self.assertEqual((row["state"], row["cutoff"], row["cutoff_source"]), (state, cutoff, source))
+
+    def test_rerequest_cutoff_push_time(self):
+        self.pushed_at(STORE, BRANCH, self.head, "2026-10-08T12:00:00Z")
+        self.first_seen("2026-10-08T11:00:00Z")  # a record exists, but the push wins
+        self.request("2026-10-08T12:05:00Z")
+        row = self.rr()
+        self.check(row, "done", "2026-10-08T12:00:00Z", "push")
+        self.assertEqual(row["push_time"], "2026-10-08T12:00:00Z")
+
+    def test_rerequest_cutoff_first_seen_done_once(self):
+        self.first_seen("2026-10-08T12:00:00Z")
+        self.request("2026-10-08T12:05:00Z")
+        for _ in range(2):  # repeated plans keep the row done: no further request is scheduled
+            row = self.rr()
+            self.check(row, "done", "2026-10-08T12:00:00Z", "first_seen")
+            self.assertIsNone(row["push_time"])
+
+    def test_rerequest_cutoff_pass_written(self):
+        written = json.loads(self.record_path().read_text(encoding="utf-8"))["written_at"]
+        self.assertRegex(written, r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.request(written)  # at the cutoff counts
+        self.check(self.rr(), "done", written, "pass_written")
+
+    def test_rerequest_earlier_head_request_is_todo(self):
+        self.first_seen("2026-10-08T12:00:00Z")
+        self.request("2026-10-08T10:00:00Z")  # for the previous head
+        self.check(self.rr(), "todo", "2026-10-08T12:00:00Z", "first_seen")
+
+    def test_rerequest_before_first_sighting_bounded_to_one_more(self):
+        self.request("2026-10-08T12:05:00Z")
+        self.first_seen("2026-10-08T12:10:00Z")  # the snapshot saw the head after that request
+        self.check(self.rr(), "todo", "2026-10-08T12:10:00Z", "first_seen")
+        self.request("2026-10-08T12:11:00Z", cid=2002)
+        for _ in range(2):
+            self.check(self.rr(), "done", "2026-10-08T12:10:00Z", "first_seen")
+
+    def test_rerequest_second_head_in_pass_is_todo(self):
+        self.request("2026-10-08T12:05:00Z")  # for the first head
+        self.first_seen("2026-10-08T12:20:00Z")  # the second head, first seen later
+        self.check(self.rr(), "todo", "2026-10-08T12:20:00Z", "first_seen")
+
+    def test_rerequest_old_record_falls_back_to_owner_at(self):
+        rec = json.loads(self.record_path().read_text(encoding="utf-8"))
+        rec.pop("written_at", None)  # a 0.1.12 record
+        rec["owner"]["at"] = "2026-10-08T11:50:00Z"
+        self.record_path().write_text(json.dumps(rec), encoding="utf-8")
+        self.request("2026-10-08T12:05:00Z")
+        self.check(self.rr(), "done", "2026-10-08T11:50:00Z", "pass_written")
 
 
 class PassOwnership(PassBase):

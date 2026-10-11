@@ -32,6 +32,10 @@
 #                                     the intent record of a feedback pass (write returns the owner id); the evidence-based
 #                                     resume plan (owned: true|false|null); delete, by its owner; hand over, naming the owner shown
 #                                     (no --store: a repo-local change, code repo only)
+#                                     plan's rerequest row counts a request done when it was posted at or after the cutoff:
+#                                     the head's push time (cutoff_source push), else the time a snapshot first saw the head
+#                                     (first_seen), else, only with no such record, when the record was written (pass_written;
+#                                     written_at, or the owner's at in an older record); none = no cutoff, the row stays todo
 #   cleanup-plan --code d --store d --branch b
 #                                     post-merge commands per repo whose expected PR is MERGED
 # Exit: 0 answered, 1 stop (the JSON has "error" and "message"; an unexpected failure is
@@ -1516,7 +1520,8 @@ def pass_write(argv):
     marker = (find_marker(a["store"], intent["branch"], a["change"], prefix, (contexts(a["code"], a["store"])["store"] or {}).get("main"))
               if not local and any(edits_for(f, "code") for f in intent["findings"]) else None)
     owner = new_owner(secrets.token_hex(16), a["code"])
-    rec = {**intent, "version": 2, "owner": owner, "change": a["change"], "code_repo": a["code_repo"], "heads": heads, "marker": marker}
+    rec = {**intent, "version": 2, "owner": owner, "change": a["change"], "code_repo": a["code_repo"], "heads": heads, "marker": marker,
+           "written_at": owner["at"]}  # when the pass began: the last-resort re-request cutoff (adopt keeps it; nothing rewrites it)
     path.parent.mkdir(parents=True, exist_ok=True)
     f, tmp = temp_beside(path)  # a uniquely named file: two writers never share one
     try:
@@ -1574,19 +1579,40 @@ def fix_commit(d, head0, branch, n):
     return None, True
 
 
-def request_state(repo, num, branch, tip, reqs):
-    """Which re-requests exist after the push of `tip` (GitHub timestamps only)."""
+def first_seen_at(repo, num, oid):
+    """The earliest GitHub time a snapshot on this machine saw head `oid` of the PR, as an ISO time, or None when the record
+    cannot be read. The record is pr-snapshot.sh's: <state>/heads/<owner/name/pr, lowercased>/<oid>, one HTTP-date line."""
+    base = Path(os.environ.get("SPECWRIGHT_STATE_DIR") or str(Path.home() / ".cache" / "specwright"))
+    try:
+        lines = (base / "heads" / f"{repo}/{num}".lower() / oid).read_text(encoding="utf-8").splitlines()
+        m = re.match(r"^[A-Za-z]{3}, ([0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8}) GMT$", lines[0].strip())
+        return datetime.datetime.strptime(m.group(1), "%d %b %Y %H:%M:%S").strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OSError, IndexError, AttributeError, ValueError):
+        return None
+
+
+def request_state(repo, num, branch, tip, reqs, written=None):
+    """Which re-requests exist after the cutoff for `tip`: the push time, else the time a snapshot first saw the head, else (only
+    when no such record can be read) `written`, the time the pass record was written. GitHub timestamps otherwise.
+    Returns (states, push time, cutoff, cutoff source)."""
     acts = gh_list(f"repos/{repo}/activity?ref=refs/heads/{branch}&per_page=100")
     pushed = next((x.get("timestamp") for x in acts if x.get("after") == tip), None)
+    cutoff, source = pushed, "push"
+    if not cutoff:
+        cutoff, source = first_seen_at(repo, num, tip), "first_seen"
+    if not cutoff:
+        cutoff, source = written, "pass_written"
+    if not cutoff:
+        source = "none"
     comments = gh_list(f"repos/{repo}/issues/{num}/comments?per_page=100")
     out = []
     for r in reqs:
         poster = (r["poster"] or ambient_login()).lower()
-        done = bool(pushed) and any(((c.get("user") or {}).get("login") or "").lower() == poster
+        done = bool(cutoff) and any(((c.get("user") or {}).get("login") or "").lower() == poster
                                     and (c.get("body") or "").strip() == r["body"].strip()
-                                    and (c.get("created_at") or "") >= pushed for c in comments)
+                                    and (c.get("created_at") or "") >= cutoff for c in comments)
         out.append({"body": r["body"], "poster": r["poster"], "done": done})
-    return out, pushed
+    return out, pushed, cutoff, source
 
 
 REACTION_GQL = ("query($id: ID!, $cursor: String) { node(id: $id) { ... on Reactable { reactions(first: 100, content: %s, after: $cursor) "
@@ -1722,8 +1748,9 @@ def pass_plan(argv):
             row["blocked"] = bool(row["after"])
             row["state"] = "todo"
             if not row["after"]:
-                states, pushed_at = request_state(pr["repo"], pr["number"], branch, tip[k], reqs)
-                row["requests"], row["push_time"] = states, pushed_at
+                states, pushed_at, cutoff, source = request_state(pr["repo"], pr["number"], branch, tip[k], reqs,
+                                                                  rec.get("written_at") or (held or {}).get("at"))
+                row["requests"], row["push_time"], row["cutoff"], row["cutoff_source"] = states, pushed_at, cutoff, source
                 row["state"] = "done" if all(s["done"] for s in states) else "todo"
         rows.append(row)
 
