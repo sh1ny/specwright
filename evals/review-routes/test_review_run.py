@@ -221,6 +221,21 @@ class SelectTests(Base):
             self.assertIn(word, out["message"])
         self.assertEqual(self.calls("codex"), [])
 
+    def test_select_block_sequence_order(self):
+        self.install("codex", "omp")
+        self.set_settings("review:\n  order:\n    - omp\n    - codex\n")
+        out = self.select("other")
+        self.assertEqual(out["route"], "omp")
+        self.set_settings("review:\n  order:\n  - codex\n")  # sequence at the key's indent
+        self.assertEqual(self.select("other")["route"], "codex")
+
+    def test_select_order_not_a_list_exits_1(self):
+        self.install("codex")
+        self.set_settings("review:\n  order: omp\n")
+        out = self.select("claude", expect=1)
+        self.assertFalse(out["ok"])
+        self.assertIn("review.order", out["message"])
+
     def test_select_failed_probe_moves_on(self):
         self.install("codex", "omp")
         self.extra_env["FAKE_CODEX_VERSION_EXIT"] = "3"
@@ -421,12 +436,13 @@ class RunTests(Base):
         argv = self.runs("codex")[0]["argv"]
         self.assertNotIn("--output-schema", argv)
 
-    def test_design_valid_written_with_receipt_file(self):
+    def test_design_valid_written_receipt_in_json_only(self):
         self.install("codex")
         self.stdout_file("codex", VERDICT_OK)
         out = self.design("codex")
         self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), VERDICT_OK)
-        self.assertEqual(json.loads(Path(out["receipt_file"]).read_text(encoding="utf-8"))["route"], "codex")
+        self.assertEqual(out["receipt"]["route"], "codex")
+        self.assertNotIn("receipt_file", out)
         self.assertEqual(self.runs("codex")[0]["stdin"], "Review the design.\n")
         self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
 
@@ -497,6 +513,60 @@ class RunTests(Base):
         self.assertEqual(r["skipped"], sel["skipped"])
         self.preship("claude", expect=2, extra=("--selection", selection))
 
+    def test_design_run_leaves_no_temp_dir(self):
+        self.install("codex")
+        self.stdout_file("codex", VERDICT_OK)
+        tdir = self.tmp / "tmpdir"
+        tdir.mkdir()
+        self.extra_env.update({"TMPDIR": str(tdir), "TEMP": str(tdir), "TMP": str(tdir)})
+        self.design("codex")
+        self.assertEqual([p.name for p in tdir.glob("specwright-*")], [])
+
+    def test_duplicate_finding_id_invalid(self):
+        self.install("claude")
+        dup = {"summary": "x", "findings": [FINDING, {**FINDING, "title": "again"}]}
+        self.claude_result(dup)
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("duplicate finding id F1", out["message"])
+        self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+
+    def test_prefix_builds_artifact_paths(self):
+        self.install("claude")
+        self.claude_result()
+        self.commit(self.code, {"planning/openspec/changes/demo-change/proposal.md": "# p\n"}, "docs: nested plan")
+        self.preship("claude", store=False, extra=("--prefix", "planning/openspec"))
+        prompt = self.runs("claude")[0]["stdin"].replace("\\", "/")
+        root = self.code.as_posix()
+        for name in ("proposal.md", "design.md", "tasks.md", "specs/"):
+            self.assertIn(f"{root}/planning/openspec/changes/{CHANGE}/{name.rstrip('/')}", prompt)
+        self.preship("claude", store=True, out="s.json", extra=("--prefix", "plans"))
+        prompt = self.runs("claude")[1]["stdin"].replace("\\", "/")
+        self.assertIn(f"{self.store.as_posix()}/plans/changes/{CHANGE}/proposal.md", prompt)
+
+    def preflight(self, expect=0, store=True, extra=()):
+        args = ["preflight", "--kind", "preship", "--change", CHANGE, "--base", "main", "--settings", self.settings, *extra]
+        if store:
+            args += ["--store", self.store, "--store-base", "main"]
+        return self.script(*args, expect=expect)
+
+    def test_preflight_prints_heads_and_diff_bytes(self):
+        out = self.preflight()
+        self.assertEqual(out["ok"], True)
+        self.assertEqual(out["heads"], {"code": self.git(self.code, "rev-parse", "HEAD"),
+                                        "store": self.git(self.store, "rev-parse", "HEAD")})
+        self.assertGreater(out["diff_bytes"], 0)
+        self.assertEqual(self.preflight(store=False)["heads"], {"code": self.git(self.code, "rev-parse", "HEAD")})
+
+    def test_preflight_diff_over_bound_exit_1(self):
+        self.commit(self.code, {"big.txt": ("x" * 99 + "\n") * 15500}, "feat: big file")
+        out = self.preflight(expect=1)
+        self.assertEqual(out["error"], "diff_too_large")
+        self.assertRegex(out["message"], r"\d")
+
+    def test_preflight_accepts_prefix(self):
+        self.assertTrue(self.preflight(extra=("--prefix", "planning/openspec"))["ok"])
+
     def test_run_subagent_route_is_usage_error(self):
         self.preship("subagent", expect=2)
 
@@ -530,11 +600,23 @@ class RecordGateTests(Base):
     def findings_file(self, findings=VALID, name="subagent-findings.json"):
         return self.put(name, json.dumps(findings))
 
-    def record(self, findings=VALID, store=False, expect=0, kind="preship", route="subagent"):
+    def preflight_file(self, store=False, name="preflight.json"):
+        args = ["preflight", "--kind", "preship", "--change", CHANGE, "--base", "main", "--settings", self.settings]
+        if store:
+            args += ["--store", self.store, "--store-base", "main"]
+        out = self.script(*args)
+        out.pop("_rc")
+        return self.put(name, json.dumps(out))
+
+    def record(self, findings=VALID, store=False, expect=0, kind="preship", route="subagent", preflight=True, extra=()):
         args = ["record", "--kind", kind, "--change", CHANGE, "--result", self.findings_file(findings), "--route", route,
-                "--settings", self.settings]
+                "--settings", self.settings, *extra]
         if store:
             args += ["--store", self.store]
+        if preflight is True and kind == "preship":
+            preflight = self.preflight_file(store)
+        if preflight and kind == "preship":
+            args += ["--preflight", preflight]
         return self.script(*args, expect=expect)
 
     def gate(self, store=False, expect=0):
@@ -542,6 +624,25 @@ class RecordGateTests(Base):
         if store:
             args += ["--store", self.store]
         return self.script(*args, expect=expect)
+
+    def test_waive_after_archive_commit_repo_local(self):
+        self.record()
+        self.archive(self.code)
+        self.assertEqual(self.gate()["status"], "blocked")
+        out = self.waive()
+        self.assertTrue(out["ok"])
+        self.assertEqual(self.gate()["status"], "pass")
+
+    def test_waive_after_archive_commit_store_backed(self):
+        self.record(store=True)
+        self.archive(self.store)
+        self.waive(store=True)
+        self.assertEqual(self.gate(store=True)["status"], "pass")
+
+    def test_waive_after_non_archive_commit_is_no_record(self):
+        self.record()
+        self.commit(self.code, {"extra.py": "x = 1\n"}, f"feat({CHANGE}): extra")
+        self.assertEqual(self.waive(expect=1)["error"], "no_record")
 
     def waive(self, finding="F1", reason="accepted risk", store=False, expect=0):
         args = ["waive", "--change", CHANGE, "--finding", finding, "--reason", reason, "--settings", self.settings]
@@ -586,7 +687,7 @@ class RecordGateTests(Base):
     def test_record_preship_prose_exit_3_no_record(self):
         p = self.put("prose.json", "no issues found\n")
         out = self.script("record", "--kind", "preship", "--change", CHANGE, "--result", p, "--route", "subagent",
-                          "--settings", self.settings, expect=3)
+                          "--settings", self.settings, "--preflight", self.preflight_file(), expect=3)
         self.assertEqual(out["status"], "invalid")
         self.assertEqual(self.record_files(), [])
 
@@ -602,6 +703,43 @@ class RecordGateTests(Base):
         out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
                           "--settings", self.settings, expect=3)
         self.assertEqual(out["status"], "invalid")
+
+    def test_record_preship_requires_preflight(self):
+        out = self.record(preflight=False, expect=2)
+        self.assertIn("preflight", out["message"])
+        self.assertEqual(self.record_files(), [])
+
+    def test_record_heads_moved_since_preflight(self):
+        pre = self.preflight_file()
+        self.commit(self.code, {"extra.py": "x = 1\n"}, f"feat({CHANGE}): extra")
+        out = self.record(preflight=pre, expect=3)
+        self.assertEqual((out["status"], out["error"]), ("invalid", "heads_moved"))
+        self.assertEqual(self.record_files(), [])
+
+    def test_record_store_head_moved_since_preflight(self):
+        pre = self.preflight_file(store=True)
+        self.commit(self.store, {"plan.md": "# plan 3\n"}, f"docs({CHANGE}): more")
+        self.assertEqual(self.record(store=True, preflight=pre, expect=3)["error"], "heads_moved")
+
+    def test_record_keyed_by_preflight_heads(self):
+        pre = self.preflight_file(store=True)
+        heads = json.loads(Path(pre).read_text(encoding="utf-8"))["heads"]
+        out = self.record(store=True, preflight=pre)
+        self.assertEqual(Path(out["record"]).name, f"{heads['code']}+{heads['store']}.json")
+        rec = json.loads(Path(out["record"]).read_text(encoding="utf-8"))
+        self.assertEqual(rec["heads"], heads)
+
+    def test_record_selection_keeps_skipped(self):
+        sel = {"route": "subagent", "skipped": [{"route": "codex", "reason": "not installed"}]}
+        out = self.record(extra=("--selection", self.put("selection.json", json.dumps(sel))))
+        self.assertEqual(out["receipt"]["skipped"], sel["skipped"])
+
+    def test_record_duplicate_finding_id_invalid(self):
+        dup = {"summary": "x", "findings": [FINDING, {**FINDING, "title": "again"}]}
+        out = self.record(dup, expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("duplicate finding id F1", out["message"])
+        self.assertEqual(self.record_files(), [])
 
     # ---- gate ------------------------------------------------------------------------------------------
     def test_gate_missing_without_record(self):

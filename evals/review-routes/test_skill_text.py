@@ -66,6 +66,19 @@ class ReviewSkill(unittest.TestCase):
         self.assertRegex(design, r"(?s)record[`\"']?\s+--kind design|record --kind design",
                          "a subagent design review is not validated with `record --kind design`")
 
+    def test_subagent_preship_runs_preflight_before_dispatch(self):
+        step = self.section("pre-ship review")
+        pre = positions(sub("preflight"), step)
+        self.assertTrue(pre, "the subagent route never runs `review-run.sh preflight`")
+        dispatch = step.find("dispatch `specwright-reviewer` in pre-ship mode")
+        self.assertGreater(dispatch, -1)
+        self.assertLess(pre[0], dispatch, "preflight runs after the dispatch")
+        rec = [m.start() for m in re.finditer(r"record --kind preship", step)]
+        self.assertTrue(rec)
+        self.assertRegex(step[rec[0]:rec[0] + 400], r"--preflight", "record is not given the saved preflight")
+        self.assertRegex(step, r"--prefix", "the planning prefix is not passed")
+        self.assertRegex(step[pre[0]:dispatch], r"diff_too_large", "preflight's diff_too_large is not handled")
+
     def test_review_runs_in_background(self):
         self.assertRegex(self.text, r"(?i)background", "the review is not run in the background")
         self.assertRegex(self.text, r"run_in_background", "Claude Code's run_in_background is not named")
