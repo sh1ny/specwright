@@ -25,7 +25,10 @@
 # without a revision.
 # Thread replies use REST (GraphQL replies can attach to a pending review and
 # stay invisible). Exit 2: a pending review of yours exists - submit or
-# discard it on GitHub first. Wrap with as.sh to pin the GitHub identity.
+# discard it on GitHub first. Exit 4: refused before any GitHub call (bad
+# arguments, or a body file missing, unreadable, empty or not written in full
+# with its marker); nothing was posted, and stderr names the cause.
+# Wrap with as.sh to pin the GitHub identity.
 set -euo pipefail
 
 pr=${1:?PR}; kind=${2:?thread|comment|resolve}; shift 2
@@ -40,6 +43,32 @@ while [ $# -gt 0 ]; do
     *) args+=("$1"); shift ;;
   esac
 done
+
+# A thread or comment reply needs a readable, non-empty body file before any GitHub call.
+body_check() {  # <body-file>
+  [ -f "$1" ] && [ -r "$1" ] && [ -s "$1" ] || {
+    echo "pr-reply: body file $1 is missing, unreadable or empty; nothing was posted" >&2
+    exit 4
+  }
+}
+
+# Every argument and body check runs before the first GitHub call, the repository lookup included.
+[ -z "$react" ] || [ "$react" = +1 ] || [ "$react" = -1 ] || { echo "pr-reply: --react must be +1 or -1" >&2; exit 4; }
+[ "$waiting" = 0 ] || [ "$resolve$react" = 0 ] || { echo "pr-reply: --waiting takes neither --resolve nor --react" >&2; exit 4; }
+case $kind in
+  thread)
+    [ ${#args[@]} -eq 3 ] || { echo "usage: pr-reply.sh <PR> thread <thread-id> <root-comment-id> <body-file> [--resolve] [--react +1|-1]" >&2; exit 4; }
+    body_check "${args[2]}" ;;
+  comment)
+    [ ${#args[@]} -eq 2 ] || { echo "usage: pr-reply.sh <PR> comment <source-id> <body-file> [--react +1|-1]" >&2; exit 4; }
+    body_check "${args[1]}" ;;
+  react)
+    [ ${#args[@]} -eq 2 ] || { echo "usage: pr-reply.sh <PR> react <comment-id> +1|-1" >&2; exit 4; }
+    case ${args[1]} in +1|-1) ;; *) echo "pr-reply: reaction must be +1 or -1" >&2; exit 4 ;; esac ;;
+  resolve)
+    [ ${#args[@]} -eq 1 ] || { echo "usage: pr-reply.sh <PR> resolve <thread-id>" >&2; exit 4; } ;;
+  *) echo "pr-reply: kind must be thread, comment, react or resolve" >&2; exit 4 ;;
+esac
 [ -n "$repo" ] || repo=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')
 owner=${repo%%/*} name=${repo#*/}
 
@@ -87,17 +116,22 @@ rev_check() {  # <node id>
   fi
 }
 
-body_with_marker() {  # <body-file> <marker> -> temp file path
-  tmp=$(mktemp)
-  cat "$1" > "$tmp"
-  kind=handled; [ "$waiting" = 1 ] && kind=waiting
-  printf '\n\n<!-- specwright:%s %s%s -->\n' "$kind" "$2" "${rev:+ rev=$rev}" >> "$tmp"
-  printf '%s' "$tmp"
+body_with_marker() {  # <body-file> <marker>: fills the global $tmp; runs in the main shell, so a failed write stops the script
+  local mkind=handled
+  [ "$waiting" = 0 ] || mkind=waiting
+  tmp=$(mktemp) || { echo "pr-reply: no temp file for body file $1; nothing was posted" >&2; exit 4; }
+  { cat "$1" > "$tmp" && printf '\n\n<!-- specwright:%s %s%s -->\n' "$mkind" "$2" "${rev:+ rev=$rev}" >> "$tmp"; } || {
+    echo "pr-reply: the reply for body file $1 could not be written in full; nothing was posted" >&2
+    exit 4
+  }
 }
+
+tmp=
+trap 'rm -f "${tmp:-}"' EXIT
 
 add_reaction() {  # <comment-id> <+1|-1>: numeric = review comment (REST), else node id
   case $2 in +1) rest=+1 node=THUMBS_UP ;; -1) rest=-1 node=THUMBS_DOWN ;;
-    *) echo "pr-reply: reaction must be +1 or -1" >&2; exit 2 ;; esac
+    *) echo "pr-reply: reaction must be +1 or -1" >&2; exit 4 ;; esac
   case $1 in
     *[!0-9]*) gh api graphql -f subjectId="$1" -f content="$node" -f query='
         mutation($subjectId:ID!,$content:ReactionContent!){ addReaction(input:{subjectId:$subjectId,content:$content}){ reaction{ content } } }'         --jq '"reacted: " + .data.addReaction.reaction.content' ;;
@@ -119,18 +153,14 @@ resolve_thread() {  # <thread-id>
     --jq '"resolved: " + (.data.resolveReviewThread.thread.isResolved | tostring)'
 }
 
-[ -z "$react" ] || [ "$react" = +1 ] || [ "$react" = -1 ] || { echo "pr-reply: --react must be +1 or -1" >&2; exit 2; }
-[ "$waiting" = 0 ] || [ "$resolve$react" = 0 ] || { echo "pr-reply: --waiting takes neither --resolve nor --react" >&2; exit 2; }
-pending_check
 case $kind in
   thread)
-    [ ${#args[@]} -eq 3 ] || { echo "usage: pr-reply.sh <PR> thread <thread-id> <root-comment-id> <body-file> [--resolve] [--react +1|-1]" >&2; exit 2; }
     thread=${args[0]} root=${args[1]}
-    rev_check "$thread"
     marker=$thread; [ "$resolve" = 1 ] && marker="$thread resolve"
-    file=$(body_with_marker "${args[2]}" "$marker")
-    gh api --method POST "repos/$owner/$name/pulls/$pr/comments/$root/replies" -F body=@"$file" --jq '.html_url'
-    rm -f "$file"
+    body_with_marker "${args[2]}" "$marker"
+    pending_check
+    rev_check "$thread"
+    gh api --method POST "repos/$owner/$name/pulls/$pr/comments/$root/replies" -F body=@"$tmp" --jq '.html_url'
     pending_check
     if [ "$resolve" = 1 ]; then
       resolve_thread "$thread" || {
@@ -145,22 +175,20 @@ case $kind in
     react_or_report "$root"
     ;;
   comment)
-    [ ${#args[@]} -eq 2 ] || { echo "usage: pr-reply.sh <PR> comment <source-id> <body-file> [--react +1|-1]" >&2; exit 2; }
+    body_with_marker "${args[1]}" "${args[0]}"
+    pending_check
     rev_check "${args[0]}"
-    file=$(body_with_marker "${args[1]}" "${args[0]}")
-    gh pr comment "$pr" -R "$repo" --body-file "$file"
-    rm -f "$file"
+    gh pr comment "$pr" -R "$repo" --body-file "$tmp"
     react_or_report "${args[0]}"
     ;;
   react)
-    [ ${#args[@]} -eq 2 ] || { echo "usage: pr-reply.sh <PR> react <comment-id> +1|-1" >&2; exit 2; }
+    pending_check
     add_reaction "${args[0]}" "${args[1]}"
     ;;
   resolve)
-    [ ${#args[@]} -eq 1 ] || { echo "usage: pr-reply.sh <PR> resolve <thread-id>" >&2; exit 2; }
+    pending_check
     rev_check "${args[0]}"
     resolve_thread "${args[0]}"
     ;;
-  *) echo "pr-reply: kind must be thread, comment, react or resolve" >&2; exit 2 ;;
 esac
 exit $failed

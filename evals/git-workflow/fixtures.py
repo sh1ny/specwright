@@ -352,6 +352,7 @@ def open_code_pr(dest, code):
 
 STORE_SLUG = "acme/greeter-plans"
 PR_SETTINGS = "finish: pr\ngithub:\n  login: eval-bot\n"
+STORE_PR_BODY = "Plans for add-greeting."
 
 
 def unreachable_proxy(dest):
@@ -362,10 +363,64 @@ def unreachable_proxy(dest):
     env_file(dest, GIT_CONFIG_GLOBAL=posix(dest / "gitconfig"))
 
 
-def pr_pair_base(dest, store_origin=True, code_pr=False):
+SHIM = r'''#!/bin/bash
+# git shim for the eval: real git for everything, except `push` in the store checkout, which goes to a local
+# bare repo and then updates refs/remotes/origin/<branch> (and the upstream with -u) as a push to origin would.
+REAL="@REAL@"
+STORE="@STORE@"
+BARE="@BARE@"
+dir=.
+a=("$@")
+while [ ${#a[@]} -gt 0 ]; do
+  case "${a[0]}" in
+    -C) dir="${a[1]}"; a=("${a[@]:2}") ;;
+    -c) a=("${a[@]:2}") ;;
+    -*) a=("${a[@]:1}") ;;
+    *) break ;;
+  esac
+done
+if [ "${a[0]:-}" = push ]; then
+  top=$("$REAL" -C "$dir" rev-parse --show-toplevel 2>/dev/null)
+  branch=$("$REAL" -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)
+  lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }  # no bash 4 case expansion: macOS /bin/bash is 3.2
+  if [ "$(lc "$top")" = "$(lc "$STORE")" ] && [ -n "$branch" ]; then
+    "$REAL" -C "$dir" push -q "$BARE" "HEAD:refs/heads/$branch" || exit $?
+    "$REAL" -C "$dir" update-ref "refs/remotes/origin/$branch" HEAD || exit $?
+    url=$("$REAL" -C "$dir" remote get-url origin)
+    echo "To $url" >&2
+    echo " * [new branch]      HEAD -> $branch" >&2
+    for x in "${a[@]}"; do
+      if [ "$x" = -u ] || [ "$x" = --set-upstream ]; then
+        "$REAL" -C "$dir" config "branch.$branch.remote" origin
+        "$REAL" -C "$dir" config "branch.$branch.merge" "refs/heads/$branch"
+        echo "branch '$branch' set up to track 'origin/$branch'."
+        break
+      fi
+    done
+    exit 0
+  fi
+fi
+exec "$REAL" "$@"
+'''
+
+
+def git_shim(dest):
+    """A `git` first on the eval's PATH (<dest>/bin, which eval.env already puts there): a push in the store checkout
+    succeeds into the bare repo <dest>/so.git, and sets the remote-tracking branch and upstream. The store's origin stays
+    on GitHub, so `pr-pair.sh identity` passes. A push in the code repo still dies at the unreachable proxy."""
+    bare = dest / "so.git"  # short: Windows paths under the eval run dir near MAX_PATH
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", posix(bare)], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", posix(bare), "config", "core.longpaths", "true"], check=True, capture_output=True, text=True)
+    real =msys(shutil.which("git") or "git")
+    write(dest, "bin/git", SHIM.replace("@REAL@", real).replace("@STORE@", posix(dest / "store")).replace("@BARE@", posix(bare)))
+    (dest / "bin" / "git").chmod(0o755)
+
+
+def pr_pair_base(dest, store_origin=True, code_pr=False, store_pr=False, store_push_ok=False):
     """Both repos finished on feat/add-greeting (task pairs committed, archive not run), finish: pr as
     eval-bot, fake gh, an unreachable git proxy. The code repo's origin is acme/greeter; the store's is
-    acme/greeter-plans when `store_origin`, otherwise it has no remote. code_pr: code PR #7 is open."""
+    acme/greeter-plans when `store_origin`, otherwise it has no remote. code_pr: code PR #7 is open.
+    store_pr: store PR #3 is open. store_push_ok: the git shim lets the store push succeed (the code push fails)."""
     finish_ready(dest, settings=PR_SETTINGS)
     code, store = dest / "code", dest / "store"
     git(code, "remote", "add", "origin", f"https://github.com/{PR_SLUG}.git")
@@ -373,6 +428,8 @@ def pr_pair_base(dest, store_origin=True, code_pr=False):
         git(store, "remote", "add", "origin", f"https://github.com/{STORE_SLUG}.git")
     install_fake_gh(dest)
     unreachable_proxy(dest)
+    if store_push_ok:
+        git_shim(dest)
     repos = {PR_SLUG: {"default_branch": "main", "pulls": []}}
     if code_pr:
         repos[PR_SLUG]["pulls"].append(
@@ -382,6 +439,12 @@ def pr_pair_base(dest, store_origin=True, code_pr=False):
              "base": {"ref": "main"}})
     if store_origin:
         repos[STORE_SLUG] = {"default_branch": "main", "pulls": []}
+        if store_pr:
+            repos[STORE_SLUG]["pulls"].append(
+                {"number": 3, "html_url": f"https://github.com/{STORE_SLUG}/pull/3", "state": "open", "merged_at": None,
+                 "title": "feat(add-greeting): add greeting plans", "body": STORE_PR_BODY,
+                 "head": {"ref": "feat/add-greeting", "label": "acme:feat/add-greeting", "repo": {"full_name": STORE_SLUG}},
+                 "base": {"ref": "main"}})
     write(dest, "gh-state.json", json.dumps({"user": "eval-bot", "tokens": {"eval-bot": "eval-token"}, "repos": repos}, indent=2))
 
 
@@ -733,6 +796,10 @@ def build_store(name, dest):
         archive_change(dest, "add-greeting")
     elif name == "eval-store-ship-push-rejected":
         pr_pair_base(dest)  # both repos have a GitHub origin; any push dies at the unreachable proxy
+    elif name == "eval-store-ship-code-push-rejected":
+        pr_pair_base(dest, store_push_ok=True)  # the shim lets the store push through; the code push dies at the proxy
+    elif name == "eval-store-ship-code-push-rejected-store-pr-open":
+        pr_pair_base(dest, store_push_ok=True, store_pr=True)  # the same, with store PR #3 already open
     elif name == "eval-store-archive-before-merge-local-store":
         pr_pair_base(dest, store_origin=False, code_pr=True)  # code PR #7 is open and ready; the store has no GitHub origin
     elif name == "eval-store-roadmap-close-locked":
@@ -816,7 +883,58 @@ def references_base(dest, registered=True, ref_id="team-plans"):
     write(code, "scratch-notes.txt", "personal notes - not part of the change\n")
 
 
+MERGED_CLOSES = 12  # the issue the merged PR's description closes, already closed in the fake gh
+
+
+def build_finish_resume_merged(repo, squash):
+    """Repo-local, `finish: pr` as eval-bot, origin on GitHub, fake gh. The change's PR #7 was merged and the local branch is gone:
+    main holds the archive directory (and the code) under the squash subject `Add greeting (#7)`, or, when not `squash`, under a merge
+    commit `Merge pull request #7 ...` of the deleted feat/add-greeting. No change directory, a clean tree on main. The fake gh has
+    PR #7 merged into main, its description closing issue #12, which is closed. The run's helper files live in the repo directory,
+    hidden through .git/info/exclude: eval.env (source it, with the repo as the working directory), bin/gh, gh-state.json,
+    gh-log.jsonl (the fake gh's call log) and git-trace.log (GIT_TRACE: every git command the run made).
+    .git/fixture-state.json records main's tip and the commit count."""
+    base(repo)
+    write(repo, "openspec/specwright.yaml", PR_SETTINGS)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore: pr settings")
+    if squash:
+        implemented(repo)
+        archive_in_store(repo, "2026-10-07-add-greeting", "Add greeting (#7)")
+        title = "Add greeting"
+    else:
+        git(repo, "checkout", "-q", "-b", "feat/add-greeting")
+        implemented(repo)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "feat(add-greeting): implement tasks 1.1-2.1")
+        archive_in_store(repo, "2026-10-07-add-greeting", "feat(add-greeting): archive change")
+        git(repo, "checkout", "-q", "main")
+        git(repo, "merge", "-q", "--no-ff", "feat/add-greeting", "-m", "Merge pull request #7 from acme/feat/add-greeting")
+        git(repo, "branch", "-q", "-d", "feat/add-greeting")
+        title = "feat(add-greeting): add greet and farewell"
+    git(repo, "remote", "add", "origin", f"https://github.com/{PR_SLUG}.git")
+    git(repo, "update-ref", "refs/remotes/origin/main", "main")  # origin/main is where main is, as after a pull
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    dest = repo
+    install_fake_gh(dest)
+    unreachable_proxy(dest)
+    env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
+    pr = gh_pull(7, "add-greeting", merged=True)
+    pr.update({"title": title, "body": f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",
+               "closing_refs": [{"number": MERGED_CLOSES, "repo": PR_SLUG}]})
+    st = {"user": "eval-bot", "tokens": {"eval-bot": "eval-token"},
+          "repos": {PR_SLUG: {"default_branch": "main", "pulls": [pr],
+                              "issues": {str(MERGED_CLOSES): {"state": "CLOSED", "timeline": [["CLOSED", "2026-10-09T10:00:05Z"]]}}}}}
+    write(dest, "gh-state.json", json.dumps(st, indent=2))
+    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n")
+    rev = subprocess.run(["git", "rev-parse", "main"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    count = subprocess.run(["git", "rev-list", "--count", "--all"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    write(repo, ".git/fixture-state.json", json.dumps({"main": rev, "commits": int(count)}, indent=2))
+
+
 def build(name, repo):
+    if name in ("eval-finish-resume-squash-merged", "eval-finish-resume-merged-branch-gone"):
+        return build_finish_resume_merged(repo, squash=name.endswith("squash-merged"))
     if name.startswith("eval-install-"):
         return install_base(repo, {"eval-install-store": "store", "eval-install-store-other-schema": "other-schema",
                                    "eval-install-nested-store": "nested"}[name])

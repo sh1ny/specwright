@@ -75,5 +75,59 @@ class Rmtree(unittest.TestCase):
         self.assertFalse(d.exists())
 
 
+class ChangingCommands(unittest.TestCase):
+    """The finish-resume graders' "nothing changed" checks must see every git branch change and every GitHub write."""
+
+    def test_positional_checkout_and_switch_are_changes(self):
+        for c in (["checkout", "main"], ["checkout", "HEAD~1"], ["checkout", "--", "a.txt"], ["switch", "main"],
+                  ["checkout", "-q", "main"], ["checkout", "-b", "x"], ["switch", "-c", "x"], ["switch", "--detach", "HEAD"]):
+            self.assertEqual(grade.changing_git([c]), [c], c)
+        for c in (["status"], ["log", "--oneline"], ["branch", "--show-current"], ["checkout"], ["switch"]):
+            self.assertEqual(grade.changing_git([c]), [], c)
+
+    def test_graphql_mutation_is_a_change(self):
+        q = lambda body: {"argv": ["api", "graphql", "-f", "threadId=T", "-f", "query=" + body]}
+        for body in ("mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }",
+                     "\n    mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"):
+            self.assertEqual(len(grade.changing_gh([q(body)])), 1, body)
+        read = q("query($owner:String!){ repository(owner:$owner){ pullRequest(number:7){ mergedAt } } }")
+        self.assertEqual(grade.changing_gh([read]), [], "a GraphQL read is not a change")
+        self.assertEqual(grade.changing_gh([{"argv": ["api", "graphql", "-f", "query={ viewer { login } }"]}]), [])
+
+    def test_unclassifiable_graphql_is_a_change(self):
+        """A query read from a file or --input cannot be judged from argv, so it counts as a possible write; so does a
+        mutation behind a `#` comment or passed in an attached -fquery=/--field=query= form."""
+        m = "mutation { resolveReviewThread(input:{threadId:\"T\"}){ thread{ id } } }"
+        for argv in (["api", "graphql", "-F", "query=@q.graphql"], ["api", "graphql", "--input", "q.json"],
+                     ["api", "graphql", "--input=q.json"], ["api", "graphql", "-Fquery=@q.graphql"],
+                     ["api", "graphql", "-fquery=" + m], ["api", "graphql", "--field=query=" + m],
+                     ["api", "graphql", "--raw-field=query=" + m], ["api", "graphql", "-f", "query=# resolve\n" + m]):
+            self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
+        self.assertEqual(grade.changing_gh([{"argv": ["api", "graphql", "-fquery={ viewer { login } }"]}]), [])
+
+    def test_branch_format_is_a_read(self):
+        for c in (["branch", "--format", "%(refname:short)"], ["branch", "--format=%(refname:short)"],
+                  ["branch", "-a", "--format", "%(refname:short) %(upstream)"]):
+            self.assertEqual(grade.changing_git([c]), [], c)
+        for c in (["branch", "--format", "%(refname)", "new"], ["branch", "new"]):
+            self.assertEqual(grade.changing_git([c]), [c], c)
+
+    def test_git_pull_is_a_change(self):
+        for c in (["pull"], ["pull", "--ff-only"], ["pull", "--rebase", "origin", "main"]):
+            self.assertEqual(grade.changing_git([c]), [c], c)
+        self.assertEqual(grade.changing_git([["fetch", "origin"]]), [], "a fetch changes no branch")
+
+    def test_explicit_get_with_fields_is_a_read(self):
+        for argv in (["api", "--method", "GET", "search/issues", "-f", "q=repo:o/n"], ["api", "-X", "GET", "search/issues", "-f", "q=x"],
+                     ["api", "-XGET", "search/issues", "-f", "q=x"], ["api", "--method=get", "search/issues", "-F", "q=x"],
+                     ["api", "repos/o/n/pulls/7"], ["api", "repos/acme/greeter-Xcode/pulls/7"],
+                     ["api", "repos/o/n/pulls?head=o:fix-Xmethod"]):
+            self.assertEqual(grade.changing_gh([{"argv": argv}]), [], argv)
+        for argv in (["api", "repos/o/n/issues/7/comments", "-f", "body=x"], ["api", "-X", "PATCH", "repos/o/n/pulls/7"],
+                     ["api", "--method", "POST", "repos/o/n/issues/7/reactions", "-f", "content=+1"],
+                     ["api", "repos/o/n/issues/7/comments", "--input", "b.json"]):
+            self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
+
+
 if __name__ == "__main__":
     unittest.main()

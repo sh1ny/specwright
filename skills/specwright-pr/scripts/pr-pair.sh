@@ -32,8 +32,17 @@
 #                                     the intent record of a feedback pass (write returns the owner id); the evidence-based
 #                                     resume plan (owned: true|false|null); delete, by its owner; hand over, naming the owner shown
 #                                     (no --store: a repo-local change, code repo only)
+#                                     plan's rerequest row counts a request done when it was posted at or after the cutoff:
+#                                     the head's push time (cutoff_source push), else the time a snapshot first saw the head
+#                                     (first_seen), else, only with no such record, when the record was written (pass_written;
+#                                     written_at, or the owner's at in an older record); none = no cutoff, the row stays todo
 #   cleanup-plan --code d --store d --branch b
-#                                     post-merge commands per repo whose expected PR is MERGED
+#                                     post-merge commands per repo whose expected PR is MERGED: checkout, pull, then
+#                                     branch-check (--head: the merged PR's head); `delete` (git branch -D) runs only on delete: true
+#   branch-check --dir d --branch b --main m [--head sha]
+#                                     delete true when the branch tip is on main (on_main) or is the merged head or an ancestor of
+#                                     it (pr_head); else false with reason lacking | head_unknown and the commits "lacking" (sha,
+#                                     subject). Read-only, no network; a git error stops (ok false, exit 1)
 # Exit: 0 answered, 1 stop (the JSON has "error" and "message"; an unexpected failure is
 #       error "internal_error"), 2 usage or missing input,
 #       3 GitHub state unknown (a lookup failed; never read it as "no PR").
@@ -1516,7 +1525,8 @@ def pass_write(argv):
     marker = (find_marker(a["store"], intent["branch"], a["change"], prefix, (contexts(a["code"], a["store"])["store"] or {}).get("main"))
               if not local and any(edits_for(f, "code") for f in intent["findings"]) else None)
     owner = new_owner(secrets.token_hex(16), a["code"])
-    rec = {**intent, "version": 2, "owner": owner, "change": a["change"], "code_repo": a["code_repo"], "heads": heads, "marker": marker}
+    rec = {**intent, "version": 2, "owner": owner, "change": a["change"], "code_repo": a["code_repo"], "heads": heads, "marker": marker,
+           "written_at": owner["at"]}  # when the pass began: the last-resort re-request cutoff (adopt keeps it; nothing rewrites it)
     path.parent.mkdir(parents=True, exist_ok=True)
     f, tmp = temp_beside(path)  # a uniquely named file: two writers never share one
     try:
@@ -1574,19 +1584,40 @@ def fix_commit(d, head0, branch, n):
     return None, True
 
 
-def request_state(repo, num, branch, tip, reqs):
-    """Which re-requests exist after the push of `tip` (GitHub timestamps only)."""
+def first_seen_at(repo, num, oid):
+    """The earliest GitHub time a snapshot on this machine saw head `oid` of the PR, as an ISO time, or None when the record
+    cannot be read. The record is pr-snapshot.sh's: <state>/heads/<owner/name/pr, lowercased>/<oid>, one HTTP-date line."""
+    base = Path(os.environ.get("SPECWRIGHT_STATE_DIR") or str(Path.home() / ".cache" / "specwright"))
+    try:
+        lines = (base / "heads" / f"{repo}/{num}".lower() / oid).read_text(encoding="utf-8").splitlines()
+        m = re.match(r"^[A-Za-z]{3}, ([0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8}) GMT$", lines[0].strip())
+        return datetime.datetime.strptime(m.group(1), "%d %b %Y %H:%M:%S").strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OSError, IndexError, AttributeError, ValueError):
+        return None
+
+
+def request_state(repo, num, branch, tip, reqs, written=None):
+    """Which re-requests exist after the cutoff for `tip`: the push time, else the time a snapshot first saw the head, else (only
+    when no such record can be read) `written`, the time the pass record was written. GitHub timestamps otherwise.
+    Returns (states, push time, cutoff, cutoff source)."""
     acts = gh_list(f"repos/{repo}/activity?ref=refs/heads/{branch}&per_page=100")
     pushed = next((x.get("timestamp") for x in acts if x.get("after") == tip), None)
+    cutoff, source = pushed, "push"
+    if not cutoff:
+        cutoff, source = first_seen_at(repo, num, tip), "first_seen"
+    if not cutoff:
+        cutoff, source = written, "pass_written"
+    if not cutoff:
+        source = "none"
     comments = gh_list(f"repos/{repo}/issues/{num}/comments?per_page=100")
     out = []
     for r in reqs:
         poster = (r["poster"] or ambient_login()).lower()
-        done = bool(pushed) and any(((c.get("user") or {}).get("login") or "").lower() == poster
+        done = bool(cutoff) and any(((c.get("user") or {}).get("login") or "").lower() == poster
                                     and (c.get("body") or "").strip() == r["body"].strip()
-                                    and (c.get("created_at") or "") >= pushed for c in comments)
+                                    and (c.get("created_at") or "") >= cutoff for c in comments)
         out.append({"body": r["body"], "poster": r["poster"], "done": done})
-    return out, pushed
+    return out, pushed, cutoff, source
 
 
 REACTION_GQL = ("query($id: ID!, $cursor: String) { node(id: $id) { ... on Reactable { reactions(first: 100, content: %s, after: $cursor) "
@@ -1722,8 +1753,9 @@ def pass_plan(argv):
             row["blocked"] = bool(row["after"])
             row["state"] = "todo"
             if not row["after"]:
-                states, pushed_at = request_state(pr["repo"], pr["number"], branch, tip[k], reqs)
-                row["requests"], row["push_time"] = states, pushed_at
+                states, pushed_at, cutoff, source = request_state(pr["repo"], pr["number"], branch, tip[k], reqs,
+                                                                  rec.get("written_at") or (held or {}).get("at"))
+                row["requests"], row["push_time"], row["cutoff"], row["cutoff_source"] = states, pushed_at, cutoff, source
                 row["state"] = "done" if all(s["done"] for s in states) else "todo"
         rows.append(row)
 
@@ -1840,7 +1872,11 @@ def pass_adopt(argv):
         if cur != (None if a["frm"] == "none" else a["frm"]):
             raise Stop("not_owner", f"the record at {norm(path)} is owned by {cur or 'no session'}, not {a['frm']}; nothing changed",
                        owner=rec.get("owner"))
-        rec = {**rec, "version": 2, "owner": new_owner(a["owner"], a["code"])}
+        # an older record has no written_at and falls back to the owner's at: keep that pass start before the owner changes
+        rec = {**rec, "version": 2, "written_at": rec.get("written_at") or (rec.get("owner") or {}).get("at"),
+               "owner": new_owner(a["owner"], a["code"])}
+        if rec["written_at"] is None:
+            rec.pop("written_at")
         f, tmp = temp_beside(path)
         try:
             with f:
@@ -1859,6 +1895,46 @@ def cmd_pass(argv):
     return {"write": pass_write, "plan": pass_plan, "done": pass_done, "adopt": pass_adopt}[argv[0]](argv[1:])
 
 
+def cmd_branch_check(argv):
+    """May a change branch be deleted once its PR merged and main is updated? Local refs only; changes nothing."""
+    a, _ = parse_args(argv, {"--dir": "dir", "--branch": "branch", "--main": "main", "--head": "head"})
+    need(a, "dir", "branch", "main")
+    d, b, m, head = a["dir"], a["branch"], a["main"], a.get("head")
+    if head is not None and not re.match(r"^[0-9a-fA-F]{4,64}$", head):
+        raise Stop("usage", f"--head must be a commit id, got {head!r}", code=2)
+
+    def fail(what, r):
+        raise Stop("git_error", f"{what} in {d}: {(r.stderr or r.stdout).strip()}")
+
+    for ref in (f"refs/heads/{b}", f"refs/heads/{m}"):
+        r = git(d, "rev-parse", "--verify", "-q", ref + "^{commit}")
+        if r.returncode != 0:
+            fail(f"cannot resolve {ref}", r)
+
+    def ancestor(x, y, what):
+        r = git(d, "merge-base", "--is-ancestor", x, y)
+        if r.returncode not in (0, 1):
+            fail(what, r)
+        return r.returncode == 0
+
+    def lacking(*rng):
+        r = git(d, "log", "--format=%H%x1f%s%x1e", *rng)
+        if r.returncode != 0:
+            fail("git log failed", r)
+        rows = [(rec.strip("\n").split("\x1f") + [""])[:2] for rec in r.stdout.split("\x1e") if rec.strip()]
+        return [{"sha": sha.strip(), "subject": subject} for sha, subject in rows]
+
+    tip, mref = f"refs/heads/{b}", f"refs/heads/{m}"
+    if ancestor(tip, mref, f"cannot compare {b} with {m}"):
+        return {"ok": True, "delete": True, "reason": "on_main", "lacking": []}
+    known = bool(head) and git(d, "cat-file", "-e", head + "^{commit}").returncode == 0
+    if not known:
+        return {"ok": True, "delete": False, "reason": "head_unknown", "lacking": lacking(f"{mref}..{tip}")}
+    if ancestor(tip, head, f"cannot compare {b} with {head}"):
+        return {"ok": True, "delete": True, "reason": "pr_head", "lacking": []}
+    return {"ok": True, "delete": False, "reason": "lacking", "lacking": lacking(f"{mref}..{tip}", "--not", head)}
+
+
 def cmd_cleanup(argv):
     a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch"})
     need(a, "code", "store", "branch")
@@ -1875,10 +1951,10 @@ def cmd_cleanup(argv):
         if side["expected"] and pr and pr["state"] == "MERGED":
             ent["merged"] = True
             if exists:
-                tipsha = git(d, "rev-parse", f"refs/heads/{branch}").stdout.strip()
-                ent["commands"] = [cmd("git", "checkout", main), cmd("git", "pull", "--ff-only"), cmd("git", "branch", "-d", branch)]
-                ent["force_delete"] = ["git", "branch", "-D", branch]  # only when -d refuses and the PR head is this tip
-                ent["force_delete_allowed"] = bool(pr.get("head_sha")) and pr["head_sha"] == tipsha
+                # after the pull, branch-check decides: the skill runs `delete` only when it answers delete: true
+                check = ["pr-pair.sh", "branch-check", "--dir", cwd, "--branch", branch, "--main", main] + (["--head", pr["head_sha"]] if pr.get("head_sha") else [])
+                ent["commands"] = [cmd("git", "checkout", main), cmd("git", "pull", "--ff-only"), cmd(*check)]
+                ent["delete"] = ["git", "branch", "-D", branch]
         elif side["expected"]:
             keep.append({"repo": k, "slug": side["repo"], "state": pr["state"] if pr else "NONE", "branch": branch,
                          "url": pr["url"] if pr else None})
@@ -1894,7 +1970,7 @@ def cmd_cleanup(argv):
 COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
-            "pass": cmd_pass, "cleanup-plan": cmd_cleanup}
+            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check}
 
 args = sys.argv[1:]
 try:

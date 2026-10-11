@@ -638,6 +638,168 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(s, r"\^\[a-z\]\+\\\(<change-name>\\\): archive change\$", "the archive subject regex is missing")
         self.assertRegex(s, r"chore/archive-<change-name>.{0,120}\*/<change-name>", "the branch lookup lacks the recovery and glob fallbacks")
 
+    def fact_a(self):
+        m = re.search(r"\*\*A\*\*[^\n]*", resume_section())
+        self.assertTrue(m, "Resume does not define fact A")
+        return m.group(0)
+
+    def test_finish_resume_finds_archive_directory_on_main(self):
+        a = self.fact_a()
+        self.assertIn("git ls-tree -d --name-only <main> -- <P>/changes/archive/", a, "fact A does not look for the archive directory on main with ls-tree")
+        self.assertRegex(a, r"(?i)last path component", "fact A does not match the ls-tree output on its last path component")
+        self.assertRegex(a, r"<archived-name>", "fact A does not match the archived name")
+        self.assertIn(r"^[a-z]+\(<change-name>\): archive change$", a, "fact A lost the archive subject match")
+
+    def test_finish_resume_archive_match_is_exact(self):
+        a = self.fact_a()
+        self.assertIn(r"^\d{4}-\d{2}-\d{2}-<change-name>$", a, "the dated-name match is not anchored on both ends")
+        self.assertRegex(a, r"(?i)never a substring", "fact A does not forbid a substring match")
+        self.assertRegex(a, r"(?i)dated name itself|as is", "a change name that already has a date is not matched as is")
+
+    def test_finish_resume_merged_pr_without_branch_is_done(self):
+        s = resume_section()
+        row = resume_row(s, r"`pr`, the branch's PR merged, not B[^|]*")
+        self.assertTrue(row, "no Resume row for a merged PR with no branch")
+        self.assertRegex(row, r"closed-check", "the row does not run the issues-left-open backstop")
+        self.assertIn("discover", row + s, "the merged PR is not found with discover")
+        self.assertRegex(s, r"`newest`[^\n]*discover|discover[^\n]*`newest`", "the branch's PR is not the newest one discover lists")
+        self.assertNotRegex(row, r"git branch -[dD]", "the row deletes a branch that is already gone")
+        self.assertRegex(row, r"(?i)no branch delet", "the row does not forbid a branch deletion")
+        self.assertRegex(row, r"(?i)repo done|\bdone\b", "the row does not count the repo as done")
+
+    def test_finish_resume_merged_pr_with_branch_runs_cleanup(self):
+        s = resume_section()
+        row = resume_row(s, r"`pr`, the branch's PR merged, B[^|]*")
+        self.assertTrue(row, "no Resume row for a merged PR whose branch exists")
+        self.assertRegex(row, r"After the PR is merged", "the B row does not keep the cleanup")
+        self.assertRegex(row, r"(?i)not ship", "the B row may ship again")
+        self.assertLess(s.index("PR merged, B |"), s.index("PR merged, not B |"), "the B row is not checked before the not-B row")
+
+    def test_finish_resume_merged_pr_rows_come_before_m_rows(self):
+        """First match wins: a pr-mode merged PR must reach its rows even when main has `merge: <change-name>` (a merged
+        PR that kept that subject, or cleanup interrupted after the branch was deleted), or the backstop is skipped."""
+        s = resume_section()
+        for m_row in ("| M and B |", "| M, not B |"):
+            for pr_row in ("PR merged, B |", "PR merged, not B |"):
+                self.assertLess(s.index(pr_row), s.index(m_row), f"{pr_row!r} is checked after {m_row!r}")
+
+    def test_finish_resume_backstop_exit_3_is_not_done(self):
+        s = resume_section()
+        row = resume_row(s, r"`pr`, the branch's PR merged, not B[^|]*")
+        self.assertRegex(row, r"exits? 3", "the not-B row does not handle closed-check exit 3")
+        self.assertRegex(row, r"(?i)not done", "closed-check exit 3 does not leave the repo not done")
+        self.assertRegex(row, r"(?i)backstop did not run", "the report does not say the backstop did not run")
+        block = find_block(s, r"Nothing to finish", r"exit 3")
+        self.assertTrue(block, "the Nothing to finish rule does not count a backstop exit 3 as not done")
+
+    def test_finish_resume_local_bulk_archive_on_main_is_done(self):
+        s = resume_section()
+        row = resume_row(s, r"`local`, A on main through the archive directory, not M, not B[^|]*")
+        self.assertTrue(row, "no Resume row for a local archive that reached main through another change's merge")
+        self.assertRegex(row, r"(?i)repo done", "the local bulk-archive row does not finish the repo")
+        self.assertLess(s.index("| M, not B"), s.index("`local`, A on main through the archive directory"), "the local row is not after M, not B")
+
+    def test_finish_resume_pulls_main_before_no_archive(self):
+        """A cleanup can delete the branch before main is pulled: locally A, M and B are all false although the PR merged.
+        pr mode looks for the merged PR and pulls main before it reports that no archive was found."""
+        text = read(FINISH)
+        at = text.index("None of A, M, B in any repo")
+        rule = text[at:text.index("\n", at)]
+        no_archive = rule.index("no archive of `<change-name>` was found")
+        before = rule[:no_archive]
+        self.assertRegex(before, r"`pr` mode", "the no-archive rule has no pr-mode check")
+        self.assertRegex(before, r"discover", "the branch's PR is not looked up before reporting no archive")
+        self.assertRegex(before, r"newest PR is merged", "main is pulled for an older merged PR, not the newest one")
+        self.assertRegex(before, r"pull --ff-only", "main is not pulled before reporting no archive")
+        self.assertRegex(before, r"read the three facts again", "the facts are not read again after the pull")
+
+    def test_finish_resume_checks_dirty_tree_before_pulling_main(self):
+        """The pr-mode pull must not check out main over uncommitted changes and skip the stop-and-ask guard."""
+        text = read(FINISH)
+        at = text.index("None of A, M, B in any repo")
+        rule = text[at:text.index("\n", at)]
+        self.assertIn("git status --porcelain", rule, "the no-archive rule has no dirty-tree check")
+        self.assertLess(rule.index("git status --porcelain"), rule.index("git checkout <main>"), "main is checked out before the dirty-tree check")
+        self.assertRegex(rule[:rule.index("git checkout <main>")], r"(?i)stop, list the files and ask", "a dirty tree does not stop and ask")
+
+    def test_finish_resume_merged_pr_is_the_newest_of_any_state(self):
+        """A reused branch name can leave an older generation's merged PR behind a newer open one: `--state merged` would
+        hide the newer PR and finish the new change on the old archive. The branch's PR is the newest of any state."""
+        s = resume_section()
+        at = s.index("The branch's PR is")
+        rule = s[at:s.index("\n", at)]
+        self.assertRegex(rule, r"discover[^`]*--base <main>`", "the branch's PR is not found with discover")
+        self.assertNotRegex(rule, r"discover[^`]*--state merged", "discover filters out a newer open or closed PR")
+        self.assertRegex(rule, r"`newest`", "the branch's PR is not discover's newest")
+        self.assertRegex(rule, r"(?i)reused", "a newer unmerged PR beside an older merged one is not treated as a reused name")
+        self.assertRegex(rule, r"(?i)\bask", "a reused branch name does not ask the user")
+        self.assertRegex(rule, r"(?i)never `closed-check` the older", "the older merged PR still gets the backstop")
+
+    def test_finish_resume_reused_branch_rule_takes_precedence(self):
+        """First match wins in the table, so the reused-name stop must say it comes first, except that a branch with an
+        open newest PR is the current change in progress and still ships."""
+        s = resume_section()
+        at = s.index("The branch's PR is")
+        rule = s[at:s.index("\n", at)]
+        self.assertRegex(rule, r"checked before the table", "the reused-name rule does not take precedence over the table")
+        self.assertRegex(rule, r"no-archive report", "a reused name can still reach the no-archive report")
+        self.assertRegex(rule, r"B holds and the newest PR is open", "an in-progress branch with an open newest PR no longer ships")
+
+    def test_finish_resume_local_archive_directory_alone_asks(self):
+        """A reused change name can match an older generation's archive directory, so the directory alone does not finish
+        the repo: the row shows the directory and the commit that added it and asks."""
+        row = resume_row(resume_section(), r"`local`, A on main through the archive directory, not M, not B[^|]*")
+        self.assertRegex(row, r"(?i)\bask", "the row declares the repo done on the directory alone")
+        self.assertRegex(row, r"the commit that added it", "the row does not show the commit that added the directory")
+        self.assertRegex(row, r"git log -1[^`]*<main> -- ", "the row does not find that commit with git log on main")
+        self.assertRegex(row, r"(?i)reused", "the row does not say why it asks (a reused change name)")
+        self.assertRegex(row, r"(?i)\bno\b[^|]*touch nothing", "a no does not leave the repo untouched")
+
+    def merged_bullet(self):
+        text = read(FINISH)
+        at = text.index("- **After the PR is merged**")
+        return text[at:text.index("\n\n", at)]
+
+    def test_finish_cleanup_runs_branch_check_before_deleting(self):
+        b = self.merged_bullet()
+        check = re.search(r"branch-check", b)
+        self.assertTrue(check, "After the PR is merged never runs `branch-check`")
+        pull = b.find("pull --ff-only")
+        self.assertTrue(0 <= pull < check.start(), "`branch-check` does not run after `pull --ff-only`")
+        for m in re.finditer(r"branch -[dD]", b):
+            self.assertLess(check.start(), m.start(), "After the PR is merged deletes the branch before `branch-check`")
+        self.assertRegex(b, r"branch -D", "the cleanup never deletes with -D on `delete: true`")
+        self.assertRegex(b, r"delete: true", "the cleanup does not delete only on `delete: true`")
+        self.assertRegex(b, r"`lacking`", "the cleanup does not report the `lacking` commits")
+        self.assertRegex(b, r"`head_unknown`", "the cleanup does not report `head_unknown`")
+        self.assertRegex(b, r"--head <head_sha>", "`branch-check` is not given `--head`")
+        self.assertRegex(b, r"discover[^`]*--state merged", "`--head` does not come from `discover --state merged`")
+        self.assertRegex(b, r"`head_sha`", "`--head` is not `discover`'s `head_sha`")
+        self.assertNotRegex(b, r"-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip",
+                            "the cleanup still deletes with -D when headRefOid equals the local tip")
+        self.assertNotIn("force_delete_allowed", read(FINISH), "finish still mentions `force_delete_allowed`")
+
+    def test_finish_resume_m_and_b_in_pr_mode_needs_no_pr(self):
+        """A merged PR matches an earlier row, so pr mode reaches M and B only after a local merge, with no PR to give
+        `--head`. M already puts the tip on main, so `branch-check` runs without `--head` and still decides the deletion."""
+        row = resume_row(resume_section(), "M and B")
+        self.assertRegex(row, r"`pr` mode", "the M and B row has no pr-mode path")
+        self.assertNotRegex(row, r"After the PR is merged", "M and B in pr mode still needs a merged PR's head")
+        check = re.search(r"branch-check[^;]*without `--head`", row)
+        self.assertTrue(check, "M and B in pr mode does not run `branch-check` without `--head`")
+        pull = row.find("pull --ff-only")
+        self.assertTrue(0 <= pull < check.start(), "`branch-check` does not run after `pull --ff-only`")
+        self.assertRegex(row[check.start():], r"delete: true[^;]*branch -D", "the row does not delete with -D on `delete: true`")
+        self.assertRegex(row, r"`lacking`", "the row does not report the `lacking` commits")
+        self.assertRegex(row, r"(?i)no `closed-check`", "the row runs the backstop for a PR that does not exist")
+
+    def test_finish_resume_archive_directory_is_planning_repo_only(self):
+        s = resume_section()
+        a = self.fact_a()
+        self.assertRegex(a, r"(?i)planning repo only", "the archive-directory source is not limited to the planning repo")
+        self.assertRegex(a, r"(?i)never[^.;]*code repo", "fact A does not say the directory never gives the code repo an A")
+        self.assertTrue(resume_row(s, r"code repo with no A, M or B; store done; no such marker"), "the code repo's existing no-A rows are gone")
+
 
 if __name__ == "__main__":
     unittest.main()

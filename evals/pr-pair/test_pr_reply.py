@@ -5,10 +5,12 @@ refuses (exit 5) when the revision changed, or exits 3 when it cannot be read. W
 
 Run: python -m unittest discover evals/pr-pair -p test_pr_reply.py
 """
+import os
+import stat
 import unittest
 
 import snapfix
-from snapfix import SnapCase, fake_gh
+from snapfix import SnapCase, fake_gh, fixtures
 
 
 def setUpModule():
@@ -149,6 +151,138 @@ class ReplyRevKinds(ReplyCase):
         r = self.reply("thread", tid, c["databaseId"], "BODY", "--waiting", "--rev", rev, body="later")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"<!-- specwright:waiting {tid} rev={rev} -->", self.thread_state()["comments"][1]["body"])
+
+
+class ReplyBody(ReplyCase):
+    """A reply is never posted without its body: the body file is checked before any GitHub call."""
+
+    def test_reply_body_then_marker(self):
+        tid, c = self.add_thread("rev", "please fix")
+        r = self.reply("thread", tid, c["databaseId"], "BODY", body="done, thanks")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body = self.thread_state()["comments"][1]["body"]
+        self.assertTrue(body.startswith("done, thanks"), body)
+        self.assertEqual(body.rstrip("\n").splitlines()[-1], f"<!-- specwright:handled {tid} -->")
+
+    def refused(self, r, path):
+        self.assertEqual(r.returncode, 4, "a reply without its body exits 4, not 2 (a pending review)")
+        self.assertIn(str(path), r.stderr, "stderr names the body file")
+        self.assertEqual(self.gh_calls(), [], "no GitHub request at all")
+
+    def test_reply_refuses_missing_body_file(self):
+        tid, c = self.add_thread("rev", "please fix")
+        path = fixtures.posix(self.tmp / "nope.md")
+        self.refused(self.reply("thread", tid, c["databaseId"], path), path)
+        self.refused(self.reply("comment", "IC_x", path), path)
+
+    def test_reply_refuses_missing_body_file_without_repo(self):
+        """Without --repo the script resolves the repository through gh: that must wait until the body is checked."""
+        tid, c = self.add_thread("rev", "please fix")
+        path = fixtures.posix(self.tmp / "nope.md")
+        self.refused(self.reply("thread", tid, c["databaseId"], path, repo=False), path)
+        self.refused(self.reply("comment", "IC_x", path, repo=False), path)
+
+    def test_bad_arguments_are_refused_before_any_github_call(self):
+        for args in (("thread", "T", "1"), ("comment", "IC_x"), ("react", "IC_x"), ("react", "IC_x", "+2"),
+                     ("resolve",), ("nope",)):
+            for repo in (True, False):
+                r = self.reply(*args, repo=repo)
+                self.assertEqual(r.returncode, 4, (args, repo, r.stderr))
+                self.assertEqual(self.gh_calls(), [], (args, repo, "no GitHub request at all"))
+
+    def test_reply_refuses_empty_body_file(self):
+        tid, c = self.add_thread("rev", "please fix")
+        path = fixtures.posix(self.tmp / "empty.md")
+        (self.tmp / "empty.md").write_bytes(b"")
+        self.refused(self.reply("thread", tid, c["databaseId"], path), path)
+        self.refused(self.reply("comment", "IC_x", path), path)
+
+    def test_reply_refuses_unreadable_body_file(self):
+        tid, c = self.add_thread("rev", "please fix")
+        f = self.tmp / "locked.md"
+        f.write_text("secret", encoding="utf-8")
+        f.chmod(0)
+        self.addCleanup(f.chmod, stat.S_IRUSR | stat.S_IWUSR)
+        if os.access(f, os.R_OK) or os.name == "nt":
+            self.skipTest("chmod cannot make a file unreadable here (Windows, or running as a user that bypasses permissions)")
+        path = fixtures.posix(f)
+        self.refused(self.reply("thread", tid, c["databaseId"], path), path)
+        self.refused(self.reply("comment", "IC_x", path), path)
+
+
+class ReplyMarkerWrite(ReplyCase):
+    """The reply with its marker is written in full before any GitHub call, and a failed write says so."""
+
+    def fake_mktemp(self, path):
+        f = self.tmp / "bin" / "mktemp"
+        f.write_text(f'#!/bin/sh\necho "{path}"\n', encoding="utf-8", newline="\n")
+        f.chmod(0o755)
+
+    def test_failed_marker_write_makes_no_github_call(self):
+        tid, c = self.add_thread("rev", "please fix")
+        self.fake_mktemp(fixtures.posix(self.tmp / "no-such-dir" / "reply.md"))  # cat > it fails
+        f = self.tmp / "body.md"
+        f.write_text("done", encoding="utf-8")
+        path = fixtures.posix(f)
+        for args in (("thread", tid, c["databaseId"], path, "--resolve", "--rev", self.rev_of(c)),
+                     ("comment", "IC_x", path, "--rev", "x")):
+            r = self.reply(*args)
+            self.assertEqual(r.returncode, 4, (args, r.stderr))
+            self.assertIn(path, r.stderr, "stderr names the body file")
+            self.assertIn("nothing was posted", r.stderr)
+            self.assertEqual(self.gh_calls(), [], (args, "no GitHub request at all"))
+        self.assert_untouched(tid)
+
+
+class ReplyTempFiles(ReplyCase):
+    """Every temp file the script makes is gone when it exits, on every path."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmpdir = self.tmp / "tmpdir"
+        self.tmpdir.mkdir()
+        self.extra_env["TMPDIR"] = fixtures.posix(self.tmpdir)
+
+    def leftovers(self):
+        return sorted(p.name for p in self.tmpdir.iterdir())
+
+    def test_reply_leaves_no_temp_file_on_success(self):
+        tid, c = self.add_thread("rev", "please fix")
+        self.assertEqual(self.reply("thread", tid, c["databaseId"], "BODY", body="done").returncode, 0)
+        self.assertEqual(self.reply("comment", "IC_x", "BODY", body="ok").returncode, 0)
+        self.assertEqual(self.leftovers(), [])
+
+    def test_reply_leaves_no_temp_file_when_post_fails(self):
+        tid, c = self.add_thread("rev", "please fix")
+        self.mutate(lambda st: st.update({"fail": [{"match": "replies", "exit": 1, "stderr": "boom"}]}))
+        r = self.reply("thread", tid, c["databaseId"], "BODY", body="done")
+        self.assertNotEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.thread_state()["comments"]), 1, "nothing was posted")
+        self.assertEqual(self.leftovers(), [])
+
+    def test_reply_leaves_no_temp_file_on_pending_review_stop(self):
+        tid, c = self.add_thread("rev", "please fix")
+        gh = self.tmp / "bin" / "gh"
+        (self.tmp / "bin" / "gh-real").write_text(gh.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+        (self.tmp / "bin" / "gh-real").chmod(0o755)
+        helper = self.tmp / "pend.py"  # after a posted reply, the viewer gains a pending review
+        helper.write_text(
+            "import json, sys\n"
+            f"sys.path.insert(0, {fixtures.posix(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
+            "import gh\n"
+            "p = sys.argv[1]\n"
+            "st = json.load(open(p, encoding='utf-8'))\n"
+            f"gh.add_review(st, {self.SLUG!r}, {self.PR}, 'me', 'draft', state='PENDING')\n"
+            "json.dump(st, open(p, 'w', encoding='utf-8'))\n", encoding="utf-8")
+        gh.write_text('#!/bin/sh\n"$(dirname "$0")/gh-real" "$@" || exit $?\n'
+                      f'case "$*" in *replies*) python "{fixtures.posix(helper)}" "$FAKE_GH_STATE";; esac\n',
+                      encoding="utf-8", newline="\n")
+        r = self.reply("thread", tid, c["databaseId"], "BODY", "--resolve", body="done")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("pending", r.stderr)
+        self.assertEqual(len(self.thread_state()["comments"]), 2, "the reply was posted before the stop")
+        self.assertEqual(self.leftovers(), [])
+
 
 
 if __name__ == "__main__":

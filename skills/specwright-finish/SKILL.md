@@ -2,7 +2,7 @@
 name: specwright-finish
 description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:archive, /opsx:bulk-archive, openspec-archive-change, `openspec archive`, or the user asks to archive/finish a change. Commits the archive move, then merges locally (finish: local) or pushes to the PR (finish: pr). Also handles 'the PR was merged' cleanup."
 metadata:
-  version: 0.1.12
+  version: 0.1.13
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *)
 ---
@@ -18,29 +18,31 @@ Commit type: the branch prefix, except `bugfix` → `fix`. Archive paths, in the
 Applies when the change directory is gone and finish runs again: the user asks to finish it, or the archive workflow reports the change already archived. Resolve the **Planning repo** first. On any branch, a repo where A (below) is found resumes here instead of running steps 1-3. Never repeat a done step.
 
 For each repo of the change (repo-local: one; store-backed: the store, then the code repo), find `<branch>` from `<main>`: `<prefix>/<change-name>` by the prefix rule of `specwright-branch` step 6, else a local `chore/archive-<change-name>`, else the one local branch matching `*/<change-name>`; several candidates → list them and ask. Then read three facts:
-- **A** - an archive commit: a subject matching `^[a-z]+\(<change-name>\): archive change$` in `git log --format=%s <main>..<branch>`, or on `<main>`.
+- **A** - an archive commit: a subject matching `^[a-z]+\(<change-name>\): archive change$` in `git log --format=%s <main>..<branch>`, or on `<main>`; or, on `<main>`, the archive directory: `git ls-tree -d --name-only <main> -- <P>/changes/archive/` lists `<archived-name>` (the **Archive name** rule), even with no such subject (an archive squash-merged or bulk-archived). `ls-tree` prints full paths, so match the last path component: a change name without a date matches exactly `^\d{4}-\d{2}-\d{2}-<change-name>$`, a dated name the dated name itself, never a substring. The directory is planning repo only (repo-local: the one repo; store-backed: the store) and never gives the code repo an A.
 - **M** - the exact subject `merge: <change-name>` in `git log --first-parent --format=%s <main>`, and, when B, the branch tip is on `<main>` (`git merge-base --is-ancestor <branch> <main>`): an archive-recovery branch made after the change merged holds a new archive commit, so the earlier merge does not count for it.
 - **B** - `<branch>` exists.
 
-None of A, M, B in any repo → report that no archive of `<change-name>` was found, and do nothing. `git status --porcelain` showing changes under `<P>/changes/<change-name>/` or the archive directory (with A found) → stop, list the files and ask the user; merge nothing. Otherwise continue at the first step not done, per repo. Rows are checked top to bottom, and the first match wins:
+None of A, M, B in any repo → in `pr` mode, first look up each repo's PR (`discover`, below), since a cleanup can delete the branch before main is pulled; for each repo whose newest PR is merged, run `git status --porcelain` before any checkout or pull (any output → stop, list the files and ask the user; check out, pull and merge nothing), then `git checkout <main> && git pull --ff-only` and read the three facts again, then continue with the table. Still none (or `local` mode) → report that no archive of `<change-name>` was found, and do nothing. `git status --porcelain` showing changes under `<P>/changes/<change-name>/` or the archive directory (with A found) → stop, list the files and ask the user; merge nothing. Otherwise continue at the first step not done, per repo. Rows are checked top to bottom, and the first match wins:
 
 | Facts | Next |
 |---|---|
 | archive paths uncommitted, no A | steps 1-3 in order (branch check and recovery branch, planning-only test, archive commit) |
 | A on branch, not M, B, `local` | merge (`## local`) |
 | code repo, the newest store A's body has the line `Archive-Scope: store-only` | out of scope: report the code branch and its PR state, touch nothing; the repo counts as done |
-| M and B | `git checkout <main> && git branch -d <branch>`, no merge |
+| `pr`, the branch's PR merged, B | **After the PR is merged** cleanup, not ship |
+| `pr`, the branch's PR merged, not B | only the issues-left-open backstop (`closed-check`, `specwright-pr` **Cleanup after merge**), no branch deletion; repo done. `closed-check` exits 3 → repo not done, report that the backstop did not run |
+| M and B | `git checkout <main> && git branch -d <branch>`, no merge. In `pr` mode (reached only with no merged PR, since the merged-PR rows come first: the change was merged locally) `git checkout <main> && git pull --ff-only`, then `[as] bash scripts/pr-pair.sh branch-check --dir <toplevel> --branch <branch> --main <main>` without `--head`, since M already puts the tip on main; `delete: true` → `git branch -D <branch>`, otherwise keep the branch and report its `lacking` commits. No merge, and no `closed-check`: no PR merged |
 | M, not B | repo done |
+| `local`, A on main through the archive directory, not M, not B | a reused change name can match an older change's archive, so show the directory and the commit that added it (`git log -1 --format='%h %ad %s' --date=short <main> -- <P>/changes/archive/<archived-name>/`) and ask whether it is this change's archive: yes → repo done (another change's merge carried the archive); no → report that this change's archive is not on main and touch nothing |
 | code repo with no A, M or B; store done; the store's archive is marked `code_changes: none` | repo done (a planning-only change) |
 | code repo with no A, M or B; store done; no such marker | report and ask; touch nothing |
 | store done; code branch with commits, code not M, `local` | code merge (`## local` store-backed step 2) |
 | store done; code branch without commits | `git checkout <main> && git branch -d <branch>`, no merge |
 | `pr`, A on branch, PR not merged | `## pr` ship; push and PR are idempotent |
-| `pr`, the branch's PR merged | **After the PR is merged** cleanup, not ship |
 | `pr`, store done; code branch with commits, code not M, no PR or an open PR | `## pr` ship for the code branch; push and PR are idempotent. Merge nothing, delete nothing |
 | `pr`, store done; code branch with commits, its PR closed unmerged | report the closed PR and ask. Merge nothing, delete nothing |
 
-Report `Nothing to finish - archive is on <main>` only when every repo is done.
+The branch's PR is the `newest` one from `[as] bash scripts/pr-pair.sh discover --repo <owner>/<name> --branch <branch> --base <main>` (no `--state`, so every state counts; the `specwright-pr` conventions), and the rows' "the branch's PR merged" means that newest PR is merged. An older merged PR from the branch with a newer open or closed-unmerged one means the branch name was reused: report both PRs and ask, touch nothing, and never `closed-check` the older PR. This is checked before the table, so a reused branch name never reaches a merged-PR row, a done row or the no-archive report; only when B holds and the newest PR is open do the ship rows apply as usual, since that open PR is the current change's. Report `Nothing to finish - archive is on <main>` only when every repo is done; a backstop `closed-check` exit 3 is not done.
 
 - **Planning-only test:** it runs only before an archive commit. A resume that finds archive paths uncommitted and no A runs steps 1-3 in order, the test included; once A exists, a resume never writes the marker.
 - **Store-only recovery:** step 3 writes the body line `Archive-Scope: store-only` when the change is store-backed and the store is on `chore/archive-<change-name>`. Read it from the newest store A: `git log -1 --format=%B <A>`, matching that exact line. When it is there, the code repo is out of scope: no code merge, ship or branch deletion; report the code branch's state and leave it to its own PR or finish. This counts as done for `Nothing to finish`.
@@ -73,7 +75,7 @@ Report `Nothing to finish - archive is on <main>` only when every repo is done.
 ## pr
 - Run `specwright-pr` **ship**: it pushes the archive commit (pinning the GitHub identity and running `pr.validate`) and opens the PR if there is none, leaving an existing PR's description alone.
 - If `specwright-pr` **watch** started this archive, hand back to it: it waits for CI and reviews on the archive head before reporting ready. Otherwise report the PR URL and `Ready to merge on GitHub once checks and reviews are green.`, and offer **watch**. Never merge the PR.
-- **After the PR is merged** (the user says so, or `gh pr view <branch> --json state,headRefOid` shows MERGED): `git checkout <main> && git pull --ff-only && git branch -d <branch>`. If `-d` refuses because GitHub squashed or rebased, use `-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip; otherwise ask. Then follow `specwright-pr` **Cleanup after merge** for the issues the merged PR's closing lines name: its `closed-check` lists any that GitHub left open and closes the ones the user confirms. Store-backed: that section also cleans both repos, so follow it instead of the commands above.
+- **After the PR is merged** (the user says so, or `gh pr view <branch> --json state` shows MERGED): `git checkout <main> && git pull --ff-only`, then `[as] bash scripts/pr-pair.sh branch-check --dir <toplevel> --branch <branch> --main <main> --head <head_sha>`, with `<head_sha>` from the merged PR's `head_sha` in `discover ... --state merged` (several merged PRs: the `newest` one's), never from `gh pr view`. `delete: true` → `git branch -D <branch>`; otherwise keep the branch and report its `lacking` commits, or `head_unknown`. Then follow `specwright-pr` **Cleanup after merge** for the issues the merged PR's closing lines name: its `closed-check` lists any that GitHub left open and closes the ones the user confirms. Store-backed: that section also cleans both repos, so follow it instead of the commands above.
 
 If the roadmap (`project.roadmap`) exists, once the change is on main (after the local merge, or after the PR is merged), offer exactly one `specwright-roadmap` mode: **close** when every change of the Now milestone is then done, derived as `specwright-roadmap` derives it; otherwise **next**. Never offer both.
 

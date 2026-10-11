@@ -60,6 +60,31 @@ class SkillText(unittest.TestCase):
         self.assertTrue(s_push, "the ship section has no push command")
         self.assertLess(s_ident[0], s_push[0], "ship pushes before it runs `pr-pair.sh identity`")
 
+    def test_ship_pushes_every_repo_before_any_pr(self):
+        ship = self.section("ship")
+        a, b = re.search(r"^4a\. ", ship, re.M), re.search(r"^4b\. ", ship, re.M)
+        self.assertTrue(a, "ship has no step 4a (validate and push each repo)")
+        self.assertTrue(b, "ship has no step 4b (find or open each PR)")
+        self.assertLess(a.start(), b.start(), "ship step 4b comes before step 4a")
+        end = re.search(r"^5\. ", ship[b.end():], re.M)
+        s4a, s4b = ship[a.start():b.start()], ship[b.start():b.end() + (end.start() if end else len(ship))]
+        pushes, ensures = positions(PUSH, ship), positions(sub("ensure-pr"), ship)
+        self.assertTrue(pushes and ensures)
+        self.assertLess(max(pushes), min(ensures), "a push comes after the first `ensure-pr`")
+        self.assertTrue(positions(PUSH, s4a), "step 4a has no push command")
+        self.assertFalse(positions(PUSH, s4b), "step 4b pushes: every push belongs in 4a")
+        self.assertFalse(positions(sub("ensure-pr"), s4a), "step 4a finds or opens a PR: that belongs in 4b")
+        self.assertTrue(positions(sub("ensure-pr"), s4b), "step 4b never runs `pr-pair.sh ensure-pr`")
+        self.assertRegex(s4a, r"(?i)store first", "step 4a does not push the store first")
+        self.assertRegex(s4a, r"(?is)validate", "step 4a does not validate before it pushes")
+        self.assertLess(re.search(r"(?i)validate", s4a).start(), positions(PUSH, s4a)[0], "4a pushes before it validates")
+        stop = re.search(r"(?is)\b(validate|push)\b[^.]*\bfail[^.]*\bstop\b", s4a)
+        self.assertTrue(stop, "step 4a does not say a failed validate or push stops")
+        self.assertRegex(s4a, r"(?i)(open|update)s? no PR in either repo", "4a does not say that no PR is opened or updated in either repo")
+        self.assertRegex(s4a, r"(?i)never report the change ready", "4a does not forbid reporting the change ready")
+        self.assertRegex(s4a, r"(?i)which repo's push failed and its error", "4a does not report which push failed and its error")
+        self.assertRegex(s4b, r"(?i)only (when|after|once) (every|all)[^.]*push", "step 4b does not wait for every push")
+
     def test_discover_replaces_gh_pr_list_for_change_prs(self):
         self.assertTrue(positions(sub("discover")), "SKILL.md never runs `pr-pair.sh discover`")
         ship = self.section("ship")
@@ -283,8 +308,8 @@ class ClosingReferences(unittest.TestCase):
 
     def ship_43(self):
         ship = SECTIONS["ship"][1]
-        m = re.search(r"^   3\. .*$", ship, re.M)
-        self.assertTrue(m, "ship step 4.3 not found")
+        m = re.search(r"^4b\. .*$", ship, re.M)
+        self.assertTrue(m, "ship step 4b not found")
         end = re.search(r"^5\. ", ship[m.end():], re.M)
         return ship[m.start():m.end() + (end.start() if end else len(ship))]
 
@@ -403,6 +428,131 @@ class CleanupClosingReferences(unittest.TestCase):
         self.assertRegex(m.group(0), r"(?i)still open")
         self.assertRegex(m.group(0), r"(?i)continue")
         self.assertRegex(m.group(0), r"(?i)later cleanup")
+
+
+class BodyFiles(unittest.TestCase):
+    """A step that writes a body or message to a temp file also removes it once the command that reads it has run."""
+
+    REMOVE = r"(?i)remove (the|that|each|this) (body |temp(orary)? )?files?\b.{0,120}\bwhatever (its|the|that command's) outcome"
+
+    def step(self, section, label, nxt):
+        body = SECTIONS[section][1]
+        m = re.search(r"^%s " % re.escape(label), body, re.M)
+        self.assertTrue(m, f"the {section} section has no step {label}")
+        end = re.search(r"^%s " % re.escape(nxt), body[m.end():], re.M) if nxt else None
+        return body[m.start():m.end() + end.start()] if end else body[m.start():]
+
+    def test_every_body_file_step_removes_its_file(self):
+        passages = {
+            "ship 4b (description and closing-line rewrite)": self.step("ship", "4b.", "5."),
+            "ship 6 (review request)": self.step("ship", "6.", "7."),
+            "feedback 8 (replies)": self.step("feedback", "8.", "9."),
+        }
+        limit = SECTIONS["feedback"][1]
+        at = limit.index("**After the limit**")
+        passages["after the limit (issue bodies)"] = limit[at:]
+        for name, text in passages.items():
+            self.assertRegex(text, r"(?i)\b(temp file|body file|--body-file|<file>)", f"{name}: no file is written; the test is stale")
+            self.assertRegex(text, self.REMOVE, f"{name} does not tell the agent to remove the file whatever the command's outcome")
+        ship4b = passages["ship 4b (description and closing-line rewrite)"]
+        self.assertGreaterEqual(len(re.findall(self.REMOVE, ship4b)), 2, "ship 4b removes only one of its description and closing-line rewrite files")
+
+    def test_every_mktemp_in_a_script_has_a_failure_path_cleanup(self):
+        scripts = sorted(SKILL.parents[1].glob("*/scripts/*.sh"))
+        self.assertTrue(scripts, "found no skills/*/scripts/*.sh")
+        seen = 0
+        for path in scripts:
+            text = path.read_text(encoding="utf-8")
+            if "mktemp" not in text:
+                continue
+            seen += 1
+            self.assertRegex(text, r"""trap\s+'[^']*rm -f[^']*'\s+\S*EXIT|rm -f "\$tmp\"""",
+                             f"{path.name} calls mktemp but has neither an EXIT trap nor an `rm -f \"$tmp\"` that removes the file")
+        self.assertTrue(seen, "no script calls mktemp; the check is vacuous")
+
+
+class FeedbackRerequest(unittest.TestCase):
+    """Feedback re-requests from a fresh snapshot of the pushed head, planned by `pass plan`; the Settings rule is scoped."""
+
+    def feedback(self):
+        return SECTIONS["feedback"][1]
+
+    def step9(self):
+        m = re.search(r"^9\. .*$", self.feedback(), re.M)
+        self.assertTrue(m, "feedback has no step 9")
+        return m.group(0)
+
+    def resume_bullet(self):
+        fb = self.feedback()
+        at = fb.index("   - `resume`")
+        return fb[at:fb.index("\n   - `stop`", at)]
+
+    def settings_rule(self):
+        m = re.search(r"^\*\*Re-request review\*\*.*$", TEXT, re.M)
+        self.assertTrue(m, "SKILL.md has no **Re-request review** paragraph")
+        return m.group(0)
+
+    def test_feedback_snapshots_pushed_head_before_rerequest(self):
+        step9 = self.step9()
+        for where, text in (("feedback step 9", step9), ("the resume `rerequest` row", self.resume_bullet())):
+            snap = re.search(r"(?i)fresh snapshot of each pushed PR", text)
+            self.assertTrue(snap, f"{where} does not take a fresh snapshot of each pushed PR")
+            plan = re.search(r"`pass plan`", text[snap.end():])
+            self.assertTrue(plan, f"{where} does not run `pass plan` with the fresh snapshots after taking them")
+            self.assertRegex(text, r"(?i)before posting any request", f"{where} does not plan before posting any request")
+            self.assertRegex(text, r"(?i)only the requests whose `?rerequest`? row is not `done`", f"{where} posts requests whose row is done")
+            self.assertRegex(text, r"\breport (a |an )?`cutoff_source: pass_written`|`cutoff_source: pass_written`[^;]*\breport", f"{where} does not report a `cutoff_source: pass_written` row to the user")
+        self.assertRegex(step9, r"(?i)step 1[^.]*snapshots[^.]*(predate|have not seen|not seen)", "step 9 does not say why the step 1 snapshots are not used")
+
+    def test_rerequest_rule_is_scoped_to_inside_and_outside_a_pass(self):
+        rule = self.settings_rule()
+        inside = re.search(r"(?i)inside a feedback pass", rule)
+        outside = re.search(r"(?i)outside a (feedback )?pass", rule)
+        self.assertTrue(inside and outside, "the Re-request review paragraph does not split into inside and outside a feedback pass")
+        self.assertLess(inside.start(), outside.start(), "the outside-a-pass rule comes before the inside rule")
+        ins, out = rule[inside.start():outside.start()], rule[outside.start():]
+        self.assertRegex(ins, r"`pass plan`[^.]*`rerequest` row[^.]*decides", "inside a pass the `pass plan` row does not decide")
+        self.assertRegex(ins, r"(?i)post anyway[^.]*(does not|doesn't) apply", "inside a pass 'post anyway' is not ruled out")
+        self.assertRegex(out, r"(?i)watch", "the outside rule does not name watch's CI-fix push")
+        self.assertRegex(out, r"(?i)archive", "the outside rule does not name the archive-before-merge push")
+        self.assertRegex(out, r"(?i)post anyway", "the outside rule lost 'post anyway when the push time is not found'")
+        self.assertRegex(out, r"(?i)at most once per pushed head", "the outside rule lost the once-per-pushed-head rule")
+        self.assertNotRegex(ins, r"(?i)at most once per pushed head", "the pass rule still carries the once-per-pushed-head rule")
+
+
+class CleanupBranchCheck(unittest.TestCase):
+    """Cleanup deletes a merged change branch only when `branch-check` says main has its work."""
+
+    def bullets(self):
+        cleanup = SECTIONS["cleanup after merge"][1]
+        store = re.search(r"^- Store-backed: .*$", cleanup, re.M)
+        local = re.search(r"^- Repo-local: .*$", cleanup, re.M)
+        self.assertTrue(store and local, "Cleanup after merge lacks its store-backed or repo-local bullet")
+        return {"store-backed": store.group(0), "repo-local": local.group(0)}
+
+    def test_cleanup_runs_branch_check_before_deleting(self):
+        for name, b in self.bullets().items():
+            check = re.search(r"branch-check", b)
+            self.assertTrue(check, f"the {name} cleanup bullet never runs `branch-check`")
+            pull = b.find("pull --ff-only")
+            self.assertTrue(0 <= pull < check.start(), f"the {name} bullet does not run `branch-check` after `pull --ff-only`")
+            for m in re.finditer(r"branch -D", b):
+                self.assertLess(check.start(), m.start(), f"the {name} bullet deletes with -D before `branch-check`")
+            self.assertRegex(b, r"delete: true", f"the {name} bullet does not delete only on `delete: true`")
+            self.assertRegex(b, r"(?i)otherwise[^.]*keep[^.]*branch|keep[^.]*branch[^.]*otherwise", f"the {name} bullet does not keep the branch otherwise")
+            self.assertRegex(b, r"`lacking`", f"the {name} bullet does not report the `lacking` commits")
+            self.assertRegex(b, r"`head_unknown`", f"the {name} bullet does not report `head_unknown`")
+        local = self.bullets()["repo-local"]
+        self.assertRegex(local, r"branch -D", "the repo-local bullet never deletes with -D on `delete: true`")
+        self.assertRegex(local, r"--head <head_sha>", "the repo-local `branch-check` is not given `--head`")
+        self.assertRegex(local, r"discover[^`]*--state merged", "the repo-local `--head` does not come from `discover --state merged`")
+        self.assertRegex(local, r"`head_sha`", "the repo-local `--head` is not `discover`'s `head_sha`")
+        self.assertRegex(local, r"`newest`", "the repo-local text does not pick `newest` when several PRs merged")
+        self.assertNotRegex(local, r"(?i)\bpr view\b[^.]*headRefOid", "the repo-local `--head` comes from `gh pr view`")
+        text = SECTIONS["cleanup after merge"][1]
+        self.assertNotRegex(text, r"force_delete_allowed", "the cleanup text still mentions `force_delete_allowed`")
+        self.assertNotRegex(text, r"-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip",
+                            "the cleanup text still deletes with -D when headRefOid equals the local tip")
 
 
 if __name__ == "__main__":

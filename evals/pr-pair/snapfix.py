@@ -145,12 +145,13 @@ class SnapCase(unittest.TestCase):
         self.assertEqual(len(lines), 1, f"want one JSON line, got {r.stdout!r} / {r.stderr!r}")
         return json.loads(lines[0])
 
-    def reply(self, *args, login="me", env=None, body=None):
-        """pr-reply.sh <PR> <args...> --repo SLUG. With `body`, it is written to a file and its path is appended to args
-        wherever the literal "BODY" appears. Returns the CompletedProcess (the caller checks the exit code)."""
+    def reply(self, *args, login="me", env=None, body=None, repo=True):
+        """pr-reply.sh <PR> <args...> --repo SLUG (no --repo when `repo` is false). With `body`, it is written to a file and
+        its path is appended to args wherever the literal "BODY" appears. Returns the CompletedProcess (the caller checks
+        the exit code)."""
         args = list(args)
         if body is not None:
             f = self.tmp / "body.md"
             f.write_text(body, encoding="utf-8", newline="\n")
             args = [fixtures.posix(f) if a == "BODY" else a for a in args]
-        return self.run_script(REPLY, self.PR, *args, "--repo", self.SLUG, login=login, env=env)
+        return self.run_script(REPLY, self.PR, *args, *(["--repo", self.SLUG] if repo else []), login=login, env=env)
