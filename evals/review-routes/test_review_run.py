@@ -501,5 +501,312 @@ class RunTests(Base):
         self.preship("subagent", expect=2)
 
 
+SPEC_TEXT = "### Requirement: X\n\nThe system SHALL do X.\n"
+ARCHIVE_SUBJECT = f"chore({CHANGE}): archive change"
+
+
+class RecordGateTests(Base):
+    """record, waive, gate, archive-only and rounds (add-preship-review, group 4)."""
+
+    def setUp(self):
+        super().setUp()
+        for d in (self.code, self.store):
+            self.plan(d)
+
+    def plan(self, d):
+        self.commit(d, {f"openspec/changes/{CHANGE}/proposal.md": "# proposal\n",
+                        f"openspec/changes/{CHANGE}/specs/foo/spec.md": SPEC_TEXT}, f"docs({CHANGE}): plan")
+
+    def archive(self, d, dated=True, extra=None, subject=ARCHIVE_SUBJECT):
+        name = f"2026-10-12-{CHANGE}" if dated else CHANGE
+        (d / "openspec" / "changes" / "archive").mkdir(parents=True, exist_ok=True)
+        self.git(d, "mv", f"openspec/changes/{CHANGE}", f"openspec/changes/archive/{name}")
+        files = {"openspec/specs/foo/spec.md": SPEC_TEXT, **(extra or {})}
+        self.commit(d, files, subject)
+
+    def head(self, d, rev="HEAD"):
+        return self.git(d, "rev-parse", rev)
+
+    def findings_file(self, findings=VALID, name="subagent-findings.json"):
+        return self.put(name, json.dumps(findings))
+
+    def record(self, findings=VALID, store=False, expect=0, kind="preship", route="subagent"):
+        args = ["record", "--kind", kind, "--change", CHANGE, "--result", self.findings_file(findings), "--route", route,
+                "--settings", self.settings]
+        if store:
+            args += ["--store", self.store]
+        return self.script(*args, expect=expect)
+
+    def gate(self, store=False, expect=0):
+        args = ["gate", "--change", CHANGE, "--settings", self.settings]
+        if store:
+            args += ["--store", self.store]
+        return self.script(*args, expect=expect)
+
+    def waive(self, finding="F1", reason="accepted risk", store=False, expect=0):
+        args = ["waive", "--change", CHANGE, "--finding", finding, "--reason", reason, "--settings", self.settings]
+        if store:
+            args += ["--store", self.store]
+        return self.script(*args, expect=expect)
+
+    def archive_only(self, base, head, d=None, expect=0, **kw):
+        args = ["archive-only", "--base", base, "--head", head, "--change", CHANGE]
+        if d is not None:
+            args += ["--dir", d]
+        for k, v in kw.items():
+            args += [f"--{k}", v]
+        return self.script(*args, expect=expect)
+
+    def record_files(self):
+        return sorted(self.state_dir.rglob("*.json")) if self.state_dir.exists() else []
+
+    # ---- record ----------------------------------------------------------------------------------------
+    def test_store_backed_record_names_both_heads(self):
+        code_head, store_head = self.head(self.code), self.head(self.store)
+        out = self.record(store=True)
+        rec_path = self.state_dir / "reviews" / self.repo_key() / CHANGE / f"{code_head}+{store_head}.json"
+        self.assertTrue(rec_path.is_file(), out)
+        rec = json.loads(rec_path.read_text(encoding="utf-8"))
+        self.assertEqual(rec["heads"], {"code": code_head, "store": store_head})
+        self.assertEqual((rec["kind"], rec["change"], rec["route"], rec["waivers"], rec["findings"]),
+                         ("preship", CHANGE, "subagent", [], VALID))
+        for k in ("base", "receipt", "at"):
+            self.assertIn(k, rec)
+        self.assertNotIn("outcome", rec)
+
+    def test_record_preship_repo_local_keyed_by_code_head(self):
+        out = self.record()
+        self.assertEqual(Path(out["record"]).name, f"{self.head(self.code)}.json")
+
+    def test_record_preship_invalid_exit_3_no_record(self):
+        out = self.record({"summary": "x"}, expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertEqual(self.record_files(), [])
+
+    def test_record_preship_prose_exit_3_no_record(self):
+        p = self.put("prose.json", "no issues found\n")
+        out = self.script("record", "--kind", "preship", "--change", CHANGE, "--result", p, "--route", "subagent",
+                          "--settings", self.settings, expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertEqual(self.record_files(), [])
+
+    def test_record_design_valid_writes_no_record(self):
+        review = self.put("review.md", VERDICT_OK)
+        out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
+                          "--settings", self.settings)
+        self.assertTrue(out["ok"])
+        self.assertEqual(self.record_files(), [])
+
+    def test_record_design_two_verdicts_invalid(self):
+        review = self.put("review.md", "VERDICT: a\nVERDICT: b\nCHANGES_APPLIED: none\n")
+        out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
+                          "--settings", self.settings, expect=3)
+        self.assertEqual(out["status"], "invalid")
+
+    # ---- gate ------------------------------------------------------------------------------------------
+    def test_gate_missing_without_record(self):
+        out = self.gate()
+        self.assertEqual((out["status"], out["reviewed_heads"]), ("missing", None))
+        self.assertEqual(out["heads"], {"code": self.head(self.code)})
+
+    def test_gate_pass_with_only_p2_p3(self):
+        self.record({"summary": "ok", "findings": [MINOR, {**MINOR, "id": "F3", "priority": "P3"}]})
+        out = self.gate()
+        self.assertEqual((out["status"], out["open"]), ("pass", []))
+        self.assertEqual(out["reviewed_heads"], out["heads"])
+
+    def test_gate_blocked_with_p1(self):
+        self.record()
+        out = self.gate()
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual([f["id"] for f in out["open"]], ["F1"])
+
+    def test_gate_missing_after_new_commit(self):
+        self.record()
+        self.commit(self.code, {"mathutil.py": "def clamp(v, lo, hi):\n    return v\n"}, f"fix({CHANGE}): clamp")
+        self.assertEqual(self.gate()["status"], "missing")
+
+    def test_waive_turns_blocked_into_pass(self):
+        self.record()
+        out = self.waive("F1", "accepted: clamp is a stub")
+        self.assertTrue(out["ok"])
+        gate = self.gate()
+        self.assertEqual((gate["status"], gate["open"]), ("pass", []))
+        rec = json.loads(Path(self.record_files()[0]).read_text(encoding="utf-8"))
+        self.assertEqual(len(rec["waivers"]), 1)
+        self.assertEqual((rec["waivers"][0]["id"], rec["waivers"][0]["reason"]), ("F1", "accepted: clamp is a stub"))
+        self.assertIn("at", rec["waivers"][0])
+        self.assertEqual(list(Path(self.record_files()[0]).parent.glob("*.tmp")), [])
+
+    def test_waive_unknown_finding_exit_1(self):
+        self.record()
+        out = self.waive("F99", expect=1)
+        self.assertIn("F99", out["message"])
+        self.assertEqual(self.gate()["status"], "blocked")
+
+    def test_waive_without_record_exit_1(self):
+        out = self.waive(expect=1)
+        self.assertEqual(out["error"], "no_record")
+
+    def test_waive_store_backed_targets_both_heads_record(self):
+        self.record(store=True)
+        self.waive(store=True)
+        self.assertEqual(self.gate(store=True)["status"], "pass")
+
+    def test_gate_store_backed_missing_when_store_moves(self):
+        self.record(store=True)
+        self.commit(self.store, {"plan.md": "# plan 2\n"}, f"docs({CHANGE}): more")
+        self.assertEqual(self.gate(store=True)["status"], "missing")
+
+    def test_gate_missing_after_non_archive_commit(self):
+        self.record({"summary": "ok", "findings": []})
+        self.commit(self.code, {"extra.py": "x = 1\n"}, f"feat({CHANGE}): extra")
+        self.assertEqual(self.gate()["status"], "missing")
+
+    def test_gate_accepts_archive_commit_repo_local(self):
+        reviewed = self.head(self.code)
+        self.record({"summary": "ok", "findings": []})
+        self.archive(self.code)
+        out = self.gate()
+        self.assertEqual(out["status"], "pass")
+        self.assertEqual(out["reviewed_heads"], {"code": reviewed})
+        self.assertEqual(out["heads"], {"code": self.head(self.code)})
+
+    def test_gate_archive_commit_still_blocked_when_record_blocked(self):
+        self.record()
+        self.archive(self.code)
+        self.assertEqual(self.gate()["status"], "blocked")
+
+    def test_gate_archive_plus_other_commit_is_missing(self):
+        self.record({"summary": "ok", "findings": []})
+        self.archive(self.code)
+        self.commit(self.code, {"extra.py": "x = 1\n"}, f"feat({CHANGE}): extra")
+        self.assertEqual(self.gate()["status"], "missing")
+
+    def test_gate_archive_commit_touching_other_files_is_missing(self):
+        self.record({"summary": "ok", "findings": []})
+        self.archive(self.code, extra={"src.py": "x = 1\n"})
+        self.assertEqual(self.gate()["status"], "missing")
+
+    def test_gate_accepts_store_archive_commit(self):
+        code_head, reviewed_store = self.head(self.code), self.head(self.store)
+        self.record({"summary": "ok", "findings": []}, store=True)
+        self.archive(self.store)
+        out = self.gate(store=True)
+        self.assertEqual(out["status"], "pass")
+        self.assertEqual(out["reviewed_heads"], {"code": code_head, "store": reviewed_store})
+        self.assertEqual(out["heads"], {"code": code_head, "store": self.head(self.store)})
+
+    def test_gate_store_archive_does_not_cover_code_moving(self):
+        self.record({"summary": "ok", "findings": []}, store=True)
+        self.archive(self.store)
+        self.commit(self.code, {"extra.py": "x = 1\n"}, f"feat({CHANGE}): extra")
+        self.assertEqual(self.gate(store=True)["status"], "missing")
+
+    # ---- archive-only ----------------------------------------------------------------------------------
+    def test_archive_only_true_for_archive_commit(self):
+        base = self.head(self.code)
+        self.archive(self.code)
+        out = self.archive_only(base, self.head(self.code))
+        self.assertEqual(out["archive_only"], True)
+        self.assertIn("reason", out)
+
+    def test_archive_only_true_undated_archive_name(self):
+        base = self.head(self.code)
+        self.archive(self.code, dated=False)
+        self.assertTrue(self.archive_only(base, self.head(self.code))["archive_only"])
+
+    def test_archive_only_false_outside_paths(self):
+        base = self.head(self.code)
+        self.archive(self.code, extra={"README.md": "edit\n"})
+        out = self.archive_only(base, self.head(self.code))
+        self.assertEqual(out["archive_only"], False)
+        self.assertIn("README.md", out["reason"])
+
+    def test_archive_only_false_spec_of_other_capability(self):
+        base = self.head(self.code)
+        self.archive(self.code, extra={"openspec/specs/other/spec.md": SPEC_TEXT})
+        self.assertFalse(self.archive_only(base, self.head(self.code))["archive_only"])
+
+    def test_archive_only_false_two_commits(self):
+        base = self.head(self.code)
+        self.commit(self.code, {"extra.py": "x = 1\n"}, f"feat({CHANGE}): extra")
+        self.archive(self.code)
+        out = self.archive_only(base, self.head(self.code))
+        self.assertEqual(out["archive_only"], False)
+        self.assertRegex(out["reason"], "commit")
+
+    def test_archive_only_false_wrong_subject(self):
+        base = self.head(self.code)
+        self.archive(self.code, subject=f"chore({CHANGE}): tidy up")
+        self.assertFalse(self.archive_only(base, self.head(self.code))["archive_only"])
+
+    def test_archive_only_false_other_change_name_in_subject(self):
+        base = self.head(self.code)
+        self.archive(self.code, subject="chore(other-change): archive change")
+        self.assertFalse(self.archive_only(base, self.head(self.code))["archive_only"])
+
+    def test_archive_only_custom_prefix(self):
+        self.git(self.code, "mv", "openspec", "plans")
+        self.git(self.code, "commit", "-q", "-m", "chore: move planning root")
+        base = self.head(self.code)
+        (self.code / "plans" / "changes" / "archive").mkdir(parents=True, exist_ok=True)
+        self.git(self.code, "mv", f"plans/changes/{CHANGE}", f"plans/changes/archive/{CHANGE}")
+        self.commit(self.code, {"plans/specs/foo/spec.md": SPEC_TEXT}, ARCHIVE_SUBJECT)
+        self.assertFalse(self.archive_only(base, self.head(self.code))["archive_only"])
+        self.assertTrue(self.archive_only(base, self.head(self.code), prefix="plans")["archive_only"])
+
+    def test_archive_only_in_store_dir(self):
+        base = self.head(self.store)
+        self.archive(self.store)
+        out = self.archive_only(base, self.head(self.store), d=self.store)
+        self.assertEqual(out["archive_only"], True)
+        # the same shas mean nothing in the code repo: a git error stops (exit 1), never a false positive
+        out = self.script("archive-only", "--base", base, "--head", self.head(self.store), "--change", CHANGE, expect=1)
+        self.assertEqual(out["ok"], False)
+
+    # ---- rounds ----------------------------------------------------------------------------------------
+    def round_commit(self, d, n, name):
+        self.commit(d, {name: f"{n}\n"}, f"fix({CHANGE}): address pre-ship review\n\nPreship-Round: {n}")
+
+    def rounds(self, store=False):
+        args = ["rounds", "--change", CHANGE, "--settings", self.settings]
+        if store:
+            args += ["--store", self.store]
+        return self.script(*args)
+
+    def test_rounds_zero_without_trailers(self):
+        self.assertEqual(self.rounds()["rounds"], 0)
+
+    def test_rounds_reads_preship_round_trailers(self):
+        self.round_commit(self.code, 1, "a.txt")
+        self.round_commit(self.code, 2, "b.txt")
+        self.assertEqual(self.rounds()["rounds"], 2)
+
+    def test_rounds_takes_highest_across_both_repos(self):
+        self.round_commit(self.code, 1, "a.txt")
+        self.round_commit(self.store, 2, "b.txt")
+        self.assertEqual(self.rounds(store=True)["rounds"], 2)
+        self.assertEqual(self.rounds()["rounds"], 1)
+
+    def test_rounds_without_records_from_git(self):
+        self.round_commit(self.code, 1, "a.txt")
+        self.round_commit(self.code, 2, "b.txt")
+        self.record()
+        shutil.rmtree(self.state_dir)  # a new session or machine: no records
+        self.assertEqual(self.rounds()["rounds"], 2)
+
+    def test_rounds_ignores_commits_on_main(self):
+        self.git(self.code, "checkout", "-q", "main")
+        self.round_commit(self.code, 5, "m.txt")
+        self.git(self.code, "checkout", "-q", "feat/demo")
+        self.git(self.code, "merge", "-q", "--no-edit", "main")
+        self.assertEqual(self.rounds()["rounds"], 0)
+
+    def test_rounds_ignores_feedback_trailer(self):
+        self.commit(self.code, {"f.txt": "1\n"}, f"fix({CHANGE}): address review feedback\n\nFeedback-Round: 3")
+        self.assertEqual(self.rounds()["rounds"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
