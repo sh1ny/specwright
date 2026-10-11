@@ -31,7 +31,7 @@ None of A, M, B in any repo → report that no archive of `<change-name>` was fo
 | code repo, the newest store A's body has the line `Archive-Scope: store-only` | out of scope: report the code branch and its PR state, touch nothing; the repo counts as done |
 | `pr`, the branch's PR merged, B | **After the PR is merged** cleanup, not ship |
 | `pr`, the branch's PR merged, not B | only the issues-left-open backstop (`closed-check`, `specwright-pr` **Cleanup after merge**), no branch deletion; repo done. `closed-check` exits 3 → repo not done, report that the backstop did not run |
-| M and B | `git checkout <main> && git branch -d <branch>`, no merge; in `pr` mode **After the PR is merged** instead, so `branch-check` decides the deletion |
+| M and B | `git checkout <main> && git branch -d <branch>`, no merge. In `pr` mode (reached only with no merged PR, since the merged-PR rows come first: the change was merged locally) `git checkout <main> && git pull --ff-only`, then `[as] bash scripts/pr-pair.sh branch-check --dir <toplevel> --branch <branch> --main <main>` without `--head`, since M already puts the tip on main; `delete: true` → `git branch -D <branch>`, otherwise keep the branch and report its `lacking` commits. No merge, and no `closed-check`: no PR merged |
 | M, not B | repo done |
 | `local`, A on main through the archive directory, not M, not B | repo done (another change's merge carried the archive) |
 | code repo with no A, M or B; store done; the store's archive is marked `code_changes: none` | repo done (a planning-only change) |

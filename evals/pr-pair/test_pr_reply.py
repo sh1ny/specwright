@@ -165,7 +165,7 @@ class ReplyBody(ReplyCase):
         self.assertEqual(body.rstrip("\n").splitlines()[-1], f"<!-- specwright:handled {tid} -->")
 
     def refused(self, r, path):
-        self.assertNotEqual(r.returncode, 0, "a reply without its body must fail")
+        self.assertEqual(r.returncode, 4, "a reply without its body exits 4, not 2 (a pending review)")
         self.assertIn(str(path), r.stderr, "stderr names the body file")
         self.assertEqual(self.gh_calls(), [], "no GitHub request at all")
 
@@ -187,7 +187,7 @@ class ReplyBody(ReplyCase):
                      ("resolve",), ("nope",)):
             for repo in (True, False):
                 r = self.reply(*args, repo=repo)
-                self.assertEqual(r.returncode, 2, (args, repo, r.stderr))
+                self.assertEqual(r.returncode, 4, (args, repo, r.stderr))
                 self.assertEqual(self.gh_calls(), [], (args, repo, "no GitHub request at all"))
 
     def test_reply_refuses_empty_body_file(self):
@@ -208,6 +208,30 @@ class ReplyBody(ReplyCase):
         path = fixtures.posix(f)
         self.refused(self.reply("thread", tid, c["databaseId"], path), path)
         self.refused(self.reply("comment", "IC_x", path), path)
+
+
+class ReplyMarkerWrite(ReplyCase):
+    """The reply with its marker is written in full before any GitHub call, and a failed write says so."""
+
+    def fake_mktemp(self, path):
+        f = self.tmp / "bin" / "mktemp"
+        f.write_text(f'#!/bin/sh\necho "{path}"\n', encoding="utf-8", newline="\n")
+        f.chmod(0o755)
+
+    def test_failed_marker_write_makes_no_github_call(self):
+        tid, c = self.add_thread("rev", "please fix")
+        self.fake_mktemp(fixtures.posix(self.tmp / "no-such-dir" / "reply.md"))  # cat > it fails
+        f = self.tmp / "body.md"
+        f.write_text("done", encoding="utf-8")
+        path = fixtures.posix(f)
+        for args in (("thread", tid, c["databaseId"], path, "--resolve", "--rev", self.rev_of(c)),
+                     ("comment", "IC_x", path, "--rev", "x")):
+            r = self.reply(*args)
+            self.assertEqual(r.returncode, 4, (args, r.stderr))
+            self.assertIn(path, r.stderr, "stderr names the body file")
+            self.assertIn("nothing was posted", r.stderr)
+            self.assertEqual(self.gh_calls(), [], (args, "no GitHub request at all"))
+        self.assert_untouched(tid)
 
 
 class ReplyTempFiles(ReplyCase):

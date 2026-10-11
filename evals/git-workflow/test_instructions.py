@@ -722,9 +722,20 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertNotRegex(b, r"-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip",
                             "the cleanup still deletes with -D when headRefOid equals the local tip")
         self.assertNotIn("force_delete_allowed", read(FINISH), "finish still mentions `force_delete_allowed`")
+
+    def test_finish_resume_m_and_b_in_pr_mode_needs_no_pr(self):
+        """A merged PR matches an earlier row, so pr mode reaches M and B only after a local merge, with no PR to give
+        `--head`. M already puts the tip on main, so `branch-check` runs without `--head` and still decides the deletion."""
         row = resume_row(resume_section(), "M and B")
-        self.assertRegex(row, r"(?is)`pr`.*After the PR is merged|After the PR is merged.*`pr`",
-                         "the M and B row does not send pr mode to After the PR is merged, so `branch-check` decides the deletion")
+        self.assertRegex(row, r"`pr` mode", "the M and B row has no pr-mode path")
+        self.assertNotRegex(row, r"After the PR is merged", "M and B in pr mode still needs a merged PR's head")
+        check = re.search(r"branch-check[^;]*without `--head`", row)
+        self.assertTrue(check, "M and B in pr mode does not run `branch-check` without `--head`")
+        pull = row.find("pull --ff-only")
+        self.assertTrue(0 <= pull < check.start(), "`branch-check` does not run after `pull --ff-only`")
+        self.assertRegex(row[check.start():], r"delete: true[^;]*branch -D", "the row does not delete with -D on `delete: true`")
+        self.assertRegex(row, r"`lacking`", "the row does not report the `lacking` commits")
+        self.assertRegex(row, r"(?i)no `closed-check`", "the row runs the backstop for a PR that does not exist")
 
     def test_finish_resume_archive_directory_is_planning_repo_only(self):
         s = resume_section()
