@@ -120,7 +120,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
   - Change the prompts of `eval-roadmap-next-gap` and `eval-roadmap-next-gap-dirty-main` from next to close. Close finds the criterion failing and proposes the gap change, which the user accepts as `add-farewell`. Their assertions stay unchanged.
 
   Verify with one graded run of each of the four cases, and that `eval-store-roadmap-local` still passes. Flip those rows green.
-- [ ] 3.5 Check the README against the behaviour (CONTRIBUTING "README follows behaviour"): the "whole project" line (next to start each change, close to finish a milestone) and the `specwright-roadmap` row of the skills table. Update them where the milestone end or the agreed split changes what they say. Verify by naming the sections checked in the commit body.
+- [x] 3.5 Check the README against the behaviour (CONTRIBUTING "README follows behaviour"): the "whole project" line (next to start each change, close to finish a milestone) and the `specwright-roadmap` row of the skills table. Update them where the milestone end or the agreed split changes what they say. Verify by naming the sections checked in the commit body.
 
 ## 4. Release 0.1.12
 

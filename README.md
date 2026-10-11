@@ -187,7 +187,7 @@ example `PR workflow not ready: Python 3.8+`).
 
 **Several agents at once?** Give each change its own `git worktree`: the skills switch branches in the checkout they run in.
 
-**A whole project instead of one change?** Give the idea to `specwright-roadmap` **init**, then use **next** to start each change and **close** to finish a milestone.
+**A whole project instead of one change?** Give the idea to `specwright-roadmap` **init**, then use **next** to start each change and **close** to finish a milestone: once every change of the milestone is done, **next** offers **close** instead of starting anything. Only the current milestone is split into changes, unless you explicitly agree a split for the next one; **close** then keeps it.
 
 ---
 
