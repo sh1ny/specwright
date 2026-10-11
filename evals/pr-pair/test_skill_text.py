@@ -471,5 +471,54 @@ class BodyFiles(unittest.TestCase):
         self.assertTrue(seen, "no script calls mktemp; the check is vacuous")
 
 
+class FeedbackRerequest(unittest.TestCase):
+    """Feedback re-requests from a fresh snapshot of the pushed head, planned by `pass plan`; the Settings rule is scoped."""
+
+    def feedback(self):
+        return SECTIONS["feedback"][1]
+
+    def step9(self):
+        m = re.search(r"^9\. .*$", self.feedback(), re.M)
+        self.assertTrue(m, "feedback has no step 9")
+        return m.group(0)
+
+    def resume_bullet(self):
+        fb = self.feedback()
+        at = fb.index("   - `resume`")
+        return fb[at:fb.index("\n   - `stop`", at)]
+
+    def settings_rule(self):
+        m = re.search(r"^\*\*Re-request review\*\*.*$", TEXT, re.M)
+        self.assertTrue(m, "SKILL.md has no **Re-request review** paragraph")
+        return m.group(0)
+
+    def test_feedback_snapshots_pushed_head_before_rerequest(self):
+        step9 = self.step9()
+        for where, text in (("feedback step 9", step9), ("the resume `rerequest` row", self.resume_bullet())):
+            snap = re.search(r"(?i)fresh snapshot of each pushed PR", text)
+            self.assertTrue(snap, f"{where} does not take a fresh snapshot of each pushed PR")
+            plan = re.search(r"`pass plan`", text[snap.end():])
+            self.assertTrue(plan, f"{where} does not run `pass plan` with the fresh snapshots after taking them")
+            self.assertRegex(text, r"(?i)before posting any request", f"{where} does not plan before posting any request")
+            self.assertRegex(text, r"(?i)only the requests whose `?rerequest`? row is not `done`", f"{where} posts requests whose row is done")
+            self.assertRegex(text, r"\breport (a |an )?`cutoff_source: pass_written`|`cutoff_source: pass_written`[^;]*\breport", f"{where} does not report a `cutoff_source: pass_written` row to the user")
+        self.assertRegex(step9, r"(?i)step 1[^.]*snapshots[^.]*(predate|have not seen|not seen)", "step 9 does not say why the step 1 snapshots are not used")
+
+    def test_rerequest_rule_is_scoped_to_inside_and_outside_a_pass(self):
+        rule = self.settings_rule()
+        inside = re.search(r"(?i)inside a feedback pass", rule)
+        outside = re.search(r"(?i)outside a (feedback )?pass", rule)
+        self.assertTrue(inside and outside, "the Re-request review paragraph does not split into inside and outside a feedback pass")
+        self.assertLess(inside.start(), outside.start(), "the outside-a-pass rule comes before the inside rule")
+        ins, out = rule[inside.start():outside.start()], rule[outside.start():]
+        self.assertRegex(ins, r"`pass plan`[^.]*`rerequest` row[^.]*decides", "inside a pass the `pass plan` row does not decide")
+        self.assertRegex(ins, r"(?i)post anyway[^.]*(does not|doesn't) apply", "inside a pass 'post anyway' is not ruled out")
+        self.assertRegex(out, r"(?i)watch", "the outside rule does not name watch's CI-fix push")
+        self.assertRegex(out, r"(?i)archive", "the outside rule does not name the archive-before-merge push")
+        self.assertRegex(out, r"(?i)post anyway", "the outside rule lost 'post anyway when the push time is not found'")
+        self.assertRegex(out, r"(?i)at most once per pushed head", "the outside rule lost the once-per-pushed-head rule")
+        self.assertNotRegex(ins, r"(?i)at most once per pushed head", "the pass rule still carries the once-per-pushed-head rule")
+
+
 if __name__ == "__main__":
     unittest.main()
