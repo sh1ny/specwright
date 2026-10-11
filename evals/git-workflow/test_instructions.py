@@ -713,6 +713,15 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(before, r"pull --ff-only", "main is not pulled before reporting no archive")
         self.assertRegex(before, r"read the three facts again", "the facts are not read again after the pull")
 
+    def test_finish_resume_checks_dirty_tree_before_pulling_main(self):
+        """The pr-mode pull must not check out main over uncommitted changes and skip the stop-and-ask guard."""
+        text = read(FINISH)
+        at = text.index("None of A, M, B in any repo")
+        rule = text[at:text.index("\n", at)]
+        self.assertIn("git status --porcelain", rule, "the no-archive rule has no dirty-tree check")
+        self.assertLess(rule.index("git status --porcelain"), rule.index("git checkout <main>"), "main is checked out before the dirty-tree check")
+        self.assertRegex(rule[:rule.index("git checkout <main>")], r"(?i)stop, list the files and ask", "a dirty tree does not stop and ask")
+
     def test_finish_resume_merged_pr_is_the_newest_of_any_state(self):
         """A reused branch name can leave an older generation's merged PR behind a newer open one: `--state merged` would
         hide the newer PR and finish the new change on the old archive. The branch's PR is the newest of any state."""

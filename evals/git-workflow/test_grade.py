@@ -105,6 +105,13 @@ class ChangingCommands(unittest.TestCase):
             self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
         self.assertEqual(grade.changing_gh([{"argv": ["api", "graphql", "-fquery={ viewer { login } }"]}]), [])
 
+    def test_branch_format_is_a_read(self):
+        for c in (["branch", "--format", "%(refname:short)"], ["branch", "--format=%(refname:short)"],
+                  ["branch", "-a", "--format", "%(refname:short) %(upstream)"]):
+            self.assertEqual(grade.changing_git([c]), [], c)
+        for c in (["branch", "--format", "%(refname)", "new"], ["branch", "new"]):
+            self.assertEqual(grade.changing_git([c]), [c], c)
+
     def test_git_pull_is_a_change(self):
         for c in (["pull"], ["pull", "--ff-only"], ["pull", "--rebase", "origin", "main"]):
             self.assertEqual(grade.changing_git([c]), [c], c)

@@ -344,6 +344,7 @@ def git_trace(repo):
 
 
 BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}
+BRANCH_VALUE = {"--format", "--sort"}  # options whose separate argument is a value, not a branch name (neither forces list mode)
 BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
                 "--unset-upstream", "--edit-description", "-t", "--track"}
 ALWAYS_WRITE = {"commit", "merge", "rebase", "cherry-pick", "reset", "revert", "push", "tag", "am", "stash", "pull"}
@@ -363,8 +364,9 @@ def changing_git(cmds):
         if sub in ALWAYS_WRITE:
             bad.append(c)
         elif sub == "branch":
-            positional = [a for a in rest if not a.startswith("-")]
-            if BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & set(rest)):
+            positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in BRANCH_VALUE)]
+            flags = {a.split("=", 1)[0] for a in rest if a.startswith("-")}
+            if BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & flags):
                 bad.append(c)
         elif sub in ("checkout", "switch") and (CHECKOUT_WRITE & set(rest) or any(not a.startswith("-") or a == "--" for a in rest)):
             bad.append(c)
