@@ -364,6 +364,13 @@ class ProjectPlanning(unittest.TestCase):
         self.assertRegex(sec, r"`milestone end: run close`", "status does not name the milestone end as what next would do")
         self.assertRegex(sec, r"(?s)`milestone end: run close`.{0,160}unless an exit criterion was shown failing by \*\*close\*\* or reported failing by the user",
                          "status names the milestone end even after close found a criterion failing")
+        self.assertRegex(sec, r"(?i)what it waits for when no change is ready to start",
+                         "status does not name what next waits for when no change is ready")
+
+    def test_roadmap_next_reports_what_it_waits_for(self):
+        s3 = mode_step("next", 3)
+        self.assertRegex(s3, r"(?s)When no planned change is ready to start.{0,200}report what it waits for.{0,80}start nothing",
+                         "next does not say what to report when every planned change waits on a prerequisite")
 
     def test_roadmap_milestone_end_names_both_gap_triggers(self):
         end = find_block(mode_step("next", 3), r"(?i)milestone end")
