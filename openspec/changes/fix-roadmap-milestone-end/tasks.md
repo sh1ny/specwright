@@ -124,7 +124,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 
 ## 4. Release 0.1.12
 
-- [ ] 4.1 Bump to 0.1.12: `VERSION`, the README badge and `metadata.version` in all six `skills/*/SKILL.md`. Verify with `grep -rn "0\.1\.1[12]" VERSION README.md skills/*/SKILL.md`: only 0.1.12 appears where a version belongs.
+- [x] 4.1 Bump to 0.1.12: `VERSION`, the README badge and `metadata.version` in all six `skills/*/SKILL.md`. Verify with `grep -rn "0\.1\.1[12]" VERSION README.md skills/*/SKILL.md`: only 0.1.12 appears where a version belongs.
 
 ## 5. Integration checks
 
