@@ -675,6 +675,14 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(row, r"(?i)not ship", "the B row may ship again")
         self.assertLess(s.index("PR merged, B |"), s.index("PR merged, not B |"), "the B row is not checked before the not-B row")
 
+    def test_finish_resume_merged_pr_rows_come_before_m_rows(self):
+        """First match wins: a pr-mode merged PR must reach its rows even when main has `merge: <change-name>` (a merged
+        PR that kept that subject, or cleanup interrupted after the branch was deleted), or the backstop is skipped."""
+        s = resume_section()
+        for m_row in ("| M and B |", "| M, not B |"):
+            for pr_row in ("PR merged, B |", "PR merged, not B |"):
+                self.assertLess(s.index(pr_row), s.index(m_row), f"{pr_row!r} is checked after {m_row!r}")
+
     def test_finish_resume_backstop_exit_3_is_not_done(self):
         s = resume_section()
         row = resume_row(s, r"`pr`, the branch's PR merged, not B[^|]*")
