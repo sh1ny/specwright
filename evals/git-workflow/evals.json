@@ -892,6 +892,81 @@
         "M1 is in Done with a date",
         "No commit was amended"
       ]
+    },
+    {
+      "id": 51,
+      "name": "eval-store-ship-code-push-rejected",
+      "skills": [
+        "specwright-pr"
+      ],
+      "prompt": "Ship the add-greeting change: push it and open the pull requests.",
+      "expected_output": "Both repos have a GitHub origin and finish is pr, so the expected set is a store PR and a code PR. The store push succeeds (the branch reaches a local bare repo) and the code push fails (git cannot reach GitHub): pushes both repos before it touches any pull request, so after the code push fails it opens and changes no pull request in either repo (no store PR, no code PR, no link comment), does not fall back to another account, reports that the code push failed with its error, does not call the change ready, and leaves both repos' branches, commits and trees as they were.",
+      "assertions": [
+        "No gh call created or changed a pull request or a comment in either repo, and neither fake repo has a pull request",
+        "No gh call switched accounts (gh auth switch) or asked for another login's token; only the configured account eval-bot was used",
+        "The store branch feat/add-greeting is on the local bare repo at the store's tip, and the store's origin still points at GitHub",
+        "Both repos are still on feat/add-greeting with no new commit and a clean tree, both mains are unchanged, and the code repo has no remote-tracking branch",
+        "No commit was amended in either repo",
+        "The report names the code push as the step that failed and shows its error (unreachable, could not connect, proxy or rejected)",
+        "The report says no pull request was opened in either repo",
+        "The report does not call the change ready"
+      ]
+    },
+    {
+      "id": 52,
+      "name": "eval-store-ship-code-push-rejected-store-pr-open",
+      "skills": [
+        "specwright-pr"
+      ],
+      "prompt": "Ship the add-greeting change: push it and open the pull requests.",
+      "expected_output": "Both repos have a GitHub origin and finish is pr; store PR #3 is already open. The store push succeeds and the code push fails: opens no code PR, leaves store PR #3 as it was (no description rewrite, no link comment, no review request), does not fall back to another account, reports that the code push failed with its error, does not call the change ready, and leaves both repos' branches, commits and trees as they were.",
+      "assertions": [
+        "No gh call created or changed a pull request or a comment in either repo, and the code repo has no pull request",
+        "Store PR #3 is still the only store PR, open, with its description unchanged and no comment, link marker or review request added",
+        "No gh call switched accounts (gh auth switch) or asked for another login's token; only the configured account eval-bot was used",
+        "The store branch feat/add-greeting is on the local bare repo at the store's tip, and the store's origin still points at GitHub",
+        "Both repos are still on feat/add-greeting with no new commit and a clean tree, both mains are unchanged, and the code repo has no remote-tracking branch",
+        "No commit was amended in either repo",
+        "The report names the code push as the step that failed and shows its error (unreachable, could not connect, proxy or rejected)",
+        "The report does not call the change ready"
+      ]
+    },
+    {
+      "id": 53,
+      "name": "eval-finish-resume-squash-merged",
+      "skills": [
+        "specwright-finish"
+      ],
+      "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was squash-merged: main holds the archive directory under the subject Add greeting (#7), the local branch is deleted, and the PR description closes issue #12, which is already closed. Finish does not report that it found no archive: it runs the issues-left-open backstop once (one closed-check read of PR #7), makes no commit, merge or branch command, and reports Nothing to finish - archive is on main.",
+      "assertions": [
+        "Still on main with only main, main is unchanged and the working tree is clean",
+        "No git commit, merge, push or branch-changing command ran (the git trace)",
+        "Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)",
+        "No gh call created or changed a pull request, issue or comment",
+        "The report says Nothing to finish - archive is on main",
+        "The report does not say the archive was not found",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 54,
+      "name": "eval-finish-resume-merged-branch-gone",
+      "skills": [
+        "specwright-finish"
+      ],
+      "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was merged with a merge commit (Merge pull request #7) and cleanup already deleted the local branch; the PR description closes issue #12, which is already closed. No git branch deletion runs: finish runs the issues-left-open backstop once (one closed-check read of PR #7), makes no commit, merge or branch command, and reports Nothing to finish - archive is on main.",
+      "assertions": [
+        "Still on main with only main, main is unchanged and the working tree is clean",
+        "No git commit, merge, push or branch-changing command ran (the git trace)",
+        "No git branch -d or -D was attempted (the git trace holds none)",
+        "Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)",
+        "No gh call created or changed a pull request, issue or comment",
+        "The report says Nothing to finish - archive is on main",
+        "The report does not say the archive was not found",
+        "No commit was amended"
+      ]
     }
   ]
 }
