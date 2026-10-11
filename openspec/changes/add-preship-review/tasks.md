@@ -19,28 +19,28 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 | review-routes → Review input built by Specwright | Diff over the bound | evals/review-routes/test_review_run.py | test_diff_over_bound_stops_before_reviewer | green |
 | review-routes → Output validated, fails closed | Valid findings | evals/review-routes/test_review_run.py | test_valid_findings_recorded | green |
 | review-routes → Output validated, fails closed | Output that is not JSON | evals/review-routes/test_review_run.py | test_prose_output_invalid_no_fallthrough | green |
-| review-routes → Output validated, fails closed | Subagent design review without a verdict | evals/review-routes/test_review_run.py | test_record_design_without_verdict_invalid | red |
+| review-routes → Output validated, fails closed | Subagent design review without a verdict | evals/review-routes/test_review_run.py | test_record_design_without_verdict_invalid | green |
 | review-routes → Output validated, fails closed | Design review with two verdicts | evals/review-routes/test_review_run.py | test_design_two_verdicts_invalid_no_file | green |
 | review-routes → Output validated, fails closed | Reviewer exceeds the deadline | evals/review-routes/test_review_run.py | test_timeout_kills_reviewer_exit_3 | green |
 | review-routes → Every review records a receipt | OMP review receipt | evals/review-routes/test_review_run.py | test_receipt_omp_actual_model_from_session | green |
 | review-routes → Every review records a receipt | Model not reported | evals/review-routes/test_review_run.py | test_receipt_unknown_actual_model | green |
 | preship-review → Runs when every task is committed | Default settings | evals/review-routes/test_skill_text.py | test_commit_step3_runs_preship_before_handoff | green |
 | preship-review → Runs when every task is committed | Opted out | evals/review-routes/test_skill_text.py | test_commit_step3_preship_false_skips | green |
-| preship-review → Runs when every task is committed | Store-backed change | evals/review-routes/test_review_run.py | test_store_backed_record_names_both_heads | red |
-| preship-review → Passing review recorded per head | Clean review | evals/review-routes/test_review_run.py | test_gate_pass_with_only_p2_p3 | red |
-| preship-review → Passing review recorded per head | Blocking finding | evals/review-routes/test_review_run.py | test_gate_blocked_with_p1 | red |
-| preship-review → Passing review recorded per head | Fix after a blocking finding | evals/review-routes/test_review_run.py | test_gate_missing_after_new_commit; evals/review-routes/test_skill_text.py test_fix_subject_and_preship_round_trailer | red |
+| preship-review → Runs when every task is committed | Store-backed change | evals/review-routes/test_review_run.py | test_store_backed_record_names_both_heads | green |
+| preship-review → Passing review recorded per head | Clean review | evals/review-routes/test_review_run.py | test_gate_pass_with_only_p2_p3 | green |
+| preship-review → Passing review recorded per head | Blocking finding | evals/review-routes/test_review_run.py | test_gate_blocked_with_p1 | green |
+| preship-review → Passing review recorded per head | Fix after a blocking finding | evals/review-routes/test_review_run.py | test_gate_missing_after_new_commit; evals/review-routes/test_skill_text.py test_fix_subject_and_preship_round_trailer | green |
 | preship-review → Passing review recorded per head | Pre-ship fixes do not use up PR fix rounds | evals/pr-pair/test_pr_pair.py | test_rounds_ignore_preship_fix_commits | green |
-| preship-review → Waiver only from the user | User waives a finding | evals/review-routes/test_review_run.py | test_waive_turns_blocked_into_pass | red |
+| preship-review → Waiver only from the user | User waives a finding | evals/review-routes/test_review_run.py | test_waive_turns_blocked_into_pass | green |
 | preship-review → Waiver only from the user | No answer | evals/review-routes/test_skill_text.py | test_waive_only_after_user_answer | green |
 | preship-review → Ship and local merge require a pass | Ship with a pass on the head | evals/review-routes/test_skill_text.py | test_ship_gate_before_first_push | green |
-| preship-review → Ship and local merge require a pass | Ship after an unreviewed commit | evals/review-routes/test_review_run.py | test_gate_missing_after_non_archive_commit | red |
-| preship-review → Ship and local merge require a pass | Local merge after archive | evals/review-routes/test_review_run.py | test_gate_accepts_archive_commit_repo_local; evals/review-routes/test_skill_text.py test_finish_local_gate_before_merge | red |
-| preship-review → Ship and local merge require a pass | Store-backed local merge after archive | evals/review-routes/test_review_run.py | test_gate_accepts_store_archive_commit | red |
+| preship-review → Ship and local merge require a pass | Ship after an unreviewed commit | evals/review-routes/test_review_run.py | test_gate_missing_after_non_archive_commit | green |
+| preship-review → Ship and local merge require a pass | Local merge after archive | evals/review-routes/test_review_run.py | test_gate_accepts_archive_commit_repo_local; evals/review-routes/test_skill_text.py test_finish_local_gate_before_merge | green |
+| preship-review → Ship and local merge require a pass | Store-backed local merge after archive | evals/review-routes/test_review_run.py | test_gate_accepts_store_archive_commit | green |
 | preship-review → Ship and local merge require a pass | PR already exists | evals/review-routes/test_skill_text.py | test_ship_gate_only_when_no_pr_in_change | green |
 | preship-review → A failed review stops ship | Invalid output | evals/review-routes/test_skill_text.py | test_failed_review_stops_ship_and_merge | green |
-| preship-review → Repeated blocking reviews escalate | Blocked after the second round | evals/review-routes/test_review_run.py | test_rounds_reads_preship_round_trailers; evals/review-routes/test_skill_text.py test_escalate_after_round_2 | red |
-| preship-review → Repeated blocking reviews escalate | New session after two rounds | evals/review-routes/test_review_run.py | test_rounds_without_records_from_git | red |
+| preship-review → Repeated blocking reviews escalate | Blocked after the second round | evals/review-routes/test_review_run.py | test_rounds_reads_preship_round_trailers; evals/review-routes/test_skill_text.py test_escalate_after_round_2 | green |
+| preship-review → Repeated blocking reviews escalate | New session after two rounds | evals/review-routes/test_review_run.py | test_rounds_without_records_from_git | green |
 | preship-review → Spec findings classed | Contradictory wording | evals/review-routes/test_skill_text.py | test_clarification_amend_commit_and_rereview | green |
 | preship-review → Spec findings classed | Edit would change behaviour | evals/review-routes/test_skill_text.py | test_behaviour_change_asks_user | green |
 | preship-review → Spec findings classed | Approved behaviour change | evals/review-routes/test_skill_text.py | test_behaviour_change_follows_drift_rule | green |
@@ -49,12 +49,12 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 | install-update → Commented-out template keys optional | Reviewer entries are user data | evals/git-workflow/test_instructions.py | test_install_reviewer_entries_user_data | green |
 | install-update → Commented-out template keys optional | Same name at two paths | evals/git-workflow/test_instructions.py | test_install_compares_dotted_paths | green |
 | install-update → Commented-out template keys optional | Key really removed upstream | evals/git-workflow/test_instructions.py | test_install_step6_asks_before_removing (existing rule kept) | green |
-| pr-watch → Archive head gets no new review round | Archive pushed after a clean review | evals/review-routes/test_review_run.py | test_archive_only_true_for_archive_commit; evals/pr-pair/test_skill_text.py test_watch_archive_head_no_request_no_reviewers | red |
+| pr-watch → Archive head gets no new review round | Archive pushed after a clean review | evals/review-routes/test_review_run.py | test_archive_only_true_for_archive_commit; evals/pr-pair/test_skill_text.py test_watch_archive_head_no_request_no_reviewers | green |
 | pr-watch → Archive head gets no new review round | Setting turned on | evals/pr-pair/test_skill_text.py | test_watch_review_after_archive_true_rerequests | green |
-| pr-watch → Archive head gets no new review round | Archive commit touches other files | evals/review-routes/test_review_run.py | test_archive_only_false_outside_paths | red |
-| pr-watch → Archive head gets no new review round | Another commit after the reviewed head | evals/review-routes/test_review_run.py | test_archive_only_false_two_commits | red |
+| pr-watch → Archive head gets no new review round | Archive commit touches other files | evals/review-routes/test_review_run.py | test_archive_only_false_outside_paths | green |
+| pr-watch → Archive head gets no new review round | Another commit after the reviewed head | evals/review-routes/test_review_run.py | test_archive_only_false_two_commits | green |
 | pr-watch → Archive head gets no new review round | Branch protection wants a fresh approval | evals/pr-pair/test_skill_text.py | test_watch_archive_review_required_asks_once | green |
-| pr-watch → Archive head gets no new review round | Store-backed archive | evals/review-routes/test_review_run.py | test_archive_only_in_store_dir | red |
+| pr-watch → Archive head gets no new review round | Store-backed archive | evals/review-routes/test_review_run.py | test_archive_only_in_store_dir | green |
 | pr-descriptions → Lists amendments and open findings | Clarification after pre-ship review | evals/pr-pair/test_skill_text.py | test_description_lists_amendment_trailers | green |
 | pr-descriptions → Lists amendments and open findings | Open P3 finding | evals/pr-pair/test_skill_text.py | test_description_lists_open_p2_p3 | green |
 | pr-descriptions → Lists amendments and open findings | Waived P1 finding | evals/pr-pair/test_skill_text.py | test_description_lists_waivers | green |
@@ -86,7 +86,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 ## 4. Records, gate and rounds
 
 - [x] 4.1 Write failing tests in `evals/review-routes/test_review_run.py` for `record` (preship and design), `waive`, `gate` (repo-local and store-backed, archive matching), `archive-only` and `rounds`, using temp git repos and `SPECWRIGHT_STATE_DIR`. Verify: the new tests fail for the missing subcommands.
-- [ ] 4.2 Implement `record`, `waive`, `gate`, `archive-only` and `rounds` per D2, D5 and D6: atomic rename, no stored outcome, records keyed by head(s), `Preship-Round:` from `git log`. Verify: the preship-review and pr-watch rows mapped to `test_review_run.py` pass; flip them green.
+- [x] 4.2 Implement `record`, `waive`, `gate`, `archive-only` and `rounds` per D2, D5 and D6: atomic rename, no stored outcome, records keyed by head(s), `Preship-Round:` from `git log`. Verify: the preship-review and pr-watch rows mapped to `test_review_run.py` pass; flip them green.
 - [x] 4.3 Add `test_rounds_ignore_preship_fix_commits` to `evals/pr-pair/test_pr_pair.py`: a branch with two `address pre-ship review` commits carrying `Preship-Round:` gives `rounds` 0, so the next pass is round 1. Verify: it passes against the current `pr-pair.sh` (the subject is distinct by design); flip it green, and if it fails, fix `pr-pair.sh` matching first.
 
 ## 5. The specwright-review skill and review steps

@@ -13,6 +13,12 @@
 #                                     record under the state dir). preship: the script builds the prompt (brief, changed files,
 #                                     diff of the code range and of the store range inside a nonce-delimited untrusted region);
 #                                     design: --prompt-file is the request. --selection is the JSON `select` printed.
+#   record --kind preship|design --change name --result file --route r [--store dir] [--base m --store-base m]
+#                                     validate a file the specwright-reviewer subagent wrote; preship writes the record, design writes nothing else
+#   waive --change name --finding id --reason text [--store dir]   add a user waiver to the record of the current head(s)
+#   gate --change name [--store dir] [--prefix P]   -> {status: pass|missing|blocked, heads, reviewed_heads, open}
+#   archive-only --base sha --head sha --change name [--dir repo] [--prefix P]   -> {archive_only, reason}
+#   rounds --change name [--store dir]              -> {rounds: n}, the highest Preship-Round: trailer in <main>..HEAD
 # Settings (openspec/specwright.yaml, or --settings): review.cross_model, review.order, review.models.<route>,
 #   review.thinking.<route>, review.timeout (default 20m), review.max_diff_kb (default 1024).
 # Exit: 0 ok, 1 stop (the JSON has "error" and "message"; an unexpected failure is error "internal_error"), 2 usage,
@@ -887,7 +893,235 @@ def cmd_run(argv):
         shutil.rmtree(work, ignore_errors=True)
 
 
-COMMANDS = {"select": cmd_select, "run": cmd_run}
+# ---- record, waive, gate, archive-only, rounds -----------------------------------------------------------------
+def repos_of(a):
+    """(code toplevel, store toplevel or None) for the current directory and --store."""
+    code_dir = toplevel(os.getcwd())
+    if not code_dir:
+        raise Stop("not-a-repo", f"{os.getcwd()} is not a git work tree")
+    store_dir = None
+    if a.get("store"):
+        store_dir = toplevel(a["store"])
+        if not store_dir:
+            usage(f"--store {a['store']} is not a git work tree")
+    return code_dir, store_dir
+
+
+def current_heads(code_dir, store_dir):
+    heads = {"code": git_out(code_dir, "rev-parse", "HEAD")}
+    if store_dir:
+        heads["store"] = git_out(store_dir, "rev-parse", "HEAD")
+    return heads
+
+
+def main_ref_for(settings, which, d, override=None):
+    """The base ref of a repo: --base, else main_branch (planning_store.main_branch for the store), else main or master."""
+    name = override
+    if not name:
+        ps = settings.get("planning_store")
+        name = (ps.get("main_branch") if which == "store" and isinstance(ps, dict) else settings.get("main_branch")) or None
+    return resolve_base(d, str(name) if name else None)
+
+
+def parent_of(d, rev="HEAD"):
+    r = git(d, "rev-parse", "--verify", "--quiet", f"{rev}^")
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def read_result(path):
+    p = Path(path)
+    if not p.is_file():
+        usage(f"--result {path} does not exist")
+    if p.stat().st_size > MAX_OUTPUT:
+        return None
+    return p.read_text(encoding="utf-8", errors="replace")
+
+
+def cmd_record(argv):
+    a, _ = parse_args(argv, {"--kind": "kind", "--change": "change", "--result": "result", "--route": "route", "--store": "store",
+                             "--base": "base", "--store-base": "store_base", "--settings": "settings"})
+    need(a, "kind", "change", "result", "route")
+    kind, route = a["kind"], a["route"]
+    if kind not in ("preship", "design"):
+        usage("--kind is preship or design")
+    if route not in ACCEPTED + ("subagent",):
+        usage(f"--route is one of {', '.join(ACCEPTED + ('subagent',))}")
+    text = read_result(a["result"])
+    settings = load_settings(a.get("settings"))
+    cfg = Review(settings)
+    started = now()
+
+    def invalid(message):
+        fail("invalid", "invalid_output", message, route, make_receipt(route, [], cfg, None, started, ("unknown", "unknown")))
+
+    if text is None:
+        invalid("output too large")
+    if kind == "design":
+        err = validate_design(text)
+        if err:
+            invalid(err)
+        return {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"])}
+    parsed = json_from_text(text)
+    if parsed is None:
+        invalid("output is not JSON: " + (text.strip()[:120] or "(empty)"))
+    err = validate_findings(parsed)
+    if err:
+        invalid(err)
+    code_dir, store_dir = repos_of(a)
+    heads, bases = current_heads(code_dir, store_dir), {}
+    for key, d, over in (("code", code_dir, a.get("base")), ("store", store_dir, a.get("store_base"))):
+        if d:
+            try:
+                bases[key] = git_out(d, "rev-parse", main_ref_for(settings, key, d, over))
+            except Stop:
+                bases[key] = None
+    receipt = make_receipt(route, [], cfg, None, started, ("unknown", "unknown"))
+    path = write_review_record(code_dir, {"kind": "preship", "change": a["change"], "heads": heads, "base": bases, "route": route,
+                                          "receipt": receipt, "findings": parsed})
+    items = parsed["findings"]
+    return {"ok": True, "status": "ok", "route": route, "record": norm(path), "receipt": receipt,
+            "blocking": [f["id"] for f in items if f["priority"] in ("P0", "P1")],
+            "counts": {p: sum(1 for f in items if f["priority"] == p) for p in PRIORITIES}}
+
+
+def load_record(path):
+    try:
+        rec = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) and isinstance(rec.get("findings"), dict) else None
+
+
+def open_findings(rec):
+    """The P0/P1 findings of a record that no waiver covers. Derived each time; the record stores no outcome."""
+    waived = {w.get("id") for w in rec.get("waivers") or [] if isinstance(w, dict)}
+    return [{"id": f["id"], "priority": f["priority"], "file": f["file"], "title": f["title"]}
+            for f in rec["findings"].get("findings") or [] if f["priority"] in ("P0", "P1") and f["id"] not in waived]
+
+
+def cmd_waive(argv):
+    a, _ = parse_args(argv, {"--change": "change", "--finding": "finding", "--reason": "reason", "--store": "store",
+                             "--settings": "settings"})
+    need(a, "change", "finding", "reason")
+    code_dir, store_dir = repos_of(a)
+    heads = current_heads(code_dir, store_dir)
+    path = record_path(code_dir, a["change"], heads)
+    rec = load_record(path) if path.is_file() else None
+    if rec is None:
+        raise Stop("no_record", f"no pre-ship review record for the current head ({norm(path)}); run the review first")
+    ids = [f.get("id") for f in rec["findings"].get("findings") or []]
+    if a["finding"] not in ids:
+        raise Stop("unknown_finding", f"the review of this head has no finding {a['finding']!r}; findings: {', '.join(ids) or 'none'}")
+    waivers = [w for w in rec.get("waivers") or [] if not (isinstance(w, dict) and w.get("id") == a["finding"])]
+    waivers.append({"id": a["finding"], "reason": a["reason"], "at": now()})
+    rec["waivers"] = waivers
+    try:
+        atomic_write(path, json.dumps(rec, indent=2, ensure_ascii=False) + "\n")
+    except OSError as e:
+        raise Stop("record_failed", f"could not write the review record {path}: {e}", path=norm(path))
+    return {"ok": True, "record": norm(path), "waived": a["finding"], "open": open_findings(rec)}
+
+
+def archive_only(d, base, head, change, prefix):
+    """(bool, reason): `base..head` in d is exactly the change's archive commit and touches only archive paths (D2, D7)."""
+    prefix = prefix.strip("/")
+    commits = git_out(d, "rev-list", f"{base}..{head}").split()
+    if len(commits) != 1:
+        return False, f"{len(commits)} commits between base and head; the archive commit must be the only one"
+    sha = commits[0]
+    if len(git_out(d, "rev-list", "--parents", "-n", "1", sha).split()) != 2:
+        return False, "the commit is a merge or a root commit"
+    subject = git_out(d, "log", "-1", "--format=%s", sha)
+    if not re.fullmatch(r"[A-Za-z][\w-]*!?\(" + re.escape(change) + r"\): archive change", subject):
+        return False, f"subject {subject!r} is not '<type>({change}): archive change'"
+    caps = set()
+    spec_dir = f"{prefix}/changes/{change}/specs/"
+    for line in git_out(d, "ls-tree", "-r", "--name-only", base, "--", spec_dir).splitlines():
+        m = re.fullmatch(re.escape(spec_dir) + r"(.+)/spec\.md", line)
+        if m:
+            caps.add(m.group(1))
+    r = git(d, "diff", "--no-renames", "--name-status", "-z", f"{sha}^", sha)
+    if r.returncode != 0:
+        raise Stop("git_error", f"git diff {sha}^ {sha} in {d}: {r.stderr.strip()}")
+    parts = r.stdout.split("\0")
+    entries = [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+    if not entries:
+        return False, "the commit changes no files"
+    archived = re.compile(re.escape(f"{prefix}/changes/archive/") + r"(?:\d{4}-\d{2}-\d{2}-)?" + re.escape(change) + "/.+")
+    specs = f"{prefix}/specs/"
+    for status, p in entries:
+        if p.startswith(f"{prefix}/changes/{change}/"):
+            if status != "D":
+                return False, f"{p} is not deleted"
+        elif archived.fullmatch(p):
+            continue
+        elif p.startswith(specs) and p.endswith("/spec.md") and p[len(specs):-len("/spec.md")] in caps:
+            continue
+        else:
+            return False, f"{p} is outside the archive paths of {change}"
+    return True, f"the only commit {sha[:12]} is the archive of {change}"
+
+
+def cmd_archive_only(argv):
+    a, _ = parse_args(argv, {"--base": "base", "--head": "head", "--change": "change", "--dir": "dir", "--prefix": "prefix"})
+    need(a, "base", "head", "change")
+    d = a.get("dir") or os.getcwd()
+    if not Path(d).is_dir():
+        usage(f"--dir {d} is not a directory")
+    ok, reason = archive_only(d, a["base"], a["head"], a["change"], a.get("prefix") or "openspec")
+    return {"ok": True, "archive_only": ok, "reason": reason}
+
+
+def cmd_gate(argv):
+    a, _ = parse_args(argv, {"--change": "change", "--store": "store", "--prefix": "prefix", "--settings": "settings"})
+    need(a, "change")
+    change, prefix = a["change"], a.get("prefix") or "openspec"
+    code_dir, store_dir = repos_of(a)
+    cur = current_heads(code_dir, store_dir)
+    moved, key = (store_dir, "store") if store_dir else (code_dir, "code")  # the repo that holds the planning files
+    candidates = [(cur, False)]
+    prev = parent_of(moved)
+    if prev:
+        candidates.append(({**cur, key: prev}, True))
+    matched = None
+    for heads, after_archive in candidates:
+        path = record_path(code_dir, change, heads)
+        if not path.is_file():
+            continue
+        if after_archive and not archive_only(moved, heads[key], "HEAD", change, prefix)[0]:
+            continue
+        rec = load_record(path)
+        if rec is not None:
+            matched = (heads, rec, path)
+            break
+    if matched is None:
+        return {"ok": True, "status": "missing", "heads": cur, "reviewed_heads": None, "open": []}
+    heads, rec, path = matched
+    open_ = open_findings(rec)
+    return {"ok": True, "status": "blocked" if open_ else "pass", "heads": cur, "reviewed_heads": heads, "open": open_,
+            "waivers": rec.get("waivers") or [], "route": rec.get("route"), "record": norm(path)}
+
+
+def cmd_rounds(argv):
+    a, _ = parse_args(argv, {"--change": "change", "--store": "store", "--base": "base", "--store-base": "store_base",
+                             "--settings": "settings"})
+    need(a, "change")
+    code_dir, store_dir = repos_of(a)
+    settings = load_settings(a.get("settings"))
+    best = 0
+    for key, d, over in (("code", code_dir, a.get("base")), ("store", store_dir, a.get("store_base"))):
+        if not d:
+            continue
+        ref = main_ref_for(settings, key, d, over)
+        out = git_out(d, "log", f"{ref}..HEAD", "--format=%(trailers:key=Preship-Round,valueonly)")
+        for line in out.splitlines():
+            if re.fullmatch(r"\d+", line.strip()):
+                best = max(best, int(line.strip()))
+    return {"ok": True, "rounds": best}
+
+
+COMMANDS = {"select": cmd_select, "run": cmd_run, "record": cmd_record, "waive": cmd_waive, "gate": cmd_gate,
+            "archive-only": cmd_archive_only, "rounds": cmd_rounds}
 
 args = sys.argv[1:]
 try:
