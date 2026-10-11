@@ -17,7 +17,8 @@ github:
     body: ""
     login: ""
     # true = post it again after each fix round the agent pushes, for
-    # reviewers that only run when tagged (Codex). At most once per head.
+    # reviewers that only run when tagged (for example Codex). At most once
+    # per head.
     after_fixes: false
 
 review:
@@ -55,8 +56,7 @@ pr:
   # reviewer that only runs when tagged. Replaces github.review_request.
   # reviewers:
   #   chatgpt-codex-connector: { role: required, request: "@codex review" }
-  #   kody-ai: { role: advisory, timeout: 15m }
-  #   kintsugimira: { role: advisory, timeout: 10m }
+  #   my-review-bot: { role: advisory, timeout: 15m }
   # Account that posts the requests. Default: review_request.login, else
   # github.login.
   # request_as: ""

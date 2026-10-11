@@ -268,13 +268,12 @@ pr:
   react: true                   # 👍/👎 on every finding answered (right / wrong); default false
   poll_interval: 5m             # how often watch polls GitHub; default 5m
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
-    chatgpt-codex-connector: { role: required, request: "@codex review" }   # runs only when tagged
-    kody-ai:      { role: advisory, timeout: 15m }   # reviews every push
-    kintsugimira: { role: advisory, timeout: 10m }
+    chatgpt-codex-connector: { role: required, request: "@codex review" }   # example: a reviewer that runs only when tagged
+    my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
   # request_as: my-account      # posts the requests; default review_request.login, else github.login
 ```
 
-Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. Codex, Kody and Mira are recognised by their own signals (Codex's `Reviewed commit` SHA, Kody's check run, Mira's walkthrough); any other login counts as reported once it posts after the push.
+Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
 
 `openspec/config.yaml` (template: [`templates/openspec/config.yaml`](templates/openspec/config.yaml)) carries the `context:` lines that make the git skills fire at the right phase.
 
