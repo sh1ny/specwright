@@ -121,7 +121,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 ## 8. Release and integration
 
 - [x] 8.1 Bump to 0.2.0: `VERSION`, the README badge and `metadata.version` in every `skills/*/SKILL.md`. Verify: `grep -rn "0.1.13" VERSION README.md skills/*/SKILL.md` prints nothing.
-- [ ] 8.2 Integration check: run `python -m unittest discover evals/review-routes`, `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`, then `openspec validate add-preship-review --strict`. Re-install into this repo (install prompt) and run `openspec schema validate specwright`. Verify: all pass and every test map row is green.
+- [x] 8.2 Integration check: run `python -m unittest discover evals/review-routes`, `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`, then `openspec validate add-preship-review --strict`. Re-install into this repo (install prompt) and run `openspec schema validate specwright`. Verify: all pass and every test map row is green.
 
 ## Workflow follow-up
 
