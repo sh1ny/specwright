@@ -31,8 +31,7 @@ pr:
   poll_interval: 5m                             # how often watch polls GitHub (default 5m; s/m/h)
   reviewers:                                    # keyed by login, without [bot]; omit = review_request only
     chatgpt-codex-connector: { role: required, request: "@codex review" }
-    kody-ai:      { role: advisory, timeout: 15m }
-    kintsugimira: { role: advisory, timeout: 10m }
+    my-review-bot: { role: advisory, timeout: 15m }
   request_as: <account that posts the requests> # default review_request.login, else github.login
 finish: pr                                      # local | pr (watch offers the archive only in pr)
 planning_store:                                 # store-backed changes only; every other setting is shared
