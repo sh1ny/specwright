@@ -691,6 +691,33 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(row, r"(?i)repo done", "the local bulk-archive row does not finish the repo")
         self.assertLess(s.index("| M, not B"), s.index("`local`, A on main through the archive directory"), "the local row is not after M, not B")
 
+    def merged_bullet(self):
+        text = read(FINISH)
+        at = text.index("- **After the PR is merged**")
+        return text[at:text.index("\n\n", at)]
+
+    def test_finish_cleanup_runs_branch_check_before_deleting(self):
+        b = self.merged_bullet()
+        check = re.search(r"branch-check", b)
+        self.assertTrue(check, "After the PR is merged never runs `branch-check`")
+        pull = b.find("pull --ff-only")
+        self.assertTrue(0 <= pull < check.start(), "`branch-check` does not run after `pull --ff-only`")
+        for m in re.finditer(r"branch -[dD]", b):
+            self.assertLess(check.start(), m.start(), "After the PR is merged deletes the branch before `branch-check`")
+        self.assertRegex(b, r"branch -D", "the cleanup never deletes with -D on `delete: true`")
+        self.assertRegex(b, r"delete: true", "the cleanup does not delete only on `delete: true`")
+        self.assertRegex(b, r"`lacking`", "the cleanup does not report the `lacking` commits")
+        self.assertRegex(b, r"`head_unknown`", "the cleanup does not report `head_unknown`")
+        self.assertRegex(b, r"--head <head_sha>", "`branch-check` is not given `--head`")
+        self.assertRegex(b, r"discover[^`]*--state merged", "`--head` does not come from `discover --state merged`")
+        self.assertRegex(b, r"`head_sha`", "`--head` is not `discover`'s `head_sha`")
+        self.assertNotRegex(b, r"-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip",
+                            "the cleanup still deletes with -D when headRefOid equals the local tip")
+        self.assertNotIn("force_delete_allowed", read(FINISH), "finish still mentions `force_delete_allowed`")
+        row = resume_row(resume_section(), "M and B")
+        self.assertRegex(row, r"(?is)`pr`.*After the PR is merged|After the PR is merged.*`pr`",
+                         "the M and B row does not send pr mode to After the PR is merged, so `branch-check` decides the deletion")
+
     def test_finish_resume_archive_directory_is_planning_repo_only(self):
         s = resume_section()
         a = self.fact_a()

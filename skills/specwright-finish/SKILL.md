@@ -29,7 +29,7 @@ None of A, M, B in any repo → report that no archive of `<change-name>` was fo
 | archive paths uncommitted, no A | steps 1-3 in order (branch check and recovery branch, planning-only test, archive commit) |
 | A on branch, not M, B, `local` | merge (`## local`) |
 | code repo, the newest store A's body has the line `Archive-Scope: store-only` | out of scope: report the code branch and its PR state, touch nothing; the repo counts as done |
-| M and B | `git checkout <main> && git branch -d <branch>`, no merge |
+| M and B | `git checkout <main> && git branch -d <branch>`, no merge; in `pr` mode **After the PR is merged** instead, so `branch-check` decides the deletion |
 | M, not B | repo done |
 | `local`, A on main through the archive directory, not M, not B | repo done (another change's merge carried the archive) |
 | code repo with no A, M or B; store done; the store's archive is marked `code_changes: none` | repo done (a planning-only change) |
@@ -75,7 +75,7 @@ The merged PR is found with `[as] bash scripts/pr-pair.sh discover --repo <owner
 ## pr
 - Run `specwright-pr` **ship**: it pushes the archive commit (pinning the GitHub identity and running `pr.validate`) and opens the PR if there is none, leaving an existing PR's description alone.
 - If `specwright-pr` **watch** started this archive, hand back to it: it waits for CI and reviews on the archive head before reporting ready. Otherwise report the PR URL and `Ready to merge on GitHub once checks and reviews are green.`, and offer **watch**. Never merge the PR.
-- **After the PR is merged** (the user says so, or `gh pr view <branch> --json state,headRefOid` shows MERGED): `git checkout <main> && git pull --ff-only && git branch -d <branch>`. If `-d` refuses because GitHub squashed or rebased, use `-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip; otherwise ask. Then follow `specwright-pr` **Cleanup after merge** for the issues the merged PR's closing lines name: its `closed-check` lists any that GitHub left open and closes the ones the user confirms. Store-backed: that section also cleans both repos, so follow it instead of the commands above.
+- **After the PR is merged** (the user says so, or `gh pr view <branch> --json state` shows MERGED): `git checkout <main> && git pull --ff-only`, then `[as] bash scripts/pr-pair.sh branch-check --dir <toplevel> --branch <branch> --main <main> --head <head_sha>`, with `<head_sha>` from the merged PR's `head_sha` in `discover ... --state merged` (several merged PRs: the `newest` one's), never from `gh pr view`. `delete: true` → `git branch -D <branch>`; otherwise keep the branch and report its `lacking` commits, or `head_unknown`. Then follow `specwright-pr` **Cleanup after merge** for the issues the merged PR's closing lines name: its `closed-check` lists any that GitHub left open and closes the ones the user confirms. Store-backed: that section also cleans both repos, so follow it instead of the commands above.
 
 If the roadmap (`project.roadmap`) exists, once the change is on main (after the local merge, or after the PR is merged), offer exactly one `specwright-roadmap` mode: **close** when every change of the Now milestone is then done, derived as `specwright-roadmap` derives it; otherwise **next**. Never offer both.
 

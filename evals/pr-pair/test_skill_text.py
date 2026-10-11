@@ -520,5 +520,40 @@ class FeedbackRerequest(unittest.TestCase):
         self.assertNotRegex(ins, r"(?i)at most once per pushed head", "the pass rule still carries the once-per-pushed-head rule")
 
 
+class CleanupBranchCheck(unittest.TestCase):
+    """Cleanup deletes a merged change branch only when `branch-check` says main has its work."""
+
+    def bullets(self):
+        cleanup = SECTIONS["cleanup after merge"][1]
+        store = re.search(r"^- Store-backed: .*$", cleanup, re.M)
+        local = re.search(r"^- Repo-local: .*$", cleanup, re.M)
+        self.assertTrue(store and local, "Cleanup after merge lacks its store-backed or repo-local bullet")
+        return {"store-backed": store.group(0), "repo-local": local.group(0)}
+
+    def test_cleanup_runs_branch_check_before_deleting(self):
+        for name, b in self.bullets().items():
+            check = re.search(r"branch-check", b)
+            self.assertTrue(check, f"the {name} cleanup bullet never runs `branch-check`")
+            pull = b.find("pull --ff-only")
+            self.assertTrue(0 <= pull < check.start(), f"the {name} bullet does not run `branch-check` after `pull --ff-only`")
+            for m in re.finditer(r"branch -D", b):
+                self.assertLess(check.start(), m.start(), f"the {name} bullet deletes with -D before `branch-check`")
+            self.assertRegex(b, r"delete: true", f"the {name} bullet does not delete only on `delete: true`")
+            self.assertRegex(b, r"(?i)otherwise[^.]*keep[^.]*branch|keep[^.]*branch[^.]*otherwise", f"the {name} bullet does not keep the branch otherwise")
+            self.assertRegex(b, r"`lacking`", f"the {name} bullet does not report the `lacking` commits")
+            self.assertRegex(b, r"`head_unknown`", f"the {name} bullet does not report `head_unknown`")
+        local = self.bullets()["repo-local"]
+        self.assertRegex(local, r"branch -D", "the repo-local bullet never deletes with -D on `delete: true`")
+        self.assertRegex(local, r"--head <head_sha>", "the repo-local `branch-check` is not given `--head`")
+        self.assertRegex(local, r"discover[^`]*--state merged", "the repo-local `--head` does not come from `discover --state merged`")
+        self.assertRegex(local, r"`head_sha`", "the repo-local `--head` is not `discover`'s `head_sha`")
+        self.assertRegex(local, r"`newest`", "the repo-local text does not pick `newest` when several PRs merged")
+        self.assertNotRegex(local, r"(?i)\bpr view\b[^.]*headRefOid", "the repo-local `--head` comes from `gh pr view`")
+        text = SECTIONS["cleanup after merge"][1]
+        self.assertNotRegex(text, r"force_delete_allowed", "the cleanup text still mentions `force_delete_allowed`")
+        self.assertNotRegex(text, r"-D` only when the PR is MERGED and its `headRefOid` equals the local branch tip",
+                            "the cleanup text still deletes with -D when headRefOid equals the local tip")
+
+
 if __name__ == "__main__":
     unittest.main()
