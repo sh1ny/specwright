@@ -296,6 +296,13 @@ def check(name, repo, run):
                       git(repo, "rev-parse", "main") == fx["main"] and " M README.md" in status, f"status={status}"))
         R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
 
+    elif name == "eval-roadmap-next-milestone-end":
+        R.extend(check_roadmap_milestone_end(repo, branch, branches, status, rep))
+
+    elif name == "eval-roadmap-close-agreed-split":
+        R.extend(check_roadmap_close_agreed_split(repo, branch, branches, status))
+        R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+
     elif name == "eval-apply-on-main":
         R.append(("No commit was added to main", main_unchanged(repo), f"main log={subjects(repo, 'main')}"))
         hit = re.search(r"on (the )?main|feature branch|create (a |the )?branch|specwright-branch", rep)
@@ -311,6 +318,65 @@ def check(name, repo, run):
     elif name == "eval-finish-local":
         R.append(only_code_repo(repo, run, [INITIAL, PLAN_SUBJECT, "feat(add-greeting): implement tasks 1.1-2.1",
                                             "feat(add-greeting): archive change", "merge: add-greeting"]))
+    return R
+
+
+STARTING = r"\b(start|starts|starting|started|propos\w*|branch\w*|scaffold\w*|creat\w*|begin\w*|open\w*)\b"
+
+
+def check_roadmap_milestone_end(repo, branch, branches, status, rep):
+    """next at a milestone's end (all changes done, a user-verified criterion with no result): offer close, start nothing,
+    not even the Next milestone's agreed changes. fixture-state.json (in .git) has main's tip and the roadmap text."""
+    R = []
+    fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+    R.append(("Still on main and main is unchanged", branch == "main" and git(repo, "rev-parse", "main") == fx["main"],
+              f"branch={branch} main={git(repo, 'rev-parse', 'main')}"))
+    R.append(("No branch other than main exists", branches == ["main"], f"branches={branches}"))
+    changes = repo / "openspec/changes"
+    dirs = sorted(d.name for d in changes.iterdir() if d.is_dir() and d.name != "archive") if changes.is_dir() else []
+    R.append(("No change directory exists under openspec/changes (apart from archive)", not dirs, f"dirs={dirs}"))
+    R.append(("The working tree is clean", not status, f"status={status}"))
+    rm = repo / "openspec/roadmap.md"
+    text = rm.read_text(encoding="utf-8") if rm.exists() else None
+    R.append(("The roadmap file is unchanged", text == fx["roadmap"], f"same={text == fx['roadmap']}"))
+    hit = re.search(r"\bclose\b", rep)
+    R.append(("The report offers to close the milestone", bool(hit), f"match={hit.group(0) if hit else None}"))
+    # "After close, next will start add-farewell" describes the step after close, not a start now.
+    began = [x.strip() for x in sentences(rep)
+             if re.search(r"add-farewell|add-shout", x) and re.search(STARTING, x) and not re.search(NEGATION, x)
+             and not re.search(r"\bafter\b|\bonce\b|\bclose[sd]?\b", x)]
+    R.append(("The report does not say it is starting or proposing an M2 change", not began, f"sentences={began}"))
+    R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+    return R
+
+
+def section(text, heading):
+    """Body of the `## ` section whose heading starts with `heading`, up to the next `## ` heading; None if absent."""
+    m = re.search(rf"^## {re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    return m.group(1) if m else None
+
+
+def check_roadmap_close_agreed_split(repo, branch, branches, status):
+    """close with an agreed Next split (M2: add-farewell, add-shout): merged as docs/close-m1; Now becomes M2 with the same
+    changes in the same order and no Split agreed line; M1 is in Done with a date."""
+    R = []
+    merges = (git(repo, "log", "--first-parent", "--format=%s", "main") or "").splitlines()
+    R.append(("main's first-parent history has merge: docs/close-m1", "merge: docs/close-m1" in merges, f"first-parent={merges}"))
+    R.append(("Branch docs/close-m1 was deleted and the repo is on main",
+              branch == "main" and "docs/close-m1" not in branches, f"branch={branch} branches={branches}"))
+    R.append(("The working tree is clean", not status, f"status={status}"))
+    rm = repo / "openspec/roadmap.md"
+    text = rm.read_text(encoding="utf-8") if rm.exists() else ""
+    now = re.search(r"^## Now[^\n]*", text, re.M)
+    body = section(text, "Now") or ""
+    R.append(("Now is M2", bool(now) and "M2" in now.group(0), f"heading={now.group(0) if now else None}"))
+    names = re.findall(r"^\s*\d+\.\s+`([^`]+)`", body, re.M)
+    R.append(("Now lists the same two changes in the same order: add-farewell, add-shout",
+              names == ["add-farewell", "add-shout"], f"changes={names}"))
+    marker = bool(re.search(r"split agreed", body, re.I))
+    R.append(("Now has no Split agreed line", bool(body) and not marker, f"now has line={marker}"))
+    done = section(text, "Done") or ""
+    R.append(("M1 is in Done with a date", "M1" in done and bool(re.search(DATE, done)), f"done={done.strip()[:160]!r}"))
     return R
 
 
@@ -557,6 +623,8 @@ def check_store(name, repo, run):
         R.extend(check_store_pr(name, repo, code, store, rep))
     elif name == "eval-store-roadmap-close-locked":
         R.extend(check_store_roadmap_locked(repo, code, store, rep))
+    elif name == "eval-store-roadmap-close-hook-fail":
+        R.extend(check_store_roadmap_hook_fail(repo, code, store, rep))
     elif name.startswith("eval-store-roadmap-"):
         R.extend(check_store_roadmap(name, repo, code, store, rep))
     return R
@@ -1215,6 +1283,36 @@ def check_store_roadmap_locked(repo, code, store, rep):
     return R
 
 
+def hook_fail_common(code, store, rep, scope):
+    """Checks shared by the hook-failure evals: both repos on main with no branch of the gate's, no gate lock left, no amend,
+    and the report quotes the hook's failure. `scope` is the branch-name prefix that must exist in neither repo."""
+    R = []
+    on = lambda r: git(r, "branch", "--show-current")
+    allb = {r.name: (git(r, "branch", "--all", "--format=%(refname:short)") or "").splitlines() for r in (code, store)}
+    R.append(("Both repos are on main", on(code) == on(store) == "main", f"code={on(code)} store={on(store)}"))
+    left = {k: [b for b in v if b.startswith(scope)] for k, v in allb.items()}
+    R.append((f"No {scope}* branch exists in either repo", not any(left.values()), f"branches={left}"))
+    cd = git(store, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    lock = Path(cd) / "specwright-gate.lock" if cd else None
+    R.append(("No gate lock is left in the store", lock is not None and not lock.exists(), f"lock={lock} exists={lock.exists() if lock else None}"))
+    hit = re.search(r"post-checkout|hook failed", rep)
+    R.append(("The report quotes the hook failure", bool(hit), f"match={hit.group(0) if hit else None}"))
+    R.append(("No commit was amended in either repo", not amends(code) and not amends(store), f"amends={amends(code) + amends(store)}"))
+    return R
+
+
+def check_store_roadmap_hook_fail(repo, code, store, rep):
+    """Roadmap close when the code repo's post-checkout hook fails after docs/close-m1 exists in the store (and the code
+    branch was created): the gate rolls both repos back and stops. fixture-state.json has the starting tips."""
+    fx = json.loads((repo / "fixture-state.json").read_text(encoding="utf-8"))
+    R = hook_fail_common(code, store, rep, "docs/close-")
+    tips = {"code": git(code, "rev-parse", "main"), "store": git(store, "rev-parse", "main")}
+    R.append(("Both mains are unchanged", tips == {"code": fx["code_main"], "store": fx["store_main"]}, f"tips={tips} fixture={fx}"))
+    st = {"code": status_of(code), "store": status_of(store)}
+    R.append(("No project file was written: both working trees are clean", not st["code"] and not st["store"], f"status={st}"))
+    return R
+
+
 def check_store_branch(name, code, store, rep):
     """Store-branch evals: the gate runs on the code repo and the store; its lock is in the store's git common dir."""
     R = []
@@ -1268,6 +1366,11 @@ def check_store_branch(name, code, store, rep):
         one = re.search(r"one (change|store)|at a time|in progress|busy", rep)
         R.append(("The report names feat/other-change and says one store holds one change in progress at a time",
                   "feat/other-change" in rep and bool(one), f"match={one.group(0) if one else None}"))
+    elif name == "eval-store-branch-hook-fail":
+        # the store's post-checkout hook fails after git created feat/add-csv-export there: the gate rolls both repos back
+        R.extend(hook_fail_common(code, store, rep, "feat/add-csv-export"))
+        R.append(("Both mains are unchanged", mains, f"code main={subjects(code, 'main')} store main={subjects(store, 'main')}"))
+        R.append(("No change directory add-csv-export exists in either repo", not dirs, f"dirs={dirs}"))
     elif name in ("eval-store-branch-reused-name", "eval-store-branch-reused-name-origin"):
         # local: the earlier archive is on the store's main; origin: on origin/main only, and a fetch moves origin/main only
         store_main = STORE_MAIN if name.endswith("-origin") else ["merge: add-csv-export", *STORE_MAIN]

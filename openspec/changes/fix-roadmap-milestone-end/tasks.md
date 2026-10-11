@@ -8,21 +8,21 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| project-planning → A milestone end offers close, not a new change | All changes done, criteria not yet walked | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_next_offers_close_at_milestone_end; eval-roadmap-next-milestone-end | red |
-| project-planning → A milestone end offers close, not a new change | Next milestone already split | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_next_starts_only_now_changes; eval-roadmap-next-milestone-end | red |
+| project-planning → A milestone end offers close, not a new change | All changes done, criteria not yet walked | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_next_offers_close_at_milestone_end; eval-roadmap-next-milestone-end | green |
+| project-planning → A milestone end offers close, not a new change | Next milestone already split | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_next_starts_only_now_changes; eval-roadmap-next-milestone-end | green |
 | project-planning → A milestone end offers close, not a new change | Status at a milestone end | evals/git-workflow/test_instructions.py | test_roadmap_status_names_milestone_end | green |
-| project-planning → A milestone end offers close, not a new change | Last change archived but code pending | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_milestone_end_needs_every_change_done; eval-store-roadmap-local | red |
+| project-planning → A milestone end offers close, not a new change | Last change archived but code pending | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_milestone_end_needs_every_change_done; eval-store-roadmap-local | green |
 | project-planning → Finish offers close after the milestone's last change | Last change of the milestone merged | evals/git-workflow/test_instructions.py | test_finish_offers_close_after_last_change | green |
 | project-planning → Finish offers close after the milestone's last change | Changes left in the milestone | evals/git-workflow/test_instructions.py | test_finish_offers_close_after_last_change | green |
 | project-planning → An agreed Next split is recorded | Author agrees a Next split at init | evals/git-workflow/test_instructions.py | test_roadmap_init_records_agreed_next_split | green |
 | project-planning → An agreed Next split is recorded | Close records a split agreed for the new Next | evals/git-workflow/test_instructions.py | test_roadmap_close_records_agreed_split_for_new_next | green |
 | project-planning → An agreed Next split is recorded | Init without an agreed Next split | evals/git-workflow/test_instructions.py | test_roadmap_init_records_agreed_next_split | green |
-| project-planning → Close keeps an agreed Next split | Close promotes an agreed split | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_close_keeps_agreed_split; eval-roadmap-close-agreed-split | red |
+| project-planning → Close keeps an agreed Next split | Close promotes an agreed split | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_roadmap_close_keeps_agreed_split; eval-roadmap-close-agreed-split | green |
 | project-planning → Close keeps an agreed Next split | Close finds a reason to amend the agreed split | evals/git-workflow/test_instructions.py | test_roadmap_close_proposes_split_amendments | green |
 | project-planning → Close keeps an agreed Next split | Next without a split | evals/git-workflow/test_instructions.py | test_roadmap_close_keeps_agreed_split | green |
 | project-planning → Close keeps an agreed Next split | Next lists changes without a recorded agreement | evals/git-workflow/test_instructions.py | test_roadmap_close_asks_about_unmarked_split | green |
-| project-planning → Gap-closing roadmap edit is committed on the new change's branch | Criterion fails with no change left | evals/git-workflow/evals.json | eval-roadmap-next-gap (prompt now runs close) | red |
-| project-planning → Gap-closing roadmap edit is committed on the new change's branch | Branch gate stops | evals/git-workflow/evals.json | eval-roadmap-next-gap-dirty-main (prompt now runs close) | red |
+| project-planning → Gap-closing roadmap edit is committed on the new change's branch | Criterion fails with no change left | evals/git-workflow/evals.json | eval-roadmap-next-gap (prompt now runs close) | green |
+| project-planning → Gap-closing roadmap edit is committed on the new change's branch | Branch gate stops | evals/git-workflow/evals.json | eval-roadmap-next-gap-dirty-main (prompt now runs close) | green |
 | project-planning → Gap-closing roadmap edit is committed on the new change's branch | No criterion shown failing | evals/git-workflow/test_instructions.py | test_roadmap_gap_change_needs_a_shown_failure | green |
 | planning-stores → A failed store gate branch leaves no new branch | Store hook fails after the branch is created | evals/git-workflow/test_instructions.py | test_roadmap_store_branch_error_rolls_back_every_branched_repo | green |
 | planning-stores → A failed store gate branch leaves no new branch | Store hook fails after the code branch exists | evals/git-workflow/test_instructions.py; evals/git-workflow/evals.json | test_branch_store_error_rolls_back_every_branched_repo; eval-store-branch-hook-fail | green |
@@ -114,7 +114,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 
   Edit `skills/specwright-roadmap/references/roadmap.md`: the Next section's comment and an example `**Split agreed:** <YYYY-MM-DD>` line with a Changes list. Verify that the 3.1 roadmap tests pass.
 - [x] 3.3 Edit `skills/specwright-finish/SKILL.md`'s roadmap offer (the paragraph after "After the PR is merged") to the decisive form. Verify that `test_finish_offers_close_after_last_change` passes, and flip the 3.1 rows green.
-- [ ] 3.4 Agent evals in `evals/git-workflow/evals.json`, `fixtures.py` and `grade.py`:
+- [x] 3.4 Agent evals in `evals/git-workflow/evals.json`, `fixtures.py` and `grade.py`:
   - `eval-roadmap-next-milestone-end`: repo-local, local mode. M1's only change is done; its exit criterion is user-verified with no recorded result. Next (M2) lists two changes with `**Split agreed:** 2026-10-01`. Prompt: run next. Grade: still on main, main unchanged, no new branch, no change directory, a clean tree, and the report offers close and names no M2 change to start.
   - `eval-roadmap-close-agreed-split`: the same roadmap, but the M1 criterion is agent-verified and passes. Prompt: close M1; the user agrees any question with the recommended default. Grade: main has `merge: docs/close-m1`. The roadmap's Now is M2 with the same two changes in the same order and no `Split agreed:` line. M1 is in Done with a date. No `docs/close-m1` branch is left.
   - Change the prompts of `eval-roadmap-next-gap` and `eval-roadmap-next-gap-dirty-main` from next to close. Close finds the criterion failing and proposes the gap change, which the user accepts as `add-farewell`. Their assertions stay unchanged.
