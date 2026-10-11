@@ -6,24 +6,24 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| review-routes → Routes tried in configured order | Claude Code with Codex installed | evals/review-routes/test_review_run.py | test_select_skips_runtime_takes_codex | red |
-| review-routes → Routes tried in configured order | First route missing | evals/review-routes/test_review_run.py | test_select_missing_first_route_takes_omp | red |
-| review-routes → Routes tried in configured order | No route available | evals/review-routes/test_review_run.py | test_select_none_available_is_subagent | red |
-| review-routes → Routes tried in configured order | Cross-model reviews turned off | evals/review-routes/test_review_run.py | test_select_cross_model_false_no_probe | red |
-| review-routes → Routes tried in configured order | Unknown route name | evals/review-routes/test_review_run.py | test_select_unknown_route_exits_1 | red |
-| review-routes → OMP model unresolved makes OMP unavailable | Configured role exists | evals/review-routes/test_review_run.py | test_omp_role_passed_as_model | red |
-| review-routes → OMP model unresolved makes OMP unavailable | Unknown role | evals/review-routes/test_review_run.py | test_omp_unknown_role_falls_to_next | red |
-| review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | red |
-| review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/test_review_run.py | test_command_lines_read_only_allowlists (argv); trial record `evals/review-routes/trial.md` (real CLIs, task 2.2) | red |
-| review-routes → Review input built by Specwright | Route without a shell | evals/review-routes/test_review_run.py | test_prompt_embeds_code_and_store_diff | red |
-| review-routes → Review input built by Specwright | Diff over the bound | evals/review-routes/test_review_run.py | test_diff_over_bound_stops_before_reviewer | red |
-| review-routes → Output validated, fails closed | Valid findings | evals/review-routes/test_review_run.py | test_valid_findings_recorded | red |
-| review-routes → Output validated, fails closed | Output that is not JSON | evals/review-routes/test_review_run.py | test_prose_output_invalid_no_fallthrough | red |
+| review-routes → Routes tried in configured order | Claude Code with Codex installed | evals/review-routes/test_review_run.py | test_select_skips_runtime_takes_codex | green |
+| review-routes → Routes tried in configured order | First route missing | evals/review-routes/test_review_run.py | test_select_missing_first_route_takes_omp | green |
+| review-routes → Routes tried in configured order | No route available | evals/review-routes/test_review_run.py | test_select_none_available_is_subagent | green |
+| review-routes → Routes tried in configured order | Cross-model reviews turned off | evals/review-routes/test_review_run.py | test_select_cross_model_false_no_probe | green |
+| review-routes → Routes tried in configured order | Unknown route name | evals/review-routes/test_review_run.py | test_select_unknown_route_exits_1 | green |
+| review-routes → OMP model unresolved makes OMP unavailable | Configured role exists | evals/review-routes/test_review_run.py | test_omp_role_passed_as_model | green |
+| review-routes → OMP model unresolved makes OMP unavailable | Unknown role | evals/review-routes/test_review_run.py | test_omp_unknown_role_falls_to_next | green |
+| review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | green |
+| review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/test_review_run.py | test_command_lines_read_only_allowlists (argv); trial record `evals/review-routes/trial.md` (real CLIs, task 2.2) | green |
+| review-routes → Review input built by Specwright | Route without a shell | evals/review-routes/test_review_run.py | test_prompt_embeds_code_and_store_diff | green |
+| review-routes → Review input built by Specwright | Diff over the bound | evals/review-routes/test_review_run.py | test_diff_over_bound_stops_before_reviewer | green |
+| review-routes → Output validated, fails closed | Valid findings | evals/review-routes/test_review_run.py | test_valid_findings_recorded | green |
+| review-routes → Output validated, fails closed | Output that is not JSON | evals/review-routes/test_review_run.py | test_prose_output_invalid_no_fallthrough | green |
 | review-routes → Output validated, fails closed | Subagent design review without a verdict | evals/review-routes/test_review_run.py | test_record_design_without_verdict_invalid | red |
-| review-routes → Output validated, fails closed | Design review with two verdicts | evals/review-routes/test_review_run.py | test_design_two_verdicts_invalid_no_file | red |
-| review-routes → Output validated, fails closed | Reviewer exceeds the deadline | evals/review-routes/test_review_run.py | test_timeout_kills_reviewer_exit_3 | red |
-| review-routes → Every review records a receipt | OMP review receipt | evals/review-routes/test_review_run.py | test_receipt_omp_actual_model_from_session | red |
-| review-routes → Every review records a receipt | Model not reported | evals/review-routes/test_review_run.py | test_receipt_unknown_actual_model | red |
+| review-routes → Output validated, fails closed | Design review with two verdicts | evals/review-routes/test_review_run.py | test_design_two_verdicts_invalid_no_file | green |
+| review-routes → Output validated, fails closed | Reviewer exceeds the deadline | evals/review-routes/test_review_run.py | test_timeout_kills_reviewer_exit_3 | green |
+| review-routes → Every review records a receipt | OMP review receipt | evals/review-routes/test_review_run.py | test_receipt_omp_actual_model_from_session | green |
+| review-routes → Every review records a receipt | Model not reported | evals/review-routes/test_review_run.py | test_receipt_unknown_actual_model | green |
 | preship-review → Runs when every task is committed | Default settings | evals/review-routes/test_skill_text.py | test_commit_step3_runs_preship_before_handoff | red |
 | preship-review → Runs when every task is committed | Opted out | evals/review-routes/test_skill_text.py | test_commit_step3_preship_false_skips | red |
 | preship-review → Runs when every task is committed | Store-backed change | evals/review-routes/test_review_run.py | test_store_backed_record_names_both_heads | red |
@@ -75,7 +75,7 @@ Script behaviour is tested in `evals/review-routes/test_review_run.py` against f
 
 - [x] 3.1 Add `skills/specwright-review/references/findings.schema.json` (draft 2020-12 subset the script validates: `summary`, `findings[≤100]` with `id`, `priority` P0-P3, `category` code|spec|test|docs, `file`, `line`, `title`, `body`, and `spec_class` required when `category` is `spec`) and `references/brief.md` (reporting criteria, the clarification and behaviour-change tests, credits to compound-engineering `ce-code-review` and oh-my-pi `reviewer.md` with links). Verify: `python -I -c "import json;json.load(open('skills/specwright-review/references/findings.schema.json'))"` exits 0.
 - [x] 3.2 Add fake `codex`, `claude` and `omp` executables under `evals/fakes/`, driven by environment variables (exit code, stdout file, delay, `Model not found`, argv log, session file). Write the failing select/run tests in `evals/review-routes/test_review_run.py` for the test map rows of review-routes. Verify: `python -m unittest discover evals/review-routes` fails on the missing script, for each row.
-- [ ] 3.3 Implement `skills/specwright-review/scripts/review-run.sh` with `select` and `run`:
+- [x] 3.3 Implement `skills/specwright-review/scripts/review-run.sh` with `select` and `run`:
   - settings read from `openspec/specwright.yaml` (stdlib YAML subset, like `pr-pair.sh` context);
   - D3 command lines, prompt via a file with a nonce-delimited diff region, the `review.max_diff_kb` check before any spawn;
   - the `review.timeout` deadline with a process-tree kill by PID;
