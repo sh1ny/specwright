@@ -128,7 +128,7 @@ The split-off `planning-stores` requirements (#66) state behaviour that already 
 
 ## 5. Integration checks
 
-- [ ] 5.1 Run `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`. Both must pass. Every Test map row must be green.
+- [x] 5.1 Run `python -m unittest discover evals/pr-pair` and `python -m unittest discover evals/git-workflow`. Both must pass. Every Test map row must be green.
 - [ ] 5.2 Run `openspec validate fix-roadmap-milestone-end --strict` and `openspec schema validate specwright` (from the repo root after re-installing the schema copy, if the schema changed; this change does not edit it). Both must pass.
 
 ## Workflow follow-up
