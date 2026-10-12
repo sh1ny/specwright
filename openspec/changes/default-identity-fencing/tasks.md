@@ -57,7 +57,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 
 ## 4. Skill text: run login, hand-offs, fenced call sites
 
-- [ ] 4.1 Write the failing `evals/pr-pair/test_skill_text.py` tests: the identity paragraph defines the run login (resolve once with `as.sh --resolve` at a user-started step, hand it off, stop and ask when missing), the "drop it when `github.login` is empty" wording is gone, every `gh`/`git push`/`git fetch`/`git pull` call site in `specwright-pr` carries `[as]` (or is the `--resolve` call), and review-request posters fall back to the run login, fenced. Verify that they fail.
+- [x] 4.1 Write the failing `evals/pr-pair/test_skill_text.py` tests: the identity paragraph defines the run login (resolve once with `as.sh --resolve` at a user-started step, hand it off, stop and ask when missing), the "drop it when `github.login` is empty" wording is gone, every `gh`/`git push`/`git fetch`/`git pull` call site in `specwright-pr` carries `[as]` (or is the `--resolve` call), and review-request posters fall back to the run login, fenced. Verify that they fail.
 - [ ] 4.2 Update `skills/specwright-pr/SKILL.md`: the identity paragraph, review requests, the cleanup pulls, the `gh pr view` comment checks, the ship → watch → feedback / archive hand-offs naming the run login, and the `--wait` watcher command line. Verify: the 4.1 tests pass; flip rows green.
 - [ ] 4.3 Write the failing `evals/git-workflow/test_instructions.py` tests:
   - branch gate: the main refresh is fenced when the fetch URL is on github.com, decided by the fetch URL and not by `identity`; plain for other hosts; and on refusal or a failed `--resolve` the gate reports local refs only.
