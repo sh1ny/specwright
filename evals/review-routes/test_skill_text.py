@@ -66,6 +66,14 @@ class ReviewSkill(unittest.TestCase):
         self.assertRegex(design, r"(?s)record[`\"']?\s+--kind design|record --kind design",
                          "a subagent design review is not validated with `record --kind design`")
 
+    def test_subagent_preship_dispatch_names_root_and_store(self):
+        step = self.section("pre-ship review")
+        start = step.find("dispatch `specwright-reviewer` in pre-ship mode")
+        self.assertGreater(start, -1)
+        dispatch = step[start:step.find("record --kind preship", start)]
+        self.assertIn("root.path", dispatch, "the dispatch does not give the reviewer the resolved planning root")
+        self.assertRegex(dispatch, r"store id", "the dispatch does not give the reviewer the store id")
+
     def test_subagent_preship_runs_preflight_before_dispatch(self):
         step = self.section("pre-ship review")
         pre = positions(sub("preflight"), step)
