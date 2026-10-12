@@ -938,11 +938,16 @@ class FencedGitHubCalls(unittest.TestCase):
                          "a handed run login does not come before github.login and --resolve")
         step4 = next((l for l in read(ROADMAP).splitlines() if l.startswith("4. Start `/opsx:propose")), "")
         self.assertRegex(step4, r"run login: <login>", "roadmap next does not hand its run login to the branch gate")
-        # PR #82: local mode never resolves in roadmap, so with no login to hand the gate resolves once itself
-        self.assertRegex(step4, r"(?is)(no|without)[^.]*(run )?login[^.]*(gate|`specwright-branch`)[^.]*resolv",
-                         "roadmap next with no run login (local mode) leaves the gate unable to resolve")
-        self.assertRegex(g, r"(?is)--resolve[^.]*started by `specwright-roadmap` \*\*next\*\* without a login",
-                         "the gate does not resolve once when roadmap next has no login to hand")
+        # PR #82: only a user-started step resolves (github-identity spec). Roadmap next, with no run login yet
+        # (local mode), resolves it itself and hands it, or hands `run login: none`; the handed-off gate never resolves.
+        self.assertRegex(step4, r"(?is)no run login yet.{0,80}user-started.{0,120}--resolve.{0,120}`run login: none`",
+                         "roadmap next with no run login (local mode) does not resolve it before handing off")
+        self.assertNotRegex(step4, r"(?i)gate resolves", "roadmap next leaves the resolve to the handed-off gate")
+        self.assertRegex(g, r"(?is)--resolve[^.]*only when it is user-started",
+                         "the gate resolves even when another step started it")
+        self.assertNotRegex(g, r"started by `specwright-roadmap` \*\*next\*\* without a login",
+                            "the gate still resolves when roadmap next hands it no login")
+        self.assertRegex(g, r"(?is)`run login: none`[^.]*local refs only", "the gate has no meaning for a handed `run login: none`")
 
     def test_store_login_chosen_per_repo(self):
         # PR #82: a handed run login is the code repo's; the store keeps planning_store.login.
