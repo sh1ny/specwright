@@ -938,6 +938,11 @@ class FencedGitHubCalls(unittest.TestCase):
                          "a handed run login does not come before github.login and --resolve")
         step4 = next((l for l in read(ROADMAP).splitlines() if l.startswith("4. Start `/opsx:propose")), "")
         self.assertRegex(step4, r"run login: <login>", "roadmap next does not hand its run login to the branch gate")
+        # PR #82: local mode never resolves in roadmap, so with no login to hand the gate resolves once itself
+        self.assertRegex(step4, r"(?is)(no|without)[^.]*(run )?login[^.]*(gate|`specwright-branch`)[^.]*resolv",
+                         "roadmap next with no run login (local mode) leaves the gate unable to resolve")
+        self.assertRegex(g, r"(?is)--resolve[^.]*started by `specwright-roadmap` \*\*next\*\* without a login",
+                         "the gate does not resolve once when roadmap next has no login to hand")
 
     def test_store_login_chosen_per_repo(self):
         # PR #82: a handed run login is the code repo's; the store keeps planning_store.login.
@@ -947,6 +952,12 @@ class FencedGitHubCalls(unittest.TestCase):
             self.assertNotIn("(the store's: `planning_store.login`)", b, f"{name}: the store login is still an alternative to the handed login")
             self.assertRegex(b, r"(?is)store[^.]*`planning_store\.login`[^.]*else[^.]*run login",
                              f"{name}: the store does not use planning_store.login, else the code repo's run login")
+        pr = read(PR_SKILL)
+        settings = next((l for l in pr.splitlines() if "**Settings per repo:**" in l), "")
+        self.assertTrue(settings, "specwright-pr has no Settings per repo block")
+        self.assertRegex(settings, r"(?i)empty store login means the run login", "specwright-pr: an empty store login has no fallback")
+        self.assertRegex(settings, r"(?i)handed run login never replaces a set `planning_store\.login`",
+                         "specwright-pr: a handed run login may replace planning_store.login")
 
 
 class InstallSettingsKeys(unittest.TestCase):
