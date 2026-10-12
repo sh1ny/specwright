@@ -116,6 +116,10 @@ The fence SHALL refuse a command (exit 3, before the command runs) when a github
 - **WHEN** `origin` is `https://ghp_abc123@github.com/o/r.git` (a token with no `:`) and a fenced `git fetch` runs
 - **THEN** the fence exits 3 before any request, with the token masked
 
+#### Scenario: Git pointed at another repository
+- **WHEN** a fenced git command passes `-C`, `--git-dir` or `--work-tree` before its subcommand, so it would read another repository's remotes and rules, whatever their URLs
+- **THEN** the fence exits 3 before the command runs and says to run it from inside that repository
+
 #### Scenario: Username without a secret
 - **WHEN** `origin` is `https://someone@github.com/o/r.git`
 - **THEN** the fence exits 3 the same way, since a bare username cannot be told apart from a token, and the message says to remove the userinfo because the fence supplies the credential

@@ -128,11 +128,11 @@ class AsShHeaderScrub(AsShCase):
         self.assertTrue(seen, "git made no request through as.sh")
         self.assertFalse(self.leaked(seen), f"as.sh started in the store must scrub its local header: {seen}")
 
-    def test_header_survives_when_as_sh_starts_outside_the_store(self):
-        # the D1 requirement in reverse: as.sh in the code repo cannot fence a `git -C <store>` command
+    def test_git_dash_c_into_the_store_refused(self):
+        # as.sh in the code repo cannot fence a `git -C <store>` command (it scrubs only the repository it starts in),
+        # so it refuses it: no request, so the store's header is never sent (PR #82)
         seen = self.ls_remote(self.code, ["bash", str(AS_SH), "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"])
-        self.assertTrue(seen, "git made no request")
-        self.assertTrue(self.leaked(seen), "as.sh only scrubs the repository it starts in")
+        self.assertFalse(seen, f"as.sh must refuse a git command pointed at another repository: {seen}")
 
 
 class AsShIdentity(AsShCase):
@@ -297,6 +297,25 @@ class AsShUrls(AsShCase):
         self.assertEqual(Recorder.seen, [])
         self.assertIn("remove the userinfo", r.stderr)
         self.assertNotIn("someone", r.stderr)
+
+    def test_git_selecting_another_repo_refused(self):
+        # PR #82: the URL check scans the repo as.sh starts in, so git may not be pointed at another one
+        other = self.repo("other")
+        self.git(other, "remote", "set-url", "origin", f"https://x-access-token:{SECRET}@github.com/o/r.git")
+        self.git(other, "config", "http.proxy", self.base.rstrip("/"))
+        gitdir = str(Path(other) / ".git")
+        for argv in (["-C", str(other), "fetch", "origin", "main"], [f"--git-dir={gitdir}", "fetch", "origin", "main"],
+                     ["--git-dir", gitdir, "fetch", "origin", "main"], ["--work-tree", str(other), "fetch", "origin", "main"],
+                     ["-c", "core.quotepath=false", "-C", str(other), "fetch", "origin", "main"]):
+            Recorder.seen = []
+            r = self.as_sh(self.work, "sh1ny", "git", *argv)
+            self.assertEqual(r.returncode, 3, f"{argv}: {r.stderr}")
+            self.assertEqual(Recorder.seen, [], f"{argv}: no request may reach the server")
+            self.assertNotIn(SECRET, r.stdout + r.stderr)
+            self.assertIn("inside", r.stderr, "the refusal says to run as.sh from inside the repository")
+        # options after the subcommand are the subcommand's own, not a repository selection
+        r = self.as_sh(self.work, "sh1ny", "git", "log", "-C", "-1")
+        self.assertNotEqual(r.returncode, 3, r.stderr)
 
     def test_refusal_covers_commands_other_than_git(self):
         self.git(self.work, "remote", "set-url", "origin", f"https://{SECRET}@github.com/o/r.git")

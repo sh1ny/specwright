@@ -152,8 +152,10 @@ def git_net(d, *args):
     if d not in IDENT:
         try:
             IDENT[d] = identity(d)["repo"].lower()
-        except Stop as e:  # no GitHub origin: plain git, as before; a fork-style mismatch still fetches from github.com
-            IDENT[d] = str(e.extra["fetch"]).lower() if e.error == "mismatch" else None
+        except Stop:  # the fetch URL alone decides, whatever the push URLs: a GitHub fetch is fenced, anything else is plain git
+            r = git(d, "remote", "get-url", "origin")
+            fetch = parse_repo(r.stdout.strip()) if r.returncode == 0 else None
+            IDENT[d] = fetch.lower() if fetch else None
     if IDENT[d] is None:
         return git(d, *args)
     login = REPO_LOGIN.get(IDENT[d])
@@ -570,11 +572,17 @@ def gh_obj(endpoint, *extra):
         unknown(f"unreadable response: {e}")
 
 
+_AMBIENT = []
+
+
 def ambient_login():
-    r = gh("api", "user", "--jq", ".login")
-    if r.returncode != 0 or not r.stdout.strip():
-        unknown("cannot read the ambient gh login")
-    return r.stdout.strip()
+    """The active gh login, read once per run: a later `gh auth switch` cannot change it mid-run."""
+    if not _AMBIENT:
+        r = gh("api", "user", "--jq", ".login")
+        if r.returncode != 0 or not r.stdout.strip():
+            unknown("cannot read the ambient gh login")
+        _AMBIENT.append(r.stdout.strip())
+    return _AMBIENT[0]
 
 
 def norm_pr(p):

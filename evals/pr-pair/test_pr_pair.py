@@ -865,6 +865,38 @@ class Rounds(Base):
         self.assertNotIn("SECRETtok", json.dumps(r))
         self.assertEqual(seen, [], "no request may reach the server")
 
+    def test_rounds_store_token_url_with_non_github_push_url_exits_3(self):
+        # PR #82: the store fetches from github.com but pushes elsewhere; the fetch URL alone decides the fence, so the
+        # token in it is still refused, never sent by a plain-git read
+        seen = []
+
+        class Rec(BaseHTTPRequestHandler):
+            def do_CONNECT(self):
+                seen.append(self.path)
+                self.send_response(502)
+                self.end_headers()
+
+            do_GET = do_CONNECT
+
+            def log_message(self, *a):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Rec)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(t.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.git(self.store, "remote", "set-url", "origin", f"https://x-access-token:SECRETtok@github.com/{STORE}.git")
+        self.git(self.store, "remote", "set-url", "--push", "origin", "https://git.example.com/o/s.git")
+        self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
+        self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=3)
+        self.assertFalse(r["ok"])
+        self.assertNotIn("remote_unreadable", r)
+        self.assertNotIn("SECRETtok", json.dumps(r))
+        self.assertEqual(seen, [], "no request may reach the server")
+
     def test_token_for_unsets_host_variables(self):
         # a pinned store login: the gh calls that look up and verify its token never see GH_HOST or enterprise tokens
         self.write("code/openspec/specwright.yaml",
@@ -2434,6 +2466,17 @@ class Cleanup(Base):
         for repo in ("code", "store"):
             self.same_cmds(self.cmds(p[repo])[1:2], [self.fenced_pull("KintsugiBot")])
             self.assertTrue(all(c["cwd"] == p[repo]["dir"] for c in p[repo]["commands"]))
+
+    def test_ambient_login_read_once_per_run(self):
+        # PR #82: with no login set, one pr-pair run resolves the ambient login once, never per repo or per read
+        self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)
+        self.add_pull(STORE, 2, state="closed", merged=self.merged, sha=self.tip(self.store))
+        self.write("code/openspec/specwright.yaml", "pr:\n  max_fix_rounds: 2\n")
+        if self.gh_log.exists():
+            self.gh_log.unlink()
+        self.plan()
+        ambient = [c for c in self.gh_calls() if c["argv"][:2] == ["api", "user"] and not (c.get("env") or {}).get("GH_TOKEN")]
+        self.assertEqual(len(ambient), 1, f"the ambient login was read {len(ambient)} times")
 
     def test_cleanup_plan_split(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged)

@@ -24,8 +24,9 @@
 # (including a `git -c key=value`). The fence supplies the credential; the message
 # names the remote and kind with the userinfo masked, and no config is changed.
 # URLs for other hosts are ignored.
-# Run git from inside the target repo: inherited http extraHeaders are scrubbed
-# for the current repository only, not one selected with git -C/--git-dir.
+# Run git from inside the target repo: the URL check and the http extraHeader
+# scrub cover the current repository only, so a git command that selects
+# another one (-C, --git-dir, --work-tree) is refused (exit 3).
 set -euo pipefail
 
 resolve=
@@ -93,6 +94,23 @@ check_arg() {
   fi
 }
 for a in "$@"; do check_arg "$a"; done
+
+# git's own options, before the subcommand: one that selects another repository
+# would escape the checks below, which read the repository as.sh starts in.
+case ${1##*/} in
+  git|git.exe)
+    i=2
+    while [ "$i" -le $# ]; do
+      a=${!i}
+      case $a in
+        -C|-C*|--git-dir|--git-dir=*|--work-tree|--work-tree=*)
+          echo "as.sh: git $a selects another repository; run as.sh from inside it; refusing" >&2; exit 3 ;;
+        -c|--namespace|--super-prefix) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        *) break ;;
+      esac
+    done ;;
+esac
 
 if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]; then
   while IFS= read -r r; do

@@ -930,6 +930,15 @@ class FencedGitHubCalls(unittest.TestCase):
         self.assertRegex(offer, r"(?i)run login", "finish -> the roadmap offer does not pass the run login")
         self.assertRegex(finish, r"(?s)\*\*Run login\.\*\*.{0,600}(cannot|can't) find[^.]*stop", "finish does not stop when a handed-off step has no run login")
 
+    def test_branch_gate_takes_handed_run_login(self):
+        # PR #82: roadmap next starts the gate in the same run; the gate uses the login it is handed, never resolves again
+        g = self.gate_fetch()
+        self.assertRegex(g, r"run login: <login>", "the gate does not take a handed run login")
+        self.assertRegex(g, r"(?is)handed[^.]*run login: <login>[^.]*(otherwise|else)[^.]*`github\.login`",
+                         "a handed run login does not come before github.login and --resolve")
+        step4 = next((l for l in read(ROADMAP).splitlines() if l.startswith("4. Start `/opsx:propose")), "")
+        self.assertRegex(step4, r"run login: <login>", "roadmap next does not hand its run login to the branch gate")
+
     def test_store_login_chosen_per_repo(self):
         # PR #82: a handed run login is the code repo's; the store keeps planning_store.login.
         finish = read(FINISH)
