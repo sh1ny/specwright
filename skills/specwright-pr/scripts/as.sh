@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Run a command as one specific GitHub login, fenced against concurrent
 # `gh auth switch`: the token is resolved per process, its identity is
 # verified, and both gh (GH_TOKEN) and git push (credential helper) use it.

@@ -329,6 +329,14 @@ class RunLogin(unittest.TestCase):
             bad.append(span[:80])
         self.assertFalse(bad, f"calls without `[as]`: {bad}")
 
+    def test_pr_pair_github_reads_carry_as(self):
+        # pass, rounds, pair-state and cleanup-plan read GitHub (and the remote they start in) as the fenced
+        # login, and cleanup-plan names that login in the pulls it emits; only the local calls run bare
+        local = {"identity", "context", "branch-check"}
+        bad = [m.group(0) for m in re.finditer(r"(\[as\] )?bash scripts/pr-pair\.sh ([a-z-]+)", TEXT)
+               if not m.group(1) and m.group(2) not in local]
+        self.assertFalse(bad, f"pr-pair.sh calls without `[as]`: {bad}")
+
     def watch_bullets(self):
         return SECTIONS["watch"][1].split("\n   - ")
 
