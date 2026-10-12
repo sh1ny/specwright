@@ -39,7 +39,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 ## 1. ADR 0008
 
 - [x] 1.1 Write `docs/adr/0008-fenced-github-identity-by-default.md` (MADR-short, `Status: proposed`, `Supersedes: 0004`) from design D1-D6: fence by default, run login resolved once per user-started run and handed off, git network calls to GitHub fenced, any userinfo on github.com URLs refused, gh pinned to github.com, other hosts outside; rejected alternatives and reversal cost. Leave `0004` unchanged. Verify: file exists, `git diff --stat docs/adr/0004*` is empty.
-- [ ] 1.2 Update `openspec/architecture.md`: replace the 0004 row in the in-force index with 0008, accepted with today's date (the change's design review passed), and rewrite the **GitHub identity** paragraph (`:107`) and the `specwright-roadmap` row (`:68`) without the #38 exceptions. Set 0008 to `Status: accepted` with the date. Verify: `grep -n "#38" openspec/architecture.md` lists no open exception, and the index lists 0008 and not 0004.
+- [x] 1.2 Update `openspec/architecture.md`: replace the 0004 row in the in-force index with 0008, accepted with today's date (the change's design review passed), and rewrite the **GitHub identity** paragraph (`:107`) and the `specwright-roadmap` row (`:68`) without the #38 exceptions. Set 0008 to `Status: accepted` with the date. Verify: `grep -n "#38" openspec/architecture.md` lists no open exception, and the index lists 0008 and not 0004.
 
 ## 2. `as.sh`: resolve, host pinning, URL refusal
 

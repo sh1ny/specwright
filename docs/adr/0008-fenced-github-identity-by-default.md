@@ -1,6 +1,6 @@
 # 0008. Fenced GitHub identity by default
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-12
 - Supersedes: 0004
 
