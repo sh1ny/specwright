@@ -6,17 +6,17 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| github-identity → Every GitHub call fenced to the run login | Configured login | evals/pr-pair/test_as_sh.py | test_configured_login_pins_its_token_not_the_active_one | red |
-| github-identity → Every GitHub call fenced to the run login | Token resolves to someone else | evals/pr-pair/test_as_sh.py | test_token_for_other_login_exits_3_command_not_run | red |
-| github-identity → Empty login resolved once per run | Switch mid-run | evals/pr-pair/test_as_sh.py | test_resolved_login_survives_auth_switch | red |
+| github-identity → Every GitHub call fenced to the run login | Configured login | evals/pr-pair/test_as_sh.py | test_configured_login_pins_its_token_not_the_active_one | green |
+| github-identity → Every GitHub call fenced to the run login | Token resolves to someone else | evals/pr-pair/test_as_sh.py | test_token_for_other_login_exits_3_command_not_run | green |
+| github-identity → Empty login resolved once per run | Switch mid-run | evals/pr-pair/test_as_sh.py | test_resolved_login_survives_auth_switch | green |
 | github-identity → Empty login resolved once per run | Switch during watch | evals/pr-pair/test_skill_text.py | test_run_login_handed_to_watch_feedback_archive | green |
 | github-identity → Empty login resolved once per run | Handed-off step without its run login | evals/pr-pair/test_skill_text.py | test_handed_off_step_without_login_stops_and_asks | green |
-| github-identity → Empty login resolved once per run | No active account in a step that needs GitHub | evals/pr-pair/test_as_sh.py | test_resolve_without_account_exits_3_message | red |
+| github-identity → Empty login resolved once per run | No active account in a step that needs GitHub | evals/pr-pair/test_as_sh.py | test_resolve_without_account_exits_3_message | green |
 | github-identity → Empty login resolved once per run | No gh account in a step that accepts local refs | evals/git-workflow/test_instructions.py | test_gate_and_roadmap_status_local_refs_when_resolve_fails | green |
-| github-identity → Empty login resolved once per run | Ambient token variables do not choose the login | evals/pr-pair/test_as_sh.py | test_resolve_ignores_gh_token_env | red |
+| github-identity → Empty login resolved once per run | Ambient token variables do not choose the login | evals/pr-pair/test_as_sh.py | test_resolve_ignores_gh_token_env | green |
 | github-identity → Login fallbacks end at the run login | Review requests with every login empty | evals/pr-pair/test_skill_text.py | test_review_request_poster_falls_back_to_run_login_fenced | green |
 | github-identity → Login fallbacks end at the run login | Store login empty | evals/pr-pair/test_pr_pair.py | test_context_empty_store_login_uses_code_run_login | red |
-| github-identity → Login fallbacks end at the run login | Fallback login has no credential | evals/pr-pair/test_as_sh.py | test_request_as_without_credential_exits_3 | red |
+| github-identity → Login fallbacks end at the run login | Fallback login has no credential | evals/pr-pair/test_as_sh.py | test_request_as_without_credential_exits_3 | green |
 | github-identity → Login fallbacks end at the run login | Store reads with both logins empty | evals/pr-pair/test_pr_pair.py | test_rounds_store_token_url_exits_3_no_request | red |
 | github-identity → Main refreshes and pulls fenced | Cleanup pull after merge | evals/pr-pair/test_pr_pair.py | test_cleanup_plan_pull_runs_through_as_sh | red |
 | github-identity → Main refreshes and pulls fenced | Branch gate fetch over SSH | evals/git-workflow/test_instructions.py | test_branch_gate_fetch_fenced_local_refs_on_refusal | green |
@@ -31,8 +31,8 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 | github-identity → Credentials in a URL refused | Token in the username slot | evals/pr-pair/test_as_sh.py | test_token_in_username_slot_refused_masked | red |
 | github-identity → Credentials in a URL refused | Username without a secret | evals/pr-pair/test_as_sh.py | test_bare_username_refused | red |
 | github-identity → Credentials in a URL refused | Credential rule for another host | evals/pr-pair/test_as_sh.py | test_gitlab_token_rule_ignored | red |
-| github-identity → Fenced calls target github.com only | Enterprise host in the environment | evals/pr-pair/test_as_sh.py | test_gh_host_and_enterprise_tokens_unset | red |
-| github-identity → Fenced calls target github.com only | Host variables set but empty | evals/pr-pair/test_as_sh.py | test_empty_gh_host_targets_github | red |
+| github-identity → Fenced calls target github.com only | Enterprise host in the environment | evals/pr-pair/test_as_sh.py | test_gh_host_and_enterprise_tokens_unset | green |
+| github-identity → Fenced calls target github.com only | Host variables set but empty | evals/pr-pair/test_as_sh.py | test_empty_gh_host_targets_github | green |
 | github-identity → Non-GitHub remotes outside the fence | Local mode with a self-hosted remote | evals/git-workflow/test_instructions.py | test_non_github_fetch_runs_plain | green |
 | github-identity → Non-GitHub remotes outside the fence | PR mode with a non-GitHub origin | evals/pr-pair/test_pr_pair.py | test_identity_not_github (existing) | green |
 
@@ -45,7 +45,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 
 - [x] 2.1 Extend the fake `gh` (`evals/fakes/gh.py`) as needed: `api user` answers by `GH_TOKEN` when set (else the state's active `user`), it logs `GH_HOST` and the enterprise token variables for each call, and a test can switch the active user between calls. Verify: `python -m unittest evals.pr-pair.test_fake_gh` passes (add cases for the new behaviour).
 - [x] 2.2 Write the failing `test_as_sh.py` tests for the resolve and identity rows (Configured login, Token resolves to someone else, Switch mid-run, No active account, Ambient token variables, Fallback login has no credential) and the host rows (Enterprise host, empty `GH_HOST`). Verify they fail for the right reason (no `--resolve`, host variables reach the command).
-- [ ] 2.3 Implement `as.sh --resolve` (D1) and the host variable unsetting (D3) in `skills/specwright-pr/scripts/as.sh`. The `--resolve` stop message names `gh auth login`, `github.login`, and that `GH_TOKEN`/`GITHUB_TOKEN` are not used to pick the login. Verify: the 2.2 tests pass; flip their rows green.
+- [x] 2.3 Implement `as.sh --resolve` (D1) and the host variable unsetting (D3) in `skills/specwright-pr/scripts/as.sh`. The `--resolve` stop message names `gh auth login`, `github.login`, and that `GH_TOKEN`/`GITHUB_TOKEN` are not used to pick the login. Verify: the 2.2 tests pass; flip their rows green.
 - [ ] 2.4 Write the failing URL tests (Credential-free HTTPS URL via `git credential fill`, Token in the fetch URL, Token in one of several push URLs, rewrite rule, token in the username slot, bare username, GitLab rule ignored, plus a `-c remote.origin.url=...` argument case), each asserting exit 3, the masked message, no request at the server and unchanged config where it applies. Verify that they fail.
 - [ ] 2.5 Implement the URL check (D2) in `as.sh`, for every fenced command started inside a work tree, plus the argument and `-c` scan. Verify: the 2.4 tests and the existing `AsShHeaderScrub` tests pass; flip rows green.
 - [ ] 2.6 Update the `as.sh` header comment and its README row (`README.md:254`): `--resolve`, the github.com userinfo refusal, the host variables. Verify: `grep -n "resolve\|userinfo" README.md skills/specwright-pr/scripts/as.sh`.
