@@ -94,7 +94,7 @@ The `git fetch` and `git pull` calls a workflow makes against a remote whose fet
 - **THEN** finish stops and does not treat the PR as merged or unmerged
 
 ### Requirement: Credentials in a URL are refused
-The fence SHALL refuse a command (exit 3, before any network request) when a github.com URL git could use has userinfo (a token, a password, or a bare username, which cannot be told apart from a token): a remote's fetch URL or any push URL after `insteadOf`/`pushInsteadOf` rewriting, a rewrite that applies to a github.com URL, or a URL argument. URLs for other hosts are not checked. The message SHALL name the remote and URL kind with the credential masked; no configuration SHALL change.
+The fence SHALL refuse a command (exit 3, before the command runs) when a github.com URL git could use has userinfo (a token, a password, or a bare username, which cannot be told apart from a token): a remote's fetch URL or any push URL after `insteadOf`/`pushInsteadOf` rewriting, a rewrite that applies to a github.com URL, or a URL argument. URLs for other hosts are not checked. The message SHALL name the remote and URL kind with the credential masked; no configuration SHALL change.
 
 #### Scenario: Credential-free HTTPS URL
 - **WHEN** `origin` is `https://github.com/o/r.git` and a fenced git command asks git's credential system for `https://github.com`
