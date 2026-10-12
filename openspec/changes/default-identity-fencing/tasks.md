@@ -12,18 +12,18 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 | github-identity → Empty login resolved once per run | Switch during watch | evals/pr-pair/test_skill_text.py | test_run_login_handed_to_watch_feedback_archive | green |
 | github-identity → Empty login resolved once per run | Handed-off step without its run login | evals/pr-pair/test_skill_text.py | test_handed_off_step_without_login_stops_and_asks | green |
 | github-identity → Empty login resolved once per run | No active account in a step that needs GitHub | evals/pr-pair/test_as_sh.py | test_resolve_without_account_exits_3_message | red |
-| github-identity → Empty login resolved once per run | No gh account in a step that accepts local refs | evals/git-workflow/test_instructions.py | test_gate_and_roadmap_status_local_refs_when_resolve_fails | red |
+| github-identity → Empty login resolved once per run | No gh account in a step that accepts local refs | evals/git-workflow/test_instructions.py | test_gate_and_roadmap_status_local_refs_when_resolve_fails | green |
 | github-identity → Empty login resolved once per run | Ambient token variables do not choose the login | evals/pr-pair/test_as_sh.py | test_resolve_ignores_gh_token_env | red |
 | github-identity → Login fallbacks end at the run login | Review requests with every login empty | evals/pr-pair/test_skill_text.py | test_review_request_poster_falls_back_to_run_login_fenced | green |
 | github-identity → Login fallbacks end at the run login | Store login empty | evals/pr-pair/test_pr_pair.py | test_context_empty_store_login_uses_code_run_login | red |
 | github-identity → Login fallbacks end at the run login | Fallback login has no credential | evals/pr-pair/test_as_sh.py | test_request_as_without_credential_exits_3 | red |
 | github-identity → Login fallbacks end at the run login | Store reads with both logins empty | evals/pr-pair/test_pr_pair.py | test_rounds_store_token_url_exits_3_no_request | red |
 | github-identity → Main refreshes and pulls fenced | Cleanup pull after merge | evals/pr-pair/test_pr_pair.py | test_cleanup_plan_pull_runs_through_as_sh | red |
-| github-identity → Main refreshes and pulls fenced | Branch gate fetch over SSH | evals/git-workflow/test_instructions.py | test_branch_gate_fetch_fenced_local_refs_on_refusal | red |
-| github-identity → Main refreshes and pulls fenced | Origin that pushes to a fork | evals/git-workflow/test_instructions.py | test_fetch_fenced_by_fetch_url_not_identity | red |
-| github-identity → Main refreshes and pulls fenced | Post-merge pull refused | evals/git-workflow/test_instructions.py | test_finish_pull_fenced_stops_on_failure | red |
-| github-identity → Post-merge PR check fenced | Merged PR check with a login set | evals/git-workflow/test_instructions.py | test_finish_post_merge_check_fenced_with_repo | red |
-| github-identity → Post-merge PR check fenced | Check cannot authenticate | evals/git-workflow/test_instructions.py | test_finish_post_merge_check_exit3_stops | red |
+| github-identity → Main refreshes and pulls fenced | Branch gate fetch over SSH | evals/git-workflow/test_instructions.py | test_branch_gate_fetch_fenced_local_refs_on_refusal | green |
+| github-identity → Main refreshes and pulls fenced | Origin that pushes to a fork | evals/git-workflow/test_instructions.py | test_fetch_fenced_by_fetch_url_not_identity | green |
+| github-identity → Main refreshes and pulls fenced | Post-merge pull refused | evals/git-workflow/test_instructions.py | test_finish_pull_fenced_stops_on_failure | green |
+| github-identity → Post-merge PR check fenced | Merged PR check with a login set | evals/git-workflow/test_instructions.py | test_finish_post_merge_check_fenced_with_repo | green |
+| github-identity → Post-merge PR check fenced | Check cannot authenticate | evals/git-workflow/test_instructions.py | test_finish_post_merge_check_exit3_stops | green |
 | github-identity → Credentials in a URL refused | Credential-free HTTPS URL | evals/pr-pair/test_as_sh.py | test_credential_fill_returns_verified_token | red |
 | github-identity → Credentials in a URL refused | Token in the fetch URL | evals/pr-pair/test_as_sh.py | test_token_in_fetch_url_refused_no_request | red |
 | github-identity → Credentials in a URL refused | Token in one of several push URLs | evals/pr-pair/test_as_sh.py | test_token_in_second_push_url_refused | red |
@@ -33,7 +33,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 | github-identity → Credentials in a URL refused | Credential rule for another host | evals/pr-pair/test_as_sh.py | test_gitlab_token_rule_ignored | red |
 | github-identity → Fenced calls target github.com only | Enterprise host in the environment | evals/pr-pair/test_as_sh.py | test_gh_host_and_enterprise_tokens_unset | red |
 | github-identity → Fenced calls target github.com only | Host variables set but empty | evals/pr-pair/test_as_sh.py | test_empty_gh_host_targets_github | red |
-| github-identity → Non-GitHub remotes outside the fence | Local mode with a self-hosted remote | evals/git-workflow/test_instructions.py | test_non_github_fetch_runs_plain | red |
+| github-identity → Non-GitHub remotes outside the fence | Local mode with a self-hosted remote | evals/git-workflow/test_instructions.py | test_non_github_fetch_runs_plain | green |
 | github-identity → Non-GitHub remotes outside the fence | PR mode with a non-GitHub origin | evals/pr-pair/test_pr_pair.py | test_identity_not_github (existing) | green |
 
 ## 1. ADR 0008
@@ -66,7 +66,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
   - commit → ship and finish → ship / roadmap hand-offs pass the run login.
 
   Verify that they fail.
-- [ ] 4.4 Update `skills/specwright-branch/SKILL.md`, `skills/specwright-roadmap/SKILL.md`, `skills/specwright-finish/SKILL.md` and `skills/specwright-commit/SKILL.md` to match. Verify: the 4.3 tests and the whole `evals/git-workflow` suite pass; flip rows green.
+- [x] 4.4 Update `skills/specwright-branch/SKILL.md`, `skills/specwright-roadmap/SKILL.md`, `skills/specwright-finish/SKILL.md` and `skills/specwright-commit/SKILL.md` to match. Verify: the 4.3 tests and the whole `evals/git-workflow` suite pass; flip rows green.
 
 ## 5. Settings, docs and release 0.3.0
 
