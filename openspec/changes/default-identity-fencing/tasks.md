@@ -15,10 +15,10 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 | github-identity → Empty login resolved once per run | No gh account in a step that accepts local refs | evals/git-workflow/test_instructions.py | test_gate_and_roadmap_status_local_refs_when_resolve_fails | green |
 | github-identity → Empty login resolved once per run | Ambient token variables do not choose the login | evals/pr-pair/test_as_sh.py | test_resolve_ignores_gh_token_env | green |
 | github-identity → Login fallbacks end at the run login | Review requests with every login empty | evals/pr-pair/test_skill_text.py | test_review_request_poster_falls_back_to_run_login_fenced | green |
-| github-identity → Login fallbacks end at the run login | Store login empty | evals/pr-pair/test_pr_pair.py | test_context_empty_store_login_uses_code_run_login | red |
+| github-identity → Login fallbacks end at the run login | Store login empty | evals/pr-pair/test_pr_pair.py | test_context_empty_store_login_uses_code_run_login | green |
 | github-identity → Login fallbacks end at the run login | Fallback login has no credential | evals/pr-pair/test_as_sh.py | test_request_as_without_credential_exits_3 | green |
-| github-identity → Login fallbacks end at the run login | Store reads with both logins empty | evals/pr-pair/test_pr_pair.py | test_rounds_store_token_url_exits_3_no_request | red |
-| github-identity → Main refreshes and pulls fenced | Cleanup pull after merge | evals/pr-pair/test_pr_pair.py | test_cleanup_plan_pull_runs_through_as_sh | red |
+| github-identity → Login fallbacks end at the run login | Store reads with both logins empty | evals/pr-pair/test_pr_pair.py | test_rounds_store_token_url_exits_3_no_request | green |
+| github-identity → Main refreshes and pulls fenced | Cleanup pull after merge | evals/pr-pair/test_pr_pair.py | test_cleanup_plan_pull_runs_through_as_sh | green |
 | github-identity → Main refreshes and pulls fenced | Branch gate fetch over SSH | evals/git-workflow/test_instructions.py | test_branch_gate_fetch_fenced_local_refs_on_refusal | green |
 | github-identity → Main refreshes and pulls fenced | Origin that pushes to a fork | evals/git-workflow/test_instructions.py | test_fetch_fenced_by_fetch_url_not_identity | green |
 | github-identity → Main refreshes and pulls fenced | Post-merge pull refused | evals/git-workflow/test_instructions.py | test_finish_pull_fenced_stops_on_failure | green |
@@ -53,7 +53,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 ## 3. `pr-pair.sh`: store reads, token lookup, cleanup pulls
 
 - [x] 3.1 Write the failing `test_pr_pair.py` tests: Store reads with both logins empty (`rounds` exits 3 on a store origin carrying a token, with no request at the server), Store login empty (`context` reports an empty store login, and the store's reads run as the code run login through `as.sh` inside the store), Cleanup pull after merge (each emitted `pull --ff-only` command is `bash <as.sh> <login> git pull --ff-only`), and a `token_for` case where `GH_HOST` and the enterprise tokens do not reach `gh`. Verify that they fail.
-- [ ] 3.2 Implement D6 in `git_net`: every network read of a repo other than the one the process started in goes through `as.sh <that repo's login>` from inside it, with `ambient_login()` when the store login is empty or equal. Also unset the host variables in `token_for`, and emit the fenced pull in `cleanup-plan` (D4). Verify: the 3.1 tests and the whole `evals/pr-pair` suite pass; flip rows green.
+- [x] 3.2 Implement D6 in `git_net`: every network read of a repo other than the one the process started in goes through `as.sh <that repo's login>` from inside it, with `ambient_login()` when the store login is empty or equal. Also unset the host variables in `token_for`, and emit the fenced pull in `cleanup-plan` (D4). Verify: the 3.1 tests and the whole `evals/pr-pair` suite pass; flip rows green.
 
 ## 4. Skill text: run login, hand-offs, fenced call sites
 

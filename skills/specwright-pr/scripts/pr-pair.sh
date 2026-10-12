@@ -37,7 +37,8 @@
 #                                     (first_seen), else, only with no such record, when the record was written (pass_written;
 #                                     written_at, or the owner's at in an older record); none = no cutoff, the row stays todo
 #   cleanup-plan --code d --store d --branch b
-#                                     post-merge commands per repo whose expected PR is MERGED: checkout, pull, then
+#                                     post-merge commands per repo whose expected PR is MERGED: checkout, a pull fenced as
+#                                     that repo's login (bash <as.sh> <login> git pull --ff-only), then
 #                                     branch-check (--head: the merged PR's head); `delete` (git branch -D) runs only on delete: true
 #   branch-check --dir d --branch b --main m [--head sha]
 #                                     delete true when the branch tip is on main (on_main) or is the merged head or an ancestor of
@@ -102,6 +103,10 @@ class Stop(Exception):
         return {"ok": False, "error": self.error, "message": self.message, **self.extra}
 
 
+class Refused(Stop):
+    """as.sh refused a fenced read (exit 3 with an `as.sh:` message): never an ordinary network failure."""
+
+
 def usage(msg):
     raise Stop("usage", msg, code=2)
 
@@ -124,20 +129,43 @@ def git(d, *args):
 
 
 IDENT = {}
+HOST_VARS = ("GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")  # gh must target github.com only (as.sh unsets them too)
+_START = []
+
+
+def started_in(d):
+    """True when `d` is the work tree this process started in: the outer as.sh checked that repo, and only that one."""
+    if not _START:
+        _START.append(toplevel_path(os.getcwd()))
+    return bool(_START[0]) and _START[0] == toplevel_path(d)
+
+
+def toplevel_path(d):
+    r = git(d, "rev-parse", "--show-toplevel")
+    return os.path.normcase(os.path.realpath(r.stdout.strip())) if r.returncode == 0 and r.stdout.strip() else ""
 
 
 def git_net(d, *args):
-    """git ls-remote / fetch in `d`, authenticated as the login that reads d's repo (as.sh pins the transport)."""
+    """git ls-remote / fetch in `d`. A GitHub repo other than the one this process started in is read through as.sh from
+    inside it, as its own login, else as the code run login (the ambient, fenced one): the URL check and header scrub of
+    the outer as.sh cover only the repo it started in. Non-GitHub remotes stay plain git."""
     if d not in IDENT:
         try:
             IDENT[d] = identity(d)["repo"].lower()
-        except Stop:  # no GitHub origin: plain git, as before
-            IDENT[d] = None
-    login = REPO_LOGIN.get(IDENT[d] or "")
-    if not login:
+        except Stop as e:  # no GitHub origin: plain git, as before; a fork-style mismatch still fetches from github.com
+            IDENT[d] = str(e.extra["fetch"]).lower() if e.error == "mismatch" else None
+    if IDENT[d] is None:
         return git(d, *args)
+    login = REPO_LOGIN.get(IDENT[d])
+    if not login:
+        if started_in(d):
+            return git(d, *args)
+        login = ambient_login()
     token_for(login)  # no credential / wrong identity stops here, before any git network command
-    return run([BASH, f"{os.environ['PR_PAIR_DIR']}/as.sh", login, "git", *args], cwd=d)
+    r = run([BASH, f"{os.environ['PR_PAIR_DIR']}/as.sh", login, "git", *args], cwd=d)
+    if r.returncode == 3 and r.stderr.lstrip().startswith("as.sh:"):
+        raise Refused("fence_refused", f"as.sh refused the read in {d}: {r.stderr.strip()}", code=3, repo_dir=norm(d))
+    return r
 
 
 REPO_LOGIN, TOKENS = {}, {}  # repo slug (lower) -> login that reads it; login -> its verified token
@@ -151,7 +179,8 @@ def gh(*args, repo=None):
     if not login:
         return run(cmd)
     try:
-        return subprocess.run(cmd, env={**ENV, "GH_TOKEN": token_for(login)}, capture_output=True, text=True,
+        return subprocess.run(cmd, env={**{k: v for k, v in ENV.items() if k not in HOST_VARS}, "GH_TOKEN": token_for(login)},
+                              capture_output=True, text=True,
                               encoding="utf-8", errors="replace")
     except OSError as e:
         return subprocess.CompletedProcess(cmd, 127, "", str(e))
@@ -170,7 +199,7 @@ def repo_of(args):
 def token_for(login):
     """`login`'s gh token, pinned and verified the way as.sh pins one (never `gh auth switch`)."""
     if login not in TOKENS:
-        bare = {k: v for k, v in ENV.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        bare = {k: v for k, v in ENV.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", *HOST_VARS)}
         base = [BASH, "-c", 'exec gh "$@"', "gh"] if BASH else ["gh"]
         r = subprocess.run(base + ["auth", "token", "--hostname", "github.com", "--user", login], env=bare,
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -1249,6 +1278,8 @@ def cmd_rounds(argv):
             shas = shas_of[k]
             try:
                 missing = [s for s in shas if not remote_contains(d, a["branch"], s)]
+            except Refused:  # as.sh refused (a credential in a URL, no credential): a stop, not an unreadable remote
+                raise
             except Stop:  # the count does not depend on the remote; say which side could not be checked
                 unreadable.append(k)
                 continue
@@ -1940,6 +1971,8 @@ def cmd_cleanup(argv):
     need(a, "code", "store", "branch")
     branch = a["branch"]
     e = expected_set(a["code"], a["store"], branch)
+    ctx = contexts(a["code"], a["store"])
+    as_sh = f"{os.environ['PR_PAIR_DIR']}/as.sh"
     members, keep, out = e["set"], [], {}
     all_merged = bool(members) and all(e[k]["pr"] and e[k]["pr"]["state"] == "MERGED" for k in members)
     for k, d in (("code", a["code"]), ("store", a["store"])):
@@ -1953,7 +1986,7 @@ def cmd_cleanup(argv):
             if exists:
                 # after the pull, branch-check decides: the skill runs `delete` only when it answers delete: true
                 check = ["pr-pair.sh", "branch-check", "--dir", cwd, "--branch", branch, "--main", main] + (["--head", pr["head_sha"]] if pr.get("head_sha") else [])
-                ent["commands"] = [cmd("git", "checkout", main), cmd("git", "pull", "--ff-only"), cmd(*check)]
+                ent["commands"] = [cmd("git", "checkout", main), cmd("bash", as_sh, ctx[k]["login"] or ambient_login(), "git", "pull", "--ff-only"), cmd(*check)]
                 ent["delete"] = ["git", "branch", "-D", branch]
         elif side["expected"]:
             keep.append({"repo": k, "slug": side["repo"], "state": pr["state"] if pr else "NONE", "branch": branch,
