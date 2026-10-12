@@ -48,7 +48,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 - [x] 2.3 Implement `as.sh --resolve` (D1) and the host variable unsetting (D3) in `skills/specwright-pr/scripts/as.sh`. The `--resolve` stop message names `gh auth login`, `github.login`, and that `GH_TOKEN`/`GITHUB_TOKEN` are not used to pick the login. Verify: the 2.2 tests pass; flip their rows green.
 - [x] 2.4 Write the failing URL tests (Credential-free HTTPS URL via `git credential fill`, Token in the fetch URL, Token in one of several push URLs, rewrite rule, token in the username slot, bare username, GitLab rule ignored, plus a `-c remote.origin.url=...` argument case), each asserting exit 3, the masked message, no request at the server and unchanged config where it applies. Verify that they fail.
 - [x] 2.5 Implement the URL check (D2) in `as.sh`, for every fenced command started inside a work tree, plus the argument and `-c` scan. Verify: the 2.4 tests and the existing `AsShHeaderScrub` tests pass; flip rows green.
-- [ ] 2.6 Update the `as.sh` header comment and its README row (`README.md:254`): `--resolve`, the github.com userinfo refusal, the host variables. Verify: `grep -n "resolve\|userinfo" README.md skills/specwright-pr/scripts/as.sh`.
+- [x] 2.6 Update the `as.sh` header comment and its README row (`README.md:254`): `--resolve`, the github.com userinfo refusal, the host variables. Verify: `grep -n "resolve\|userinfo" README.md skills/specwright-pr/scripts/as.sh`.
 
 ## 3. `pr-pair.sh`: store reads, token lookup, cleanup pulls
 
