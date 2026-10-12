@@ -7,7 +7,11 @@ State is JSON at $FAKE_GH_STATE:
                             "default_branch": "main"}},
    "fail": ["regex" | {"match": "regex", "exit": 1, "stderr": "msg"}]}
 Any call whose argv (joined by spaces) matches a `fail` pattern exits non-zero.
-Every call appends one JSON line {argv, cwd, gh_repo} to $FAKE_GH_LOG.
+Every call appends one JSON line {argv, cwd, gh_repo, env} to $FAKE_GH_LOG; env holds GH_TOKEN, GITHUB_TOKEN, GH_HOST,
+GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN as the call saw them (null when unset, "" when set empty).
+`api user` answers by GH_TOKEN when set, else by the state's active `user`; `auth switch [-u login]` (or switch_user(st, login))
+changes that active user, so a test can switch accounts between calls like another process would.
+A call (other than --help) whose host is not github.com (--hostname, else a non-empty GH_HOST) fails: the fake knows only github.com.
 
 Optional per-repo "readers": [logins] - only they may call `api repos/<o>/<n>/...` (a private repo); others get 404.
 Optional per-repo "activity": [{"ref": "refs/heads/b", "after": "<sha>", "timestamp": "..."}]
@@ -103,6 +107,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
 
 HOST = "https://github.com"
+ENV_LOGGED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 
 
 class Fail(Exception):
@@ -130,7 +135,8 @@ def log(argv):
     p = os.environ.get("FAKE_GH_LOG")
     if p:
         with open(p, "a", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "gh_repo": os.environ.get("GH_REPO")}) + "\n")
+            env = {k: os.environ.get(k) for k in ENV_LOGGED}
+            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "gh_repo": os.environ.get("GH_REPO"), "env": env}) + "\n")
 
 
 def inject_failure(st, argv):
@@ -294,7 +300,18 @@ def graphql_view(p, slug):
             "isCrossRepository": p["head"]["repo"]["full_name"] != slug}
 
 
+def switch_user(st, login):
+    """What `gh auth switch` does to the shared state: another login becomes the active one."""
+    st["user"] = login
+
+
 def cmd_auth(st, args):
+    if args[:1] == ["switch"]:
+        o, _ = parse(args[1:], {"--hostname": "hostname", "-h": "hostname", "--user": "user", "-u": "user"})
+        login = one(o, "user")
+        if login not in st.get("tokens", {}):
+            raise Fail(f"no logged-in account {login}")
+        return switch_user(st, login)
     if args[:1] != ["token"]:
         raise Fail(f"fake gh: unsupported auth command {args[:1]}", 2)
     if "--help" in args or "-h" in args[1:]:
@@ -824,6 +841,16 @@ def cmd_repo(st, args):
     print(f"name:\t{slug}\nurl:\t{full['url']}")
 
 
+def host_of(argv):
+    """The host a call targets: --hostname, else a non-empty GH_HOST, else github.com."""
+    for i, a in enumerate(argv):
+        if a == "--hostname" and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--hostname="):
+            return a.partition("=")[2]
+    return os.environ.get("GH_HOST") or "github.com"
+
+
 def main(argv):
     for stream in (sys.stdout, sys.stdin):  # bodies and filter output carry non-ASCII text; no CRLF translation
         if hasattr(stream, "reconfigure"):
@@ -832,6 +859,8 @@ def main(argv):
     st = load()
     try:
         inject_failure(st, argv)
+        if host_of(argv) != "github.com" and "--help" not in argv:
+            raise Fail(f"fake gh: host {host_of(argv)} is not supported (only github.com)", 1)
         cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo}
         if not argv or argv[0] not in cmds:
             raise Fail(f"fake gh: unsupported command: {' '.join(argv)}", 2)
