@@ -24,13 +24,13 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 | github-identity → Main refreshes and pulls fenced | Post-merge pull refused | evals/git-workflow/test_instructions.py | test_finish_pull_fenced_stops_on_failure | green |
 | github-identity → Post-merge PR check fenced | Merged PR check with a login set | evals/git-workflow/test_instructions.py | test_finish_post_merge_check_fenced_with_repo | green |
 | github-identity → Post-merge PR check fenced | Check cannot authenticate | evals/git-workflow/test_instructions.py | test_finish_post_merge_check_exit3_stops | green |
-| github-identity → Credentials in a URL refused | Credential-free HTTPS URL | evals/pr-pair/test_as_sh.py | test_credential_fill_returns_verified_token | red |
-| github-identity → Credentials in a URL refused | Token in the fetch URL | evals/pr-pair/test_as_sh.py | test_token_in_fetch_url_refused_no_request | red |
-| github-identity → Credentials in a URL refused | Token in one of several push URLs | evals/pr-pair/test_as_sh.py | test_token_in_second_push_url_refused | red |
-| github-identity → Credentials in a URL refused | Credential added by a URL rewrite | evals/pr-pair/test_as_sh.py | test_insteadof_rule_with_token_refused | red |
-| github-identity → Credentials in a URL refused | Token in the username slot | evals/pr-pair/test_as_sh.py | test_token_in_username_slot_refused_masked | red |
-| github-identity → Credentials in a URL refused | Username without a secret | evals/pr-pair/test_as_sh.py | test_bare_username_refused | red |
-| github-identity → Credentials in a URL refused | Credential rule for another host | evals/pr-pair/test_as_sh.py | test_gitlab_token_rule_ignored | red |
+| github-identity → Credentials in a URL refused | Credential-free HTTPS URL | evals/pr-pair/test_as_sh.py | test_credential_fill_returns_verified_token | green |
+| github-identity → Credentials in a URL refused | Token in the fetch URL | evals/pr-pair/test_as_sh.py | test_token_in_fetch_url_refused_no_request | green |
+| github-identity → Credentials in a URL refused | Token in one of several push URLs | evals/pr-pair/test_as_sh.py | test_token_in_second_push_url_refused | green |
+| github-identity → Credentials in a URL refused | Credential added by a URL rewrite | evals/pr-pair/test_as_sh.py | test_insteadof_rule_with_token_refused | green |
+| github-identity → Credentials in a URL refused | Token in the username slot | evals/pr-pair/test_as_sh.py | test_token_in_username_slot_refused_masked | green |
+| github-identity → Credentials in a URL refused | Username without a secret | evals/pr-pair/test_as_sh.py | test_bare_username_refused | green |
+| github-identity → Credentials in a URL refused | Credential rule for another host | evals/pr-pair/test_as_sh.py | test_gitlab_token_rule_ignored | green |
 | github-identity → Fenced calls target github.com only | Enterprise host in the environment | evals/pr-pair/test_as_sh.py | test_gh_host_and_enterprise_tokens_unset | green |
 | github-identity → Fenced calls target github.com only | Host variables set but empty | evals/pr-pair/test_as_sh.py | test_empty_gh_host_targets_github | green |
 | github-identity → Non-GitHub remotes outside the fence | Local mode with a self-hosted remote | evals/git-workflow/test_instructions.py | test_non_github_fetch_runs_plain | green |
@@ -47,7 +47,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 - [x] 2.2 Write the failing `test_as_sh.py` tests for the resolve and identity rows (Configured login, Token resolves to someone else, Switch mid-run, No active account, Ambient token variables, Fallback login has no credential) and the host rows (Enterprise host, empty `GH_HOST`). Verify they fail for the right reason (no `--resolve`, host variables reach the command).
 - [x] 2.3 Implement `as.sh --resolve` (D1) and the host variable unsetting (D3) in `skills/specwright-pr/scripts/as.sh`. The `--resolve` stop message names `gh auth login`, `github.login`, and that `GH_TOKEN`/`GITHUB_TOKEN` are not used to pick the login. Verify: the 2.2 tests pass; flip their rows green.
 - [x] 2.4 Write the failing URL tests (Credential-free HTTPS URL via `git credential fill`, Token in the fetch URL, Token in one of several push URLs, rewrite rule, token in the username slot, bare username, GitLab rule ignored, plus a `-c remote.origin.url=...` argument case), each asserting exit 3, the masked message, no request at the server and unchanged config where it applies. Verify that they fail.
-- [ ] 2.5 Implement the URL check (D2) in `as.sh`, for every fenced command started inside a work tree, plus the argument and `-c` scan. Verify: the 2.4 tests and the existing `AsShHeaderScrub` tests pass; flip rows green.
+- [x] 2.5 Implement the URL check (D2) in `as.sh`, for every fenced command started inside a work tree, plus the argument and `-c` scan. Verify: the 2.4 tests and the existing `AsShHeaderScrub` tests pass; flip rows green.
 - [ ] 2.6 Update the `as.sh` header comment and its README row (`README.md:254`): `--resolve`, the github.com userinfo refusal, the host variables. Verify: `grep -n "resolve\|userinfo" README.md skills/specwright-pr/scripts/as.sh`.
 
 ## 3. `pr-pair.sh`: store reads, token lookup, cleanup pulls
