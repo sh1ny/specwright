@@ -930,6 +930,15 @@ class FencedGitHubCalls(unittest.TestCase):
         self.assertRegex(offer, r"(?i)run login", "finish -> the roadmap offer does not pass the run login")
         self.assertRegex(finish, r"(?s)\*\*Run login\.\*\*.{0,600}(cannot|can't) find[^.]*stop", "finish does not stop when a handed-off step has no run login")
 
+    def test_store_login_chosen_per_repo(self):
+        # PR #82: a handed run login is the code repo's; the store keeps planning_store.login.
+        finish = read(FINISH)
+        run_login = finish[finish.index("**Run login.**"):].split("\n", 1)[0]
+        for name, b in (("branch gate", self.gate_fetch()), ("finish", run_login), ("roadmap status", self.roadmap_status_bullet())):
+            self.assertNotIn("(the store's: `planning_store.login`)", b, f"{name}: the store login is still an alternative to the handed login")
+            self.assertRegex(b, r"(?is)store[^.]*`planning_store\.login`[^.]*else[^.]*run login",
+                             f"{name}: the store does not use planning_store.login, else the code repo's run login")
+
 
 class InstallSettingsKeys(unittest.TestCase):
     """README install Steps 6-7 compare settings by dotted path; commented-out template keys are optional (#78)."""
