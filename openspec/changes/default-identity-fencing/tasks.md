@@ -52,7 +52,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 
 ## 3. `pr-pair.sh`: store reads, token lookup, cleanup pulls
 
-- [ ] 3.1 Write the failing `test_pr_pair.py` tests: Store reads with both logins empty (`rounds` exits 3 on a store origin carrying a token, with no request at the server), Store login empty (`context` reports an empty store login, and the store's reads run as the code run login through `as.sh` inside the store), Cleanup pull after merge (each emitted `pull --ff-only` command is `bash <as.sh> <login> git pull --ff-only`), and a `token_for` case where `GH_HOST` and the enterprise tokens do not reach `gh`. Verify that they fail.
+- [x] 3.1 Write the failing `test_pr_pair.py` tests: Store reads with both logins empty (`rounds` exits 3 on a store origin carrying a token, with no request at the server), Store login empty (`context` reports an empty store login, and the store's reads run as the code run login through `as.sh` inside the store), Cleanup pull after merge (each emitted `pull --ff-only` command is `bash <as.sh> <login> git pull --ff-only`), and a `token_for` case where `GH_HOST` and the enterprise tokens do not reach `gh`. Verify that they fail.
 - [ ] 3.2 Implement D6 in `git_net`: every network read of a repo other than the one the process started in goes through `as.sh <that repo's login>` from inside it, with `ambient_login()` when the store login is empty or equal. Also unset the host variables in `token_for`, and emit the fenced pull in `cleanup-plan` (D4). Verify: the 3.1 tests and the whole `evals/pr-pair` suite pass; flip rows green.
 
 ## 4. Skill text: run login, hand-offs, fenced call sites

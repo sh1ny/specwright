@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -75,10 +76,10 @@ class Base(unittest.TestCase):
             self.assertEqual(r.returncode, 0, f"git {args}: {r.stderr}")
         return r.stdout.strip()
 
-    def pp(self, *args, env=None, expect=0):
+    def pp(self, *args, env=None, expect=0, cwd=None):
         """Run pr-pair.sh; return the parsed JSON line. The exit code must be `expect` (None = any)."""
         e = {**self.env(), **(env or {})}
-        r = subprocess.run(["bash", str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=e, cwd=self.tmp)
+        r = subprocess.run(["bash", str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=e, cwd=cwd or self.tmp)
         lines = r.stdout.strip().splitlines()
         if expect is not None:
             self.assertEqual(r.returncode, expect, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")
@@ -812,6 +813,72 @@ class Rounds(Base):
         self.git(other, "push", "-q", "origin", BRANCH)
         r = self.rounds()
         self.assertEqual((r["unpushed"], r["remote_unreadable"]), ({}, []))
+
+    # ---- the store is read through as.sh from inside it, whatever the logins (default-identity-fencing D6) ----
+    FIX = "fix(add-greeting): address review feedback\n\nFeedback-Round: 1"
+
+    def dead_store_remote(self):
+        """The store's GitHub origin is unreachable (a dead proxy): the read fails fast, but the calls before it are logged."""
+        self.git(self.store, "config", "http.proxy", "http://127.0.0.1:9")
+        return self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+
+    def test_context_empty_store_login_uses_code_run_login(self):
+        # both logins empty: the store login stays empty, and the store is read as the code run login through as.sh,
+        # started inside the store (so its URLs and headers are checked), not with plain git
+        self.dead_store_remote()
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        self.assertEqual((c["code"]["login"], c["store"]["login"]), ("", ""))
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code)
+        here = os.path.normcase(os.path.realpath(self.store))
+        fenced = [c for c in self.gh_calls() if c["argv"][:2] == ["auth", "token"] and "--user" in c["argv"]
+                  and os.path.normcase(os.path.realpath(c["cwd"])) == here]
+        self.assertTrue(fenced, "the store read must run as.sh from inside the store")
+        self.assertEqual({c["argv"][-1] for c in fenced}, {"KintsugiBot"}, "the run login is the ambient (fenced) login")
+
+    def test_rounds_store_token_url_exits_3_no_request(self):
+        # both logins empty and the store origin carries a token: as.sh refuses inside the store, before any request
+        seen = []
+
+        class Rec(BaseHTTPRequestHandler):
+            def do_CONNECT(self):
+                seen.append(self.path)
+                self.send_response(502)
+                self.end_headers()
+
+            do_GET = do_CONNECT
+
+            def log_message(self, *a):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Rec)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(t.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.git(self.store, "remote", "set-url", "origin", f"https://x-access-token:SECRETtok@github.com/{STORE}.git")
+        self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
+        self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=3)
+        self.assertFalse(r["ok"])
+        self.assertNotIn("remote_unreadable", r)
+        self.assertNotIn("SECRETtok", json.dumps(r))
+        self.assertEqual(seen, [], "no request may reach the server")
+
+    def test_token_for_unsets_host_variables(self):
+        # a pinned store login: the gh calls that look up and verify its token never see GH_HOST or enterprise tokens
+        self.write("code/openspec/specwright.yaml",
+                   "github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\nplanning_store:\n  login: sh1ny\n")
+        self.git(self.code, "add", "-A")
+        self.git(self.code, "commit", "-q", "-m", "chore: logins")
+        self.dead_store_remote()
+        host ={"GH_HOST": "ghe.example.com", "GH_ENTERPRISE_TOKEN": "ent-1", "GITHUB_ENTERPRISE_TOKEN": "ent-2"}
+        self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, env=host, cwd=self.code)
+        calls = self.gh_calls()
+        self.assertTrue([c for c in calls if c["argv"][:2] == ["auth", "token"] and c["argv"][-1] == "sh1ny"])
+        for c in calls:
+            for k in host:
+                self.assertIsNone(c["env"][k], f"{k} reached gh {c['argv']}")
 
 
 # =======================================================================================================
@@ -2321,6 +2388,15 @@ class Cleanup(Base):
         return [c["cmd"] for c in entry["commands"]]
 
     @staticmethod
+    def fenced_pull(login):
+        """The fenced pull cleanup-plan emits: as.sh runs git pull as the login that reads the repo."""
+        return ["bash", str(SCRIPT.parent / "as.sh").replace("\\", "/"), login, "git", "pull", "--ff-only"]
+
+    def same_cmds(self, got, want):
+        fold = lambda cs: [[x.lower() if i == 1 and c[:1] == ["bash"] else x for i, x in enumerate(c)] for c in cs]
+        self.assertEqual(fold(got), fold(want))
+
+    @staticmethod
     def check_cmd(entry, head, main="main"):
         """The branch-check command a merged side runs after the pull: --head is the merged PR's head commit."""
         return ["pr-pair.sh", "branch-check", "--dir", entry["dir"], "--branch", BRANCH, "--main", main, "--head", head]
@@ -2332,7 +2408,7 @@ class Cleanup(Base):
         for repo in ("code", "store"):
             e = p[repo]
             self.assertTrue(e["merged"])
-            self.assertEqual(self.cmds(e)[:2], [["git", "checkout", "main"], ["git", "pull", "--ff-only"]])
+            self.same_cmds(self.cmds(e)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
             self.assertEqual(self.cmds(e)[2], self.check_cmd(e, "a" * 40 if repo == "code" else self.tip(self.store)))
             self.assertEqual(len(e["commands"]), 3)
             self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])
@@ -2340,6 +2416,24 @@ class Cleanup(Base):
             self.assertNotIn("force_delete_allowed", e)
             self.assertEqual(e["commands"][0]["cwd"], str(self.code if repo == "code" else self.store).replace("\\", "/"))
         self.assertEqual(p["keep"], [])
+
+    def test_cleanup_plan_pull_runs_through_as_sh(self):
+        self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)
+        self.add_pull(STORE, 2, state="closed", merged=self.merged, sha=self.tip(self.store))
+        # each repo's login from context: the store's planning_store.login, else the code login
+        self.write("code/openspec/specwright.yaml", "github:\n  login: sh1ny\nplanning_store:\n  login: KintsugiBot\n")
+        p = self.plan()
+        self.same_cmds(self.cmds(p["code"])[1:2], [self.fenced_pull("sh1ny")])
+        self.same_cmds(self.cmds(p["store"])[1:2], [self.fenced_pull("KintsugiBot")])
+        self.write("code/openspec/specwright.yaml", "github:\n  login: sh1ny\n")  # the store inherits the code login
+        p = self.plan()
+        self.same_cmds(self.cmds(p["store"])[1:2], [self.fenced_pull("sh1ny")])
+        # no login at all: the ambient (fenced) login, never a plain pull
+        self.write("code/openspec/specwright.yaml", "pr:\n  max_fix_rounds: 2\n")
+        p = self.plan()
+        for repo in ("code", "store"):
+            self.same_cmds(self.cmds(p[repo])[1:2], [self.fenced_pull("KintsugiBot")])
+            self.assertTrue(all(c["cwd"] == p[repo]["dir"] for c in p[repo]["commands"]))
 
     def test_cleanup_plan_split(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged)
@@ -2365,7 +2459,7 @@ class Cleanup(Base):
         self.assertTrue(p["code"]["merged"], "the merged code PR still counts; it is not missing")
         self.assertFalse(p["code"]["branch_exists"])
         self.assertEqual(p["code"]["commands"], [])
-        self.assertEqual(self.cmds(p["store"])[:2], [["git", "checkout", "main"], ["git", "pull", "--ff-only"]])
+        self.same_cmds(self.cmds(p["store"])[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
         self.assertEqual(self.cmds(p["store"])[2], self.check_cmd(p["store"], self.tip(self.store)))
         self.assertEqual(p["store"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertEqual(p["keep"], [])
@@ -2388,7 +2482,7 @@ class Cleanup(Base):
         p = self.plan()
         for repo, head in (("code", "b" * 40), ("store", "c" * 40)):
             e = p[repo]
-            self.assertEqual(self.cmds(e), [["git", "checkout", "main"], ["git", "pull", "--ff-only"], self.check_cmd(e, head)])
+            self.same_cmds(self.cmds(e), [["git", "checkout", "main"], self.fenced_pull("KintsugiBot"), self.check_cmd(e, head)])
             self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])  # run only when branch-check says delete: true
             self.assertNotIn("force_delete", e)
             self.assertNotIn("force_delete_allowed", e)
