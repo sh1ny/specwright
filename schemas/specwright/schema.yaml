@@ -309,7 +309,8 @@ artifacts:
       - CLI route: write the review request to a file and run
         `review-run.sh run --kind design --route <route> --prompt-file <file>
         --out <this change's review.md> --change <name> --selection <select
-        output>`. The script runs
+        output>` (store-backed: `--store <store toplevel>`,
+        so the Claude route can read the planning files). The script runs
         the CLI with a fixed, isolated, read-only command line and writes
         review.md only when the output validates. Never build or change a
         reviewer command line yourself.

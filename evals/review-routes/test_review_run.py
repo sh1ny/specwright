@@ -148,10 +148,13 @@ class Base(unittest.TestCase):
             args += ["--store", self.store, "--store-base", "main"]
         return self.script(*args, expect=expect)
 
-    def design(self, route, expect=0, out="review.md"):
+    def design(self, route, expect=0, out="review.md", store=False):
         prompt = self.put("design-prompt.md", "Review the design.\n")
-        return self.script("run", "--kind", "design", "--route", route, "--out", self.tmp / out, "--change", CHANGE,
-                           "--prompt-file", prompt, "--settings", self.settings, expect=expect)
+        args = ["run", "--kind", "design", "--route", route, "--out", self.tmp / out, "--change", CHANGE,
+                "--prompt-file", prompt, "--settings", self.settings]
+        if store:
+            args += ["--store", self.store]
+        return self.script(*args, expect=expect)
 
     def stdout_file(self, cli, text):
         self.extra_env[f"FAKE_{cli.upper()}_STDOUT"] = str(self.put(f"{cli}-stdout.txt", text))
@@ -275,6 +278,23 @@ class SelectTests(Base):
 
 
 class RunTests(Base):
+    def test_claude_add_dir_for_store(self):
+        # --restricted confines Claude's file tools to the working directories: a store's planning files need --add-dir
+        self.install("claude")
+        self.claude_result()
+        self.preship("claude", out="with-store.json")
+        self.preship("claude", out="no-store.json", store=False)
+        self.stdout_file("claude", json.dumps({"type": "result", "result": VERDICT_OK}))
+        self.design("claude", out="design-store.md", store=True)
+        self.design("claude", out="design-local.md")
+        pre_store, pre_local, des_store, des_local = (r["argv"] for r in self.runs("claude"))
+        for a in (pre_store, des_store):
+            i = a.index("--add-dir")
+            self.assertEqual(Path(a[i + 1]).resolve(), Path(self.store).resolve())
+            self.assertTrue(a[i + 2].startswith("--"), "--add-dir is variadic: the next argument must be a flag")
+        for a in (pre_local, des_local):
+            self.assertNotIn("--add-dir", a)
+
     def test_no_python310_only_newline_argument(self):
         # Path.write_text/read_text take newline= only on Python 3.10+; the script promises 3.8+
         src = SCRIPT.read_text(encoding="utf-8")
@@ -313,7 +333,9 @@ class RunTests(Base):
         schema = json.loads(a[7])
         self.assertNotIn("$schema", schema)
         self.assertEqual(schema["required"], ["summary", "findings"])
-        self.assertEqual(a[8:], ["--output-format", "json"])
+        self.assertEqual(a[8], "--add-dir")
+        self.assertEqual(Path(a[9]).resolve(), Path(self.store).resolve())
+        self.assertEqual(a[10:], ["--output-format", "json"])
         a = self.runs("omp")[0]["argv"]
         self.assertEqual(a[:7], ["-p", "--no-skills", "--no-extensions", "--no-rules", "--tools", "read,grep,find,glob",
                                  "--session-dir"])

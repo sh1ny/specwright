@@ -196,6 +196,14 @@ class DesignReviewCallers(unittest.TestCase):
         for call in calls:
             self.assertIn("--selection", call, f"{path.name}: `{call}` does not pass --selection")
 
+    def test_design_runs_document_store(self):
+        # the claude route reads only the working directories, so a store-backed design run passes --store
+        for path in (SCHEMA, ROADMAP, REVIEW):
+            text = re.sub(r"\s+", " ", read(path))
+            for m in re.finditer(r"review-run\.sh run --kind design[^`]*`", text):
+                self.assertIn("--store <store toplevel>", text[m.start():m.end() + 160],
+                              f"{path.name}: `{m.group(0)}` has no store-backed --store variant")
+
     def test_schema(self):
         self.check(SCHEMA)
 

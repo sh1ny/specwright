@@ -15,7 +15,9 @@
 #                                     run the route's fixed, isolated command line, validate, write --out (and, for preship, the
 #                                     record under the state dir). preship: the script builds the prompt (brief, changed files,
 #                                     diff of the code range and of the store range inside a nonce-delimited untrusted region);
-#                                     design: --prompt-file is the request. --selection is the JSON `select` printed.
+#                                     design: --prompt-file is the request, and --store the store toplevel when planning lives
+#                                     in a store. --store is the claude route's --add-dir in both kinds (--restricted reads only
+#                                     the working directories). --selection is the JSON `select` printed.
 #   record --kind preship|design --change name --result file --route r [--store dir] [--base m --store-base m]
 #       [--preflight file (required for preship)] [--selection file]
 #                                     validate a file the specwright-reviewer subagent wrote; preship writes the record for the
@@ -708,8 +710,9 @@ def schema_for_claude():
     return json.dumps(schema, separators=(",", ":"))
 
 
-def command_line(route, exe, kind, cfg, work, prompt_path, session_dir):
-    """The fixed command line of a route (D3). The prompt goes by stdin or file, never argv."""
+def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=()):
+    """The fixed command line of a route (D3). The prompt goes by stdin or file, never argv.
+    dirs: directories outside the checkout the reviewer must read (the planning store)."""
     model, level = cfg.model(route), cfg.level(route)
     if route == "codex":
         cmd = [exe, "exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config", "--skip-git-repo-check"]
@@ -728,6 +731,8 @@ def command_line(route, exe, kind, cfg, work, prompt_path, session_dir):
         cmd = [exe, "-p", "--safe-mode", "--disable-slash-commands", "--tools", "Read,Grep,Glob", "--restricted"]
         if kind == "preship":
             cmd += ["--json-schema", schema_for_claude()]
+        if dirs:  # --restricted confines file tools to the working directories; variadic, so a flag follows it
+            cmd += ["--add-dir", *dirs]
         cmd += ["--output-format", "json"]
         if model:
             cmd += ["--model", model]
@@ -848,7 +853,7 @@ def cmd_run(argv):
         need(a, "prompt_file")
         if not Path(a["prompt_file"]).is_file():
             usage(f"--prompt-file {a['prompt_file']} does not exist")
-    if a.get("store") and kind == "preship" and not Path(a["store"]).is_dir():
+    if a.get("store") and not Path(a["store"]).is_dir():
         usage(f"--store {a['store']} is not a directory")
     skipped = load_selection(a, route)
     cfg = Review(load_settings(a.get("settings")))
@@ -878,7 +883,8 @@ def cmd_run(argv):
         else:
             prompt_path, cwd = a["prompt_file"], os.getcwd()
         session_dir = tempfile.mkdtemp(prefix="specwright-omp-session-") if route == "omp" else None
-        cmd, stdin_path, last_file = command_line(route, exe, kind, cfg, work, prompt_path, session_dir)
+        dirs = [norm(os.path.abspath(a["store"]))] if a.get("store") else []
+        cmd, stdin_path, last_file = command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs)
 
         _exe, version, _reason = probe(route)
         started = now()
