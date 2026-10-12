@@ -267,7 +267,7 @@ finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
 
 github:
-  login: my-bot-account         # pushes, PRs, replies; empty = ambient gh account
+  login: my-bot-account         # pushes, PRs, replies; empty = the active gh account, resolved once per run and fenced
   review_request:
     body: "@codex review"       # posted once per new PR; empty = none
     login: my-account
@@ -298,10 +298,15 @@ pr:
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
     chatgpt-codex-connector: { role: required, request: "@codex review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
-  # request_as: my-account      # posts the requests; default review_request.login, else github.login
+  # request_as: my-account      # posts the requests; default review_request.login, else github.login, else the run login
 ```
 
 Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
+
+**GitHub identity (0.3.0).** Every `gh` call and every git fetch, pull and push to a github.com remote runs through `as.sh` as one verified login (ADR 0008). With `github.login` empty, the first step you start resolves the active `gh` account once and hands it to every step it runs (ship, watch, feedback, archive, finish), so another agent's `gh auth switch` cannot redirect the run. A new request in a later session resolves again: if you switch `gh` accounts between sessions, set `github.login`. Remotes on other hosts are not fenced.
+- **BREAKING:** with `github.login` empty, an environment that has only `GH_TOKEN` and no stored `gh` login (CI, containers, cloud agents) now stops before its first GitHub call; environment tokens never pick the login. Run `gh auth login --with-token` (and optionally set `github.login`).
+- **BREAKING:** a github.com remote URL or `insteadOf` rule with userinfo (`https://user:token@github.com/...`, `https://<token>@github.com/...`, even a bare username) makes every fenced command exit 3, since git would use it before the fence's credential. Remove the userinfo; `gh auth login` supplies the credential. Nothing is rewritten for you.
+- An SSH GitHub origin (`git@github.com:...`) cannot be fenced, so the branch gate's main refresh and roadmap status fall back to local refs and say so; use an HTTPS origin to keep them current.
 
 `openspec/config.yaml` (template: [`templates/openspec/config.yaml`](templates/openspec/config.yaml)) carries the `context:` lines that make the git skills fire at the right phase.
 

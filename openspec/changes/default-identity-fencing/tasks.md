@@ -70,7 +70,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 
 ## 5. Settings, docs and release 0.3.0
 
-- [ ] 5.1 Update `templates/openspec/specwright.yaml` (`github.login` comment: empty = the active `gh` account, resolved once per run and fenced) and the README settings block (`README.md:270`). In the README, add 0.3.0 notes with both **BREAKING** items (`GH_TOKEN`-only environments: `gh auth login --with-token`; userinfo on github.com remote URLs: remove it), the SSH-origin local-refs note, and the advice to set `github.login` when switching accounts between sessions. Verify: the install-update eval and `test_instructions.py` pass, and `grep -n "unsafe when agents" templates README.md` is empty.
+- [x] 5.1 Update `templates/openspec/specwright.yaml` (`github.login` comment: empty = the active `gh` account, resolved once per run and fenced) and the README settings block (`README.md:270`). In the README, add 0.3.0 notes with both **BREAKING** items (`GH_TOKEN`-only environments: `gh auth login --with-token`; userinfo on github.com remote URLs: remove it), the SSH-origin local-refs note, and the advice to set `github.login` when switching accounts between sessions. Verify: the install-update eval and `test_instructions.py` pass, and `grep -n "unsafe when agents" templates README.md` is empty.
 - [ ] 5.2 Bump `VERSION` and the README badge to 0.3.0. Verify: `cat VERSION` prints `0.3.0`.
 
 ## 6. Integration
