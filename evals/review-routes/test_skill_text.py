@@ -165,6 +165,30 @@ class ReviewSkill(unittest.TestCase):
         self.assertRegex(self.text, r"reviewer\.md")
 
 
+SCHEMA = ROOT / "schemas" / "specwright" / "schema.yaml"
+ROADMAP = ROOT / "skills" / "specwright-roadmap" / "SKILL.md"
+
+
+class DesignReviewCallers(unittest.TestCase):
+    """Every documented `run`/`record --kind design` passes the saved select output, so the receipt keeps the skipped routes."""
+
+    def check(self, path):
+        text = re.sub(r"\s+", " ", read(path))
+        calls = re.findall(r"review-run\.sh (?:run|record) --kind design[^`]*", text)
+        self.assertTrue(calls, f"{path.name} has no design review call")
+        for call in calls:
+            self.assertIn("--selection", call, f"{path.name}: `{call}` does not pass --selection")
+
+    def test_schema(self):
+        self.check(SCHEMA)
+
+    def test_roadmap(self):
+        self.check(ROADMAP)
+
+    def test_review_skill(self):
+        self.check(REVIEW)
+
+
 COMMIT = ROOT / "skills" / "specwright-commit" / "SKILL.md"
 PR = ROOT / "skills" / "specwright-pr" / "SKILL.md"
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"

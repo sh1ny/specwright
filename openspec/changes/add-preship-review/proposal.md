@@ -47,12 +47,13 @@ It is bound by ADR 0002 (the script I/O contract: one JSON document on stdout, e
 ### Modified Capabilities
 - `pr-watch`: watch neither re-requests nor waits for reviewers on an archive-only head unless `pr.review_after_archive` is true.
 - `pr-descriptions`: a PR description lists the spec amendments made after the design review, and P2/P3 pre-ship findings left open.
+- `pr-script-runtime`: Python 3.8+ becomes a core install prerequisite, since every design and pre-ship review runs through `review-run.sh`; only `gh` 2.40+ stays a PR-only requirement.
 
 ## Impact
 
 - New `skills/specwright-review/` (`SKILL.md`, `references/brief.md`, `references/findings.schema.json`, `scripts/review-run.sh`). The install prompt already copies every `specwright-*` directory.
 - `schemas/specwright/schema.yaml` (review instruction), `skills/specwright-commit`, `specwright-pr` (ship gate, watch archive rule, description), `specwright-finish` (local merge gate), `specwright-roadmap` (baseline review route), `agents/*/specwright-reviewer.md` (pre-ship mode and findings output).
-- `templates/openspec/specwright.yaml`, `openspec/specwright.yaml`, README (settings, skills table, install prompt Steps 6-7, credits), `CONTRIBUTING.md`, `openspec/architecture.md` (components, state, the cross-model contract, bounds).
+- `templates/openspec/specwright.yaml`, `openspec/specwright.yaml`, README (prerequisites, settings, skills table, install prompt Steps 1 and 6-8, credits), `CONTRIBUTING.md`, `openspec/architecture.md` (components, state, the cross-model contract, bounds).
 - New evals: `evals/review-routes/` (route selection, command lines, validation, gate and archive-only check, with fake CLIs), plus additions to `evals/pr-pair` and `evals/git-workflow` text checks.
 - Release 0.2.0 (minor: new skill, new settings keys, workflow change).
 - The review sends the diff and the files the reviewer reads to the chosen CLI's provider, as cross-model design reviews already do.

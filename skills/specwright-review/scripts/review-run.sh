@@ -872,7 +872,8 @@ def cmd_run(argv):
                 bases["store"] = git_out(store[0], "rev-parse", store[1])
             prompt = build_prompt(change, code, store, cfg.max_diff_kb * 1024, a.get("prefix") or "openspec")
             prompt_path = os.path.join(work, "prompt.md")
-            Path(prompt_path).write_text(prompt, encoding="utf-8", newline="\n")
+            with open(prompt_path, "w", encoding="utf-8", newline="\n") as f:  # write_text takes newline= only on 3.10+
+                f.write(prompt)
             cwd = code_dir
         else:
             prompt_path, cwd = a["prompt_file"], os.getcwd()

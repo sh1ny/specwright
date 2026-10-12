@@ -480,35 +480,49 @@ def prerequisites():
     return find_block(read(README), r"\*\*Prerequisites:\*\*") or ""
 
 
+def install_bullet(s1, *patterns):
+    """The first top-level `- ` bullet of an install step matching every pattern, or None."""
+    for b in re.split(r"\n(?=- )", s1 or ""):
+        if all(re.search(p, b, re.I | re.S) for p in patterns):
+            return b
+    return None
+
+
 class PrScriptRuntime(unittest.TestCase):
     def test_install_checks_core_and_pr_prerequisites(self):
         pre = prerequisites()
         self.assertRegex(pre, r"(?i)\bbash\b.{0,80}POSIX", "the prerequisites do not list bash with a POSIX userland")
         self.assertRegex(pre, r"`git`", "the prerequisites do not list git")
         self.assertRegex(pre, r"(?i)\bcore\b", "the prerequisites do not mark the core requirements")
-        self.assertRegex(pre, r"(?i)gh`? 2\.40.{0,120}Python 3\.8|Python 3\.8.{0,120}gh`? 2\.40",
-                         "the prerequisites do not list gh 2.40+ and Python 3.8+ together for the PR skills")
+        core_part, _, pr_part = pre.partition("PR skills")
+        self.assertRegex(core_part, r"Python 3\.8", "the prerequisites do not list Python 3.8+ as a core requirement")
+        self.assertRegex(pr_part, r"gh`? 2\.40", "the prerequisites do not list gh 2.40+ for the PR skills")
+        self.assertNotRegex(pr_part, r"Python", "Python is still listed as a PR-only requirement")
         s1 = step(read(README), "Step 1")
         self.assertTrue(s1, "README has no install Step 1")
-        core = find_block(s1, r"git --version", r"command -v awk sed grep")
+        core = install_bullet(s1, r"git --version", r"command -v awk sed grep")
         self.assertTrue(core, "Step 1 does not check git and the bash userland")
         self.assertRegex(core, r"STOP", "a missing core requirement does not stop the install")
+        py = install_bullet(s1, r"version_info < \(3, 8\)")
+        self.assertTrue(py, "Step 1 does not check for Python 3.8+")
+        self.assertRegex(py, r"(?s)python3.{0,40}python\b", "Step 1 does not probe python3, then python")
+        self.assertRegex(py, r"STOP", "a missing Python 3.8+ does not stop the install")
         self.assertRegex(s1, r"(?s)gh --version.{0,80}2\.40", "Step 1 does not check gh 2.40+")
-        self.assertRegex(s1, r"(?s)python3.{0,40}python\b", "Step 1 does not probe python3, then python")
-        self.assertRegex(s1, r"version_info < \(3, 8\)|3\.8", "Step 1 does not check for Python 3.8+")
         dep = find_block(read(PR_SKILL), r"Scripts live in")
         self.assertRegex(dep or "", r"(?i)\bbash\b.{0,60}\bgit\b.{0,60}gh`? 2\.40.{0,60}Python 3\.8",
                          "specwright-pr does not state bash, git, gh 2.40+ and Python 3.8+")
 
     def test_install_reports_pr_workflow_not_ready(self):
         s1 = step(read(README), "Step 1")
-        pr = find_block(s1 or "", r"gh --version")
+        pr = install_bullet(s1, r"gh --version")
         self.assertTrue(pr, "Step 1 has no PR prerequisite check")
+        self.assertNotRegex(pr, r"(?i)python", "the PR prerequisite check still covers Python")
         self.assertRegex(pr, r"(?i)(not|never|does not) (block|stop)|without (blocking|stopping)|continue",
                          "a missing PR requirement blocks the install")
         self.assertRegex(pr, r"(?i)record|Step 8", "a missing PR requirement is not carried to the report")
         s8 = step(read(README), "Step 8")
         self.assertRegex(s8 or "", r"PR workflow not ready: <missing>", "Step 8 does not report `PR workflow not ready: <missing>`")
+        self.assertRegex(s8 or "", r"PR workflow not ready: gh 2\.40\+", "Step 8's example still names Python")
 
 
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"

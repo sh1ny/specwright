@@ -275,6 +275,11 @@ class SelectTests(Base):
 
 
 class RunTests(Base):
+    def test_no_python310_only_newline_argument(self):
+        # Path.write_text/read_text take newline= only on Python 3.10+; the script promises 3.8+
+        src = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotRegex(src, r"(write|read)_text\([^)]*newline=", "review-run.sh uses a Python 3.10-only argument")
+
     def test_omp_fresh_session_dir_per_run(self):
         self.install("omp")
         self.omp_events()
