@@ -145,17 +145,22 @@ def toplevel_path(d):
     return os.path.normcase(os.path.realpath(r.stdout.strip())) if r.returncode == 0 and r.stdout.strip() else ""
 
 
+def fetch_repo(d):
+    """`owner/name` of origin's GitHub fetch URL, whatever its push URLs; None when it does not fetch from GitHub."""
+    try:
+        return identity(d)["repo"]
+    except Stop:
+        r = git(d, "remote", "get-url", "origin")
+        return parse_repo(r.stdout.strip()) if r.returncode == 0 else None
+
+
 def git_net(d, *args):
     """git ls-remote / fetch in `d`. A GitHub repo other than the one this process started in is read through as.sh from
     inside it, as its own login, else as the code run login (the ambient, fenced one): the URL check and header scrub of
     the outer as.sh cover only the repo it started in. Non-GitHub remotes stay plain git."""
-    if d not in IDENT:
-        try:
-            IDENT[d] = identity(d)["repo"].lower()
-        except Stop:  # the fetch URL alone decides, whatever the push URLs: a GitHub fetch is fenced, anything else is plain git
-            r = git(d, "remote", "get-url", "origin")
-            fetch = parse_repo(r.stdout.strip()) if r.returncode == 0 else None
-            IDENT[d] = fetch.lower() if fetch else None
+    if d not in IDENT:  # the fetch URL alone decides: a GitHub fetch is fenced, anything else is plain git
+        fetch = fetch_repo(d)
+        IDENT[d] = fetch.lower() if fetch else None
     if IDENT[d] is None:
         return git(d, *args)
     login = REPO_LOGIN.get(IDENT[d])
@@ -1275,10 +1280,7 @@ def cmd_rounds(argv):
         if a.get("store") and shas_of.get("store"):
             # the store may need its own login: stop on a missing credential before the per-repo loop, but only when
             # the store has top-round commits to look for on its remote
-            try:
-                slug = identity(a["store"])["repo"]
-            except Stop:  # no GitHub origin: plain git, as before
-                slug = None
+            slug = fetch_repo(a["store"])  # by the fetch URL, as git_net reads it, whatever the push URLs
             read_store_as(ctx, slug)
             if slug and REPO_LOGIN.get(slug.lower()):
                 token_for(REPO_LOGIN[slug.lower()])

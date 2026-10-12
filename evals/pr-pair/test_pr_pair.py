@@ -835,6 +835,18 @@ class Rounds(Base):
         self.assertTrue(fenced, "the store read must run as.sh from inside the store")
         self.assertEqual({c["argv"][-1] for c in fenced}, {"KintsugiBot"}, "the run login is the ambient (fenced) login")
 
+    def test_rounds_store_login_kept_with_non_github_push_url(self):
+        # PR #82: the store fetches from github.com but pushes elsewhere; rounds still reads it as planning_store.login,
+        # taken from the fetch URL, not as the code login or the ambient one (both KintsugiBot here)
+        self.write("code/openspec/specwright.yaml", "github:\n  login: KintsugiBot\nplanning_store:\n  login: sh1ny\n")
+        self.git(self.store, "remote", "set-url", "--push", "origin", "https://git.example.com/o/s.git")
+        self.dead_store_remote()
+        self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=None)
+        here = os.path.normcase(os.path.realpath(self.store))
+        users = {c["argv"][-1] for c in self.gh_calls() if c["argv"][:2] == ["auth", "token"] and "--user" in c["argv"]
+                 and os.path.normcase(os.path.realpath(c["cwd"])) == here}
+        self.assertEqual(users, {"sh1ny"}, "the store must be read as planning_store.login, not the code or ambient login")
+
     def test_rounds_store_token_url_exits_3_no_request(self):
         # both logins empty and the store origin carries a token: as.sh refuses inside the store, before any request
         seen = []
