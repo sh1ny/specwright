@@ -66,6 +66,15 @@ class ReviewSkill(unittest.TestCase):
         self.assertRegex(design, r"(?s)record[`\"']?\s+--kind design|record --kind design",
                          "a subagent design review is not validated with `record --kind design`")
 
+    def test_store_reading_calls_document_store(self):
+        # these subcommands key the record by both heads, so each documented call needs its store-backed variant
+        call = re.compile(r"review-run\.sh (gate|waive|rounds|preflight|run --kind preship|record --kind preship)\b[^`]*`")
+        for path in (REVIEW, PR, FINISH):
+            text = read(path)
+            for m in call.finditer(text):
+                self.assertIn("--store <store toplevel>", text[m.start():m.end() + 120],
+                              f"{path.parent.name}: `{m.group(0)}` has no store-backed --store variant")
+
     def test_subagent_preship_dispatch_names_root_and_store(self):
         step = self.section("pre-ship review")
         start = step.find("dispatch `specwright-reviewer` in pre-ship mode")
