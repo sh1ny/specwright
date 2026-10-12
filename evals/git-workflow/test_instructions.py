@@ -834,6 +834,103 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertTrue(resume_row(s, r"code repo with no A, M or B; store done; no such marker"), "the code repo's existing no-A rows are gone")
 
 
+class FencedGitHubCalls(unittest.TestCase):
+    """default-identity-fencing: main refreshes and pulls from GitHub run fenced, decided by the fetch URL."""
+
+    def gate_fetch(self):
+        b = find_block(read(BRANCH), r"Used once", r"git fetch")
+        self.assertTrue(b, "specwright-branch step 3 has no main refresh")
+        return b
+
+    def roadmap_status_bullet(self):
+        b = find_block(read(ROADMAP), r"\*\*Main branches\.\*\*")
+        self.assertTrue(b, "roadmap has no Main branches rule")
+        return b
+
+    def pull_bullet(self):
+        text = read(FINISH)
+        at = text.index("- **After the PR is merged**")
+        return text[at:text.index("\n\n", at)]
+
+    def test_branch_gate_fetch_fenced_local_refs_on_refusal(self):
+        b = self.gate_fetch()
+        self.assertRegex(b, r"\[as\] git fetch -q origin <main>", "the gate's main refresh is not fenced")
+        self.assertRegex(b, r"github\.com", "the gate does not say the fence applies to github.com remotes")
+        self.assertRegex(b, r"(?is)refus[^.]*local refs only|local refs only[^.]*refus", "a refusal does not report local refs only")
+        self.assertRegex(b, r"(?i)continue", "a refused refresh does not continue on local refs")
+
+    def test_fetch_fenced_by_fetch_url_not_identity(self):
+        for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
+            self.assertRegex(b, r"git remote get-url", f"{name}: the host is not read from the fetch URL")
+            self.assertRegex(b, r"(?i)fetch URL", f"{name}: does not decide by the fetch URL")
+            self.assertRegex(b, r"(?is)not (decided )?by `?pr-pair\.sh identity`?", f"{name}: may still be decided by `identity`")
+
+    def test_non_github_fetch_runs_plain(self):
+        for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
+            self.assertRegex(b, r"(?is)(other|any other|another) host[^.]*plain|plain[^.]*(other|another) host|not on github\.com[^.]*plain",
+                             f"{name}: a non-GitHub remote does not run plain git")
+
+    def test_gate_and_roadmap_status_local_refs_when_resolve_fails(self):
+        for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
+            self.assertRegex(b, r"--resolve", f"{name}: does not resolve the run login")
+            self.assertRegex(b, r"(?is)--resolve[^.]*(fail|exit)[^.]*local refs only|local refs only \(no gh account\)",
+                             f"{name}: a failed --resolve does not report local refs only")
+            self.assertRegex(b, r"no gh account", f"{name}: the note does not say there is no gh account")
+        status = section(read(ROADMAP), r"status\b")
+        self.assertRegex(status, r"(?i)local refs only|refused", "roadmap status does not report the refused refresh")
+
+    def test_roadmap_init_close_pulls_fenced(self):
+        c = committing_project_files()
+        self.assertRegex(c, r"\[as\] git pull --ff-only origin <main>", "the init/close pull is not fenced")
+        self.assertRegex(c, r"(?is)github\.com[^.]*\[as\] git pull|\[as\] git pull[^.]*github\.com|fetch URL", "the pull is not tied to a github.com fetch URL")
+        self.assertRegex(c, r"(?is)(refus|non-zero|fail)[^.]*\bstop", "a refused or failed pull does not stop")
+        self.assertRegex(c, r"(?i)nothing (is )?branched|branch nothing|before (any )?branch", "a failed pull may still branch")
+
+    def test_finish_post_merge_check_fenced_with_repo(self):
+        b = self.pull_bullet()
+        self.assertNotRegex(b, r"(?<!\] )gh pr view <branch>", "finish still runs plain `gh pr view <branch>`")
+        view = re.search(r"\[as\] gh pr view <branch>[^`]*", b)
+        disc = re.search(r"\[as\] bash scripts/pr-pair\.sh[^`]*discover[^`]*", b)
+        self.assertTrue(view or disc, "the post-merge check is neither a fenced `gh pr view` nor `[as] ... discover`")
+        if view:
+            self.assertIn("--repo <owner>/<name>", view.group(0), "the fenced `gh pr view` does not name the repository")
+
+    def test_finish_post_merge_check_exit3_stops(self):
+        b = self.pull_bullet()
+        m = re.search(r"(?i)exit 3[^.;]*", b)
+        self.assertTrue(m, "the post-merge check never handles exit 3")
+        self.assertRegex(m.group(0), r"(?i)stop", "exit 3 does not stop")
+        self.assertRegex(b, r"(?is)exit 3.{0,200}(neither|not)[^.]*merged", "exit 3 may be read as merged or unmerged")
+
+    def test_finish_pull_fenced_stops_on_failure(self):
+        text = read(FINISH)
+        b = self.pull_bullet()
+        self.assertRegex(b, r"\[as\] git pull --ff-only", "the post-merge pull is not fenced")
+        self.assertRegex(b, r"(?is)non-zero[^.;]*stop|stop[^.;]*non-zero", "a failed post-merge pull does not stop")
+        self.assertRegex(b, r"(?i)delete no branch", "a failed pull may still delete a branch")
+        self.assertRegex(b, r"(?i)show the error|report the error", "a failed pull does not show the error")
+        # every other pull in finish is fenced too
+        for m in re.finditer(r"git pull --ff-only", text):
+            self.assertEqual(text[max(0, m.start() - 5):m.start()], "[as] ", f"unfenced pull in finish: {text[m.start() - 60:m.end()]!r}")
+
+    def test_finish_non_github_pull_runs_plain(self):
+        self.assertRegex(self.pull_bullet(), r"(?is)(other|another) host[^.]*plain|not on github\.com[^.]*plain|plain[^.]*(other|another) host",
+                         "finish does not run a non-GitHub pull plain")
+
+    def test_commit_and_finish_handoffs_pass_run_login(self):
+        commit = read(COMMIT)
+        pr = next((l for l in commit.splitlines() if l.startswith("- `pr` →")), "")
+        self.assertTrue(pr, "commit has no `pr` hand-off")
+        self.assertRegex(pr, r"(?i)run login", "commit -> ship does not pass the run login")
+        self.assertRegex(pr, r"--resolve", "commit, a user-started step, does not resolve the run login")
+        finish = read(FINISH)
+        ship = next((l for l in finish.splitlines() if l.startswith("- Run `specwright-pr` **ship**")), "")
+        self.assertRegex(ship, r"(?i)run login", "finish -> ship does not pass the run login")
+        offer = find_block(finish, r"project\.roadmap", r"(?i)\boffer")
+        self.assertRegex(offer, r"(?i)run login", "finish -> the roadmap offer does not pass the run login")
+        self.assertRegex(finish, r"(?s)\*\*Run login\.\*\*.{0,600}(cannot|can't) find[^.]*stop", "finish does not stop when a handed-off step has no run login")
+
+
 class InstallSettingsKeys(unittest.TestCase):
     """README install Steps 6-7 compare settings by dotted path; commented-out template keys are optional (#78)."""
 
