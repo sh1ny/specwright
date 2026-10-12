@@ -9,12 +9,12 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 | github-identity → Every GitHub call fenced to the run login | Configured login | evals/pr-pair/test_as_sh.py | test_configured_login_pins_its_token_not_the_active_one | red |
 | github-identity → Every GitHub call fenced to the run login | Token resolves to someone else | evals/pr-pair/test_as_sh.py | test_token_for_other_login_exits_3_command_not_run | red |
 | github-identity → Empty login resolved once per run | Switch mid-run | evals/pr-pair/test_as_sh.py | test_resolved_login_survives_auth_switch | red |
-| github-identity → Empty login resolved once per run | Switch during watch | evals/pr-pair/test_skill_text.py | test_run_login_handed_to_watch_feedback_archive | red |
-| github-identity → Empty login resolved once per run | Handed-off step without its run login | evals/pr-pair/test_skill_text.py | test_handed_off_step_without_login_stops_and_asks | red |
+| github-identity → Empty login resolved once per run | Switch during watch | evals/pr-pair/test_skill_text.py | test_run_login_handed_to_watch_feedback_archive | green |
+| github-identity → Empty login resolved once per run | Handed-off step without its run login | evals/pr-pair/test_skill_text.py | test_handed_off_step_without_login_stops_and_asks | green |
 | github-identity → Empty login resolved once per run | No active account in a step that needs GitHub | evals/pr-pair/test_as_sh.py | test_resolve_without_account_exits_3_message | red |
 | github-identity → Empty login resolved once per run | No gh account in a step that accepts local refs | evals/git-workflow/test_instructions.py | test_gate_and_roadmap_status_local_refs_when_resolve_fails | red |
 | github-identity → Empty login resolved once per run | Ambient token variables do not choose the login | evals/pr-pair/test_as_sh.py | test_resolve_ignores_gh_token_env | red |
-| github-identity → Login fallbacks end at the run login | Review requests with every login empty | evals/pr-pair/test_skill_text.py | test_review_request_poster_falls_back_to_run_login_fenced | red |
+| github-identity → Login fallbacks end at the run login | Review requests with every login empty | evals/pr-pair/test_skill_text.py | test_review_request_poster_falls_back_to_run_login_fenced | green |
 | github-identity → Login fallbacks end at the run login | Store login empty | evals/pr-pair/test_pr_pair.py | test_context_empty_store_login_uses_code_run_login | red |
 | github-identity → Login fallbacks end at the run login | Fallback login has no credential | evals/pr-pair/test_as_sh.py | test_request_as_without_credential_exits_3 | red |
 | github-identity → Login fallbacks end at the run login | Store reads with both logins empty | evals/pr-pair/test_pr_pair.py | test_rounds_store_token_url_exits_3_no_request | red |
@@ -58,7 +58,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 ## 4. Skill text: run login, hand-offs, fenced call sites
 
 - [x] 4.1 Write the failing `evals/pr-pair/test_skill_text.py` tests: the identity paragraph defines the run login (resolve once with `as.sh --resolve` at a user-started step, hand it off, stop and ask when missing), the "drop it when `github.login` is empty" wording is gone, every `gh`/`git push`/`git fetch`/`git pull` call site in `specwright-pr` carries `[as]` (or is the `--resolve` call), and review-request posters fall back to the run login, fenced. Verify that they fail.
-- [ ] 4.2 Update `skills/specwright-pr/SKILL.md`: the identity paragraph, review requests, the cleanup pulls, the `gh pr view` comment checks, the ship → watch → feedback / archive hand-offs naming the run login, and the `--wait` watcher command line. Verify: the 4.1 tests pass; flip rows green.
+- [x] 4.2 Update `skills/specwright-pr/SKILL.md`: the identity paragraph, review requests, the cleanup pulls, the `gh pr view` comment checks, the ship → watch → feedback / archive hand-offs naming the run login, and the `--wait` watcher command line. Verify: the 4.1 tests pass; flip rows green.
 - [ ] 4.3 Write the failing `evals/git-workflow/test_instructions.py` tests:
   - branch gate: the main refresh is fenced when the fetch URL is on github.com, decided by the fetch URL and not by `identity`; plain for other hosts; and on refusal or a failed `--resolve` the gate reports local refs only.
   - roadmap: status reads, and init/close pulls, are fenced the same way.
