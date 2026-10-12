@@ -756,6 +756,13 @@ class Rounds(Base):
         r = self.rounds()
         self.assertEqual((r["rounds"], r["code"]["subject_count"], r["limit_reached"]), (2, 2, True))
 
+    def test_rounds_ignore_preship_fix_commits(self):
+        # pre-ship review fixes have their own subject and trailer, so they never count as PR feedback rounds
+        self.commit(self.code, {"a.py": "1\n"}, "feat(add-greeting): address pre-ship review\n\nPreship-Round: 1")
+        self.commit(self.code, {"a.py": "2\n"}, "feat(add-greeting): address pre-ship review\n\nPreship-Round: 2")
+        r = self.rounds()
+        self.assertEqual((r["rounds"], r["code"]["subject_count"], r["limit_reached"]), (0, 0, False))
+
     def test_rounds_ignores_subject_count_when_trailers_exist(self):
         # a round-1 partial recovery: two commits carry the round-1 trailer, so the subject count of 2 is not the round
         self.commit(self.code, {"a.py": "1\n"}, "fix(add-greeting): address review feedback\n\nFeedback-Round: 1")

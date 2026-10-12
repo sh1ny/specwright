@@ -125,6 +125,25 @@ class AgentDelegation(unittest.TestCase):
         self.assertTrue(init5, "roadmap init has no step 5 Review")
         self.assertRegex(init5.group(0), r"SKILL\.md", "roadmap init step 5's request does not name skills with paths")
 
+    def test_design_reviews_use_review_routes(self):
+        review = schema_block("- id: review")
+        self.assertNotRegex(review, r"(?i)author on\s+Claude\s*→\s*`codex`", "the review step still has the hardcoded pairing")
+        self.assertNotRegex(review, r"(?i)read its current flags", "the agent still builds the reviewer command line")
+        for name, block in (("design review", review), ("roadmap init step 5", mode_step("init", 5))):
+            self.assertRegex(block, r"specwright-review", f"{name}: does not use the specwright-review routes")
+            self.assertRegex(block, r"(?s)review-run\.sh\s+select|review-run\.sh select", f"{name}: no route selection")
+            self.assertRegex(block, r"(?s)run\s+--kind\s+design", f"{name}: a CLI route is not run through review-run.sh")
+            self.assertRegex(block, r"(?s)record\s+--kind\s+design", f"{name}: a subagent review is not validated")
+        self.assertRegex(review, r"(?i)never try the next route", "an invalid review falls through to another route")
+        self.assertRegex(review, r"review\.cross_model: false", "cross_model false no longer means the agent only")
+
+    def test_reviewer_agents_have_preship_mode(self):
+        for p in [*CLAUDE_AGENTS[1:], ROOT / "agents" / "omp" / "specwright-reviewer.md"]:
+            text = read(p)
+            self.assertRegex(text, r"(?m)^description:.*pre-ship", f"{p.name}: description has no pre-ship mode")
+            self.assertRegex(text, r"(?i)for a pre-ship review", f"{p.name}: no pre-ship mode")
+            self.assertRegex(text, r"(?is)pre-ship review.{0,900}findings file.{0,400}schema", f"{p.name}: no findings file output")
+
     def test_install_report_requires_new_session_for_agents(self):
         s8 = step(read(README), "Step 8")
         self.assertTrue(s8, "README install prompt has no Step 8")
@@ -461,35 +480,49 @@ def prerequisites():
     return find_block(read(README), r"\*\*Prerequisites:\*\*") or ""
 
 
+def install_bullet(s1, *patterns):
+    """The first top-level `- ` bullet of an install step matching every pattern, or None."""
+    for b in re.split(r"\n(?=- )", s1 or ""):
+        if all(re.search(p, b, re.I | re.S) for p in patterns):
+            return b
+    return None
+
+
 class PrScriptRuntime(unittest.TestCase):
     def test_install_checks_core_and_pr_prerequisites(self):
         pre = prerequisites()
         self.assertRegex(pre, r"(?i)\bbash\b.{0,80}POSIX", "the prerequisites do not list bash with a POSIX userland")
         self.assertRegex(pre, r"`git`", "the prerequisites do not list git")
         self.assertRegex(pre, r"(?i)\bcore\b", "the prerequisites do not mark the core requirements")
-        self.assertRegex(pre, r"(?i)gh`? 2\.40.{0,120}Python 3\.8|Python 3\.8.{0,120}gh`? 2\.40",
-                         "the prerequisites do not list gh 2.40+ and Python 3.8+ together for the PR skills")
+        core_part, _, pr_part = pre.partition("PR skills")
+        self.assertRegex(core_part, r"Python 3\.8", "the prerequisites do not list Python 3.8+ as a core requirement")
+        self.assertRegex(pr_part, r"gh`? 2\.40", "the prerequisites do not list gh 2.40+ for the PR skills")
+        self.assertNotRegex(pr_part, r"Python", "Python is still listed as a PR-only requirement")
         s1 = step(read(README), "Step 1")
         self.assertTrue(s1, "README has no install Step 1")
-        core = find_block(s1, r"git --version", r"command -v awk sed grep")
+        core = install_bullet(s1, r"git --version", r"command -v awk sed grep")
         self.assertTrue(core, "Step 1 does not check git and the bash userland")
         self.assertRegex(core, r"STOP", "a missing core requirement does not stop the install")
+        py = install_bullet(s1, r"version_info < \(3, 8\)")
+        self.assertTrue(py, "Step 1 does not check for Python 3.8+")
+        self.assertRegex(py, r"(?s)python3.{0,40}python\b", "Step 1 does not probe python3, then python")
+        self.assertRegex(py, r"STOP", "a missing Python 3.8+ does not stop the install")
         self.assertRegex(s1, r"(?s)gh --version.{0,80}2\.40", "Step 1 does not check gh 2.40+")
-        self.assertRegex(s1, r"(?s)python3.{0,40}python\b", "Step 1 does not probe python3, then python")
-        self.assertRegex(s1, r"version_info < \(3, 8\)|3\.8", "Step 1 does not check for Python 3.8+")
         dep = find_block(read(PR_SKILL), r"Scripts live in")
         self.assertRegex(dep or "", r"(?i)\bbash\b.{0,60}\bgit\b.{0,60}gh`? 2\.40.{0,60}Python 3\.8",
                          "specwright-pr does not state bash, git, gh 2.40+ and Python 3.8+")
 
     def test_install_reports_pr_workflow_not_ready(self):
         s1 = step(read(README), "Step 1")
-        pr = find_block(s1 or "", r"gh --version")
+        pr = install_bullet(s1, r"gh --version")
         self.assertTrue(pr, "Step 1 has no PR prerequisite check")
+        self.assertNotRegex(pr, r"(?i)python", "the PR prerequisite check still covers Python")
         self.assertRegex(pr, r"(?i)(not|never|does not) (block|stop)|without (blocking|stopping)|continue",
                          "a missing PR requirement blocks the install")
         self.assertRegex(pr, r"(?i)record|Step 8", "a missing PR requirement is not carried to the report")
         s8 = step(read(README), "Step 8")
         self.assertRegex(s8 or "", r"PR workflow not ready: <missing>", "Step 8 does not report `PR workflow not ready: <missing>`")
+        self.assertRegex(s8 or "", r"PR workflow not ready: gh 2\.40\+", "Step 8's example still names Python")
 
 
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
@@ -799,6 +832,48 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(a, r"(?i)planning repo only", "the archive-directory source is not limited to the planning repo")
         self.assertRegex(a, r"(?i)never[^.;]*code repo", "fact A does not say the directory never gives the code repo an A")
         self.assertTrue(resume_row(s, r"code repo with no A, M or B; store done; no such marker"), "the code repo's existing no-A rows are gone")
+
+
+class InstallSettingsKeys(unittest.TestCase):
+    """README install Steps 6-7 compare settings by dotted path; commented-out template keys are optional (#78)."""
+
+    def s6(self):
+        s = step(read(README), "Step 6")
+        self.assertTrue(s, "README install prompt has no Step 6")
+        return s
+
+    def test_install_compares_dotted_paths(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?i)dotted path", "Step 6 does not compare keys by dotted path")
+        self.assertRegex(s6, r"(?i)never by (the )?bare (key )?name", "Step 6 does not forbid comparing bare names")
+        self.assertRegex(s6, r"planning_store\.login", "Step 6 gives no example of the same name at two paths")
+
+    def test_install_step6_commented_paths_optional(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?is)comment(ed)?[- ]out.{0,300}optional", "commented-out template paths are not optional")
+        self.assertRegex(s6, r"(?is)comment(ed)?[- ]out.{0,600}never (list|listed).{0,40}remov",
+                         "a commented-out path the project sets may still be listed as removed")
+        self.assertRegex(s6, r"(?is)indentation.{0,80}#|#.{0,80}indentation", "the path of a commented-out line is not read from its indentation after #")
+
+    def test_install_step6_never_adds_commented(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?is)comment(ed)?[- ]out.{0,600}never add", "Step 6 may add a commented-out key")
+
+    def test_install_reviewer_entries_user_data(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"pr\.reviewers\.", "pr.reviewers entries are not named")
+        self.assertRegex(s6, r"planning_store\.reviewers\.", "planning_store.reviewers entries are not named")
+        self.assertRegex(s6, r"(?is)user data.{0,200}never (compared|compare)", "reviewer entries are still compared")
+
+    def test_install_step7_uncommented_only(self):
+        s7 = step(read(README), "Step 7")
+        self.assertTrue(s7, "README install prompt has no Step 7")
+        self.assertRegex(s7, r"(?is)every uncommented (dotted )?path", "Step 7 requires keys the template only has commented out")
+
+    def test_install_step6_asks_before_removing(self):
+        s6 = self.s6()
+        self.assertRegex(s6, r"(?is)no longer has.{0,120}(list|ask).{0,80}before removing",
+                         "the removed-key question is gone")
 
 
 if __name__ == "__main__":

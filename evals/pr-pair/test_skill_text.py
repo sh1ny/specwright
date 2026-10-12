@@ -555,5 +555,75 @@ class CleanupBranchCheck(unittest.TestCase):
                             "the cleanup text still deletes with -D when headRefOid equals the local tip")
 
 
+class ArchiveHeadReview(unittest.TestCase):
+    """Watch gives the archive head no new review round unless pr.review_after_archive is true (#69)."""
+
+    def archive_rule(self):
+        watch = SECTIONS["watch"][1]
+        m = re.search(r"\*\*Archive before merge:\*\*", watch)
+        self.assertTrue(m, "watch has no 'Archive before merge' rule")
+        end = re.search(r"(?m)^   - Otherwise", watch[m.end():])
+        return watch[m.start():m.end() + (end.start() if end else len(watch))]
+
+    def test_watch_archive_head_no_request_no_reviewers(self):
+        rule = self.archive_rule()
+        self.assertRegex(rule, r"review-run\.sh[`\"']?\s+archive-only", "watch does not run `review-run.sh archive-only`")
+        self.assertRegex(rule, r"(?is)archive_only: true.{0,400}no review request", "an archive-only head still gets a review request")
+        self.assertRegex(rule, r"(?is)archive_only: true.{0,600}(no|without) `--reviewer`",
+                         "an archive-only head is still watched with --reviewer arguments")
+        self.assertRegex(rule, r"(?i)ready head", "the archive-only base is not the head watch last reported ready")
+        self.assertRegex(rule, r"(?is)archive_only: false.{0,300}re-request", "a non-archive-only head is not re-requested")
+
+    def test_watch_review_after_archive_true_rerequests(self):
+        rule = self.archive_rule()
+        self.assertRegex(rule, r"(?is)pr\.review_after_archive: true.{0,300}(re-request|0\.1\.13)",
+                         "pr.review_after_archive: true does not keep the 0.1.13 behaviour")
+
+    def test_watch_archive_review_required_asks_once(self):
+        rule = self.archive_rule()
+        self.assertRegex(rule, r"REVIEW_REQUIRED")
+        self.assertIn("archive head needs a fresh approval", rule)
+        self.assertRegex(rule, r"(?is)REVIEW_REQUIRED.{0,400}ask(s)? once", "watch does not ask once")
+        self.assertRegex(rule, r"(?is)(on no|no →|declin).{0,200}(ready.{0,20}except|stop)",
+                         "a declined request does not end in a ready-except-approval report")
+
+
+class DescriptionReviewSection(unittest.TestCase):
+    """description.md's Review section: amendments by trailer, open P2/P3 findings and waivers (D9)."""
+
+    def review_block(self):
+        text = DESCRIPTION.read_text(encoding="utf-8")
+        m = re.search(r"(?m)^\*\*Review\b.*$", text)
+        self.assertTrue(m, "description.md has no **Review** paragraph")
+        end = re.search(r"(?m)^\*\*(?!Review)", text[m.end():])
+        return text[m.start():m.end() + (end.start() if end else len(text))]
+
+    def test_description_lists_amendment_trailers(self):
+        block = self.review_block()
+        self.assertRegex(block, r"Amendment:", "amendments are not identified by their trailer")
+        self.assertRegex(block, r"<main>\.\.HEAD", "the trailers are not read from <main>..HEAD")
+        self.assertRegex(block, r"(?i)clarification.{0,80}behaviour[- ]change|class", "the amendment's class is not given")
+
+    def test_description_lists_open_p2_p3(self):
+        block = self.review_block()
+        self.assertRegex(block, r"(?is)P2.{0,20}P3.{0,200}(open|unfixed|left)", "open P2/P3 findings are not listed")
+        self.assertRegex(block, r"(?i)file", "an open finding is not listed with its file")
+
+    def test_description_lists_waivers(self):
+        block = self.review_block()
+        self.assertRegex(block, r"(?is)waive.{0,200}reason", "waived findings are not listed with the user's reason")
+        self.assertRegex(block, r"review-run\.sh[`\"']?\s+gate", "the findings and waivers do not come from the record gate matched")
+
+    def test_description_ignores_untrailered_amendments(self):
+        block = self.review_block()
+        self.assertRegex(block, r"(?is)(no|without) (an )?`?Amendment:`? trailer.{0,200}not listed|not listed.{0,200}(no|without) (an )?`?Amendment:`? trailer",
+                         "drift amendments without a trailer are not excluded")
+
+    def test_description_review_section_only_with_content(self):
+        block = self.review_block()
+        self.assertRegex(block, r"(?i)only when it has content|omit it when|none of these.{0,40}no (such )?section",
+                         "the Review section is not omitted when empty")
+
+
 if __name__ == "__main__":
     unittest.main()

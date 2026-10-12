@@ -2,7 +2,7 @@
 name: specwright-finish
 description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:archive, /opsx:bulk-archive, openspec-archive-change, `openspec archive`, or the user asks to archive/finish a change. Commits the archive move, then merges locally (finish: local) or pushes to the PR (finish: pr). Also handles 'the PR was merged' cleanup."
 metadata:
-  version: 0.1.13
+  version: 0.2.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *)
 ---
@@ -64,6 +64,7 @@ The branch's PR is the `newest` one from `[as] bash scripts/pr-pair.sh discover 
 4. **Finish** per `finish` in `openspec/specwright.yaml` (default `local`). Main branch: `main_branch` setting, else `main`, else `master`, else ask.
 
 ## local
+- **Pre-ship gate** first, unless `review.preship: false`: run the `specwright-review` skill's `bash scripts/review-run.sh gate --change <change-name> --prefix <P>` (the planning prefix; store-backed: `--store <store toplevel>`). `pass` → merge. `missing` → run the pre-ship review (`specwright-review`, **Pre-ship review**), then the gate again. `blocked` → stop before any merge: list the `open` findings and continue at the review's step 3. A failed review (exit 3) also stops the merge.
 - Write the merge message to a file first - subject `merge: <change-name>` plus any trailers the user's commit rules require - because fixing a commit afterwards means amending, which this workflow never does unprompted. Then one call: `git checkout <main> && git merge --no-ff <branch> -F <msgfile>`. On conflict: stop, list the files, offer manual resolution or `git merge --abort`. Never resolve conflicts yourself.
 - `git branch -d <branch>` (never `-D`). Report the merge commit and `Local only - push <main> when ready.` Never push.
 - **Store-backed:** the store first, then the code repo, each with the steps above run in that repo (store: one call starting `cd "<store toplevel>" &&`, main from `planning_store.main_branch`, else main, else master):
