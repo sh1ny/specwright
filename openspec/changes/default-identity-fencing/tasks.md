@@ -75,7 +75,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`, installed
 
 ## 6. Integration
 
-- [ ] 6.1 Run every eval suite (`python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`), `openspec validate --all --strict` and `openspec schema validate specwright`. Verify: all pass, and every test-map row is green.
+- [x] 6.1 Run every eval suite (`python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`), `openspec validate --all --strict` and `openspec schema validate specwright`. Verify: all pass, and every test-map row is green.
 - [ ] 6.2 Exit-criterion evidence for M2 ("with `github.login` empty, the #38 regression cases prove every `gh` and git network call is fenced or refused"): list each #38 case (empty default, post-merge check, each fetch/pull site, credential URLs, host variables) with its passing test in the PR description. Verify: the PR description contains the list.
 
 ## Workflow follow-up
