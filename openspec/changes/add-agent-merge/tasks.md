@@ -78,7 +78,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 ## 6. `specwright-finish` skill text
 
-- [ ] 6.1 Write the failing `evals/git-workflow/test_instructions.py` tests. The `pr` path with `pr.merge: agent`: when watch started the archive, it hands back to watch (review S1); otherwise it starts watch with the run login and does not print `Ready to merge on GitHub`, and a failed ship starts no watch. "Never merge the PR" is scoped to `pr.merge: user`. **After the PR is merged** runs `delete-remote` after the pull and branch-check, only in agent mode with `delete_branch` (review S2, the repo-local resume path). `## local` does not read `pr.merge`. Verify that they fail.
+- [x] 6.1 Write the failing `evals/git-workflow/test_instructions.py` tests. The `pr` path with `pr.merge: agent`: when watch started the archive, it hands back to watch (review S1); otherwise it starts watch with the run login and does not print `Ready to merge on GitHub`, and a failed ship starts no watch. "Never merge the PR" is scoped to `pr.merge: user`. **After the PR is merged** runs `delete-remote` after the pull and branch-check, only in agent mode with `delete_branch` (review S2, the repo-local resume path). `## local` does not read `pr.merge`. Verify that they fail.
 - [ ] 6.2 Update `skills/specwright-finish/SKILL.md` (`:78-83`). Verify: the 6.1 tests and the whole `evals/git-workflow` suite pass; flip the rows green.
 
 ## 7. Graded agent evals (the M2 exit criterion)

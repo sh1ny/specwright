@@ -834,6 +834,82 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertTrue(resume_row(s, r"code repo with no A, M or B; store done; no such marker"), "the code repo's existing no-A rows are gone")
 
 
+class FinishAgentMerge(unittest.TestCase):
+    """add-agent-merge: with `pr.merge: agent` finish hands the PR to watch and deletes the remote branch at the merged head."""
+
+    def pr_bullets(self):
+        pr = section(read(FINISH), r"pr\b")
+        self.assertTrue(pr, "specwright-finish has no `## pr` section")
+        return pr
+
+    def handback_bullet(self):
+        b = find_block(self.pr_bullets(), r"hand back")
+        self.assertTrue(b, "the pr path has no hand-back bullet")
+        return b
+
+    def test_finish_pr_agent_mode_starts_watch(self):
+        b = self.handback_bullet()
+        self.assertRegex(b, r"pr\.merge: agent", "the pr path does not branch on `pr.merge: agent`")
+        agent = re.search(r"pr\.merge: agent[^.]*\bwatch\b", b, re.S)
+        self.assertTrue(agent, "agent mode does not start watch")
+        self.assertRegex(b, r"(?i)start\w* .{0,40}\*\*watch\*\*.{0,60}run login|run login.{0,60}\*\*watch\*\*",
+                         "watch is not started with the run login")
+        ready = b.index("Ready to merge on GitHub")
+        self.assertGreater(ready, b.index("pr.merge: agent"), "`Ready to merge on GitHub` is not placed after the agent-mode branch")
+        self.assertRegex(b[b.index("pr.merge: agent"):ready], r"(?i)\bnot\b|never|instead|only",
+                         "agent mode is not kept apart from `Ready to merge on GitHub`")
+        self.assertRegex(b, r"pr\.merge: user", "the user-mode report is not tied to `pr.merge: user`")
+        self.assertRegex(b, r"(?i)do(es)? not (print|report)[^.]*Ready to merge on GitHub|no `Ready to merge on GitHub`|without `Ready to merge on GitHub`",
+                         "agent mode does not say it prints no `Ready to merge on GitHub`")
+
+    def test_finish_pr_agent_mode_hands_back_to_watch_that_started_it(self):
+        b = self.handback_bullet()
+        self.assertRegex(b, r"\*\*watch\*\* started this archive", "the hand-back to the watch that started the archive is gone")
+        self.assertIn("pr.merge: agent", b, "the hand-back bullet has no agent-mode branch")
+        self.assertLess(b.index("started this archive"), b.index("pr.merge: agent"),
+                        "the hand-back to a watch that started the archive does not come first")
+
+    def test_finish_pr_agent_mode_ship_failure_no_watch(self):
+        pr = self.pr_bullets()
+        ship = pr.index("**ship**")
+        b = self.handback_bullet()
+        self.assertRegex(b, r"(?i)failed \*\*ship\*\*[^.]*starts? no \*\*watch\*\*",
+                         "a failed ship does not start no watch")
+        self.assertLess(ship, pr.index("pr.merge: agent"), "the ship bullet does not come before the agent-mode watch")
+
+    def test_finish_never_merge_is_scoped_to_user_mode(self):
+        pr = self.pr_bullets()
+        never = re.search(r"Never merge the PR", pr)
+        self.assertTrue(never, "the pr path lost its `Never merge the PR` rule")
+        around = pr[max(0, never.start() - 160):never.end() + 80]
+        self.assertRegex(around, r"pr\.merge: user", "`Never merge the PR` is not scoped to `pr.merge: user`")
+        self.assertRegex(pr, r"(?i)agent.{0,80}\bwatch\b.{0,80}merg|\bwatch\b.{0,80}merges", "finish does not say that in agent mode watch merges")
+
+    def test_finish_resume_delete_remote_agent_mode_only(self):
+        b = ChangeFinishResume.merged_bullet(self)
+        self.assertRegex(b, r"delete-remote", "After the PR is merged never runs `delete-remote`")
+        d = b.index("delete-remote")
+        self.assertLess(b.index("pull --ff-only"), d, "`delete-remote` does not run after the pull")
+        self.assertLess(b.index("branch-check"), d, "`delete-remote` does not run after `branch-check`")
+        tail = b[d - 300:d + 700]
+        self.assertRegex(tail, r"pr\.merge: agent", "`delete-remote` is not limited to `pr.merge: agent`")
+        self.assertRegex(tail, r"delete_branch", "`delete-remote` ignores `delete_branch`")
+        self.assertRegex(b, r"delete-remote[^`]*--head <head_sha>|--head <head_sha>[^`]*delete-remote",
+                         "`delete-remote` is not given the merged head")
+        self.assertRegex(b[d - 100:], r"\[as\] bash scripts/pr-pair\.sh delete-remote", "`delete-remote` is not run fenced")
+        for status in ("deleted", "gone", "moved", "based_on", "kept"):
+            self.assertRegex(b[d:], r"`%s`" % status, "`delete-remote` status `%s` is not handled" % status)
+        self.assertRegex(b[d:], r"(?i)exit 3", "`delete-remote` exit 3 is not handled")
+        self.assertRegex(b, r"pr\.merge: user", "user mode is not said to keep the remote branch")
+
+    def test_finish_local_merge_ignores_pr_merge(self):
+        local = section(read(FINISH), r"local\b")
+        self.assertTrue(local, "specwright-finish has no `## local` section")
+        self.assertNotRegex(local, r"pr\.merge|delete-remote|merge_method", "the local path reads `pr.merge`")
+        self.assertRegex(read(FINISH), r"(?i)`local`[^.]*(ignores|never reads)[^.]*`pr\.merge`|`pr\.merge`[^.]*(ignored|not read)[^.]*`local`|local[^.]*never[^.]*`pr\.merge`",
+                         "finish does not say that `local` ignores `pr.merge`")
+
+
 class FencedGitHubCalls(unittest.TestCase):
     """default-identity-fencing: main refreshes and pulls from GitHub run fenced, decided by the fetch URL."""
 
