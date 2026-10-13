@@ -335,6 +335,14 @@ class Context(Base):
         self.assertEqual(c["merge"], "user")
         self.assertEqual(c["merge_note"], "pr.merge: auto is not user or agent; treated as user")
 
+    def test_context_merge_yes_reported_as_written(self):
+        # YAML reads `yes` as true; the note names the value as the user wrote it
+        for written in ("yes", "Yes", "true", "on"):
+            self.settings(f"pr:\n  merge: {written}\n")
+            c = self.pp("context", "--code", self.code)
+            self.assertEqual(c["merge"], "user", written)
+            self.assertEqual(c["merge_note"], f"pr.merge: {written} is not user or agent; treated as user")
+
     def test_context_merge_ready_with_required_reviewer(self):
         self.settings("pr:\n  merge: agent\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
                       "    kody-ai: { role: advisory }\n")
@@ -361,17 +369,24 @@ class Context(Base):
         self.assertEqual(c["store"]["merge_reason"], "no_required_reviewer")
 
     def test_context_merge_method_bad_value(self):
-        self.settings("pr:\n  merge_method: fast-forward\n")
+        self.settings("pr:\n  merge: agent\n  merge_method: fast-forward\n")
         r = self.pp("context", "--code", self.code, expect=2)
         self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
         self.assertEqual(r["message"], "pr.merge_method: fast-forward must be merge, squash or rebase")
 
     def test_context_delete_branch_non_boolean(self):
-        self.settings("pr:\n  delete_branch: maybe\n")
+        self.settings("pr:\n  merge: agent\n  delete_branch: maybe\n")
         r = self.pp("context", "--code", self.code, expect=2)
         self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
         self.assertIn("pr.delete_branch", r["message"])
         self.assertIn("maybe", r["message"])
+
+    def test_context_merge_settings_ignored_in_user_mode(self):
+        # only the agent merge reads them: a bad value must not stop ship, watch or cleanup in user mode
+        for merge in ("", "  merge: user\n", "  merge: auto\n"):
+            self.settings("pr:\n" + merge + "  merge_method: fast-forward\n  delete_branch: maybe\n")
+            c = self.pp("context", "--code", self.code)
+            self.assertEqual((c["merge"], c["merge_method"], c["delete_branch"]), ("user", "merge", True), merge)
 
 
 # =======================================================================================================

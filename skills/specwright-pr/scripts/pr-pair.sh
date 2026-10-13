@@ -399,6 +399,13 @@ def block_scalar(raw, start, indent, style, chomp):
     return text + "\n" + ("\n" * trailing if chomp == "+" else ""), end
 
 
+class Map(dict):
+    """A YAML mapping that also keeps each plain scalar's text as written (`yes` stays `yes` in messages)."""
+    def __init__(self):
+        super().__init__()
+        self.text = {}
+
+
 def parse_yaml(text):
     raw = text.splitlines()
     lines = []
@@ -408,7 +415,7 @@ def parse_yaml(text):
             lines.append((len(s) - len(s.lstrip(" ")), s.strip(), n))
 
     def block(i, indent):
-        d = {}
+        d = Map()
         while i < len(lines) and lines[i][0] == indent:
             body = lines[i][1]
             m = re.match(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$", body)
@@ -430,6 +437,7 @@ def parse_yaml(text):
                     d[key] = None
             else:
                 d[key] = scalar(val)
+                d.text[key] = val.strip()
         return d, i
 
     return block(0, lines[0][0])[0] if lines else {}
@@ -536,7 +544,12 @@ def repo_ctx(s, d, which):
     return c
 
 
-def setting_text(v):
+def setting_text(m, key):
+    """The setting as the user wrote it, for messages; the parsed value when the text is not kept."""
+    text = m.text.get(key) if isinstance(m, Map) else None
+    if text is not None:
+        return text
+    v = m.get(key)
     return str(v).lower() if isinstance(v, bool) else str(v)
 
 
@@ -550,16 +563,19 @@ def contexts(code, store):
     merge = pr.get("merge")
     out["merge"] = merge if merge in ("user", "agent") else "user"
     if merge not in (None, "") and merge not in ("user", "agent"):
-        out["merge_note"] = f"pr.merge: {setting_text(merge)} is not user or agent; treated as user"
+        out["merge_note"] = f"pr.merge: {setting_text(pr, 'merge')} is not user or agent; treated as user"
+    out["merge_method"], out["delete_branch"] = "merge", True
+    if out["merge"] != "agent":  # only the agent merge reads them: user mode keeps today's behaviour
+        return out
     method = pr.get("merge_method")
     method = "merge" if method is None else method
     if method not in ("merge", "squash", "rebase"):
-        raise Stop("bad_setting", f"pr.merge_method: {setting_text(method)} must be merge, squash or rebase", code=2)
+        raise Stop("bad_setting", f"pr.merge_method: {setting_text(pr, 'merge_method')} must be merge, squash or rebase", code=2)
     out["merge_method"] = method
     delete = pr.get("delete_branch")
     delete = True if delete is None else delete
     if not isinstance(delete, bool):
-        raise Stop("bad_setting", f"pr.delete_branch: {setting_text(delete)} must be true or false", code=2)
+        raise Stop("bad_setting", f"pr.delete_branch: {setting_text(pr, 'delete_branch')} must be true or false", code=2)
     out["delete_branch"] = delete
     return out
 

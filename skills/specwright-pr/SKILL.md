@@ -123,7 +123,7 @@ Then summarize the issues filed. Under **watch**, carry on toward ready.
 
 ## watch
 
-Before the first wait, read the merge settings: `bash scripts/pr-pair.sh context --code <code toplevel>` (store-backed: add `--store <store toplevel>`) gives `merge`, `merge_method`, `delete_branch` and each repo's `merge_ready`. A `bad_setting` (exit 2) stops watch before any wait: show its `message`. Report a `merge_note` (an unrecognised `pr.merge`, treated as `user`).
+Before the first wait, read the merge settings: `bash scripts/pr-pair.sh context --code <code toplevel>` (store-backed: add `--store <store toplevel>`) gives `merge`, `merge_method`, `delete_branch` and each repo's `merge_ready`. A `bad_setting` (exit 2: a bad `merge_method` or `delete_branch` with `merge: agent`; user mode ignores both) stops watch before any wait: show its `message`. Report a `merge_note` (an unrecognised `pr.merge`, treated as `user`).
 
 Loop until a stop condition:
 
