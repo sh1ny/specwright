@@ -3165,6 +3165,15 @@ class Merge(Base):
         self.assertEqual(len(self.puts()), 1)
         self.assertIsNone(self.pulls(CODE)[0]["merged_at"])
 
+    def test_merge_put_5xx_and_open_readback_is_unknown(self):
+        # GitHub may still complete a merge it answered with a server error: never report it refused
+        for i, code in enumerate((500, 502, 503)):
+            self.inject({"match": "-X PUT", "exit": 1, "stderr": f"gh: Server Error (HTTP {code})", "once": True})
+            r = self.merge(expect=3)
+            self.assertEqual((r["error"], r["status"], r["unknown"]), ("lookup_failed", "unknown", True), code)
+            self.assertEqual(len(self.puts()), i + 1, f"one PUT per run, never a retry ({code})")
+            self.assertIsNone(self.pulls(CODE)[0]["merged_at"])
+
     def test_merge_put_without_status_but_readback_merged(self):
         st = self.gh()
         st["repos"][CODE]["pulls"][0].update(state="closed", merged_at=T0, merge_commit_sha="d" * 40)

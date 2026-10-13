@@ -472,6 +472,18 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(tail, r"(?is)any other refusal[^;.]*stop[^;.]*GitHub's message", "another refusal does not stop with GitHub's message")
         self.assertRegex(tail, r"(?is)exit 3[^;.]*unknown[^;.]*no deletion", "exit 3 is not unknown with no deletion")
 
+    def test_archived_means_archive_dir_on_the_branch(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)archived[^.]*`<P>/changes/archive/<archived-name>/`[^.]*branch",
+                         "the merge step does not define archived as the archive directory on the branch")
+        self.assertRegex(m, r"(?is)`<P>/changes/<change-name>/`[^.]*(gone|no longer|does not exist)",
+                         "the merge step does not require the change directory to be gone")
+
+    def test_merge_ready_checked_for_every_expected_pr_first(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)`merge_ready`[^.]*every expected PR[^.]*before (the first|any) merge request",
+                         "`merge_ready` is not checked for every expected PR before the first merge request")
+
     def test_store_pair_merges_store_then_code_on_pair_ready(self):
         m = self.merge()
         at = m.find("Store-backed")

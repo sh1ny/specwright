@@ -11,7 +11,7 @@
 #   merge --repo o/n --pr N --method merge|squash|rebase --head sha
 #                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
 #                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
-#                                     cannot be read, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
+#                                     cannot be read or the PUT got a 5xx, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
 #   delete-remote --repo o/n --branch b --head sha
 #                                     delete the remote branch only when it is still at the full 40-hex merged head and no open PR is
 #                                     based on it: deleted | gone (404, or 422 gone meanwhile) | moved (sha) | based_on (prs) |
@@ -2100,7 +2100,7 @@ def cmd_merge(argv):
     if pr.get("merged_at"):
         return {"ok": True, "status": "merged", "repo": repo, "pr": n, "head_sha": (pr.get("head") or {}).get("sha"),
                 "merge_commit_sha": pr.get("merge_commit_sha")}
-    if r.returncode == 0 or status is None:
+    if r.returncode == 0 or status is None or status >= 500:  # a server error may still complete the merge
         raise Stop("lookup_failed", f"GitHub state unknown: merge of {repo}#{n} is not confirmed: {message}", code=3,
                    unknown=True, status="unknown")
     raise Stop("refused", message, status="refused", reason="head_changed" if status == 409 else "refused",
