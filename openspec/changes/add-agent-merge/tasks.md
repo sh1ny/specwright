@@ -97,7 +97,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 ## 9. Integration
 
-- [ ] 9.1 Run every eval suite (`python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`), `openspec validate --all --strict` and `openspec schema validate specwright`. Verify: all pass, and every test-map row is green.
+- [x] 9.1 Run every eval suite (`python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`), `openspec validate --all --strict` and `openspec schema validate specwright`. Verify: all pass, and every test-map row is green.
 
 ## Workflow follow-up
 
