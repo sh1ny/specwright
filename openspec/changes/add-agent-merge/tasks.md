@@ -9,7 +9,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 | pr-merge → Merging is opt-in | Default project never merges | evals/git-workflow/evals.json (graded) + evals/pr-pair/test_skill_text.py | eval-watch-merge-default-user; test_watch_merges_only_with_pr_merge_agent | red |
 | pr-merge → Merging is opt-in | Opted-in project merges | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge | red |
 | pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | test_context_merge_unknown_value_reported_as_user | red |
-| pr-merge → Merging is opt-in | Local finish ignores the setting | evals/git-workflow/test_instructions.py | test_finish_local_merge_ignores_pr_merge | red |
+| pr-merge → Merging is opt-in | Local finish ignores the setting | evals/git-workflow/test_instructions.py | test_finish_local_merge_ignores_pr_merge | green |
 | pr-merge → An agent merge needs a required reviewer | Required reviewer configured | evals/pr-pair/test_pr_pair.py | test_context_merge_ready_with_required_reviewer | red |
 | pr-merge → An agent merge needs a required reviewer | No required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_without_required_reviewer | red |
 | pr-merge → An agent merge needs a required reviewer | Store without a required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_store_reviewers_empty | red |
@@ -36,8 +36,8 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 | pr-merge → Store-backed changes merge as a pair | Only one PR ready | evals/pr-pair/test_skill_text.py | test_store_pair_merges_store_then_code_on_pair_ready | red |
 | pr-merge → Roadmap branches merge like changes | Close branch merges | evals/pr-pair/test_skill_text.py | test_agent_merge_branch_kinds | red |
 | pr-merge → Roadmap branches merge like changes | Unknown branch | evals/pr-pair/test_skill_text.py | test_agent_merge_branch_kinds | red |
-| pr-merge → Finish hands a PR to watch in agent mode | Archive outside watch | evals/git-workflow/test_instructions.py | test_finish_pr_agent_mode_starts_watch | red |
-| pr-merge → Finish hands a PR to watch in agent mode | Ship fails | evals/git-workflow/test_instructions.py | test_finish_pr_agent_mode_ship_failure_no_watch | red |
+| pr-merge → Finish hands a PR to watch in agent mode | Archive outside watch | evals/git-workflow/test_instructions.py | test_finish_pr_agent_mode_starts_watch | green |
+| pr-merge → Finish hands a PR to watch in agent mode | Ship fails | evals/git-workflow/test_instructions.py | test_finish_pr_agent_mode_ship_failure_no_watch | green |
 
 ## 1. ADR 0009
 
@@ -79,7 +79,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 ## 6. `specwright-finish` skill text
 
 - [x] 6.1 Write the failing `evals/git-workflow/test_instructions.py` tests. The `pr` path with `pr.merge: agent`: when watch started the archive, it hands back to watch (review S1); otherwise it starts watch with the run login and does not print `Ready to merge on GitHub`, and a failed ship starts no watch. "Never merge the PR" is scoped to `pr.merge: user`. **After the PR is merged** runs `delete-remote` after the pull and branch-check, only in agent mode with `delete_branch` (review S2, the repo-local resume path). `## local` does not read `pr.merge`. Verify that they fail.
-- [ ] 6.2 Update `skills/specwright-finish/SKILL.md` (`:78-83`). Verify: the 6.1 tests and the whole `evals/git-workflow` suite pass; flip the rows green.
+- [x] 6.2 Update `skills/specwright-finish/SKILL.md` (`:78-83`). Verify: the 6.1 tests and the whole `evals/git-workflow` suite pass; flip the rows green.
 
 ## 7. Graded agent evals (the M2 exit criterion)
 
