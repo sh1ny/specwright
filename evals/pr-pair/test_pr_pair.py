@@ -3038,5 +3038,143 @@ class ClosedCheck(Base):
         self.pp("closed-check", "--pr", 7, "--repos", CODE, expect=2)
 
 
+class Merge(Base):
+    """merge: one PUT of the configured method at the ready head, then a read-back that decides (add-agent-merge D2)."""
+
+    HEAD = f"{7:040x}"
+    TOKEN = {"GH_TOKEN": "tok-k"}
+
+    def setUp(self):
+        super().setUp()
+        self.add_pull(CODE, 7)
+
+    def merge(self, method="merge", head=None, expect=0, **kw):
+        return self.pp("merge", "--repo", CODE, "--pr", 7, "--method", method, "--head", head or self.HEAD,
+                       env=kw.pop("env", self.TOKEN), expect=expect, **kw)
+
+    def repo_state(self, **over):
+        st = self.gh()
+        st.setdefault("repos", {}).setdefault(CODE, {}).update(over)
+        self.save_gh(st)
+
+    def inject(self, *entries):
+        st = self.gh()
+        st["fail"] = list(entries)
+        self.save_gh(st)
+
+    def puts(self):
+        return [c for c in self.gh_calls() if "PUT" in c["argv"]]
+
+    def writes(self):
+        return [c for c in self.gh_calls() if any(x in ("PUT", "POST", "PATCH", "DELETE") for x in c["argv"])]
+
+    def test_merge_sends_method_and_head_sha_fenced(self):
+        r = self.merge("squash")
+        self.assertEqual((r["ok"], r["status"]), (True, "merged"))
+        puts = self.puts()
+        self.assertEqual(len(puts), 1)
+        argv = puts[0]["argv"]
+        self.assertIn(f"repos/{CODE}/pulls/7/merge", argv)
+        self.assertIn("merge_method=squash", argv)
+        self.assertIn(f"sha={self.HEAD}", argv)
+        calls = [c for c in self.gh_calls() if f"repos/{CODE}/pulls/7" in " ".join(c["argv"])]
+        self.assertGreaterEqual(len(calls), 2, "the PUT and the read-back")
+        for c in calls:
+            self.assertEqual((c.get("env") or {}).get("GH_TOKEN"), "tok-k", "every call runs as the repo's login")
+            self.assertIsNone(c.get("gh_repo"))
+
+    def test_merge_reads_back_merged(self):
+        r = self.merge()
+        self.assertEqual((r["ok"], r["status"], r["repo"], r["pr"]), (True, "merged", CODE, 7))
+        self.assertEqual(r["head_sha"], self.HEAD)
+        self.assertEqual(r["merge_commit_sha"], self.pulls(CODE)[0]["merge_commit_sha"])
+        self.assertTrue(self.pulls(CODE)[0]["merged_at"])
+        last = self.gh_calls()[-1]["argv"]
+        self.assertNotIn("PUT", last, "the read-back comes after the PUT")
+        self.assertEqual(last[-1], f"repos/{CODE}/pulls/7")
+
+    def test_merge_human_merged_first_is_merged(self):
+        st = self.gh()
+        p = st["repos"][CODE]["pulls"][0]
+        p.update(state="closed", merged_at=T0, merge_commit_sha="c" * 40)
+        self.save_gh(st)
+        r = self.merge()
+        self.assertEqual((r["ok"], r["status"]), (True, "merged"))
+        self.assertEqual((r["head_sha"], r["merge_commit_sha"]), (self.HEAD, "c" * 40))
+        self.assertEqual(len(self.puts()), 1, "the PUT was refused (405) and not retried")
+
+    def test_merge_head_changed_409_reports_head_changed(self):
+        r = self.merge(head="a" * 40, expect=1)
+        self.assertEqual((r["ok"], r["error"], r["status"], r["reason"]), (False, "refused", "refused", "head_changed"))
+        self.assertEqual((r["http_status"], r["repo"], r["pr"]), (409, CODE, 7))
+        self.assertIn("Head branch was modified", r["message"])
+        self.assertEqual(len(self.puts()), 1)
+        self.assertIsNone(self.pulls(CODE)[0]["merged_at"])
+
+    def test_merge_405_refused_single_request(self):
+        self.repo_state(allowed_methods=["squash"])
+        r = self.merge("rebase", expect=1)
+        self.assertEqual((r["ok"], r["error"], r["status"], r["reason"], r["http_status"]), (False, "refused", "refused", "refused", 405))
+        self.assertIn("Rebase merges are not allowed on this repository.", r["message"])
+        self.assertEqual(len(self.puts()), 1, "no second method is tried")
+        self.assertIn("merge_method=rebase", self.puts()[0]["argv"])
+
+    def test_merge_queue_refusal_no_auto_merge(self):
+        self.repo_state(merge_queue=True)
+        r = self.merge(expect=1)
+        self.assertEqual((r["status"], r["reason"], r["http_status"]), ("refused", "refused", 405))
+        self.assertIn("merge queue", r["message"])
+        self.assertEqual(len(self.puts()), 1)
+        self.assertEqual(len(self.writes()), 1, "only the one PUT writes")
+        text = " ".join(" ".join(c["argv"]) for c in self.gh_calls()).lower()
+        for needle in ("graphql", "automerge", "auto_merge", "auto-merge", "queue"):
+            self.assertNotIn(needle, text)
+        self.assertFalse([c for c in self.gh_calls() if c["argv"][:2] == ["pr", "merge"]])
+
+    def test_merge_readback_failure_exit3_unknown(self):
+        self.inject({"match": r"pulls/7$", "exit": 1, "stderr": "boom"})
+        r = self.merge(expect=3)
+        self.assertEqual((r["ok"], r["error"], r["status"], r["unknown"]), (False, "lookup_failed", "unknown", True))
+        self.assertEqual(len(self.puts()), 1, "the merge may have happened: never a second PUT")
+
+    def test_merge_put_without_status_and_unreadable_readback_is_unknown(self):
+        self.inject({"match": "-X PUT", "stderr": "connection reset", "once": True}, {"match": r"pulls/7$", "exit": 1, "stderr": "boom"})
+        r = self.merge(expect=3)
+        self.assertEqual((r["error"], r["status"], r["unknown"]), ("lookup_failed", "unknown", True))
+        self.assertEqual(len(self.puts()), 1)
+
+    def test_merge_put_without_status_and_open_readback_is_unknown(self):
+        self.inject({"match": "-X PUT", "stderr": "connection reset", "once": True})
+        r = self.merge(expect=3)
+        self.assertEqual((r["error"], r["status"], r["unknown"]), ("lookup_failed", "unknown", True))
+        self.assertEqual(len(self.puts()), 1)
+        self.assertIsNone(self.pulls(CODE)[0]["merged_at"])
+
+    def test_merge_put_without_status_but_readback_merged(self):
+        st = self.gh()
+        st["repos"][CODE]["pulls"][0].update(state="closed", merged_at=T0, merge_commit_sha="d" * 40)
+        self.save_gh(st)
+        self.inject({"match": "-X PUT", "stderr": "connection reset", "once": True})
+        r = self.merge()
+        self.assertEqual((r["status"], r["merge_commit_sha"]), ("merged", "d" * 40))
+        self.assertEqual(len(self.puts()), 1)
+
+    def test_merge_invalid_method_usage_no_request(self):
+        for method in ("fast-forward", "Squash", "", "admin"):
+            r = self.merge(method, expect=2)
+            self.assertEqual((r["ok"], r["error"]), (False, "usage"))
+            self.assertIn("--method", r["message"])
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_merge_invalid_head_usage_no_request(self):
+        for head in ("xyz", "abc", "g" * 40, "a" * 41, "", "main"):
+            r = self.pp("merge", "--repo", CODE, "--pr", 7, "--method", "merge", "--head", head, env=self.TOKEN, expect=2)
+            self.assertEqual((r["ok"], r["error"]), (False, "usage"))
+            self.assertIn("--head", r["message"])
+        self.assertIn("--head", self.pp("merge", "--repo", CODE, "--pr", 7, "--method", "merge", expect=2)["message"])
+        self.assertIn("--method", self.pp("merge", "--repo", CODE, "--pr", 7, "--head", self.HEAD, expect=2)["message"])
+        self.assertEqual(self.gh_calls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
