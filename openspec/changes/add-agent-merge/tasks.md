@@ -57,7 +57,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 ## 4. `pr-pair.sh delete-remote`
 
-- [ ] 4.1 Write the failing tests for `delete-remote --repo --branch --head` (design D3): ref at the head and no open PR based on it → `deleted`, and the ref is gone; ref at another SHA → `moved` with that SHA, nothing deleted; an open PR with `base=<branch>` → `based_on` with its number, nothing deleted; missing ref → `gone`; failed ref read or PR list → exit 3, nothing deleted; DELETE refused → `kept` with GitHub's message, exit 1. Verify that they fail.
+- [x] 4.1 Write the failing tests for `delete-remote --repo --branch --head` (design D3): ref at the head and no open PR based on it → `deleted`, and the ref is gone; ref at another SHA → `moved` with that SHA, nothing deleted; an open PR with `base=<branch>` → `based_on` with its number, nothing deleted; missing ref → `gone`; failed ref read or PR list → exit 3, nothing deleted; DELETE refused → `kept` with GitHub's message, exit 1. Verify that they fail.
 - [ ] 4.2 Implement `cmd_delete_remote` (paginated `gh_list` for `pulls?state=open&base=<branch>`), register it and document it in the header. Verify: the 4.1 tests and the whole `evals/pr-pair` suite pass; flip the rows green.
 
 ## 5. `specwright-pr` skill text: watch merge and cleanup

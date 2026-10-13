@@ -3176,5 +3176,135 @@ class Merge(Base):
         self.assertEqual(self.gh_calls(), [])
 
 
+class DeleteRemote(Base):
+    """delete-remote: delete the remote branch only at the merged head, with no open PR based on it (add-agent-merge D3)."""
+
+    HEAD = f"{7:040x}"
+    OTHER = "b" * 40
+    TOKEN = {"GH_TOKEN": "tok-k"}
+
+    def setUp(self):
+        super().setUp()
+        self.set_branches({BRANCH: self.HEAD})
+
+    def set_branches(self, branches, **over):
+        st = self.gh()
+        st.setdefault("repos", {}).setdefault(CODE, {}).update(branches=branches, **over)
+        self.save_gh(st)
+
+    def branches(self):
+        return self.gh()["repos"][CODE].get("branches", {})
+
+    def inject(self, *entries):
+        st = self.gh()
+        st["fail"] = list(entries)
+        self.save_gh(st)
+
+    def delete(self, branch=BRANCH, head=None, expect=0, **kw):
+        return self.pp("delete-remote", "--repo", CODE, "--branch", branch, "--head", head or self.HEAD,
+                       env=kw.pop("env", self.TOKEN), expect=expect, **kw)
+
+    def deletes(self):
+        return [c for c in self.gh_calls() if "DELETE" in c["argv"]]
+
+    def test_delete_remote_at_head_deletes(self):
+        r = self.delete()
+        self.assertEqual((r["ok"], r["status"], r["repo"], r["branch"]), (True, "deleted", CODE, BRANCH))
+        self.assertNotIn(BRANCH, self.branches())
+        self.assertEqual(len(self.deletes()), 1)
+        self.assertIn(f"repos/{CODE}/git/refs/heads/{BRANCH}", self.deletes()[0]["argv"])
+        self.assertEqual(self.deletes()[0]["env"]["GH_TOKEN"], "tok-k", "runs as the repo's login")
+
+    def test_delete_remote_head_compare_ignores_case(self):
+        self.set_branches({BRANCH: "ab" * 20})
+        self.assertEqual(self.delete(head="AB" * 20)["status"], "deleted")
+
+    def test_delete_remote_moved_keeps_branch(self):
+        self.set_branches({BRANCH: self.OTHER})
+        r = self.delete()
+        self.assertEqual((r["ok"], r["status"], r["sha"]), (True, "moved", self.OTHER))
+        self.assertEqual(self.branches(), {BRANCH: self.OTHER})
+        self.assertEqual(self.deletes(), [])
+
+    def test_delete_remote_based_on_keeps_branch(self):
+        self.add_pull(CODE, 11, ref="feat/child", base=BRANCH)
+        self.add_pull(CODE, 12, ref="feat/other", base="main")
+        self.add_pull(CODE, 13, ref="feat/closed", base=BRANCH, state="closed")
+        r = self.delete()
+        self.assertEqual((r["ok"], r["status"], r["prs"]), (True, "based_on", [11]))
+        self.assertIn(BRANCH, self.branches())
+        self.assertEqual(self.deletes(), [])
+        lists = [c["argv"] for c in self.gh_calls() if any("pulls?" in x for x in c["argv"])]
+        self.assertEqual(len(lists), 1)
+        self.assertIn("--paginate", lists[0])
+        self.assertTrue(any(x.startswith(f"repos/{CODE}/pulls?state=open&base=") and "per_page=100" in x for x in lists[0]))
+
+    def test_delete_remote_missing_ref_gone(self):
+        self.set_branches({})
+        r = self.delete()
+        self.assertEqual((r["ok"], r["status"]), (True, "gone"))
+        self.assertEqual(self.deletes(), [])
+
+    def test_delete_remote_ref_read_failure_exit3(self):
+        self.inject({"match": r"git/ref/heads", "exit": 1, "stderr": "gh: Server Error (HTTP 500)"})
+        r = self.delete(expect=3)
+        self.assertEqual((r["ok"], r["unknown"]), (False, True))
+        self.assertIn(BRANCH, self.branches())
+        self.assertEqual(self.deletes(), [])
+
+    def test_delete_remote_ref_read_without_status_exit3(self):
+        self.inject({"match": r"git/ref/heads", "exit": 1, "stderr": "connection reset"})
+        r = self.delete(expect=3)
+        self.assertTrue(r["unknown"])
+        self.assertEqual(self.deletes(), [])
+
+    def test_delete_remote_pr_list_failure_exit3(self):
+        self.inject({"match": r"pulls\?", "exit": 1, "stderr": "boom"})
+        r = self.delete(expect=3)
+        self.assertEqual((r["ok"], r["unknown"]), (False, True))
+        self.assertIn(BRANCH, self.branches())
+        self.assertEqual(self.deletes(), [])
+
+    def test_delete_remote_refused_is_kept_with_message(self):
+        self.set_branches({BRANCH: self.HEAD}, protected_branches=[BRANCH])
+        r = self.delete(expect=1)
+        self.assertEqual((r["ok"], r["error"], r["status"]), (False, "kept", "kept"))
+        self.assertIn("protected", r["message"])
+        self.assertIn(BRANCH, self.branches())
+        self.assertEqual(len(self.deletes()), 1)
+
+    def test_delete_remote_vanished_between_read_and_delete_is_gone(self):
+        self.inject({"match": "-X DELETE", "exit": 1, "stderr": "gh: Reference does not exist (HTTP 422)", "once": True})
+        r = self.delete()
+        self.assertEqual((r["ok"], r["status"]), (True, "gone"))
+        self.assertEqual(len(self.deletes()), 1)
+
+    def test_delete_remote_delete_without_status_exit3(self):
+        self.inject({"match": "-X DELETE", "exit": 1, "stderr": "connection reset", "once": True})
+        r = self.delete(expect=3)
+        self.assertTrue(r["unknown"])
+        self.assertEqual(len(self.deletes()), 1)
+
+    def test_delete_remote_branch_with_slash(self):
+        self.set_branches({"feat/a/b": self.HEAD, "feat": self.OTHER})
+        self.add_pull(CODE, 11, ref="x", base="feat/a/c")
+        r = self.delete("feat/a/b")
+        self.assertEqual((r["status"], r["branch"]), ("deleted", "feat/a/b"))
+        self.assertEqual(self.branches(), {"feat": self.OTHER})
+
+    def test_delete_remote_usage_no_request(self):
+        for head in ("xyz", "abc1234", "g" * 40, "a" * 41, "", "main"):
+            r = self.pp("delete-remote", "--repo", CODE, "--branch", BRANCH, "--head", head, env=self.TOKEN, expect=2)
+            self.assertEqual((r["ok"], r["error"]), (False, "usage"))
+            self.assertIn("--head", r["message"])
+        for args, word in ((("--branch", BRANCH, "--head", self.HEAD), "--repo"), (("--repo", CODE, "--head", self.HEAD), "--branch"),
+                           (("--repo", CODE, "--branch", BRANCH), "--head")):
+            r = self.pp("delete-remote", *args, env=self.TOKEN, expect=2)
+            self.assertEqual(r["error"], "usage")
+            self.assertIn(word, r["message"])
+        self.assertEqual(self.gh_calls(), [])
+        self.assertIn(BRANCH, self.branches())
+
+
 if __name__ == "__main__":
     unittest.main()
