@@ -879,6 +879,23 @@ class FencedGitHubCalls(unittest.TestCase):
         status = section(read(ROADMAP), r"status\b")
         self.assertRegex(status, r"(?i)local refs only|refused", "roadmap status does not report the refused refresh")
 
+    def test_local_finish_never_resolves(self):
+        # PR #82: finish: local makes no GitHub call, so with no gh account it hands `run login: none` instead of stopping
+        finish = read(FINISH)
+        run_login = finish[finish.index("**Run login.**"):].split("\n", 1)[0]
+        self.assertRegex(run_login, r"(?is)--resolve[^.]*only when a GitHub call[^.]*first needs it",
+                         "finish resolves the run login before any GitHub call needs it")
+        self.assertRegex(run_login, r"(?is)`local` merge[^.]*never resolves", "the local merge may resolve the run login")
+        self.assertRegex(run_login, r"(?is)failed `--resolve` on that path is not a stop", "a failed resolve stops a local finish")
+        offer = find_block(finish, r"project\.roadmap", r"(?i)\boffer")
+        self.assertRegex(offer, r"`run login: none`", "finish -> roadmap cannot hand a run with no login")
+        roadmap = read(ROADMAP)
+        self.assertRegex(self.roadmap_status_bullet(), r"(?is)handed `run login: none` means local refs only",
+                         "roadmap has no meaning for a handed `run login: none`")
+        step4 = next((l for l in roadmap.splitlines() if l.startswith("4. Start `/opsx:propose")), "")
+        self.assertRegex(step4, r"(?is)`run login: none` as this step was handed it",
+                         "roadmap next does not pass a handed `run login: none` on to the gate")
+
     def test_roadmap_init_close_pulls_fenced(self):
         c = committing_project_files()
         self.assertRegex(c, r"\[as\] git pull --ff-only origin <main>", "the init/close pull is not fenced")
@@ -928,7 +945,7 @@ class FencedGitHubCalls(unittest.TestCase):
         self.assertRegex(ship, r"(?i)run login", "finish -> ship does not pass the run login")
         offer = find_block(finish, r"project\.roadmap", r"(?i)\boffer")
         self.assertRegex(offer, r"(?i)run login", "finish -> the roadmap offer does not pass the run login")
-        self.assertRegex(finish, r"(?s)\*\*Run login\.\*\*.{0,600}(cannot|can't) find[^.]*stop", "finish does not stop when a handed-off step has no run login")
+        self.assertRegex(finish, r"(?s)\*\*Run login\.\*\*.{0,1200}(cannot|can't) find[^.]*stop", "finish does not stop when a handed-off step has no run login")
 
     def test_branch_gate_takes_handed_run_login(self):
         # PR #82: roadmap next starts the gate in the same run; the gate uses the login it is handed, never resolves again
