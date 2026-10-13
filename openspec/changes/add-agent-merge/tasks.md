@@ -93,7 +93,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 ## 8. Settings template, docs and release 0.4.0
 
 - [x] 8.1 Add `merge: user`, `merge_method: merge` and `delete_branch: true` under `pr:` in `templates/openspec/specwright.yaml`, with comments: agent mode needs a required reviewer; GitHub records the run login as the merger; agent mode archives without asking; remote branches are deleted only at the merged head. Add the same keys and the 0.4.0 notes to the README settings block. Verify: the install-update eval and `test_instructions.py` pass.
-- [ ] 8.2 Bump `VERSION`, the README badge and every `skills/*/SKILL.md` `metadata.version` to 0.4.0. Verify: `cat VERSION` prints `0.4.0`, and `grep -L "version: 0.4.0" skills/*/SKILL.md` lists nothing.
+- [x] 8.2 Bump `VERSION`, the README badge and every `skills/*/SKILL.md` `metadata.version` to 0.4.0. Verify: `cat VERSION` prints `0.4.0`, and `grep -L "version: 0.4.0" skills/*/SKILL.md` lists nothing.
 
 ## 9. Integration
 
