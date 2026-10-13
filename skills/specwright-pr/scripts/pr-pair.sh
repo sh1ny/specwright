@@ -8,6 +8,10 @@
 #   context --code <dir> [--store <dir>]
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
 #                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
+#   merge --repo o/n --pr N --method merge|squash|rebase --head sha
+#                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
+#                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
+#                                     cannot be read, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
 #   discover --repo o/n --branch b [--base main] [--state all|open|closed|merged[,..]]
 #                                     every PR from o/n's own branch b, paginated; failure = unknown (exit 3)
 #   expected --code <dir> --store <dir> --branch b
@@ -2045,10 +2049,47 @@ def cmd_cleanup(argv):
     return {"ok": True, "branch": branch, "set": members, "code": out["code"], "store": out["store"], "keep": keep}
 
 
+def cmd_merge(argv):
+    """Merge PR n at the ready head with the configured method, once, and decide from a read-back (never from the PUT alone)."""
+    a, _ = parse_args(argv, {"--repo": "repo", "--pr": "pr", "--method": "method", "--head": "head"})
+    need(a, "repo", "pr", "method", "head")
+    repo, n, method, head = a["repo"], a["pr"], a["method"], a["head"]
+    if not re.fullmatch(r"[1-9][0-9]*", n):
+        usage("--pr must be a positive integer")
+    if method not in ("merge", "squash", "rebase"):
+        usage(f"--method must be merge, squash or rebase, got {method!r}")
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", head):
+        usage(f"--head must be a commit id of 7 to 40 hex digits, got {head!r}")
+    n = int(n)
+    r = gh("api", "-X", "PUT", f"repos/{repo}/pulls/{n}/merge", "-f", f"merge_method={method}", "-f", f"sha={head}")
+    m = re.search(r"\(HTTP (\d{3})\)", r.stderr or "")
+    status = int(m.group(1)) if m else None
+    message = ""
+    try:
+        body = json.loads(r.stdout)
+        message = body.get("message") or "" if isinstance(body, dict) else ""
+    except ValueError:
+        pass
+    message = message or (r.stderr or r.stdout).strip() or f"gh exited {r.returncode}"
+    try:
+        pr = gh_obj(f"repos/{repo}/pulls/{n}")  # unreadable = unknown (exit 3): the merge may have happened
+    except Stop as e:
+        e.extra.setdefault("status", "unknown")
+        raise
+    if pr.get("merged_at"):
+        return {"ok": True, "status": "merged", "repo": repo, "pr": n, "head_sha": (pr.get("head") or {}).get("sha"),
+                "merge_commit_sha": pr.get("merge_commit_sha")}
+    if r.returncode == 0 or status is None:
+        raise Stop("lookup_failed", f"GitHub state unknown: merge of {repo}#{n} is not confirmed: {message}", code=3,
+                   unknown=True, status="unknown")
+    raise Stop("refused", message, status="refused", reason="head_changed" if status == 409 else "refused",
+               http_status=status, repo=repo, pr=n)
+
+
 COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
-            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check}
+            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge}
 
 args = sys.argv[1:]
 try:

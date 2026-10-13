@@ -15,14 +15,14 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 | pr-merge → An agent merge needs a required reviewer | Store without a required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_store_reviewers_empty | green |
 | pr-merge → Agent mode archives before merging without asking | Ready change, not archived | evals/pr-pair/test_skill_text.py | test_agent_mode_archives_without_asking | green |
 | pr-merge → Agent mode archives before merging without asking | Archive fails | evals/pr-pair/test_skill_text.py | test_agent_mode_archive_failure_stops_no_merge | green |
-| pr-merge → Only the ready head is merged | Merge with the configured method | evals/pr-pair/test_pr_pair.py | test_merge_sends_method_and_head_sha_fenced | red |
-| pr-merge → Only the ready head is merged | Head moved after ready | evals/pr-pair/test_pr_pair.py | test_merge_head_changed_409_reports_head_changed | red |
+| pr-merge → Only the ready head is merged | Merge with the configured method | evals/pr-pair/test_pr_pair.py | test_merge_sends_method_and_head_sha_fenced | green |
+| pr-merge → Only the ready head is merged | Head moved after ready | evals/pr-pair/test_pr_pair.py | test_merge_head_changed_409_reports_head_changed | green |
 | pr-merge → Only the ready head is merged | Commit after the archive head | evals/pr-pair/test_skill_text.py | test_reviewerless_archive_head_merged_only_if_unchanged | green |
-| pr-merge → Only the ready head is merged | Invalid method | evals/pr-pair/test_pr_pair.py | test_merge_invalid_method_usage_no_request | red |
-| pr-merge → A refused merge stops | Method disallowed | evals/pr-pair/test_pr_pair.py | test_merge_405_refused_single_request | red |
-| pr-merge → A refused merge stops | Merge queue required | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | test_merge_queue_refusal_no_auto_merge; test_never_admin_auto_queue_or_other_method | red |
-| pr-merge → The merge is confirmed before cleanup | Merge confirmed | evals/pr-pair/test_pr_pair.py | test_merge_reads_back_merged | red |
-| pr-merge → The merge is confirmed before cleanup | Read-back fails | evals/pr-pair/test_pr_pair.py | test_merge_readback_failure_exit3_unknown | red |
+| pr-merge → Only the ready head is merged | Invalid method | evals/pr-pair/test_pr_pair.py | test_merge_invalid_method_usage_no_request | green |
+| pr-merge → A refused merge stops | Method disallowed | evals/pr-pair/test_pr_pair.py | test_merge_405_refused_single_request | green |
+| pr-merge → A refused merge stops | Merge queue required | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | test_merge_queue_refusal_no_auto_merge; test_never_admin_auto_queue_or_other_method | green |
+| pr-merge → The merge is confirmed before cleanup | Merge confirmed | evals/pr-pair/test_pr_pair.py | test_merge_reads_back_merged | green |
+| pr-merge → The merge is confirmed before cleanup | Read-back fails | evals/pr-pair/test_pr_pair.py | test_merge_readback_failure_exit3_unknown | green |
 | pr-merge → Cleanup after an agent merge | Squash merge cleans up | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge (squash variant assertions) | red |
 | pr-merge → Cleanup after an agent merge | Pull fails after the merge | evals/pr-pair/test_skill_text.py | test_agent_cleanup_pull_failure_deletes_nothing | green |
 | pr-merge → The remote branch is deleted only at the merged head | Remote branch deleted | evals/pr-pair/test_pr_pair.py | test_delete_remote_at_head_deletes | red |
@@ -53,7 +53,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 - [x] 3.1 Extend the fake `gh` (`evals/fakes/gh.py` `cmd_api`). `PUT repos/o/n/pulls/N/merge` merges an open PR whose head matches `sha` and whose method is in the repo's `allowed_methods`: it sets `merged_at`, `merge_commit_sha` and state closed, and logs the call. A head mismatch → HTTP 409, a disallowed method or `merge_queue: true` → 405, an already merged PR → 405. A test can make the next call fail with no HTTP status (`inject_failure`). Add `GET`/`DELETE repos/o/n/git/ref(s)/heads/<b>` backed by per-repo branch heads. Verify: new cases in `evals/pr-pair/test_fake_gh.py` pass.
 - [x] 3.2 Write the failing `test_pr_pair.py` tests for `merge --repo --pr --method --head` (design D2): the method and head SHA are sent, and the call goes through the repo's login; read-back MERGED → `status: merged` with `head_sha`/`merge_commit_sha`, including a PR a person merged first (PUT 405, read-back MERGED); 409 → `refused`, `reason: head_changed`; 405 → `refused` with GitHub's message and exactly one PUT in the log; a queue refusal sends no auto-merge or queue call; a failed read-back or a PUT with no HTTP status and an unreadable read-back → exit 3 `unknown`; a bad `--method` or `--head` → exit 2 with no request. Verify that they fail.
-- [ ] 3.3 Implement `cmd_merge` with `gh_obj` (`pr-pair.sh:584`) and the usage header, and register it in `COMMANDS`. Verify: the 3.2 tests pass; flip the rows green.
+- [x] 3.3 Implement `cmd_merge` with `gh_obj` (`pr-pair.sh:584`) and the usage header, and register it in `COMMANDS`. Verify: the 3.2 tests pass; flip the rows green.
 
 ## 4. `pr-pair.sh delete-remote`
 
