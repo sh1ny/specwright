@@ -1,6 +1,6 @@
 # 0009. Opt-in agent merge at the ready head
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-13
 
 ## Context
