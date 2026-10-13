@@ -131,6 +131,21 @@ if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]; then
   done < <(git config --get-regexp '^url\..*\.(insteadof|pushinsteadof)$' 2>/dev/null || true)
 fi
 
+# Keep the caller's values of what the git fence below overrides, once: an as.sh
+# started inside another keeps the outer originals. A fenced script that runs plain
+# git for a non-GitHub remote (pr-pair.sh) restores them, so that remote keeps the
+# user's own SSH, prompts and credential helpers.
+if [ -z "${AS_SH_ORIG_SET+x}" ]; then
+  AS_SH_ORIG_SET=
+  for v in GIT_SSH_COMMAND GIT_TERMINAL_PROMPT GCM_INTERACTIVE GIT_ASKPASS SSH_ASKPASS GIT_CONFIG_COUNT \
+           $(compgen -e | grep -E '^GIT_CONFIG_(KEY|VALUE)_[0-9]+$' || true); do
+    [ -n "${!v+x}" ] || continue
+    export "AS_SH_ORIG_$v=${!v}"
+    AS_SH_ORIG_SET="$AS_SH_ORIG_SET $v"
+  done
+  export AS_SH_ORIG_SET
+fi
+
 # git: the identity is enforced at the transport, not by reading the command
 # line. SSH would authenticate with whatever key SSH picks, so it is disabled
 # (GIT_SSH_COMMAND overrides core.sshCommand, even one passed with -c); HTTPS

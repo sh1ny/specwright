@@ -117,15 +117,29 @@ def emit(obj, code=0):
     sys.exit(code)
 
 
-def run(cmd, cwd=None):
+def run(cmd, cwd=None, env=None):
     try:
-        return subprocess.run(cmd, cwd=cwd, env=ENV, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        return subprocess.run(cmd, cwd=cwd, env=env or ENV, capture_output=True, text=True, encoding="utf-8", errors="replace")
     except OSError as e:
         return subprocess.CompletedProcess(cmd, 127, "", str(e))
 
 
-def git(d, *args):
-    return run(["git", *args], cwd=d)
+def git(d, *args, env=None):
+    return run(["git", *args], cwd=d, env=env)
+
+
+FENCE_VAR = re.compile(r"GH_TOKEN|GIT_SSH_COMMAND|GIT_TERMINAL_PROMPT|GCM_INTERACTIVE|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG_COUNT"
+                       r"|GIT_CONFIG_(?:KEY|VALUE)_\d+|AS_SH_ORIG_\w+")
+
+
+def unfenced_env():
+    """ENV without an outer as.sh's git fence (and its token), with the values it kept restored: a non-GitHub remote
+    authenticates as the user's own git would. Outside as.sh, ENV unchanged."""
+    if "AS_SH_ORIG_SET" not in ENV:
+        return ENV
+    env = {k: v for k, v in ENV.items() if not FENCE_VAR.fullmatch(k)}
+    env.update({v: ENV.get(f"AS_SH_ORIG_{v}", "") for v in ENV["AS_SH_ORIG_SET"].split()})
+    return env
 
 
 IDENT = {}
@@ -157,12 +171,12 @@ def fetch_repo(d):
 def git_net(d, *args):
     """git ls-remote / fetch in `d`. A GitHub repo other than the one this process started in is read through as.sh from
     inside it, as its own login, else as the code run login (the ambient, fenced one): the URL check and header scrub of
-    the outer as.sh cover only the repo it started in. Non-GitHub remotes stay plain git."""
+    the outer as.sh cover only the repo it started in. Non-GitHub remotes stay plain git, outside the outer fence."""
     if d not in IDENT:  # the fetch URL alone decides: a GitHub fetch is fenced, anything else is plain git
         fetch = fetch_repo(d)
         IDENT[d] = fetch.lower() if fetch else None
     if IDENT[d] is None:
-        return git(d, *args)
+        return git(d, *args, env=unfenced_env())
     login = REPO_LOGIN.get(IDENT[d])
     if not login:
         if started_in(d):

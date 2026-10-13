@@ -847,6 +847,22 @@ class Rounds(Base):
                  and os.path.normcase(os.path.realpath(c["cwd"])) == here}
         self.assertEqual(users, {"sh1ny"}, "the store must be read as planning_store.login, not the code or ambient login")
 
+    def test_rounds_under_as_sh_reads_non_github_store_with_user_git(self):
+        # PR #82: pair-wide commands run under as.sh; a store on another host is read with the user's own git
+        # (their GIT_SSH_COMMAND, prompts, helpers), not the outer fence's SSH block, and never sees the fence's token
+        self.git(self.store, "remote", "set-url", "origin", "ssh://git@git.example.com/o/s.git")
+        self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+        seen = self.tmp / "ssh-seen.txt"
+        ssh = self.write("user-ssh.sh", f'#!/bin/sh\necho "token=${{GH_TOKEN:-unset}}" >> "{fixtures.posix(seen)}"\nexit 1\n')
+        as_sh = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
+        e = {**self.env(), "GIT_SSH_COMMAND": f"sh {fixtures.posix(ssh)}"}
+        r = subprocess.run(["bash", str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
+                            "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
+        self.assertIn('"ok": true', r.stdout, r.stdout + r.stderr)
+        self.assertNotIn("SSH is disabled", r.stdout + r.stderr, "the store read ran inside the outer fence")
+        self.assertTrue(seen.exists(), "the user's GIT_SSH_COMMAND did not run for the non-GitHub store")
+        self.assertEqual(set(seen.read_text(encoding="utf-8").split()), {"token=unset"}, "the fence's token reached the non-GitHub remote")
+
     def test_rounds_store_token_url_exits_3_no_request(self):
         # both logins empty and the store origin carries a token: as.sh refuses inside the store, before any request
         seen = []
