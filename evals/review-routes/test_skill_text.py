@@ -47,7 +47,7 @@ class ReviewSkill(unittest.TestCase):
 
     def test_frontmatter_version(self):
         self.assertRegex(self.text, r"(?m)^name: specwright-review$")
-        self.assertRegex(self.text, r"(?m)^  version: 0\.2\.0$")
+        self.assertRegex(self.text, r"(?m)^  version: 0\.3\.0$")
 
     def test_route_selection_via_select_before_run(self):
         sel, run = positions(sub("select"), self.text), positions(sub("run"), self.text)

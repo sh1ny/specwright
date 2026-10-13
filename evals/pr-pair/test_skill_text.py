@@ -283,6 +283,98 @@ class SkillText(unittest.TestCase):
         self.assertRegex(fb[w:w + 700], r"owner", "the text after `pass write` never says to keep the owner id it returns")
 
 
+class RunLogin(unittest.TestCase):
+    """The run login: resolved once at a user-started step, handed on, never re-resolved (default-identity-fencing)."""
+
+    def ident(self):
+        m = re.search(r"^\*\*Run login\.?\*\*.*$", TEXT, re.M)
+        self.assertTrue(m, "Settings and identity has no **Run login** paragraph")
+        return m.group(0)
+
+    def test_identity_paragraph_defines_the_run_login(self):
+        p = self.ident()
+        self.assertRegex(p, r"as\.sh`?\s+--resolve", "the identity paragraph never resolves with `as.sh --resolve`")
+        self.assertRegex(p, r"(?i)\bonce\b", "the login is not resolved once")
+        self.assertRegex(p, r"(?i)user-started", "only a user-started step may resolve: not said")
+        self.assertRegex(p, r"(?i)hand(s|ed)? (it )?(off|on|over)|handed", "the run login is not handed off")
+        self.assertRegex(p, r"(?i)never (re-?)?resolves?", "a handed-off step may resolve again")
+        self.assertRegex(p, r"bash scripts/as\.sh <run login>", "`[as]` is not defined as as.sh with the run login")
+
+    def test_no_drop_it_or_ambient_fallback(self):
+        self.assertNotRegex(TEXT, r"(?i)drop it when", "SKILL.md still drops `[as]` when github.login is empty")
+        self.assertNotRegex(TEXT, r"(?i)\bambient\b", "SKILL.md still falls back to the ambient account")
+        self.assertNotRegex(TEXT, r"(?i)plain `gh", "SKILL.md still posts with plain `gh`")
+
+    def test_handed_off_step_without_login_stops_and_asks(self):
+        p = self.ident()
+        self.assertRegex(p, r"(?is)(cannot|can't) find[^.]*\bstops?\b", "the receiving step does not stop")
+        self.assertRegex(p, r"(?is)\bstops?\b[^.]*\bask", "the receiving step does not ask the user")
+        self.assertRegex(p, r"(?is)before any (GitHub|`gh`) call", "it may call GitHub before asking")
+
+    def test_every_gh_and_git_network_call_carries_as(self):
+        # a call has arguments; a bare name in prose (`gh pr edit`, `gh api`) is a mention
+        call = re.compile(r"\bgh (pr|issue|run|repo|auth) \w+\s+\S|\bgh api\s+\S|\bgit (push|fetch|pull)\s+\S")
+        bad = []
+        for m in re.finditer(r"`([^`\n]+)`", TEXT):
+            span = m.group(1)
+            line = TEXT[TEXT.rfind("\n", 0, m.start()) + 1:TEXT.find("\n", m.end())]
+            if not call.search(span) or re.search(r"as\.sh|\[as\]", span):
+                continue
+            if "gh pr list" in span and NEGATION.search(line):
+                continue
+            if "gh auth switch" in span and re.search(r"(?i)never", line):
+                continue
+            if "gh auth token" in span and re.search(r"(?i)never `gh auth switch`", line):
+                continue
+            bad.append(span[:80])
+        self.assertFalse(bad, f"calls without `[as]`: {bad}")
+
+    def test_pr_pair_github_reads_carry_as(self):
+        # pass, rounds, pair-state and cleanup-plan read GitHub (and the remote they start in) as the fenced
+        # login, and cleanup-plan names that login in the pulls it emits; only the local calls run bare
+        local = {"identity", "context", "branch-check"}
+        bad = [m.group(0) for m in re.finditer(r"(\[as\] )?bash scripts/pr-pair\.sh ([a-z-]+)", TEXT)
+               if not m.group(1) and m.group(2) not in local]
+        self.assertFalse(bad, f"pr-pair.sh calls without `[as]`: {bad}")
+
+    def watch_bullets(self):
+        return SECTIONS["watch"][1].split("\n   - ")
+
+    def test_run_login_handed_to_watch_feedback_archive(self):
+        ship, watch = SECTIONS["ship"][1], SECTIONS["watch"][1]
+        step7 = re.search(r"^7\. .*$", ship, re.M).group(0)
+        self.assertRegex(step7, r"(?i)run login", "ship's hand-off to watch does not pass the run login")
+        feedback = next((b for b in self.watch_bullets() if b.startswith("New feedback")), "")
+        self.assertRegex(feedback, r"(?i)run login", "watch -> feedback does not pass the run login")
+        archive = next((b for b in self.watch_bullets() if b.startswith("**Archive before merge:**")), "")
+        self.assertRegex(archive, r"(?i)run login", "watch -> archive/finish does not pass the run login")
+        ship_bullet = next((b for b in self.watch_bullets() if "`ship` → an expected PR" in b), "")
+        self.assertRegex(ship_bullet, r"(?i)run login", "watch -> ship does not pass the run login")
+        w1 = watch[watch.index("1. Wait in the background"):watch.index("\n2. On wake")]
+        self.assertRegex(w1, r"(?i)run login", "the --wait watcher is not given the run login")
+        self.assertRegex(w1, r"\[as\][^`]*--wait", "the --wait command line does not run under `[as]`")
+        fb9 = re.search(r"^9\. .*$", SECTIONS["feedback"][1], re.M).group(0)
+        self.assertRegex(fb9, r"(?i)run login", "feedback's ship hand-off does not pass the run login")
+
+    def test_review_request_poster_falls_back_to_run_login_fenced(self):
+        m = re.search(r"^\*\*Review requests\*\*.*$", TEXT, re.M)
+        self.assertTrue(m, "no **Review requests** paragraph")
+        p = m.group(0)
+        self.assertRegex(p, r"request_as[^.]*review_request\.login[^.]*run login", "the poster chain does not end at the run login")
+        self.assertRegex(p, r"(?i)fenced|as\.sh", "the request is not posted fenced")
+        self.assertRegex(p, r"exits? 3", "a poster without a credential does not stop on exit 3")
+        self.assertRegex(p, r"(?i)never[^.]*(another|other|active) account", "the poster may fall back to another account")
+        ship6 = re.search(r"^6\. .*$", SECTIONS["ship"][1], re.M).group(0)
+        self.assertRegex(ship6, r"as\.sh <poster>", "ship step 6 does not post through as.sh with the poster")
+        self.assertNotRegex(ship6, r"(?i)plain|ambient", "ship step 6 still posts plain for the ambient account")
+
+    def test_cleanup_pulls_are_fenced_and_stop(self):
+        local = re.search(r"^- Repo-local: .*$", SECTIONS["cleanup after merge"][1], re.M).group(0)
+        self.assertRegex(local, r"\[as\] git pull --ff-only", "the repo-local cleanup pull is not fenced")
+        self.assertRegex(local, r"(?is)non-zero[^.;]*stop|stop[^.;]*non-zero", "a failed pull does not stop")
+        self.assertRegex(local, r"(?i)delete no branch", "a failed pull may still delete a branch")
+
+
 DESCRIPTION = SKILL.parent / "references" / "description.md"
 
 

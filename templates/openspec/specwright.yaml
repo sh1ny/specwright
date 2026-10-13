@@ -10,7 +10,9 @@ finish: local
 
 github:
   # Account for push, PR creation, replies and thread resolution.
-  # Empty = whatever gh is logged in as (unsafe when agents run concurrently).
+  # Empty = the active gh account, resolved once when a run starts and fenced
+  # for the whole run (as.sh), so a later gh auth switch cannot redirect it.
+  # Set it if you switch gh accounts between sessions.
   login: ""
   # Comment posted once on each new PR to request a review. Empty = none.
   review_request:

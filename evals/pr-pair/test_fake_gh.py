@@ -149,6 +149,35 @@ class Auth(FakeGhCase):
         self.assertNotEqual(self.gh("api", "user", env={"GH_TOKEN": "bogus"}, check=False).returncode, 0)
 
 
+class HostAndSwitch(FakeGhCase):
+    def test_log_records_host_and_token_variables(self):
+        self.gh("api", "user", env={"GH_TOKEN": "tok-s", "GH_HOST": "", "GH_ENTERPRISE_TOKEN": "ent"})
+        self.gh("api", "user")
+        lines = [json.loads(l) for l in self.logf.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[0]["env"], {"GH_TOKEN": "tok-s", "GITHUB_TOKEN": None, "GH_HOST": "",
+                                           "GH_ENTERPRISE_TOKEN": "ent", "GITHUB_ENTERPRISE_TOKEN": None})
+        self.assertEqual(set(lines[1]["env"].values()), {None})
+
+    def test_active_user_can_switch_between_calls(self):
+        self.assertEqual(self.gh("api", "user", "--jq", ".login").stdout.strip(), "KintsugiBot")
+        st = self.st()
+        fake_gh.switch_user(st, "sh1ny")
+        self.seed(st)
+        self.assertEqual(self.gh("api", "user", "--jq", ".login").stdout.strip(), "sh1ny")
+        self.gh("auth", "switch", "--user", "KintsugiBot")
+        self.assertEqual(self.gh("api", "user", "--jq", ".login").stdout.strip(), "KintsugiBot")
+        self.assertNotEqual(self.gh("auth", "switch", "-u", "nobody", check=False).returncode, 0)
+        # GH_TOKEN still wins over the active account
+        self.assertEqual(self.gh("api", "user", "--jq", ".login", env={"GH_TOKEN": "tok-s"}).stdout.strip(), "sh1ny")
+
+    def test_other_hosts_are_not_served(self):
+        r = self.gh("api", "repos/o/n/pulls", env={"GH_HOST": "enterprise.example"}, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("enterprise.example", r.stderr)
+        self.assertEqual(self.gh("api", "--hostname", "github.com", "user", env={"GH_HOST": "enterprise.example"}).returncode, 0)
+        self.assertEqual(self.gh("api", "user", env={"GH_HOST": ""}).returncode, 0)
+
+
 class LogAndFailures(FakeGhCase):
     def test_log_lines(self):
         self.gh("auth", "token", "--user", "sh1ny")

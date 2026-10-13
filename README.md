@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.2.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.3.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -251,7 +251,7 @@ The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scr
 
 | Script | Does |
 |---|---|
-| [`as.sh`](skills/specwright-pr/scripts/as.sh) | Runs a command as one GitHub login: pins the token per process, verifies it, and feeds it to both `gh` and `git push` (HTTPS to github.com only; SSH, prompts and inherited `http.extraHeader` auth are disabled inside it; run git from inside the target repo, since extraHeaders are scrubbed for the current repository only). Safe against a concurrent `gh auth switch`. |
+| [`as.sh`](skills/specwright-pr/scripts/as.sh) | Runs a command as one GitHub login: pins the token per process, verifies it, and feeds it to both `gh` and `git push` (HTTPS to github.com only; SSH, prompts and inherited `http.extraHeader` auth are disabled inside it; run git from inside the target repo, since extraHeaders are scrubbed for the current repository only). Safe against a concurrent `gh auth switch`. `as.sh --resolve` reads the active github.com account once (ignoring `GH_TOKEN`/`GITHUB_TOKEN`) and prints it as the run login. Inside, `GH_HOST` and the enterprise token variables are unset so `gh` targets github.com, and a github.com URL with userinfo (token, password or bare username) in a remote, push URL, `insteadOf` rule or argument is refused with exit 3, masked, before anything runs. |
 | [`pr-snapshot.sh`](skills/specwright-pr/scripts/pr-snapshot.sh) | One GraphQL call → the whole PR as JSON (checks, unresolved threads and resolved ones with an unanswered reviewer comment, unhandled or edited comments, stale `CHANGES_REQUESTED` verdicts, and a `complete` flag when a list was cut off). `--reviewer login:role:seconds` adds whether each reviewer has reported on the current head (`reported` / `waiting` / `timed_out`), counting reports from the head's push, or from when a snapshot first saw the head if the push is not in the activity log (`head_cutoff` says which). Bodies cut for length are marked `clipped: true`; `--full <id>` prints one item whole. `--wait` polls in-process and wakes once (at once if the snapshot is already incomplete); one watcher per PR: a newer `--wait` on the same PR takes over and the older one exits 4, and a watcher's exit never ends a newer one's ownership; `--logs` appends failed CI logs. |
 | [`review-run.sh`](skills/specwright-review/scripts/review-run.sh) | Picks the reviewer route (`select`), runs it with one fixed read-only command line per CLI and a deadline (`run`), validates the output against the findings schema and fails closed (exit 3, never the next route), and keeps one record per reviewed head in the state dir. `gate` derives pass / missing / blocked from the record and the user's waivers; `archive-only` tells watch that a new head only archives the change; `rounds` reads `Preship-Round:` trailers. |
 | [`pr-reply.sh`](skills/specwright-pr/scripts/pr-reply.sh) | Replies over REST, checks for a pending review, resolves the thread, optionally adds a 👍/👎 (`--react`), and marks the item handled on GitHub itself. `--rev` binds the reply to the revision that was judged: the item is read again first and nothing is posted if it changed (exit 5), and the marker counts only while the item keeps that revision. `react` answers a follow-up with a reaction only; `--waiting` marks a "waiting on owner" reply, which keeps the item listed; `resolve` retries only a failed resolution. A missing, unreadable or empty body file is refused before any GitHub call, and the temp file is removed on every exit. |
@@ -267,7 +267,7 @@ finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
 
 github:
-  login: my-bot-account         # pushes, PRs, replies; empty = ambient gh account
+  login: my-bot-account         # pushes, PRs, replies; empty = the active gh account, resolved once per run and fenced
   review_request:
     body: "@codex review"       # posted once per new PR; empty = none
     login: my-account
@@ -298,10 +298,15 @@ pr:
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
     chatgpt-codex-connector: { role: required, request: "@codex review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
-  # request_as: my-account      # posts the requests; default review_request.login, else github.login
+  # request_as: my-account      # posts the requests; default review_request.login, else github.login, else the run login
 ```
 
 Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
+
+**GitHub identity (0.3.0).** Every `gh` call and every git fetch, pull and push to a github.com remote runs through `as.sh` as one verified login (ADR 0008). With `github.login` empty, the first step you start resolves the active `gh` account once and hands it to every step it runs (ship, watch, feedback, archive, finish), so another agent's `gh auth switch` cannot redirect the run. A new request in a later session resolves again: if you switch `gh` accounts between sessions, set `github.login`. Remotes on other hosts are not fenced.
+- **BREAKING:** with `github.login` empty, an environment that has only `GH_TOKEN` and no stored `gh` login (CI, containers, cloud agents) now stops before its first GitHub call; environment tokens never pick the login. Run `gh auth login --with-token` (and optionally set `github.login`).
+- **BREAKING:** a github.com remote URL or `insteadOf` rule with userinfo (`https://user:token@github.com/...`, `https://<token>@github.com/...`, even a bare username) makes every fenced command exit 3, since git would use it before the fence's credential. Remove the userinfo; `gh auth login` supplies the credential. Nothing is rewritten for you.
+- An SSH GitHub origin (`git@github.com:...`) cannot be fenced, so the branch gate's main refresh and roadmap status fall back to local refs and say so; use an HTTPS origin to keep them current.
 
 `openspec/config.yaml` (template: [`templates/openspec/config.yaml`](templates/openspec/config.yaml)) carries the `context:` lines that make the git skills fire at the right phase.
 

@@ -4,19 +4,44 @@
 # verified, and both gh (GH_TOKEN) and git push (credential helper) use it.
 #
 # Usage: bash as.sh <login> <command> [args...]
+#        bash as.sh --resolve
 #   bash as.sh KintsugiBot gh pr create ...
 #   bash as.sh KintsugiBot git push -u origin HEAD
 #   bash as.sh KintsugiBot bash pr-snapshot.sh 12
-# Exit 3: no credential for <login>, the token resolves to someone else, or gh
-# is older than 2.40 (no per-account token lookup).
+# --resolve: no login is configured, so read the active github.com account once,
+# check gh has its token, and print the login (nothing else on stdout). A run keeps
+# that login and passes it to every later as.sh call; GH_TOKEN/GITHUB_TOKEN never
+# pick it.
+# Exit 3: no credential for <login> (or no active account for --resolve), the token
+# resolves to someone else, gh is older than 2.40 (no per-account token lookup), or
+# the command could use a github.com URL with userinfo (below). Exit 2: usage.
+# Inside, gh targets github.com only: GH_HOST, GH_ENTERPRISE_TOKEN and
+# GITHUB_ENTERPRISE_TOKEN are unset along with GH_TOKEN and GITHUB_TOKEN.
 # Inside, git cannot use SSH or prompt; HTTPS credentials go to github.com only.
-# Run git from inside the target repo: inherited http extraHeaders are scrubbed
-# for the current repository only, not one selected with git -C/--git-dir.
+# A github.com URL with userinfo (a token, a password or a bare username) is
+# refused before the command runs: in a git work tree, any remote's fetch or push
+# URL, any url.<base>.insteadOf / pushInsteadOf rule that adds it, and any argument
+# (including a `git -c key=value`). The fence supplies the credential; the message
+# names the remote and kind with the userinfo masked, and no config is changed.
+# URLs for other hosts are ignored.
+# Run git from inside the target repo: the URL check and the http extraHeader
+# scrub cover the current repository only, so a git command that selects
+# another one (-C, --git-dir, --work-tree) is refused (exit 3).
 set -euo pipefail
 
-login=${1:?usage: as.sh <login> <command> [args...]}
-shift
-[ $# -gt 0 ] || { echo "as.sh: no command given" >&2; exit 2; }
+resolve=
+if [ "${1:-}" = --resolve ]; then
+  [ $# -eq 1 ] || { echo "as.sh: --resolve takes no other arguments" >&2; exit 2; }
+  resolve=1
+else
+  login=${1:?usage: as.sh <login> <command> [args...] | as.sh --resolve}
+  shift
+  [ $# -gt 0 ] || { echo "as.sh: no command given" >&2; exit 2; }
+fi
+
+# gh must target github.com with a token this script picked, whatever the
+# environment says (an empty GH_HOST counts as set, so unset it too).
+unset GH_TOKEN GITHUB_TOKEN GH_HOST GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
 
 # Without `gh auth token --user` the only per-account lookup is a shared
 # `gh auth switch`, which other agents race on - so refuse rather than fall back.
@@ -25,13 +50,101 @@ case $(gh auth token --help 2>&1 || true) in
   *) echo "as.sh: $(gh --version 2>/dev/null | head -n 1 || echo 'gh not found') cannot look up a token per account (gh auth token --user, gh 2.40+); upgrade gh" >&2; exit 3 ;;
 esac
 
-unset GH_TOKEN GITHUB_TOKEN
+if [ -n "$resolve" ]; then
+  login=$(gh api --hostname github.com user --jq .login 2>/dev/null) || login=
+  [ -n "$login" ] || { echo "as.sh: no active gh account for github.com; run 'gh auth login' or set github.login in openspec/specwright.yaml (GH_TOKEN and GITHUB_TOKEN are not used to pick the login)" >&2; exit 3; }
+  gh auth token --hostname github.com --user "$login" >/dev/null 2>&1 || { echo "as.sh: no gh credential for the active account '$login'; run 'gh auth login' or set github.login in openspec/specwright.yaml (GH_TOKEN and GITHUB_TOKEN are not used to pick the login)" >&2; exit 3; }
+  printf '%s\n' "$login"
+  exit 0
+fi
+
 token=$(gh auth token --hostname github.com --user "$login" 2>/dev/null) || token=
 [ -n "$token" ] || { echo "as.sh: no gh credential for '$login' (gh auth login)" >&2; exit 3; }
 export GH_TOKEN=$token
 
 actual=$(gh api --hostname github.com user --jq .login 2>/dev/null) || actual=
 [ "$actual" = "$login" ] || { echo "as.sh: token resolves to '$actual', expected '$login'; refusing" >&2; exit 3; }
+
+# URL check: the helper below answers github.com with the verified token, so a
+# github.com URL that carries its own userinfo would authenticate as someone
+# else (or as a bare username the fence cannot tell from a token). Refuse it
+# before anything runs; never print or change the secret.
+lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+gh_url() { [[ $(lower "$1") =~ ^[a-z][a-z0-9+.-]*://([^/]*@)?github\.com([:/]|$) ]]; }
+gh_userinfo() { [[ $(lower "$1") =~ ^[a-z][a-z0-9+.-]*://[^/]*@github\.com([:/]|$) ]]; }
+has_userinfo() { [[ $1 =~ ^[A-Za-z][A-Za-z0-9+.-]*://[^/]*@ ]]; }
+mask() { printf '%s' "$1" | sed 's#^\([A-Za-z][A-Za-z0-9+.-]*://\)[^/]*@#\1***@#'; }
+refuse() { # <what names it> <masked url>
+  echo "as.sh: $1 has credentials in a github.com URL ($2); remove the userinfo, the fence supplies the credential; refusing" >&2
+  exit 3
+}
+check_rule() { # <base> <rewritten prefix> <what names it>
+  local base=$1 prefix=$2
+  has_userinfo "$base" || return 0
+  if gh_url "$base" || gh_url "$prefix"; then refuse "$3" "$(mask "$base")"; fi
+}
+check_arg() {
+  local a=$1 v
+  if gh_userinfo "$a"; then refuse "argument" "$(mask "$a")"; fi
+  v=${a#*=}
+  if [ "$v" != "$a" ] && gh_userinfo "$v"; then refuse "argument" "$(mask "$v")"; fi
+  if [[ $(lower "$a") =~ ^url\.(.+)\.(pushinsteadof|insteadof)=(.*)$ ]]; then
+    k=${a%%=*} k=${k#[Uu][Rr][Ll].} k=${k%.*}
+    check_rule "$k" "${a#*=}" "argument"
+  fi
+}
+for a in "$@"; do check_arg "$a"; done
+
+# git's own options, before the subcommand: one that selects another repository
+# would escape the checks below, which read the repository as.sh starts in.
+case ${1##*/} in
+  git|git.exe)
+    i=2
+    while [ "$i" -le $# ]; do
+      a=${!i}
+      case $a in
+        -C|-C*|--git-dir|--git-dir=*|--work-tree|--work-tree=*)
+          echo "as.sh: git $a selects another repository; run as.sh from inside it; refusing" >&2; exit 3 ;;
+        -c|--namespace|--super-prefix) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        *) break ;;
+      esac
+    done ;;
+esac
+
+if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]; then
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    while IFS= read -r u; do
+      ! gh_userinfo "$u" || refuse "remote '$r' fetch URL" "$(mask "$u")"
+    done < <(git remote get-url --all "$r" 2>/dev/null || true)
+    while IFS= read -r u; do
+      ! gh_userinfo "$u" || refuse "remote '$r' push URL" "$(mask "$u")"
+    done < <(git remote get-url --push --all "$r" 2>/dev/null || true)
+  done < <(git remote 2>/dev/null || true)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key=${line%% *} val=
+    case $line in *' '*) val=${line#* } ;; esac
+    base=${key#url.} base=${base%.*}
+    check_rule "$base" "$val" "rewrite rule url.$(mask "$base").${key##*.}"
+  done < <(git config --get-regexp '^url\..*\.(insteadof|pushinsteadof)$' 2>/dev/null || true)
+fi
+
+# Keep the caller's values of what the git fence below overrides, once: an as.sh
+# started inside another keeps the outer originals. A fenced script that runs plain
+# git for a non-GitHub remote (pr-pair.sh) restores them, so that remote keeps the
+# user's own SSH, prompts and credential helpers.
+if [ -z "${AS_SH_ORIG_SET+x}" ]; then
+  AS_SH_ORIG_SET=
+  for v in GIT_SSH_COMMAND GIT_TERMINAL_PROMPT GCM_INTERACTIVE GIT_ASKPASS SSH_ASKPASS GIT_CONFIG_COUNT \
+           $(compgen -e | grep -E '^GIT_CONFIG_(KEY|VALUE)_[0-9]+$' || true); do
+    [ -n "${!v+x}" ] || continue
+    export "AS_SH_ORIG_$v=${!v}"
+    AS_SH_ORIG_SET="$AS_SH_ORIG_SET $v"
+  done
+  export AS_SH_ORIG_SET
+fi
 
 # git: the identity is enforced at the transport, not by reading the command
 # line. SSH would authenticate with whatever key SSH picks, so it is disabled

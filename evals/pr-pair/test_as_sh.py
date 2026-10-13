@@ -1,10 +1,14 @@
-"""as.sh scrubs inherited http extraHeaders for the repository it starts in only.
+"""as.sh: header scrub, the run login (--resolve), github.com-only host variables, and credential URLs.
 
+Header scrub: as.sh scrubs inherited http extraHeaders for the repository it starts in only.
 This is why a store push must run `as.sh` from inside the store (design D1): a
 repository-local, URL-scoped Authorization header in the store would otherwise
 authenticate the push as someone else. The test serves HTTP on localhost,
 records the headers `git ls-remote` sends, and compares plain git, as.sh started
 inside the store, and as.sh started in the code repo with `git -C <store>`.
+
+Identity, host and URL tests (change default-identity-fencing, D1-D3) run as.sh against the fake gh. Requests to
+https://github.com go through `http.proxy` to the local recorder, so a request that was not refused shows up as a CONNECT.
 
 Run: python -m unittest discover evals/pr-pair
 """
@@ -26,6 +30,7 @@ sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
 
 LEAK = "X-Store-Secret: leaked-store-header"
+SECRET = "ghp_SECRETtoken123"
 
 
 class Recorder(BaseHTTPRequestHandler):
@@ -36,12 +41,17 @@ class Recorder(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+    def do_CONNECT(self):  # an https request sent through http.proxy = this server
+        Recorder.seen.append({"method": "CONNECT", "path": self.path})
+        self.send_response(502)
+        self.end_headers()
+
     def log_message(self, *args):
         pass
 
 
 @unittest.skipUnless(shutil.which("bash"), "needs bash")
-class AsShHeaderScrub(unittest.TestCase):
+class AsShCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(fixtures.rmtree, self.tmp)
@@ -56,10 +66,16 @@ class AsShHeaderScrub(unittest.TestCase):
         # the fake gh answers `auth token`, `auth token --help` and `api user` for as.sh
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
-        (self.tmp / "gh-state.json").write_text(
-            json.dumps({"user": "sh1ny", "tokens": {"sh1ny": "tok-s", "KintsugiBot": "tok-k"}}), encoding="utf-8")
+        self.state(user="sh1ny", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})
         self.code = self.repo("code")
         self.store = self.repo("store", header=True)
+
+    def state(self, **st):
+        (self.tmp / "gh-state.json").write_text(json.dumps(st), encoding="utf-8")
+
+    def gh_calls(self):
+        p = self.tmp / "gh-log.jsonl"
+        return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
 
     def repo(self, name, header=False):
         d = self.tmp / name
@@ -92,6 +108,15 @@ class AsShHeaderScrub(unittest.TestCase):
     def leaked(self, seen):
         return any("x-store-secret" in h for h in seen)
 
+    def as_sh(self, cwd, *args, env=None, stdin=None):
+        """Run `bash as.sh <args>` from `cwd`; the recorder is cleared first."""
+        Recorder.seen = []
+        e = self.env()
+        e.update(env or {})
+        return subprocess.run(["bash", str(AS_SH), *args], cwd=cwd, capture_output=True, text=True, env=e, input=stdin, timeout=60)
+
+
+class AsShHeaderScrub(AsShCase):
     def test_control_plain_git_sends_the_store_header(self):
         seen = self.ls_remote(self.store, ["git", "ls-remote", "origin"])
         self.assertTrue(seen, "git made no request")
@@ -103,11 +128,225 @@ class AsShHeaderScrub(unittest.TestCase):
         self.assertTrue(seen, "git made no request through as.sh")
         self.assertFalse(self.leaked(seen), f"as.sh started in the store must scrub its local header: {seen}")
 
-    def test_header_survives_when_as_sh_starts_outside_the_store(self):
-        # the D1 requirement in reverse: as.sh in the code repo cannot fence a `git -C <store>` command
+    def test_git_dash_c_into_the_store_refused(self):
+        # as.sh in the code repo cannot fence a `git -C <store>` command (it scrubs only the repository it starts in),
+        # so it refuses it: no request, so the store's header is never sent (PR #82)
         seen = self.ls_remote(self.code, ["bash", str(AS_SH), "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"])
-        self.assertTrue(seen, "git made no request")
-        self.assertTrue(self.leaked(seen), "as.sh only scrubs the repository it starts in")
+        self.assertFalse(seen, f"as.sh must refuse a git command pointed at another repository: {seen}")
+
+
+class AsShIdentity(AsShCase):
+    """The run login (D1): --resolve, the login's own token, refusals."""
+
+    def marker_cmd(self):
+        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]
+
+    def test_configured_login_pins_its_token_not_the_active_one(self):
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login")  # the active account is sh1ny
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "KintsugiBot"), r.stderr)
+        api = [c for c in self.gh_calls() if c["argv"][0] == "api"]
+        self.assertTrue(api)
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in api}, {"tok-k"}, "every gh call authenticates with the run login's token")
+
+    def test_token_for_other_login_exits_3_command_not_run(self):
+        self.state(user="sh1ny", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-s"})  # KintsugiBot's token is sh1ny's
+        r = self.as_sh(self.code, "KintsugiBot", *self.marker_cmd())
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("sh1ny", r.stderr)
+        self.assertIn("KintsugiBot", r.stderr)
+        self.assertFalse((self.tmp / "ran").exists(), "the command must not run")
+
+    def test_resolve_prints_the_active_login_only(self):
+        r = self.as_sh(self.code, "--resolve")
+        self.assertEqual((r.returncode, r.stdout), (0, "sh1ny\n"), r.stderr)
+        self.assertEqual(self.as_sh(self.code, "--resolve", "extra").returncode, 2)
+
+    def test_resolved_login_survives_auth_switch(self):
+        r = self.as_sh(self.code, "--resolve")
+        self.assertEqual(r.stdout.strip(), "sh1ny", r.stderr)
+        self.state(user="KintsugiBot", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})  # another process: gh auth switch
+        before = len(self.gh_calls())
+        r = self.as_sh(self.code, "sh1ny", "gh", "api", "user", "--jq", ".login")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
+        later = [c for c in self.gh_calls()[before:] if c["argv"][0] == "api"]
+        self.assertTrue(later)
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in later}, {"tok-s"})
+
+    def test_resolve_without_account_exits_3_message(self):
+        self.state(tokens={})
+        r = self.as_sh(self.code, "--resolve")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual(r.stdout, "")
+        for text in ("gh auth login", "github.login", "GH_TOKEN", "GITHUB_TOKEN"):
+            self.assertIn(text, r.stderr)
+        self.assertTrue(all(c["argv"][0] in ("auth", "api") and "repos" not in " ".join(c["argv"]) for c in self.gh_calls()),
+                        "no GitHub call beyond the account lookup")
+
+    def test_resolve_ignores_gh_token_env(self):
+        self.state(user="sh1ny", tokens={"sh1ny": "tok-s", "env-bot": "tok-e"})
+        r = self.as_sh(self.code, "--resolve", env={"GH_TOKEN": "tok-e", "GITHUB_TOKEN": "tok-e"})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
+        api = [c for c in self.gh_calls() if c["argv"][0] == "api"]
+        self.assertTrue(api)
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in api}, {None}, "no call authenticates with the ambient token")
+        self.assertEqual({c["env"]["GITHUB_TOKEN"] for c in api}, {None})
+
+    def test_request_as_without_credential_exits_3(self):
+        self.state(user="KintsugiBot", tokens={"KintsugiBot": "tok-k"})  # no token for sh1ny
+        r = self.as_sh(self.code, "sh1ny", *self.marker_cmd())
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("sh1ny", r.stderr)
+        self.assertFalse((self.tmp / "ran").exists())
+
+
+class AsShHost(AsShCase):
+    """Fenced calls target github.com only (D3)."""
+    SHOW = ["bash", "-c", 'printf "%s|%s|%s" "${GH_HOST-unset}" "${GH_ENTERPRISE_TOKEN-unset}" "${GITHUB_ENTERPRISE_TOKEN-unset}"']
+
+    def test_gh_host_and_enterprise_tokens_unset(self):
+        env = {"GH_HOST": "enterprise.example", "GH_ENTERPRISE_TOKEN": "ent-tok", "GITHUB_ENTERPRISE_TOKEN": "ent-tok2"}
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "repos/o/r/pulls", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)  # the fake serves github.com only
+        calls = self.gh_calls()
+        self.assertTrue(calls)
+        for c in calls:
+            self.assertEqual((c["env"]["GH_HOST"], c["env"]["GH_ENTERPRISE_TOKEN"], c["env"]["GITHUB_ENTERPRISE_TOKEN"]),
+                             (None, None, None), c["argv"])
+        r = self.as_sh(self.code, "KintsugiBot", *self.SHOW, env=env)
+        self.assertEqual(r.stdout, "unset|unset|unset", r.stderr)
+        r = self.as_sh(self.code, "--resolve", env=env)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
+
+    def test_empty_gh_host_targets_github(self):
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login", env={"GH_HOST": ""})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "KintsugiBot"), r.stderr)
+        self.assertTrue(all(c["env"]["GH_HOST"] is None for c in self.gh_calls()), "an empty GH_HOST is unset too")
+        r = self.as_sh(self.code, "KintsugiBot", *self.SHOW, env={"GH_HOST": ""})
+        self.assertEqual(r.stdout, "unset|unset|unset")
+
+
+class AsShUrls(AsShCase):
+    """Credentials in a github.com URL are refused (D2)."""
+
+    def setUp(self):
+        super().setUp()
+        self.work = self.repo("work")
+        self.git(self.work, "remote", "set-url", "origin", "https://github.com/o/r.git")
+        self.git(self.work, "config", "http.proxy", self.base.rstrip("/"))
+
+    def config(self, cwd):
+        return subprocess.run(["git", "config", "--local", "--list"], cwd=cwd, capture_output=True, text=True, env=self.env()).stdout
+
+    def refused(self, r, *words):
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual(Recorder.seen, [], "no request may reach the server")
+        self.assertNotIn(SECRET, r.stdout + r.stderr)
+        self.assertIn("***", r.stderr)
+        for w in words:
+            self.assertIn(w, r.stderr)
+
+    def test_control_url_reaches_the_server_without_the_check(self):
+        self.git(self.work, "remote", "set-url", "origin", f"https://x-access-token:{SECRET}@github.com/o/r.git")
+        Recorder.seen = []
+        subprocess.run(["git", "fetch", "origin", "main"], cwd=self.work, capture_output=True, text=True, env=self.env(), timeout=60)
+        self.assertTrue(Recorder.seen, "plain git must send the request, or the refusal tests prove nothing")
+
+    def test_credential_fill_returns_verified_token(self):
+        r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin="protocol=https\nhost=github.com\n\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("username=x-access-token", r.stdout)
+        self.assertIn("password=tok-s", r.stdout)
+
+    def test_token_in_fetch_url_refused_no_request(self):
+        self.git(self.work, "remote", "set-url", "origin", f"https://x-access-token:{SECRET}@github.com/o/r.git")
+        before = self.config(self.work)
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.refused(r, "origin", "fetch", "https://***@github.com/o/r.git")
+        self.assertEqual(self.config(self.work), before, "the remote is unchanged")
+
+    def test_token_in_second_push_url_refused(self):
+        self.git(self.work, "config", "--add", "remote.origin.pushurl", "https://github.com/o/r.git")
+        self.git(self.work, "config", "--add", "remote.origin.pushurl", f"https://u:{SECRET}@github.com/o/r.git")
+        before = self.config(self.work)
+        r = self.as_sh(self.work, "sh1ny", "git", "push", "origin", "HEAD")
+        self.refused(r, "origin", "push", "https://***@github.com/o/r.git")
+        self.assertEqual(self.config(self.work), before)
+
+    def test_insteadof_rule_with_token_refused(self):
+        self.git(self.work, "config", f"url.https://u:{SECRET}@github.com/.insteadOf", "https://github.com/")
+        before = self.config(self.work)
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.refused(r)
+        self.assertEqual(self.config(self.work), before)
+
+    def test_insteadof_rule_with_token_refused_without_a_matching_remote(self):
+        self.git(self.work, "remote", "set-url", "origin", "https://git.example.com/o/r.git")
+        self.git(self.work, "config", f"url.https://u:{SECRET}@github.com/.insteadOf", "https://github.com/")
+        r = self.as_sh(self.work, "sh1ny", "git", "status")
+        self.refused(r, "rewrite")
+
+    def test_token_in_username_slot_refused_masked(self):
+        self.git(self.work, "remote", "set-url", "origin", f"https://{SECRET}@github.com/o/r.git")
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.refused(r, "https://***@github.com/o/r.git")
+
+    def test_bare_username_refused(self):
+        self.git(self.work, "remote", "set-url", "origin", "https://someone@github.com/o/r.git")
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual(Recorder.seen, [])
+        self.assertIn("remove the userinfo", r.stderr)
+        self.assertNotIn("someone", r.stderr)
+
+    def test_git_selecting_another_repo_refused(self):
+        # PR #82: the URL check scans the repo as.sh starts in, so git may not be pointed at another one
+        other = self.repo("other")
+        self.git(other, "remote", "set-url", "origin", f"https://x-access-token:{SECRET}@github.com/o/r.git")
+        self.git(other, "config", "http.proxy", self.base.rstrip("/"))
+        gitdir = str(Path(other) / ".git")
+        for argv in (["-C", str(other), "fetch", "origin", "main"], [f"--git-dir={gitdir}", "fetch", "origin", "main"],
+                     ["--git-dir", gitdir, "fetch", "origin", "main"], ["--work-tree", str(other), "fetch", "origin", "main"],
+                     ["-c", "core.quotepath=false", "-C", str(other), "fetch", "origin", "main"]):
+            Recorder.seen = []
+            r = self.as_sh(self.work, "sh1ny", "git", *argv)
+            self.assertEqual(r.returncode, 3, f"{argv}: {r.stderr}")
+            self.assertEqual(Recorder.seen, [], f"{argv}: no request may reach the server")
+            self.assertNotIn(SECRET, r.stdout + r.stderr)
+            self.assertIn("inside", r.stderr, "the refusal says to run as.sh from inside the repository")
+        # options after the subcommand are the subcommand's own, not a repository selection
+        r = self.as_sh(self.work, "sh1ny", "git", "log", "-C", "-1")
+        self.assertNotEqual(r.returncode, 3, r.stderr)
+
+    def test_refusal_covers_commands_other_than_git(self):
+        self.git(self.work, "remote", "set-url", "origin", f"https://{SECRET}@github.com/o/r.git")
+        r = self.as_sh(self.work, "sh1ny", "gh", "api", "repos/o/r/pulls")
+        self.refused(r)
+        self.assertFalse([c for c in self.gh_calls() if "repos" in " ".join(c["argv"])], "the command did not run")
+
+    def test_gitlab_token_rule_ignored(self):
+        self.git(self.work, "config", f"url.https://oauth2:{SECRET}@gitlab.com/.insteadOf", "https://gitlab.com/")
+        r = self.as_sh(self.work, "sh1ny", "gh", "api", "repos/o/r/pulls")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        api = [c for c in self.gh_calls() if c["argv"][0] == "api"]
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in api}, {"tok-s"})
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.assertNotEqual(r.returncode, 3, r.stderr)
+        self.assertTrue(Recorder.seen, "the fetch ran and reached the (proxy) server")
+
+    def test_dash_c_url_with_userinfo_refused(self):
+        r = self.as_sh(self.work, "sh1ny", "git", "-c", f"remote.origin.url=https://u:{SECRET}@github.com/o/r.git", "fetch", "origin", "main")
+        self.refused(r, "argument")
+        r = self.as_sh(self.work, "sh1ny", "git", "-c", f"url.https://u:{SECRET}@github.com/.insteadOf=https://github.com/",
+                       "fetch", "origin", "main")
+        self.refused(r, "argument")
+
+    def test_url_argument_with_userinfo_refused(self):
+        r = self.as_sh(self.work, "sh1ny", "git", "ls-remote", f"https://u:{SECRET}@github.com/o/r.git")
+        self.refused(r, "argument")
+
+    def test_outside_a_work_tree_the_command_runs(self):
+        r = self.as_sh(self.tmp, "sh1ny", "gh", "api", "user", "--jq", ".login")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
 
 
 if __name__ == "__main__":

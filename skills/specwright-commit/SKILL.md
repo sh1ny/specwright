@@ -2,7 +2,7 @@
 name: specwright-commit
 description: "MANDATORY during the OpenSpec apply phase: /opsx:apply, openspec-apply-change, `openspec instructions apply`, or the user asks to implement/apply an OpenSpec change. Commits each completed task on the change branch, verifies the commits when all tasks are done, then hands off to archive or to the PR."
 metadata:
-  version: 0.2.0
+  version: 0.3.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *)
 ---
@@ -46,7 +46,7 @@ One call: `git log <main>..HEAD --oneline && git status --porcelain`. Every chec
 
 Then read `finish` in `openspec/specwright.yaml` (default `local`):
 - `local` → suggest `/opsx:archive`; the user runs it.
-- `pr` → hand off to `specwright-pr` **ship**, then offer **watch**. Archive after review settles, on the same branch, before the PR is merged: **watch** offers it once the PR is ready.
+- `pr` → resolve the run login (`github.login`, else one `bash <specwright-pr>/scripts/as.sh --resolve`, `<specwright-pr>` being that skill's folder; exit 3 stops and tells the user), hand off to `specwright-pr` **ship** stating `run login: <login>`, then offer **watch**. Archive after review settles, on the same branch, before the PR is merged: **watch** offers it once the PR is ready.
 
 Never commit on main, push from this skill, batch tasks into one commit, amend unprompted, or start archive yourself.
 
