@@ -83,7 +83,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 ## 7. Graded agent evals (the M2 exit criterion)
 
-- [ ] 7.1 Add the fixtures and `evals.json` entries:
+- [x] 7.1 Add the fixtures and `evals.json` entries:
   - `eval-watch-agent-merge`: repo-local, `finish: pr`, `pr.merge: agent`, `pr.merge_method: squash`, a required reviewer that has reported, an archived change whose PR #7 is ready in the fake `gh`. Assertions: exactly one merge PUT with `squash` and the ready head; the PR is MERGED; on main, which has the merge; the local branch is deleted; the remote ref is deleted; next/close is offered.
   - `eval-watch-merge-default-user`: the same fixture without `pr.merge`. Assertions: no merge PUT and no ref DELETE in the gh log; still on the branch; the report says ready.
 

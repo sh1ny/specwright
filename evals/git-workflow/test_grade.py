@@ -1,5 +1,7 @@
 """Offline checks of grade.py: the store-resume code-merge graders must notice a recovery that merged without keeping the code."""
+import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -61,6 +63,81 @@ class ResumeCodeMergeTree(unittest.TestCase):
             res = self.results(name, repo)
             self.assertIn(TREE_CHECK, res, name)
             self.assertTrue(res[TREE_CHECK][0], f"{name}: {res[TREE_CHECK][1]}")
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class WatchMerge(unittest.TestCase):
+    """The watch-merge fixtures and graders: a simulated agent run (fake gh calls, git through the fixture's shim) grades green,
+    and the wrong runs (a merge in default mode, a missing remote deletion, the wrong method) grade red."""
+
+    def fixture(self, name):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        repo = run_dir / "repo"
+        fixtures.build(name, repo)
+        (run_dir / "outputs").mkdir()
+        return run_dir, repo
+
+    def sh(self, repo, script):
+        r = subprocess.run(["bash", "-c", f'source eval.env && {script}'], cwd=repo, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout.strip()
+
+    def grade(self, name, run_dir, report):
+        (run_dir / "outputs" / "report.md").write_text(report, encoding="utf-8")
+        return {t: ok for t, ok, _ in grade.check(name, run_dir / "repo", run_dir)}
+
+    def agent_run(self, repo, method="squash", delete=True):
+        tip = grade.git(repo, "rev-parse", "HEAD")
+        self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method={method} -f sha={tip}")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only")
+        self.sh(repo, f"git branch -q -D feat/add-greeting")
+        if delete:
+            self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
+
+    def test_fixture_is_ready_and_pull_waits_for_the_merge(self):
+        run_dir, repo = self.fixture("eval-watch-agent-merge")
+        snap = json.loads(self.sh(repo, "bash ../../../skills/specwright-pr/scripts/pr-snapshot.sh 7 --repo acme/greeter "
+                                        "--reviewer chatgpt-codex-connector:required:1200".replace("../../../", fixtures.posix(fixtures.ROOT) + "/")))
+        self.assertEqual((snap["mergeable"], snap["merge_state"], snap["checks"]["pending"], snap["reviewers"][0]["state"]),
+                         ("MERGEABLE", "CLEAN", 0, "reported"))
+        before = subprocess.run(["bash", "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
+        self.assertNotEqual(before.returncode, 0, "a pull before the merge must fail at the unreachable proxy")
+
+    def test_agent_merge_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-watch-agent-merge")
+        self.agent_run(repo)
+        res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7. Next: specwright-roadmap next, or close the milestone?")
+        self.assertTrue(res and all(res.values()), [t for t, ok in res.items() if not ok])
+
+    def test_agent_merge_wrong_runs_fail(self):
+        run_dir, repo = self.fixture("eval-watch-agent-merge")
+        self.agent_run(repo, method="merge", delete=False)
+        res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7.")
+        for t in ("Exactly one merge request was sent, with squash and the ready head",
+                  "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
+                  "The report offers the next step: specwright-roadmap next or close"):
+            self.assertFalse(res[t], t)
+        self.assertTrue(res["PR #7 is MERGED in the fake gh"])
+
+    def test_default_user_ready_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-watch-merge-default-user")
+        self.sh(repo, "bash " + fixtures.posix(fixtures.ROOT) + "/skills/specwright-pr/scripts/pr-pair.sh context --code .")
+        res = self.grade("eval-watch-merge-default-user", run_dir, "PR #7 is ready to merge.")
+        self.assertTrue(res and all(res.values()), [t for t, ok in res.items() if not ok])
+
+    def test_default_user_merge_fails(self):
+        run_dir, repo = self.fixture("eval-watch-merge-default-user")
+        self.agent_run(repo)
+        res = self.grade("eval-watch-merge-default-user", run_dir, "Merged it.")
+        self.assertFalse(res["No merge request and no ref DELETE reached the gh log"])
+        self.assertFalse(res["The report says the PR is ready"])
+
+    def test_default_user_settings_do_not_mention_merging(self):
+        run_dir, repo = self.fixture("eval-watch-merge-default-user")
+        self.assertNotIn("merge", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
 
 
 class Rmtree(unittest.TestCase):
