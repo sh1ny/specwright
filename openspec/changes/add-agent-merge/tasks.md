@@ -6,8 +6,8 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| pr-merge → Merging is opt-in | Default project never merges | evals/git-workflow/evals.json (graded) + evals/pr-pair/test_skill_text.py | eval-watch-merge-default-user; test_watch_merges_only_with_pr_merge_agent | red |
-| pr-merge → Merging is opt-in | Opted-in project merges | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge | red |
+| pr-merge → Merging is opt-in | Default project never merges | evals/git-workflow/evals.json (graded) + evals/pr-pair/test_skill_text.py | eval-watch-merge-default-user; test_watch_merges_only_with_pr_merge_agent | green |
+| pr-merge → Merging is opt-in | Opted-in project merges | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge | green |
 | pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | test_context_merge_unknown_value_reported_as_user | green |
 | pr-merge → Merging is opt-in | Local finish ignores the setting | evals/git-workflow/test_instructions.py | test_finish_local_merge_ignores_pr_merge | green |
 | pr-merge → An agent merge needs a required reviewer | Required reviewer configured | evals/pr-pair/test_pr_pair.py | test_context_merge_ready_with_required_reviewer | green |
@@ -23,7 +23,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 | pr-merge → A refused merge stops | Merge queue required | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | test_merge_queue_refusal_no_auto_merge; test_never_admin_auto_queue_or_other_method | green |
 | pr-merge → The merge is confirmed before cleanup | Merge confirmed | evals/pr-pair/test_pr_pair.py | test_merge_reads_back_merged | green |
 | pr-merge → The merge is confirmed before cleanup | Read-back fails | evals/pr-pair/test_pr_pair.py | test_merge_readback_failure_exit3_unknown | green |
-| pr-merge → Cleanup after an agent merge | Squash merge cleans up | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge (squash variant assertions) | red |
+| pr-merge → Cleanup after an agent merge | Squash merge cleans up | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge (squash variant assertions) | green |
 | pr-merge → Cleanup after an agent merge | Pull fails after the merge | evals/pr-pair/test_skill_text.py | test_agent_cleanup_pull_failure_deletes_nothing | green |
 | pr-merge → The remote branch is deleted only at the merged head | Remote branch deleted | evals/pr-pair/test_pr_pair.py | test_delete_remote_at_head_deletes | red |
 | pr-merge → The remote branch is deleted only at the merged head | Remote branch moved | evals/pr-pair/test_pr_pair.py | test_delete_remote_moved_keeps_branch | red |
@@ -88,7 +88,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
   - `eval-watch-merge-default-user`: the same fixture without `pr.merge`. Assertions: no merge PUT and no ref DELETE in the gh log; still on the branch; the report says ready.
 
   Add the `grade.py` checks the assertions need. Verify: `python -m unittest discover evals/git-workflow` passes, including `test_fixtures_shim` and `test_grade`.
-- [ ] 7.2 Run both evals through the git-workflow runner and grade them with `python evals/git-workflow/grade.py <iteration-dir>`. Verify: both pass every assertion; flip the graded rows green. Record the run in the PR description as the exit-criterion evidence.
+- [x] 7.2 Run both evals through the git-workflow runner and grade them with `python evals/git-workflow/grade.py <iteration-dir>`. Verify: both pass every assertion; flip the graded rows green. Record the run in the PR description as the exit-criterion evidence.
 
 ## 8. Settings template, docs and release 0.4.0
 
