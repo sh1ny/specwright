@@ -317,6 +317,62 @@ class Context(Base):
         self.assertEqual(c["store"]["validate"], "echo 'ok' # still the value")
         self.assertEqual(c["code"]["reviewers"]["chatgpt-codex-connector"]["request"], "@codex \"review, now\"")
 
+    def test_context_merge_defaults(self):
+        self.settings("github:\n  login: sh1ny\npr:\n  reviewers:\n    kody-ai: { role: advisory }\n")
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        self.assertEqual((c["merge"], c["merge_method"], c["delete_branch"]), ("user", "merge", True))
+        self.assertNotIn("merge_note", c)
+
+    def test_context_merge_agent_settings_read(self):
+        self.settings("pr:\n  merge: agent\n  merge_method: squash\n  delete_branch: false\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual((c["merge"], c["merge_method"], c["delete_branch"]), ("agent", "squash", False))
+        self.assertNotIn("merge_note", c)
+
+    def test_context_merge_unknown_value_reported_as_user(self):
+        self.settings("pr:\n  merge: auto\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual(c["merge"], "user")
+        self.assertEqual(c["merge_note"], "pr.merge: auto is not user or agent; treated as user")
+
+    def test_context_merge_ready_with_required_reviewer(self):
+        self.settings("pr:\n  merge: agent\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
+                      "    kody-ai: { role: advisory }\n")
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        for repo in ("code", "store"):  # the store falls back to pr.reviewers
+            self.assertIs(c[repo]["merge_ready"], True, repo)
+            self.assertIsNone(c[repo]["merge_reason"], repo)
+
+    def test_context_merge_blocked_without_required_reviewer(self):
+        self.settings("pr:\n  merge: agent\n  reviewers:\n    kody-ai: { role: advisory }\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertIs(c["code"]["merge_ready"], False)
+        self.assertEqual(c["code"]["merge_reason"], "no_required_reviewer")
+        self.settings("pr:\n  merge: agent\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual((c["code"]["merge_ready"], c["code"]["merge_reason"]), (False, "no_required_reviewer"))
+
+    def test_context_merge_blocked_store_reviewers_empty(self):
+        self.settings("planning_store:\n  reviewers: {}\npr:\n  merge: agent\n"
+                      "  reviewers:\n    chatgpt-codex-connector: { role: required }\n")
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        self.assertIs(c["code"]["merge_ready"], True)
+        self.assertIs(c["store"]["merge_ready"], False)
+        self.assertEqual(c["store"]["merge_reason"], "no_required_reviewer")
+
+    def test_context_merge_method_bad_value(self):
+        self.settings("pr:\n  merge_method: fast-forward\n")
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+        self.assertEqual(r["message"], "pr.merge_method: fast-forward must be merge, squash or rebase")
+
+    def test_context_delete_branch_non_boolean(self):
+        self.settings("pr:\n  delete_branch: maybe\n")
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+        self.assertIn("pr.delete_branch", r["message"])
+        self.assertIn("maybe", r["message"])
+
 
 # =======================================================================================================
 class Discover(Base):
