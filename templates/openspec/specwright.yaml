@@ -86,6 +86,19 @@ pr:
   # Account that posts the requests. Default: review_request.login, else
   # github.login.
   # request_as: ""
+  # Who merges a ready PR. user = you merge on GitHub; watch reports ready
+  # and stops. agent = with finish: pr, watch archives the change without
+  # asking, merges the PR at the head it reported ready and cleans up (ADR
+  # 0009). Agent mode needs a required reviewer in reviewers (store:
+  # planning_store.reviewers), else it reports ready and merges nothing.
+  # GitHub records the run login as the merger.
+  merge: user
+  # Agent merge method: merge | squash | rebase. A method the repository
+  # disallows is refused and reported; no other method is tried.
+  merge_method: merge
+  # Agent mode only: delete the merged PR's remote branch in cleanup, only
+  # while it is still at the merged head and no open PR is based on it.
+  delete_branch: true
 
 # Store-backed changes only (planning in an OpenSpec store, a separate git
 # repo): settings for the store side. Every other setting is shared with the

@@ -201,7 +201,7 @@ example `PR workflow not ready: gh 2.40+`).
 3. **Apply** with `/opsx:apply` — task groups go to `specwright-implementer`, each verified task becomes its own commit.
    - **Pre-ship review:** once every task is committed, `specwright-review` has another model's CLI review the whole change (`review.order`, skipping the harness you run in; the `specwright-reviewer` agent when none is available). P0/P1 findings block: fix them (commits `address pre-ship review`; after two rounds it asks you) or waive them with your reason. `specwright-pr` ship and the local merge first check for a pass on the current head. Opt out with `review.preship: false`.
    - **BREAKING (0.2.0):** the pre-ship review is on by default, so apply ends with a review that can take up to `review.timeout` (20m). Set `review.preship: false` to keep the 0.1.x flow.
-4. **PR mode:** the PR opens when apply finishes; `specwright-pr` **watch** handles reviews and CI, and once it is green offers to archive on the branch. Then merge on GitHub.
+4. **PR mode:** the PR opens when apply finishes; `specwright-pr` **watch** handles reviews and CI, and once it is green offers to archive on the branch. Then merge on GitHub, or let watch merge it with `pr.merge: agent`.
 5. **Archive** with `/opsx:archive` — `specwright-finish` merges locally or pushes the archive commit to the PR.
 
 **Several agents at once?** Give each change its own `git worktree`: the skills switch branches in the checkout they run in.
@@ -299,9 +299,14 @@ pr:
     chatgpt-codex-connector: { role: required, request: "@codex review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
   # request_as: my-account      # posts the requests; default review_request.login, else github.login, else the run login
+  merge: user                   # user = you merge on GitHub; agent = watch merges a ready PR (finish: pr, a required reviewer)
+  merge_method: merge           # agent merge: merge | squash | rebase
+  delete_branch: true           # agent mode: delete the merged remote branch, only at the merged head
 ```
 
 Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
+
+**Agent merge (0.4.0).** With `pr.merge: agent` and `finish: pr`, **watch** finishes the job you used to do by hand: once the PR is ready it archives the change without asking, waits for the archive head, merges the PR through GitHub's REST merge at the head it reported ready (a push in between makes GitHub refuse), reads the PR back, then cleans up: main pulled, the local branch deleted under the usual check, the remote branch deleted with `pr.delete_branch` while it is still at the merged head and no open PR is based on it, and the roadmap **next** or **close** offered (ADR 0009). It needs at least one `required` reviewer, else it reports ready and merges nothing. A refusal (branch protection, a merge queue, a disallowed method) stops with GitHub's message; Specwright never uses admin rights, auto-merge, a merge queue, another method or a review dismissal. GitHub records the run login as the merger. The default, `user`, keeps the earlier behaviour.
 
 **GitHub identity (0.3.0).** Every `gh` call and every git fetch, pull and push to a github.com remote runs through `as.sh` as one verified login (ADR 0008). With `github.login` empty, the first step you start resolves the active `gh` account once and hands it to every step it runs (ship, watch, feedback, archive, finish), so another agent's `gh auth switch` cannot redirect the run. A new request in a later session resolves again: if you switch `gh` accounts between sessions, set `github.login`. Remotes on other hosts are not fenced.
 - **BREAKING:** with `github.login` empty, an environment that has only `GH_TOKEN` and no stored `gh` login (CI, containers, cloud agents) now stops before its first GitHub call; environment tokens never pick the login. Run `gh auth login --with-token` (and optionally set `github.login`).
@@ -387,7 +392,7 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 |---|---|---|
 | `ship` | Before the change's first PR, check for a pre-ship review pass on the head; push every repo of the change (store first), then create/update the PRs with `--body-file`, post the review request | Push the default branch; open or update a PR when a push failed |
 | `feedback` | One snapshot → judge all items → fix → validate once → one commit → one reply (and 👍/👎) per finding, resolve; acknowledgement follow-ups get a reaction only (and resolve the thread if it was still open) | Resolve needs-human threads; go past `max_fix_rounds` |
-| `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch (an archive-only head gets no new review requests unless `pr.review_after_archive: true`); report stale `CHANGES_REQUESTED` verdicts | Merge, rebase, force-push, approve workflow runs, dismiss reviews |
+| `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch (an archive-only head gets no new review requests unless `pr.review_after_archive: true`); report stale `CHANGES_REQUESTED` verdicts; with `pr.merge: agent`, archive without asking, merge at the ready head and clean up | Merge (except the opt-in agent merge), rebase, force-push, approve workflow runs, dismiss reviews |
 </details>
 
 ---
