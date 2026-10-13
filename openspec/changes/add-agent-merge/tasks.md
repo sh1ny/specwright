@@ -25,11 +25,11 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 | pr-merge → The merge is confirmed before cleanup | Read-back fails | evals/pr-pair/test_pr_pair.py | test_merge_readback_failure_exit3_unknown | green |
 | pr-merge → Cleanup after an agent merge | Squash merge cleans up | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge (squash variant assertions) | green |
 | pr-merge → Cleanup after an agent merge | Pull fails after the merge | evals/pr-pair/test_skill_text.py | test_agent_cleanup_pull_failure_deletes_nothing | green |
-| pr-merge → The remote branch is deleted only at the merged head | Remote branch deleted | evals/pr-pair/test_pr_pair.py | test_delete_remote_at_head_deletes | red |
-| pr-merge → The remote branch is deleted only at the merged head | Remote branch moved | evals/pr-pair/test_pr_pair.py | test_delete_remote_moved_keeps_branch | red |
-| pr-merge → The remote branch is deleted only at the merged head | Another PR is based on the branch | evals/pr-pair/test_pr_pair.py | test_delete_remote_based_on_keeps_branch | red |
+| pr-merge → The remote branch is deleted only at the merged head | Remote branch deleted | evals/pr-pair/test_pr_pair.py | test_delete_remote_at_head_deletes | green |
+| pr-merge → The remote branch is deleted only at the merged head | Remote branch moved | evals/pr-pair/test_pr_pair.py | test_delete_remote_moved_keeps_branch | green |
+| pr-merge → The remote branch is deleted only at the merged head | Another PR is based on the branch | evals/pr-pair/test_pr_pair.py | test_delete_remote_based_on_keeps_branch | green |
 | pr-merge → The remote branch is deleted only at the merged head | User mode keeps remote branches | evals/pr-pair/test_skill_text.py + evals/git-workflow/test_instructions.py | test_delete_remote_only_in_agent_mode; test_finish_resume_delete_remote_agent_mode_only | green |
-| pr-merge → The remote branch is deleted only at the merged head | Already deleted by GitHub | evals/pr-pair/test_pr_pair.py | test_delete_remote_missing_ref_gone | red |
+| pr-merge → The remote branch is deleted only at the merged head | Already deleted by GitHub | evals/pr-pair/test_pr_pair.py | test_delete_remote_missing_ref_gone | green |
 | pr-merge → Store-backed changes merge as a pair | Both merge | evals/pr-pair/test_skill_text.py | test_store_pair_merges_store_then_code_on_pair_ready | green |
 | pr-merge → Store-backed changes merge as a pair | Code merge refused | evals/pr-pair/test_skill_text.py | test_store_split_reports_planning_merged_code_pending | green |
 | pr-merge → Store-backed changes merge as a pair | Watch after a split | evals/pr-pair/test_pr_pair.py | test_pair_state_split_hand_off (existing, re-run) | green |
@@ -58,7 +58,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 ## 4. `pr-pair.sh delete-remote`
 
 - [x] 4.1 Write the failing tests for `delete-remote --repo --branch --head` (design D3): ref at the head and no open PR based on it → `deleted`, and the ref is gone; ref at another SHA → `moved` with that SHA, nothing deleted; an open PR with `base=<branch>` → `based_on` with its number, nothing deleted; missing ref → `gone`; failed ref read or PR list → exit 3, nothing deleted; DELETE refused → `kept` with GitHub's message, exit 1. Verify that they fail.
-- [ ] 4.2 Implement `cmd_delete_remote` (paginated `gh_list` for `pulls?state=open&base=<branch>`), register it and document it in the header. Verify: the 4.1 tests and the whole `evals/pr-pair` suite pass; flip the rows green.
+- [x] 4.2 Implement `cmd_delete_remote` (paginated `gh_list` for `pulls?state=open&base=<branch>`), register it and document it in the header. Verify: the 4.1 tests and the whole `evals/pr-pair` suite pass; flip the rows green.
 
 ## 5. `specwright-pr` skill text: watch merge and cleanup
 

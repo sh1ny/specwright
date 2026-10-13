@@ -12,6 +12,10 @@
 #                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
 #                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
 #                                     cannot be read, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
+#   delete-remote --repo o/n --branch b --head sha
+#                                     delete the remote branch only when it is still at the full 40-hex merged head and no open PR is
+#                                     based on it: deleted | gone (404, or 422 gone meanwhile) | moved (sha) | based_on (prs) |
+#                                     kept (DELETE refused, GitHub's message; exit 1); a failed read is unknown (exit 3), nothing deleted
 #   discover --repo o/n --branch b [--base main] [--state all|open|closed|merged[,..]]
 #                                     every PR from o/n's own branch b, paginated; failure = unknown (exit 3)
 #   expected --code <dir> --store <dir> --branch b
@@ -88,6 +92,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 ENV = {k: v for k, v in os.environ.items() if k != "GH_REPO"}
 BASH = os.environ.get("PR_PAIR_BASH") or shutil.which("bash")
@@ -2086,10 +2091,59 @@ def cmd_merge(argv):
                http_status=status, repo=repo, pr=n)
 
 
+def http_status(r):
+    m = re.search(r"\(HTTP (\d{3})\)", r.stderr or "")
+    return int(m.group(1)) if m else None
+
+
+def reply_message(r):
+    try:
+        body = json.loads(r.stdout)
+        message = body.get("message") or "" if isinstance(body, dict) else ""
+    except ValueError:
+        message = ""
+    return message or (r.stderr or r.stdout).strip() or f"gh exited {r.returncode}"
+
+
+def cmd_delete_remote(argv):
+    """Delete the remote branch only at the merged head with no open PR based on it; a failed read is unknown, never a delete."""
+    a, _ = parse_args(argv, {"--repo": "repo", "--branch": "branch", "--head": "head"})
+    need(a, "repo", "branch", "head")
+    repo, branch, head = a["repo"], a["branch"], a["head"]
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", head):  # GitHub reports the full id: no prefix matching
+        usage(f"--head must be a full 40-digit commit id, got {head!r}")
+    path = quote(branch, safe="/")
+    base = {"repo": repo, "branch": branch}
+    r = gh("api", f"repos/{repo}/git/ref/heads/{path}")
+    if r.returncode != 0:
+        if http_status(r) == 404:
+            return {"ok": True, "status": "gone", **base}
+        unknown(reply_message(r))
+    try:
+        sha = json.loads(r.stdout)["object"]["sha"]
+    except (ValueError, KeyError, TypeError):
+        unknown("unreadable ref response")
+    if not isinstance(sha, str) or sha.lower() != head.lower():
+        return {"ok": True, "status": "moved", **base, "sha": sha}
+    based = gh_list(f"repos/{repo}/pulls?state=open&base={quote(branch, safe='')}&per_page=100")
+    if based:
+        return {"ok": True, "status": "based_on", **base, "prs": [p["number"] for p in based]}
+    r = gh("api", "-X", "DELETE", f"repos/{repo}/git/refs/heads/{path}")
+    if r.returncode == 0:
+        return {"ok": True, "status": "deleted", **base}
+    status, message = http_status(r), reply_message(r)
+    if status is None:
+        unknown(message)
+    if status == 422 and "does not exist" in message.lower():  # gone between the read and the delete
+        return {"ok": True, "status": "gone", **base}
+    raise Stop("kept", message, status="kept", http_status=status, **base)
+
+
 COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
-            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge}
+            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,
+            "delete-remote": cmd_delete_remote}
 
 args = sys.argv[1:]
 try:
