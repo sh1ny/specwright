@@ -6,7 +6,8 @@
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
 #   context --code <dir> [--store <dir>]
-#                                     per-repo login, main, validate, reviewers (specwright.yaml + planning_store:)
+#                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
+#                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
 #   discover --repo o/n --branch b [--base main] [--state all|open|closed|merged[,..]]
 #                                     every PR from o/n's own branch b, paginated; failure = unknown (exit 3)
 #   expected --code <dir> --store <dir> --branch b
@@ -521,7 +522,13 @@ def repo_ctx(s, d, which):
         c["validate"] = str(pr.get("validate") or "")
         c["reviewers"] = reviewers_of(pr.get("reviewers"))
         c["requests_disabled"] = False
+    ready = any(r["role"] == "required" for r in c["reviewers"].values())
+    c["merge_ready"], c["merge_reason"] = ready, None if ready else "no_required_reviewer"
     return c
+
+
+def setting_text(v):
+    return str(v).lower() if isinstance(v, bool) else str(v)
 
 
 def contexts(code, store):
@@ -531,6 +538,20 @@ def contexts(code, store):
            "finish": str(s.get("finish") or ""), "max_fix_rounds": int(pr.get("max_fix_rounds") if isinstance(pr.get("max_fix_rounds"), int) else 2),
            "after_limit": str(pr.get("after_limit") or "ask"), "react": bool(pr.get("react")),
            "poll_interval": duration(pr.get("poll_interval"), 300)}
+    merge = pr.get("merge")
+    out["merge"] = merge if merge in ("user", "agent") else "user"
+    if merge not in (None, "") and merge not in ("user", "agent"):
+        out["merge_note"] = f"pr.merge: {setting_text(merge)} is not user or agent; treated as user"
+    method = pr.get("merge_method")
+    method = "merge" if method is None else method
+    if method not in ("merge", "squash", "rebase"):
+        raise Stop("bad_setting", f"pr.merge_method: {setting_text(method)} must be merge, squash or rebase", code=2)
+    out["merge_method"] = method
+    delete = pr.get("delete_branch")
+    delete = True if delete is None else delete
+    if not isinstance(delete, bool):
+        raise Stop("bad_setting", f"pr.delete_branch: {setting_text(delete)} must be true or false", code=2)
+    out["delete_branch"] = delete
     return out
 
 

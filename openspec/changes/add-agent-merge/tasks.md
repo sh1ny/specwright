@@ -8,11 +8,11 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 |---|---|---|---|---|
 | pr-merge → Merging is opt-in | Default project never merges | evals/git-workflow/evals.json (graded) + evals/pr-pair/test_skill_text.py | eval-watch-merge-default-user; test_watch_merges_only_with_pr_merge_agent | red |
 | pr-merge → Merging is opt-in | Opted-in project merges | evals/git-workflow/evals.json (graded) | eval-watch-agent-merge | red |
-| pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | test_context_merge_unknown_value_reported_as_user | red |
+| pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | test_context_merge_unknown_value_reported_as_user | green |
 | pr-merge → Merging is opt-in | Local finish ignores the setting | evals/git-workflow/test_instructions.py | test_finish_local_merge_ignores_pr_merge | green |
-| pr-merge → An agent merge needs a required reviewer | Required reviewer configured | evals/pr-pair/test_pr_pair.py | test_context_merge_ready_with_required_reviewer | red |
-| pr-merge → An agent merge needs a required reviewer | No required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_without_required_reviewer | red |
-| pr-merge → An agent merge needs a required reviewer | Store without a required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_store_reviewers_empty | red |
+| pr-merge → An agent merge needs a required reviewer | Required reviewer configured | evals/pr-pair/test_pr_pair.py | test_context_merge_ready_with_required_reviewer | green |
+| pr-merge → An agent merge needs a required reviewer | No required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_without_required_reviewer | green |
+| pr-merge → An agent merge needs a required reviewer | Store without a required reviewer | evals/pr-pair/test_pr_pair.py | test_context_merge_blocked_store_reviewers_empty | green |
 | pr-merge → Agent mode archives before merging without asking | Ready change, not archived | evals/pr-pair/test_skill_text.py | test_agent_mode_archives_without_asking | red |
 | pr-merge → Agent mode archives before merging without asking | Archive fails | evals/pr-pair/test_skill_text.py | test_agent_mode_archive_failure_stops_no_merge | red |
 | pr-merge → Only the ready head is merged | Merge with the configured method | evals/pr-pair/test_pr_pair.py | test_merge_sends_method_and_head_sha_fenced | red |
@@ -47,7 +47,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 ## 2. Settings in `pr-pair.sh context`
 
 - [x] 2.1 Write the failing `test_pr_pair.py` tests for the settings rows. `context` reports `merge` (`user` | `agent`; any other value → `user` with a `merge_note` naming the value), `merge_method` (any value other than merge/squash/rebase → `ok: false`, exit 2, error `bad_setting`), `delete_branch` (a non-boolean → exit 2 `bad_setting`), and `merge_ready` per repo: `false` with reason `no_required_reviewer` when that repo's reviewer set (`pr.reviewers`; store: `planning_store.reviewers`) has no `required` entry. Cover the rows Unrecognised value, Required reviewer configured, No required reviewer, and Store without a required reviewer. Verify that they fail for the right reason.
-- [ ] 2.2 Implement them in `contexts`/`repo_ctx` (`pr-pair.sh:500-534`) with the defaults `user`, `merge`, `true`. Watch reads them when it starts (review S3), so bad values stop it before any wait. Verify: the 2.1 tests and the whole `evals/pr-pair` suite pass; flip the rows green.
+- [x] 2.2 Implement them in `contexts`/`repo_ctx` (`pr-pair.sh:500-534`) with the defaults `user`, `merge`, `true`. Watch reads them when it starts (review S3), so bad values stop it before any wait. Verify: the 2.1 tests and the whole `evals/pr-pair` suite pass; flip the rows green.
 
 ## 3. `pr-pair.sh merge`
 
