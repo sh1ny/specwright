@@ -467,7 +467,8 @@ class AgentMerge(unittest.TestCase):
         self.assertTrue(cmd, "the merge command is not `[as] bash scripts/pr-pair.sh merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`")
         tail = m[cmd.end():]
         self.assertRegex(tail, r"(?is)`merged`[^;.]*Cleanup after merge", "`merged` does not lead to Cleanup after merge")
-        self.assertRegex(tail, r"(?is)`head_changed`[^;.]*watch(es|ing)? again[^;.]*repo-local", "`head_changed` does not go back to watching (repo-local)")
+        self.assertRegex(tail, r"(?is)`reason`[^;.]*`head_changed`[^;.]*watch(es|ing)? again[^;.]*repo-local",
+                         "`reason` `head_changed` (the script's status is `refused`) does not go back to watching (repo-local)")
         self.assertRegex(tail, r"(?is)any other refusal[^;.]*stop[^;.]*GitHub's message", "another refusal does not stop with GitHub's message")
         self.assertRegex(tail, r"(?is)exit 3[^;.]*unknown[^;.]*no deletion", "exit 3 is not unknown with no deletion")
 
