@@ -62,7 +62,7 @@ Script behaviour is tested against the fake `gh` (`evals/fakes/gh.py`) and real 
 
 ## 5. `specwright-pr` skill text: watch merge and cleanup
 
-- [ ] 5.1 Write the failing `evals/pr-pair/test_skill_text.py` tests:
+- [x] 5.1 Write the failing `evals/pr-pair/test_skill_text.py` tests:
   - watch step 3 merges only with `pr.merge: agent` (the `merge` from `context`), and only when `merge_ready` holds;
   - in agent mode, Archive before merge runs without the question, and an archive failure stops with no merge;
   - after a reviewer-less archive watch, the merge runs only when the ready head is the archive head; any other head re-runs `archive-only` or returns to watching with reviewers;
