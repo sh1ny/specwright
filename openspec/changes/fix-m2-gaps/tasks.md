@@ -55,7 +55,7 @@
 
 ## 5. Release 0.4.1 and integration
 
-- [ ] 5.1 Bump to 0.4.1: `VERSION`, the README badge, and `metadata.version` in every `skills/*/SKILL.md`. Verify with `grep -rn '0\.4\.0' VERSION README.md skills/*/SKILL.md` (no hits) and `openspec schema validate specwright`.
+- [x] 5.1 Bump to 0.4.1: `VERSION`, the README badge, and `metadata.version` in every `skills/*/SKILL.md`. Verify with `grep -rn '0\.4\.0' VERSION README.md skills/*/SKILL.md` (no hits) and `openspec schema validate specwright`.
 - [ ] 5.2 Run `python -m pytest evals/pr-pair evals/git-workflow evals/review-routes`; all green.
 - [ ] 5.3 Re-run the graded evals after the last `specwright-finish` edit (M2 lesson): `eval-finish-resume-merged-branch-gone`, `eval-finish-resume-squash-merged` and `eval-finish-resume-stale-main`, each graded with `evals/git-workflow/grade.py`; record pass/fail per assertion in the PR description.
 
