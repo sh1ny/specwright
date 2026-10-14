@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A merged PR whose branch is gone is done after the backstop
-In `finish: pr`, when a repo's change PR is MERGED and its change branch no longer exists locally, finish SHALL refresh that repo's `main` (only with a clean tree). In the planning repo (the store when store-backed) it SHALL read the archive fact again on the refreshed `main`; an archive seen only on a stale `main` SHALL NOT count. A store-backed code repo needs no archive. Finish SHALL then run only the issues-left-open backstop for that PR, and SHALL delete no branch in that repo.
+In `finish: pr`, when a repo's change PR is MERGED and its change branch is gone locally, finish SHALL refresh that repo's `main` (only with a clean tree) and SHALL delete no branch there. The planning repo SHALL count only an archive on the refreshed `main`; with none, finish SHALL run no backstop and SHALL NOT count it done. Otherwise, and for a store-backed code repo, finish SHALL run only the issues-left-open backstop for that PR; the repo is done when it succeeds.
 
 #### Scenario: Cleanup already ran
 - **WHEN** a repo-local `finish: pr` change's PR merged with a merge commit, cleanup already deleted the local branch, and finish runs again
