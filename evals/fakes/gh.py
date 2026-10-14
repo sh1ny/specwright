@@ -13,6 +13,16 @@ GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN as the call saw them (null when 
 changes that active user, so a test can switch accounts between calls like another process would.
 A call (other than --help) whose host is not github.com (--hostname, else a non-empty GH_HOST) fails: the fake knows only github.com.
 
+Merge and refs (add-agent-merge). Per repo: "branches": {"feat/x": "<sha>"} (branch heads), "protected_branches": [names]
+(DELETE refused, 422), "allowed_methods": ["merge","squash","rebase"] (default all), "merge_queue": true (merge refused, 405).
+  PUT repos/<o>/<n>/pulls/<pr>/merge (-f merge_method=, -f sha=): merges an open PR whose pull["head"]["sha"] equals sha:
+    200 {sha, merged, message}, sets merged_at, merge_commit_sha, state closed. 409 head mismatch; 405 disallowed method,
+    merge queue or an already merged/closed PR. Every call is in $FAKE_GH_LOG (argv has the method and sha).
+  GET repos/<o>/<n>/git/ref/heads/<b> -> {ref, object:{sha}} or 404; DELETE repos/<o>/<n>/git/refs/heads/<b> -> 204 (no body)
+    or 422 (missing, or protected). Branch names may contain "/".
+  REST errors exit 1 with `gh: <message> (HTTP <code>)` on stderr and {"message","status"} on stdout. A "fail" entry with
+  no HTTP code in its stderr (e.g. a connection error) models a failure without a status; "once": true fails only the next match.
+
 Optional per-repo "readers": [logins] - only they may call `api repos/<o>/<n>/...` (a private repo); others get 404.
 Optional per-repo "activity": [{"ref": "refs/heads/b", "after": "<sha>", "timestamp": "..."}]
 backs `api repos/<o>/<n>/activity?ref=...` (the push-time lookup).
@@ -111,9 +121,15 @@ ENV_LOGGED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_ENTERPRISE_TOKEN", "GIT
 
 
 class Fail(Exception):
-    def __init__(self, msg, code=1):
+    def __init__(self, msg, code=1, body=None):
         super().__init__(msg)
         self.code = code
+        self.body = body
+
+
+def http_fail(status, message):
+    """A REST error as real gh reports it: exit 1, `gh: <message> (HTTP <status>)` on stderr, GitHub's JSON body on stdout."""
+    return Fail(f"gh: {message} (HTTP {status})", 1, {"message": message, "status": str(status)})
 
 
 def load():
@@ -141,9 +157,12 @@ def log(argv):
 
 def inject_failure(st, argv):
     line = " ".join(argv)
-    for f in st.get("fail", []):
+    for f in list(st.get("fail", [])):
         f = {"match": f} if isinstance(f, str) else f
         if re.search(f["match"], line):
+            if f.get("once"):  # fail only the next matching call
+                st["fail"] = [x for x in st["fail"] if x != f]
+                save(st)
             raise Fail(f.get("stderr", "fake gh: injected failure"), f.get("exit", 1))
 
 
@@ -738,6 +757,39 @@ def cmd_api(st, args):
     m = re.fullmatch(r"pulls/(\d+)", rest)
     if m and method == "GET":
         return emit(find_pull(slug, repo, m.group(1)), expr)
+    m = re.fullmatch(r"pulls/(\d+)/merge", rest)
+    if m and method == "PUT":
+        pull = next((p for p in repo.get("pulls", []) if p["number"] == int(m.group(1))), None)
+        if pull is None:
+            raise http_fail(404, "Not Found")
+        meth = fields.get("merge_method", "merge")
+        if pull.get("merged_at") or pull["state"] != "open":
+            raise http_fail(405, "Pull Request is not mergeable")
+        if repo.get("merge_queue"):
+            raise http_fail(405, "Changes must be made through the merge queue")
+        if meth not in repo.get("allowed_methods", ["merge", "squash", "rebase"]):
+            raise http_fail(405, f"{meth.capitalize()} merges are not allowed on this repository.")
+        if fields.get("sha") and fields["sha"] != pull.get("head", {}).get("sha"):
+            raise http_fail(409, "Head branch was modified. Review and try the merge again.")
+        st["next_id"] = st.get("next_id", 1000) + 1
+        sha = f"{st['next_id']:040x}"
+        pull.update({"state": "closed", "merged_at": now(st), "merge_commit_sha": sha})
+        return emit({"sha": sha, "merged": True, "message": "Pull Request successfully merged"}, expr)
+    m = re.fullmatch(r"git/ref/heads/(.+)", rest)
+    if m and method == "GET":
+        b = m.group(1)
+        if b not in repo.get("branches", {}):
+            raise http_fail(404, "Not Found")
+        return emit({"ref": f"refs/heads/{b}", "object": {"type": "commit", "sha": repo["branches"][b]}}, expr)
+    m = re.fullmatch(r"git/refs/heads/(.+)", rest)
+    if m and method == "DELETE":
+        b = m.group(1)
+        if b not in repo.get("branches", {}):
+            raise http_fail(422, "Reference does not exist")
+        if b in repo.get("protected_branches", []):
+            raise http_fail(422, f"Cannot delete {b}: branch is protected")
+        del repo["branches"][b]
+        return
     m = re.fullmatch(r"pulls/(\d+)/comments/(\d+)/replies", rest)
     if m and method == "POST":
         viewer = whoami(st)
@@ -866,6 +918,8 @@ def main(argv):
             raise Fail(f"fake gh: unsupported command: {' '.join(argv)}", 2)
         cmds[argv[0]](st, argv[1:])
     except Fail as e:
+        if e.body is not None:
+            print(json.dumps(e.body))
         print(str(e), file=sys.stderr)
         return e.code
     save(st)

@@ -202,6 +202,105 @@ class LogAndFailures(FakeGhCase):
         self.assertIn("unsupported", r.stderr)
 
 
+class MergeAndRefs(FakeGhCase):
+    SHA = "a" * 40
+
+    def setUp(self):
+        super().setUp()
+        p1, p2 = self.pull(1, "feat/x"), self.pull(2, "feat/y")
+        p1["head"]["sha"] = self.SHA
+        p2["base"] = {"ref": "feat/x"}
+        self.repo({"pulls": [p1, p2], "branches": {"feat/x": self.SHA, "main": "b" * 40}})
+
+    def repo(self, repo):
+        st = self.st()
+        st["repos"] = {"o/n": repo}
+        self.seed(st)
+
+    def edit(self, **kw):
+        st = self.st()
+        st["repos"]["o/n"].update(kw)
+        self.seed(st)
+
+    def merge(self, method="merge", sha=None, pr=1):
+        return self.gh("api", "-X", "PUT", f"repos/o/n/pulls/{pr}/merge", "-f", f"merge_method={method}",
+                       "-f", f"sha={sha or self.SHA}", check=False)
+
+    def puts(self):
+        return [json.loads(l)["argv"] for l in self.logf.read_text(encoding="utf-8").splitlines() if "PUT" in l]
+
+    def test_merge_succeeds(self):
+        r = self.merge("squash")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body = json.loads(r.stdout)
+        self.assertEqual((body["merged"], body["message"]), (True, "Pull Request successfully merged"))
+        p = json.loads(self.gh("api", "repos/o/n/pulls/1").stdout)
+        self.assertEqual((p["state"], p["merge_commit_sha"] == body["sha"], bool(p["merged_at"])), ("closed", True, True))
+        self.assertEqual(len(self.puts()), 1)
+        self.assertIn("merge_method=squash", self.puts()[0])
+        self.assertIn(f"sha={self.SHA}", self.puts()[0])
+
+    def test_head_mismatch_409(self):
+        r = self.merge(sha="c" * 40)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("(HTTP 409)", r.stderr)
+        self.assertIn("Head branch was modified", json.loads(r.stdout)["message"])
+        self.assertEqual(json.loads(self.gh("api", "repos/o/n/pulls/1").stdout)["state"], "open")
+
+    def test_disallowed_method_and_merge_queue_405(self):
+        self.edit(allowed_methods=["squash"])
+        r = self.merge("rebase")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("(HTTP 405)", r.stderr)
+        self.assertEqual(self.merge("squash").returncode, 0)
+        self.repo({"pulls": [{**self.pull(1, "feat/x"), "head": {"ref": "feat/x", "label": "o:feat/x", "sha": self.SHA}}],
+                   "merge_queue": True})
+        r = self.merge()
+        self.assertIn("(HTTP 405)", r.stderr)
+
+    def test_already_merged_405(self):
+        self.assertEqual(self.merge().returncode, 0)
+        r = self.merge()
+        self.assertIn("(HTTP 405)", r.stderr)
+        self.assertEqual(json.loads(r.stdout)["message"], "Pull Request is not mergeable")
+
+    def test_injected_failure_has_no_status_and_once(self):
+        st = self.st()
+        st["fail"] = [{"match": "-X PUT", "stderr": "error connecting to api.github.com", "once": True}]
+        self.seed(st)
+        r = self.merge()
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("HTTP", r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(self.merge().returncode, 0)  # only the next matching call failed
+        self.assertEqual(len(self.puts()), 2)
+
+    def test_ref_read_and_delete(self):
+        r = self.gh("api", "repos/o/n/git/ref/heads/feat/x")
+        self.assertEqual(json.loads(r.stdout), {"ref": "refs/heads/feat/x", "object": {"type": "commit", "sha": self.SHA}})
+        miss = self.gh("api", "repos/o/n/git/ref/heads/nope", check=False)
+        self.assertEqual(miss.returncode, 1)
+        self.assertIn("(HTTP 404)", miss.stderr)
+        d = self.gh("api", "-X", "DELETE", "repos/o/n/git/refs/heads/feat/x")
+        self.assertEqual(d.stdout, "")
+        self.assertNotIn("feat/x", self.st()["repos"]["o/n"]["branches"])
+        again = self.gh("api", "-X", "DELETE", "repos/o/n/git/refs/heads/feat/x", check=False)
+        self.assertIn("Reference does not exist", again.stderr)
+        self.assertIn("(HTTP 422)", again.stderr)
+
+    def test_protected_branch_refuses_delete(self):
+        self.edit(protected_branches=["feat/x"])
+        r = self.gh("api", "-X", "DELETE", "repos/o/n/git/refs/heads/feat/x", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("(HTTP 422)", r.stderr)
+        self.assertIn("feat/x", self.st()["repos"]["o/n"]["branches"])
+
+    def test_pulls_filter_by_base(self):
+        nums = lambda q: [p["number"] for p in json.loads(self.gh("api", f"repos/o/n/pulls?{q}").stdout)]
+        self.assertEqual(nums("state=open&base=feat/x&per_page=100"), [2])
+        self.assertEqual(nums("state=open&base=main"), [1])
+
+
 class ReactionsAndGraphql(FakeGhCase):
     GQL_REACTIONS = ("query($id: ID!, $cursor: String) { node(id: $id) { ... on Reactable { "
                      "reactions(first: 100, content: %s, after: $cursor) { nodes { user { login } } "

@@ -277,6 +277,9 @@ def check(name, repo, run):
     elif name in ("eval-finish-resume-squash-merged", "eval-finish-resume-merged-branch-gone"):
         R.extend(check_finish_resume_merged(name, repo, branch, branches, status, rep))
 
+    elif name in ("eval-watch-agent-merge", "eval-watch-merge-default-user"):
+        R.extend(check_watch_merge(name, repo, branch, branches, status, rep))
+
     elif name in ("eval-roadmap-next-gap", "eval-roadmap-next-gap-dirty-main"):
         fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
         rm = "openspec/roadmap.md"
@@ -408,6 +411,100 @@ def changing_gh(calls):
             if (method and method != "GET") or (method is None and body):
                 out.append(joined)
     return out
+
+
+def rest_method(argv):
+    """The HTTP method of a `gh api` call: its own -X/--method token (-X PUT, --method PUT, -XPUT, --method=PUT), else None."""
+    method = None
+    for i, x in enumerate(argv):
+        if x in ("-X", "--method") and i + 1 < len(argv):
+            method = argv[i + 1].upper()
+        elif x.startswith("--method="):
+            method = x.split("=", 1)[1].upper()
+        elif re.fullmatch(r"-X\w+", x):
+            method = x[2:].upper()
+    return method
+
+
+def merge_puts(calls, repo_slug="acme/greeter", pr=7):
+    """The merge requests (PUT repos/<slug>/pulls/<pr>/merge) among the fake gh's calls, as (method, sha) pairs from their fields."""
+    out = []
+    for c in calls:
+        a = c.get("argv", [])
+        if a[:1] == ["api"] and rest_method(a) == "PUT" and any(x.strip("/").endswith(f"repos/{repo_slug}/pulls/{pr}/merge") for x in a):
+            j = " ".join(a)
+            m, h = re.search(r"merge_method=(\w+)", j), re.search(r"\bsha=([0-9a-fA-F]+)", j)
+            out.append((m.group(1) if m else None, h.group(1) if h else None))
+    return out
+
+
+def ref_deletes(calls, repo_slug="acme/greeter"):
+    """The remote branch deletions (DELETE repos/<slug>/git/refs/heads/<branch>) among the fake gh's calls, as the branch names."""
+    out = []
+    for c in calls:
+        a = c.get("argv", [])
+        if a[:1] == ["api"] and rest_method(a) == "DELETE":
+            for x in a:
+                m = re.fullmatch(rf"/?repos/{re.escape(repo_slug)}/git/refs/heads/(.+)", x)
+                if m:
+                    out.append(m.group(1))
+    return out
+
+
+def check_watch_merge(name, repo, branch, branches, status, rep):
+    """watch on a ready PR #7 (finish: pr, required reviewer reported, change archived on feat/add-greeting). eval-watch-agent-merge
+    (pr.merge agent, squash): one merge request with squash and the ready head, PR merged, back on main holding the squash commit, the
+    local branch and the remote ref deleted, next/close offered. eval-watch-merge-default-user (no pr.merge): nothing merged or
+    deleted, still on the branch, the report says ready. .git/fixture-state.json has main's tip, the branch tip and the squash commit;
+    gh-state.json is the fake gh's state after the run."""
+    fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+    st = json.loads((repo / "gh-state.json").read_text(encoding="utf-8"))
+    gh_repo = st["repos"]["acme/greeter"]
+    pull = next(p for p in gh_repo["pulls"] if p["number"] == 7)
+    calls = gh_calls(repo)
+    puts, dels = merge_puts(calls), ref_deletes(calls)
+    R = []
+    if name == "eval-watch-agent-merge":
+        R.append(("Exactly one merge request was sent, with squash and the ready head",
+                  len(puts) == 1 and puts[0][0] == "squash" and bool(puts[0][1]) and fx["tip"].startswith(puts[0][1]),
+                  f"merge requests={puts} ready head={fx['tip']}"))
+        R.append(("PR #7 is MERGED in the fake gh", pull.get("state") == "closed" and bool(pull.get("merged_at")),
+                  f"state={pull.get('state')} merged_at={pull.get('merged_at')}"))
+        R.append(("The repo is on main and main holds the merge (the squash commit Add greeting (#7)), with a clean tree",
+                  branch == "main" and git(repo, "rev-parse", "main") == fx["squash"] and not status,
+                  f"branch={branch} main={git(repo, 'rev-parse', 'main')} squash={fx['squash']} status={status}"))
+        R.append(("The local branch feat/add-greeting was deleted", "feat/add-greeting" not in branches, f"branches={branches}"))
+        R.append(("The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
+                  dels == ["feat/add-greeting"] and "feat/add-greeting" not in gh_repo.get("branches", {}),
+                  f"ref deletions={dels} remote branches={sorted(gh_repo.get('branches', {}))}"))
+        kinds = []
+        for c in calls:
+            a = c.get("argv", [])
+            if a[:1] == ["api"] and rest_method(a) == "PUT" and any(x.endswith("pulls/7/merge") for x in a):
+                kinds.append("merge")
+            elif a[:1] == ["api"] and rest_method(a) == "DELETE" and any("git/refs/heads/" in x for x in a):
+                kinds.append("delete")
+        R.append(("The remote branch was deleted after the merge, not before", kinds[:1] == ["merge"] and kinds.count("delete") == 1, f"order={kinds}"))
+        other = [c for c in changing_gh(calls) if not re.search(r"pulls/7/merge|git/refs/heads/feat/add-greeting", c)]
+        R.append(("No other gh call created or changed anything (no gh pr merge, auto-merge or comment)", not other, f"other changing gh calls={other}"))
+        hit = re.search(r"roadmap", rep) and re.search(r"\b(next|close)\b", rep)
+        R.append(("The report offers the next step: specwright-roadmap next or close", bool(hit), f"excerpt={rep[-240:]!r}"))
+    else:
+        R.append(("No merge request and no ref DELETE reached the gh log",
+                  not puts and not dels and not [c for c in calls if "pulls/7/merge" in " ".join(c.get("argv", []))],
+                  f"merge requests={puts} ref deletions={dels}"))
+        R.append(("Still on feat/add-greeting with main unchanged, the branch present and the tree clean",
+                  branch == "feat/add-greeting" and git(repo, "rev-parse", "main") == fx["main"] and "feat/add-greeting" in branches and not status,
+                  f"branch={branch} main={git(repo, 'rev-parse', 'main')} status={status}"))
+        R.append(("PR #7 is still open and the remote branch is still there",
+                  pull.get("state") == "open" and not pull.get("merged_at") and "feat/add-greeting" in gh_repo.get("branches", {}),
+                  f"state={pull.get('state')} remote branches={sorted(gh_repo.get('branches', {}))}"))
+        ch = changing_gh(calls)
+        R.append(("No gh call created or changed a pull request, issue or comment", not ch, f"changing gh calls={ch}"))
+        R.append(("The report says the PR is ready", bool(re.search(r"\bready\b", rep)) and not re.search(r"\bnot (yet )?ready\b", rep),
+                  f"excerpt={rep[-240:]!r}"))
+    R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+    return R
 
 
 def check_finish_resume_merged(name, repo, branch, branches, status, rep):

@@ -375,6 +375,178 @@ class RunLogin(unittest.TestCase):
         self.assertRegex(local, r"(?i)delete no branch", "a failed pull may still delete a branch")
 
 
+class AgentMerge(unittest.TestCase):
+    """pr.merge: agent lets watch merge a ready PR at its ready head and clean up (add-agent-merge, ADR 0009)."""
+
+    def watch(self):
+        return SECTIONS["watch"][1]
+
+    def step3(self):
+        w = self.watch()
+        return w[w.index("\n3. Ready, per PR"):w.index("\n4. Stop and report")]
+
+    def bullet(self, start):
+        step = self.step3()
+        at = step.find("\n   - " + start)
+        self.assertNotEqual(at, -1, f"watch step 3 has no '- {start}' bullet")
+        end = step.find("\n   - ", at + 1)
+        return step[at:end if end != -1 else len(step)]
+
+    def merge(self):
+        return self.bullet("**Merge:**")
+
+    def archive(self):
+        return self.bullet("**Archive before merge:**")
+
+    def cleanup(self):
+        return SECTIONS["cleanup after merge"][1]
+
+    def never(self):
+        return SECTIONS["never"][1]
+
+    def remote_bullet(self):
+        c = self.cleanup()
+        at = c.find("delete-remote")
+        self.assertNotEqual(at, -1, "Cleanup after merge never runs `pr-pair.sh delete-remote`")
+        start = c.rfind("\n- ", 0, at) + 1
+        end = c.find("\n- ", at)
+        return c[start:end if end != -1 else len(c)]
+
+    def test_settings_block_lists_the_merge_keys(self):
+        block = TEXT[TEXT.index("```yaml"):TEXT.index("```", TEXT.index("```yaml") + 8)]
+        for key in ("merge:", "merge_method:", "delete_branch:"):
+            self.assertIn(key, block, f"the settings block has no `{key}`")
+        self.assertRegex(block, r"merge:\s*user", "pr.merge does not default to user in the settings block")
+
+    def test_watch_merges_only_with_pr_merge_agent(self):
+        w = self.watch()
+        ctx = positions(sub("context"), w)
+        self.assertTrue(ctx, "watch never reads `pr-pair.sh context`")
+        self.assertLess(ctx[0], w.index("--wait"), "watch reads `context` after it starts waiting")
+        start = w[:w.index("--wait")]
+        for token in ("merge_method", "delete_branch", "bad_setting", "merge_note"):
+            self.assertIn(token, start, f"the start of watch never reads `{token}`")
+        self.assertRegex(start, r"(?is)bad_setting[^.]*exit 2|exit 2[^.]*bad_setting", "`bad_setting` is not tied to exit 2")
+        self.assertRegex(start, r"(?is)bad_setting.{0,200}before any wait", "`bad_setting` does not stop before any wait")
+        self.assertRegex(start, r"(?is)merge_note.{0,100}report|report.{0,100}merge_note", "a `merge_note` is not reported")
+        m = self.merge()
+        self.assertRegex(m, r"`merge` is `agent`", "the merge bullet does not require `merge` to be `agent`")
+        self.assertRegex(m, r"`finish` is `pr`", "the merge bullet does not require `finish: pr`")
+        self.assertRegex(m, r"merge_ready", "the merge bullet does not read `merge_ready`")
+        self.assertRegex(m, r"agent merge needs a required reviewer in pr\.reviewers", "a missing required reviewer is not reported")
+        self.assertLess(m.index("merge_ready"), m.index("pr-pair.sh merge"), "the merge runs before `merge_ready` is checked")
+        step = self.step3()
+        self.assertLess(step.index("**Merge:**"), step.index("\n   - Otherwise"), "the user-mode fallback comes before the merge rule")
+        other = step[step.index("\n   - Otherwise"):]
+        self.assertRegex(other, r"report ready and stop; the user merges", "user mode lost 'report ready and stop; the user merges'")
+
+    def test_agent_mode_archives_without_asking(self):
+        a = self.archive()
+        self.assertRegex(a, r"(?is)`merge` is `agent`.{0,200}without asking", "agent mode does not archive without asking")
+        self.assertRegex(a, r"Ready\. Archive <change-name> on this branch now\?", "user mode lost the archive question")
+        self.assertRegex(a, r"(?is)`merge` is `user`.{0,200}ask", "user mode no longer asks before archiving")
+
+    def test_agent_mode_archive_failure_stops_no_merge(self):
+        a = self.archive()
+        self.assertRegex(a, r"(?is)\bfails?\b[^.]*\bstop\b[^.]*\bno merge", "an archive failure does not stop with no merge request")
+        self.assertRegex(a, r"(?is)archive workflow[^.]*\bor its push\b[^.]*\bfails?\b", "the failure covers neither the archive workflow nor its push")
+        self.assertRegex(a, r"(?i)report[^.]*error", "the archive error is not reported")
+        self.assertIn("archive head needs a fresh approval", a)
+        self.assertRegex(a, r"(?is)agent mode[^.]*question", "the fresh-approval question is not kept in agent mode")
+
+    def test_reviewerless_archive_head_merged_only_if_unchanged(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)only when the ready head is the archive head", "a reviewer-less merge is not limited to the archive head")
+        self.assertRegex(m, r"(?is)archive-only --base <ready head[^`]*> --head <current head>", "another head is not sent back through `archive-only`")
+        self.assertRegex(m, r"(?is)archive_only: true", "the re-run's `archive_only` result is not read")
+        self.assertRegex(m, r"(?is)returns? to watching with (the )?reviewers", "another head does not go back to watching with reviewers")
+
+    def test_merge_command_and_outcomes(self):
+        m = self.merge()
+        cmd = re.search(r"`\[as\] bash scripts/pr-pair\.sh merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`", m)
+        self.assertTrue(cmd, "the merge command is not `[as] bash scripts/pr-pair.sh merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`")
+        tail = m[cmd.end():]
+        self.assertRegex(tail, r"(?is)`merged`[^;.]*Cleanup after merge", "`merged` does not lead to Cleanup after merge")
+        self.assertRegex(tail, r"(?is)`reason`[^;.]*`head_changed`[^;.]*watch(es|ing)? again[^;.]*repo-local",
+                         "`reason` `head_changed` (the script's status is `refused`) does not go back to watching (repo-local)")
+        self.assertRegex(tail, r"(?is)any other refusal[^;.]*stop[^;.]*GitHub's message", "another refusal does not stop with GitHub's message")
+        self.assertRegex(tail, r"(?is)exit 3[^;.]*unknown[^;.]*no deletion", "exit 3 is not unknown with no deletion")
+
+    def test_archived_means_archive_dir_on_the_branch(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)archived[^.]*`<P>/changes/archive/<archived-name>/`[^.]*branch",
+                         "the merge step does not define archived as the archive directory on the branch")
+        self.assertRegex(m, r"(?is)`<P>/changes/<change-name>/`[^.]*(gone|no longer|does not exist)",
+                         "the merge step does not require the change directory to be gone")
+
+    def test_merge_ready_checked_for_every_expected_pr_first(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)`merge_ready`[^.]*every expected PR[^.]*before (the first|any) merge request",
+                         "`merge_ready` is not checked for every expected PR before the first merge request")
+
+    def test_store_pair_merges_store_then_code_on_pair_ready(self):
+        m = self.merge()
+        at = m.find("Store-backed")
+        self.assertNotEqual(at, -1, "the merge bullet has no store-backed rule")
+        rule = m[at:]
+        self.assertRegex(rule, r"`pair-state` `ready`", "a store-backed merge is not tied to `pair-state` `ready`")
+        self.assertRegex(rule, r"(?is)store PR first, then the code PR", "the pair does not merge store first, then code")
+        self.assertRegex(rule, r"(?is)its own login and ready head", "each merge does not use its own repo's login and ready head")
+
+    def test_store_split_reports_planning_merged_code_pending(self):
+        m = self.merge()
+        rule = m[m.find("Store-backed"):]
+        self.assertRegex(rule, r"(?is)non-`merged` code result[^.]*`planning merged, code pending`", "a non-`merged` code result does not report `planning merged, code pending`")
+        self.assertRegex(rule, r"(?is)cleans? up the store only", "the split does not clean up the store only")
+        self.assertRegex(rule, r"(?is)GitHub's message", "the split report omits GitHub's message")
+        self.assertRegex(rule, r"(?is)user merges the code PR", "the split does not hand the code PR to the user")
+        self.assertRegex(self.cleanup(), r"(?is)store only", "Cleanup after merge has no store-only path for a split")
+
+    def test_agent_merge_branch_kinds(self):
+        m = self.merge()
+        for kind in ("`<prefix>/<change-name>`", "`docs/project-baseline`", "`docs/close-*`"):
+            self.assertIn(kind, m, f"the merge bullet does not name {kind}")
+        self.assertRegex(m, r"(?is)any other branch[^.]*report[^.]*ready", "other branches are not reported ready and left unmerged")
+        self.assertRegex(m, r"(?is)nothing to archive", "a roadmap branch is not merged with nothing to archive first")
+
+    def test_agent_cleanup_pull_failure_deletes_nothing(self):
+        b = self.remote_bullet()
+        self.assertRegex(b, r"(?is)after the pull succeeded", "remote deletion is not tied to a successful pull")
+        self.assertRegex(b, r"(?is)failed pull deletes nothing", "a failed pull may still delete a branch")
+        c = self.cleanup()
+        self.assertLess(c.index("pull --ff-only"), c.index("delete-remote"), "delete-remote comes before the pull")
+
+    def test_delete_remote_only_in_agent_mode(self):
+        b = self.remote_bullet()
+        self.assertRegex(b, r"`merge` is `agent`", "remote deletion is not tied to `merge: agent`")
+        self.assertRegex(b, r"`delete_branch`", "remote deletion ignores `delete_branch`")
+        self.assertRegex(b, r"(?is)\bwhoever merged", "remote deletion is limited to the agent's own merge")
+        self.assertRegex(b, r"\[as\] bash scripts/pr-pair\.sh delete-remote --repo <owner>/<name> --branch <branch> --head <merged head", "the delete-remote call is wrong or not fenced")
+        self.assertRegex(b, r"(?is)`merge` is `user`[^.]*never delete", "user mode may delete a remote branch")
+        for status in ("deleted", "gone", "moved", "based_on", "kept"):
+            self.assertIn(f"`{status}`", b, f"delete-remote's `{status}` is not handled")
+        self.assertRegex(b, r"(?is)exit 3[^.;]*keep", "an unknown remote branch state may be deleted")
+        for name, (_, body) in SECTIONS.items():
+            if name != "cleanup after merge":
+                self.assertFalse(positions(sub("delete-remote"), body), f"delete-remote is also run in '{name}'")
+
+    def test_cleanup_offers_one_roadmap_mode_after_an_agent_merge(self):
+        self.assertRegex(self.cleanup(), r"(?is)specwright-roadmap[^.]*\*\*close\*\*[^.]*\*\*next\*\*", "no roadmap close/next offer after an agent merge")
+
+    def test_never_admin_auto_queue_or_other_method(self):
+        never = self.never()
+        self.assertRegex(never, r"(?i)\bmerge\b", "the Never list lost 'merge'")
+        self.assertRegex(never, r"(?is)except[^.]*agent merge", "the merge ban has no exception for the agent merge path")
+        for term, pat in (("admin rights", r"admin rights"), ("auto-merge", r"auto-merge"), ("a merge queue", r"merge queue"),
+                          ("another method", r"another method"), ("review dismissal", r"dismiss")):
+            self.assertRegex(never, "(?i)" + pat, f"the Never list does not name {term}")
+
+    def test_merge_report_repeats_share_by_hand_reminder(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)merge report[^.]*share[^.]*by hand", "the merge report omits the share-by-hand reminder")
+        self.assertRegex(m, r"(?is)only the code PR is expected", "the reminder is not tied to a store shared by hand")
+
+
 DESCRIPTION = SKILL.parent / "references" / "description.md"
 
 

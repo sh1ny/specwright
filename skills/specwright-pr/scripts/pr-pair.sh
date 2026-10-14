@@ -6,7 +6,16 @@
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
 #   context --code <dir> [--store <dir>]
-#                                     per-repo login, main, validate, reviewers (specwright.yaml + planning_store:)
+#                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
+#                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
+#   merge --repo o/n --pr N --method merge|squash|rebase --head sha
+#                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
+#                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
+#                                     cannot be read or the PUT got a 5xx, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
+#   delete-remote --repo o/n --branch b --head sha
+#                                     delete the remote branch only when it is still at the full 40-hex merged head and no open PR is
+#                                     based on it: deleted | gone (404, or 422 gone meanwhile) | moved (sha) | based_on (prs) |
+#                                     kept (DELETE refused, GitHub's message; exit 1); a failed read is unknown (exit 3), nothing deleted
 #   discover --repo o/n --branch b [--base main] [--state all|open|closed|merged[,..]]
 #                                     every PR from o/n's own branch b, paginated; failure = unknown (exit 3)
 #   expected --code <dir> --store <dir> --branch b
@@ -83,6 +92,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 ENV = {k: v for k, v in os.environ.items() if k != "GH_REPO"}
 BASH = os.environ.get("PR_PAIR_BASH") or shutil.which("bash")
@@ -389,6 +399,13 @@ def block_scalar(raw, start, indent, style, chomp):
     return text + "\n" + ("\n" * trailing if chomp == "+" else ""), end
 
 
+class Map(dict):
+    """A YAML mapping that also keeps each plain scalar's text as written (`yes` stays `yes` in messages)."""
+    def __init__(self):
+        super().__init__()
+        self.text = {}
+
+
 def parse_yaml(text):
     raw = text.splitlines()
     lines = []
@@ -398,7 +415,7 @@ def parse_yaml(text):
             lines.append((len(s) - len(s.lstrip(" ")), s.strip(), n))
 
     def block(i, indent):
-        d = {}
+        d = Map()
         while i < len(lines) and lines[i][0] == indent:
             body = lines[i][1]
             m = re.match(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$", body)
@@ -420,6 +437,7 @@ def parse_yaml(text):
                     d[key] = None
             else:
                 d[key] = scalar(val)
+                d.text[key] = val.strip()
         return d, i
 
     return block(0, lines[0][0])[0] if lines else {}
@@ -521,7 +539,18 @@ def repo_ctx(s, d, which):
         c["validate"] = str(pr.get("validate") or "")
         c["reviewers"] = reviewers_of(pr.get("reviewers"))
         c["requests_disabled"] = False
+    ready = any(r["role"] == "required" for r in c["reviewers"].values())
+    c["merge_ready"], c["merge_reason"] = ready, None if ready else "no_required_reviewer"
     return c
+
+
+def setting_text(m, key):
+    """The setting as the user wrote it, for messages; the parsed value when the text is not kept."""
+    text = m.text.get(key) if isinstance(m, Map) else None
+    if text is not None:
+        return text
+    v = m.get(key)
+    return str(v).lower() if isinstance(v, bool) else str(v)
 
 
 def contexts(code, store):
@@ -531,6 +560,23 @@ def contexts(code, store):
            "finish": str(s.get("finish") or ""), "max_fix_rounds": int(pr.get("max_fix_rounds") if isinstance(pr.get("max_fix_rounds"), int) else 2),
            "after_limit": str(pr.get("after_limit") or "ask"), "react": bool(pr.get("react")),
            "poll_interval": duration(pr.get("poll_interval"), 300)}
+    merge = pr.get("merge")
+    out["merge"] = merge if merge in ("user", "agent") else "user"
+    if merge not in (None, "") and merge not in ("user", "agent"):
+        out["merge_note"] = f"pr.merge: {setting_text(pr, 'merge')} is not user or agent; treated as user"
+    out["merge_method"], out["delete_branch"] = "merge", True
+    if out["merge"] != "agent":  # only the agent merge reads them: user mode keeps today's behaviour
+        return out
+    method = pr.get("merge_method")
+    method = "merge" if method is None else method
+    if method not in ("merge", "squash", "rebase"):
+        raise Stop("bad_setting", f"pr.merge_method: {setting_text(pr, 'merge_method')} must be merge, squash or rebase", code=2)
+    out["merge_method"] = method
+    delete = pr.get("delete_branch")
+    delete = True if delete is None else delete
+    if not isinstance(delete, bool):
+        raise Stop("bad_setting", f"pr.delete_branch: {setting_text(pr, 'delete_branch')} must be true or false", code=2)
+    out["delete_branch"] = delete
     return out
 
 
@@ -2024,10 +2070,96 @@ def cmd_cleanup(argv):
     return {"ok": True, "branch": branch, "set": members, "code": out["code"], "store": out["store"], "keep": keep}
 
 
+def cmd_merge(argv):
+    """Merge PR n at the ready head with the configured method, once, and decide from a read-back (never from the PUT alone)."""
+    a, _ = parse_args(argv, {"--repo": "repo", "--pr": "pr", "--method": "method", "--head": "head"})
+    need(a, "repo", "pr", "method", "head")
+    repo, n, method, head = a["repo"], a["pr"], a["method"], a["head"]
+    if not re.fullmatch(r"[1-9][0-9]*", n):
+        usage("--pr must be a positive integer")
+    if method not in ("merge", "squash", "rebase"):
+        usage(f"--method must be merge, squash or rebase, got {method!r}")
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", head):
+        usage(f"--head must be a commit id of 7 to 40 hex digits, got {head!r}")
+    n = int(n)
+    r = gh("api", "-X", "PUT", f"repos/{repo}/pulls/{n}/merge", "-f", f"merge_method={method}", "-f", f"sha={head}")
+    m = re.search(r"\(HTTP (\d{3})\)", r.stderr or "")
+    status = int(m.group(1)) if m else None
+    message = ""
+    try:
+        body = json.loads(r.stdout)
+        message = body.get("message") or "" if isinstance(body, dict) else ""
+    except ValueError:
+        pass
+    message = message or (r.stderr or r.stdout).strip() or f"gh exited {r.returncode}"
+    try:
+        pr = gh_obj(f"repos/{repo}/pulls/{n}")  # unreadable = unknown (exit 3): the merge may have happened
+    except Stop as e:
+        e.extra.setdefault("status", "unknown")
+        raise
+    if pr.get("merged_at"):
+        return {"ok": True, "status": "merged", "repo": repo, "pr": n, "head_sha": (pr.get("head") or {}).get("sha"),
+                "merge_commit_sha": pr.get("merge_commit_sha")}
+    if r.returncode == 0 or status is None or status >= 500:  # a server error may still complete the merge
+        raise Stop("lookup_failed", f"GitHub state unknown: merge of {repo}#{n} is not confirmed: {message}", code=3,
+                   unknown=True, status="unknown")
+    raise Stop("refused", message, status="refused", reason="head_changed" if status == 409 else "refused",
+               http_status=status, repo=repo, pr=n)
+
+
+def http_status(r):
+    m = re.search(r"\(HTTP (\d{3})\)", r.stderr or "")
+    return int(m.group(1)) if m else None
+
+
+def reply_message(r):
+    try:
+        body = json.loads(r.stdout)
+        message = body.get("message") or "" if isinstance(body, dict) else ""
+    except ValueError:
+        message = ""
+    return message or (r.stderr or r.stdout).strip() or f"gh exited {r.returncode}"
+
+
+def cmd_delete_remote(argv):
+    """Delete the remote branch only at the merged head with no open PR based on it; a failed read is unknown, never a delete."""
+    a, _ = parse_args(argv, {"--repo": "repo", "--branch": "branch", "--head": "head"})
+    need(a, "repo", "branch", "head")
+    repo, branch, head = a["repo"], a["branch"], a["head"]
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", head):  # GitHub reports the full id: no prefix matching
+        usage(f"--head must be a full 40-digit commit id, got {head!r}")
+    path = quote(branch, safe="/")
+    base = {"repo": repo, "branch": branch}
+    r = gh("api", f"repos/{repo}/git/ref/heads/{path}")
+    if r.returncode != 0:
+        if http_status(r) == 404:
+            return {"ok": True, "status": "gone", **base}
+        unknown(reply_message(r))
+    try:
+        sha = json.loads(r.stdout)["object"]["sha"]
+    except (ValueError, KeyError, TypeError):
+        unknown("unreadable ref response")
+    if not isinstance(sha, str) or sha.lower() != head.lower():
+        return {"ok": True, "status": "moved", **base, "sha": sha}
+    based = gh_list(f"repos/{repo}/pulls?state=open&base={quote(branch, safe='')}&per_page=100")
+    if based:
+        return {"ok": True, "status": "based_on", **base, "prs": [p["number"] for p in based]}
+    r = gh("api", "-X", "DELETE", f"repos/{repo}/git/refs/heads/{path}")
+    if r.returncode == 0:
+        return {"ok": True, "status": "deleted", **base}
+    status, message = http_status(r), reply_message(r)
+    if status is None:
+        unknown(message)
+    if status == 422 and "does not exist" in message.lower():  # gone between the read and the delete
+        return {"ok": True, "status": "gone", **base}
+    raise Stop("kept", message, status="kept", http_status=status, **base)
+
+
 COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
-            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check}
+            "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,
+            "delete-remote": cmd_delete_remote}
 
 args = sys.argv[1:]
 try:

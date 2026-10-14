@@ -967,6 +967,46 @@
         "The report does not say the archive was not found",
         "No commit was amended"
       ]
+    },
+    {
+      "id": 55,
+      "name": "eval-watch-agent-merge",
+      "skills": [
+        "specwright-pr",
+        "specwright-finish",
+        "specwright-roadmap"
+      ],
+      "prompt": "Watch the pull request for add-greeting (#7). CI and the required review finished earlier and nothing has changed since, so the first snapshot already shows it ready: do not wait for more activity. Carry on as watch says from there.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh, pr.merge agent with merge_method squash and a required reviewer that already reported on the head. The change is archived on feat/add-greeting and PR #7 is ready, so watch merges it: reads the settings, sends exactly one merge request with squash and the ready head, and sees the read-back say MERGED. Cleanup follows: checks out main and pulls it fast-forward (the squash commit arrives), deletes the local branch after branch-check, deletes the remote branch feat/add-greeting at the merged head, and offers specwright-roadmap next or close.",
+      "assertions": [
+        "Exactly one merge request was sent, with squash and the ready head",
+        "PR #7 is MERGED in the fake gh",
+        "The repo is on main and main holds the merge (the squash commit Add greeting (#7)), with a clean tree",
+        "The local branch feat/add-greeting was deleted",
+        "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
+        "The remote branch was deleted after the merge, not before",
+        "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)",
+        "The report offers the next step: specwright-roadmap next or close",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 56,
+      "name": "eval-watch-merge-default-user",
+      "skills": [
+        "specwright-pr",
+        "specwright-finish"
+      ],
+      "prompt": "Watch the pull request for add-greeting (#7). CI and the required review finished earlier and nothing has changed since, so the first snapshot already shows it ready: do not wait for more activity. Carry on as watch says from there.",
+      "expected_output": "The same fixture without pr.merge, so merging is the user's: watch reads the settings, finds the PR ready (the change is already archived) and reports it ready for the user to merge. It sends no merge request, deletes no remote or local branch, stays on feat/add-greeting and changes nothing on GitHub.",
+      "assertions": [
+        "No merge request and no ref DELETE reached the gh log",
+        "Still on feat/add-greeting with main unchanged, the branch present and the tree clean",
+        "PR #7 is still open and the remote branch is still there",
+        "No gh call created or changed a pull request, issue or comment",
+        "The report says the PR is ready",
+        "No commit was amended"
+      ]
     }
   ]
 }

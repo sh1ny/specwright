@@ -31,6 +31,8 @@ def rmtree(path):
     shutil.rmtree(path, **({"onexc": again} if sys.version_info >= (3, 12) else {"onerror": again}))
 
 ROOT = Path(__file__).resolve().parents[2]  # specwright repo
+sys.path.insert(0, str(ROOT / "evals" / "fakes"))
+import gh as fake_gh  # noqa: E402  the fake gh's state helpers
 
 
 def git(repo, *args):
@@ -932,7 +934,94 @@ def build_finish_resume_merged(repo, squash):
     write(repo, ".git/fixture-state.json", json.dumps({"main": rev, "commits": int(count)}, indent=2))
 
 
+WATCH_REVIEWER = "chatgpt-codex-connector"
+WATCH_SHIM = r'''#!/bin/bash
+# git shim for the watch-merge evals: real git for everything, except `pull` and `fetch` in the code repo once the fake gh
+# logged a merge of PR #7: those read the local bare repo (@BARE@) where origin's main already holds the squash commit, as
+# GitHub's would after the merge. Before the merge they hit the unreachable proxy like any other network command.
+REAL="@REAL@"
+CODE="@CODE@"
+BARE="@BARE@"
+LOG="@LOG@"
+URL="@URL@"
+dir=.
+a=("$@")
+while [ ${#a[@]} -gt 0 ]; do
+  case "${a[0]}" in
+    -C) dir="${a[1]}"; a=("${a[@]:2}") ;;
+    -c) a=("${a[@]:2}") ;;
+    -*) a=("${a[@]:1}") ;;
+    *) break ;;
+  esac
+done
+if [ "${a[0]:-}" = pull ] || [ "${a[0]:-}" = fetch ]; then
+  top=$("$REAL" -C "$dir" rev-parse --show-toplevel 2>/dev/null)
+  lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+  if [ "$(lc "$top")" = "$(lc "$CODE")" ] && grep -q 'pulls/7/merge' "$LOG" 2>/dev/null; then
+    exec "$REAL" -c "url.$BARE.insteadOf=$URL" "$@"
+  fi
+fi
+exec "$REAL" "$@"
+'''
+
+
+def build_watch_merge(repo, agent):
+    """Repo-local, `finish: pr` as eval-bot, origin on GitHub, fake gh. On feat/add-greeting with the change archived and committed
+    (feat(add-greeting): archive change); PR #7 is open and ready in the fake gh (head = the branch tip, a green check, the required
+    reviewer WATCH_REVIEWER reported with an approval on that head). `agent`: pr.merge agent with merge_method squash, otherwise the
+    settings do not mention merging. A bare repo <repo>/ob.git holds origin's main as it stands after the squash merge (main plus one
+    squash commit `Add greeting (#7)` with the branch's tree); the git shim lets `git pull --ff-only` read it only once the fake gh
+    logged the merge of PR #7. The fake gh knows the branch feat/add-greeting at the tip, so the remote ref can be read and deleted.
+    The run's helper files live in the repo directory, hidden through .git/info/exclude (eval.env, bin/, gh-state.json, gh-log.jsonl,
+    git-trace.log, ob.git). .git/fixture-state.json records main's tip, the branch tip and its tree."""
+    base(repo)
+    merging = "  merge: agent\n  merge_method: squash\n" if agent else ""
+    write(repo, "openspec/specwright.yaml",
+          f"finish: pr\ngithub:\n  login: eval-bot\npr:\n  poll_interval: 5s\n{merging}  reviewers:\n    {WATCH_REVIEWER}: {{ role: required }}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore: pr settings")
+    finished(repo, repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "feat(add-greeting): archive change")
+    out = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    tip, tree, main = out("rev-parse", "HEAD"), out("rev-parse", "HEAD^{tree}"), out("rev-parse", "main")
+    bare = repo / "ob.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", posix(bare)], check=True, capture_output=True, text=True)
+    git(repo, "checkout", "-q", "-b", "squash-tmp", "main")
+    git(repo, "merge", "-q", "--squash", "feat/add-greeting")
+    git(repo, "commit", "-q", "-m", "Add greeting (#7)")
+    squash = out("rev-parse", "HEAD")
+    git(repo, "push", "-q", posix(bare), "squash-tmp:refs/heads/main")
+    git(repo, "checkout", "-q", "feat/add-greeting")
+    git(repo, "branch", "-q", "-D", "squash-tmp")
+    git(repo, "remote", "add", "origin", f"https://github.com/{PR_SLUG}.git")
+    git(repo, "update-ref", "refs/remotes/origin/main", "main")  # origin/main is where main is until the pull
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    git(repo, "config", "branch.main.remote", "origin")
+    git(repo, "config", "branch.main.merge", "refs/heads/main")
+    dest = repo
+    install_fake_gh(dest)
+    unreachable_proxy(dest)
+    env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
+    write(dest, "bin/git", WATCH_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo))
+          .replace("@BARE@", posix(bare)).replace("@LOG@", posix(dest / "gh-log.jsonl")).replace("@URL@", f"https://github.com/{PR_SLUG}.git"))
+    (dest / "bin" / "git").chmod(0o755)
+    pr = gh_pull(7, "add-greeting")
+    pr.update({"title": "feat(add-greeting): add greet and farewell", "body": "Adds greet and farewell.", "author": "eval-bot"})
+    pr["head"]["sha"] = tip
+    st = {"user": "eval-bot", "tokens": {"eval-bot": "eval-token"}, "clock": "2026-10-10T10:00:00Z",
+          "repos": {PR_SLUG: {"default_branch": "main", "pulls": [pr], "branches": {"feat/add-greeting": tip, "main": main}}}}
+    fake_gh.set_head(st, PR_SLUG, 7, tip, "2026-10-10T09:00:00Z")
+    fake_gh.set_checks(st, PR_SLUG, 7, [{"__typename": "CheckRun", "name": "tests", "status": "COMPLETED", "conclusion": "SUCCESS"}])
+    fake_gh.add_review(st, PR_SLUG, 7, WATCH_REVIEWER, f"**Reviewed commit:** `{tip}`\n\nNo issues found.", state="APPROVED", at="2026-10-10T09:30:00Z")
+    write(dest, "gh-state.json", json.dumps(st, indent=2))
+    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n")
+    write(repo, ".git/fixture-state.json", json.dumps({"main": main, "tip": tip, "tree": tree, "squash": squash}, indent=2))
+
+
 def build(name, repo):
+    if name in ("eval-watch-agent-merge", "eval-watch-merge-default-user"):
+        return build_watch_merge(repo, agent=name.endswith("agent-merge"))
     if name in ("eval-finish-resume-squash-merged", "eval-finish-resume-merged-branch-gone"):
         return build_finish_resume_merged(repo, squash=name.endswith("squash-merged"))
     if name.startswith("eval-install-"):
