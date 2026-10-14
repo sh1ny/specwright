@@ -14,6 +14,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 - The install prompt compares `openspec --version` with the pin and asks before continuing on a mismatch; the public install command names the pinned version. (agent)
 - A Specwright release is cut by the release workflow: one version-bump commit across the configured version files, an annotated `v<version>` tag on the merged main commit, notes built from the archived changes, and a GitHub release. (agent)
 - An eval interrupts an update at every step before the swap and shows the previous version still runnable each time, and the interrupted update then resumes or rolls back cleanly; an update across a workflow change refuses or warns while a change is in flight. (agent)
+- An eval with two projects sharing one planning store updates one project and shows the other unaffected: the store records its schema version and owner, and the other project's change in flight still validates and ships. (agent)
 - A dogfood project updates from one tagged release to the next with a change in flight, and that change still ships. (user)
 - Each change ships as its own release: 0.4.1, 0.4.2, 0.5.0 and 0.6.0. (agent)
 
