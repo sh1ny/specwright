@@ -84,6 +84,17 @@ class ReviewSkill(unittest.TestCase):
         self.assertIn("root.path", dispatch, "the dispatch does not give the reviewer the resolved planning root")
         self.assertRegex(dispatch, r"store id", "the dispatch does not give the reviewer the store id")
 
+    def test_subagent_dispatch_passes_preflight_artifacts(self):
+        step = self.section("pre-ship review")
+        start = step.find("dispatch `specwright-reviewer` in pre-ship mode")
+        self.assertGreater(start, -1)
+        dispatch = step[start:step.find("record --kind preship", start)]
+        self.assertRegex(dispatch, r"(?i)preflight.{0,40}`?artifacts`?|`?artifacts`?.{0,60}preflight",
+                         "the dispatch does not pass the preflight artifacts to the reviewer")
+        for agent in (ROOT / "agents" / "claude" / "specwright-reviewer.md", ROOT / "agents" / "omp" / "specwright-reviewer.md"):
+            text = read(agent)
+            self.assertRegex(text, r"(?i)artifact paths", f"{agent.parent.name}: the agent does not read the artifact paths the request names")
+
     def test_subagent_preship_runs_preflight_before_dispatch(self):
         step = self.section("pre-ship review")
         pre = positions(sub("preflight"), step)
