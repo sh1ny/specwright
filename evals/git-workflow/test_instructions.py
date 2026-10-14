@@ -996,6 +996,14 @@ class FencedGitHubCalls(unittest.TestCase):
             self.assertRegex(b, r"(?i)fetch URL", f"{name}: does not decide by the fetch URL")
             self.assertRegex(b, r"(?is)not (decided )?by `?pr-pair\.sh identity`?", f"{name}: may still be decided by `identity`")
 
+    def test_trailing_dot_host_counts_as_github(self):
+        """fix-m2-gaps (#83, review S3): the fetch-URL rule treats `github.com.` as github.com, so that remote is fenced too."""
+        for p in (FINISH, ROOT / "skills" / "specwright-pr" / "SKILL.md", BRANCH, ROADMAP):
+            lines = [l for l in read(p).splitlines() if re.search(r"(?i)fetch URL|github\.com remote", l) and "github.com" in l]
+            self.assertTrue(lines, f"{p.parent.name}: no fetch-URL rule for github.com")
+            self.assertTrue(any("`github.com.`" in l for l in lines),
+                            f"{p.parent.name}: the fetch-URL rule does not say that `github.com.` counts as github.com")
+
     def test_non_github_fetch_runs_plain(self):
         for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
             self.assertRegex(b, r"(?is)(other|any other|another) host[^.]*plain|plain[^.]*(other|another) host|not on github\.com[^.]*plain",
