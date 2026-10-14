@@ -934,6 +934,66 @@ class Rounds(Base):
         self.assertTrue(seen.exists(), "the user's GIT_SSH_COMMAND did not run for the non-GitHub store")
         self.assertEqual(set(seen.read_text(encoding="utf-8").split()), {"token=unset"}, "the fence's token reached the non-GitHub remote")
 
+    def rounds_enterprise_store(self, env):
+        """rounds under as.sh with a non-GitHub store whose remote answers 401, so its `gh auth git-credential` helper is
+        asked; the fake gh logs the helper call's environment. The remote is plain http through a proxy that is the 401
+        server (an https remote would not reach the helper without a TLS server)."""
+        class Rec(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="ghe"')
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Rec)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(t.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.git(self.store, "remote", "set-url", "origin", "http://ghe.example/o/s.git")
+        self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
+        self.git(self.store, "config", "credential.helper", "!gh auth git-credential")
+        self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+        as_sh = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
+        e = {**self.env(), "NO_PROXY": "", "no_proxy": "", **env}
+        r = subprocess.run(["bash", str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
+                            "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
+        helper = [c for c in self.gh_calls() if c["argv"][:2] == ["auth", "git-credential"]]
+        self.assertTrue(helper, f"the store's credential helper never ran: {r.stdout}{r.stderr}")
+        return helper
+
+    def test_rounds_non_github_store_gets_enterprise_vars(self):
+        # fix-m2-gaps D5: as.sh unsets the enterprise variables for its own fence, but the unfenced read of a non-GitHub
+        # store gets the caller's back, so a helper such as `gh auth git-credential` finds its host and token
+        helper = self.rounds_enterprise_store({"GH_HOST": "ghe.example", "GH_ENTERPRISE_TOKEN": "ent-1",
+                                               "GITHUB_ENTERPRISE_TOKEN": "ent-2"})
+        for c in helper:
+            self.assertEqual((c["env"]["GH_HOST"], c["env"]["GH_ENTERPRISE_TOKEN"], c["env"]["GITHUB_ENTERPRISE_TOKEN"]),
+                             ("ghe.example", "ent-1", "ent-2"))
+            self.assertIsNone(c["env"]["GH_TOKEN"], "the fence's token must not reach a non-GitHub remote")
+
+    def test_rounds_non_github_store_without_enterprise_vars(self):
+        # variables the caller never set stay unset in the unfenced read, never an empty string
+        helper = self.rounds_enterprise_store({})
+        for c in helper:
+            self.assertEqual((c["env"]["GH_HOST"], c["env"]["GH_ENTERPRISE_TOKEN"], c["env"]["GITHUB_ENTERPRISE_TOKEN"]),
+                             (None, None, None))
+
+    def test_trailing_dot_store_remote_is_fenced(self):
+        # fix-m2-gaps D4: https://github.com./o/s.git is GitHub: read through as.sh from inside the store, never unfenced
+        self.git(self.store, "remote", "set-url", "origin", f"https://github.com./{STORE}.git")
+        self.git(self.store, "config", "http.proxy", "http://127.0.0.1:9")
+        self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+        self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=None)
+        here = os.path.normcase(os.path.realpath(self.store))
+        fenced = [c for c in self.gh_calls() if c["argv"][:2] == ["auth", "token"] and "--user" in c["argv"]
+                  and os.path.normcase(os.path.realpath(c["cwd"])) == here]
+        self.assertTrue(fenced, "a trailing-dot GitHub store must be read through as.sh from inside it")
+
     def test_rounds_store_token_url_exits_3_no_request(self):
         # both logins empty and the store origin carries a token: as.sh refuses inside the store, before any request
         seen = []

@@ -217,6 +217,30 @@ class AsShHost(AsShCase):
         r = self.as_sh(self.code, "--resolve", env=env)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
 
+    def test_enterprise_vars_saved_but_not_in_fence(self):
+        env = {"GH_HOST": "enterprise.example", "GH_ENTERPRISE_TOKEN": "ent-tok", "GITHUB_ENTERPRISE_TOKEN": "ent-tok2"}
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for c in self.gh_calls():
+            self.assertEqual((c["env"]["GH_HOST"], c["env"]["GH_ENTERPRISE_TOKEN"], c["env"]["GITHUB_ENTERPRISE_TOKEN"]),
+                             (None, None, None), c["argv"])
+        # a fenced git call (a shell alias) sees none of them, nor the token variables
+        r = self.as_sh(self.code, "KintsugiBot", "git", "-c", "alias.envdump=!env", "envdump", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        names = {l.split("=", 1)[0] for l in r.stdout.splitlines()}
+        for v in ("GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
+            self.assertNotIn(v, names)
+        # the originals are kept for the unfenced restore
+        r = self.as_sh(self.code, "KintsugiBot", "bash", "-c",
+                       'printf "%s|%s|%s|%s|%s|%s" "$AS_SH_ORIG_SET" "$AS_SH_ORIG_GH_HOST" "$AS_SH_ORIG_GH_ENTERPRISE_TOKEN" '
+                       '"$AS_SH_ORIG_GITHUB_ENTERPRISE_TOKEN" "${AS_SH_ORIG_GH_TOKEN-unset}" "${AS_SH_ORIG_GITHUB_TOKEN-unset}"',
+                       env={**env, "GH_TOKEN": "amb", "GITHUB_TOKEN": "amb"})
+        parts = r.stdout.split("|")
+        self.assertEqual(parts[1:], ["enterprise.example", "ent-tok", "ent-tok2", "unset", "unset"], r.stdout + r.stderr)
+        for v in ("GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
+            self.assertIn(v, parts[0].split())
+        self.assertNotIn("GH_TOKEN", parts[0].split())
+
     def test_empty_gh_host_targets_github(self):
         r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login", env={"GH_HOST": ""})
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "KintsugiBot"), r.stderr)
@@ -343,6 +367,40 @@ class AsShUrls(AsShCase):
     def test_url_argument_with_userinfo_refused(self):
         r = self.as_sh(self.work, "sh1ny", "git", "ls-remote", f"https://u:{SECRET}@github.com/o/r.git")
         self.refused(r, "argument")
+
+    # ---- the trailing-dot host is github.com (fix-m2-gaps D4) ----
+    def test_trailing_dot_token_in_fetch_url_refused(self):
+        self.git(self.work, "remote", "set-url", "origin", f"https://x-access-token:{SECRET}@github.com./o/r.git")
+        before = self.config(self.work)
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.refused(r, "origin", "fetch", "https://***@github.com./o/r.git")
+        self.assertEqual(self.config(self.work), before, "the URL is not rewritten")
+
+    def test_trailing_dot_argument_and_rewrite_refused(self):
+        r = self.as_sh(self.work, "sh1ny", "git", "ls-remote", f"https://u:{SECRET}@GitHub.COM./o/r.git")
+        self.refused(r, "argument")
+        self.git(self.work, "remote", "set-url", "origin", "https://git.example.com/o/r.git")
+        self.git(self.work, "config", f"url.https://u:{SECRET}@github.com./.insteadOf", "https://github.com/")
+        r = self.as_sh(self.work, "sh1ny", "git", "status")
+        self.refused(r, "rewrite")
+        r = self.as_sh(self.work, "sh1ny", "git", "-c", f"url.https://u:{SECRET}@GitHub.COM./.insteadOf=https://github.com/",
+                       "status")
+        self.refused(r, "argument")
+
+    def test_credential_fill_trailing_dot_returns_verified_token(self):
+        for host in ("github.com.", "GitHub.COM."):
+            r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin=f"protocol=https\nhost={host}\n\n")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("username=x-access-token", r.stdout)
+            self.assertIn("password=tok-s", r.stdout)
+
+    def test_lookalike_host_not_github(self):
+        r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin="protocol=https\nhost=github.com.example.org\n\n")
+        self.assertNotIn("tok-s", r.stdout + r.stderr)
+        self.assertNotIn("x-access-token", r.stdout)
+        self.git(self.work, "remote", "set-url", "origin", f"https://u:{SECRET}@github.com.example.org/o/r.git")
+        r = self.as_sh(self.work, "sh1ny", "gh", "api", "user", "--jq", ".login")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
 
     def test_outside_a_work_tree_the_command_runs(self):
         r = self.as_sh(self.tmp, "sh1ny", "gh", "api", "user", "--jq", ".login")
