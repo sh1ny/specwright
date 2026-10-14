@@ -9,9 +9,9 @@
 | github-identity → The trailing-dot host is github.com | Credential-free trailing-dot URL | evals/pr-pair/test_as_sh.py | test_credential_fill_trailing_dot_returns_verified_token | green |
 | github-identity → The trailing-dot host is github.com | Look-alike host | evals/pr-pair/test_as_sh.py | test_lookalike_host_not_github | green |
 | github-identity → The trailing-dot host is github.com | Trailing-dot store remote | evals/pr-pair/test_pr_pair.py | test_trailing_dot_store_remote_is_fenced | green |
-| github-identity → Unfenced git keeps the caller's enterprise host settings | Enterprise store read by rounds | evals/pr-pair/test_pr_pair.py | test_rounds_non_github_store_gets_enterprise_vars | red |
-| github-identity → Unfenced git keeps the caller's enterprise host settings | Variables were unset | evals/pr-pair/test_pr_pair.py | test_rounds_non_github_store_without_enterprise_vars | red |
-| github-identity → Unfenced git keeps the caller's enterprise host settings | Fenced calls stay on github.com | evals/pr-pair/test_as_sh.py | test_enterprise_vars_saved_but_not_in_fence | red |
+| github-identity → Unfenced git keeps the caller's enterprise host settings | Enterprise store read by rounds | evals/pr-pair/test_pr_pair.py | test_rounds_non_github_store_gets_enterprise_vars | green |
+| github-identity → Unfenced git keeps the caller's enterprise host settings | Variables were unset | evals/pr-pair/test_pr_pair.py | test_rounds_non_github_store_without_enterprise_vars | green |
+| github-identity → Unfenced git keeps the caller's enterprise host settings | Fenced calls stay on github.com | evals/pr-pair/test_as_sh.py | test_enterprise_vars_saved_but_not_in_fence | green |
 | preship-review → A review after the archive commit reads the archived artifacts | Recovery review after archive | evals/review-routes/test_review_run.py | test_prompt_names_archived_artifacts_after_archive_commit | green |
 | preship-review → A review after the archive commit reads the archived artifacts | Subagent route after archive | evals/review-routes/test_review_run.py, evals/review-routes/test_skill_text.py | test_preflight_lists_archived_artifacts, test_subagent_dispatch_passes_preflight_artifacts | green |
 | preship-review → A review after the archive commit reads the archived artifacts | Active change | evals/review-routes/test_review_run.py | test_preflight_lists_active_artifacts | green |
@@ -38,7 +38,7 @@
 ## 2. Enterprise variables for unfenced store reads (#84)
 
 - [x] 2.1 Write the failing tests: `test_enterprise_vars_saved_but_not_in_fence` in `evals/pr-pair/test_as_sh.py` (with `GH_HOST`/`GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` set, a fenced `gh` shim and a fenced git credential call see none of them, while `AS_SH_ORIG_SET` lists them). In `evals/pr-pair/test_pr_pair.py`, write `test_rounds_non_github_store_gets_enterprise_vars`: a store origin on `https://ghe.example/o/s.git` with credential helper `!gh auth git-credential`, where a fake `gh` records `GH_HOST` and `GH_ENTERPRISE_TOKEN` and answers, and `rounds` runs under `as.sh`. Also write `test_rounds_non_github_store_without_enterprise_vars` (unset stays unset, never empty). Confirm that they fail for the right reason.
-- [ ] 2.2 In `skills/specwright-pr/scripts/as.sh`, save `GH_HOST`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` into `AS_SH_ORIG_*`/`AS_SH_ORIG_SET` before the unset on line 44. Use one "once" guard for all saved variables, so the git-variable save still runs (review S2); `GH_TOKEN` and `GITHUB_TOKEN` are never saved. Update the header comment. Verify that 2.1's tests pass, that `test_rounds_under_as_sh_reads_non_github_store_with_user_git` and `test_gh_host_and_enterprise_tokens_unset` stay green, then flip the rows green.
+- [x] 2.2 In `skills/specwright-pr/scripts/as.sh`, save `GH_HOST`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` into `AS_SH_ORIG_*`/`AS_SH_ORIG_SET` before the unset on line 44. Use one "once" guard for all saved variables, so the git-variable save still runs (review S2); `GH_TOKEN` and `GITHUB_TOKEN` are never saved. Update the header comment. Verify that 2.1's tests pass, that `test_rounds_under_as_sh_reads_non_github_store_with_user_git` and `test_gh_host_and_enterprise_tokens_unset` stay green, then flip the rows green.
 
 ## 3. Archived artifacts for a pre-ship review after archive (#81)
 
