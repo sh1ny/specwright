@@ -4,10 +4,10 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| github-identity → The trailing-dot host is github.com | Token in a trailing-dot URL | evals/pr-pair/test_as_sh.py | test_trailing_dot_token_in_fetch_url_refused | red |
-| github-identity → The trailing-dot host is github.com | Trailing-dot URL argument or rewrite | evals/pr-pair/test_as_sh.py | test_trailing_dot_argument_and_rewrite_refused | red |
-| github-identity → The trailing-dot host is github.com | Credential-free trailing-dot URL | evals/pr-pair/test_as_sh.py | test_credential_fill_trailing_dot_returns_verified_token | red |
-| github-identity → The trailing-dot host is github.com | Look-alike host | evals/pr-pair/test_as_sh.py | test_lookalike_host_not_github | red |
+| github-identity → The trailing-dot host is github.com | Token in a trailing-dot URL | evals/pr-pair/test_as_sh.py | test_trailing_dot_token_in_fetch_url_refused | green |
+| github-identity → The trailing-dot host is github.com | Trailing-dot URL argument or rewrite | evals/pr-pair/test_as_sh.py | test_trailing_dot_argument_and_rewrite_refused | green |
+| github-identity → The trailing-dot host is github.com | Credential-free trailing-dot URL | evals/pr-pair/test_as_sh.py | test_credential_fill_trailing_dot_returns_verified_token | green |
+| github-identity → The trailing-dot host is github.com | Look-alike host | evals/pr-pair/test_as_sh.py | test_lookalike_host_not_github | green |
 | github-identity → The trailing-dot host is github.com | Trailing-dot store remote | evals/pr-pair/test_pr_pair.py | test_trailing_dot_store_remote_is_fenced | red |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Enterprise store read by rounds | evals/pr-pair/test_pr_pair.py | test_rounds_non_github_store_gets_enterprise_vars | red |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Variables were unset | evals/pr-pair/test_pr_pair.py | test_rounds_non_github_store_without_enterprise_vars | red |
@@ -31,7 +31,7 @@
 ## 1. Trailing-dot host (#83)
 
 - [x] 1.1 Write the failing `as.sh` tests from the test map (trailing-dot fetch URL, argument and `insteadOf` rule refused with mixed case `GitHub.COM.`; credential fill for host `github.com.` returns the verified token; look-alike `github.com.example.org` gets no credential and is not refused) in `evals/pr-pair/test_as_sh.py`; run `python -m pytest evals/pr-pair/test_as_sh.py -k "trailing_dot or lookalike"` and confirm each fails on the missing match, not on setup.
-- [ ] 1.2 In `skills/specwright-pr/scripts/as.sh`, make `gh_url` and `gh_userinfo` match `github\.com\.?([:/]|$)`, and make the credential helper lower-case the host and strip one terminal dot before comparing it with `github.com` (review S1). Update the header comment. Verify that 1.1's tests pass and all of `evals/pr-pair/test_as_sh.py` stays green, then flip those rows green.
+- [x] 1.2 In `skills/specwright-pr/scripts/as.sh`, make `gh_url` and `gh_userinfo` match `github\.com\.?([:/]|$)`, and make the credential helper lower-case the host and strip one terminal dot before comparing it with `github.com` (review S1). Update the header comment. Verify that 1.1's tests pass and all of `evals/pr-pair/test_as_sh.py` stays green, then flip those rows green.
 - [ ] 1.3 Write the failing `test_trailing_dot_store_remote_is_fenced` in `evals/pr-pair/test_pr_pair.py` (store origin `https://github.com./o/s.git` is read through `as.sh`, never with `unfenced_env`), then make `GH_URL` in `skills/specwright-pr/scripts/pr-pair.sh` accept `github\.com\.?` in its URL and scp forms. Verify that the test passes with `python -m pytest evals/pr-pair/test_pr_pair.py`, and flip the row green.
 - [ ] 1.4 Where the skill texts decide "fetch URL on github.com" (`specwright-finish`, `specwright-pr`, `specwright-branch`, `specwright-roadmap`), say that `github.com.` counts as github.com (review S3), and add a skill-text assertion for it in `evals/git-workflow/test_instructions.py`. Verify with `python -m pytest evals/git-workflow/test_instructions.py`.
 
