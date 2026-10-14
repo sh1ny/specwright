@@ -624,6 +624,90 @@ class RunTests(Base):
 
 SPEC_TEXT = "### Requirement: X\n\nThe system SHALL do X.\n"
 ARCHIVE_SUBJECT = f"chore({CHANGE}): archive change"
+ARTIFACT_NAMES = ("proposal.md", "design.md", "tasks.md", "specs")
+
+
+class ArtifactPathTests(Base):
+    """A review after the archive commit names the archived artifacts (fix-m2-gaps, D3)."""
+
+    def plan(self, d, files=None):
+        self.commit(d, files or {f"openspec/changes/{CHANGE}/{n}": "x\n" for n in ("proposal.md", "design.md", "tasks.md")}
+                    | {f"openspec/changes/{CHANGE}/specs/foo/spec.md": SPEC_TEXT}, f"docs({CHANGE}): plan")
+
+    def archive(self, d, name=f"2026-10-14-{CHANGE}"):
+        (d / "openspec" / "changes" / "archive").mkdir(parents=True, exist_ok=True)
+        self.git(d, "mv", f"openspec/changes/{CHANGE}", f"openspec/changes/archive/{name}")
+        self.commit(d, {"openspec/specs/foo/spec.md": SPEC_TEXT}, ARCHIVE_SUBJECT)
+
+    def named(self, d, where):
+        return [f"{d.as_posix()}/openspec/changes/{where}/{n}" for n in ARTIFACT_NAMES]
+
+    def artifacts_section(self, prompt):
+        text = prompt.replace("\\", "/")
+        return text[text.index("Change artifacts"):text.index("## Changed files and diff")]
+
+    def prompt_artifacts(self, store=False):
+        self.install("claude")
+        self.claude_result()
+        self.preship("claude", store=store)
+        return self.artifacts_section(self.runs("claude")[0]["stdin"])
+
+    def preflight_artifacts(self, store=False):
+        args = ["preflight", "--kind", "preship", "--change", CHANGE, "--base", "main", "--settings", self.settings]
+        if store:
+            args += ["--store", self.store, "--store-base", "main"]
+        return [p.replace("\\", "/") for p in self.script(*args)["artifacts"]]
+
+    def test_prompt_names_archived_artifacts_after_archive_commit(self):
+        self.plan(self.code)
+        self.archive(self.code)
+        section = self.prompt_artifacts()
+        for path in self.named(self.code, f"archive/2026-10-14-{CHANGE}"):
+            self.assertIn(f"- {path}", section)
+        self.assertNotIn(f"changes/{CHANGE}/", section)
+        arch = self.code / "openspec" / "changes" / "archive" / f"2026-10-14-{CHANGE}"
+        for n in ("proposal.md", "design.md", "tasks.md", "specs"):
+            self.assertTrue((arch / n).exists())
+
+    def test_prompt_names_archived_artifacts_store_backed(self):
+        self.plan(self.store)
+        self.archive(self.store)
+        section = self.prompt_artifacts(store=True)
+        for path in self.named(self.store, f"archive/2026-10-14-{CHANGE}"):
+            self.assertIn(f"- {path}", section)
+        self.assertNotIn(f"changes/{CHANGE}/", section)
+
+    def test_preflight_lists_archived_artifacts(self):
+        self.plan(self.code)
+        self.archive(self.code)
+        self.assertEqual(self.preflight_artifacts(), self.named(self.code, f"archive/2026-10-14-{CHANGE}"))
+
+    def test_preflight_lists_archived_artifacts_store_backed(self):
+        self.plan(self.store)
+        self.archive(self.store)
+        self.assertEqual(self.preflight_artifacts(store=True), self.named(self.store, f"archive/2026-10-14-{CHANGE}"))
+
+    def test_preflight_lists_active_artifacts(self):
+        self.plan(self.code)
+        self.assertEqual(self.preflight_artifacts(), self.named(self.code, CHANGE))
+        self.assertIn(f"- {self.named(self.code, CHANGE)[0]}", self.prompt_artifacts())
+
+    def test_archived_artifacts_from_the_reviewed_range_only(self):
+        self.git(self.code, "checkout", "-q", "main")
+        self.commit(self.code, {f"openspec/changes/archive/2026-09-01-{CHANGE}/proposal.md": "old\n"}, "chore: old archive")
+        self.git(self.code, "checkout", "-q", "feat/demo")
+        self.git(self.code, "merge", "-q", "--no-edit", "main")
+        self.plan(self.code)
+        self.archive(self.code)
+        got = self.preflight_artifacts()
+        self.assertEqual(got, self.named(self.code, f"archive/2026-10-14-{CHANGE}"))
+        self.assertFalse([p for p in got if "2026-09-01" in p])
+
+    def test_no_artifacts_falls_back_to_active_paths(self):
+        self.commit(self.code, {"openspec/changes/archive/2026-10-14-other-change/proposal.md": "o\n"}, "chore: other archive")
+        got = self.preflight_artifacts()
+        self.assertEqual(got, self.named(self.code, CHANGE))
+        self.assertNotIn("other-change", self.prompt_artifacts())
 
 
 class RecordGateTests(Base):
