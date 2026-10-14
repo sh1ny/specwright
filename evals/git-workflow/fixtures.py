@@ -888,6 +888,29 @@ def references_base(dest, registered=True, ref_id="team-plans"):
 MERGED_CLOSES = 12  # the issue the merged PR's description closes, already closed in the fake gh
 
 
+def origin_with_main(repo, ref):
+    """A local bare origin <repo>/ob.git holding `ref` as main, and the github.com origin remote with main tracking it. The remote's
+    URL stays on github.com (the finish skill fences GitHub fetches and pulls by it); origin_shim reaches the bare repo for pull and fetch."""
+    write(repo, ".git/info/exclude", "/ob.git/\n")  # before any `add -A`: the bare repo lives inside the work tree
+    bare = repo / "ob.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", posix(bare)], check=True, capture_output=True, text=True)
+    git(repo, "push", "-q", posix(bare), f"{ref}:refs/heads/main")
+    git(repo, "remote", "add", "origin", f"https://github.com/{PR_SLUG}.git")
+    git(repo, "update-ref", "refs/remotes/origin/main", ref)
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    git(repo, "config", "branch.main.remote", "origin")
+    git(repo, "config", "branch.main.merge", "refs/heads/main")
+
+
+def origin_shim(repo):
+    """bin/git: the watch-merge shim without its merge condition, so `pull` and `fetch` in the repo always read <repo>/ob.git through a
+    command-scoped url.<bare>.insteadOf; `git remote get-url origin` still prints the github.com URL."""
+    shim = MERGED_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo)) \
+        .replace("@BARE@", posix(repo / "ob.git")).replace("@LOG@", posix(repo / "gh-log.jsonl")).replace("@URL@", f"https://github.com/{PR_SLUG}.git")
+    write(repo, "bin/git", shim)
+    (repo / "bin" / "git").chmod(0o755)
+
+
 def build_finish_resume_merged(repo, squash):
     """Repo-local, `finish: pr` as eval-bot, origin on GitHub, fake gh. The change's PR #7 was merged and the local branch is gone:
     main holds the archive directory (and the code) under the squash subject `Add greeting (#7)`, or, when not `squash`, under a merge
@@ -914,13 +937,12 @@ def build_finish_resume_merged(repo, squash):
         git(repo, "merge", "-q", "--no-ff", "feat/add-greeting", "-m", "Merge pull request #7 from acme/feat/add-greeting")
         git(repo, "branch", "-q", "-d", "feat/add-greeting")
         title = "feat(add-greeting): add greet and farewell"
-    git(repo, "remote", "add", "origin", f"https://github.com/{PR_SLUG}.git")
-    git(repo, "update-ref", "refs/remotes/origin/main", "main")  # origin/main is where main is, as after a pull
-    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    origin_with_main(repo, "main")
     dest = repo
     install_fake_gh(dest)
     unreachable_proxy(dest)
     env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
+    origin_shim(repo)
     pr = gh_pull(7, "add-greeting", merged=True)
     pr.update({"title": title, "body": f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",
                "closing_refs": [{"number": MERGED_CLOSES, "repo": PR_SLUG}]})
@@ -928,10 +950,50 @@ def build_finish_resume_merged(repo, squash):
           "repos": {PR_SLUG: {"default_branch": "main", "pulls": [pr],
                               "issues": {str(MERGED_CLOSES): {"state": "CLOSED", "timeline": [["CLOSED", "2026-10-09T10:00:05Z"]]}}}}}
     write(dest, "gh-state.json", json.dumps(st, indent=2))
-    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n")
+    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n")
     rev = subprocess.run(["git", "rev-parse", "main"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
     count = subprocess.run(["git", "rev-list", "--count", "--all"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
     write(repo, ".git/fixture-state.json", json.dumps({"main": rev, "commits": int(count)}, indent=2))
+
+
+def build_finish_resume_stale_main(repo):
+    """Like build_finish_resume_merged, but local main is behind origin: it holds only an older change's archive
+    (2026-09-01-add-greeting, the same change name), while origin's main (the local bare repo) additionally holds the merge commit of
+    PR #7, which brings 2026-10-14-add-greeting. PR #7 is merged in the fake gh and feat/add-greeting is gone locally. A pull
+    through the fixture's git shim fast-forwards main. .git/fixture-state.json records origin's tip as `main` and the stale tip."""
+    base(repo)
+    write(repo, "openspec/specwright.yaml", PR_SETTINGS)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore: pr settings")
+    archive_in_store(repo, "2026-09-01-add-greeting", "chore: archive an earlier add-greeting change")
+    out = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    stale = out("rev-parse", "main")
+    origin_with_main(repo, "main")  # origin/main stays at the stale tip until the pull
+    git(repo, "checkout", "-q", "-b", "feat/add-greeting")
+    implemented(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "feat(add-greeting): implement tasks 1.1-2.1")
+    archive_in_store(repo, "2026-10-14-add-greeting", "feat(add-greeting): archive change")
+    git(repo, "checkout", "-q", "-b", "origin-tmp", "main")
+    git(repo, "merge", "-q", "--no-ff", "feat/add-greeting", "-m", "Merge pull request #7 from acme/feat/add-greeting")
+    new = out("rev-parse", "HEAD")
+    git(repo, "push", "-q", posix(repo / "ob.git"), "origin-tmp:refs/heads/main")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "branch", "-q", "-D", "origin-tmp")
+    git(repo, "branch", "-q", "-D", "feat/add-greeting")
+    install_fake_gh(repo)
+    unreachable_proxy(repo)
+    env_file(repo, GIT_TRACE=posix(repo / "git-trace.log"))
+    origin_shim(repo)
+    pr = gh_pull(7, "add-greeting", merged=True)
+    pr.update({"title": "feat(add-greeting): add greet and farewell", "body": f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",
+               "closing_refs": [{"number": MERGED_CLOSES, "repo": PR_SLUG}]})
+    st = {"user": "eval-bot", "tokens": {"eval-bot": "eval-token"},
+          "repos": {PR_SLUG: {"default_branch": "main", "pulls": [pr],
+                              "issues": {str(MERGED_CLOSES): {"state": "CLOSED", "timeline": [["CLOSED", "2026-10-09T10:00:05Z"]]}}}}}
+    write(repo, "gh-state.json", json.dumps(st, indent=2))
+    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n")
+    write(repo, ".git/fixture-state.json", json.dumps({"main": new, "stale": stale}, indent=2))
 
 
 WATCH_REVIEWER = "chatgpt-codex-connector"
@@ -965,6 +1027,10 @@ exec "$REAL" "$@"
 '''
 
 
+MERGED_SHIM = WATCH_SHIM.replace(""" && grep -q 'pulls/7/merge' "$LOG" 2>/dev/null""", "")
+assert MERGED_SHIM != WATCH_SHIM
+
+
 def build_watch_merge(repo, agent):
     """Repo-local, `finish: pr` as eval-bot, origin on GitHub, fake gh. On feat/add-greeting with the change archived and committed
     (feat(add-greeting): archive change); PR #7 is open and ready in the fake gh (head = the branch tip, a green check, the required
@@ -985,6 +1051,7 @@ def build_watch_merge(repo, agent):
     git(repo, "commit", "-q", "-m", "feat(add-greeting): archive change")
     out = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
     tip, tree, main = out("rev-parse", "HEAD"), out("rev-parse", "HEAD^{tree}"), out("rev-parse", "main")
+    write(repo, ".git/info/exclude", "/ob.git/\n")  # before any `add -A`: the bare repo lives inside the work tree
     bare = repo / "ob.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", posix(bare)], check=True, capture_output=True, text=True)
     git(repo, "checkout", "-q", "-b", "squash-tmp", "main")
@@ -1024,6 +1091,8 @@ def build(name, repo):
         return build_watch_merge(repo, agent=name.endswith("agent-merge"))
     if name in ("eval-finish-resume-squash-merged", "eval-finish-resume-merged-branch-gone"):
         return build_finish_resume_merged(repo, squash=name.endswith("squash-merged"))
+    if name == "eval-finish-resume-stale-main":
+        return build_finish_resume_stale_main(repo)
     if name.startswith("eval-install-"):
         return install_base(repo, {"eval-install-store": "store", "eval-install-store-other-schema": "other-schema",
                                    "eval-install-nested-store": "nested"}[name])
