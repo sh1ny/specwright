@@ -22,7 +22,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 1. `fix-m2-gaps` (0.4.1) - known gaps filed during M2: #75 and #77 finish resume with a reused change or branch name; #81 the pre-ship recovery review after the archive commit reads the moved artifact paths; #83 `as.sh` accepts the trailing-dot host `github.com.`; #84 `pr-pair.sh` restores enterprise `gh` tokens for unfenced non-GitHub store reads.
 2. `pin-openspec-version` (0.4.2) - #37 the pinned OpenSpec version enforced at install, not just documented.
 3. `add-release-workflow` (0.5.0) - #28 an opt-in release step: version bump across configured files, annotated tag, notes from the OpenSpec archive, optional GitHub release, offered at milestone close. Specwright cuts its own releases with it.
-4. `safe-update-lifecycle` (0.6.0) - #36 updates staged and swapped in last, a restart notice for running sessions, schema ownership and its version recorded in a shared store, and an update across a workflow change refused or warned while a change is in flight. Builds on the tags from #28.
+4. `safe-update-lifecycle` (0.6.0) - #36 updates staged and swapped in last, a restart notice for running sessions, schema ownership and its version recorded in a shared store, and an update across a workflow change, while a change is in flight, refused, or allowed only after preserving or migrating that change so it still validates and ships. Builds on the tags from #28.
 
 ## Next: M4 - Cost tier
 
