@@ -17,8 +17,8 @@
 | preship-review → A review after the archive commit reads the archived artifacts | Active change | evals/review-routes/test_review_run.py | test_preflight_lists_active_artifacts | green |
 | preship-review → A review after the archive commit reads the archived artifacts | Several archives of the same name | evals/review-routes/test_review_run.py | test_archived_artifacts_from_the_reviewed_range_only | green |
 | preship-review → A review after the archive commit reads the archived artifacts | No artifacts anywhere | evals/review-routes/test_review_run.py | test_no_artifacts_falls_back_to_active_paths | green |
-| change-finish → A merged PR whose branch is gone is done after the backstop | Cleanup already ran | evals/git-workflow (graded) | eval-finish-resume-merged-branch-gone (also eval-finish-resume-squash-merged) | red |
-| change-finish → A merged PR whose branch is gone is done after the backstop | Stale main holds an older change's archive | evals/git-workflow (graded); evals/git-workflow/test_instructions.py | eval-finish-resume-stale-main; test_finish_resume_merged_pr_without_branch_refreshes_main | red |
+| change-finish → A merged PR whose branch is gone is done after the backstop | Cleanup already ran | evals/git-workflow (graded) | eval-finish-resume-merged-branch-gone (also eval-finish-resume-squash-merged) | green |
+| change-finish → A merged PR whose branch is gone is done after the backstop | Stale main holds an older change's archive | evals/git-workflow (graded); evals/git-workflow/test_instructions.py | eval-finish-resume-stale-main; test_finish_resume_merged_pr_without_branch_refreshes_main | green |
 | change-finish → A merged PR whose branch is gone is done after the backstop | Refreshed main has no archive | evals/git-workflow/test_instructions.py | test_finish_resume_merged_pr_without_archive_after_refresh_not_done | green |
 | change-finish → A merged PR whose branch is gone is done after the backstop | Store-backed code repo after merge | evals/git-workflow/test_instructions.py | test_finish_resume_store_code_repo_needs_no_archive | green |
 | change-finish → A merged PR whose branch is gone is done after the backstop | Dirty tree before the refresh | evals/git-workflow/test_instructions.py | test_finish_resume_merged_row_checks_dirty_tree_before_refresh | green |
@@ -57,7 +57,7 @@
 
 - [x] 5.1 Bump to 0.4.1: `VERSION`, the README badge, and `metadata.version` in every `skills/*/SKILL.md`. Verify with `grep -rn '0\.4\.0' VERSION README.md skills/*/SKILL.md` (no hits) and `openspec schema validate specwright`.
 - [ ] 5.2 Run `python -m pytest evals/pr-pair evals/git-workflow evals/review-routes`; all green.
-- [ ] 5.3 Re-run the graded evals after the last `specwright-finish` edit (M2 lesson): `eval-finish-resume-merged-branch-gone`, `eval-finish-resume-squash-merged` and `eval-finish-resume-stale-main`, each graded with `evals/git-workflow/grade.py`; record pass/fail per assertion in the PR description.
+- [x] 5.3 Re-run the graded evals after the last `specwright-finish` edit (M2 lesson): `eval-finish-resume-merged-branch-gone`, `eval-finish-resume-squash-merged` and `eval-finish-resume-stale-main`, each graded with `evals/git-workflow/grade.py`; record pass/fail per assertion in the PR description.
 
 ## Workflow follow-up
 
