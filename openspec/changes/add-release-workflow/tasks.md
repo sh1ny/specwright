@@ -6,13 +6,13 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| releases → Releases are opt-in | Enabled project | evals/release/test_release.py | TestOptIn.test_enabled_runs | red |
-| releases → Releases are opt-in | Missing release block | evals/release/test_release.py | TestOptIn.test_missing_block_refuses | red |
-| releases → Version files agree before any write | All files agree | evals/release/test_release.py | TestCheck.test_all_agree | red |
-| releases → Version files agree before any write | One file disagrees | evals/release/test_release.py | TestCheck.test_one_disagrees | red |
-| releases → Version files agree before any write | A pattern matches nothing or twice | evals/release/test_release.py | TestCheck.test_zero_or_two_matches | red |
-| releases → Version files agree before any write | Backfill checks the release commit | evals/release/test_release.py | TestCheck.test_status_reads_release_commit | red |
-| releases → Version files agree before any write | A glob matches no file | evals/release/test_release.py | TestCheck.test_empty_glob | red |
+| releases → Releases are opt-in | Enabled project | evals/release/test_release.py | TestOptIn.test_enabled_runs | green |
+| releases → Releases are opt-in | Missing release block | evals/release/test_release.py | TestOptIn.test_missing_block_refuses | green |
+| releases → Version files agree before any write | All files agree | evals/release/test_release.py | TestCheck.test_all_agree | green |
+| releases → Version files agree before any write | One file disagrees | evals/release/test_release.py | TestCheck.test_one_disagrees | green |
+| releases → Version files agree before any write | A pattern matches nothing or twice | evals/release/test_release.py | TestCheck.test_zero_or_two_matches | green |
+| releases → Version files agree before any write | Backfill checks the release commit | evals/release/test_release.py | TestCheck.test_status_reads_release_commit | green |
+| releases → Version files agree before any write | A glob matches no file | evals/release/test_release.py | TestCheck.test_empty_glob | green |
 | releases → Bump writes one commit across the version files | Minor bump | evals/release/test_release.py | TestBump.test_minor_bump_rewrites_only_versions | red |
 | releases → Bump writes one commit across the version files | Target not greater | evals/release/test_release.py | TestBump.test_target_not_greater | red |
 | releases → Bump writes one commit across the version files | Interrupted bump is completed | evals/release/test_release.py | TestBump.test_interrupted_bump_completes | red |
@@ -21,7 +21,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → The release commit is found on main | Merge-commit change | evals/release/test_release.py | TestReleaseCommit.test_merge_commit | red |
 | releases → The release commit is found on main | Version not on main | evals/release/test_release.py | TestReleaseCommit.test_not_on_main | red |
 | releases → Rebase-merged releases are refused | Rebase-merged bump | evals/release/test_release.py | TestReleaseCommit.test_rebase_commit_refused | red |
-| releases → Rebase-merged releases are refused | Rebase merge method configured | evals/release/test_release.py | TestOptIn.test_rebase_method_refused | red |
+| releases → Rebase-merged releases are refused | Rebase merge method configured | evals/release/test_release.py | TestOptIn.test_rebase_method_refused | green |
 | releases → Notes list the changes merged since the previous release | One change in the range | evals/release/test_release.py | TestNotes.test_one_change | red |
 | releases → Notes list the changes merged since the previous release | Several changes in the range | evals/release/test_release.py | TestNotes.test_several_changes_in_order | red |
 | releases → Notes list the changes merged since the previous release | No change in the range | evals/release/test_release.py | TestNotes.test_empty_range | red |
@@ -67,7 +67,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 ## 2. release.sh: settings, check and bump
 
 - [x] 2.1 Create `evals/release/` with a `fixtures.py` that builds a temp repo with version files, a local bare `origin` and helpers for squash, merge-commit and rebase-style histories. Write failing tests for `TestOptIn` (all three) and `TestCheck` (all five), and verify they fail because `skills/specwright-release/scripts/release.sh` does not exist.
-- [ ] 2.2 Implement `release.sh` (a bash entry with a Python standard-library body, like `pr-pair.sh`; copy the YAML subset reader from `pr-pair.sh:287-409`).
+- [x] 2.2 Implement `release.sh` (a bash entry with a Python standard-library body, like `pr-pair.sh`; copy the YAML subset reader from `pr-pair.sh:287-409`).
   - Settings: `release.enabled`, `version_files`, `tag`, `github_release`, `auto`, and the refusal of `pr.merge_method: rebase`.
   - JSON output and exit codes per design D9.
   - `check` reads the working tree. The release-commit reader uses `ls-tree` and `show`.
