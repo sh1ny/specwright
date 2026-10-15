@@ -48,7 +48,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 - Every user-visible change bumps the version: `VERSION`, the README badge and `metadata.version` in every `skills/*/SKILL.md`, together.
 - Before 1.0: bump the minor version (0.x.0) for a new feature, configuration key or workflow change, and the patch version (0.x.y) for a fix. 1.0 is the maintainer's call.
 - Any change to the install prompt is a release, because users copy it from the README of `main`. Keep the prompt safe to re-run over every earlier version.
-- An OpenSpec upgrade updates `OPENSPEC_VERSION`, the badge, the pinned version above, the versioned install commands in the README (prerequisites and install Step 1) and the README's "forked from `spec-driven` (1.14.1)" note in the same change. `TestOpenSpecPin` in `evals/git-workflow/test_instructions.py` fails while any of them disagrees with `OPENSPEC_VERSION`.
+- An OpenSpec upgrade updates `OPENSPEC_VERSION`, the badge, the pinned version above, the versioned install commands in the README (prerequisites and install Step 1), the README's "forked from `spec-driven` (1.14.1)" note and every other README line that spells out the pinned version (the OpenSpec version note, Step 1's comparison, Step 3's example and the Stores note) in the same change. `TestOpenSpecPin` in `evals/git-workflow/test_instructions.py` fails while any of them disagrees with `OPENSPEC_VERSION`.
 
 ## Reviews
 

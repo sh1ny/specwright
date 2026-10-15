@@ -1189,6 +1189,11 @@ def pin_drift(readme, contributing, pin):
         for m in re.finditer(r"`spec-driven`\s*\((\d[^)\s]*)\)", text):
             if m.group(1) != pin:
                 name(fname, text, m.start())
+        # Prose that spells the pin out: Step 1's comparison, the override note and report, examples, Stores note.
+        for m in re.finditer(r"(?:\bnot\s+|`OPENSPEC_VERSION`,\s+|\(pinned\s+|\ba\s+pin\s+of\s+|pinned\s+OpenSpec,\s+)"
+                             r"(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=[\s,)])", text):
+            if m.group(1) != pin:
+                name(fname, text, m.start(1))
         # Python 3.8 and gh 2.40 are two-part; an OpenSpec version is three-part.
         for m in re.finditer(r"\d+\.\d+\.\d+\s+or\s+later", text):
             name(fname, text, m.start())
@@ -1217,6 +1222,24 @@ class TestOpenSpecPin(unittest.TestCase):
         self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", readme.splitlines()[line - 1])
         self.assertTrue(any(d.startswith(f"README.md:{line}:") for d in drift),
                         f"a pin bumped only in OPENSPEC_VERSION does not name README line {line}: {drift}")
+
+    def test_pin_drift_names_every_literal_pin_mention(self):
+        # Prose that spells the pin out (not only install commands) goes stale on an upgrade too.
+        pin, readme = openspec_pin(), read(README)
+        drift = pin_drift(readme, read(CONTRIBUTING), "0.0.0")
+        lines, v = readme.splitlines(), re.escape(pin)
+        for label, pat in (("Step 1 comparison", rf"not\s+{v}\s+\(the\s+pin"), ("override note", rf"OPENSPEC_VERSION`,\s+{v}\)"),
+                           ("override report", rf"\(pinned\s+{v},\s+override\)"), ("Step 3 example", rf"a\s+pin\s+of\s+{v}"),
+                           ("Stores note", rf"pinned\s+OpenSpec,\s+{v}\)")):
+            n = next((i for i, l in enumerate(lines, 1) if re.search(pat, l)), None)
+            self.assertTrue(n, f"the README has no {label} naming {pin}; update this test")
+            self.assertTrue(any(d.startswith(f"README.md:{n}:") for d in drift),
+                            f"a stale {label} (README line {n}) is not named: {drift}")
+
+    def test_upgrade_rule_names_pin_prose(self):
+        contributing = read(CONTRIBUTING)
+        rule = next(l for l in contributing.splitlines() if "OpenSpec upgrade" in l)
+        self.assertRegex(rule, r"(?i)every\s+.{0,40}mention|spells?\s+out", "the upgrade rule does not cover pin prose")
 
     # Install prompt: the version check (Step 1 records, Step 3 compares before Step 4 writes).
 
@@ -1337,6 +1360,12 @@ class TestOpenSpecPin(unittest.TestCase):
         self.assertRegex(b, r"(?is)(different|another|other)\s+version.{0,120}\bnot\b.{0,20}override",
                          "an override naming another version is not ruled out")
         self.assertRegex(b, r"(?is)as\s+on\s+a\s+mismatch", "an override for another version does not stop as on a mismatch")
+
+    def test_override_in_reply_downloads_again(self):
+        # The mismatch stop deletes the temporary directory, so a later override must fetch it again.
+        b = self.override()
+        self.assertRegex(b, r"(?is)reply.{0,200}(clone|download).{0,40}again|(clone|download).{0,40}again.{0,200}reply",
+                         "an override given in a reply does not download the copy again")
 
 
 if __name__ == "__main__":

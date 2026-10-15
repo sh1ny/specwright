@@ -136,9 +136,12 @@ Step 3 - Download and compare versions
   confirmation ("yes, go ahead") is not an override: write no file, and
   ask the user to install <pin> or to state the override with the found
   version. An override naming a different version is not an override:
-  STOP as on a mismatch, naming `<found>`. The override holds for this run
-  only: nothing is stored, and the next run checks again. With it, record
-  `OpenSpec <found> (pinned <pin>, override)` for Step 8.
+  STOP as on a mismatch, naming `<found>`. An override given in a reply
+  after the mismatch stop comes after the temporary directory was deleted:
+  clone the repository again, as at the start of this step, and run this
+  step's checks on the new copy with the override in force. The override holds
+  for this run only: nothing is stored, and the next run checks again. With
+  it, record `OpenSpec <found> (pinned <pin>, override)` for Step 8.
 
 Step 4 - Install files (track new vs updated)
 - In every chosen skills directory, replace each `specwright-*` directory
