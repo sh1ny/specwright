@@ -16,8 +16,12 @@
 #                                     JSON: version, tag, release_commit, main, files, previous {commit, version, basis:
 #                                     tag|history|null}, range {from, to, commits}, changes [{name, why, pr}], notes (text for
 #                                     the tag annotation and the release body), tag_local (sha the local tag points at, or
-#                                     null), repo and tag_repo (the code repo: the only one ever tagged), store (with --store).
-#                                     Remote tag and GitHub release state belong to publish (a later group), not to this view.
+#                                     null), tag_remote (the commit the tag points at on origin, from one read-only
+#                                     `git ls-remote --tags origin`, or null; also null with no origin remote; an unreadable
+#                                     origin is exit 3, remote_tags_unreadable), repo and tag_repo (the code repo: the only one
+#                                     ever tagged), github_release (existing|absent from a read-only `gh release view <tag>
+#                                     --repo o/n`; disabled when release.github_release is false, not_github when origin is not
+#                                     on github.com; any other gh failure is exit 3, release_view_failed), store (with --store).
 #                                     Notes: repo-local = archive dirs added in (previous release commit, release commit];
 #                                     with --store = the store main's archive dirs (not code_changes: none) whose code-merge
 #                                     proof is in that range: `merge: <name>` subject (finish: local) or a merged PR from the
@@ -27,7 +31,18 @@
 #                                     only the current version) that have no local tag, oldest first:
 #                                     {latest_tagged, untagged: [{version, tag, release_commit}]}
 #   publish --version V [--main ref] [--store ...]
-#                                     opt-in, merge-method, release-commit and older-untagged gates only for now
+#                                     after the opt-in, merge-method, release-commit, agreement and older-untagged gates, reads
+#                                     the tag locally and on origin (ls-remote) and does only what is missing: annotated tag on
+#                                     the release commit (notes = its message), `git push origin refs/tags/<tag>:refs/tags/<tag>`
+#                                     (never --tags, --force or a branch), then `gh release create --verify-tag` (body = the
+#                                     tag's message) when release.github_release is on and origin is on github.com. A tag at
+#                                     another commit, locally or on origin, is exit 1 tag_conflict before any write. Unreadable
+#                                     origin tags: exit 3 remote_tags_unreadable before any tag. A failed push: exit 3
+#                                     tag_push_failed (the local tag stays; a re-run pushes it; no release is created). A failed
+#                                     release: exit 3 release_create_failed (the tag stays on origin; a re-run creates only the
+#                                     release). JSON: ok, version, tag, release_commit, tag_local created|existing|fetched,
+#                                     tag_remote pushed|existing, github_release created|existing|disabled|not_github,
+#                                     release_url (when created), notes, repo, tag_repo, store (with --store).
 # Settings (openspec/specwright.yaml): release.enabled (default false), release.version_files (path or glob ->
 # regex with one capture group; the first entry is the primary file), release.tag (v{version}),
 # release.github_release (true), release.auto (false), pr.merge_method (rebase is refused with releases on).
@@ -53,6 +68,7 @@ import sys
 import tempfile
 
 ENV = dict(os.environ)
+ENV.setdefault("GIT_TERMINAL_PROMPT", "0")
 
 
 class Stop(Exception):
@@ -838,14 +854,19 @@ def code_slug(st):
     return f"{m.group(1)}/{m.group(2)}"
 
 
+def gh_run(st, *args):
+    """`gh <args>` in the code repo with GH_REPO unset (the repo is always named by the call). Through bash, so a shell-script
+    gh (a shim) runs on Windows too."""
+    env = {k: v for k, v in ENV.items() if k != "GH_REPO"}
+    return run([BASH, "-c", 'exec gh "$@"', "gh", *args] if BASH else ["gh", *args], cwd=st.root, env=env)
+
+
 def merged_pulls(st, ref):
     """One paginated gh call for the closed PRs into the code main; exit 3 when it fails."""
     slug = code_slug(st)
     branch = ref[len("origin/"):] if ref.startswith("origin/") else ref
     url = f"repos/{slug}/pulls?state=closed&base={branch}&per_page=100"
-    env = {k: v for k, v in ENV.items() if k != "GH_REPO"}
-    cmd = [BASH, "-c", 'exec gh "$@"', "gh", "api", "--paginate", url] if BASH else ["gh", "api", "--paginate", url]
-    r = run(cmd, cwd=st.root, env=env)
+    r = gh_run(st, "api", "--paginate", url)
     shown = f"gh api --paginate {url}"
     if r.returncode != 0:
         raise Stop("pr_discovery_failed", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}", code=3, call=shown)
@@ -942,11 +963,37 @@ def refuse_older_untagged(st, rel, tags, v):
                    f"(tag {tag_for(st, older[0])}) before {v}", versions=older)
 
 
-def cmd_status(st, a):
+def origin_url(st):
+    r = git(st.root, "config", "--get", "remote.origin.url")
+    return text_of(r) if r.returncode == 0 and text_of(r) else None
+
+
+def remote_tag(st, tag):
+    """The commit `tag` points at on origin (the peeled commit of an annotated tag), or None; exit 3 when origin cannot be read.
+    With no origin remote there is nothing to read: None."""
+    if origin_url(st) is None:
+        return None
+    r = git(st.root, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
+    if r.returncode != 0:
+        shown = f"git ls-remote --tags origin refs/tags/{tag}"
+        raise Stop("remote_tags_unreadable", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; no tag was written",
+                   code=3, call=shown)
+    obj = peeled = None
+    for line in text_of(r).splitlines():
+        sha, _, name = line.partition("\t")
+        if name == f"refs/tags/{tag}":
+            obj = sha
+        elif name == f"refs/tags/{tag}^{{}}":
+            peeled = sha
+    return (peeled or obj) if obj else None
+
+
+def status_doc(st, a, loaded=None, release=True):
+    """Everything status reports, for one version: the release commit, notes, previous release, local and remote tag."""
     v = a.get("version")
     if not v:
-        usage("status needs --version")
-    entries, ref, rel = load_main(st, a)
+        usage(f"{a.get('_cmd', 'status')} needs --version")
+    entries, ref, rel = loaded or load_main(st, a)
     sha = release_commit_of(st, entries, ref, rel, v)
     shared, files = agree(CommitTree(st.root, sha), entries)
     if shared != v:
@@ -968,13 +1015,16 @@ def cmd_status(st, a):
         c["why"] = None
     tag = tag_for(st, v)
     tl = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
-    # Remote and GitHub-release state (origin tag, gh release) come with publish in a later group; this document is the local view.
     return {"ok": True, "version": v, "tag": tag, "release_commit": sha, "main": ref, "files": files,
             "previous": {"commit": prev_sha, "version": prev[0] if prev else None, "basis": prev[2] if prev else None},
             "range": {"from": prev_sha, "to": sha, "commits": len(rng)},
             "changes": changes, "notes": build_notes(tag, changes),
-            "tag_local": text_of(tl) if tl.returncode == 0 else None,
-            "repo": st.root, "tag_repo": st.root, **({"store": info} if info else {})}
+            "tag_local": text_of(tl) if tl.returncode == 0 else None, "tag_remote": remote_tag(st, tag),
+            **({"github_release": release_state(st, tag)[0]} if release else {}), "repo": st.root, "tag_repo": st.root, **({"store": info} if info else {})}
+
+
+def cmd_status(st, a):
+    return status_doc(st, a)
 
 
 def cmd_untagged(st, a):
@@ -985,15 +1035,116 @@ def cmd_untagged(st, a):
             "untagged": [{"version": u, "tag": tag_for(st, u), "release_commit": rel.first[u]} for u in versions]}
 
 
+def tag_message(st, tag):
+    r = git(st.root, "tag", "-l", "--format=%(contents)", tag)
+    if r.returncode != 0:
+        raise Stop("git_failed", f"git tag -l {tag} failed: {err_of(r)}", code=3)
+    return r.stdout.decode("utf-8", "surrogateescape").rstrip("\n") + "\n"
+
+
+def with_file(text, fn):
+    """Run fn(path) with `text` in a temp file that is removed afterwards."""
+    fd, path = tempfile.mkstemp(prefix=".release-notes-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(text.encode("utf-8", "surrogateescape"))
+        return fn(path)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def release_state(st, tag):
+    """The GitHub release of `tag`: (state, slug) with state existing | absent | disabled | not_github. A read-only
+    `gh release view`; "release not found" is absent, any other failure is exit 3 (release_view_failed)."""
+    if not st.github_release:
+        return "disabled", None
+    m = GH_URL.match(origin_url(st) or "")
+    if not m:
+        return "not_github", None
+    slug = f"{m.group(1)}/{m.group(2)}"
+    r = gh_run(st, "release", "view", tag, "--repo", slug)
+    if r.returncode == 0:
+        return "existing", slug
+    if "release not found" in err_of(r).lower():
+        return "absent", slug
+    shown = f"gh release view {tag} --repo {slug}"
+    raise Stop("release_view_failed", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; a re-run of publish resumes",
+               code=3, call=shown)
+
+
+def github_release(st, tag):
+    """D6 step 4. Returns (state, url): created | existing | disabled | not_github."""
+    state, slug = release_state(st, tag)
+    if state == "absent":
+        shown = f"gh release create {tag} --repo {slug} --verify-tag"
+        r = with_file(tag_message(st, tag), lambda path: gh_run(st, "release", "create", tag, "--repo", slug, "--verify-tag",
+                                                               "--title", tag, "--notes-file", path))
+        if r.returncode == 0:
+            out = text_of(r).splitlines()
+            return "created", out[-1] if out else None
+        if "already exists" in err_of(r).lower() and release_state(st, tag)[0] == "existing":  # another session won the race
+            return "existing", None
+        raise Stop("release_create_failed", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; the tag {tag} is on "
+                   "origin, a re-run creates only the release", code=3, call=shown)
+    return state, None
+
+
 def cmd_publish(st, a):
     st.gate(rebase=True)
     v = a.get("version")
     if not v:
         usage("publish needs --version")
-    entries, ref, rel = load_main(st, a)
+    loaded = load_main(st, a)
+    entries, ref, rel = loaded
     release_commit_of(st, entries, ref, rel, v)
     refuse_older_untagged(st, rel, local_tags(st), v)
-    raise Stop("not_implemented", "publish is not implemented yet")
+    doc = status_doc(st, {**a, "_cmd": "publish"}, loaded, release=False)  # agreement at the release commit, notes, local and remote tag
+    tag, sha, notes = doc["tag"], doc["release_commit"], doc["notes"]
+    if origin_url(st) is None:
+        raise Stop("no_origin", "publish needs an origin remote to push the tag to")
+    local, remote = doc["tag_local"], doc["tag_remote"]
+    for where, at in (("locally", local), ("on origin", remote)):
+        if at and at != sha:
+            raise Stop("tag_conflict", f"tag {tag} already points at {at} {where}, but the release commit for {v} is {sha}; "
+                       "nothing was written. Fix the tag by hand: publish never moves, deletes or forces a tag",
+                       tag=tag, tag_commit=at, release_commit=sha, where=where)
+    # D6: read each step's state, do only what is missing
+    if local:
+        tag_local = "existing"
+    elif remote:
+        r = git(st.root, "fetch", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        if r.returncode != 0:
+            raise Stop("tag_fetch_failed", f"git fetch origin refs/tags/{tag}:refs/tags/{tag} failed: {err_of(r)}; a re-run retries",
+                       code=3, call=f"git fetch origin refs/tags/{tag}")
+        tag_local = "fetched"
+    else:
+        def create(path):
+            return git(st.root, "tag", "-a", "--cleanup=verbatim", "-F", path, tag, sha)
+        r = with_file(notes + "\n", create)
+        if r.returncode != 0:
+            raise Stop("tag_create_failed", f"git tag -a {tag} failed: {err_of(r)} (the tagger is git's committer identity)", code=3,
+                       call=f"git tag -a {tag}")
+        tag_local = "created"
+    if remote:
+        tag_remote = "existing"
+    else:
+        r = git(st.root, "push", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        if r.returncode != 0:
+            raise Stop("tag_push_failed", f"git push origin refs/tags/{tag}:refs/tags/{tag} failed: {err_of(r) or 'exit ' + str(r.returncode)}; "
+                       f"the local tag {tag} exists and a re-run pushes it; no GitHub release was created", code=3,
+                       call=f"git push origin refs/tags/{tag}")
+        tag_remote = "pushed"
+    gh_state, url = github_release(st, tag)
+    out = {"ok": True, "version": v, "tag": tag, "release_commit": sha, "tag_local": tag_local, "tag_remote": tag_remote,
+           "github_release": gh_state, "notes": tag_message(st, tag).rstrip("\n"), "repo": st.root, "tag_repo": st.root}
+    if url:
+        out["release_url"] = url
+    if "store" in doc:
+        out["store"] = doc["store"]
+    return out
 
 
 STORE_OPTS = {"--store": "store", "--store-main": "store-main", "--store-prefix": "store-prefix"}
