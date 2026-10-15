@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.4.1-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.4.2-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -41,7 +41,9 @@ flowchart LR
 
 ## ⚡ Install / Update
 
-> **Prerequisites:** core: the OpenSpec CLI (`npm i -g @fission-ai/openspec`), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
+> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.14.1`), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
+
+> **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.14.1) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.14.1, override)`.
 
 Copy the prompt below and paste it into your coding agent. **The same prompt installs and updates.**
 
@@ -54,8 +56,9 @@ not assume answers. Every step is safe to repeat, so re-running this prompt
 also repairs an interrupted or partial install.
 
 Step 1 - Check prerequisites
-- Run `openspec --version`. If it fails, tell the user to install it
-  (`npm i -g @fission-ai/openspec`) and STOP.
+- Run `openspec --version` and record its output (Step 3 checks it). If
+  it fails, tell the user to install the pinned version
+  (`npm i -g @fission-ai/openspec@1.14.1`) and STOP.
 - Core: run `git --version` and `bash -c 'command -v awk sed grep'`. If
   either fails, tell the user to install git, or bash with a POSIX userland
   (Git Bash on Windows), and STOP.
@@ -69,11 +72,20 @@ Step 1 - Check prerequisites
 - Run `openspec list --json` in the code checkout and read `root`.
   - `"root": null`: if the error names this project's `openspec/config.yaml`
     (it starts with `Declared in` or `Invalid store declaration in`), show
-    its message and fix and STOP. Otherwise tell the user to run
+    its message and fix and STOP. Otherwise, if the version recorded
+    above (the first
+    `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?` token in
+    the output, as Step 3 takes it) is not 1.14.1 (the pin this prompt
+    installs), an unpinned OpenSpec may not resolve a store: name the
+    version found, tell the user to run
+    `npm i -g @fission-ai/openspec@1.14.1` and rerun this prompt, write
+    no file, and STOP. Do not suggest `openspec init` then:
+    in a store-backed project it would create a root that overrides the
+    store. Only with the pinned version, tell the user to run
     `openspec init` first and STOP.
   - Otherwise `<root>` below means `root.path`. It is the code checkout
-    for a repo-local project, or a store checkout (OpenSpec stores, 1.14.1
-    or later) elsewhere. Say which.
+    for a repo-local project, or a store checkout (OpenSpec stores, with the
+    pinned OpenSpec) elsewhere. Say which.
 - The schema and `config.yaml` go in `<root>/openspec/`. `specwright.yaml`,
   `.specwright/VERSION`, skills and agents go in the code checkout. When
   `<root>` is not the code checkout, never create `openspec/specs/`,
@@ -91,10 +103,49 @@ Ask which agents this project uses (several may apply) and confirm the paths:
 Step 3 - Download and compare versions
 - Clone https://github.com/sh1ny/specwright to a temporary directory
   (`git clone --depth 1`, or any other method that works).
-- Read the downloaded `VERSION` and the installed
+- Read the downloaded `VERSION` and `OPENSPEC_VERSION` (`<pin>`, the
+  OpenSpec version this release is checked against) and the installed
   `openspec/.specwright/VERSION` (missing = fresh install, or an earlier
   install that did not finish). Tell the user which applies: fresh install,
-  update from <old> to <new>, or reinstall of <new>. Continue in every case.
+  update from <old> to <new>, or reinstall of <new>.
+- Check OpenSpec against the pin, before Step 4 writes anything: run
+  `openspec --version` again and take `<found>`, the first token in its
+  output matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`.
+  Compare the whole token, pre-release suffix and build metadata included,
+  with `<pin>` as strings: only an exact match passes.
+  Against a pin of 1.14.1, 1.14.2, 1.14.1-beta.1 and 1.14.1+vendor.1 are
+  each a mismatch.
+  - Exact match: record `OpenSpec <found> (pinned)` for Step 8 and
+    continue.
+  - Mismatch: unless the override below applies, STOP before Step 4.
+    Name `<found>` and `<pin>`, and tell the user to run
+    `npm i -g @fission-ai/openspec@<pin>` and rerun this prompt. Say that
+    the documented override exists (`continue with OpenSpec <found>`)
+    without recommending it. Delete the temporary directory and write no
+    file.
+  - Output with no version number in it: show the raw output, then handle
+    it as a mismatch that no override can apply to (STOP before Step 4,
+    with `<found>` as unreadable, `<pin>` and
+    `npm i -g @fission-ai/openspec@<pin>`; delete the temporary directory
+    and write no file).
+  - No `OPENSPEC_VERSION` in the downloaded copy, or an empty one: say
+    the downloaded copy names no pinned OpenSpec version, and STOP before
+    Step 4, with no override (name `<found>`, `<pin>` as unknown and
+    `npm i -g @fission-ai/openspec@<pin>` with the pin from Step 1's
+    install command; delete the temporary directory and write no file).
+- Override: after a mismatch, continue to Step 4 only if the user has
+  said in their own words, in the request or in a reply,
+  `continue with OpenSpec <found>`, naming the version found. Never offer
+  it as a default or recommend it, and never infer it. A plain or general
+  confirmation ("yes, go ahead") is not an override: write no file, and
+  ask the user to install <pin> or to state the override with the found
+  version. An override naming a different version is not an override:
+  STOP as on a mismatch, naming `<found>`. An override given in a reply
+  after the mismatch stop comes after the temporary directory was deleted:
+  clone the repository again, as at the start of this step, and run this
+  step's checks on the new copy with the override in force. The override holds
+  for this run only: nothing is stored, and the next run checks again. With
+  it, record `OpenSpec <found> (pinned <pin>, override)` for Step 8.
 
 Step 4 - Install files (track new vs updated)
 - In every chosen skills directory, replace each `specwright-*` directory
@@ -187,7 +238,9 @@ is a store, list the files this install left uncommitted there (by path,
 from `git status --porcelain` in the store) and say the user commits them in
 the store; this prompt never commits. Tell the user that new skills and
 agent definitions load only in a new agent session started after this
-install: start one before relying on them. If Step 1 recorded a missing
+install: start one before relying on them. Report the OpenSpec version
+as recorded in Step 3: `OpenSpec <found> (pinned)`, or
+`OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1 recorded a missing
 PR prerequisite, add the line `PR workflow not ready: <missing>` (for
 example `PR workflow not ready: gh 2.40+`).
 ```
@@ -319,7 +372,7 @@ Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 2
 
 ## 🗄️ Stores
 
-Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) (OpenSpec 1.14.1 or later): planning kept in a standalone repo registered on the machine (`openspec store setup` / `openspec store register <path> --id <id>`), while the code lives in its own repo.
+Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) (with the pinned OpenSpec, 1.14.1): planning kept in a standalone repo registered on the machine (`openspec store setup` / `openspec store register <path> --id <id>`), while the code lives in its own repo.
 
 - **Which root is used.** Every skill reads `root.path` from `openspec list --json` and never assumes `./openspec/`. OpenSpec resolves it from a `store: <id>` pointer in the code repo's `openspec/config.yaml`, the global `defaultStore` (`openspec config set defaultStore <id>`), or `--store <id>` on a command. Prefer the pointer or `defaultStore`: a `--store`-only session is not seen by a later session without the flag. A root in another git repository is a store; a root in the code repo (top level or a nested folder) is repo-local and works as before.
 - **One change in progress per store per machine.** OpenSpec registers one checkout per store, so a store on another change's branch is busy: the branch gate stops and names that branch. Finish or archive that change first. The gate itself holds a lock (`specwright-gate.lock` in the store's git dir) while it creates both branches; a lock left by an interrupted session is removed only after you confirm no other session is in its gate.

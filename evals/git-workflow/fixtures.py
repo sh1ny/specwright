@@ -105,6 +105,21 @@ def install_fake_gh(dest):
     env_file(dest, FAKE_GH_STATE=posix(dest / "gh-state.json"), FAKE_GH_LOG=posix(dest / "gh-log.jsonl"))
 
 
+def install_fake_openspec(dest, version):
+    """Put an openspec on the fixture's PATH that reports `version` for --version and otherwise runs the real CLI.
+    The real CLI's absolute path is resolved now, before <dest>/bin is on PATH; on Windows the npm shim's
+    extensionless sh twin is used, since sh cannot exec openspec.cmd."""
+    real = shutil.which("openspec")
+    if not real:
+        raise SystemExit("install_fake_openspec: the openspec CLI is not on PATH")
+    real = Path(real)
+    if real.suffix.lower() in (".cmd", ".bat", ".ps1") and real.with_suffix("").is_file():
+        real = real.with_suffix("")
+    write(dest, "bin/openspec", f'#!/bin/sh\nif [ "$1" = "--version" ]; then echo "{version}"; exit 0; fi\n'
+                                f'exec "{posix(real)}" "$@"\n')
+    (dest / "bin" / "openspec").chmod(0o755)
+
+
 def code_repo(code, store_id="team-plans", pointer=True, settings="finish: local\n"):
     """The project repo: Specwright settings, an optional config.yaml pointing at the store
     (otherwise the store is the global defaultStore) and the tiny project. No openspec specs/changes."""
@@ -1093,6 +1108,9 @@ def build(name, repo):
         return build_finish_resume_merged(repo, squash=name.endswith("squash-merged"))
     if name == "eval-finish-resume-stale-main":
         return build_finish_resume_stale_main(repo)
+    if name in ("eval-install-openspec-mismatch", "eval-install-openspec-override"):
+        install_base(repo, "store")
+        return install_fake_openspec(repo, "1.15.0")
     if name.startswith("eval-install-"):
         return install_base(repo, {"eval-install-store": "store", "eval-install-store-other-schema": "other-schema",
                                    "eval-install-nested-store": "nested"}[name])

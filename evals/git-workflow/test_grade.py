@@ -332,5 +332,50 @@ class FinishResumeMerged(unittest.TestCase):
         self.assertIn("Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)", self.failed(res))
 
 
+class InstallOpenSpecPin(unittest.TestCase):
+    """eval-install-openspec-mismatch / -override: the refusal grades a run that wrote nothing, the override its report line."""
+
+    def fixture(self, name):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name) / "repo"
+        fixtures.build(name, repo)
+        return repo
+
+    def results(self, name, repo, report):
+        return {t: ok for t, ok, _ in grade.check_install(name, repo, repo / "code", repo / "store", report.lower())}
+
+    def assertions(self, name):
+        evals = json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]
+        return next(e["assertions"] for e in evals if e["name"] == name)
+
+    def test_refusal_that_writes_nothing_passes_every_check(self):
+        repo = self.fixture("eval-install-openspec-mismatch")
+        res = self.results("eval-install-openspec-mismatch", repo,
+                           "Stopped before Step 4: OpenSpec 1.15.0 is installed, but this release is pinned to 1.14.1. "
+                           "Run npm i -g @fission-ai/openspec@1.14.1 and rerun the prompt. No file was written.")
+        self.assertEqual(sorted(res), sorted(self.assertions("eval-install-openspec-mismatch")))
+        self.assertTrue(all(res.values()), [t for t, ok in res.items() if not ok])
+
+    def test_refusal_that_installs_anyway_fails(self):
+        repo = self.fixture("eval-install-openspec-mismatch")
+        fixtures.write(repo / "code", ".claude/skills/specwright-commit/SKILL.md", "x\n")
+        fixtures.write(repo / "code", "openspec/.specwright/VERSION", "0.4.2\n")
+        res = self.results("eval-install-openspec-mismatch", repo, "Installation complete. Specwright 0.4.2 installed.")
+        for t in ("No skill, agent, schema or specwright.yaml was written in either repo, and both trees are unchanged",
+                  "openspec/.specwright/VERSION is absent", "The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1",
+                  "The report does not say the install completed"):
+            self.assertFalse(res[t], t)
+
+    def test_override_report_line_is_checked(self):
+        repo = self.fixture("eval-install-openspec-override")
+        name, line = "eval-install-openspec-override", "The report shows OpenSpec 1.15.0 (pinned 1.14.1, override)"
+        # the install-store checks plus the override line (evals.json words the inherited ones as eval-install-store does)
+        self.assertEqual(sorted(self.results(name, repo, "")), sorted([*self.results("eval-install-store", repo, ""), line]))
+        self.assertEqual(self.assertions(name), [*self.assertions("eval-install-store"), line])
+        self.assertFalse(self.results(name, repo, "OpenSpec 1.15.0 (pinned)")[line])
+        self.assertTrue(self.results(name, repo, "OpenSpec 1.15.0 (pinned 1.14.1, override)")[line])
+
+
 if __name__ == "__main__":
     unittest.main()
