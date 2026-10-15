@@ -18,13 +18,13 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 | install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/test_instructions.py | test_override_requires_found_version_and_is_reported | red |
 | install-update → Explicit override of the OpenSpec pin | General confirmation is not an override | evals/git-workflow/test_instructions.py | test_general_confirmation_is_not_override | red |
 | install-update → Explicit override of the OpenSpec pin | Override names another version | evals/git-workflow/test_instructions.py | test_override_for_other_version_stops | red |
-| install-update → Public install commands name the pinned version | Commands match the pin | evals/git-workflow/test_instructions.py | test_install_commands_and_badge_match_pin | red |
-| install-update → Public install commands name the pinned version | Pin bumped in one place only | evals/git-workflow/test_instructions.py | test_pin_drift_names_disagreeing_line | red |
+| install-update → Public install commands name the pinned version | Commands match the pin | evals/git-workflow/test_instructions.py | test_install_commands_and_badge_match_pin | green |
+| install-update → Public install commands name the pinned version | Pin bumped in one place only | evals/git-workflow/test_instructions.py | test_pin_drift_names_disagreeing_line | green |
 
 ## 1. Pin file and public install commands
 
 - [x] 1.1 Add `TestOpenSpecPin` with `test_install_commands_and_badge_match_pin` and `test_pin_drift_names_disagreeing_line`. Put the drift check in a helper that takes the README and CONTRIBUTING text and the pin, and returns the disagreeing lines: every `npm i -g @fission-ai/openspec` must carry `@<pin>`, the badge must read `OpenSpec-<pin>`, the "forked from `spec-driven` (<pin>)" note must name the pin, and no "OpenSpec ... or later" claim may remain. The drift test feeds the helper the real README with the pin swapped to `1.15.0` and asserts that the README line is named. Run `python -m unittest discover evals/git-workflow -p "test_instructions.py" -k TestOpenSpecPin` and confirm both fail because `OPENSPEC_VERSION` is missing and the commands are unversioned.
-- [ ] 1.2 Add `OPENSPEC_VERSION` (`1.14.1` and a newline) at the repo root. Version the install commands in the README prerequisites (`README.md:44`) and Step 1 (`README.md:57-58`) as `npm i -g @fission-ai/openspec@1.14.1`. Change both store notes (`README.md:75`, `:322`) from "1.14.1 or later" to the pinned version. Extend the `CONTRIBUTING.md:51` upgrade rule to `OPENSPEC_VERSION` and the install commands. Verify that both 1.1 tests pass, and flip their rows to green.
+- [x] 1.2 Add `OPENSPEC_VERSION` (`1.14.1` and a newline) at the repo root. Version the install commands in the README prerequisites (`README.md:44`) and Step 1 (`README.md:57-58`) as `npm i -g @fission-ai/openspec@1.14.1`. Change both store notes (`README.md:75`, `:322`) from "1.14.1 or later" to the pinned version. Extend the `CONTRIBUTING.md:51` upgrade rule to `OPENSPEC_VERSION` and the install commands. Verify that both 1.1 tests pass, and flip their rows to green.
 
 ## 2. Version check in the install prompt
 

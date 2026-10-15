@@ -41,7 +41,7 @@ flowchart LR
 
 ## ⚡ Install / Update
 
-> **Prerequisites:** core: the OpenSpec CLI (`npm i -g @fission-ai/openspec`), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
+> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.14.1`), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
 
 Copy the prompt below and paste it into your coding agent. **The same prompt installs and updates.**
 
@@ -55,7 +55,7 @@ also repairs an interrupted or partial install.
 
 Step 1 - Check prerequisites
 - Run `openspec --version`. If it fails, tell the user to install it
-  (`npm i -g @fission-ai/openspec`) and STOP.
+  (`npm i -g @fission-ai/openspec@1.14.1`) and STOP.
 - Core: run `git --version` and `bash -c 'command -v awk sed grep'`. If
   either fails, tell the user to install git, or bash with a POSIX userland
   (Git Bash on Windows), and STOP.
@@ -72,8 +72,8 @@ Step 1 - Check prerequisites
     its message and fix and STOP. Otherwise tell the user to run
     `openspec init` first and STOP.
   - Otherwise `<root>` below means `root.path`. It is the code checkout
-    for a repo-local project, or a store checkout (OpenSpec stores, 1.14.1
-    or later) elsewhere. Say which.
+    for a repo-local project, or a store checkout (OpenSpec stores, with the
+    pinned OpenSpec) elsewhere. Say which.
 - The schema and `config.yaml` go in `<root>/openspec/`. `specwright.yaml`,
   `.specwright/VERSION`, skills and agents go in the code checkout. When
   `<root>` is not the code checkout, never create `openspec/specs/`,
@@ -319,7 +319,7 @@ Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 2
 
 ## 🗄️ Stores
 
-Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) (OpenSpec 1.14.1 or later): planning kept in a standalone repo registered on the machine (`openspec store setup` / `openspec store register <path> --id <id>`), while the code lives in its own repo.
+Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) (with the pinned OpenSpec, 1.14.1): planning kept in a standalone repo registered on the machine (`openspec store setup` / `openspec store register <path> --id <id>`), while the code lives in its own repo.
 
 - **Which root is used.** Every skill reads `root.path` from `openspec list --json` and never assumes `./openspec/`. OpenSpec resolves it from a `store: <id>` pointer in the code repo's `openspec/config.yaml`, the global `defaultStore` (`openspec config set defaultStore <id>`), or `--store <id>` on a command. Prefer the pointer or `defaultStore`: a `--store`-only session is not seen by a later session without the flag. A root in another git repository is a store; a root in the code repo (top level or a nested folder) is repo-local and works as before.
 - **One change in progress per store per machine.** OpenSpec registers one checkout per store, so a store on another change's branch is busy: the branch gate stops and names that branch. Finish or archive that change first. The gate itself holds a lock (`specwright-gate.lock` in the store's git dir) while it creates both branches; a lock left by an interrupted session is removed only after you confirm no other session is in its gate.
