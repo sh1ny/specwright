@@ -43,6 +43,8 @@ flowchart LR
 
 > **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.14.1`), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
 
+> **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.14.1) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.14.1, override)`.
+
 Copy the prompt below and paste it into your coding agent. **The same prompt installs and updates.**
 
 ```text
@@ -111,18 +113,32 @@ Step 3 - Download and compare versions
   mismatch.
   - Exact match: record `OpenSpec <found> (pinned)` for Step 8 and
     continue.
-  - Mismatch: STOP before Step 4. Name `<found>` and `<pin>`, and tell the
-    user to run `npm i -g @fission-ai/openspec@<pin>` and rerun this
-    prompt. Delete the temporary directory and write no file.
+  - Mismatch: unless the override below applies, STOP before Step 4.
+    Name `<found>` and `<pin>`, and tell the user to run
+    `npm i -g @fission-ai/openspec@<pin>` and rerun this prompt. Say that
+    the documented override exists (`continue with OpenSpec <found>`)
+    without recommending it. Delete the temporary directory and write no
+    file.
   - Output with no version number in it: show the raw output, then handle
-    it as a mismatch (STOP before Step 4, with `<found>` as unreadable,
-    `<pin>` and `npm i -g @fission-ai/openspec@<pin>`; delete the
-    temporary directory and write no file).
+    it as a mismatch that no override can apply to (STOP before Step 4,
+    with `<found>` as unreadable, `<pin>` and
+    `npm i -g @fission-ai/openspec@<pin>`; delete the temporary directory
+    and write no file).
   - No `OPENSPEC_VERSION` in the downloaded copy, or an empty one: say
     the downloaded copy names no pinned OpenSpec version, and STOP before
-    Step 4 as on a mismatch (name `<found>`, `<pin>` as unknown and
+    Step 4, with no override (name `<found>`, `<pin>` as unknown and
     `npm i -g @fission-ai/openspec@<pin>` with the pin from Step 1's
     install command; delete the temporary directory and write no file).
+- Override: after a mismatch, continue to Step 4 only if the user has
+  said in their own words, in the request or in a reply,
+  `continue with OpenSpec <found>`, naming the version found. Never offer
+  it as a default or recommend it, and never infer it. A plain or general
+  confirmation ("yes, go ahead") is not an override: write no file, and
+  ask the user to install <pin> or to state the override with the found
+  version. An override naming a different version is not an override:
+  STOP as on a mismatch, naming `<found>`. The override holds for this run
+  only: nothing is stored, and the next run checks again. With it, record
+  `OpenSpec <found> (pinned <pin>, override)` for Step 8.
 
 Step 4 - Install files (track new vs updated)
 - In every chosen skills directory, replace each `specwright-*` directory
@@ -216,7 +232,8 @@ from `git status --porcelain` in the store) and say the user commits them in
 the store; this prompt never commits. Tell the user that new skills and
 agent definitions load only in a new agent session started after this
 install: start one before relying on them. Report the OpenSpec version
-as recorded in Step 3: `OpenSpec <found> (pinned)`. If Step 1 recorded a missing
+as recorded in Step 3: `OpenSpec <found> (pinned)`, or
+`OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1 recorded a missing
 PR prerequisite, add the line `PR workflow not ready: <missing>` (for
 example `PR workflow not ready: gh 2.40+`).
 ```

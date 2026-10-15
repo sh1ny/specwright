@@ -15,9 +15,9 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 | install-update → Install checks the OpenSpec version against the pin | Root check fails on an unpinned OpenSpec | evals/git-workflow/test_instructions.py | test_step1_root_failure_on_unpinned_cli_names_pin_not_init | green |
 | install-update → Install checks the OpenSpec version against the pin | OpenSpec missing | evals/git-workflow/test_instructions.py | test_step1_missing_openspec_names_pinned_install | green |
 | install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/evals.json | eval-install-openspec-override | red |
-| install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/test_instructions.py | test_override_requires_found_version_and_is_reported | red |
-| install-update → Explicit override of the OpenSpec pin | General confirmation is not an override | evals/git-workflow/test_instructions.py | test_general_confirmation_is_not_override | red |
-| install-update → Explicit override of the OpenSpec pin | Override names another version | evals/git-workflow/test_instructions.py | test_override_for_other_version_stops | red |
+| install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/test_instructions.py | test_override_requires_found_version_and_is_reported | green |
+| install-update → Explicit override of the OpenSpec pin | General confirmation is not an override | evals/git-workflow/test_instructions.py | test_general_confirmation_is_not_override | green |
+| install-update → Explicit override of the OpenSpec pin | Override names another version | evals/git-workflow/test_instructions.py | test_override_for_other_version_stops | green |
 | install-update → Public install commands name the pinned version | Commands match the pin | evals/git-workflow/test_instructions.py | test_install_commands_and_badge_match_pin | green |
 | install-update → Public install commands name the pinned version | Pin bumped in one place only | evals/git-workflow/test_instructions.py | test_pin_drift_names_disagreeing_line | green |
 
@@ -34,7 +34,7 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 ## 3. Explicit override
 
 - [x] 3.1 Write the failing tests `test_override_requires_found_version_and_is_reported`, `test_general_confirmation_is_not_override` and `test_override_for_other_version_stops`. They assert that the Step 3 override bullet requires the user's own words naming the found version (`continue with OpenSpec <found>`), rules out a general confirmation and a different version, is not offered as a default, holds for one run only, and that Step 8 reports `OpenSpec <found> (pinned <pin>, override)`. They also assert that the README documents the override outside the prompt block, next to the prerequisites. Run the tests and confirm they fail.
-- [ ] 3.2 Add the override bullet to Step 3, the override report line to Step 8, and a short override note under the README prerequisites (design D3). Verify that the 3.1 tests pass, and flip their rows to green.
+- [x] 3.2 Add the override bullet to Step 3, the override report line to Step 8, and a short override note under the README prerequisites (design D3). Verify that the 3.1 tests pass, and flip their rows to green.
 
 ## 4. Agent evals for the refusal and the override
 
