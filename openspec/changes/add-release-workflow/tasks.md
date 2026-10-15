@@ -26,9 +26,9 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → Notes list the changes merged since the previous release | Several changes in the range | evals/release/test_release.py | TestNotes.test_several_changes_in_order | green |
 | releases → Notes list the changes merged since the previous release | No change in the range | evals/release/test_release.py | TestNotes.test_empty_range | green |
 | releases → Notes list the changes merged since the previous release | Backfill with no earlier tag | evals/release/test_release.py | TestNotes.test_backfill_no_tag; TestThisRepo.test_backfill_ranges | red |
-| releases → Store-backed notes use the code-merge proof | Code PR merged in the range | evals/release/test_release.py | TestStoreNotes.test_merged_pr_in_range | red |
-| releases → Store-backed notes use the code-merge proof | Code still pending | evals/release/test_release.py | TestStoreNotes.test_pending_left_out | red |
-| releases → Store-backed notes use the code-merge proof | PR discovery fails | evals/release/test_release.py | TestStoreNotes.test_discovery_failure_stops | red |
+| releases → Store-backed notes use the code-merge proof | Code PR merged in the range | evals/release/test_release.py | TestStoreNotes.test_merged_pr_in_range | green |
+| releases → Store-backed notes use the code-merge proof | Code still pending | evals/release/test_release.py | TestStoreNotes.test_pending_left_out | green |
+| releases → Store-backed notes use the code-merge proof | PR discovery fails | evals/release/test_release.py | TestStoreNotes.test_discovery_failure_stops | green |
 | releases → Publish creates and pushes an annotated tag | New release | evals/release/test_release.py | TestPublish.test_new_release | red |
 | releases → Publish creates and pushes an annotated tag | Push refused by the fence | evals/release/test_release.py | TestPublish.test_push_failure | red |
 | releases → Publish creates and pushes an annotated tag | Store-backed project | evals/release/test_release.py | TestStoreNotes.test_store_not_tagged | red |
@@ -80,7 +80,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 - [x] 3.1 Write failing `TestReleaseCommit` tests (all five, including `test_local_merge_commit_after_push` and `test_rebase_commit_refused`), then implement `status --version --main`. The release commit is the first first-parent commit reading V; it must be a merge or `(#n)` commit; the agreement check runs at that commit. Verify the tests pass and flip the rows green.
 - [x] 3.2 Write failing `TestNotes` tests (all four), then implement repo-local notes per D4: the archive set difference, the first sentence of Why clipped at 300 characters, the PR number from the subject, first-parent order, the previous release by the tagged lower version else the value before V, and the entry cap from the design's Resource Bounds. Verify the tests pass and flip the rows green.
 - [x] 3.3 Write failing `TestUntagged` tests (all five), then implement `untagged` and publish's older-untagged refusal. Verify the tests pass and flip the rows green.
-- [ ] 3.4 Write failing `TestStoreNotes` tests (all four), with a store repo fixture and the fake `gh` `pulls` listing. Then implement store-backed notes per D5: candidates from the store's main archive excluding `code_changes: none`, proof by a `merge: <name>` subject or a merged PR's `merge_commit_sha` in range, a failed discovery as exit 3, and no store tag. Verify the tests pass and flip the rows green.
+- [x] 3.4 Write failing `TestStoreNotes` tests (all four), with a store repo fixture and the fake `gh` `pulls` listing. Then implement store-backed notes per D5: candidates from the store's main archive excluding `code_changes: none`, proof by a `merge: <name>` subject or a merged PR's `merge_commit_sha` in range, a failed discovery as exit 3, and no store tag. Verify the tests pass and flip the rows green.
 
 ## 4. release.sh: publish
 

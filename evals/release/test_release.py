@@ -36,10 +36,10 @@ class Base(unittest.TestCase):
         self.work = fx.make_repo(self.tmp, **kw)
         return self.work
 
-    def release(self, *args, cwd=None):
+    def release(self, *args, cwd=None, env=None):
         """Run release.sh; returns (exit code, parsed JSON, raw stdout)."""
         r = subprocess.run(["bash", str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
-                           encoding="utf-8")
+                           encoding="utf-8", env=env)
         try:
             doc = json.loads(r.stdout)
         except ValueError:
@@ -209,6 +209,318 @@ class TestBump(Base):
         before = fx.snapshot(self.work)
         self.assertStops(self.release("bump", "--to", "0.5.0"), "README.md")
         self.assertEqual(fx.snapshot(self.work), before)
+
+
+class Flow(Base):
+    """Helpers shared by the release-commit, notes and untagged groups."""
+
+    def sha(self, rev="HEAD"):
+        return fx.git(self.work, "rev-parse", rev)
+
+    def tag(self, name, rev="HEAD"):
+        fx.git(self.work, "tag", name, rev)
+
+    def status(self, version, *extra):
+        code, doc, raw = self.release("status", "--version", version, *extra)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+
+class TestReleaseCommit(Flow):
+    def test_squash(self):
+        self.repo(version="0.4.1")
+        fx.squash_merge(self.work, "add-x", "0.4.2", 11)
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["release_commit"], self.sha())
+        self.assertEqual((doc["version"], doc["tag"]), ("0.4.2", "v0.4.2"))
+
+    def test_merge_commit(self):
+        self.repo(version="0.4.0")
+        merge = fx.merge_commit(self.work, "add-y", "0.4.1", 12)
+        bump_on_branch = self.sha(f"{merge}^2")
+        doc = self.status("0.4.1")
+        self.assertEqual(doc["release_commit"], merge)
+        self.assertNotEqual(doc["release_commit"], bump_on_branch)
+
+    def test_not_on_main(self):
+        self.repo(version="0.4.1")
+        fx.git(self.work, "checkout", "-q", "-b", "feat/add-z")
+        fx.squash_merge(self.work, "add-z", "0.5.0", 13)
+        fx.git(self.work, "checkout", "-q", "main")
+        out = self.release("status", "--version", "0.5.0")
+        self.assertStops(out, "no commit", "0.5.0", "main")
+        self.assertEqual(out[1]["error"], "no_release_commit")
+
+    def test_rebase_commit_refused(self):
+        self.repo(version="0.5.0")
+        shas = fx.rebase_style(self.work, "x", "0.6.0", tasks=2)
+        out = self.release("status", "--version", "0.6.0")
+        self.assertStops(out, shas[-1][:12], "merge or squash")
+        self.assertEqual(out[1]["error"], "rebase_release_commit")
+        out = self.release("publish", "--version", "0.6.0")
+        self.assertStops(out, shas[-1][:12], "merge or squash")
+        self.assertEqual(fx.git(self.work, "tag"), "")
+
+    def test_local_merge_commit_after_push(self):
+        self.repo(version="0.4.0")
+        merge = fx.local_merge(self.work, "add-w", "0.4.1")
+        self.assertEqual(len(fx.git(self.work, "rev-list", "--parents", "-n1", merge).split()), 3)
+        fx.push(self.work)
+        fx.git(self.work, "fetch", "-q", "origin")
+        doc = self.status("0.4.1", "--main", "origin/main")
+        self.assertEqual(doc["release_commit"], merge)
+        self.assertEqual(doc["main"], "origin/main")
+
+
+class TestNotes(Flow):
+    def test_one_change(self):
+        self.repo(version="0.4.1")
+        fx.squash_merge(self.work, "add-x", "0.4.2", 90, why="Operators cannot tell which build they run. More detail.")
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["changes"], [{"name": "add-x", "why": "Operators cannot tell which build they run.", "pr": 90}])
+        self.assertIn("- add-x (#90): Operators cannot tell which build they run.", doc["notes"])
+        self.assertNotIn("More detail", doc["notes"])
+        self.assertEqual(doc["previous"]["version"], "0.4.1")
+        self.assertEqual(doc["range"]["from"], doc["previous"]["commit"])
+        self.assertEqual(doc["range"]["to"], doc["release_commit"])
+
+    def test_several_changes_in_order(self):
+        self.repo(version="0.4.0")
+        self.tag("v0.4.0")
+        fx.squash_merge(self.work, "zeta", "0.4.1", 1, why="Zeta first.", date="2026-10-11")
+        fx.merge_commit(self.work, "alpha", "0.4.2", 2, why="Alpha second.", date="2026-10-09")
+        doc = self.status("0.4.2")
+        self.assertEqual([(c["name"], c["pr"]) for c in doc["changes"]], [("zeta", 1), ("alpha", 2)])
+        self.assertEqual(doc["previous"], {"commit": self.sha("v0.4.0"), "version": "0.4.0", "basis": "tag"})
+        self.assertLess(doc["notes"].index("zeta"), doc["notes"].index("alpha"))
+
+    def test_empty_range(self):
+        self.repo(version="0.4.1")
+        fx.git(self.work, "checkout", "-q", "-b", "docs/close-m1")
+        fx.commit(self.work, "docs: close m1", {"docs/m1.md": "done\n"})
+        fx.git(self.work, "checkout", "-q", "main")
+        fx.git(self.work, "merge", "-q", "--no-ff", "-m", "Merge pull request #5 from acme/docs/close-m1", "docs/close-m1")
+        fx.set_version(self.work, "0.4.2")
+        fx.commit(self.work, "chore: bump to 0.4.2 (#6)")
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["changes"], [])
+        self.assertIn("No change was archived in this release", doc["notes"])
+
+    def test_backfill_no_tag(self):
+        self.repo(version="0.4.0")
+        initial = self.sha()
+        fx.merge_commit(self.work, "fix-m2-gaps", "0.4.1", 89, date="2026-10-15")
+        fx.squash_merge(self.work, "later", "0.5.0", 95)  # HEAD is newer than the release being backfilled
+        self.assertEqual(fx.git(self.work, "tag"), "")
+        doc = self.status("0.4.1")
+        self.assertEqual(doc["previous"], {"commit": initial, "version": "0.4.0", "basis": "history"})
+        self.assertEqual([(c["name"], c["pr"]) for c in doc["changes"]], [("fix-m2-gaps", 89)])
+        self.assertIsNone(doc["tag_local"])
+
+    def test_tag_local_reports_the_tag_target(self):
+        self.repo(version="0.4.1")
+        fx.squash_merge(self.work, "add-x", "0.4.2", 3)
+        self.tag("v0.4.2")
+        self.assertEqual(self.status("0.4.2")["tag_local"], self.sha())
+
+    def test_why_sentence_rule(self):
+        # First sentence of the first paragraph under `## Why`: a leading list marker is dropped, whitespace
+        # collapses, a `.`/`!`/`?` ends it only when followed by whitespace or the end and outside a code span
+        # (and not after e.g/i.e/vs); clipped to 300 characters with an ellipsis.
+        self.repo(version="0.4.1")
+        cases = {
+            "a-code": ("`release.sh` is missing. It matters.", "`release.sh` is missing."),
+            "b-list": ("- First item. Second sentence.\n- other item", "First item."),
+            "c-abbr": ("Cost is high (e.g. v1.2 vs. 1.3) today. Next.", "Cost is high (e.g. v1.2 vs. 1.3) today."),
+            "d-wrap": ("Operators cannot\ntell   which build\nthey run. Next one.", "Operators cannot tell which build they run."),
+            "e-long": ("word " * 80, None),
+            "f-span": ("Run `a. b` now. Done.", "Run `a. b` now."),
+            "g-bang": ("Stop it! Then go.", "Stop it!"),
+        }
+        extra = {}
+        for name, (why, _) in cases.items():
+            extra.update(fx.archive_files(name, why))
+        extra[f"openspec/changes/archive/{fx.DATE}-h-nowhy/proposal.md"] = "## What Changes\n\n- x\n"
+        fx.squash_merge(self.work, "big", "0.4.2", 5, extra_files=extra)
+        got = {c["name"]: c["why"] for c in self.status("0.4.2")["changes"]}
+        for name, (_, want) in cases.items():
+            if want is not None:
+                self.assertEqual(got[name], want, name)
+        self.assertEqual(len(got["e-long"]), 300)
+        self.assertTrue(got["e-long"].endswith("…"))
+        self.assertIsNone(got["h-nowhy"])
+
+    def test_over_100_lists_names_only(self):
+        self.repo(version="0.4.1")
+        extra = {}
+        for i in range(105):
+            extra.update(fx.archive_files(f"c{i:03d}", f"Reason {i}."))
+        fx.squash_merge(self.work, "c-first", "0.4.2", 9, extra_files=extra)
+        doc = self.status("0.4.2")
+        self.assertEqual(len(doc["changes"]), 106)
+        self.assertIn("- c000\n", doc["notes"])
+        self.assertNotIn("Reason 3", doc["notes"])
+        self.assertTrue(doc["notes"].rstrip().endswith("…and 6 more"), doc["notes"][-80:])
+
+
+class TestUntagged(Flow):
+    def untagged(self, *extra):
+        code, doc, raw = self.release("untagged", *extra)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+    def test_older_blocks_newer(self):
+        self.repo(version="0.4.2")
+        self.tag("v0.4.2")
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.squash_merge(self.work, "b", "0.5.1", 2)
+        out = self.release("publish", "--version", "0.5.1")
+        self.assertStops(out, "0.5.0")
+        self.assertEqual(out[1]["error"], "older_untagged")
+        self.assertEqual(fx.git(self.work, "tag", "-l", "v0.5.1"), "")
+
+    def test_backfill_below_latest(self):
+        self.repo(version="0.4.0")
+        initial = self.sha()
+        fx.squash_merge(self.work, "a", "0.4.1", 1)
+        fx.squash_merge(self.work, "b", "0.5.0", 2)
+        self.tag("v0.5.0")
+        out = self.release("publish", "--version", "0.4.1")
+        self.assertNotEqual((out[1] or {}).get("error"), "older_untagged", out[2])
+        doc = self.status("0.4.1")
+        self.assertEqual(doc["previous"]["commit"], initial)
+        self.assertEqual(doc["previous"]["version"], "0.4.0")
+
+    def test_lists_since_latest_tag(self):
+        self.repo(version="0.5.0")
+        self.tag("v0.5.0")
+        c1 = fx.squash_merge(self.work, "a", "0.5.1", 1)
+        c2 = fx.squash_merge(self.work, "b", "0.6.0", 2)
+        doc = self.untagged()
+        self.assertEqual([(u["version"], u["tag"], u["release_commit"]) for u in doc["untagged"]],
+                         [("0.5.1", "v0.5.1", c1), ("0.6.0", "v0.6.0", c2)])
+        self.assertEqual(doc["latest_tagged"], "0.5.0")
+
+    def test_all_tagged_empty(self):
+        self.repo(version="0.5.0")
+        self.tag("v0.5.0")
+        fx.squash_merge(self.work, "a", "0.5.1", 1)
+        self.tag("v0.5.1")
+        self.assertEqual(self.untagged()["untagged"], [])
+
+    def test_no_tag_current_only(self):
+        self.repo(version="0.2.0")
+        fx.squash_merge(self.work, "a", "0.3.0", 1)
+        doc = self.untagged()
+        self.assertEqual([u["version"] for u in doc["untagged"]], ["0.3.0"])
+        self.assertIsNone(doc["latest_tagged"])
+
+
+GH_SCRIPT = '#!/bin/sh\nexec python "{}" "$@"\n'
+CODE_SLUG = "acme/code"
+
+
+class TestStoreNotes(Flow):
+    """Store-backed notes (design D5): candidates come from the store's main, the proof from the code repo."""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "bin").mkdir()
+        gh = self.tmp / "bin" / "gh"
+        gh.write_text(GH_SCRIPT.format((ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()), encoding="utf-8", newline="\n")
+        gh.chmod(0o755)
+        self.state = {"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok"}, "repos": {CODE_SLUG: {"pulls": []}}}
+        self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
+
+    def env(self):
+        e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
+        e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
+                  "FAKE_GH_LOG": str(self.gh_log), "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
+        return e
+
+    def save(self):
+        self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
+
+    def pull(self, number, change, sha=None, merged=True, repo=CODE_SLUG, prefix="feat"):
+        self.state["repos"][CODE_SLUG]["pulls"].append({
+            "number": number, "state": "closed" if merged else "open", "merged_at": "2026-10-12T00:00:00Z" if merged else None,
+            "merge_commit_sha": sha, "html_url": f"https://github.com/{CODE_SLUG}/pull/{number}",
+            "head": {"ref": f"{prefix}/{change}", "label": f"{repo.split('/')[0]}:{prefix}/{change}", "repo": {"full_name": repo}},
+            "base": {"ref": "main"}})
+
+    def code(self, finish="pr", version="0.4.1"):
+        self.repo(version=version, finish=finish)
+        fx.git(self.work, "config", "remote.origin.url", f"https://github.com/{CODE_SLUG}.git")
+        return self.work
+
+    def store_status(self, store, version, *extra, expect=0):
+        self.save()
+        code, doc, raw = self.release("status", "--version", version, "--store", str(store), *extra, env=self.env())
+        self.assertEqual(code, expect, raw)
+        return doc
+
+    def test_merged_pr_in_range(self):
+        self.code()
+        store = fx.make_store(self.tmp, [("add-x", "Store reason for x. Extra.", False), ("add-p", "Planning only.", True),
+                                         ("add-z", "From a fork.", False)])
+        sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90, why="Code archive reason (ignored).")
+        self.pull(90, "add-x", sha)
+        self.pull(91, "add-p", sha)  # planning-only: left out whatever its PRs say
+        self.pull(92, "add-z", sha, repo="fork/code")  # not the code repo's own branch
+        doc = self.store_status(store, "0.4.2")
+        self.assertEqual(doc["changes"], [{"name": "add-x", "why": "Store reason for x.", "pr": 90}])
+        calls = [json.loads(l) for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(calls), 1, calls)
+        self.assertIn("--paginate", calls[0]["argv"])
+        self.assertTrue(any(a.startswith(f"repos/{CODE_SLUG}/pulls?state=closed&base=main") for a in calls[0]["argv"]), calls[0])
+        self.assertIsNone(calls[0]["gh_repo"])
+
+    def test_pending_left_out(self):
+        self.code()
+        store = fx.make_store(self.tmp, [("add-x", "X reason.", False), ("add-y", "Y reason.", False)])
+        sx = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        self.pull(90, "add-x", sx)
+        self.pull(93, "add-y", None, merged=False)
+        doc = self.store_status(store, "0.4.2")
+        self.assertEqual([c["name"] for c in doc["changes"]], ["add-x"])
+        # y's PR merges, then a later release lists it (and not x again)
+        sy = fx.squash_merge(self.work, "add-y", "0.4.3", 93)
+        self.state["repos"][CODE_SLUG]["pulls"] = [p for p in self.state["repos"][CODE_SLUG]["pulls"] if p["number"] != 93]
+        self.pull(93, "add-y", sy)
+        doc = self.store_status(store, "0.4.3")
+        self.assertEqual([(c["name"], c["pr"]) for c in doc["changes"]], [("add-y", 93)])
+
+    def test_discovery_failure_stops(self):
+        self.code()
+        store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
+        fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        self.state["fail"] = [{"match": "api .*pulls", "stderr": "gh: connection reset"}]
+        self.save()
+        code, doc, raw = self.release("status", "--version", "0.4.2", "--store", str(store), env=self.env())
+        self.assertEqual(code, 3, raw)
+        self.assertEqual(doc["error"], "pr_discovery_failed")
+        self.assertIn("gh api", doc["message"])
+        self.assertIn("pulls", doc["message"])
+        self.assertEqual(fx.git(self.work, "tag"), "")
+
+    def test_store_not_tagged(self):
+        # Group 4 extends this to a full publish: the tag lands in the code repo only.
+        self.code()
+        store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
+        sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        self.pull(90, "add-x", sha)
+        doc = self.store_status(store, "0.4.2")
+        self.assertEqual(Path(doc["tag_repo"]).resolve(), self.work.resolve())
+        self.assertEqual(fx.git(store, "tag"), "")
+        self.assertEqual(fx.git(self.work, "tag"), "")
+
+    def test_local_mode_uses_merge_subject(self):
+        self.code(finish="local", version="0.4.0")
+        store = fx.make_store(self.tmp, [("add-w", "W reason.", False), ("add-v", "V reason.", False)])
+        fx.local_merge(self.work, "add-w", "0.4.1")
+        doc = self.store_status(store, "0.4.1")
+        self.assertEqual(doc["changes"], [{"name": "add-w", "why": "W reason.", "pr": None}])
+        self.assertFalse(self.gh_log.exists())  # no PR discovery in local mode
 
 
 if __name__ == "__main__":

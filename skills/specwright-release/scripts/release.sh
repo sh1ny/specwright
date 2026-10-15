@@ -9,9 +9,25 @@
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
-#   status --version V [--main <ref>] V's release commit (first commit on <ref>'s first-parent history whose primary file
-#                                     reads V); its version files must all read V
-#   publish --version V               opt-in and merge-method gates only for now
+#   status --version V [--main <ref>] [--store <dir> [--store-main <ref>] [--store-prefix <path>]]
+#                                     V's release commit: the first commit on <ref>'s first-parent history whose primary file
+#                                     reads V (default: the local main; the skill passes origin/<main>). It must be a merge
+#                                     commit or a commit whose subject ends in (#<n>), and its version files must all read V.
+#                                     JSON: version, tag, release_commit, main, files, previous {commit, version, basis:
+#                                     tag|history|null}, range {from, to, commits}, changes [{name, why, pr}], notes (text for
+#                                     the tag annotation and the release body), tag_local (sha the local tag points at, or
+#                                     null), repo and tag_repo (the code repo: the only one ever tagged), store (with --store).
+#                                     Remote tag and GitHub release state belong to publish (a later group), not to this view.
+#                                     Notes: repo-local = archive dirs added in (previous release commit, release commit];
+#                                     with --store = the store main's archive dirs (not code_changes: none) whose code-merge
+#                                     proof is in that range: `merge: <name>` subject (finish: local) or a merged PR from the
+#                                     code repo's own <prefix>/<name> branch (one `gh api --paginate .../pulls` call; a failure
+#                                     is exit 3, pr_discovery_failed). --store-prefix defaults to openspec.
+#   untagged [--main <ref>]           versions in main's history of the primary file after the latest tagged one (with no tag:
+#                                     only the current version) that have no local tag, oldest first:
+#                                     {latest_tagged, untagged: [{version, tag, release_commit}]}
+#   publish --version V [--main ref] [--store ...]
+#                                     opt-in, merge-method, release-commit and older-untagged gates only for now
 # Settings (openspec/specwright.yaml): release.enabled (default false), release.version_files (path or glob ->
 # regex with one capture group; the first entry is the primary file), release.tag (v{version}),
 # release.github_release (true), release.auto (false), pr.merge_method (rebase is refused with releases on).
@@ -30,6 +46,7 @@ import glob as globmod
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -55,9 +72,9 @@ def emit(obj, code=0):
     sys.exit(code)
 
 
-def run(cmd, cwd=None, data=None):
+def run(cmd, cwd=None, data=None, env=None):
     try:
-        return subprocess.run(cmd, cwd=cwd, env=ENV, input=data, capture_output=True)
+        return subprocess.run(cmd, cwd=cwd, env=env or ENV, input=data, capture_output=True)
     except OSError as e:
         return subprocess.CompletedProcess(cmd, 127, b"", str(e).encode())
 
@@ -268,6 +285,7 @@ class Settings:
         self.github_release = rel.get("github_release") is not False
         self.auto = rel.get("auto") is True
         self.merge_method = str(pr.get("merge_method") or "").strip().lower()
+        self.finish = doc.get("finish") if isinstance(doc.get("finish"), str) else None
         self.main_branch = doc.get("main_branch") if isinstance(doc.get("main_branch"), str) else None
 
     def gate(self, rebase=False):
@@ -527,53 +545,433 @@ def detect_main(st):
     return names[0]
 
 
-def release_commit(st, entries, ref, version):
-    """First commit on ref's first-parent history whose primary file reads `version`, or None."""
+def ref_exists(root, ref):
+    return git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode == 0
+
+
+def primary_history(st, entries, ref):
+    """The commits on `ref`'s first-parent history that touch the primary file, oldest first, as [(sha, value)]. The value is
+    the one version the primary file reads there (every match of every file the entry names), None when it reads none or
+    several. One `git log` and one `cat-file --batch` for a literal path."""
     path, _, c = entries[0]
     spec = f":(glob){path}" if has_glob(path) else f":(literal){path}"
     r = git(st.root, "log", "--first-parent", "--format=%H", "--reverse", ref, "--", spec)
     if r.returncode != 0:
         raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
-    for sha in text_of(r).split():
-        tree = CommitTree(st.root, sha)
-        fs = tree.files(path)
-        if not fs:
+    shas = text_of(r).split()
+    texts = []
+    if has_glob(path):
+        for sha in shas:
+            tree = CommitTree(st.root, sha)
+            fs = tree.files(path)
+            data = tree.read_all(fs) if fs else {}
+            texts.append([decode(data[f]) for f in fs])
+    else:
+        texts = [[decode(b)] if b is not None else [] for b in cat_batch(st.root, [f"{s}:{path}" for s in shas])]
+    out = []
+    for sha, blobs in zip(shas, texts):
+        vals = {m.group(1) for t in blobs for m in c.finditer(t)}
+        out.append((sha, next(iter(vals)) if len(vals) == 1 else None))
+    return out
+
+
+class Releases:
+    """What the primary file's first-parent history says: each distinct value's first appearance (its release commit, D3)
+    and the value that preceded it."""
+    def __init__(self, hist):
+        self.hist = hist
+        self.first = {}   # version -> sha of its first appearance
+        self.order = []   # versions by first appearance
+        self.before = {}  # version -> the value read just before its first appearance (None for the first)
+        last = None
+        for sha, v in hist:
+            if v is None:
+                continue
+            if v not in self.first:
+                self.first[v] = sha
+                self.order.append(v)
+                self.before[v] = last
+            last = v
+        self.current = last
+
+
+def release_commit(st, entries, ref, version):
+    """First commit on ref's first-parent history whose primary file reads `version`, or None."""
+    return Releases(primary_history(st, entries, ref)).first.get(version)
+
+
+def local_tags(st):
+    r = git(st.root, "tag", "-l")
+    return set(text_of(r).split()) if r.returncode == 0 else set()
+
+
+def tag_for(st, version):
+    return st.tag.replace("{version}", version)
+
+
+def previous_release(st, rel, version, tags):
+    """(version, sha, basis) of the previous release for `version`, or None. D4: the highest lower version with a tag, else
+    the value read just before `version` first appeared."""
+    me = sv(version)
+    lower = [v for v in rel.order if me and sv(v) and sv(v) < me and tag_for(st, v) in tags]
+    if lower:
+        v = max(lower, key=sv)
+        return v, rel.first[v], "tag"
+    b = rel.before.get(version)
+    return (b, rel.first[b], "history") if b is not None else None
+
+
+def untagged_since_latest(st, rel, tags):
+    """Versions after the latest tagged one (highest semver with a tag) in first-appearance order that have no tag; with no tag
+    at all, only the current version. Returns (versions, latest tagged version or None)."""
+    latest = max((v for v in rel.order if sv(v) and tag_for(st, v) in tags), key=sv, default=None)
+    if latest is None:
+        return ([rel.current] if rel.current is not None else []), None
+    return [v for v in rel.order[rel.order.index(latest) + 1:] if sv(v) and tag_for(st, v) not in tags], latest
+
+
+SUBJECT_PR = re.compile(r"\(#(\d+)\)\s*$|^Merge pull request #(\d+)\b")
+
+
+def subject_pr(subject):
+    m = SUBJECT_PR.search(subject)
+    return int(m.group(1) or m.group(2)) if m else None
+
+
+def require_release_shape(st, sha):
+    """D3: the release commit must be a merge commit or a squash commit (subject ends `(#n)`); a replayed bump is refused."""
+    r = git(st.root, "log", "-1", "--format=%P%x00%s", sha)
+    if r.returncode != 0:
+        raise Stop("git_failed", f"git log failed at {sha}: {err_of(r)}", code=3)
+    parents, _, subject = r.stdout.decode("utf-8", "replace").rstrip("\n").partition("\0")
+    if len(parents.split()) >= 2 or re.search(r"\(#\d+\)\s*$", subject):
+        return
+    raise Stop("rebase_release_commit", f"the release commit {sha[:12]} ('{subject}') is neither a merge commit nor a commit whose "
+               "subject ends in (#<n>): the release commit must be a merge or squash commit (a rebase merge or a direct push "
+               "replays the bump as its own commit)", commit=sha)
+
+
+# ---- notes ------------------------------------------------------------------------------------------------------
+MAX_PROPOSAL = 64 * 1024
+MAX_WHY = 300
+MAX_LISTED = 100
+WHY_HEAD = re.compile(r"^#{2}[ \t]+Why[ \t]*$", re.I | re.M)
+ABBREV = re.compile(r"(?:^|[\s(])(?:e\.g|i\.e|vs|cf)$", re.I)
+
+
+def first_sentence(proposal):
+    """The first sentence of the first paragraph under `## Why`, or None. Rules: the paragraph runs from the first non-blank
+    line after the heading to a blank line, a heading, or (after a list item's first line) the next list marker; a leading
+    list marker (`-`, `*`, `+`, `1.`) is dropped; whitespace collapses to single spaces; the sentence ends at the first
+    `.`, `!` or `?` that is followed by whitespace or the end, is outside a backtick code span, and does not close
+    `e.g`, `i.e`, `vs` or `cf`; with no end the whole paragraph is the sentence. Over 300 characters it is cut to 299
+    plus an ellipsis."""
+    m = WHY_HEAD.search(proposal)
+    if not m:
+        return None
+    lines, para, marker = proposal[m.end():].splitlines(), [], re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+    for line in lines:
+        if not line.strip():
+            if para:
+                break
             continue
-        data = tree.read_all(fs)
-        if {m.group(1) for f in fs for m in c.finditer(decode(data[f]))} == {version}:
-            return sha
-    return None
+        if line.lstrip().startswith("#"):
+            break
+        if not para:
+            line = marker.sub("", line, count=1)
+        elif marker.match(line):
+            break
+        para.append(line.strip())
+    text = re.sub(r"\s+", " ", " ".join(para)).strip()
+    if not text:
+        return None
+    end, i, n = len(text), 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = text.find(text[i:j], j)
+            i = (close + (j - i)) if close >= 0 else j
+            continue
+        if ch in ".!?" and (i + 1 == n or text[i + 1].isspace()) and not (ch == "." and ABBREV.search(text[:i])):
+            end = i + 1
+            break
+        i += 1
+    s = text[:end]
+    return s if len(s) <= MAX_WHY else s[:MAX_WHY - 1] + "…"
+
+
+def archive_dirs(root, commit, prefix):
+    """Names of the archive directories under `<prefix>/changes/archive/` at `commit`."""
+    base = f"{prefix}/changes/archive/"
+    r = git(root, "-c", "core.quotepath=off", "ls-tree", "-d", "--name-only", commit, base)
+    if r.returncode != 0:
+        raise Stop("git_failed", f"git ls-tree failed at {commit}: {err_of(r)}", code=3)
+    return {l[len(base):] for l in text_of(r).splitlines() if l.startswith(base)}
+
+
+DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}-")
+
+
+def change_name(dirname):
+    return DATE_PREFIX.sub("", dirname, count=1)
+
+
+def whys(root, commit, prefix, dirs):
+    """First Why sentence per archive directory, read from `commit` (at most 64 KB of each proposal)."""
+    got = cat_batch(root, [f"{commit}:{prefix}/changes/archive/{d}/proposal.md" for d in dirs])
+    return {d: (first_sentence(decode(b[:MAX_PROPOSAL])) if b is not None else None) for d, b in zip(dirs, got)}
+
+
+def range_commits(st, prev, rel):
+    """[(sha, subject)] of the first-parent commits in (prev, rel], oldest first."""
+    spec = f"{prev}..{rel}" if prev else rel
+    r = git(st.root, "log", "--first-parent", "--reverse", "--format=%H%x02%s", spec)
+    if r.returncode != 0:
+        raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
+    return [tuple(l.split("\x02", 1)) for l in r.stdout.decode("utf-8", "replace").splitlines() if "\x02" in l]
+
+
+def archive_adders(st, prev, rel, prefix):
+    """{archive dir: (sha, subject)} of the first first-parent commit in (prev, rel] that adds a file under the archive."""
+    spec = f"{prev}..{rel}" if prev else rel
+    r = git(st.root, "-c", "core.quotepath=off", "log", "--first-parent", "-m", "--no-renames", "--name-only", "--diff-filter=A",
+            "--reverse", "--format=%x01%H%x02%s", spec, "--", f":(literal){prefix}/changes/archive")
+    if r.returncode != 0:
+        raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
+    out, base = {}, f"{prefix}/changes/archive/"
+    for chunk in r.stdout.decode("utf-8", "replace").split("\x01")[1:]:
+        head, *files = chunk.splitlines()
+        sha, _, subject = head.partition("\x02")
+        for f in files:
+            if f.startswith(base) and "/" in f[len(base):]:
+                out.setdefault(f[len(base):].split("/", 1)[0], (sha, subject))
+    return out
+
+
+def local_changes(st, prev, rel, rng):
+    """D4: archive directories present at `rel` and absent at `prev`, oldest first by the commit that first holds them.
+    Returns ([(dirname, pr)], commit the proposals are read at, archive prefix)."""
+    prefix = "openspec"
+    new = archive_dirs(st.root, rel, prefix) - (archive_dirs(st.root, prev, prefix) if prev else set())
+    adders = archive_adders(st, prev, rel, prefix)
+    pos = {sha: i for i, (sha, _) in enumerate(rng)}
+    subjects = dict(rng)
+    rows = []
+    for d in new:
+        sha = adders.get(d, (rel, ""))[0]
+        rows.append((pos.get(sha, len(pos)), d, subject_pr(subjects.get(sha, ""))))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    entries = [(d, pr) for _, d, pr in rows]
+    return entries, rel, prefix
+
+
+def store_setup(a):
+    d = a["store"]
+    r = git(d, "rev-parse", "--show-toplevel")
+    if r.returncode != 0 or not text_of(r):
+        raise Stop("store_not_a_repo", f"--store {d} is not inside a git work tree")
+    top = os.path.normpath(text_of(r))
+    sst = Settings(top)
+    ref = a.get("store-main")
+    if not ref:
+        names = [sst.main_branch] if sst.main_branch else ["main", "master"]
+        for n in names:
+            if ref_exists(top, f"refs/remotes/origin/{n}"):
+                ref = f"origin/{n}"
+                break
+            if ref_exists(top, f"refs/heads/{n}"):
+                ref = n
+                break
+    if not ref or not ref_exists(top, ref):
+        raise Stop("no_store_main", f"the store's main ref '{ref or 'main'}' does not exist in {top}")
+    return top, ref, a.get("store-prefix") or "openspec"
+
+
+PLANNING_ONLY = re.compile(r"^code_changes:\s*none\s*$", re.M)
+
+GH_URL = re.compile(
+    r"^(?:(?:https?|ssh|git)://(?:[^@/\s]+@)?(?:ssh\.)?github\.com\.?(?::\d+)?/|(?:[^@/\s]+@)?(?:ssh\.)?github\.com\.?:)"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", re.I)
+BASH = os.environ.get("RELEASE_BASH") or shutil.which("bash")
+
+
+def code_slug(st):
+    r = git(st.root, "config", "--get", "remote.origin.url")
+    m = GH_URL.match(text_of(r)) if r.returncode == 0 else None
+    if not m:
+        raise Stop("no_github_origin", "store-backed notes in pr mode need origin to be a github.com repository (to find the "
+                   "merged code PRs)")
+    return f"{m.group(1)}/{m.group(2)}"
+
+
+def merged_pulls(st, ref):
+    """One paginated gh call for the closed PRs into the code main; exit 3 when it fails."""
+    slug = code_slug(st)
+    branch = ref[len("origin/"):] if ref.startswith("origin/") else ref
+    url = f"repos/{slug}/pulls?state=closed&base={branch}&per_page=100"
+    env = {k: v for k, v in ENV.items() if k != "GH_REPO"}
+    cmd = [BASH, "-c", 'exec gh "$@"', "gh", "api", "--paginate", url] if BASH else ["gh", "api", "--paginate", url]
+    r = run(cmd, cwd=st.root, env=env)
+    shown = f"gh api --paginate {url}"
+    if r.returncode != 0:
+        raise Stop("pr_discovery_failed", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}", code=3, call=shown)
+    text, pos, pulls, dec = r.stdout.decode("utf-8", "replace"), 0, [], json.JSONDecoder()
+    try:
+        while True:
+            while pos < len(text) and text[pos].isspace():
+                pos += 1
+            if pos >= len(text):
+                break
+            page, pos = dec.raw_decode(text, pos)
+            if not isinstance(page, list):
+                raise ValueError("not a list")
+            pulls.extend(page)
+    except ValueError as e:
+        raise Stop("pr_discovery_failed", f"{shown} returned unreadable output: {e}", code=3, call=shown)
+    return slug, pulls
+
+
+def is_ancestor(root, sha, tip):
+    return git(root, "merge-base", "--is-ancestor", sha, tip).returncode == 0
+
+
+def store_changes(st, a, prev, rel, rng):
+    """D5: archive directories on the store's main (not planning-only) whose code-merge proof lies in the code range.
+    Returns (entries [(dirname, pr)], store commit, prefix, info)."""
+    top, sref, prefix = store_setup(a)
+    dirs = sorted(archive_dirs(top, sref, prefix))
+    marks = cat_batch(top, [f"{sref}:{prefix}/changes/archive/{d}/specwright-change.yaml" for d in dirs])
+    cands = {change_name(d): d for d, m in zip(dirs, marks) if not (m is not None and PLANNING_ONLY.search(decode(m)))}
+    mode = "local" if st.finish == "local" else "pr"
+    found = []  # (order, dirname, pr)
+    if mode == "local":
+        for i, (sha, subject) in enumerate(rng):
+            m = re.fullmatch(r"merge: (\S+)", subject.strip())
+            if m and m.group(1) in cands:
+                found.append((i, cands[m.group(1)], None))
+    elif cands:
+        main_name = detect_main(st) if not a.get("main") else a["main"]
+        slug, pulls = merged_pulls(st, main_name)
+        pos = {sha: i for i, (sha, _) in enumerate(rng)}
+        for p in sorted(pulls, key=lambda p: p.get("number") or 0):
+            head, sha = p.get("head") or {}, p.get("merge_commit_sha")
+            ref, repo = head.get("ref") or "", ((head.get("repo") or {}).get("full_name") or "")
+            if not p.get("merged_at") or not sha or repo.lower() != slug.lower() or "/" not in ref:
+                continue
+            name = ref.rsplit("/", 1)[1]
+            if name not in cands or any(f[1] == cands[name] for f in found):
+                continue
+            if is_ancestor(st.root, sha, rel) and not (prev and is_ancestor(st.root, sha, prev)):
+                found.append((pos.get(sha, len(pos)), cands[name], p.get("number")))
+    found.sort(key=lambda f: (f[0], f[1]))
+    info = {"dir": top, "main": sref, "prefix": prefix, "mode": mode, "candidates": len(cands)}
+    return [(d, pr) for _, d, pr in found], sref, prefix, info, top
+
+
+def build_notes(tag, changes):
+    if not changes:
+        return f"No change was archived in this release ({tag})."
+    lines = [f"Changes in {tag}:", ""]
+    for c in changes[:MAX_LISTED]:
+        if len(changes) > MAX_LISTED:
+            lines.append(f"- {c['name']}")
+        else:
+            lines.append(f"- {c['name']}" + (f" (#{c['pr']})" if c["pr"] is not None else "") + (f": {c['why']}" if c["why"] else ""))
+    if len(changes) > MAX_LISTED:
+        lines.append(f"…and {len(changes) - MAX_LISTED} more")
+    return "\n".join(lines)
+
+
+def load_main(st, a):
+    """(entries, ref, Releases) for `--main` (default: the local main)."""
+    entries = st.entries()
+    ref = a.get("main") or detect_main(st)
+    if not ref_exists(st.root, ref):
+        raise Stop("no_main", f"main ref '{ref}' does not exist")
+    return entries, ref, Releases(primary_history(st, entries, ref))
+
+
+def release_commit_of(st, entries, ref, rel, v):
+    sha = rel.first.get(v)
+    if not sha:
+        raise Stop("no_release_commit", f"no commit on {ref}'s first-parent history carries {v} in the primary file "
+                   f"'{entries[0][0]}': the release commit must be on main (merged), not only on a branch")
+    require_release_shape(st, sha)
+    return sha
+
+
+def refuse_older_untagged(st, rel, tags, v):
+    older = [u for u in untagged_since_latest(st, rel, tags)[0] if sv(v) and sv(u) and sv(u) < sv(v)]
+    if older:
+        names = ", ".join(older)
+        raise Stop("older_untagged", f"older version(s) without a tag: {names}; publish {older[0]} "
+                   f"(tag {tag_for(st, older[0])}) before {v}", versions=older)
 
 
 def cmd_status(st, a):
     v = a.get("version")
     if not v:
         usage("status needs --version")
-    entries = st.entries()
-    ref = a.get("main") or detect_main(st)
-    if git(st.root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
-        raise Stop("no_main", f"main ref '{ref}' does not exist")
-    sha = release_commit(st, entries, ref, v)
-    if not sha:
-        raise Stop("no_release_commit", f"no commit on {ref}'s first-parent history has {v} in the primary file '{entries[0][0]}'")
+    entries, ref, rel = load_main(st, a)
+    sha = release_commit_of(st, entries, ref, rel, v)
     shared, files = agree(CommitTree(st.root, sha), entries)
     if shared != v:
         raise Stop("version_mismatch", f"version files at release commit {sha[:12]} read {shared}, not {v}")
-    return {"ok": True, "version": v, "release_commit": sha, "main": ref, "files": files}
+    tags = local_tags(st)
+    prev = previous_release(st, rel, v, tags)
+    prev_sha = prev[1] if prev else None
+    rng = range_commits(st, prev_sha, sha)
+    info = None
+    if a.get("store"):
+        rows, wcommit, prefix, info, wroot = store_changes(st, a, prev_sha, sha, rng)
+    else:
+        rows, wcommit, prefix = local_changes(st, prev_sha, sha, rng)
+        wroot = st.root
+    shown = rows[:MAX_LISTED]
+    why = whys(wroot, wcommit, prefix, [d for d, _ in shown])
+    changes = [{"name": change_name(d), "why": why.get(d), "pr": pr} for d, pr in rows]
+    for c in changes[MAX_LISTED:]:
+        c["why"] = None
+    tag = tag_for(st, v)
+    tl = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
+    # Remote and GitHub-release state (origin tag, gh release) come with publish in a later group; this document is the local view.
+    return {"ok": True, "version": v, "tag": tag, "release_commit": sha, "main": ref, "files": files,
+            "previous": {"commit": prev_sha, "version": prev[0] if prev else None, "basis": prev[2] if prev else None},
+            "range": {"from": prev_sha, "to": sha, "commits": len(rng)},
+            "changes": changes, "notes": build_notes(tag, changes),
+            "tag_local": text_of(tl) if tl.returncode == 0 else None,
+            "repo": st.root, "tag_repo": st.root, **({"store": info} if info else {})}
+
+
+def cmd_untagged(st, a):
+    entries, ref, rel = load_main(st, a)
+    tags = local_tags(st)
+    versions, latest = untagged_since_latest(st, rel, tags)
+    return {"ok": True, "main": ref, "latest_tagged": latest,
+            "untagged": [{"version": u, "tag": tag_for(st, u), "release_commit": rel.first[u]} for u in versions]}
 
 
 def cmd_publish(st, a):
     st.gate(rebase=True)
-    if not a.get("version"):
+    v = a.get("version")
+    if not v:
         usage("publish needs --version")
+    entries, ref, rel = load_main(st, a)
+    release_commit_of(st, entries, ref, rel, v)
+    refuse_older_untagged(st, rel, local_tags(st), v)
     raise Stop("not_implemented", "publish is not implemented yet")
 
 
+STORE_OPTS = {"--store": "store", "--store-main": "store-main", "--store-prefix": "store-prefix"}
 COMMANDS = {
     "check": (cmd_check, {}),
     "bump": (cmd_bump, {"--to": "to"}),
-    "status": (cmd_status, {"--version": "version", "--main": "main"}),
-    "publish": (cmd_publish, {"--version": "version", "--main": "main"}),
+    "status": (cmd_status, {"--version": "version", "--main": "main", **STORE_OPTS}),
+    "untagged": (cmd_untagged, {"--main": "main"}),
+    "publish": (cmd_publish, {"--version": "version", "--main": "main", **STORE_OPTS}),
 }
 
 
@@ -584,7 +982,7 @@ def main(argv):
             usage("--dir needs a value")
         d, rest = rest[1], rest[2:]
     if not rest or rest[0] not in COMMANDS:
-        usage("usage: release.sh [--dir <repo>] check | bump --to V | status --version V [--main ref] | publish --version V")
+        usage("usage: release.sh [--dir <repo>] check | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] | publish --version V")
     fn, spec = COMMANDS[rest[0]]
     a, pos = parse_args(rest[1:], spec)
     if pos:

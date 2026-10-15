@@ -53,9 +53,9 @@ def yaml_quote(s):
     return "'" + s.replace("'", "''") + "'"
 
 
-def settings_text(version_files, enabled=True, merge_method=None, extra_release="", extra=""):
+def settings_text(version_files, enabled=True, merge_method=None, extra_release="", extra="", finish="pr"):
     """openspec/specwright.yaml text. version_files None = no `release:` block at all."""
-    out = "finish: pr\n"
+    out = f"finish: {finish}\n"
     if merge_method:
         out += f"pr:\n  merge_method: {merge_method}\n"
     if version_files is not None:
@@ -75,7 +75,7 @@ def readme_text(version):
 
 
 def make_repo(tmp, version="0.4.2", version_files="default", skills=DEFAULT_SKILLS, enabled=True,
-              merge_method=None, extra_release="", with_release_block=True):
+              merge_method=None, extra_release="", with_release_block=True, finish="pr"):
     """A work tree `tmp/work` on main with a bare origin `tmp/origin.git`, one commit pushed.
 
     version_files: "default" (the three Specwright-like entries), a dict path-or-glob -> regex, or None.
@@ -94,7 +94,7 @@ def make_repo(tmp, version="0.4.2", version_files="default", skills=DEFAULT_SKIL
     for s in skills:
         write(work, f"skills/{s}/SKILL.md", skill_text(s, version))
     write(work, "openspec/specwright.yaml",
-          settings_text(vf if with_release_block else None, enabled, merge_method, extra_release))
+          settings_text(vf if with_release_block else None, enabled, merge_method, extra_release, finish=finish))
     git(work, "add", "-A")
     git(work, "commit", "-q", "-m", "initial")
     git(work, "remote", "add", "origin", str(origin))
@@ -147,6 +147,43 @@ def merge_commit(repo, change, version, pr, owner="acme", why="Operators cannot 
     git(repo, "checkout", "-q", "main")
     git(repo, "merge", "-q", "--no-ff", "-m", f"Merge pull request #{pr} from {owner}/{branch}", branch)
     return git(repo, "rev-parse", "HEAD")
+
+
+def local_merge(repo, change, version, why="Operators cannot tell which build they run.", date=DATE, skills=None):
+    """The `finish: local` shape: a two-parent `merge: <change>` commit made with `git merge --no-ff`."""
+    branch = f"feat/{change}"
+    git(repo, "checkout", "-q", "-b", branch)
+    set_version(repo, version, skills)
+    commit(repo, f"feat({change}): do {change}", archive_files(change, why, date))
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", f"merge: {change}", branch)
+    return git(repo, "rev-parse", "HEAD")
+
+
+def make_store(tmp, archives=(), name="store"):
+    """A planning store repo `tmp/<name>` on main. archives: (change, why, planning_only) triples, archived on its main.
+    Returns the path."""
+    store = Path(tmp) / name
+    store.mkdir(parents=True)
+    git(store, "init", "-q", "-b", "main")
+    for k, v in (("user.name", NAME), ("user.email", EMAIL), ("commit.gpgsign", "false"), ("core.autocrlf", "false")):
+        git(store, "config", k, v)
+    write(store, "README.md", "# store\n")
+    for change, why, planning_only in archives:
+        archive_in_store(store, change, why, planning_only, commit_it=False)
+    git(store, "add", "-A")
+    git(store, "commit", "-q", "-m", "initial")
+    return store
+
+
+def archive_in_store(store, change, why, planning_only=False, date=DATE, commit_it=True):
+    for rel, text in archive_files(change, why, date).items():
+        write(store, rel, text)
+    if planning_only:
+        write(store, f"openspec/changes/archive/{date}-{change}/specwright-change.yaml", "code_changes: none\n")
+    if commit_it:
+        git(store, "add", "-A")
+        git(store, "commit", "-q", "-m", f"archive {change}")
 
 
 def rebase_style(repo, change, version, tasks=2, why="Operators cannot tell which build they run.", date=DATE):
