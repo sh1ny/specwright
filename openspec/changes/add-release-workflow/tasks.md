@@ -66,7 +66,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 ## 2. release.sh: settings, check and bump
 
-- [ ] 2.1 Create `evals/release/` with a `fixtures.py` that builds a temp repo with version files, a local bare `origin` and helpers for squash, merge-commit and rebase-style histories. Write failing tests for `TestOptIn` (all three) and `TestCheck` (all five), and verify they fail because `skills/specwright-release/scripts/release.sh` does not exist.
+- [x] 2.1 Create `evals/release/` with a `fixtures.py` that builds a temp repo with version files, a local bare `origin` and helpers for squash, merge-commit and rebase-style histories. Write failing tests for `TestOptIn` (all three) and `TestCheck` (all five), and verify they fail because `skills/specwright-release/scripts/release.sh` does not exist.
 - [ ] 2.2 Implement `release.sh` (a bash entry with a Python standard-library body, like `pr-pair.sh`; copy the YAML subset reader from `pr-pair.sh:287-409`).
   - Settings: `release.enabled`, `version_files`, `tag`, `github_release`, `auto`, and the refusal of `pr.merge_method: rebase`.
   - JSON output and exit codes per design D9.
