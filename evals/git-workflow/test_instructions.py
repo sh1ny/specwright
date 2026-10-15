@@ -1163,5 +1163,61 @@ class InstallSettingsKeys(unittest.TestCase):
                          "the removed-key question is gone")
 
 
+OPENSPEC_PIN_FILE = ROOT / "OPENSPEC_VERSION"
+
+
+def openspec_pin():
+    """The pinned OpenSpec version from OPENSPEC_VERSION."""
+    assert OPENSPEC_PIN_FILE.is_file(), "OPENSPEC_VERSION is missing at the repo root"
+    pin = read(OPENSPEC_PIN_FILE).strip()
+    assert re.fullmatch(r"\d+\.\d+\.\d+", pin), f"OPENSPEC_VERSION does not hold a version: {pin!r}"
+    return pin
+
+
+def pin_drift(readme, contributing, pin):
+    """The README and CONTRIBUTING lines that disagree with the OpenSpec pin, as `file:line: text`."""
+    out = []
+
+    def name(fname, text, pos):
+        n = text.count("\n", 0, pos) + 1
+        out.append(f"{fname}:{n}: {text.splitlines()[n - 1].strip()}")
+
+    for fname, text in (("README.md", readme), ("CONTRIBUTING.md", contributing)):
+        for m in re.finditer(r"npm i -g @fission-ai/openspec(@\S+?)?(?=[`\s)]|$)", text):
+            if m.group(1) != "@" + pin:
+                name(fname, text, m.start())
+        for m in re.finditer(r"`spec-driven`\s*\((\d[^)\s]*)\)", text):
+            if m.group(1) != pin:
+                name(fname, text, m.start())
+        # Python 3.8 and gh 2.40 are two-part; an OpenSpec version is three-part.
+        for m in re.finditer(r"\d+\.\d+\.\d+\s+or\s+later", text):
+            name(fname, text, m.start())
+    badge = re.search(r"badge/OpenSpec-([^-]+)-", readme)
+    if not badge or badge.group(1) != pin:
+        name("README.md", readme, badge.start() if badge else 0)
+    return out
+
+
+class TestOpenSpecPin(unittest.TestCase):
+    def test_install_commands_and_badge_match_pin(self):
+        pin = openspec_pin()
+        readme, contributing = read(README), read(CONTRIBUTING)
+        self.assertEqual(pin_drift(readme, contributing, pin), [], "lines disagree with OPENSPEC_VERSION")
+        self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", prerequisites(), "the prerequisites do not install the pin")
+        s1 = step(readme, "Step 1")
+        self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", s1 or "", "Step 1 does not install the pin")
+        self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", contributing, "CONTRIBUTING does not install the pin")
+        self.assertRegex(contributing, r"(?s)upgrade.{0,200}OPENSPEC_VERSION", "the upgrade rule does not name OPENSPEC_VERSION")
+
+    def test_pin_drift_names_disagreeing_line(self):
+        pin = openspec_pin()
+        readme = read(README)
+        drift = pin_drift(readme, read(CONTRIBUTING), "1.15.0")
+        line = next(i for i, l in enumerate(readme.splitlines(), 1) if "**Prerequisites:**" in l)
+        self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", readme.splitlines()[line - 1])
+        self.assertTrue(any(d.startswith(f"README.md:{line}:") for d in drift),
+                        f"a pin bumped only in OPENSPEC_VERSION does not name README line {line}: {drift}")
+
+
 if __name__ == "__main__":
     unittest.main()
