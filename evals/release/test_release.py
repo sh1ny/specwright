@@ -57,14 +57,16 @@ class Base(unittest.TestCase):
 
 class TestOptIn(Base):
     def test_enabled_runs(self):
-        # Publish is built in a later group; until then enabled=true means check, status and bump get
-        # past the opt-in gate (group 4 extends this to publish).
+        # enabled=true means check, status, publish and bump all get past the opt-in gate.
         self.repo()
         code, doc, raw = self.release("check")
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.4.2")
         fx.squash_merge(self.work, "add-x", "0.5.0", 7)
         self.assertEqual(self.release("status", "--version", "0.5.0")[0], 0)
+        code, doc, raw = self.release("publish", "--version", "0.5.0")  # origin is a plain path: no GitHub release
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(fx.git(self.work, "cat-file", "-t", "v0.5.0"), "tag")
         self.assertEqual(self.release("bump", "--to", "0.6.0")[0], 0)
 
     def test_missing_block_refuses(self):
@@ -433,8 +435,9 @@ GH_SCRIPT = '#!/bin/sh\nexec python "{}" "$@"\n'
 CODE_SLUG = "acme/code"
 
 
-class TestStoreNotes(Flow):
-    """Store-backed notes (design D5): candidates come from the store's main, the proof from the code repo."""
+class GhFlow(Flow):
+    """A `gh` shim on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
+    local bare repository through `url.<bare>.insteadOf`."""
 
     def setUp(self):
         super().setUp()
@@ -454,6 +457,22 @@ class TestStoreNotes(Flow):
     def save(self):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
 
+    def connect(self):
+        """origin keeps a GitHub-form URL (release.sh derives the gh repo from it); git reaches the local bare repo."""
+        url = f"https://github.com/{CODE_SLUG}.git"
+        fx.git(self.work, "config", "remote.origin.url", url)
+        fx.git(self.work, "config", f"url.{(self.tmp / 'origin.git').as_posix()}.insteadOf", url)
+        return self.tmp / "origin.git"
+
+    def gh_calls(self):
+        if not self.gh_log.exists():
+            return []
+        return [json.loads(l) for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
+
+
+class TestStoreNotes(GhFlow):
+    """Store-backed notes (design D5): candidates come from the store's main, the proof from the code repo."""
+
     def pull(self, number, change, sha=None, merged=True, repo=CODE_SLUG, prefix="feat"):
         self.state["repos"][CODE_SLUG]["pulls"].append({
             "number": number, "state": "closed" if merged else "open", "merged_at": "2026-10-12T00:00:00Z" if merged else None,
@@ -463,7 +482,7 @@ class TestStoreNotes(Flow):
 
     def code(self, finish="pr", version="0.4.1"):
         self.repo(version=version, finish=finish)
-        fx.git(self.work, "config", "remote.origin.url", f"https://github.com/{CODE_SLUG}.git")
+        self.connect()
         return self.work
 
     def store_status(self, store, version, *extra, expect=0):
@@ -483,10 +502,11 @@ class TestStoreNotes(Flow):
         doc = self.store_status(store, "0.4.2")
         self.assertEqual(doc["changes"], [{"name": "add-x", "why": "Store reason for x.", "pr": 90}])
         calls = [json.loads(l) for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(calls), 1, calls)
-        self.assertIn("--paginate", calls[0]["argv"])
-        self.assertTrue(any(a.startswith(f"repos/{CODE_SLUG}/pulls?state=closed&base=main") for a in calls[0]["argv"]), calls[0])
-        self.assertIsNone(calls[0]["gh_repo"])
+        self.assertEqual([c["argv"][0] for c in calls].count("api"), 1, calls)  # one pulls call (status also views the release)
+        api = [c for c in calls if c["argv"][0] == "api"][0]
+        self.assertIn("--paginate", api["argv"])
+        self.assertTrue(any(a.startswith(f"repos/{CODE_SLUG}/pulls?state=closed&base=main") for a in api["argv"]), api)
+        self.assertTrue(all(c["gh_repo"] is None for c in calls), calls)
 
     def test_pending_left_out(self):
         self.code()
@@ -517,7 +537,7 @@ class TestStoreNotes(Flow):
         self.assertEqual(fx.git(self.work, "tag"), "")
 
     def test_store_not_tagged(self):
-        # Group 4 extends this to a full publish: the tag lands in the code repo only.
+        # A full publish with --store: the tag lands in the code repo (and its origin) only.
         self.code()
         store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
         sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
@@ -526,6 +546,15 @@ class TestStoreNotes(Flow):
         self.assertEqual(Path(doc["tag_repo"]).resolve(), self.work.resolve())
         self.assertEqual(fx.git(store, "tag"), "")
         self.assertEqual(fx.git(self.work, "tag"), "")
+        self.save()
+        code, doc, raw = self.release("publish", "--version", "0.4.2", "--store", str(store), env=self.env())
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(Path(doc["tag_repo"]).resolve(), self.work.resolve())
+        self.assertEqual(fx.git(self.work, "tag"), "v0.4.2")
+        self.assertEqual(fx.git(self.work, "rev-parse", "v0.4.2^{commit}"), sha)
+        self.assertEqual(fx.git(self.tmp / "origin.git", "tag"), "v0.4.2")
+        self.assertEqual(fx.git(store, "tag"), "")
+        self.assertIn("X reason.", fx.git(self.work, "tag", "-l", "--format=%(contents)", "v0.4.2"))
 
     def test_local_mode_uses_merge_subject(self):
         self.code(finish="local", version="0.4.0")
@@ -533,8 +562,251 @@ class TestStoreNotes(Flow):
         fx.local_merge(self.work, "add-w", "0.4.1")
         doc = self.store_status(store, "0.4.1")
         self.assertEqual(doc["changes"], [{"name": "add-w", "why": "W reason.", "pr": None}])
-        self.assertFalse(self.gh_log.exists())  # no PR discovery in local mode
+        self.assertFalse([c for c in self.gh_calls() if c["argv"][0] == "api"])  # no PR discovery in local mode
 
+
+
+class PubFlow(GhFlow):
+    """A code repo at 0.5.0 (release commit `self.rc`) whose origin is a GitHub-form URL over a local bare repo."""
+
+    TAG = "v0.5.0"
+
+    def setUp(self):
+        super().setUp()
+        self.repo(version="0.4.0")
+        self.base = self.sha()
+        self.state["repos"][CODE_SLUG].update({"releases": {}})
+        self.bare = self.connect()
+        fx.push(self.work)
+        self.rc = fx.squash_merge(self.work, "add-x", "0.5.0", 7)
+
+    def publish(self, version="0.5.0", *extra, env=None):
+        self.save()
+        return self.release("publish", "--version", version, *extra, env=env or self.env())
+
+    def remote(self, tag=None):
+        """`git ls-remote` lines of origin's tags (tag object and peeled commit)."""
+        return fx.git(self.work, "ls-remote", "--tags", "origin", *([f"refs/tags/{tag}*"] if tag else []))
+
+    def obj(self, tag=None):
+        return fx.git(self.work, "rev-parse", f"refs/tags/{tag or self.TAG}")
+
+    def seed_tag(self, commit=None, message="Seeded notes\n", name=None, local=True, push=True):
+        name = name or self.TAG
+        fx.git(self.work, "tag", "-a", name, "-m", message, commit or self.rc)
+        if push:
+            fx.git(self.work, "push", "-q", "origin", f"refs/tags/{name}:refs/tags/{name}")
+        if not local:
+            fx.git(self.work, "tag", "-d", name)
+
+    def releases(self):
+        return json.loads(self.gh_state.read_text(encoding="utf-8"))["repos"][CODE_SLUG].get("releases", {})
+
+    def creates(self):
+        return [c for c in self.gh_calls() if c["argv"][:2] == ["release", "create"]]
+
+    def contents(self, tag=None):
+        return fx.git(self.work, "tag", "-l", "--format=%(contents)", tag or self.TAG)
+
+
+class TestPublish(PubFlow):
+    def test_new_release(self):
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(fx.git(self.work, "cat-file", "-t", self.TAG), "tag")
+        self.assertEqual(fx.git(self.work, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+        self.assertIn(f"refs/tags/{self.TAG}", self.remote(self.TAG))
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+        self.assertIn("add-x", self.contents())
+        self.assertEqual((doc["ok"], doc["version"], doc["tag"], doc["release_commit"]), (True, "0.5.0", self.TAG, self.rc))
+        self.assertEqual((doc["tag_local"], doc["tag_remote"], doc["github_release"]), ("created", "pushed", "created"))
+
+    def test_only_the_tag_ref_is_pushed(self):
+        # a local branch commit and an extra local tag stay local
+        fx.git(self.work, "tag", "other", self.base)
+        fx.commit(self.work, "wip", {"wip.txt": "x\n"})
+        head_before = fx.git(self.bare, "rev-parse", "main")
+        self.assertEqual(self.publish()[0], 0)
+        self.assertEqual(fx.git(self.bare, "rev-parse", "main"), head_before)
+        self.assertEqual(fx.git(self.bare, "tag"), self.TAG)
+
+    def test_push_failure(self):
+        hook = self.bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\necho 'tag push rejected by hook' >&2\nexit 1\n", encoding="utf-8", newline="\n")
+        hook.chmod(0o755)
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 3, raw)
+        self.assertIs(doc["ok"], False)
+        self.assertIn("re-run", doc["message"])
+        self.assertIn("local tag", doc["message"])
+        self.assertIn("git push", doc["message"])
+        self.assertEqual(fx.git(self.work, "cat-file", "-t", self.TAG), "tag")  # the local tag stays
+        self.assertEqual(fx.git(self.bare, "tag"), "")
+        self.assertEqual(self.creates(), [])
+        self.assertEqual(self.gh_calls(), [])  # no GitHub call before the tag is on origin
+
+    def test_rerun_creates_only_release(self):
+        self.seed_tag()
+        before = self.obj()
+        remote_before = self.remote()
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((doc["tag_local"], doc["tag_remote"], doc["github_release"]), ("existing", "existing", "created"))
+        self.assertEqual(self.obj(), before)
+        self.assertEqual(self.remote(), remote_before)
+        self.assertEqual(self.releases()[self.TAG]["body"].strip(), "Seeded notes")
+        self.assertEqual(len(self.creates()), 1)
+        self.state = json.loads(self.gh_state.read_text(encoding="utf-8"))  # keep the fake's release
+        again = self.publish()
+        self.assertEqual(again[0], 0, again[2])
+        self.assertEqual(len(self.creates()), 1)  # nothing is created twice
+        self.assertEqual(again[1]["github_release"], "existing")
+
+    def test_origin_only_tag_fetched(self):
+        self.seed_tag(local=False, message="Origin notes only\n")
+        self.assertEqual(fx.git(self.work, "tag"), "")
+        origin_obj = self.remote(self.TAG).splitlines()[0].split()[0]
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(self.obj(), origin_obj)  # fetched, not created again
+        self.assertEqual((doc["tag_local"], doc["tag_remote"]), ("fetched", "existing"))
+        self.assertEqual(self.releases()[self.TAG]["body"].strip(), "Origin notes only")
+
+    def test_conflicting_tag_stops(self):
+        # the tag sits at another commit, on origin only and then locally only
+        for local in (False, True):
+            with self.subTest(local=local):
+                self.seed_tag(commit=self.base, local=local, push=not local)
+                tags_before, remote_before = fx.git(self.work, "tag"), self.remote()
+                code, doc, raw = self.publish()
+                self.assertEqual(code, 1, raw)
+                self.assertEqual(doc["error"], "tag_conflict")
+                self.assertIn(self.base, doc["message"])
+                self.assertIn(self.rc, doc["message"])
+                self.assertEqual(fx.git(self.work, "tag"), tags_before)
+                self.assertEqual(self.remote(), remote_before)
+                self.assertEqual(self.gh_calls(), [])
+                self.assertEqual(self.releases(), {})
+                if local:
+                    fx.git(self.work, "tag", "-d", self.TAG)
+                else:
+                    fx.git(self.bare, "tag", "-d", self.TAG)
+
+    def test_ls_remote_failure(self):
+        fx.git(self.work, "config", "remote.origin.url", str(self.tmp / "does-not-exist.git"))
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 3, raw)
+        self.assertIn("git ls-remote", doc["message"])
+        self.assertEqual(fx.git(self.work, "tag"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+
+class TestGithubRelease(PubFlow):
+    def test_status_reports_release_state(self):
+        def state():
+            self.save()
+            code, doc, raw = self.release("status", "--version", "0.5.0", env=self.env())
+            self.assertEqual(code, 0, raw)
+            return doc["github_release"]
+        self.assertEqual(state(), "absent")
+        self.state["repos"][CODE_SLUG]["releases"] = {self.TAG: {"tag_name": self.TAG, "name": self.TAG, "body": "x",
+                                                                  "created_at": "2026-10-10T00:00:00Z"}}
+        self.assertEqual(state(), "existing")
+        self.assertEqual(self.creates(), [])
+        self.state["fail"] = [{"match": "release view", "stderr": "gh: connection reset"}]
+        self.save()
+        code, doc, raw = self.release("status", "--version", "0.5.0", env=self.env())
+        self.assertEqual((code, doc["error"]), (3, "release_view_failed"), raw)
+        del self.state["fail"]
+        fx.write(self.work, "openspec/specwright.yaml",
+                 fx.settings_text(fx.DEFAULT_VERSION_FILES, extra_release="  github_release: false\n"))
+        self.assertEqual(state(), "disabled")
+        fx.write(self.work, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
+        fx.git(self.work, "config", "remote.origin.url", self.bare.as_posix())
+        self.assertEqual(state(), "not_github")
+
+    def test_created_with_tag_message(self):
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        rel = self.releases()[self.TAG]
+        self.assertEqual(rel["body"].strip(), self.contents().strip())
+        self.assertIn("add-x", rel["body"])
+        self.assertEqual(rel["name"], self.TAG)
+        create = self.creates()[0]["argv"]
+        self.assertIn("--verify-tag", create)
+        self.assertEqual(create[create.index("--repo") + 1], CODE_SLUG)
+        self.assertEqual(doc["release_url"], f"https://github.com/{CODE_SLUG}/releases/tag/{self.TAG}")
+
+    def test_existing_left_alone(self):
+        self.state["repos"][CODE_SLUG]["releases"] = {self.TAG: {"tag_name": self.TAG, "name": "by hand", "body": "hand-written",
+                                                                  "created_at": "2026-10-10T00:00:00Z"}}
+        before = json.loads(json.dumps(self.state["repos"][CODE_SLUG]["releases"]))
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(self.releases(), before)
+        self.assertEqual(self.creates(), [])
+        self.assertEqual(doc["github_release"], "existing")
+        self.assertEqual(fx.git(self.bare, "tag"), self.TAG)
+
+    def test_create_failure_resumable(self):
+        self.state["fail"] = [{"match": "release create", "stderr": "gh: connection reset"}]
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 3, raw)
+        self.assertIs(doc["ok"], False)
+        self.assertIn("gh release create", doc["message"])
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)  # the tag stays on origin
+        self.assertEqual(self.releases(), {})
+        obj, remote = self.obj(), self.remote()
+        del self.state["fail"]
+        self.gh_log.unlink()
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((doc["tag_local"], doc["tag_remote"], doc["github_release"]), ("existing", "existing", "created"))
+        self.assertEqual(len(self.creates()), 1)
+        self.assertEqual((self.obj(), self.remote()), (obj, remote))  # no second tag, no second push
+        self.assertIn(self.TAG, self.releases())
+
+    def test_disabled_and_not_github(self):
+        fx.write(self.work, "openspec/specwright.yaml",
+                 fx.settings_text(fx.DEFAULT_VERSION_FILES, extra_release="  github_release: false\n"))
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["github_release"], "disabled")
+        self.assertEqual(self.gh_calls(), [])
+        # origin off github.com: the tag is pushed, no release is attempted
+        fx.git(self.work, "tag", "-d", self.TAG)
+        fx.git(self.bare, "tag", "-d", self.TAG)
+        fx.write(self.work, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
+        fx.git(self.work, "config", "remote.origin.url", self.bare.as_posix())
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["github_release"], "not_github")
+        self.assertEqual(self.gh_calls(), [])
+        self.assertEqual(fx.git(self.bare, "tag"), self.TAG)
+
+
+class TestThisRepo(Base):
+    def test_backfill_ranges(self):
+        # The 0.4.1 and 0.4.2 releases of this repository, backfilled from its history (no tags exist). The
+        # repository's own specwright.yaml is local, so the entries are pinned in a clone.
+        if fx.git(ROOT, "rev-parse", "--is-shallow-repository", check=False) == "true":
+            self.skipTest("shallow clone")
+        for sha in ("9b33ec5", "4f9b823"):
+            if subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=ROOT, capture_output=True).returncode != 0:
+                self.skipTest(f"{sha} is not in this history")
+        clone = self.tmp / "clone"
+        r = subprocess.run(["git", "clone", "-q", "--no-checkout", str(ROOT), str(clone)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        if subprocess.run(["git", "rev-parse", "--verify", "--quiet", "origin/main"], cwd=clone, capture_output=True).returncode != 0:
+            self.skipTest("no main branch in this checkout")
+        fx.write(clone, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
+        for version, prefix, name, pr in (("0.4.1", "9b33ec5", "fix-m2-gaps", 89), ("0.4.2", "4f9b823", "pin-openspec-version", 90)):
+            code, doc, raw = self.release("status", "--version", version, "--main", "origin/main", cwd=clone)
+            self.assertEqual(code, 0, raw)
+            self.assertTrue(doc["release_commit"].startswith(prefix), doc["release_commit"])
+            self.assertEqual([(c["name"], c["pr"]) for c in doc["changes"]], [(name, pr)])
+            self.assertIn(name, doc["notes"])
+            self.assertEqual(doc["version"], version)
 
 
 class TestVersionFiles(Base):

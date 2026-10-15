@@ -25,7 +25,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → Notes list the changes merged since the previous release | One change in the range | evals/release/test_release.py | TestNotes.test_one_change | green |
 | releases → Notes list the changes merged since the previous release | Several changes in the range | evals/release/test_release.py | TestNotes.test_several_changes_in_order | green |
 | releases → Notes list the changes merged since the previous release | No change in the range | evals/release/test_release.py | TestNotes.test_empty_range | green |
-| releases → Notes list the changes merged since the previous release | Backfill with no earlier tag | evals/release/test_release.py | TestNotes.test_backfill_no_tag; TestThisRepo.test_backfill_ranges | red |
+| releases → Notes list the changes merged since the previous release | Backfill with no earlier tag | evals/release/test_release.py | TestNotes.test_backfill_no_tag; TestThisRepo.test_backfill_ranges | green |
 | releases → Store-backed notes use the code-merge proof | Code PR merged in the range | evals/release/test_release.py | TestStoreNotes.test_merged_pr_in_range | green |
 | releases → Store-backed notes use the code-merge proof | Code still pending | evals/release/test_release.py | TestStoreNotes.test_pending_left_out | green |
 | releases → Store-backed notes use the code-merge proof | PR discovery fails | evals/release/test_release.py | TestStoreNotes.test_discovery_failure_stops | green |
@@ -86,7 +86,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 - [x] 4.1 Extend `evals/fakes/gh.py` with `release view <tag>` and `release create <tag> --verify-tag --title --notes-file`, with failure injection like its other commands. Add cases to `evals/pr-pair/test_fake_gh.py`. Verify `python -m unittest discover evals/pr-pair` passes.
 - [x] 4.2 Write failing `TestPublish` (all five) and `TestGithubRelease` (all three) tests, then implement `publish` per D6: the `ls-remote` check, the conflict stop, fetching an origin-only tag, `tag -a` with the notes, a push of only `refs/tags/<tag>`, and `gh release create` with the tag's message. Every step is skipped when already done. Verify the tests pass and flip the rows green.
-- [ ] 4.3 Add `TestThisRepo.test_backfill_ranges`, which runs `status` on this repository for 0.4.1 and 0.4.2. It asserts release commits `9b33ec5` and `4f9b823`, notes `fix-m2-gaps` (#89) and `pin-openspec-version` (#90), and that the agreement check passes at both commits. The test skips when the history is shallow. Verify it passes.
+- [x] 4.3 Add `TestThisRepo.test_backfill_ranges`, which runs `status` on this repository for 0.4.1 and 0.4.2. It asserts release commits `9b33ec5` and `4f9b823`, notes `fix-m2-gaps` (#89) and `pin-openspec-version` (#90), and that the agreement check passes at both commits. The test skips when the history is shallow. Verify it passes.
 
 ## 5. specwright-release skill and callers
 
