@@ -536,5 +536,26 @@ class TestStoreNotes(Flow):
         self.assertFalse(self.gh_log.exists())  # no PR discovery in local mode
 
 
+
+class TestVersionFiles(Base):
+    def test_repo_version_files_agree(self):
+        # This repo's version files, read from its working tree with its `release.version_files` entries. Its own
+        # openspec/specwright.yaml is local (gitignored), so the entries are pinned here and the files are copied
+        # into a scratch repo: drift in any of them fails the suite in every checkout.
+        work = self.tmp / "this"
+        rels = ["VERSION", "README.md"] + sorted(p.relative_to(ROOT).as_posix() for p in ROOT.glob("skills/*/SKILL.md"))
+        for rel in rels:
+            dst = work / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes((ROOT / rel).read_bytes())
+        fx.write(work, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
+        fx.git(work, "init", "-q", "-b", "main")
+        code, doc, raw = self.release("check", cwd=work)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], (ROOT / "VERSION").read_text(encoding="utf-8").strip())
+        self.assertEqual(sorted(doc["files"]), sorted(rels))
+        self.assertEqual(len(rels), 10)
+
+
 if __name__ == "__main__":
     unittest.main()
