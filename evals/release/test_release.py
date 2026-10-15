@@ -111,6 +111,19 @@ class TestCheck(Base):
         self.assertStops(out, "skills/specwright-debug/SKILL.md", "0.4.1", "0.4.2")
         self.assertEqual(fx.snapshot(self.work), before)
 
+    def test_crlf_file_with_anchored_pattern(self):
+        # A Windows checkout (core.autocrlf) gives VERSION CRLF line ends; `$` must still match, and bump keeps the CRLF.
+        self.repo()
+        with open(os.path.join(self.work, "VERSION"), "wb") as f:
+            f.write(b"0.4.2\r\n")
+        code, doc, raw = self.release("check")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.4.2")
+        code, doc, raw = self.release("bump", "--to", "0.5.0")
+        self.assertEqual(code, 0, raw)
+        with open(os.path.join(self.work, "VERSION"), "rb") as f:
+            self.assertEqual(f.read(), b"0.5.0\r\n")
+
     def test_zero_or_two_matches(self):
         self.repo()
         fx.write(self.work, "README.md", "# Demo\n\nno badge here\n")

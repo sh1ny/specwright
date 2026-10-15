@@ -42,6 +42,7 @@ done
 [ -n "$py" ] || { echo '{"ok":false,"error":"no_python","message":"release.sh needs python 3.8+"}'; exit 2; }
 
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
+import bisect
 import glob as globmod
 import json
 import os
@@ -417,6 +418,36 @@ def decode(raw):
     return raw.decode("utf-8", "surrogateescape")
 
 
+class Hit:
+    """One version match: the captured value and its span in the original text."""
+    def __init__(self, value, start, end):
+        self.value, self.span1 = value, (start, end)
+
+    def group(self, _=1):
+        return self.value
+
+    def start(self, _=1):
+        return self.span1[0]
+
+    def end(self, _=1):
+        return self.span1[1]
+
+
+def find_versions(c, text):
+    """Every match of `c` in `text` as Hit, reading CRLF line ends as LF so `$` matches before CRLF (a Windows
+    checkout with core.autocrlf); the spans index the original text, so bump keeps the CRLF."""
+    if "\r\n" not in text:
+        return [Hit(m.group(1), m.start(1), m.end(1)) for m in c.finditer(text)]
+    norm = text.replace("\r\n", "\n")
+    crlf, k = [], 0  # positions in norm of the LFs that were CRLF
+    for i, ch in enumerate(norm):
+        if ch == "\n" and text[i + k] == "\r":
+            crlf.append(i)
+            k += 1
+    orig = lambda pos: pos + bisect.bisect_left(crlf, pos)
+    return [Hit(m.group(1), orig(m.start(1)), orig(m.end(1))) for m in c.finditer(norm)]
+
+
 def read_versions(tree, entries):
     """Apply every entry to `tree`. Returns (matches, problems); matches: [(file, [re.Match], raw bytes)]."""
     problems, per_entry = [], []
@@ -430,7 +461,7 @@ def read_versions(tree, entries):
     matches = []
     for path, rx, c, fs in per_entry:
         for f in fs:
-            ms = list(c.finditer(decode(data[f])))
+            ms = find_versions(c, decode(data[f]))
             matches.append((f, ms, data[f]))
             if len(ms) != 1:
                 problems.append({"kind": "match_count", "file": f, "entry": path, "pattern": rx, "count": len(ms),
@@ -570,7 +601,7 @@ def primary_history(st, entries, ref):
         texts = [[decode(b)] if b is not None else [] for b in cat_batch(st.root, [f"{s}:{path}" for s in shas])]
     out = []
     for sha, blobs in zip(shas, texts):
-        vals = {m.group(1) for t in blobs for m in c.finditer(t)}
+        vals = {m.group(1) for t in blobs for m in find_versions(c, t)}
         out.append((sha, next(iter(vals)) if len(vals) == 1 else None))
     return out
 
