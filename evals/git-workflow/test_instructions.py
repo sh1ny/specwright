@@ -1301,6 +1301,43 @@ class TestOpenSpecPin(unittest.TestCase):
         self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", b, "a missing OpenSpec does not name the pinned install command")
         self.assertRegex(b, r"STOP", "a missing OpenSpec does not stop the install")
 
+    # The explicit override: the user's own words, naming the found version.
+
+    def override(self):
+        s3 = step(read(README), "Step 3")
+        b = install_bullet(s3 or "", r"^- Override\b")
+        self.assertTrue(b, "Step 3 has no override bullet")
+        return b
+
+    def test_override_requires_found_version_and_is_reported(self):
+        readme, b = read(README), self.override()
+        self.assertIn("continue with OpenSpec <found>", b, "the override does not require `continue with OpenSpec <found>`")
+        self.assertRegex(b, r"(?i)own\s+words", "the override does not require the user's own words")
+        self.assertRegex(b, r"(?is)(request|reply)", "the override does not say where the user may state it")
+        self.assertRegex(b, r"(?is)never\s+(offer|recommend).{0,60}default|not\s+.{0,20}default", "the override may be offered as a default")
+        self.assertRegex(b, r"(?is)(this|one)\s+run\s+only|nothing\s+is\s+(stored|saved)", "the override is not limited to one run")
+        _, check = self.s3_check()
+        mismatch = self.stop_branch(check, r"(?i)mismatch", r"STOP")
+        self.assertRegex(mismatch, r"(?i)unless\s+the\s+(user\s+states\s+the\s+)?override", "the mismatch stop does not yield to a stated override")
+        s8 = step(readme, "Step 8")
+        self.assertIn("OpenSpec <found> (pinned <pin>, override)", s8 or "", "Step 8 does not report the override")
+        docs = readme[readme.index("**Prerequisites:**"): readme.index("```text")]
+        self.assertRegex(docs, r"continue with OpenSpec <(found|version)>|continue with OpenSpec \d",
+                         "the README does not document the override next to the prerequisites")
+
+    def test_general_confirmation_is_not_override(self):
+        b = self.override()
+        self.assertRegex(b, r"(?is)(plain|general)\s+.{0,40}(yes|confirmation).{0,120}\bnot\b.{0,20}override",
+                         "a general confirmation is not ruled out as an override")
+        self.assertRegex(b, r"(?is)install\s+<pin>.{0,120}state\s+the\s+override|state\s+the\s+override.{0,120}install\s+<pin>",
+                         "a general confirmation does not ask to install the pin or state the override")
+
+    def test_override_for_other_version_stops(self):
+        b = self.override()
+        self.assertRegex(b, r"(?is)(different|another|other)\s+version.{0,120}\bnot\b.{0,20}override",
+                         "an override naming another version is not ruled out")
+        self.assertRegex(b, r"(?is)as\s+on\s+a\s+mismatch", "an override for another version does not stop as on a mismatch")
+
 
 if __name__ == "__main__":
     unittest.main()

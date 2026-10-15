@@ -33,7 +33,7 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 
 ## 3. Explicit override
 
-- [ ] 3.1 Write the failing tests `test_override_requires_found_version_and_is_reported`, `test_general_confirmation_is_not_override` and `test_override_for_other_version_stops`. They assert that the Step 3 override bullet requires the user's own words naming the found version (`continue with OpenSpec <found>`), rules out a general confirmation and a different version, is not offered as a default, holds for one run only, and that Step 8 reports `OpenSpec <found> (pinned <pin>, override)`. They also assert that the README documents the override outside the prompt block, next to the prerequisites. Run the tests and confirm they fail.
+- [x] 3.1 Write the failing tests `test_override_requires_found_version_and_is_reported`, `test_general_confirmation_is_not_override` and `test_override_for_other_version_stops`. They assert that the Step 3 override bullet requires the user's own words naming the found version (`continue with OpenSpec <found>`), rules out a general confirmation and a different version, is not offered as a default, holds for one run only, and that Step 8 reports `OpenSpec <found> (pinned <pin>, override)`. They also assert that the README documents the override outside the prompt block, next to the prerequisites. Run the tests and confirm they fail.
 - [ ] 3.2 Add the override bullet to Step 3, the override report line to Step 8, and a short override note under the README prerequisites (design D3). Verify that the 3.1 tests pass, and flip their rows to green.
 
 ## 4. Agent evals for the refusal and the override
