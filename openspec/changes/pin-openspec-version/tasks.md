@@ -45,7 +45,7 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 ## 5. Architecture, release and integration
 
 - [x] 5.1 Update `openspec/architecture.md`. The OpenSpec boundary (`:105`) says the pin is enforced at install from `OPENSPEC_VERSION`. The install-prompt row (`:73`) reads `OPENSPEC_VERSION`. Remove the #37 known-gap row (`:143`). Verify with `grep -n "#37" openspec/architecture.md`, which should print nothing.
-- [ ] 5.2 Bump the release to 0.4.2: `VERSION`, the README version badge, and `metadata.version` in every `skills/*/SKILL.md` (`CONTRIBUTING.md` Releases). Verify with `python -m pytest evals/review-routes`, which includes `test_frontmatter_version`.
+- [x] 5.2 Bump the release to 0.4.2: `VERSION`, the README version badge, and `metadata.version` in every `skills/*/SKILL.md` (`CONTRIBUTING.md` Releases). Verify with `python -m pytest evals/review-routes`, which includes `test_frontmatter_version`.
 - [ ] 5.3 Integration: run `python -m pytest evals/pr-pair evals/git-workflow evals/review-routes`, `openspec validate pin-openspec-version --strict` and `openspec schema validate specwright`. All of them must pass.
 
 ## Workflow follow-up
