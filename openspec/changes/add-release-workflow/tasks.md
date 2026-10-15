@@ -32,8 +32,8 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → Publish creates and pushes an annotated tag | New release | evals/release/test_release.py | TestPublish.test_new_release | red |
 | releases → Publish creates and pushes an annotated tag | Push refused by the fence | evals/release/test_release.py | TestPublish.test_push_failure | red |
 | releases → Publish creates and pushes an annotated tag | Store-backed project | evals/release/test_release.py | TestStoreNotes.test_store_not_tagged | red |
-| releases → Older untagged versions are published first | Older version untagged | evals/release/test_release.py | TestUntagged.test_older_blocks_newer | red |
-| releases → Older untagged versions are published first | Backfill below the latest tag | evals/release/test_release.py | TestUntagged.test_backfill_below_latest | red |
+| releases → Older untagged versions are published first | Older version untagged | evals/release/test_release.py | TestUntagged.test_older_blocks_newer | green |
+| releases → Older untagged versions are published first | Backfill below the latest tag | evals/release/test_release.py | TestUntagged.test_backfill_below_latest | green |
 | releases → Re-runs never move a published tag | Re-run after an interrupted publish | evals/release/test_release.py | TestPublish.test_rerun_creates_only_release | red |
 | releases → Re-runs never move a published tag | Tag only on origin | evals/release/test_release.py | TestPublish.test_origin_only_tag_fetched | red |
 | releases → Re-runs never move a published tag | Tag on another commit | evals/release/test_release.py | TestPublish.test_conflicting_tag_stops | red |
@@ -54,9 +54,9 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | pr-merge → Watch offers a release after an agent merge | An earlier version was left untagged | evals/release/test_skill_text.py | TestWatchText.test_untagged_oldest_first | green |
 | pr-merge → Watch offers a release after an agent merge | Cleanup stopped | evals/release/test_skill_text.py | TestWatchText.test_release_only_after_cleanup | green |
 | pr-merge → Watch offers a release after an agent merge | Publish fails after the merge | evals/release/test_skill_text.py | TestWatchText.test_publish_failure_reported | green |
-| project-planning → Close offers untagged releases | Versions left untagged | evals/release/test_release.py | TestUntagged.test_lists_since_latest_tag | red |
-| project-planning → Close offers untagged releases | Everything tagged | evals/release/test_release.py | TestUntagged.test_all_tagged_empty | red |
-| project-planning → Close offers untagged releases | No tag yet | evals/release/test_release.py | TestUntagged.test_no_tag_current_only | red |
+| project-planning → Close offers untagged releases | Versions left untagged | evals/release/test_release.py | TestUntagged.test_lists_since_latest_tag | green |
+| project-planning → Close offers untagged releases | Everything tagged | evals/release/test_release.py | TestUntagged.test_all_tagged_empty | green |
+| project-planning → Close offers untagged releases | No tag yet | evals/release/test_release.py | TestUntagged.test_no_tag_current_only | green |
 | project-planning → Close offers untagged releases | User declines | evals/release/test_skill_text.py | TestCloseText.test_offer_needs_yes_and_never_blocks | green |
 | project-planning → Close offers untagged releases | Releases disabled | evals/release/test_skill_text.py | TestCloseText.test_disabled_no_offer | green |
 
@@ -79,7 +79,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 - [x] 3.1 Write failing `TestReleaseCommit` tests (all five, including `test_local_merge_commit_after_push` and `test_rebase_commit_refused`), then implement `status --version --main`. The release commit is the first first-parent commit reading V; it must be a merge or `(#n)` commit; the agreement check runs at that commit. Verify the tests pass and flip the rows green.
 - [x] 3.2 Write failing `TestNotes` tests (all four), then implement repo-local notes per D4: the archive set difference, the first sentence of Why clipped at 300 characters, the PR number from the subject, first-parent order, the previous release by the tagged lower version else the value before V, and the entry cap from the design's Resource Bounds. Verify the tests pass and flip the rows green.
-- [ ] 3.3 Write failing `TestUntagged` tests (all five), then implement `untagged` and publish's older-untagged refusal. Verify the tests pass and flip the rows green.
+- [x] 3.3 Write failing `TestUntagged` tests (all five), then implement `untagged` and publish's older-untagged refusal. Verify the tests pass and flip the rows green.
 - [ ] 3.4 Write failing `TestStoreNotes` tests (all four), with a store repo fixture and the fake `gh` `pulls` listing. Then implement store-backed notes per D5: candidates from the store's main archive excluding `code_changes: none`, proof by a `merge: <name>` subject or a merged PR's `merge_commit_sha` in range, a failed discovery as exit 3, and no store tag. Verify the tests pass and flip the rows green.
 
 ## 4. release.sh: publish
