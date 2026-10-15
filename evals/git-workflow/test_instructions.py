@@ -1174,16 +1174,16 @@ def openspec_pin():
     return pin
 
 
-def pin_drift(readme, contributing, pin):
-    """The README and CONTRIBUTING lines that disagree with the OpenSpec pin, as `file:line: text`."""
+def pin_drift(readme, contributing, pin, extra=(), badge=True):
+    """The README and CONTRIBUTING lines (and `extra` (name, text) pairs) that disagree with the OpenSpec pin, as `file:line: text`."""
     out = []
 
     def name(fname, text, pos):
         n = text.count("\n", 0, pos) + 1
         out.append(f"{fname}:{n}: {text.splitlines()[n - 1].strip()}")
 
-    for fname, text in (("README.md", readme), ("CONTRIBUTING.md", contributing)):
-        for m in re.finditer(r"npm i -g @fission-ai/openspec(@\S+?)?(?=[`\s)]|$)", text):
+    for fname, text in (("README.md", readme), ("CONTRIBUTING.md", contributing), *extra):
+        for m in re.finditer(r'npm i -g @fission-ai/openspec(@\S+?)?(?=[`\s)"\\,]|\.(?:\s|$)|$)', text):
             if m.group(1) not in ("@" + pin, "@<pin>"):
                 name(fname, text, m.start())
         for m in re.finditer(r"`spec-driven`\s*\((\d[^)\s]*)\)", text):
@@ -1197,9 +1197,10 @@ def pin_drift(readme, contributing, pin):
         # Python 3.8 and gh 2.40 are two-part; an OpenSpec version is three-part.
         for m in re.finditer(r"\d+\.\d+\.\d+\s+or\s+later", text):
             name(fname, text, m.start())
-    badge = re.search(r"badge/OpenSpec-([^-]+)-", readme)
-    if not badge or badge.group(1) != pin:
-        name("README.md", readme, badge.start() if badge else 0)
+    if badge:
+        b = re.search(r"badge/OpenSpec-([^-]+)-", readme)
+        if not b or b.group(1) != pin:
+            name("README.md", readme, b.start() if b else 0)
     return out
 
 
@@ -1306,7 +1307,7 @@ class TestOpenSpecPin(unittest.TestCase):
         s1 = step(read(README), "Step 1")
         root = install_bullet(s1, r"openspec list --json")
         self.assertTrue(root, "Step 1 has no root check")
-        unpinned = re.search(rf"(?is)version.{{0,40}}recorded.{{0,40}}(not|differs).{{0,400}}?STOP", root)
+        unpinned = re.search(rf"(?is)version.{{0,40}}recorded.{{0,200}}?(not|differs).{{0,400}}?STOP", root)
         self.assertTrue(unpinned, "the root-check failure has no branch for an unpinned OpenSpec")
         b = unpinned.group(0)
         self.assertRegex(b, r"(?i)(name|naming)\s+the\s+version\s+found", "the unpinned branch does not name the version found")
@@ -1314,6 +1315,28 @@ class TestOpenSpecPin(unittest.TestCase):
         self.assertNotRegex(b, r"run\s+`openspec init`", "the unpinned branch tells the user to run openspec init")
         self.assertRegex(root, r"(?is)(do not|never) suggest\s+`openspec init`", "the unpinned branch does not rule out openspec init")
         self.assertRegex(root, r"(?is)pinned version.{0,120}`openspec init`", "openspec init advice is not limited to the pinned version")
+
+    def test_step1_root_failure_compares_version_token(self):
+        # Step 1 compares the same token Step 3 takes, not the whole `--version` output.
+        root = install_bullet(step(read(README), "Step 1"), r"openspec list --json")
+        unpinned = re.search(r"(?is)version.{0,40}recorded.{0,200}?\bnot\s+\d", root or "")
+        self.assertTrue(unpinned, "the root-check failure has no comparison with the pin")
+        self.assertIn(r"`\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?`", unpinned.group(0), "Step 1 does not take the version token")
+        self.assertRegex(unpinned.group(0), r"(?is)as\s+Step\s+3\s+takes\s+it", "Step 1 does not take the token as Step 3 does")
+
+    def test_eval_scaffolding_matches_pin(self):
+        # The pin evals spell the pin out too; the fake must report another version, or the refusal tests nothing.
+        pin, here = openspec_pin(), Path(__file__).resolve().parent
+        files = [(f"evals/git-workflow/{n}", read(here / n)) for n in ("grade.py", "test_grade.py", "evals.json")]
+        self.assertEqual(pin_drift("", "", pin, files, badge=False), [], "eval scaffolding disagrees with OPENSPEC_VERSION")
+        stale = pin_drift("", "", "0.0.0", files, badge=False)
+        for n in ("grade.py", "test_grade.py", "evals.json"):
+            self.assertTrue(any(d.startswith(f"evals/git-workflow/{n}:") for d in stale), f"pin_drift does not read {n}")
+        fake = re.search(r'install_fake_openspec\(repo,\s*"([^"]+)"\)', read(here / "fixtures.py"))
+        self.assertTrue(fake, "fixtures.py does not install the fake openspec")
+        self.assertNotEqual(fake.group(1), pin, "the fake openspec reports the pin, so the refusal eval tests nothing")
+        self.assertRegex(read(CONTRIBUTING), r"(?s)OpenSpec upgrade.{0,900}the two OpenSpec-pin evals",
+                         "the upgrade rule does not name the pin evals")
 
     def test_step1_missing_openspec_names_pinned_install(self):
         pin = openspec_pin()

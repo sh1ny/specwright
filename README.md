@@ -73,10 +73,12 @@ Step 1 - Check prerequisites
   - `"root": null`: if the error names this project's `openspec/config.yaml`
     (it starts with `Declared in` or `Invalid store declaration in`), show
     its message and fix and STOP. Otherwise, if the version recorded
-    above is not 1.14.1 (the pin this prompt installs), an unpinned
-    OpenSpec may not resolve a store: name the version found, tell the
-    user to run `npm i -g @fission-ai/openspec@1.14.1` and rerun this
-    prompt, write no file, and STOP. Do not suggest `openspec init` then:
+    above (the first `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?` token in the
+    output, as Step 3 takes it) is not 1.14.1 (the pin this prompt
+    installs), an unpinned OpenSpec may not resolve a store: name the
+    version found, tell the user to run
+    `npm i -g @fission-ai/openspec@1.14.1` and rerun this prompt, write
+    no file, and STOP. Do not suggest `openspec init` then:
     in a store-backed project it would create a root that overrides the
     store. Only with the pinned version, tell the user to run
     `openspec init` first and STOP.
