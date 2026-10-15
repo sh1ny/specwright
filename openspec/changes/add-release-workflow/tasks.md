@@ -17,10 +17,10 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → Bump writes one commit across the version files | Target not greater | evals/release/test_release.py | TestBump.test_target_not_greater | green |
 | releases → Bump writes one commit across the version files | Interrupted bump is completed | evals/release/test_release.py | TestBump.test_interrupted_bump_completes | green |
 | releases → Bump writes one commit across the version files | Malformed target | evals/release/test_release.py | TestBump.test_malformed_target | green |
-| releases → The release commit is found on main | Squash-merged change | evals/release/test_release.py | TestReleaseCommit.test_squash | red |
-| releases → The release commit is found on main | Merge-commit change | evals/release/test_release.py | TestReleaseCommit.test_merge_commit | red |
-| releases → The release commit is found on main | Version not on main | evals/release/test_release.py | TestReleaseCommit.test_not_on_main | red |
-| releases → Rebase-merged releases are refused | Rebase-merged bump | evals/release/test_release.py | TestReleaseCommit.test_rebase_commit_refused | red |
+| releases → The release commit is found on main | Squash-merged change | evals/release/test_release.py | TestReleaseCommit.test_squash | green |
+| releases → The release commit is found on main | Merge-commit change | evals/release/test_release.py | TestReleaseCommit.test_merge_commit | green |
+| releases → The release commit is found on main | Version not on main | evals/release/test_release.py | TestReleaseCommit.test_not_on_main | green |
+| releases → Rebase-merged releases are refused | Rebase-merged bump | evals/release/test_release.py | TestReleaseCommit.test_rebase_commit_refused | green |
 | releases → Rebase-merged releases are refused | Rebase merge method configured | evals/release/test_release.py | TestOptIn.test_rebase_method_refused | green |
 | releases → Notes list the changes merged since the previous release | One change in the range | evals/release/test_release.py | TestNotes.test_one_change | red |
 | releases → Notes list the changes merged since the previous release | Several changes in the range | evals/release/test_release.py | TestNotes.test_several_changes_in_order | red |
@@ -48,7 +48,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | change-finish → Finish offers a release once the change is on main | Releases disabled | evals/git-workflow/evals.json | eval-finish-release-disabled | red |
 | change-finish → Finish offers a release once the change is on main | Auto publish fails | evals/release/test_skill_text.py | TestFinishText.test_publish_failure_keeps_roadmap_offer | green |
 | change-finish → Local finish publishes no tag without a push decision | Local merge with auto release | evals/git-workflow/evals.json | eval-finish-local-release-reported | red |
-| change-finish → Local finish publishes no tag without a push decision | Local merge after main was pushed | evals/release/test_release.py | TestReleaseCommit.test_local_merge_commit_after_push | red |
+| change-finish → Local finish publishes no tag without a push decision | Local merge after main was pushed | evals/release/test_release.py | TestReleaseCommit.test_local_merge_commit_after_push | green |
 | pr-merge → Watch offers a release after an agent merge | Unattended agent merge with auto release | evals/git-workflow/evals.json | eval-agent-merge-release-auto | red |
 | pr-merge → Watch offers a release after an agent merge | Offer without auto | evals/release/test_skill_text.py | TestWatchText.test_offer_without_auto | green |
 | pr-merge → Watch offers a release after an agent merge | An earlier version was left untagged | evals/release/test_skill_text.py | TestWatchText.test_untagged_oldest_first | green |
@@ -77,7 +77,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 ## 3. release.sh: release commit, notes, untagged
 
-- [ ] 3.1 Write failing `TestReleaseCommit` tests (all five, including `test_local_merge_commit_after_push` and `test_rebase_commit_refused`), then implement `status --version --main`. The release commit is the first first-parent commit reading V; it must be a merge or `(#n)` commit; the agreement check runs at that commit. Verify the tests pass and flip the rows green.
+- [x] 3.1 Write failing `TestReleaseCommit` tests (all five, including `test_local_merge_commit_after_push` and `test_rebase_commit_refused`), then implement `status --version --main`. The release commit is the first first-parent commit reading V; it must be a merge or `(#n)` commit; the agreement check runs at that commit. Verify the tests pass and flip the rows green.
 - [ ] 3.2 Write failing `TestNotes` tests (all four), then implement repo-local notes per D4: the archive set difference, the first sentence of Why clipped at 300 characters, the PR number from the subject, first-parent order, the previous release by the tagged lower version else the value before V, and the entry cap from the design's Resource Bounds. Verify the tests pass and flip the rows green.
 - [ ] 3.3 Write failing `TestUntagged` tests (all five), then implement `untagged` and publish's older-untagged refusal. Verify the tests pass and flip the rows green.
 - [ ] 3.4 Write failing `TestStoreNotes` tests (all four), with a store repo fixture and the fake `gh` `pulls` listing. Then implement store-backed notes per D5: candidates from the store's main archive excluding `code_changes: none`, proof by a `merge: <name>` subject or a merged PR's `merge_commit_sha` in range, a failed discovery as exit 3, and no store tag. Verify the tests pass and flip the rows green.
