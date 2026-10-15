@@ -206,5 +206,131 @@ class ChangingCommands(unittest.TestCase):
             self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
 
 
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class FinishResumeMerged(unittest.TestCase):
+    """The merged-PR resume fixtures: origin is a local bare repo reached by pull and fetch only, the guarded refresh (checkout main,
+    pull --ff-only) is allowed, and anything else that changes git still fails the grade."""
+
+    NAMES = ("eval-finish-resume-merged-branch-gone", "eval-finish-resume-squash-merged", "eval-finish-resume-stale-main")
+    REPORT = "Nothing to finish - archive is on main."
+
+    def fixture(self, name):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        repo = run_dir / "repo"
+        fixtures.build(name, repo)
+        (run_dir / "outputs").mkdir()
+        return run_dir, repo
+
+    def sh(self, repo, script):
+        r = subprocess.run(["bash", "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout.strip()
+
+    def closed_check(self, repo):
+        call = {"argv": ["api", "graphql", "-f", "query=query($number:Int!){repository{pullRequest(number:$number){mergedAt}}}", "-F", "number=7"]}
+        with (repo / "gh-log.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(call) + "\n")
+
+    def grade(self, name, run_dir, report=None):
+        (run_dir / "outputs" / "report.md").write_text(self.REPORT if report is None else report, encoding="utf-8")
+        return {t: ok for t, ok, _ in grade.check(name, run_dir / "repo", run_dir)}
+
+    def failed(self, res):
+        return [t for t, ok in res.items() if not ok]
+
+    def test_origin_url_stays_on_github_and_pull_reads_the_bare_repo(self):
+        for name in self.NAMES:
+            _, repo = self.fixture(name)
+            self.assertEqual(self.sh(repo, "git remote get-url origin"), "https://github.com/acme/greeter.git", name)
+            self.sh(repo, "git checkout -q main && git pull -q --ff-only")
+            self.assertEqual(grade.git(repo, "rev-parse", "main"), grade.git(repo, "rev-parse", "origin/main"), name)
+
+    def test_the_guarded_refresh_passes_every_check(self):
+        for name in self.NAMES:
+            run_dir, repo = self.fixture(name)
+            self.sh(repo, "git status --porcelain && git checkout main && git pull --ff-only")
+            self.closed_check(repo)
+            res = self.grade(name, run_dir)
+            self.assertTrue(res and not self.failed(res), f"{name}: {self.failed(res)}")
+
+    REFRESH = "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)"
+
+    def test_the_merged_runs_fail_without_a_refresh(self):
+        # main is already current in these two fixtures, so only the trace shows a skipped refresh
+        for name in self.NAMES:
+            run_dir, repo = self.fixture(name)
+            self.sh(repo, "git status --porcelain && git log --first-parent --format=%s main")
+            self.closed_check(repo)
+            res = self.grade(name, run_dir)
+            self.assertIn(self.REFRESH, self.failed(res), name)
+
+    def test_a_pull_before_the_checkout_fails(self):
+        # off main, a pull before `checkout main` updates the current branch and leaves main stale; the fixtures start on main, so only
+        # the trace order shows it
+        for script in ("git status --porcelain && git pull --ff-only && git checkout main", "git status --porcelain && git pull --ff-only"):
+            for name in self.NAMES:
+                run_dir, repo = self.fixture(name)
+                self.sh(repo, script)
+                self.closed_check(repo)
+                res = self.grade(name, run_dir)
+                self.assertEqual(self.failed(res), [self.REFRESH], f"{name}: {script}")
+
+    def test_a_pull_without_the_guard_before_it_fails(self):
+        for script in ("git checkout -q main && git pull --ff-only", "git pull --ff-only && git status --porcelain"):
+            for name in self.NAMES:
+                run_dir, repo = self.fixture(name)
+                self.sh(repo, script)
+                self.closed_check(repo)
+                res = self.grade(name, run_dir)
+                self.assertEqual(self.failed(res), [self.REFRESH], f"{name}: {script}")
+
+    def test_a_commit_a_merge_a_push_or_a_branch_deletion_still_fails(self):
+        trace = "No git commit, merge, push or branch-changing command ran (the git trace)"
+        for cmd in ("git commit -q --allow-empty -m x", "git merge --no-ff -q -m x main", "git push origin main", "git branch -D stray",
+                    "git pull --rebase", "git checkout -b other"):
+            run_dir, repo = self.fixture("eval-finish-resume-merged-branch-gone")
+            self.sh(repo, "git status --porcelain && git checkout -q main && git pull --ff-only")
+            self.closed_check(repo)
+            # the refresh alone passes, so a failure below comes from the injected command
+            self.assertTrue(self.grade("eval-finish-resume-merged-branch-gone", run_dir)[trace], cmd)
+            self.sh(repo, cmd + " || true")
+            res = self.grade("eval-finish-resume-merged-branch-gone", run_dir)
+            self.assertFalse(res[trace], cmd)
+
+    def test_a_quiet_guarded_refresh_passes_every_check(self):
+        for name in self.NAMES:
+            run_dir, repo = self.fixture(name)
+            self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only")
+            self.closed_check(repo)
+            res = self.grade(name, run_dir)
+            self.assertTrue(res and not self.failed(res), f"{name}: {self.failed(res)}")
+
+    def test_the_stale_main_fixture_is_behind_origin_and_holds_the_older_archive(self):
+        _, repo = self.fixture("eval-finish-resume-stale-main")
+        self.assertTrue((repo / "openspec/changes/archive/2026-09-01-add-greeting").is_dir())
+        self.assertFalse((repo / "openspec/changes/archive/2026-10-14-add-greeting").exists())
+        self.assertEqual(grade.git(repo, "branch", "--format=%(refname:short)").split(), ["main"])
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only")
+        self.assertTrue((repo / "openspec/changes/archive/2026-10-14-add-greeting").is_dir())
+        self.assertIn("Merge pull request #7", grade.git(repo, "log", "--first-parent", "--format=%s", "-1", "main"))
+
+    def test_stale_main_without_a_pull_fails(self):
+        run_dir, repo = self.fixture("eval-finish-resume-stale-main")
+        self.sh(repo, "git status --porcelain && git log --format=%s main")
+        self.closed_check(repo)
+        res = self.grade("eval-finish-resume-stale-main", run_dir)
+        self.assertTrue(self.failed(res), "a run that never refreshed the stale main passed")
+
+    def test_stale_main_refresh_with_a_wrong_report_or_a_missing_backstop_fails(self):
+        run_dir, repo = self.fixture("eval-finish-resume-stale-main")
+        self.sh(repo, "git checkout main && git pull --ff-only")
+        res = self.grade("eval-finish-resume-stale-main", run_dir, "No archive was found for add-greeting.")
+        self.assertIn("The report says Nothing to finish - archive is on main", self.failed(res))
+        self.assertIn("Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)", self.failed(res))
+
+
 if __name__ == "__main__":
     unittest.main()

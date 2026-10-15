@@ -16,14 +16,17 @@
 # resolves to someone else, gh is older than 2.40 (no per-account token lookup), or
 # the command could use a github.com URL with userinfo (below). Exit 2: usage.
 # Inside, gh targets github.com only: GH_HOST, GH_ENTERPRISE_TOKEN and
-# GITHUB_ENTERPRISE_TOKEN are unset along with GH_TOKEN and GITHUB_TOKEN.
+# GITHUB_ENTERPRISE_TOKEN are unset along with GH_TOKEN and GITHUB_TOKEN. The three
+# enterprise variables are saved first (AS_SH_ORIG_*, listed in AS_SH_ORIG_SET) so an
+# unfenced non-GitHub git can get them back; the token variables are never saved.
 # Inside, git cannot use SSH or prompt; HTTPS credentials go to github.com only.
 # A github.com URL with userinfo (a token, a password or a bare username) is
 # refused before the command runs: in a git work tree, any remote's fetch or push
 # URL, any url.<base>.insteadOf / pushInsteadOf rule that adds it, and any argument
 # (including a `git -c key=value`). The fence supplies the credential; the message
 # names the remote and kind with the userinfo masked, and no config is changed.
-# URLs for other hosts are ignored.
+# A trailing dot (github.com., any letter case) is github.com; github.com.example.org
+# is not. URLs for other hosts are ignored.
 # Run git from inside the target repo: the URL check and the http extraHeader
 # scrub cover the current repository only, so a git command that selects
 # another one (-C, --git-dir, --work-tree) is refused (exit 3).
@@ -37,6 +40,24 @@ else
   login=${1:?usage: as.sh <login> <command> [args...] | as.sh --resolve}
   shift
   [ $# -gt 0 ] || { echo "as.sh: no command given" >&2; exit 2; }
+fi
+
+# Keep the caller's values of what the fence below overrides, once: an as.sh started
+# inside another keeps the outer originals. A fenced script that runs plain git for
+# a non-GitHub remote (pr-pair.sh) restores them, so that remote keeps the user's own
+# SSH, prompts, credential helpers and enterprise host settings (GH_HOST,
+# GH_ENTERPRISE_TOKEN, GITHUB_ENTERPRISE_TOKEN). GH_TOKEN and GITHUB_TOKEN are never
+# kept. Only variables that were set are recorded. This runs before the unset below.
+if [ -z "${AS_SH_ORIG_SET+x}" ]; then
+  AS_SH_ORIG_SET=
+  for v in GH_HOST GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN \
+           GIT_SSH_COMMAND GIT_TERMINAL_PROMPT GCM_INTERACTIVE GIT_ASKPASS SSH_ASKPASS GIT_CONFIG_COUNT \
+           $(compgen -e | grep -E '^GIT_CONFIG_(KEY|VALUE)_[0-9]+$' || true); do
+    [ -n "${!v+x}" ] || continue
+    export "AS_SH_ORIG_$v=${!v}"
+    AS_SH_ORIG_SET="$AS_SH_ORIG_SET $v"
+  done
+  export AS_SH_ORIG_SET
 fi
 
 # gh must target github.com with a token this script picked, whatever the
@@ -70,8 +91,8 @@ actual=$(gh api --hostname github.com user --jq .login 2>/dev/null) || actual=
 # else (or as a bare username the fence cannot tell from a token). Refuse it
 # before anything runs; never print or change the secret.
 lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
-gh_url() { [[ $(lower "$1") =~ ^[a-z][a-z0-9+.-]*://([^/]*@)?github\.com([:/]|$) ]]; }
-gh_userinfo() { [[ $(lower "$1") =~ ^[a-z][a-z0-9+.-]*://[^/]*@github\.com([:/]|$) ]]; }
+gh_url() { [[ $(lower "$1") =~ ^[a-z][a-z0-9+.-]*://([^/]*@)?github\.com\.?([:/]|$) ]]; }
+gh_userinfo() { [[ $(lower "$1") =~ ^[a-z][a-z0-9+.-]*://[^/]*@github\.com\.?([:/]|$) ]]; }
 has_userinfo() { [[ $1 =~ ^[A-Za-z][A-Za-z0-9+.-]*://[^/]*@ ]]; }
 mask() { printf '%s' "$1" | sed 's#^\([A-Za-z][A-Za-z0-9+.-]*://\)[^/]*@#\1***@#'; }
 refuse() { # <what names it> <masked url>
@@ -131,21 +152,6 @@ if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]; then
   done < <(git config --get-regexp '^url\..*\.(insteadof|pushinsteadof)$' 2>/dev/null || true)
 fi
 
-# Keep the caller's values of what the git fence below overrides, once: an as.sh
-# started inside another keeps the outer originals. A fenced script that runs plain
-# git for a non-GitHub remote (pr-pair.sh) restores them, so that remote keeps the
-# user's own SSH, prompts and credential helpers.
-if [ -z "${AS_SH_ORIG_SET+x}" ]; then
-  AS_SH_ORIG_SET=
-  for v in GIT_SSH_COMMAND GIT_TERMINAL_PROMPT GCM_INTERACTIVE GIT_ASKPASS SSH_ASKPASS GIT_CONFIG_COUNT \
-           $(compgen -e | grep -E '^GIT_CONFIG_(KEY|VALUE)_[0-9]+$' || true); do
-    [ -n "${!v+x}" ] || continue
-    export "AS_SH_ORIG_$v=${!v}"
-    AS_SH_ORIG_SET="$AS_SH_ORIG_SET $v"
-  done
-  export AS_SH_ORIG_SET
-fi
-
 # git: the identity is enforced at the transport, not by reading the command
 # line. SSH would authenticate with whatever key SSH picks, so it is disabled
 # (GIT_SSH_COMMAND overrides core.sshCommand, even one passed with -c); HTTPS
@@ -160,14 +166,16 @@ export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS= SSH_ASKPASS=
 # authenticate the push as someone else. An empty value resets only its own
 # key - a URL-scoped header outranks a plain reset - so each key in effect
 # here is reset by name. Then drop inherited credential helpers and answer
-# with GH_TOKEN - for https://github.com only, never another host.
+# with GH_TOKEN - for https://github.com only, never another host. The helper
+# drops an explicit port (git sends host=github.com.:443 for such a URL) and
+# then one trailing dot before it compares the host.
 n=0
 cfg() { export "GIT_CONFIG_KEY_$n=$1" "GIT_CONFIG_VALUE_$n=$2"; n=$((n + 1)); }
 cfg http.extraHeader ''
 while IFS= read -r key; do cfg "$key" ''; done \
   < <(git config --name-only --get-regexp '^http\..+\.extraheader$' 2>/dev/null | sort -u || true)
 cfg credential.helper ''
-cfg credential.helper '!f() { [ "$1" = get ] || exit 0; h= p=; while IFS= read -r l && [ -n "$l" ]; do case $l in host=*) h=${l#host=} ;; protocol=*) p=${l#protocol=} ;; esac; done; [ "$h" = github.com ] && [ "$p" = https ] || exit 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+cfg credential.helper '!f() { [ "$1" = get ] || exit 0; h= p=; while IFS= read -r l && [ -n "$l" ]; do case $l in host=*) h=${l#host=} ;; protocol=*) p=${l#protocol=} ;; esac; done; h=$(printf %s "$h" | tr A-Z a-z); h=${h%:*}; h=${h%.}; [ "$h" = github.com ] && [ "$p" = https ] || exit 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 export GIT_CONFIG_COUNT=$n
 
 exec "$@"

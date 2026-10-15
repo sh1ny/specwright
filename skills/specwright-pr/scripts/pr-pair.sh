@@ -100,7 +100,7 @@ TRAILER = re.compile(r"^Feedback-Round:[ \t]*(\d+)[ \t]*$", re.M)
 LEGACY_SUBJECT = re.compile(r"address review feedback", re.I)
 MARK = re.compile(r"<!--\s*specwright:link\s+(store|code)\s+(\S+)\s*-->")
 GH_URL = re.compile(
-    r"^(?:(?:https?|ssh|git)://(?:[^@/\s]+@)?(?:ssh\.)?github\.com(?::\d+)?/|(?:[^@/\s]+@)?(?:ssh\.)?github\.com:)"
+    r"^(?:(?:https?|ssh|git)://(?:[^@/\s]+@)?(?:ssh\.)?github\.com\.?(?::\d+)?/|(?:[^@/\s]+@)?(?:ssh\.)?github\.com\.?:)"
     r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", re.I)
 
 

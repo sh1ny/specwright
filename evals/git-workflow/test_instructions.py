@@ -774,9 +774,64 @@ class ChangeFinishResume(unittest.TestCase):
         s = resume_section()
         at = s.index("The branch's PR is")
         rule = s[at:s.index("\n", at)]
-        self.assertRegex(rule, r"checked before the table", "the reused-name rule does not take precedence over the table")
+        self.assertRegex(rule, r"checked before[^.]*any table row", "the reused-name rule does not take precedence over the table")
         self.assertRegex(rule, r"no-archive report", "a reused name can still reach the no-archive report")
         self.assertRegex(rule, r"B holds and the newest PR is open", "an in-progress branch with an open newest PR no longer ships")
+
+    def test_finish_resume_merged_pr_without_branch_refreshes_main(self):
+        """A stale local main has no archive although the merged PR brought it: the not-B row refreshes main (guarded) and
+        reads A again in the planning repo only."""
+        s = resume_section()
+        row = resume_row(s, r"`pr`, the branch's PR merged, not B[^|]*")
+        self.assertIn("git checkout <main>", row, "the not-B row does not check out main")
+        self.assertIn("pull --ff-only", row, "the not-B row does not pull main")
+        self.assertRegex(row, r"\[as\] git pull --ff-only", "the refresh pull is not fenced")
+        self.assertRegex(row, r"(?i)already pulled", "the row pulls a repo twice in one run")
+        self.assertRegex(row, r"(?i)read A again", "A is not read again on the refreshed main")
+        self.assertRegex(row, r"(?i)planning repo", "the A re-read is not limited to the planning repo")
+        self.assertRegex(row, r"A present[^;.]*closed-check", "A present does not lead to closed-check")
+
+    def test_finish_resume_merged_pr_without_archive_after_refresh_not_done(self):
+        row = resume_row(resume_section(), r"`pr`, the branch's PR merged, not B[^|]*")
+        self.assertRegex(row, r"(?i)A absent", "the row has no A-absent outcome")
+        self.assertRegex(row, r"(?i)did not bring the archive to `?<?main", "the report does not say the PR missed the archive")
+        self.assertRegex(row, r"(?i)no backstop", "the A-absent outcome still runs the backstop")
+        self.assertRegex(row, r"(?i)repo not done", "the A-absent outcome counts the repo as done")
+
+    def test_finish_resume_store_code_repo_needs_no_archive(self):
+        row = resume_row(resume_section(), r"`pr`, the branch's PR merged, not B[^|]*")
+        self.assertRegex(row, r"(?i)store-backed code repo never has A", "the row does not exempt the store-backed code repo from A")
+        self.assertRegex(row, r"(?i)code repo[^;]*closed-check`?, repo done", "the store-backed code repo is not done after closed-check")
+
+    def test_finish_resume_merged_row_checks_dirty_tree_before_refresh(self):
+        row = resume_row(resume_section(), r"`pr`, the branch's PR merged, not B[^|]*")
+        self.assertIn("git status --porcelain", row, "the not-B row has no dirty-tree check")
+        self.assertLess(row.index("git status --porcelain"), row.index("git checkout <main>"), "main is checked out before the dirty-tree check")
+        self.assertRegex(row[:row.index("git checkout <main>")], r"(?i)stop and ask", "a dirty tree does not stop and ask")
+
+    def test_finish_resume_reused_check_precedes_no_archive_report(self):
+        s = resume_section()
+        at = s.index("The branch's PR is")
+        self.assertLess(at, s.index("None of A, M, B in any repo"), "the reused-name rule is not before the no-archive rule")
+        self.assertLess(at, s.index("\n| Facts |"), "the reused-name rule is not before the table")
+        rule = s[at:s.index("\n", at)]
+        self.assertRegex(rule, r"(?i)once per repo", "discover is not run once per repo")
+        self.assertRegex(rule, r"(?i)same result", "the reused-name check does not read the same discover result")
+        self.assertRegex(rule, r"(?i)before the no-archive report, any pull, or any table row", "the reused-name stop does not precede the no-archive report, a pull and the table")
+        self.assertRegex(rule, r"(?i)newer closed-unmerged PR", "a newer closed PR is not a reused name")
+        self.assertRegex(rule, r"(?i)newer open PR with B false", "a newer open PR with no branch is not a reused name")
+
+    def test_finish_resume_closed_pr_row_defers_to_reused_rule(self):
+        m = re.search(r"^\|\s*(`pr`, store done; code branch with commits, the newest PR closed unmerged[^|]*)\|", resume_section(), re.M)
+        self.assertTrue(m, "no Resume row for a code branch whose newest PR was closed")
+        self.assertRegex(m.group(1), r"no older merged PR", "the closed-PR row does not exclude a reused name")
+        self.assertRegex(m.group(1), r"reused-name rule above", "the closed-PR row does not defer to the reused-name rule")
+
+    def test_finish_resume_closed_pr_row_reports_closed_pr(self):
+        row = resume_row(resume_section(), r"`pr`, store done; code branch with commits, the newest PR closed unmerged[^|]*")
+        self.assertTrue(row, "no Resume row for a code branch whose newest PR was closed")
+        self.assertRegex(row, r"report the closed PR and ask", "the closed-PR row does not report the PR")
+        self.assertRegex(row, r"Merge nothing, delete nothing", "the closed-PR row may merge or delete")
 
     def test_finish_resume_local_archive_directory_alone_asks(self):
         """A reused change name can match an older generation's archive directory, so the directory alone does not finish
@@ -940,6 +995,14 @@ class FencedGitHubCalls(unittest.TestCase):
             self.assertRegex(b, r"git remote get-url", f"{name}: the host is not read from the fetch URL")
             self.assertRegex(b, r"(?i)fetch URL", f"{name}: does not decide by the fetch URL")
             self.assertRegex(b, r"(?is)not (decided )?by `?pr-pair\.sh identity`?", f"{name}: may still be decided by `identity`")
+
+    def test_trailing_dot_host_counts_as_github(self):
+        """fix-m2-gaps (#83, review S3): the fetch-URL rule treats `github.com.` as github.com, so that remote is fenced too."""
+        for p in (FINISH, ROOT / "skills" / "specwright-pr" / "SKILL.md", BRANCH, ROADMAP):
+            lines = [l for l in read(p).splitlines() if re.search(r"(?i)fetch URL|github\.com remote", l) and "github.com" in l]
+            self.assertTrue(lines, f"{p.parent.name}: no fetch-URL rule for github.com")
+            self.assertTrue(any("`github.com.`" in l for l in lines),
+                            f"{p.parent.name}: the fetch-URL rule does not say that `github.com.` counts as github.com")
 
     def test_non_github_fetch_runs_plain(self):
         for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):

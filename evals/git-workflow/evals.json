@@ -938,9 +938,10 @@
         "specwright-finish"
       ],
       "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
-      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was squash-merged: main holds the archive directory under the subject Add greeting (#7), the local branch is deleted, and the PR description closes issue #12, which is already closed. Finish does not report that it found no archive: it runs the issues-left-open backstop once (one closed-check read of PR #7), makes no commit, merge or branch command, and reports Nothing to finish - archive is on main.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was squash-merged: main holds the archive directory under the subject Add greeting (#7), the local branch is deleted, and the PR description closes issue #12, which is already closed. Origin is a local bare repo with the same main (reached by pull and fetch only; the remote URL stays on GitHub). Finish does not report that it found no archive: it refreshes main behind the dirty-tree guard (git checkout main, git pull --ff-only, which changes nothing), runs the issues-left-open backstop once (one closed-check read of PR #7), makes no commit, other merge, push or branch command, and reports Nothing to finish - archive is on main.",
       "assertions": [
         "Still on main with only main, main is unchanged and the working tree is clean",
+        "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
         "No git commit, merge, push or branch-changing command ran (the git trace)",
         "Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)",
         "No gh call created or changed a pull request, issue or comment",
@@ -956,9 +957,10 @@
         "specwright-finish"
       ],
       "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
-      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was merged with a merge commit (Merge pull request #7) and cleanup already deleted the local branch; the PR description closes issue #12, which is already closed. No git branch deletion runs: finish runs the issues-left-open backstop once (one closed-check read of PR #7), makes no commit, merge or branch command, and reports Nothing to finish - archive is on main.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was merged with a merge commit (Merge pull request #7) and cleanup already deleted the local branch; the PR description closes issue #12, which is already closed. Origin is a local bare repo with the same main (reached by pull and fetch only; the remote URL stays on GitHub). No git branch deletion runs: finish refreshes main behind the dirty-tree guard (git checkout main, git pull --ff-only, which changes nothing), runs the issues-left-open backstop once (one closed-check read of PR #7), makes no commit, other merge, push or branch command, and reports Nothing to finish - archive is on main.",
       "assertions": [
         "Still on main with only main, main is unchanged and the working tree is clean",
+        "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
         "No git commit, merge, push or branch-changing command ran (the git trace)",
         "No git branch -d or -D was attempted (the git trace holds none)",
         "Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)",
@@ -1005,6 +1007,27 @@
         "PR #7 is still open and the remote branch is still there",
         "No gh call created or changed a pull request, issue or comment",
         "The report says the PR is ready",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 57,
+      "name": "eval-finish-resume-stale-main",
+      "skills": [
+        "specwright-finish"
+      ],
+      "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was merged with a merge commit and the local branch is gone, but local main is stale: it holds only an older change's archive (2026-09-01-add-greeting), while origin's main (a local bare repo behind the GitHub URL, reached by pull and fetch only) additionally holds the merge of PR #7 with 2026-10-14-add-greeting. Finish refreshes main behind the dirty-tree guard (git checkout main, git pull --ff-only) before it reads the archive again, runs the issues-left-open backstop once (one closed-check read of PR #7), deletes no branch, makes no commit, other merge or push, and reports Nothing to finish - archive is on main.",
+      "assertions": [
+        "Still on main with only main, a clean tree, and main fast-forwarded to origin's tip by the pull",
+        "The pull brought the archive of PR #7 (2026-10-14-add-greeting) onto main",
+        "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
+        "No git commit, merge, push or branch-changing command ran (the git trace)",
+        "No git branch -d or -D was attempted (the git trace holds none)",
+        "Exactly one closed-check read of PR #7 was made (the issues-left-open backstop ran once)",
+        "No gh call created or changed a pull request, issue or comment",
+        "The report says Nothing to finish - archive is on main",
+        "The report does not say the archive was not found",
         "No commit was amended"
       ]
     }
