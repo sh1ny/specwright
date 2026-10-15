@@ -91,7 +91,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 ## 5. specwright-release skill and callers
 
 - [x] 5.1 Write failing tests in `evals/release/test_skill_text.py` for `TestFinishText`, `TestWatchText` and `TestCloseText` (all nine rows). They also check that the schema's tasks instruction requires the bump task when `release.enabled` is true (review S2). Verify they fail.
-- [ ] 5.2 Write `skills/specwright-release/SKILL.md` (`metadata.version` 0.5.0).
+- [x] 5.2 Write `skills/specwright-release/SKILL.md` (`metadata.version` 0.5.0).
   - Triggers: release, tag, publish, backfill.
   - **bump**: run as a task.
   - **publish**: a fenced fetch of main, then `[as] bash scripts/release.sh publish`, oldest-first order, and commit-identity rules for the tagger.
