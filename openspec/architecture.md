@@ -70,7 +70,7 @@ flowchart LR
 | `specwright-debug` | Root-cause debugging discipline | None | git, read-only (`status`, `log`), plus `stash` to test a dirty tree, restored after; returns a verified fix uncommitted to `specwright-pr` in CI mode |
 | `specwright-implementer` agent | Implements one task group test-first from a packet, loading the project skills the packet names (Claude `Skill`, OMP `read` of the given `SKILL.md` path) | Nothing committed: the orchestrator verifies, ticks and commits | Packet in, evidence report out; OpenSpec CLI (`list`, `templates`, `schema validate`) |
 | `specwright-reviewer` agent | Fresh-context review when the selected route is `subagent` (design or pre-ship) | The one file it is asked to write (`review.md`, `architecture-review.md`, or a pre-ship findings file) | File paths in; the review file out, with exactly one `VERDICT:` line, or findings JSON, validated by `review-run.sh record`; OpenSpec CLI (`list`, `context`, `instructions`, `templates`) |
-| Install prompt (README) | Installs or updates the copies into a project; keeps local `model:` lines | `openspec/.specwright/VERSION` | Copy layout in `CONTRIBUTING.md` |
+| Install prompt (README) | Installs or updates the copies into a project; keeps local `model:` lines; reads the downloaded `OPENSPEC_VERSION` and stops before any write when `openspec --version` differs, unless the user states the override | `openspec/.specwright/VERSION` | Copy layout in `CONTRIBUTING.md` |
 | Evals (`evals/`) | Graded agent runs and script tests, with a fake `gh` | Fixtures | `evals.json` + `grade.py`; `unittest` (`python -m unittest discover evals/pr-pair`) |
 
 ## State ownership
@@ -102,7 +102,7 @@ flowchart LR
 
 ## Boundaries and contracts
 
-- **OpenSpec:** only through the custom schema and the CLI (`list`, `show`, `new change`, `instructions`, `templates`, `schema validate`, `validate`, `archive`, `context --json`). The OpenSpec version is pinned in the README badge and `CONTRIBUTING.md`, but not enforced at install (#37).
+- **OpenSpec:** only through the custom schema and the CLI (`list`, `show`, `new change`, `instructions`, `templates`, `schema validate`, `validate`, `archive`, `context --json`). The OpenSpec version is pinned in `OPENSPEC_VERSION` (mirrored by the README badge, the public install commands and `CONTRIBUTING.md`, kept in step by `TestOpenSpecPin`) and enforced at install: the install prompt requires an exact match with `openspec --version` before it writes anything, except through an explicit, per-run override the user states.
 - **Settings:** `specwright.yaml` keys are documented in `templates/openspec/specwright.yaml` and the README. A new key has a safe default, so a missing key keeps earlier behaviour.
 - **Git evidence formats:** commit subjects `<type>(<change>): task X.Y …` and `<type>(<change>): address pre-ship review`, trailers `Feedback-Round:`, `Preship-Round:`, `Amendment:` and `Code-Changes: none`, the legacy `address review feedback` subject (counted as a round only on a branch with no trailers in either repo), archive/merge subjects, and the planning-only marker. Later runs and roadmap status parse these, so changing them is a workflow change (minor version).
 - **Script I/O** (ADR 0002): `pr-snapshot.sh` and `pr-pair.sh` print one JSON document (`pr-snapshot.sh --logs` appends plain log text); `pr-reply.sh` prints one plain line per action. Exit codes signal stop conditions. Scripts use only `bash` with a POSIX userland (`sed`, `grep`, `mktemp` and similar; Git Bash on Windows), `git`, `gh` 2.40+ (built-in jq) and the Python standard library (`pr-pair.sh` accepts 3.8+, but `pass write` needs 3.10+ and fails with a traceback, not JSON, on older versions: #46); `pr-pair.sh` runs `git` in the code repo and the store for repo identity, the expected PR set, recovery and cleanup.
@@ -140,7 +140,6 @@ This table is frozen at the reviewed baseline. The live list is the open sh1ny/s
 | A reviewer edit during a fix is hidden by the later reply | #33 |
 | `pr-pair.sh` git calls on the store use the code account | #35 |
 | Install/update has no lifecycle for running sessions or shared stores | #36 |
-| OpenSpec pin is not enforced | #37 |
 | Watch cleanup can delete a newer watcher's token, leaving no watcher | #39 |
 | Hyphenated watch-token filenames alias distinct repository/PR identities, so a watcher for another PR can take ownership | #39 |
 | Unbounded metadata reads and no command deadlines in the PR scripts | #40 |
