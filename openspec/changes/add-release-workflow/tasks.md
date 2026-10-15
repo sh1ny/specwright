@@ -13,10 +13,10 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → Version files agree before any write | A pattern matches nothing or twice | evals/release/test_release.py | TestCheck.test_zero_or_two_matches | green |
 | releases → Version files agree before any write | Backfill checks the release commit | evals/release/test_release.py | TestCheck.test_status_reads_release_commit | green |
 | releases → Version files agree before any write | A glob matches no file | evals/release/test_release.py | TestCheck.test_empty_glob | green |
-| releases → Bump writes one commit across the version files | Minor bump | evals/release/test_release.py | TestBump.test_minor_bump_rewrites_only_versions | red |
-| releases → Bump writes one commit across the version files | Target not greater | evals/release/test_release.py | TestBump.test_target_not_greater | red |
-| releases → Bump writes one commit across the version files | Interrupted bump is completed | evals/release/test_release.py | TestBump.test_interrupted_bump_completes | red |
-| releases → Bump writes one commit across the version files | Malformed target | evals/release/test_release.py | TestBump.test_malformed_target | red |
+| releases → Bump writes one commit across the version files | Minor bump | evals/release/test_release.py | TestBump.test_minor_bump_rewrites_only_versions | green |
+| releases → Bump writes one commit across the version files | Target not greater | evals/release/test_release.py | TestBump.test_target_not_greater | green |
+| releases → Bump writes one commit across the version files | Interrupted bump is completed | evals/release/test_release.py | TestBump.test_interrupted_bump_completes | green |
+| releases → Bump writes one commit across the version files | Malformed target | evals/release/test_release.py | TestBump.test_malformed_target | green |
 | releases → The release commit is found on main | Squash-merged change | evals/release/test_release.py | TestReleaseCommit.test_squash | red |
 | releases → The release commit is found on main | Merge-commit change | evals/release/test_release.py | TestReleaseCommit.test_merge_commit | red |
 | releases → The release commit is found on main | Version not on main | evals/release/test_release.py | TestReleaseCommit.test_not_on_main | red |
@@ -73,7 +73,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
   - `check` reads the working tree. The release-commit reader uses `ls-tree` and `show`.
 
   Verify that `TestOptIn` and `TestCheck` pass and flip their rows green.
-- [ ] 2.3 Write failing `TestBump` tests (all four), then implement `bump --to` (semver compare, per-file temp and rename, completion of an interrupted bump per D7). Verify `python -m unittest evals.release.test_release -k TestBump` passes and flip the rows green.
+- [x] 2.3 Write failing `TestBump` tests (all four), then implement `bump --to` (semver compare, per-file temp and rename, completion of an interrupted bump per D7). Verify `python -m unittest evals.release.test_release -k TestBump` passes and flip the rows green.
 
 ## 3. release.sh: release commit, notes, untagged
 
