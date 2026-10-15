@@ -509,24 +509,30 @@ def check_watch_merge(name, repo, branch, branches, status, rep):
 
 def refresh_exceptions(cmds):
     """`changing_git(cmds)` without the guarded refresh the finish skill allows: exactly `checkout main` and `pull --ff-only`, plus the
-    `merge --ff-only FETCH_HEAD` that pull itself runs (traced as its own command) when a `pull --ff-only` is there. Commit, any other
-    merge, push, `pull` with other options and branch deletion stay."""
-    pulled = ["pull", "--ff-only"] in cmds
+    `merge --ff-only FETCH_HEAD` that pull itself runs (traced as its own command) when a `pull --ff-only` is there. `-q`/`--quiet` is
+    ignored in each. Commit, any other merge, push, `pull` with other options and branch deletion stay."""
+    pulled = ["pull", "--ff-only"] in [unquiet(c) for c in cmds]
     allowed = [["checkout", "main"], ["pull", "--ff-only"]] + ([["merge", "--ff-only", "FETCH_HEAD"]] if pulled else [])
-    return [c for c in changing_git(cmds) if c not in allowed]
+    return [c for c in changing_git(cmds) if unquiet(c) not in allowed]
+
+
+def unquiet(cmd):
+    """A git argument list without `-q`/`--quiet`, which changes only what git prints."""
+    return [a for a in cmd if a not in ("-q", "--quiet")]
 
 
 def check_finish_resume_merged(name, repo, branch, branches, status, rep):
     """finish: pr resume where the change's PR #7 is merged and the local branch is gone (squash merge, or a merge commit with the
     branch already deleted; eval-finish-resume-stale-main: local main is behind origin, whose main holds the merge of PR #7): only the
-    issues-left-open backstop (one closed-check read of PR #7) runs, plus the guarded refresh (checkout main, pull --ff-only from the
-    fixture's local bare origin); no commit, other merge, push or branch command, and the report says Nothing to finish.
+    issues-left-open backstop (one closed-check read of PR #7) runs, after the guarded refresh that each of these evals requires
+    (status --porcelain, then pull --ff-only from the fixture's local bare origin; checkout main is allowed); no commit, other merge,
+    push or branch command, and the report says Nothing to finish.
     .git/fixture-state.json has main's tip (for the stale-main eval, origin's tip after the pull) and the commit count."""
     fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
     cmds = git_trace(repo)
     R = []
     if name.endswith("stale-main"):
-        pulled = ["pull", "--ff-only"] in (cmds or [])
+        pulled = ["pull", "--ff-only"] in [unquiet(c) for c in cmds or []]
         R.append(("Still on main with only main, a clean tree, and main fast-forwarded to origin's tip by the pull",
                   branch == "main" and branches == ["main"] and git(repo, "rev-parse", "main") == fx["main"] and not status and pulled,
                   f"branch={branch} branches={branches} main={git(repo, 'rev-parse', 'main')} expected={fx['main']} pulled={pulled} status={status}"))
@@ -536,7 +542,12 @@ def check_finish_resume_merged(name, repo, branch, branches, status, rep):
         R.append(("Still on main with only main, main is unchanged and the working tree is clean",
                   branch == "main" and branches == ["main"] and git(repo, "rev-parse", "main") == fx["main"] and count_all(repo) == fx["commits"] and not status,
                   f"branch={branch} branches={branches} main={git(repo, 'rev-parse', 'main')} commits={count_all(repo)} status={status}"))
-    bad = refresh_exceptions(cmds or [])
+    cl = cmds or []
+    guard = next((i for i, c in enumerate(cl) if c[:1] == ["status"] and any(a.startswith("--porcelain") for a in c[1:])), None)
+    pull = next((i for i, c in enumerate(cl) if unquiet(c) == ["pull", "--ff-only"]), None)
+    R.append(("The guarded refresh ran: git status --porcelain, then git pull --ff-only (the git trace)",
+              guard is not None and pull is not None and guard < pull, f"status at={guard} pull --ff-only at={pull} trace recorded={cmds is not None}"))
+    bad = refresh_exceptions(cl)
     R.append(("No git commit, merge, push or branch-changing command ran (the git trace)",
               cmds is not None and not bad, f"trace commands={len(cmds) if cmds else 'none recorded'} changing={bad}"))
     if name.endswith(("merged-branch-gone", "stale-main")):

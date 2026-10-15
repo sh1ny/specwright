@@ -166,14 +166,16 @@ export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS= SSH_ASKPASS=
 # authenticate the push as someone else. An empty value resets only its own
 # key - a URL-scoped header outranks a plain reset - so each key in effect
 # here is reset by name. Then drop inherited credential helpers and answer
-# with GH_TOKEN - for https://github.com only, never another host.
+# with GH_TOKEN - for https://github.com only, never another host. The helper
+# drops an explicit port (git sends host=github.com.:443 for such a URL) and
+# then one trailing dot before it compares the host.
 n=0
 cfg() { export "GIT_CONFIG_KEY_$n=$1" "GIT_CONFIG_VALUE_$n=$2"; n=$((n + 1)); }
 cfg http.extraHeader ''
 while IFS= read -r key; do cfg "$key" ''; done \
   < <(git config --name-only --get-regexp '^http\..+\.extraheader$' 2>/dev/null | sort -u || true)
 cfg credential.helper ''
-cfg credential.helper '!f() { [ "$1" = get ] || exit 0; h= p=; while IFS= read -r l && [ -n "$l" ]; do case $l in host=*) h=${l#host=} ;; protocol=*) p=${l#protocol=} ;; esac; done; h=$(printf %s "$h" | tr A-Z a-z); h=${h%.}; [ "$h" = github.com ] && [ "$p" = https ] || exit 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+cfg credential.helper '!f() { [ "$1" = get ] || exit 0; h= p=; while IFS= read -r l && [ -n "$l" ]; do case $l in host=*) h=${l#host=} ;; protocol=*) p=${l#protocol=} ;; esac; done; h=$(printf %s "$h" | tr A-Z a-z); h=${h%:*}; h=${h%.}; [ "$h" = github.com ] && [ "$p" = https ] || exit 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 export GIT_CONFIG_COUNT=$n
 
 exec "$@"

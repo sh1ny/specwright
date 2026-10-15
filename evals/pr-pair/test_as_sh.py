@@ -394,10 +394,19 @@ class AsShUrls(AsShCase):
             self.assertIn("username=x-access-token", r.stdout)
             self.assertIn("password=tok-s", r.stdout)
 
+    def test_credential_fill_with_an_explicit_port_returns_verified_token(self):
+        # git passes the port in host= (https://github.com.:443/o/r.git -> host=github.com.:443); the URL checks accept it as GitHub
+        for host in ("github.com:443", "github.com.:443", "GitHub.COM.:443"):
+            r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin=f"protocol=https\nhost={host}\n\n")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("username=x-access-token", r.stdout, host)
+            self.assertIn("password=tok-s", r.stdout, host)
+
     def test_lookalike_host_not_github(self):
-        r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin="protocol=https\nhost=github.com.example.org\n\n")
-        self.assertNotIn("tok-s", r.stdout + r.stderr)
-        self.assertNotIn("x-access-token", r.stdout)
+        for host in ("github.com.example.org", "github.com.example.org:443"):
+            r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin=f"protocol=https\nhost={host}\n\n")
+            self.assertNotIn("tok-s", r.stdout + r.stderr, host)
+            self.assertNotIn("x-access-token", r.stdout, host)
         self.git(self.work, "remote", "set-url", "origin", f"https://u:{SECRET}@github.com.example.org/o/r.git")
         r = self.as_sh(self.work, "sh1ny", "gh", "api", "user", "--jq", ".login")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)

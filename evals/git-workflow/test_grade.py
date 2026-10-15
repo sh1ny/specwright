@@ -256,24 +256,46 @@ class FinishResumeMerged(unittest.TestCase):
             res = self.grade(name, run_dir)
             self.assertTrue(res and not self.failed(res), f"{name}: {self.failed(res)}")
 
-    def test_the_merged_runs_pass_without_a_refresh(self):
-        for name in self.NAMES[:2]:
+    REFRESH = "The guarded refresh ran: git status --porcelain, then git pull --ff-only (the git trace)"
+
+    def test_the_merged_runs_fail_without_a_refresh(self):
+        # main is already current in these two fixtures, so only the trace shows a skipped refresh
+        for name in self.NAMES:
             run_dir, repo = self.fixture(name)
             self.sh(repo, "git status --porcelain && git log --first-parent --format=%s main")
             self.closed_check(repo)
             res = self.grade(name, run_dir)
-            self.assertTrue(res and not self.failed(res), f"{name}: {self.failed(res)}")
+            self.assertIn(self.REFRESH, self.failed(res), name)
+
+    def test_a_pull_without_the_guard_before_it_fails(self):
+        for script in ("git checkout -q main && git pull --ff-only", "git pull --ff-only && git status --porcelain"):
+            for name in self.NAMES:
+                run_dir, repo = self.fixture(name)
+                self.sh(repo, script)
+                self.closed_check(repo)
+                res = self.grade(name, run_dir)
+                self.assertEqual(self.failed(res), [self.REFRESH], f"{name}: {script}")
 
     def test_a_commit_a_merge_a_push_or_a_branch_deletion_still_fails(self):
         trace = "No git commit, merge, push or branch-changing command ran (the git trace)"
         for cmd in ("git commit -q --allow-empty -m x", "git merge --no-ff -q -m x main", "git push origin main", "git branch -D stray",
                     "git pull --rebase", "git checkout -b other"):
             run_dir, repo = self.fixture("eval-finish-resume-merged-branch-gone")
-            self.sh(repo, "git checkout -q main && git pull --ff-only")
-            self.sh(repo, cmd + " || true")
+            self.sh(repo, "git status --porcelain && git checkout -q main && git pull --ff-only")
             self.closed_check(repo)
+            # the refresh alone passes, so a failure below comes from the injected command
+            self.assertTrue(self.grade("eval-finish-resume-merged-branch-gone", run_dir)[trace], cmd)
+            self.sh(repo, cmd + " || true")
             res = self.grade("eval-finish-resume-merged-branch-gone", run_dir)
             self.assertFalse(res[trace], cmd)
+
+    def test_a_quiet_guarded_refresh_passes_every_check(self):
+        for name in self.NAMES:
+            run_dir, repo = self.fixture(name)
+            self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only")
+            self.closed_check(repo)
+            res = self.grade(name, run_dir)
+            self.assertTrue(res and not self.failed(res), f"{name}: {self.failed(res)}")
 
     def test_the_stale_main_fixture_is_behind_origin_and_holds_the_older_archive(self):
         _, repo = self.fixture("eval-finish-resume-stale-main")
