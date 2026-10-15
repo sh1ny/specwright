@@ -1218,6 +1218,89 @@ class TestOpenSpecPin(unittest.TestCase):
         self.assertTrue(any(d.startswith(f"README.md:{line}:") for d in drift),
                         f"a pin bumped only in OPENSPEC_VERSION does not name README line {line}: {drift}")
 
+    # Install prompt: the version check (Step 1 records, Step 3 compares before Step 4 writes).
+
+    def s3_check(self):
+        s3 = step(read(README), "Step 3")
+        self.assertTrue(s3, "README install prompt has no Step 3")
+        check = install_bullet(s3, r"openspec --version", r"OPENSPEC_VERSION|<pin>")
+        self.assertTrue(check, "Step 3 has no OpenSpec version check bullet")
+        return s3, check
+
+    def stop_branch(self, check, *patterns):
+        """The nested `  - ` bullet of the check matching every pattern."""
+        for b in re.split(r"\n(?=\s+- )", check):
+            if all(re.search(p, b, re.I | re.S) for p in patterns):
+                return b
+        self.fail(f"the Step 3 check has no branch matching {patterns}")
+
+    def assert_stops(self, b):
+        self.assertRegex(b, r"STOP", "the branch does not STOP")
+        self.assertRegex(b, r"(?i)before Step 4", "the branch does not stop before Step 4")
+        self.assertRegex(b, r"<found>", "the branch does not name the version found")
+        self.assertRegex(b, r"<pin>", "the branch does not name the pin")
+        self.assertIn("npm i -g @fission-ai/openspec@<pin>", b, "the branch does not name the pinned install command")
+        self.assertRegex(b, r"(?i)delete the temporary (directory|clone)", "the branch does not delete the temporary clone")
+        self.assertRegex(b, r"(?i)write no file|no file is written|writes? nothing", "the branch does not rule out writes")
+
+    def test_step3_compares_with_downloaded_pin_before_step4(self):
+        readme = read(README)
+        s3, check = self.s3_check()
+        self.assertRegex(s3, r"(?s)downloaded `VERSION`.{0,80}`OPENSPEC_VERSION`", "Step 3 does not read the downloaded OPENSPEC_VERSION")
+        self.assertRegex(check, r"(?i)before Step 4", "the check does not sit before Step 4")
+        self.assertIn(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?", check, "the check does not name the version token")
+        self.assertRegex(check, r"(?i)exact", "the check does not require an exact match")
+        self.assertLess(readme.index(check), readme.index("Step 4 - "), "the check is not before Step 4")
+        s8 = step(readme, "Step 8")
+        self.assertIn("OpenSpec <found> (pinned)", s8 or "", "Step 8 does not report `OpenSpec <found> (pinned)`")
+
+    def test_mismatch_stops_before_any_write(self):
+        _, check = self.s3_check()
+        self.assert_stops(self.stop_branch(check, r"(?i)mismatch", r"STOP"))
+
+    def test_exact_match_counts_prerelease_as_mismatch(self):
+        _, check = self.s3_check()
+        self.assertRegex(check, r"(?i)whole token.{0,80}pre-release|pre-release.{0,80}whole token",
+                         "the check does not compare the whole token, pre-release included")
+        self.assertRegex(check, r"1\.14\.1-beta\.1.{0,80}mismatch|mismatch.{0,80}1\.14\.1-beta\.1",
+                         "a pre-release of the pin is not named as a mismatch")
+        self.assertRegex(check, r"1\.14\.2", "a newer patch release is not named as a mismatch")
+
+    def test_unreadable_version_stops(self):
+        _, check = self.s3_check()
+        b = self.stop_branch(check, r"(?i)no version (number|token)")
+        self.assertRegex(b, r"(?i)raw output", "the unreadable output is not shown")
+        self.assert_stops(b)
+
+    def test_missing_pin_file_stops(self):
+        _, check = self.s3_check()
+        b = self.stop_branch(check, r"(?i)no `OPENSPEC_VERSION`", r"(?i)empty")
+        self.assertRegex(b, r"(?i)names no pinned OpenSpec version", "the stop does not say the copy names no pin")
+        self.assert_stops(b)
+
+    def test_step1_root_failure_on_unpinned_cli_names_pin_not_init(self):
+        pin = openspec_pin()
+        s1 = step(read(README), "Step 1")
+        root = install_bullet(s1, r"openspec list --json")
+        self.assertTrue(root, "Step 1 has no root check")
+        unpinned = re.search(rf"(?is)version.{{0,40}}recorded.{{0,40}}(not|differs).{{0,200}}?STOP", root)
+        self.assertTrue(unpinned, "the root-check failure has no branch for an unpinned OpenSpec")
+        b = unpinned.group(0)
+        self.assertRegex(b, r"(?i)(name|naming) the version found", "the unpinned branch does not name the version found")
+        self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", b, "the unpinned branch does not name the pinned install command")
+        self.assertNotRegex(b, r"run\s+`openspec init`", "the unpinned branch tells the user to run openspec init")
+        self.assertRegex(root, r"(?is)(do not|never) suggest\s+`openspec init`", "the unpinned branch does not rule out openspec init")
+        self.assertRegex(root, r"(?is)pinned version.{0,120}`openspec init`", "openspec init advice is not limited to the pinned version")
+
+    def test_step1_missing_openspec_names_pinned_install(self):
+        pin = openspec_pin()
+        s1 = step(read(README), "Step 1")
+        b = install_bullet(s1, r"openspec --version")
+        self.assertTrue(b, "Step 1 does not run openspec --version")
+        self.assertRegex(b, r"(?i)record", "Step 1 does not record the openspec --version output")
+        self.assertIn(f"npm i -g @fission-ai/openspec@{pin}", b, "a missing OpenSpec does not name the pinned install command")
+        self.assertRegex(b, r"STOP", "a missing OpenSpec does not stop the install")
+
 
 if __name__ == "__main__":
     unittest.main()
