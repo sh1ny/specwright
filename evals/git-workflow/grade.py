@@ -911,6 +911,7 @@ def check_install(name, repo, code, store, rep):
     R = []
     nested = name == "eval-install-nested-store"
     other = name == "eval-install-store-other-schema"
+    refused = name == "eval-install-openspec-mismatch"  # the fake openspec reports 1.15.0 against the 1.14.1 pin
     root = store / "planning" if nested else store
     rel = "planning/openspec/" if nested else "openspec/"
     cfg_p = root / "openspec" / "config.yaml"
@@ -922,7 +923,21 @@ def check_install(name, repo, code, store, rep):
     where = "planning" if nested else "store"
     place = "planning/" if nested else "the store"
 
-    if not other:
+    if refused:
+        written = [p for p in ("openspec/specwright.yaml", ".claude/skills", ".claude/agents", ".agents/skills", ".omp/agents")
+                   if (code / p).exists()] + [f"store/{p}" for p in ("openspec/schemas/specwright",) if (store / p).exists()]
+        R.append(("No skill, agent, schema or specwright.yaml was written in either repo, and both trees are unchanged",
+                  not written and not status_of(code) and not status_of(store),
+                  f"written={written} code status={status_of(code)} store status={status_of(store)}"))
+        stamp = code / "openspec/.specwright/VERSION"
+        R.append(("openspec/.specwright/VERSION is absent", not stamp.exists(), f"exists={stamp.exists()}"))
+        named = [x for x in ("1.15.0", "1.14.1", "npm i -g @fission-ai/openspec@1.14.1") if x not in rep]
+        R.append(("The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1", bool(rep) and not named, f"missing={named}"))
+        claims = [x for x in sentences(rep)
+                  if re.search(r"install(ation)? (is |was )?(complete|done|finished|successful)|successfully installed|specwright (is )?installed", x)
+                  and not re.search(NEGATION, x)]
+        R.append(("The report does not say the install completed", bool(rep) and not claims, f"claims={claims[:2]}"))
+    elif not other:
         R.append((f"{rel}schemas/specwright/ in the store is identical to the downloaded schemas/specwright/",
                   bool(tree(SRC / "schemas/specwright")) and tree(root / "openspec/schemas/specwright") == tree(SRC / "schemas/specwright"),
                   f"files in store={sorted(tree(root / 'openspec/schemas/specwright'))}"))
@@ -973,6 +988,8 @@ def check_install(name, repo, code, store, rep):
               subjects(code, "--all") == [INITIAL] and subjects(store, "--all") == STORE_MAIN
               and branches == [["main"], ["main"]] and not any(stash) and not gh_calls(repo),
               f"code commits={subjects(code, '--all')} store commits={subjects(store, '--all')} branches={branches} stash={stash} gh calls={len(gh_calls(repo))}"))
+    if refused:
+        return R
     if other:
         # the question may follow the sentence that names team-flow ("... sets schema: team-flow. Should it change?")
         allsents = sentences(rep)
@@ -1004,6 +1021,9 @@ def check_install(name, repo, code, store, rep):
     val = [x for x in sentences(rep) if "schema validate" in x and (where in x or "<root>" in x)
            and re.search(r"\bpass(ed|es)?\b|\bvalid\b|success|\bok\b|no errors", x) and not re.search(r"\bfail|\berror[^s]|not valid|invalid", x)]
     R.append((f"The report says openspec schema validate specwright was run in {place} and passed", bool(val), f"matching sentences={val[:2]}"))
+    if name == "eval-install-openspec-override":
+        line = "openspec 1.15.0 (pinned 1.14.1, override)"  # report() lowercases
+        R.append(("The report shows OpenSpec 1.15.0 (pinned 1.14.1, override)", line in rep, f"found={line in rep}"))
     return R
 
 
