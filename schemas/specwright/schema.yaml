@@ -428,6 +428,11 @@ artifacts:
         whose work calls for neither, such as scaffolding or dependency setup,
         carries neither. A final group is for integration checks only, not for
         the tests and docs an earlier group owed.
+      - When `release.enabled` is true in openspec/specwright.yaml, the last
+        task group MUST include a task `release.sh bump --to <version>`
+        (the version from the proposal, per the pre-1.0 rule in
+        CONTRIBUTING.md), verified by `release.sh check`. With releases off,
+        this rule adds no bump task.
 
       Reference specs for what needs to be built, design for how to build it.
     requires:

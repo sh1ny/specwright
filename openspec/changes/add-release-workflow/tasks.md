@@ -43,22 +43,22 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 | releases → The GitHub release is optional and created once | Release creation fails | evals/release/test_release.py | TestGithubRelease.test_create_failure_resumable | red |
 | change-finish → Finish offers a release once the change is on main | Untagged version after a PR merge | evals/git-workflow/evals.json | eval-finish-release-offer | red |
 | change-finish → Finish offers a release once the change is on main | Auto release | evals/git-workflow/evals.json | eval-finish-release-auto | red |
-| change-finish → Finish offers a release once the change is on main | An earlier version was left untagged | evals/release/test_skill_text.py | TestFinishText.test_offers_untagged_oldest_first | red |
-| change-finish → Finish offers a release once the change is on main | Version already tagged | evals/release/test_skill_text.py | TestFinishText.test_no_offer_when_untagged_empty | red |
+| change-finish → Finish offers a release once the change is on main | An earlier version was left untagged | evals/release/test_skill_text.py | TestFinishText.test_offers_untagged_oldest_first | green |
+| change-finish → Finish offers a release once the change is on main | Version already tagged | evals/release/test_skill_text.py | TestFinishText.test_no_offer_when_untagged_empty | green |
 | change-finish → Finish offers a release once the change is on main | Releases disabled | evals/git-workflow/evals.json | eval-finish-release-disabled | red |
-| change-finish → Finish offers a release once the change is on main | Auto publish fails | evals/release/test_skill_text.py | TestFinishText.test_publish_failure_keeps_roadmap_offer | red |
+| change-finish → Finish offers a release once the change is on main | Auto publish fails | evals/release/test_skill_text.py | TestFinishText.test_publish_failure_keeps_roadmap_offer | green |
 | change-finish → Local finish publishes no tag without a push decision | Local merge with auto release | evals/git-workflow/evals.json | eval-finish-local-release-reported | red |
 | change-finish → Local finish publishes no tag without a push decision | Local merge after main was pushed | evals/release/test_release.py | TestReleaseCommit.test_local_merge_commit_after_push | red |
 | pr-merge → Watch offers a release after an agent merge | Unattended agent merge with auto release | evals/git-workflow/evals.json | eval-agent-merge-release-auto | red |
-| pr-merge → Watch offers a release after an agent merge | Offer without auto | evals/release/test_skill_text.py | TestWatchText.test_offer_without_auto | red |
-| pr-merge → Watch offers a release after an agent merge | An earlier version was left untagged | evals/release/test_skill_text.py | TestWatchText.test_untagged_oldest_first | red |
-| pr-merge → Watch offers a release after an agent merge | Cleanup stopped | evals/release/test_skill_text.py | TestWatchText.test_release_only_after_cleanup | red |
-| pr-merge → Watch offers a release after an agent merge | Publish fails after the merge | evals/release/test_skill_text.py | TestWatchText.test_publish_failure_reported | red |
+| pr-merge → Watch offers a release after an agent merge | Offer without auto | evals/release/test_skill_text.py | TestWatchText.test_offer_without_auto | green |
+| pr-merge → Watch offers a release after an agent merge | An earlier version was left untagged | evals/release/test_skill_text.py | TestWatchText.test_untagged_oldest_first | green |
+| pr-merge → Watch offers a release after an agent merge | Cleanup stopped | evals/release/test_skill_text.py | TestWatchText.test_release_only_after_cleanup | green |
+| pr-merge → Watch offers a release after an agent merge | Publish fails after the merge | evals/release/test_skill_text.py | TestWatchText.test_publish_failure_reported | green |
 | project-planning → Close offers untagged releases | Versions left untagged | evals/release/test_release.py | TestUntagged.test_lists_since_latest_tag | red |
 | project-planning → Close offers untagged releases | Everything tagged | evals/release/test_release.py | TestUntagged.test_all_tagged_empty | red |
 | project-planning → Close offers untagged releases | No tag yet | evals/release/test_release.py | TestUntagged.test_no_tag_current_only | red |
-| project-planning → Close offers untagged releases | User declines | evals/release/test_skill_text.py | TestCloseText.test_offer_needs_yes_and_never_blocks | red |
-| project-planning → Close offers untagged releases | Releases disabled | evals/release/test_skill_text.py | TestCloseText.test_disabled_no_offer | red |
+| project-planning → Close offers untagged releases | User declines | evals/release/test_skill_text.py | TestCloseText.test_offer_needs_yes_and_never_blocks | green |
+| project-planning → Close offers untagged releases | Releases disabled | evals/release/test_skill_text.py | TestCloseText.test_disabled_no_offer | green |
 
 ## 1. ADR and architecture
 
@@ -97,7 +97,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
   - **publish**: a fenced fetch of main, then `[as] bash scripts/release.sh publish`, oldest-first order, and commit-identity rules for the tagger.
   - Report lines.
   - Stop conditions for every exit 1 and exit 3.
-- [ ] 5.3 Edit `skills/specwright-finish/SKILL.md` (release offer before the roadmap offer, using `untagged`, auto oldest first; local mode reports and never publishes), `skills/specwright-pr/SKILL.md` (after agent-merge cleanup, before **Next step**) and `skills/specwright-roadmap/SKILL.md` (close lists `untagged` and offers each with a yes; never blocks close). Edit `schemas/specwright/schema.yaml`: the tasks instruction requires the bump task in the last group when `release.enabled` is true. Verify that `test_skill_text.py` passes, flip the rows green, and run `openspec schema validate specwright`.
+- [x] 5.3 Edit `skills/specwright-finish/SKILL.md` (release offer before the roadmap offer, using `untagged`, auto oldest first; local mode reports and never publishes), `skills/specwright-pr/SKILL.md` (after agent-merge cleanup, before **Next step**) and `skills/specwright-roadmap/SKILL.md` (close lists `untagged` and offers each with a yes; never blocks close). Edit `schemas/specwright/schema.yaml`: the tasks instruction requires the bump task in the last group when `release.enabled` is true. Verify that `test_skill_text.py` passes, flip the rows green, and run `openspec schema validate specwright`.
 - [ ] 5.4 Add graded agent evals `eval-finish-release-offer`, `eval-finish-release-auto`, `eval-finish-release-disabled`, `eval-finish-local-release-reported` and `eval-agent-merge-release-auto` to `evals/git-workflow/evals.json`, with grader checks in `grade.py` and grader tests in `test_grade.py`. Run them against the installed skills (re-install first) and flip the rows green when they pass.
 
 ## 6. Settings and docs
