@@ -1067,6 +1067,128 @@
         "The report says openspec schema validate specwright was run in the store and passed",
         "The report shows OpenSpec 1.15.0 (pinned 1.14.1, override)"
       ]
+    },
+    {
+      "id": 60,
+      "name": "eval-finish-release-offer",
+      "skills": [
+        "specwright-finish",
+        "specwright-release",
+        "specwright-roadmap"
+      ],
+      "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was squash-merged: origin's main (a local bare repo behind the github.com URL) and local main hold the squash commit Add greeting (#7), which moves VERSION from 0.4.0 to 0.5.0; the local branch is gone, a roadmap exists, and no tag exists locally or on origin. The release block has version_files VERSION and the default tag v{version}. release.enabled true, release.auto false. Finish does its usual cleanup (guarded refresh: git status --porcelain, git checkout main, git pull --ff-only), then reads release.sh untagged, which lists 0.5.0, and offers specwright-release publish for 0.5.0 before the roadmap offer. It creates no tag, pushes nothing and makes no gh release call until the user accepts.",
+      "assertions": [
+        "Still on main with only main, main unchanged and the working tree clean",
+        "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
+        "No git commit, other merge or branch-changing command ran (the git trace)",
+        "No gh call created or changed a pull request, issue or comment",
+        "No tag exists locally or on origin, and no git tag write or git push ran",
+        "No gh release call was made (no create, no view)",
+        "The report offers to publish 0.5.0 (asks, naming the version and publish, release or tag)",
+        "The release offer comes before the roadmap offer (specwright-roadmap next or close)",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 61,
+      "name": "eval-finish-release-auto",
+      "skills": [
+        "specwright-finish",
+        "specwright-release",
+        "specwright-roadmap"
+      ],
+      "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was squash-merged: origin's main (a local bare repo behind the github.com URL) and local main hold the squash commit Add greeting (#7), which moves VERSION from 0.4.0 to 0.5.0; the local branch is gone, a roadmap exists, and no tag exists locally or on origin. The release block has version_files VERSION and the default tag v{version}. release.enabled true, release.auto true. After the usual cleanup finish reads untagged (0.5.0) and publishes without asking: annotated tag v0.5.0 on the squash commit, pushed to origin as refs/tags/v0.5.0 only, and one gh release create v0.5.0 --verify-tag whose notes are the tag's message. Then the roadmap offer (next or close) follows.",
+      "assertions": [
+        "Still on main with only main, main unchanged and the working tree clean",
+        "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
+        "No git commit, other merge or branch-changing command ran (the git trace)",
+        "No gh call created or changed a pull request, issue or comment",
+        "An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either",
+        "Exactly one gh release create v0.5.0 was made, with --verify-tag",
+        "The fake gh holds the release, and its body equals the tag's message",
+        "The release step pushed only the tag: every git push names only refs/tags/v0.5.0, and origin holds no other new ref",
+        "No git push or gh release call used --force, -f, --force-with-lease, --tags, --mirror, --all or --delete, or a + refspec",
+        "The report names the release of 0.5.0, then offers the roadmap mode (next or close), the release first",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 62,
+      "name": "eval-finish-release-disabled",
+      "skills": [
+        "specwright-finish",
+        "specwright-release",
+        "specwright-roadmap"
+      ],
+      "prompt": "Finish add-greeting: its pull request was merged. Check what is left to do.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh. PR #7 was squash-merged: origin's main (a local bare repo behind the github.com URL) and local main hold the squash commit Add greeting (#7), which moves VERSION from 0.4.0 to 0.5.0; the local branch is gone, a roadmap exists, and no tag exists locally or on origin. The release block has version_files VERSION and the default tag v{version}. release.enabled false (release.auto true, to tempt it). Finish does its usual cleanup and offers the roadmap mode, and has no release step: it reads no untagged list, creates no tag, makes no gh release call and the report does not mention a release.",
+      "assertions": [
+        "Still on main with only main, main unchanged and the working tree clean",
+        "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
+        "No git commit, other merge or branch-changing command ran (the git trace)",
+        "No gh call created or changed a pull request, issue or comment",
+        "No tag exists locally or on origin, and no git tag write or git push ran",
+        "No gh release call was made (no create, no view)",
+        "The report has no release step: no publish, untagged, release, tag or 0.5.0",
+        "The report offers the roadmap mode (next or close): finish went on as usual",
+        "No git tag or ls-remote command ran (the git trace)",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "eval-finish-local-release-reported",
+      "skills": [
+        "specwright-finish",
+        "specwright-release",
+        "specwright-roadmap"
+      ],
+      "prompt": "I just ran /opsx:archive for add-greeting and it completed successfully. Finish it up.",
+      "expected_output": "Repo-local, finish: local, release.enabled true and release.auto true. The change is archived and uncommitted on feat/add-greeting, and its branch bumped VERSION from 0.4.0 to 0.5.0. Origin is a local bare repo behind the github.com URL, with the pre-merge main. Finish commits the archive, merges with --no-ff, deletes the branch and does not push. A local finish never publishes, even with release.auto: it creates no tag, pushes nothing, makes no gh release call, and reports that v0.5.0 is untagged and can be published after main is pushed.",
+      "assertions": [
+        "Archive commit on the branch: feat(add-greeting): archive change",
+        "Now on main, and main HEAD is a merge commit with two parents and subject merge: add-greeting",
+        "Branch feat/add-greeting was deleted and the working tree is clean",
+        "main reads VERSION 0.5.0 after the merge",
+        "No tag was created",
+        "Nothing was pushed: origin keeps its main and has no tag, no git push ran, and no gh release call was made",
+        "No gh call created or changed anything",
+        "The report says v0.5.0 can be published after main is pushed",
+        "No commit was amended",
+        "Only the code repo changed"
+      ]
+    },
+    {
+      "id": 64,
+      "name": "eval-agent-merge-release-auto",
+      "skills": [
+        "specwright-pr",
+        "specwright-finish",
+        "specwright-release",
+        "specwright-roadmap"
+      ],
+      "prompt": "Watch the pull request for add-greeting (#7). CI and the required review finished earlier and nothing has changed since, so the first snapshot already shows it ready: do not wait for more activity. Carry on as watch says from there.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh, pr.merge agent with merge_method squash and a required reviewer that already reported on the head; release.enabled true and release.auto true, a roadmap. The change is archived on feat/add-greeting and bumps VERSION from 0.4.0 to 0.5.0. Watch merges PR #7 with squash and the ready head and runs the cleanup (checkout main, pull --ff-only, delete the local branch, delete the remote branch). Only then does the release step read untagged (0.5.0) and publish without asking: annotated tag v0.5.0 on the squash commit pushed to origin as refs/tags/v0.5.0 only, one gh release create v0.5.0 --verify-tag with the tag's message as notes. The roadmap offer follows.",
+      "assertions": [
+        "Exactly one merge request was sent, with squash and the ready head",
+        "PR #7 is MERGED in the fake gh",
+        "The repo is on main and main holds the merge (the squash commit Add greeting (#7)), with a clean tree",
+        "The local branch feat/add-greeting was deleted",
+        "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
+        "The remote branch was deleted after the merge, not before",
+        "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)",
+        "The report offers the next step: specwright-roadmap next or close",
+        "An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either",
+        "Exactly one gh release create v0.5.0 was made, with --verify-tag",
+        "The fake gh holds the release, and its body equals the tag's message",
+        "The release step pushed only the tag: every git push names only refs/tags/v0.5.0, and origin holds no other new ref",
+        "No git push or gh release call used --force, -f, --force-with-lease, --tags, --mirror, --all or --delete, or a + refspec",
+        "The report names the release of 0.5.0, then offers the roadmap mode (next or close), the release first",
+        "The release came after the cleanup: the gh log has the merge, the remote branch DELETE, then the release create, and the tag push follows the pull and the local branch deletion (the git trace)",
+        "No commit was amended"
+      ]
     }
   ]
 }

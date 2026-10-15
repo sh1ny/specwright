@@ -277,8 +277,14 @@ def check(name, repo, run):
     elif name in ("eval-finish-resume-squash-merged", "eval-finish-resume-merged-branch-gone", "eval-finish-resume-stale-main"):
         R.extend(check_finish_resume_merged(name, repo, branch, branches, status, rep))
 
-    elif name in ("eval-watch-agent-merge", "eval-watch-merge-default-user"):
+    elif name in ("eval-watch-agent-merge", "eval-watch-merge-default-user", "eval-agent-merge-release-auto"):
         R.extend(check_watch_merge(name, repo, branch, branches, status, rep))
+
+    elif name in ("eval-finish-release-offer", "eval-finish-release-auto", "eval-finish-release-disabled"):
+        R.extend(check_finish_release(name, repo, branch, branches, status, rep))
+
+    elif name == "eval-finish-local-release-reported":
+        R.extend(check_finish_local_release(repo, branch, branches, status, rep, run))
 
     elif name in ("eval-roadmap-next-gap", "eval-roadmap-next-gap-dirty-main"):
         fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
@@ -464,7 +470,7 @@ def check_watch_merge(name, repo, branch, branches, status, rep):
     calls = gh_calls(repo)
     puts, dels = merge_puts(calls), ref_deletes(calls)
     R = []
-    if name == "eval-watch-agent-merge":
+    if name in ("eval-watch-agent-merge", "eval-agent-merge-release-auto"):
         R.append(("Exactly one merge request was sent, with squash and the ready head",
                   len(puts) == 1 and puts[0][0] == "squash" and bool(puts[0][1]) and fx["tip"].startswith(puts[0][1]),
                   f"merge requests={puts} ready head={fx['tip']}"))
@@ -489,6 +495,8 @@ def check_watch_merge(name, repo, branch, branches, status, rep):
         R.append(("No other gh call created or changed anything (no gh pr merge, auto-merge or comment)", not other, f"other changing gh calls={other}"))
         hit = re.search(r"roadmap", rep) and re.search(r"\b(next|close)\b", rep)
         R.append(("The report offers the next step: specwright-roadmap next or close", bool(hit), f"excerpt={rep[-240:]!r}"))
+        if name == "eval-agent-merge-release-auto":
+            R.extend(check_release_published(repo, fx["squash"], st, calls, git_trace(repo) or [], rep, "squash merge commit", after_cleanup=True))
     else:
         R.append(("No merge request and no ref DELETE reached the gh log",
                   not puts and not dels and not [c for c in calls if "pulls/7/merge" in " ".join(c.get("argv", []))],
@@ -569,6 +577,243 @@ def check_finish_resume_merged(name, repo, branch, branches, status, rep):
     nf = re.search(r"no archive (was )?found|archive (was )?not found|(could|did) not find (the |an |any )?archive|found no archive", rep)
     R.append(("The report does not say the archive was not found", not nf, f"match={nf.group(0) if nf else None}"))
     R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+    return R
+
+
+# ---- release evals (add-release-workflow) -----------------------------------------------------------------------
+RELEASE_TAG = "v0.5.0"
+TAG_REF = f"refs/tags/{RELEASE_TAG}"
+RELEASE_WORDS = r"publish\w*|releas\w*|\btag(?:s|ged|ging)?\b"
+RELEASE_ASK = (r"\?|whether|confirm|let me know|please (?:tell|say|advise)|say (?:the word|so|yes|go)|"
+               r"if you (?:want|would like|'d like|wish)|when you(?:'re| are)? ready|on your go")
+TAG_WRITE_SHORT = set("asufdmFe")
+TAG_READ = {"-l", "--list", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at"}
+
+
+def ref_lines(repo, *namespaces):
+    """The ref names under `namespaces` in `repo` (a work tree or a bare repository)."""
+    return (git(repo, "for-each-ref", "--format=%(refname)", *namespaces) or "").splitlines()
+
+
+def sentence_spans(rep):
+    """(offset, text) of each sentence or line of the report: split after . ? ! plus whitespace, and at line ends (a version such as
+    0.5.0 does not split)."""
+    out, pos = [], 0
+    for m in re.finditer(r"(?<=[.?!])\s+|\n", rep):
+        out.append((pos, rep[pos:m.start()]))
+        pos = m.end()
+    out.append((pos, rep[pos:]))
+    return [(p, t) for p, t in out if t.strip()]
+
+
+def near(rep, *pats):
+    """One sentence, or two consecutive ones, of the report matches every regex in `pats`."""
+    sp = [t for _, t in sentence_spans(rep)]
+    return any(all(re.search(p, w) for p in pats) for w in sp + [a + " " + b for a, b in zip(sp, sp[1:])])
+
+
+def release_pos(rep):
+    """Offset of the first sentence that names 0.5.0 with a release word (publish, release, tag), or None."""
+    return next((p for p, t in sentence_spans(rep) if re.search(r"0\.5\.0", t) and re.search(RELEASE_WORDS, t)), None)
+
+
+def roadmap_pos(rep):
+    """Offset of the first sentence that offers a roadmap mode (names the roadmap and next or close), or None."""
+    return next((p for p, t in sentence_spans(rep) if "roadmap" in t and re.search(r"\b(?:next|close)\b", t)), None)
+
+
+def release_offered(rep):
+    """The report asks whether to publish 0.5.0: a sentence names 0.5.0 and a release word and asks, or a paragraph with both has a question."""
+    ask = any(re.search(r"0\.5\.0", t) and re.search(RELEASE_WORDS, t) and re.search(RELEASE_ASK, t) for _, t in sentence_spans(rep))
+    return ask or any(re.search(r"0\.5\.0", b) and re.search(RELEASE_WORDS, b) and "?" in b for b in re.split(r"\n\s*\n", rep))
+
+
+def tag_writes(cmds):
+    """git tag commands that create, change or delete a tag (-a, -s, -u, -f, -d, -m, -F, -e, --annotate, --sign, --force, --delete,
+    or a name with no listing option); `git tag`, `-l`, `--contains` and the like only read."""
+    out = []
+    for c in cmds:
+        if c[:1] != ["tag"]:
+            continue
+        rest = c[1:]
+        flags = [a for a in rest if a.startswith("-")]
+        write = any(a in ("--annotate", "--sign", "--force", "--delete", "--local-user", "--message", "--file", "--edit")
+                    or a.startswith(("--local-user=", "--message=", "--file="))
+                    or (re.fullmatch(r"-[A-Za-z]+", a) and TAG_WRITE_SHORT & set(a[1:])) for a in flags)
+        positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in ("-m", "-F", "-u", "--format", "--sort"))]
+        if write or (positional and not TAG_READ & set(flags)):
+            out.append(c)
+    return out
+
+
+def pushes(cmds):
+    return [c for c in cmds if c[:1] == ["push"]]
+
+
+def push_refspecs(c):
+    """The refspecs of a git push command: the positionals after the remote name."""
+    pos = [a for a in c[1:] if not a.startswith("-")]
+    return pos[1:]
+
+
+def force_like(argv):
+    """Options or refspecs that force, mirror, delete or push every tag or branch: --force, -f, --force-with-lease, --tags, --mirror,
+    --all, --delete, -d, a combined short option holding f, a leading + on a refspec."""
+    bad = []
+    for a in argv:
+        if a in ("--force", "-f", "--tags", "--mirror", "--all", "--delete", "-d", "--prune") or a.startswith(("--force-with-lease", "+")):
+            bad.append(a)
+        elif re.fullmatch(r"-[A-Za-z]*f[A-Za-z]*", a):
+            bad.append(a)
+    return bad
+
+
+def release_gh(calls, sub=None):
+    """The fake gh's `release` calls (optionally only `view` or `create`)."""
+    return [c for c in calls if c.get("argv", [])[:1] == ["release"] and (sub is None or c["argv"][1:2] == [sub])]
+
+
+def refresh_ran(cl):
+    """(ok, evidence): git status --porcelain, then git checkout main, then git pull --ff-only is in the trace, in that order."""
+    guard = next((i for i, c in enumerate(cl) if c[:1] == ["status"] and any(a.startswith("--porcelain") for a in c[1:])), None)
+    pull = next((i for i, c in enumerate(cl) if unquiet(c) == ["pull", "--ff-only"]), None)
+    co = next((i for i, c in enumerate(cl) if unquiet(c) == ["checkout", "main"] and guard is not None and i > guard
+               and (pull is None or i < pull)), None)
+    return None not in (guard, co, pull), f"status at={guard} checkout main at={co} pull --ff-only at={pull}"
+
+
+def other_changes(cmds):
+    """The git commands that commit, merge, checkout, branch or pull beyond the guarded refresh; `git tag` and `git push` are judged apart."""
+    return [c for c in refresh_exceptions(cmds) if c[:1] not in (["tag"], ["push"])]
+
+
+def check_release_published(repo, commit, st, calls, cmds, rep, what, after_cleanup=False):
+    """What a run with release.auto leaves: the annotated tag v0.5.0 on `commit` locally and on origin (the bare <repo>/ob.git), one gh
+    release create with --verify-tag whose body is the tag's message, only the tag pushed and nothing forced, and a report that names the
+    release before the roadmap offer. after_cleanup: the gh log holds the merge PUT, then the ref DELETE, then the release create, and
+    the tag push follows the pull and the local branch deletion in the git trace."""
+    bare = repo / "ob.git"
+    R = []
+    seen = {w: (git(r, "cat-file", "-t", TAG_REF), git(r, "rev-parse", f"{TAG_REF}^{{commit}}"), ref_lines(r, "refs/tags"))
+            for w, r in (("locally", repo), ("on origin", bare))}
+    R.append((f"An annotated tag {RELEASE_TAG} on the {what} exists locally and on origin, and it is the only tag in either",
+              all(t == "tag" and c == commit and tags == [TAG_REF] for t, c, tags in seen.values()), f"expected {commit}; seen={seen}"))
+    creates = release_gh(calls, "create")
+    ok = len(creates) == 1 and creates[0]["argv"][2:3] == [RELEASE_TAG] and "--verify-tag" in creates[0]["argv"]
+    R.append((f"Exactly one gh release create {RELEASE_TAG} was made, with --verify-tag", ok, f"release creates={[c['argv'] for c in creates]}"))
+    body = ((st.get("repos", {}).get("acme/greeter", {}).get("releases") or {}).get(RELEASE_TAG) or {}).get("body")
+    msg = git(repo, "for-each-ref", "--format=%(contents)", TAG_REF)
+    norm = lambda t: (t or "").replace("\r\n", "\n").strip()
+    R.append(("The fake gh holds the release, and its body equals the tag's message",
+              bool(norm(msg)) and norm(body) == norm(msg), f"body={body!r} tag message={msg!r}"))
+    heads = ref_lines(bare, "refs/heads")
+    refspecs = [r for c in pushes(cmds) for r in push_refspecs(c)]
+    only_tag = bool(refspecs) and all(r in (RELEASE_TAG, TAG_REF, f"{TAG_REF}:{TAG_REF}") for r in refspecs)
+    R.append(("The release step pushed only the tag: every git push names only refs/tags/v0.5.0, and origin holds no other new ref",
+              bool(pushes(cmds)) and only_tag and heads == ["refs/heads/main"],
+              f"pushes={pushes(cmds)} refspecs={refspecs} origin heads={heads}"))
+    forced = [f for c in pushes(cmds) for f in force_like(c[1:])] + [f for c in release_gh(calls) for f in force_like(c["argv"])]
+    R.append(("No git push or gh release call used --force, -f, --force-with-lease, --tags, --mirror, --all or --delete, or a + refspec", not forced,
+              f"forcing options={forced}"))
+    rp, mp = release_pos(rep), roadmap_pos(rep)
+    R.append(("The report names the release of 0.5.0, then offers the roadmap mode (next or close), the release first",
+              rp is not None and mp is not None and rp < mp, f"release at={rp} roadmap offer at={mp} excerpt={rep[-300:]!r}"))
+    if after_cleanup:
+        kinds = []
+        for c in calls:
+            a = c.get("argv", [])
+            if a[:1] == ["api"] and rest_method(a) == "PUT" and any(x.endswith("pulls/7/merge") for x in a):
+                kinds.append("merge")
+            elif a[:1] == ["api"] and rest_method(a) == "DELETE" and any("git/refs/heads/" in x for x in a):
+                kinds.append("delete")
+            elif a[:2] == ["release", "create"]:
+                kinds.append("release")
+        pull = next((i for i, c in enumerate(cmds) if unquiet(c) == ["pull", "--ff-only"]), None)
+        bdel = next((i for i, c in enumerate(cmds) if c[:1] == ["branch"] and {"-d", "-D"} & set(c[1:])), None)
+        push = next((i for i, c in enumerate(cmds) if c[:1] == ["push"]), None)
+        R.append(("The release came after the cleanup: the gh log has the merge, the remote branch DELETE, then the release create, and the tag push "
+                  "follows the pull and the local branch deletion (the git trace)",
+                  kinds == ["merge", "delete", "release"] and None not in (pull, bdel, push) and push > max(pull, bdel),
+                  f"gh order={kinds} pull at={pull} branch deletion at={bdel} push at={push}"))
+    return R
+
+
+def check_finish_release(name, repo, branch, branches, status, rep):
+    """finish: pr, the change's PR #7 merged on GitHub and squashed onto origin's main (Add greeting (#7), VERSION 0.4.0 -> 0.5.0), the
+    local branch gone, a roadmap, no tag anywhere. eval-finish-release-offer (release.auto false): cleanup as usual, the report offers
+    publishing 0.5.0 before the roadmap offer, and nothing is tagged or pushed. eval-finish-release-auto: the tag and the GitHub release
+    are published (check_release_published). eval-finish-release-disabled (release.enabled false, auto true): no release step at all.
+    .git/fixture-state.json has main's tip (the squash commit)."""
+    fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+    st = json.loads((repo / "gh-state.json").read_text(encoding="utf-8"))
+    cmds, calls = git_trace(repo) or [], gh_calls(repo)
+    R = []
+    R.append(("Still on main with only main, main unchanged and the working tree clean",
+              branch == "main" and branches == ["main"] and git(repo, "rev-parse", "main") == fx["main"] and not status,
+              f"branch={branch} branches={branches} main={git(repo, 'rev-parse', 'main')} expected={fx['main']} status={status}"))
+    ok, ev = refresh_ran(cmds)
+    R.append(("The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)", ok, ev))
+    bad = other_changes(cmds)
+    R.append(("No git commit, other merge or branch-changing command ran (the git trace)", bool(cmds) and not bad, f"changing={bad}"))
+    ch = changing_gh(calls)
+    R.append(("No gh call created or changed a pull request, issue or comment", not ch, f"changing gh calls={ch}"))
+    if name == "eval-finish-release-auto":
+        R.extend(check_release_published(repo, fx["main"], st, calls, cmds, rep, "squash merge commit"))
+    else:
+        tags = {"locally": ref_lines(repo, "refs/tags"), "on origin": ref_lines(repo / "ob.git", "refs/tags")}
+        R.append(("No tag exists locally or on origin, and no git tag write or git push ran",
+                  not any(tags.values()) and not tag_writes(cmds) and not pushes(cmds),
+                  f"tags={tags} tag writes={tag_writes(cmds)} pushes={pushes(cmds)}"))
+        rc = release_gh(calls)
+        R.append(("No gh release call was made (no create, no view)", not rc, f"release calls={[c['argv'] for c in rc]}"))
+    if name == "eval-finish-release-offer":
+        R.append(("The report offers to publish 0.5.0 (asks, naming the version and publish, release or tag)", release_offered(rep), f"excerpt={rep[-300:]!r}"))
+        rp, mp = release_pos(rep), roadmap_pos(rep)
+        R.append(("The release offer comes before the roadmap offer (specwright-roadmap next or close)",
+                  rp is not None and mp is not None and rp < mp, f"release at={rp} roadmap offer at={mp}"))
+    if name == "eval-finish-release-disabled":
+        hit = re.search(r"\bpublish\w*|\buntagged\b|specwright-release|release\.sh|\bv?0\.5\.0\b|\breleases?\b|\btag(?:s|ged|ging)?\b", rep)
+        R.append(("The report has no release step: no publish, untagged, release, tag or 0.5.0", not hit,
+                  f"match={hit.group(0) if hit else None} excerpt={rep[-300:]!r}"))
+        R.append(("The report offers the roadmap mode (next or close): finish went on as usual", roadmap_pos(rep) is not None, f"excerpt={rep[-200:]!r}"))
+        extra = [c for c in cmds if c[:1] in (["tag"], ["ls-remote"])]
+        R.append(("No git tag or ls-remote command ran (the git trace)", not extra, f"commands={extra}"))
+    R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+    return R
+
+
+def check_finish_local_release(repo, branch, branches, status, rep, run):
+    """finish: local with release.auto, the change's branch bumped VERSION to 0.5.0: the local merge is done as eval-finish-local does it, but
+    no tag is made and nothing is pushed (origin, a bare repo behind the github.com URL, keeps its main and has no tag; no push, no gh
+    release call), and the report says v0.5.0 can be published after main is pushed. .git/fixture-state.json has origin's main."""
+    fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+    cmds, calls = git_trace(repo) or [], gh_calls(repo)
+    bare = repo / "ob.git"
+    R = []
+    allsubs = subjects(repo, "--all")
+    R.append(("Archive commit on the branch: feat(add-greeting): archive change", "feat(add-greeting): archive change" in allsubs, f"subjects={allsubs}"))
+    parents = (git(repo, "log", "-1", "--format=%P", "main") or "").split()
+    head = git(repo, "log", "-1", "--format=%s", "main")
+    R.append(("Now on main, and main HEAD is a merge commit with two parents and subject merge: add-greeting",
+              branch == "main" and len(parents) == 2 and head == "merge: add-greeting", f"branch={branch} parents={len(parents)} subject={head}"))
+    R.append(("Branch feat/add-greeting was deleted and the working tree is clean",
+              "feat/add-greeting" not in branches and not status, f"branches={branches} status={status}"))
+    version = (git(repo, "show", "main:VERSION") or "").strip()
+    R.append(("main reads VERSION 0.5.0 after the merge", version == "0.5.0", f"VERSION={version!r}"))
+    tags = ref_lines(repo, "refs/tags")
+    R.append(("No tag was created", not tags and not tag_writes(cmds), f"tags={tags} tag writes={tag_writes(cmds)}"))
+    heads, otags = ref_lines(bare, "refs/heads"), ref_lines(bare, "refs/tags")
+    omain = git(bare, "rev-parse", "refs/heads/main")
+    R.append(("Nothing was pushed: origin keeps its main and has no tag, no git push ran, and no gh release call was made",
+              heads == ["refs/heads/main"] and omain == fx["main"] and not otags and not pushes(cmds) and not release_gh(calls),
+              f"origin heads={heads} main={omain} expected={fx['main']} origin tags={otags} pushes={pushes(cmds)} release calls={release_gh(calls)}"))
+    ch = changing_gh(calls)
+    R.append(("No gh call created or changed anything", not ch, f"changing gh calls={ch}"))
+    R.append(("The report says v0.5.0 can be published after main is pushed", near(rep, r"0\.5\.0", r"push", RELEASE_WORDS), f"excerpt={rep[-300:]!r}"))
+    R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+    want = {INITIAL, "chore: release settings", PLAN_SUBJECT, "feat(add-greeting): implement tasks 1.1-2.1",
+            "feat(add-greeting): bump version to 0.5.0", "feat(add-greeting): archive change", "merge: add-greeting"}
+    R.append(only_code_repo(repo, run, lambda subs: set(subs) == want and len(subs) == len(want)))
     return R
 
 

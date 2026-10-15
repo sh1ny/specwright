@@ -926,19 +926,104 @@ def origin_shim(repo):
     (repo / "bin" / "git").chmod(0o755)
 
 
-def build_finish_resume_merged(repo, squash):
+RELEASE_VERSION = "0.5.0"
+
+
+def release_settings(enabled=True, auto=False):
+    """The `release:` block of openspec/specwright.yaml the release evals use: VERSION is the only (primary) version file."""
+    return (f"release:\n  enabled: {'true' if enabled else 'false'}\n  auto: {'true' if auto else 'false'}\n  github_release: true\n"
+            "  tag: \"v{version}\"\n  version_files:\n    VERSION: '^(\\d+\\.\\d+\\.\\d+)$'\n")
+
+
+RELEASE_SHIM = r'''#!/bin/bash
+# git shim for the release evals: real git for everything, except `pull`, `fetch`, `push` and `ls-remote` in the code repo, which read or
+# write the local bare repo (@BARE@) through a command-scoped url.<bare>.insteadOf, so origin's URL stays on github.com. With GATED=1
+# `pull` and `fetch` do so only once the fake gh logged a merge of PR #7 (before it they hit the unreachable proxy); `push` and
+# `ls-remote` are never gated. Every other network command hits the unreachable proxy.
+REAL="@REAL@"
+CODE="@CODE@"
+BARE="@BARE@"
+LOG="@LOG@"
+URL="@URL@"
+GATED=@GATED@
+dir=.
+a=("$@")
+while [ ${#a[@]} -gt 0 ]; do
+  case "${a[0]}" in
+    -C) dir="${a[1]}"; a=("${a[@]:2}") ;;
+    -c) a=("${a[@]:2}") ;;
+    -*) a=("${a[@]:1}") ;;
+    *) break ;;
+  esac
+done
+sub="${a[0]:-}"
+case "$sub" in pull|fetch|push|ls-remote) ;; *) exec "$REAL" "$@" ;; esac
+top=$("$REAL" -C "$dir" rev-parse --show-toplevel 2>/dev/null)
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+if [ "$(lc "$top")" = "$(lc "$CODE")" ]; then
+  if [ "$sub" = push ] || [ "$sub" = ls-remote ] || [ "$GATED" = 0 ] || grep -q 'pulls/7/merge' "$LOG" 2>/dev/null; then
+    exec "$REAL" -c "url.$BARE.insteadOf=$URL" "$@"
+  fi
+fi
+exec "$REAL" "$@"
+'''
+
+
+BASH_SHIM = r'''#!/bin/sh
+# bash shim for the release evals: a `bash .../release.sh` run (and everything it starts) reads GIT_CONFIG_GLOBAL=@REWRITE@, which
+# reaches the local bare origin through a global url.<bare>.insteadOf. release.sh's own git calls (ls-remote, tag, push) and the fake
+# gh's `git ls-remote` are spawned by Python, which on Windows never finds the extensionless bin/git shim; the rewrite stays out of
+# every other command, so `git remote get-url origin` (read by pr-pair.sh and the agent) keeps printing the github.com URL.
+for a in "$@"; do
+  case "$a" in
+    release.sh|*/release.sh) GIT_CONFIG_GLOBAL="@REWRITE@"; export GIT_CONFIG_GLOBAL; break ;;
+  esac
+done
+exec "@BASH@" "$@"
+'''
+
+
+def release_shim(repo, gated):
+    """bin/git and bin/bash for the release evals (RELEASE_SHIM, BASH_SHIM): <repo>/ob.git is the reachable origin. `gated` holds
+    git pull and fetch back until the fake gh logged the merge of PR #7. state/gitconfig-release is the rewrite config bin/bash hands
+    to release.sh: the fixture's proxy config plus url.<bare>.insteadOf."""
+    url, bare = f"https://github.com/{PR_SLUG}.git", posix(repo / "ob.git")
+    rewrite = repo / "state" / "gitconfig-release"
+    write(repo, "state/gitconfig-release", (repo / "gitconfig").read_text(encoding="utf-8") + f'[url "{bare}"]\n\tinsteadOf = {url}\n')
+    shim = RELEASE_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo)) \
+        .replace("@BARE@", bare).replace("@LOG@", posix(repo / "gh-log.jsonl")) \
+        .replace("@URL@", url).replace("@GATED@", "1" if gated else "0")
+    write(repo, "bin/git", shim)
+    write(repo, "bin/bash", BASH_SHIM.replace("@REWRITE@", posix(rewrite)).replace("@BASH@", msys(shutil.which("bash") or "bash")))
+    for n in ("git", "bash"):
+        (repo / "bin" / n).chmod(0o755)
+
+
+RELEASE_EXCLUDE = "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n"
+
+
+def build_finish_resume_merged(repo, squash, release=None):
     """Repo-local, `finish: pr` as eval-bot, origin on GitHub, fake gh. The change's PR #7 was merged and the local branch is gone:
     main holds the archive directory (and the code) under the squash subject `Add greeting (#7)`, or, when not `squash`, under a merge
     commit `Merge pull request #7 ...` of the deleted feat/add-greeting. No change directory, a clean tree on main. The fake gh has
     PR #7 merged into main, its description closing issue #12, which is closed. The run's helper files live in the repo directory,
     hidden through .git/info/exclude: eval.env (source it, with the repo as the working directory), bin/gh, gh-state.json,
     gh-log.jsonl (the fake gh's call log) and git-trace.log (GIT_TRACE: every git command the run made).
-    .git/fixture-state.json records main's tip and the commit count."""
+    .git/fixture-state.json records main's tip and the commit count.
+    `release` (the eval-finish-release-* fixtures; squash only): the `release:` settings block, the roadmap setting and file, and a VERSION
+    file that reads 0.4.0 before the PR and 0.5.0 in the squash commit `Add greeting (#7)`. No tag exists anywhere. The shim then also
+    reads the bare origin for `ls-remote` and `push` (release_shim), so a tag push is observable in ob.git."""
     base(repo)
-    write(repo, "openspec/specwright.yaml", PR_SETTINGS)
+    write(repo, "openspec/specwright.yaml", PR_SETTINGS + (release + ROADMAP_SETTINGS if release is not None else ""))
+    if release is not None:
+        write(repo, "VERSION", "0.4.0\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "chore: pr settings")
+    if release is not None:
+        roadmap_file(repo, [("add-greeting", "greet and farewell"), ("add-shout", "shout")])
     if squash:
+        if release is not None:
+            write(repo, "VERSION", f"{RELEASE_VERSION}\n")
         implemented(repo)
         archive_in_store(repo, "2026-10-07-add-greeting", "Add greeting (#7)")
         title = "Add greeting"
@@ -957,7 +1042,10 @@ def build_finish_resume_merged(repo, squash):
     install_fake_gh(dest)
     unreachable_proxy(dest)
     env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
-    origin_shim(repo)
+    if release is not None:
+        release_shim(repo, gated=False)
+    else:
+        origin_shim(repo)
     pr = gh_pull(7, "add-greeting", merged=True)
     pr.update({"title": title, "body": f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",
                "closing_refs": [{"number": MERGED_CLOSES, "repo": PR_SLUG}]})
@@ -1046,7 +1134,7 @@ MERGED_SHIM = WATCH_SHIM.replace(""" && grep -q 'pulls/7/merge' "$LOG" 2>/dev/nu
 assert MERGED_SHIM != WATCH_SHIM
 
 
-def build_watch_merge(repo, agent):
+def build_watch_merge(repo, agent, release=None):
     """Repo-local, `finish: pr` as eval-bot, origin on GitHub, fake gh. On feat/add-greeting with the change archived and committed
     (feat(add-greeting): archive change); PR #7 is open and ready in the fake gh (head = the branch tip, a green check, the required
     reviewer WATCH_REVIEWER reported with an approval on that head). `agent`: pr.merge agent with merge_method squash, otherwise the
@@ -1054,14 +1142,27 @@ def build_watch_merge(repo, agent):
     squash commit `Add greeting (#7)` with the branch's tree); the git shim lets `git pull --ff-only` read it only once the fake gh
     logged the merge of PR #7. The fake gh knows the branch feat/add-greeting at the tip, so the remote ref can be read and deleted.
     The run's helper files live in the repo directory, hidden through .git/info/exclude (eval.env, bin/, gh-state.json, gh-log.jsonl,
-    git-trace.log, ob.git). .git/fixture-state.json records main's tip, the branch tip and its tree."""
+    git-trace.log, ob.git). .git/fixture-state.json records main's tip, the branch tip and its tree.
+    `release` (eval-agent-merge-release-auto): the `release:` settings block and the roadmap setting and file are added, main holds a
+    VERSION file reading 0.4.0, and the branch bumps it to 0.5.0 (commit `feat(add-greeting): bump version to 0.5.0`), so the squash
+    commit on origin's main reads 0.5.0. The shim (release_shim, gated on the merge) also reads and writes the bare origin for
+    `ls-remote` and `push`, so a tag push is observable in ob.git."""
     base(repo)
     merging = "  merge: agent\n  merge_method: squash\n" if agent else ""
     write(repo, "openspec/specwright.yaml",
-          f"finish: pr\ngithub:\n  login: eval-bot\npr:\n  poll_interval: 5s\n{merging}  reviewers:\n    {WATCH_REVIEWER}: {{ role: required }}\n")
+          f"finish: pr\ngithub:\n  login: eval-bot\npr:\n  poll_interval: 5s\n{merging}  reviewers:\n    {WATCH_REVIEWER}: {{ role: required }}\n"
+          + (release + ROADMAP_SETTINGS if release is not None else ""))
+    if release is not None:
+        write(repo, "VERSION", "0.4.0\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "chore: pr settings")
+    if release is not None:
+        roadmap_file(repo, [("add-greeting", "greet and farewell"), ("add-shout", "shout")])
     finished(repo, repo)
+    if release is not None:
+        write(repo, "VERSION", f"{RELEASE_VERSION}\n")
+        git(repo, "add", "VERSION")
+        git(repo, "commit", "-q", "-m", f"feat(add-greeting): bump version to {RELEASE_VERSION}", "--", "VERSION")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "feat(add-greeting): archive change")
     out = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
@@ -1085,9 +1186,12 @@ def build_watch_merge(repo, agent):
     install_fake_gh(dest)
     unreachable_proxy(dest)
     env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
-    write(dest, "bin/git", WATCH_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo))
-          .replace("@BARE@", posix(bare)).replace("@LOG@", posix(dest / "gh-log.jsonl")).replace("@URL@", f"https://github.com/{PR_SLUG}.git"))
-    (dest / "bin" / "git").chmod(0o755)
+    if release is not None:
+        release_shim(repo, gated=True)
+    else:
+        write(dest, "bin/git", WATCH_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo))
+              .replace("@BARE@", posix(bare)).replace("@LOG@", posix(dest / "gh-log.jsonl")).replace("@URL@", f"https://github.com/{PR_SLUG}.git"))
+        (dest / "bin" / "git").chmod(0o755)
     pr = gh_pull(7, "add-greeting")
     pr.update({"title": "feat(add-greeting): add greet and farewell", "body": "Adds greet and farewell.", "author": "eval-bot"})
     pr["head"]["sha"] = tip
@@ -1101,7 +1205,44 @@ def build_watch_merge(repo, agent):
     write(repo, ".git/fixture-state.json", json.dumps({"main": main, "tip": tip, "tree": tree, "squash": squash}, indent=2))
 
 
+def build_finish_local_release(repo):
+    """eval-finish-local's fixture (finish: local, change archived and uncommitted on feat/add-greeting) with `release.auto` true:
+    main holds a VERSION file reading 0.4.0 and the branch bumped it to 0.5.0 in its own commit, so the merge into main brings
+    0.5.0. A bare repo <repo>/ob.git is origin (the remote URL stays on github.com) and holds main as it stands; the shim lets
+    `fetch`, `ls-remote` and `push` reach it, so a publish would be observable there (and in the fake gh). Nothing is tagged.
+    .git/fixture-state.json records main's tip."""
+    base(repo)
+    write(repo, "openspec/specwright.yaml", "finish: local\n" + release_settings(True, True))
+    write(repo, "VERSION", "0.4.0\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore: release settings")
+    main = subprocess.run(["git", "rev-parse", "main"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    finished(repo, repo)
+    write(repo, "VERSION", f"{RELEASE_VERSION}\n")
+    git(repo, "add", "VERSION")
+    git(repo, "commit", "-q", "-m", f"feat(add-greeting): bump version to {RELEASE_VERSION}", "--", "VERSION")
+    origin_with_main(repo, "main")
+    install_fake_gh(repo)
+    unreachable_proxy(repo)
+    env_file(repo, GIT_TRACE=posix(repo / "git-trace.log"))
+    release_shim(repo, gated=False)
+    st = {"user": "eval-bot", "tokens": {"eval-bot": "eval-token"}, "repos": {PR_SLUG: {"default_branch": "main", "pulls": []}}}
+    write(repo, "gh-state.json", json.dumps(st, indent=2))
+    write(repo, ".git/info/exclude", RELEASE_EXCLUDE)
+    write(repo, ".git/fixture-state.json", json.dumps({"main": main}, indent=2))
+
+
+RELEASE_EVALS = {"eval-finish-release-offer": release_settings(True, False), "eval-finish-release-auto": release_settings(True, True),
+                 "eval-finish-release-disabled": release_settings(False, True)}
+
+
 def build(name, repo):
+    if name in RELEASE_EVALS:
+        return build_finish_resume_merged(repo, squash=True, release=RELEASE_EVALS[name])
+    if name == "eval-finish-local-release-reported":
+        return build_finish_local_release(repo)
+    if name == "eval-agent-merge-release-auto":
+        return build_watch_merge(repo, agent=True, release=release_settings(True, True))
     if name in ("eval-watch-agent-merge", "eval-watch-merge-default-user"):
         return build_watch_merge(repo, agent=name.endswith("agent-merge"))
     if name in ("eval-finish-resume-squash-merged", "eval-finish-resume-merged-branch-gone"):
