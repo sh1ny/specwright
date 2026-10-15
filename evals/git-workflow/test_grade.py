@@ -256,7 +256,7 @@ class FinishResumeMerged(unittest.TestCase):
             res = self.grade(name, run_dir)
             self.assertTrue(res and not self.failed(res), f"{name}: {self.failed(res)}")
 
-    REFRESH = "The guarded refresh ran: git status --porcelain, then git pull --ff-only (the git trace)"
+    REFRESH = "The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)"
 
     def test_the_merged_runs_fail_without_a_refresh(self):
         # main is already current in these two fixtures, so only the trace shows a skipped refresh
@@ -266,6 +266,17 @@ class FinishResumeMerged(unittest.TestCase):
             self.closed_check(repo)
             res = self.grade(name, run_dir)
             self.assertIn(self.REFRESH, self.failed(res), name)
+
+    def test_a_pull_before_the_checkout_fails(self):
+        # off main, a pull before `checkout main` updates the current branch and leaves main stale; the fixtures start on main, so only
+        # the trace order shows it
+        for script in ("git status --porcelain && git pull --ff-only && git checkout main", "git status --porcelain && git pull --ff-only"):
+            for name in self.NAMES:
+                run_dir, repo = self.fixture(name)
+                self.sh(repo, script)
+                self.closed_check(repo)
+                res = self.grade(name, run_dir)
+                self.assertEqual(self.failed(res), [self.REFRESH], f"{name}: {script}")
 
     def test_a_pull_without_the_guard_before_it_fails(self):
         for script in ("git checkout -q main && git pull --ff-only", "git pull --ff-only && git status --porcelain"):

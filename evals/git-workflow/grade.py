@@ -525,7 +525,7 @@ def check_finish_resume_merged(name, repo, branch, branches, status, rep):
     """finish: pr resume where the change's PR #7 is merged and the local branch is gone (squash merge, or a merge commit with the
     branch already deleted; eval-finish-resume-stale-main: local main is behind origin, whose main holds the merge of PR #7): only the
     issues-left-open backstop (one closed-check read of PR #7) runs, after the guarded refresh that each of these evals requires
-    (status --porcelain, then pull --ff-only from the fixture's local bare origin; checkout main is allowed); no commit, other merge,
+    (status --porcelain, then checkout main, then pull --ff-only from the fixture's local bare origin); no commit, other merge,
     push or branch command, and the report says Nothing to finish.
     .git/fixture-state.json has main's tip (for the stale-main eval, origin's tip after the pull) and the commit count."""
     fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
@@ -545,8 +545,11 @@ def check_finish_resume_merged(name, repo, branch, branches, status, rep):
     cl = cmds or []
     guard = next((i for i, c in enumerate(cl) if c[:1] == ["status"] and any(a.startswith("--porcelain") for a in c[1:])), None)
     pull = next((i for i, c in enumerate(cl) if unquiet(c) == ["pull", "--ff-only"]), None)
-    R.append(("The guarded refresh ran: git status --porcelain, then git pull --ff-only (the git trace)",
-              guard is not None and pull is not None and guard < pull, f"status at={guard} pull --ff-only at={pull} trace recorded={cmds is not None}"))
+    # the checkout must come between the guard and the pull: off main, a pull first would update the current branch, not main
+    co = next((i for i, c in enumerate(cl) if unquiet(c) == ["checkout", "main"] and guard is not None and i > guard
+               and (pull is None or i < pull)), None)
+    R.append(("The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)",
+              None not in (guard, co, pull), f"status at={guard} checkout main at={co} pull --ff-only at={pull} trace recorded={cmds is not None}"))
     bad = refresh_exceptions(cl)
     R.append(("No git commit, merge, push or branch-changing command ran (the git trace)",
               cmds is not None and not bad, f"trace commands={len(cmds) if cmds else 'none recorded'} changing={bad}"))
