@@ -84,7 +84,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 ## 4. release.sh: publish
 
-- [ ] 4.1 Extend `evals/fakes/gh.py` with `release view <tag>` and `release create <tag> --verify-tag --title --notes-file`, with failure injection like its other commands. Add cases to `evals/pr-pair/test_fake_gh.py`. Verify `python -m unittest discover evals/pr-pair` passes.
+- [x] 4.1 Extend `evals/fakes/gh.py` with `release view <tag>` and `release create <tag> --verify-tag --title --notes-file`, with failure injection like its other commands. Add cases to `evals/pr-pair/test_fake_gh.py`. Verify `python -m unittest discover evals/pr-pair` passes.
 - [ ] 4.2 Write failing `TestPublish` (all five) and `TestGithubRelease` (all three) tests, then implement `publish` per D6: the `ls-remote` check, the conflict stop, fetching an origin-only tag, `tag -a` with the notes, a push of only `refs/tags/<tag>`, and `gh release create` with the tag's message. Every step is skipped when already done. Verify the tests pass and flip the rows green.
 - [ ] 4.3 Add `TestThisRepo.test_backfill_ranges`, which runs `status` on this repository for 0.4.1 and 0.4.2. It asserts release commits `9b33ec5` and `4f9b823`, notes `fix-m2-gaps` (#89) and `pin-openspec-version` (#90), and that the agreement check passes at both commits. The test skips when the history is shallow. Verify it passes.
 
