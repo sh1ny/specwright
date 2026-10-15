@@ -7,14 +7,14 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | install-update → Install checks the OpenSpec version against the pin | Pinned version installed | evals/git-workflow/test_instructions.py | test_step3_compares_with_downloaded_pin_before_step4 | green |
-| install-update → Install checks the OpenSpec version against the pin | Newer patch release installed | evals/git-workflow/evals.json | eval-install-openspec-mismatch | red |
+| install-update → Install checks the OpenSpec version against the pin | Newer patch release installed | evals/git-workflow/evals.json | eval-install-openspec-mismatch | green |
 | install-update → Install checks the OpenSpec version against the pin | Newer patch release installed | evals/git-workflow/test_instructions.py | test_mismatch_stops_before_any_write | green |
 | install-update → Install checks the OpenSpec version against the pin | Pre-release of the pinned version installed | evals/git-workflow/test_instructions.py | test_exact_match_counts_prerelease_as_mismatch | green |
 | install-update → Install checks the OpenSpec version against the pin | Version output has no version number | evals/git-workflow/test_instructions.py | test_unreadable_version_stops | green |
 | install-update → Install checks the OpenSpec version against the pin | Downloaded copy has no pin file | evals/git-workflow/test_instructions.py | test_missing_pin_file_stops | green |
 | install-update → Install checks the OpenSpec version against the pin | Root check fails on an unpinned OpenSpec | evals/git-workflow/test_instructions.py | test_step1_root_failure_on_unpinned_cli_names_pin_not_init | green |
 | install-update → Install checks the OpenSpec version against the pin | OpenSpec missing | evals/git-workflow/test_instructions.py | test_step1_missing_openspec_names_pinned_install | green |
-| install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/evals.json | eval-install-openspec-override | red |
+| install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/evals.json | eval-install-openspec-override | green |
 | install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/test_instructions.py | test_override_requires_found_version_and_is_reported | green |
 | install-update → Explicit override of the OpenSpec pin | General confirmation is not an override | evals/git-workflow/test_instructions.py | test_general_confirmation_is_not_override | green |
 | install-update → Explicit override of the OpenSpec pin | Override names another version | evals/git-workflow/test_instructions.py | test_override_for_other_version_stops | green |
@@ -40,7 +40,7 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 
 - [x] 4.1 In `evals/git-workflow/fixtures.py`, add `install_fake_openspec(dest, version)`, following `install_fake_gh` (`fixtures.py:101`). It writes `bin/openspec`, a sh script that prints `<version>` for `--version` and otherwise `exec`s the real `openspec`, whose absolute path is resolved with `shutil.which` when the fixture is built. Map `eval-install-openspec-mismatch` and `eval-install-openspec-override` in the `install_base` dispatch (`fixtures.py:1096-1097`) to the `store` base plus the fake at `1.15.0`. Verify that building both fixtures succeeds, and that `bin/openspec --version` prints `1.15.0` while `bin/openspec list --json` from `code/` still reports the store root.
 - [x] 4.2 Add both evals to `evals/git-workflow/evals.json`, with the install prompt of the existing install evals. The override eval's prompt adds `continue with OpenSpec 1.15.0`. Assertions for the refusal: no skill, agent, schema or `specwright.yaml` was written in either repo; `openspec/.specwright/VERSION` is absent; the report names `1.15.0`, `1.14.1` and `npm i -g @fission-ai/openspec@1.14.1`, and does not say the install completed. Assertions for the override: the install-store assertions hold, and the report shows `OpenSpec 1.15.0 (pinned 1.14.1, override)`. Verify that `python -m pytest evals/git-workflow` passes (the existing `test_grade.py` and fixture checks cover the new entries).
-- [ ] 4.3 Run both evals with a fresh agent, as the README Evals section describes, grade them with `grade.py`, and record the results in the PR description. Verify that both pass, and flip the `eval-install-openspec-*` rows to green.
+- [x] 4.3 Run both evals with a fresh agent, as the README Evals section describes, grade them with `grade.py`, and record the results in the PR description. Verify that both pass, and flip the `eval-install-openspec-*` rows to green.
 
 ## 5. Architecture, release and integration
 
