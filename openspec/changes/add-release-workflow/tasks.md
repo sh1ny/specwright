@@ -108,7 +108,7 @@ Script tests live in `evals/release/test_release.py` (unittest; temporary git re
 
 ## 7. Release 0.5.0 bump and integration
 
-- [ ] 7.1 Bump to 0.5.0 with `bash skills/specwright-release/scripts/release.sh bump --to 0.5.0`. Verify that `release.sh check` reports 0.5.0 across all ten files and that `grep -rn '0\.4\.2' VERSION README.md skills/*/SKILL.md` has no version-file hits. Update the hard-coded `0.4.2` fixture in `evals/git-workflow/test_grade.py:363-364` only if it reads `VERSION`.
+- [x] 7.1 Bump to 0.5.0 with `bash skills/specwright-release/scripts/release.sh bump --to 0.5.0`. Verify that `release.sh check` reports 0.5.0 across all ten files and that `grep -rn '0\.4\.2' VERSION README.md skills/*/SKILL.md` has no version-file hits. Update the hard-coded `0.4.2` fixture in `evals/git-workflow/test_grade.py:363-364` only if it reads `VERSION`.
 - [ ] 7.2 Run the full suites: `python -m unittest discover evals/release`, `python -m unittest discover evals/pr-pair`, `python -m unittest discover evals/review-routes` and `python -m unittest discover evals/git-workflow`, plus `openspec schema validate specwright` and `openspec validate add-release-workflow --strict`. All must pass.
 
 ## Workflow follow-up
