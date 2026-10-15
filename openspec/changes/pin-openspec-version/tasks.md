@@ -6,14 +6,14 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| install-update → Install checks the OpenSpec version against the pin | Pinned version installed | evals/git-workflow/test_instructions.py | test_step3_compares_with_downloaded_pin_before_step4 | red |
+| install-update → Install checks the OpenSpec version against the pin | Pinned version installed | evals/git-workflow/test_instructions.py | test_step3_compares_with_downloaded_pin_before_step4 | green |
 | install-update → Install checks the OpenSpec version against the pin | Newer patch release installed | evals/git-workflow/evals.json | eval-install-openspec-mismatch | red |
-| install-update → Install checks the OpenSpec version against the pin | Newer patch release installed | evals/git-workflow/test_instructions.py | test_mismatch_stops_before_any_write | red |
-| install-update → Install checks the OpenSpec version against the pin | Pre-release of the pinned version installed | evals/git-workflow/test_instructions.py | test_exact_match_counts_prerelease_as_mismatch | red |
-| install-update → Install checks the OpenSpec version against the pin | Version output has no version number | evals/git-workflow/test_instructions.py | test_unreadable_version_stops | red |
-| install-update → Install checks the OpenSpec version against the pin | Downloaded copy has no pin file | evals/git-workflow/test_instructions.py | test_missing_pin_file_stops | red |
-| install-update → Install checks the OpenSpec version against the pin | Root check fails on an unpinned OpenSpec | evals/git-workflow/test_instructions.py | test_step1_root_failure_on_unpinned_cli_names_pin_not_init | red |
-| install-update → Install checks the OpenSpec version against the pin | OpenSpec missing | evals/git-workflow/test_instructions.py | test_step1_missing_openspec_names_pinned_install | red |
+| install-update → Install checks the OpenSpec version against the pin | Newer patch release installed | evals/git-workflow/test_instructions.py | test_mismatch_stops_before_any_write | green |
+| install-update → Install checks the OpenSpec version against the pin | Pre-release of the pinned version installed | evals/git-workflow/test_instructions.py | test_exact_match_counts_prerelease_as_mismatch | green |
+| install-update → Install checks the OpenSpec version against the pin | Version output has no version number | evals/git-workflow/test_instructions.py | test_unreadable_version_stops | green |
+| install-update → Install checks the OpenSpec version against the pin | Downloaded copy has no pin file | evals/git-workflow/test_instructions.py | test_missing_pin_file_stops | green |
+| install-update → Install checks the OpenSpec version against the pin | Root check fails on an unpinned OpenSpec | evals/git-workflow/test_instructions.py | test_step1_root_failure_on_unpinned_cli_names_pin_not_init | green |
+| install-update → Install checks the OpenSpec version against the pin | OpenSpec missing | evals/git-workflow/test_instructions.py | test_step1_missing_openspec_names_pinned_install | green |
 | install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/evals.json | eval-install-openspec-override | red |
 | install-update → Explicit override of the OpenSpec pin | Override stated | evals/git-workflow/test_instructions.py | test_override_requires_found_version_and_is_reported | red |
 | install-update → Explicit override of the OpenSpec pin | General confirmation is not an override | evals/git-workflow/test_instructions.py | test_general_confirmation_is_not_override | red |
@@ -29,7 +29,7 @@ Text tests live in `evals/git-workflow/test_instructions.py`, class `TestOpenSpe
 ## 2. Version check in the install prompt
 
 - [x] 2.1 Write the failing text tests for the check: `test_step3_compares_with_downloaded_pin_before_step4`, `test_mismatch_stops_before_any_write`, `test_exact_match_counts_prerelease_as_mismatch`, `test_unreadable_version_stops`, `test_missing_pin_file_stops`, `test_step1_root_failure_on_unpinned_cli_names_pin_not_init` and `test_step1_missing_openspec_names_pinned_install`. Use the existing `step()` and `install_bullet()` helpers (`test_instructions.py:65`, `:483`). Each asserts where its rule sits and its key terms: Step 3 reads `OPENSPEC_VERSION` and compares the whole version token, pre-release included, with the pin; the mismatch, unreadable-output and missing-pin bullets STOP before Step 4, name both versions and the pinned install command, and delete the temporary clone; the Step 1 root-check branch names the found version and the pinned command, not `openspec init`, when the version differs from the pin. Run the tests and confirm each fails on the current README.
-- [ ] 2.2 Edit the README install prompt. Step 1 records the `openspec --version` output, and its `"root": null` branch gets the unpinned-CLI case (design D1). Step 3 reads the downloaded `OPENSPEC_VERSION` and adds the check bullet (design D2): exact token match; on a mismatch, unreadable output or a missing pin it STOPs before Step 4, names both versions and `npm i -g @fission-ai/openspec@<pin>`, and deletes the temporary clone. Step 8 reports `OpenSpec <found> (pinned)`. Verify that the 2.1 tests and the existing Step 1 tests (`test_instructions.py:492-521`) pass, and flip the rows to green.
+- [x] 2.2 Edit the README install prompt. Step 1 records the `openspec --version` output, and its `"root": null` branch gets the unpinned-CLI case (design D1). Step 3 reads the downloaded `OPENSPEC_VERSION` and adds the check bullet (design D2): exact token match; on a mismatch, unreadable output or a missing pin it STOPs before Step 4, names both versions and `npm i -g @fission-ai/openspec@<pin>`, and deletes the temporary clone. Step 8 reports `OpenSpec <found> (pinned)`. Verify that the 2.1 tests and the existing Step 1 tests (`test_instructions.py:492-521`) pass, and flip the rows to green.
 
 ## 3. Explicit override
 

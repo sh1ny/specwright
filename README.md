@@ -54,7 +54,8 @@ not assume answers. Every step is safe to repeat, so re-running this prompt
 also repairs an interrupted or partial install.
 
 Step 1 - Check prerequisites
-- Run `openspec --version`. If it fails, tell the user to install it
+- Run `openspec --version` and record its output (Step 3 checks it). If
+  it fails, tell the user to install the pinned version
   (`npm i -g @fission-ai/openspec@1.14.1`) and STOP.
 - Core: run `git --version` and `bash -c 'command -v awk sed grep'`. If
   either fails, tell the user to install git, or bash with a POSIX userland
@@ -69,7 +70,13 @@ Step 1 - Check prerequisites
 - Run `openspec list --json` in the code checkout and read `root`.
   - `"root": null`: if the error names this project's `openspec/config.yaml`
     (it starts with `Declared in` or `Invalid store declaration in`), show
-    its message and fix and STOP. Otherwise tell the user to run
+    its message and fix and STOP. Otherwise, if the version recorded
+    above is not 1.14.1 (the pin this prompt installs), an unpinned
+    OpenSpec may not resolve a store: name the version found, tell the
+    user to run `npm i -g @fission-ai/openspec@1.14.1` and rerun this
+    prompt, write no file, and STOP. Do not suggest `openspec init` then:
+    in a store-backed project it would create a root that overrides the
+    store. Only with the pinned version, tell the user to run
     `openspec init` first and STOP.
   - Otherwise `<root>` below means `root.path`. It is the code checkout
     for a repo-local project, or a store checkout (OpenSpec stores, with the
@@ -91,10 +98,31 @@ Ask which agents this project uses (several may apply) and confirm the paths:
 Step 3 - Download and compare versions
 - Clone https://github.com/sh1ny/specwright to a temporary directory
   (`git clone --depth 1`, or any other method that works).
-- Read the downloaded `VERSION` and the installed
+- Read the downloaded `VERSION` and `OPENSPEC_VERSION` (`<pin>`, the
+  OpenSpec version this release is checked against) and the installed
   `openspec/.specwright/VERSION` (missing = fresh install, or an earlier
   install that did not finish). Tell the user which applies: fresh install,
-  update from <old> to <new>, or reinstall of <new>. Continue in every case.
+  update from <old> to <new>, or reinstall of <new>.
+- Check OpenSpec against the pin, before Step 4 writes anything: run
+  `openspec --version` again and take `<found>`, the first token in its
+  output matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?`. Compare the whole token,
+  pre-release suffix included, with `<pin>` as strings: only an exact match
+  passes. Against a pin of 1.14.1, both 1.14.2 and 1.14.1-beta.1 are a
+  mismatch.
+  - Exact match: record `OpenSpec <found> (pinned)` for Step 8 and
+    continue.
+  - Mismatch: STOP before Step 4. Name `<found>` and `<pin>`, and tell the
+    user to run `npm i -g @fission-ai/openspec@<pin>` and rerun this
+    prompt. Delete the temporary directory and write no file.
+  - Output with no version number in it: show the raw output, then handle
+    it as a mismatch (STOP before Step 4, with `<found>` as unreadable,
+    `<pin>` and `npm i -g @fission-ai/openspec@<pin>`; delete the
+    temporary directory and write no file).
+  - No `OPENSPEC_VERSION` in the downloaded copy, or an empty one: say
+    the downloaded copy names no pinned OpenSpec version, and STOP before
+    Step 4 as on a mismatch (name `<found>`, `<pin>` as unknown and
+    `npm i -g @fission-ai/openspec@<pin>` with the pin from Step 1's
+    install command; delete the temporary directory and write no file).
 
 Step 4 - Install files (track new vs updated)
 - In every chosen skills directory, replace each `specwright-*` directory
@@ -187,7 +215,8 @@ is a store, list the files this install left uncommitted there (by path,
 from `git status --porcelain` in the store) and say the user commits them in
 the store; this prompt never commits. Tell the user that new skills and
 agent definitions load only in a new agent session started after this
-install: start one before relying on them. If Step 1 recorded a missing
+install: start one before relying on them. Report the OpenSpec version
+as recorded in Step 3: `OpenSpec <found> (pinned)`. If Step 1 recorded a missing
 PR prerequisite, add the line `PR workflow not ready: <missing>` (for
 example `PR workflow not ready: gh 2.40+`).
 ```
