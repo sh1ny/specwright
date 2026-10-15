@@ -1290,6 +1290,17 @@ class TestOpenSpecPin(unittest.TestCase):
                          "a pre-release of the pin is not named as a mismatch")
         self.assertRegex(check, r"1\.14\.2", "a newer patch release is not named as a mismatch")
 
+    def test_exact_match_counts_build_metadata_as_mismatch(self):
+        # A token cut before `+build` would turn 1.14.1+vendor.1 into 1.14.1 and pass.
+        token = r"`\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`"
+        _, check = self.s3_check()
+        self.assertIn(token, check, "the Step 3 token drops build metadata")
+        self.assertRegex(check, r"(?is)whole token.{0,80}build metadata", "the check does not keep build metadata in the token")
+        self.assertRegex(check, r"(?s)1\.14\.1\+vendor\.1.{0,80}mismatch|mismatch.{0,80}1\.14\.1\+vendor\.1",
+                         "a build of the pin is not named as a mismatch")
+        root = install_bullet(step(read(README), "Step 1"), r"openspec list --json")
+        self.assertIn(token, root or "", "the Step 1 token drops build metadata")
+
     def test_unreadable_version_stops(self):
         _, check = self.s3_check()
         b = self.stop_branch(check, r"(?i)no version (number|token)")
@@ -1321,7 +1332,7 @@ class TestOpenSpecPin(unittest.TestCase):
         root = install_bullet(step(read(README), "Step 1"), r"openspec list --json")
         unpinned = re.search(r"(?is)version.{0,40}recorded.{0,200}?\bnot\s+\d", root or "")
         self.assertTrue(unpinned, "the root-check failure has no comparison with the pin")
-        self.assertIn(r"`\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?`", unpinned.group(0), "Step 1 does not take the version token")
+        self.assertIn(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?", unpinned.group(0), "Step 1 does not take the version token")
         self.assertRegex(unpinned.group(0), r"(?is)as\s+Step\s+3\s+takes\s+it", "Step 1 does not take the token as Step 3 does")
 
     def test_eval_scaffolding_matches_pin(self):

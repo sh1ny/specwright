@@ -18,6 +18,10 @@ Before it writes any file, the install prompt SHALL compare the version that `op
 - **WHEN** `openspec --version` prints `1.14.1-beta.1` and the downloaded `OPENSPEC_VERSION` is `1.14.1`
 - **THEN** the install stops before Step 4 as on a mismatch, and the message names `1.14.1-beta.1` as the version found
 
+#### Scenario: Build of the pinned version installed
+- **WHEN** `openspec --version` prints `1.14.1+vendor.1` and the downloaded `OPENSPEC_VERSION` is `1.14.1`
+- **THEN** the install stops before Step 4 as on a mismatch, and the message names `1.14.1+vendor.1` as the version found
+
 #### Scenario: Version output has no version number
 - **WHEN** `openspec --version` exits 0 but its output contains no `<major>.<minor>.<patch>` number
 - **THEN** the install stops before Step 4 as on a mismatch, showing the output it could not read

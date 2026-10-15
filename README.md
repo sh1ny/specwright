@@ -73,8 +73,9 @@ Step 1 - Check prerequisites
   - `"root": null`: if the error names this project's `openspec/config.yaml`
     (it starts with `Declared in` or `Invalid store declaration in`), show
     its message and fix and STOP. Otherwise, if the version recorded
-    above (the first `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?` token in the
-    output, as Step 3 takes it) is not 1.14.1 (the pin this prompt
+    above (the first
+    `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?` token in
+    the output, as Step 3 takes it) is not 1.14.1 (the pin this prompt
     installs), an unpinned OpenSpec may not resolve a store: name the
     version found, tell the user to run
     `npm i -g @fission-ai/openspec@1.14.1` and rerun this prompt, write
@@ -109,10 +110,11 @@ Step 3 - Download and compare versions
   update from <old> to <new>, or reinstall of <new>.
 - Check OpenSpec against the pin, before Step 4 writes anything: run
   `openspec --version` again and take `<found>`, the first token in its
-  output matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?`. Compare the whole token,
-  pre-release suffix included, with `<pin>` as strings: only an exact match
-  passes. Against a pin of 1.14.1, both 1.14.2 and 1.14.1-beta.1 are a
-  mismatch.
+  output matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`.
+  Compare the whole token, pre-release suffix and build metadata included,
+  with `<pin>` as strings: only an exact match passes.
+  Against a pin of 1.14.1, 1.14.2, 1.14.1-beta.1 and 1.14.1+vendor.1 are
+  each a mismatch.
   - Exact match: record `OpenSpec <found> (pinned)` for Step 8 and
     continue.
   - Mismatch: unless the override below applies, STOP before Step 4.

@@ -31,7 +31,7 @@ TIER: FULL
 
 ### D2: Exact match, pre-releases included
 
-- **Choice:** Take the first token matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?` in the `--version` output and compare the whole token with the pin as strings. A newer patch release, a pre-release of the pin, and output without a version number are all mismatches.
+- **Choice:** Take the first token matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?` in the `--version` output and compare the whole token with the pin as strings. The token keeps any build metadata (`+...`), so a build of the pin such as `1.14.1+vendor.1` does not pass as `1.14.1` (PR #90 review). A newer patch release, a pre-release or build of the pin, and output without a version number are all mismatches.
 - **Rejected:** Accept any patch release at or above the pin (`~1.14.1`). Specwright parses OpenSpec's JSON output (`list`, `status`, `instructions`, `context`) and forks its schema, and a patch release can change either. The exit criterion asks for "until the pinned version is installed". A range would also need semver comparison in prompt prose, which agents get wrong on cases like `1.14.10` against `1.14.9`.
 - **Reversal cost:** low. Loosening later is a prompt edit plus tests.
 
