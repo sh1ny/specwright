@@ -71,7 +71,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - helpers that create change directories in the working tree, on local branches, and on `refs/remotes/origin/*`.
 
   Also add `evals/update/shims/` with `mv`, `cp` and `rm` wrappers. Each counts its calls in `$UPDATE_SHIM_COUNT`, and at call `$UPDATE_KILL_AT` sends `SIGKILL` to `$UPDATE_KILL_PID` before acting. Verify with a fixture self-test, `evals/update/test_fixtures.py`, that builds each layout and runs the real `openspec validate` in it.
-- [ ] 2.2 Write failing tests `TestPlan.test_plan_reports_interface`, `TestPlan.test_refusal_reports_unchanged`, `TestStage.test_update_completes` and `TestStage.test_staged_copy_fails_verification` in `evals/update/test_update.py`. Verify they fail because `scripts/update.sh` does not exist.
+- [x] 2.2 Write failing tests `TestPlan.test_plan_reports_interface`, `TestPlan.test_refusal_reports_unchanged`, `TestStage.test_update_completes` and `TestStage.test_staged_copy_fails_verification` in `evals/update/test_update.py`. Verify they fail because `scripts/update.sh` does not exist.
 - [ ] 2.3 Implement `scripts/update.sh`:
   - one JSON document per subcommand, `release.sh` style;
   - external `mv`/`cp`/`rm` only for file operations;
