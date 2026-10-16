@@ -870,6 +870,38 @@ class TestPublish(PubFlow):
         self.assertEqual((doc["tag_local"], doc["tag_remote"]), ("fetched", "existing"))
         self.assertEqual(self.releases()[self.TAG]["body"].strip(), "Origin notes only")
 
+    def test_push_url_elsewhere_stops(self):
+        # A push URL naming another repository (an upstream/fork setup) would put the tag where publish never checked it.
+        fork = self.tmp / "fork.git"
+        fx.git(self.tmp, "init", "-q", "--bare", str(fork))
+        fx.git(self.work, "config", "remote.origin.pushurl", "https://github.com/someone/fork.git")
+        fx.git(self.work, "config", f"url.{fork.as_posix()}.insteadOf", "https://github.com/someone/fork.git")
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "push_url_mismatch")
+        self.assertIn("pushes to", doc["message"])
+        self.assertEqual(fx.git(self.work, "tag"), "")
+        self.assertEqual(fx.git(self.bare, "tag"), "")
+        self.assertEqual(fx.git(fork, "tag"), "")
+        self.assertEqual(self.gh_calls(), [])
+        # a push URL that names origin itself is fine
+        fx.git(self.work, "config", "remote.origin.pushurl", f"https://github.com/{CODE_SLUG}.git")
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+
+    def test_rewrite_to_another_github_repo_stops(self):
+        # insteadOf turns acme/ into me/: the tag would go to me/code while the release names acme/code. Publish stops
+        # before any network read.
+        fx.git(self.work, "config", "--unset", f"url.{self.bare.as_posix()}.insteadOf")
+        fx.git(self.work, "config", "url.https://github.com/me/.insteadOf", "https://github.com/acme/")
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "push_url_mismatch")
+        self.assertIn("github.com/me/code", doc["message"])
+        self.assertEqual(fx.git(self.work, "tag"), "")
+        self.assertEqual(self.gh_calls(), [])
+
     def test_lost_push_race_stops(self):
         # Origin holds another clone's tag object at the release commit; the local one lost the push. Publish stops
         # rather than release with the local message, and after `git tag -d` a re-run fetches origin's tag.

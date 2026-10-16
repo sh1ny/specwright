@@ -39,7 +39,8 @@
 #                                     the release commit (notes = its message), `git push origin refs/tags/<tag>:refs/tags/<tag>`
 #                                     (never --tags, --force or a branch), then `gh release create --verify-tag` (body = the
 #                                     tag's message) when release.github_release is on and origin is on github.com. A tag at
-#                                     another commit, locally or on origin, is exit 1 tag_conflict before any write; local and
+#                                     another commit, locally or on origin, is exit 1 tag_conflict before any write; a push URL
+#                                     naming another repository than the fetch URL is exit 1 push_url_mismatch; local and
 #                                     origin tags at the release commit as different tag objects (a lost push race) are exit 1
 #                                     tag_mismatch before any write, so the release body is always origin's tag. Unreadable
 #                                     origin tags: exit 3 remote_tags_unreadable before any tag. A failed push: exit 3
@@ -1078,6 +1079,41 @@ def origin_url(st):
     return text_of(r) if r.returncode == 0 and text_of(r) else None
 
 
+def same_remote(a, b):
+    """True when two remote URLs name the same repository: the same owner/name on github.com (any URL form, any case),
+    else the same URL apart from a trailing .git or slash."""
+    ma, mb = GH_URL.match(a), GH_URL.match(b)
+    if ma and mb:
+        return (ma.group(1).lower(), ma.group(2).lower()) == (mb.group(1).lower(), mb.group(2).lower())
+    norm = lambda u: re.sub(r"(?:\.git)?/*$", "", u.strip())
+    return norm(a) == norm(b)
+
+
+def check_push_destination(st):
+    """Publish reads origin's tags from the fetch URL, pushes the tag to the push URL(s) and names the GitHub release's
+    repository from the configured remote.origin.url. Stop unless they all name one repository, so the tag lands where it
+    was checked and released. A rewrite (insteadOf) to a mirror that is not on github.com is fine. Local reads only."""
+    if origin_url(st) is None:
+        return
+    f = git(st.root, "remote", "get-url", "origin")
+    p = git(st.root, "remote", "get-url", "--push", "--all", "origin")
+    if f.returncode != 0 or p.returncode != 0:
+        raise Stop("git_failed", f"git remote get-url origin failed: {err_of(f) or err_of(p)}", code=3)
+    mask = lambda u: re.sub(r"//[^@/\s]+@", "//***@", u)
+    fetch, pushes = text_of(f), text_of(p).splitlines()
+    raw = origin_url(st)
+    if GH_URL.match(raw) and GH_URL.match(fetch) and not same_remote(raw, fetch):
+        raise Stop("push_url_mismatch", f"origin is configured as {mask(raw)} but a URL rewrite (insteadOf) makes git reach "
+                   f"{mask(fetch)}; the GitHub release would go to the first, the tag to the second. Nothing was written",
+                   fetch_url=mask(fetch), configured_url=mask(raw))
+    bad = [u for u in pushes if not same_remote(fetch, u)]
+    if bad:
+        raise Stop("push_url_mismatch", f"origin fetches from {mask(fetch)} but pushes to {', '.join(mask(u) for u in bad)}; "
+                   "publish checks the tag and creates the release on the fetch URL, so the tag would land elsewhere. "
+                   "Nothing was written. Publish from a remote whose push and fetch URLs name the same repository",
+                   fetch_url=mask(fetch), push_urls=[mask(u) for u in pushes])
+
+
 def remote_tag(st, tag):
     """(commit, annotated, object) for `tag` on origin: the peeled commit of an annotated tag (annotated True), or the commit
     of a lightweight one (False), and the ref's object id; (None, None, None) when absent or with no origin remote. Exit 3
@@ -1216,6 +1252,7 @@ def cmd_publish(st, a):
     v = a.get("version")
     if not v:
         usage("publish needs --version")
+    check_push_destination(st)  # before any network read: every URL must name one repository
     loaded = load_main(st, a)
     entries, ref, rel = loaded
     release_commit_of(st, entries, ref, rel, v)

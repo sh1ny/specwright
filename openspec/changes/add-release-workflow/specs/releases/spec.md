@@ -202,6 +202,17 @@ Publish SHALL check the tag locally and on origin (`ls-remote`) before writing. 
 - **WHEN** `git ls-remote --tags origin` fails or the fence refuses it
 - **THEN** publish stops before creating any tag and names the failed fetch
 
+### Requirement: The tag is pushed where it was checked
+Publish SHALL stop before any write when a push URL of origin names another repository than its fetch URL (the same owner and name on github.com in any URL form, else the same URL), or when a URL rewrite makes the fetch URL another github.com repository than the configured `remote.origin.url`, naming both: the tag checks use the fetch URL and the GitHub release the configured one.
+
+#### Scenario: Push URL elsewhere
+- **WHEN** `remote.origin.pushurl` names a fork while origin fetches from the upstream repository
+- **THEN** publish exits non-zero naming both URLs, and no tag is created or pushed and no GitHub release is created
+
+#### Scenario: Rewrite to another GitHub repository
+- **WHEN** an `insteadOf` rule turns origin's `github.com/acme/` into `github.com/me/`
+- **THEN** publish exits non-zero naming both repositories before reading origin
+
 ### Requirement: A release uses the tag on origin
 A local tag and an origin tag at the release commit that are different tag objects SHALL stop publish before any write, naming both objects, so the release body is always the message of the tag on origin.
 
