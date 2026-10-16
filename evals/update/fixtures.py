@@ -245,13 +245,15 @@ def openspec(args, cwd, env=None):
                           capture_output=True, text=True, encoding="utf-8")
 
 
-def make_store_pair(tmp, version="0.5.0", store_id=STORE_ID):
+def make_store_pair(tmp, version="0.5.0", store_id=STORE_ID, download=None):
     """tmp/store (a git repo on main: its own root with the installed schema, config.yaml and specs), tmp/code-a and
     tmp/code-b (checkouts whose openspec/config.yaml points at the store, `version` installed, root = the store).
-    The store is registered with the real openspec CLI in an isolated registry (XDG_* under tmp). All clean on main."""
+    The store is registered with the real openspec CLI in an isolated registry (XDG_* under tmp). All clean on main.
+    download: the tree `version` is installed from (default: a full download tree)."""
     tmp = Path(tmp)
     env = openspec_env(tmp)
-    download = make_download(tmp / f"dl-{version}", version)
+    if download is None:
+        download = make_download(tmp / f"dl-{version}", version)
     store = tmp / "store"
     init_repo(store)
     shutil.copy(ROOT / "templates" / "openspec" / "config.yaml", _mk(store / "openspec" / "config.yaml"))
@@ -271,6 +273,43 @@ def make_store_pair(tmp, version="0.5.0", store_id=STORE_ID):
         commit_all(co.code, "chore: initial")
         checkouts.append(co)
     return StorePair(tmp, store, checkouts[0], checkouts[1], env)
+
+
+def owner_id(co):
+    """The owner id update.sh derives for a checkout without an `origin` remote: path:<code toplevel>."""
+    return "path:" + posix(co.code)
+
+
+def store_record_path(store):
+    return Path(store) / "openspec" / ".specwright" / "STORE"
+
+
+def record_text(version, owner):
+    return f"version: {version}\nowner: {owner}\n"
+
+
+def write_store_record(store, version, owner, commit=True, text=None):
+    """<store>/openspec/.specwright/STORE (two key: value lines, or `text` as given), committed by default."""
+    write(store, "openspec/.specwright/STORE", record_text(version, owner) if text is None else text)
+    if commit:
+        commit_all(store, "chore: record the store version")
+
+
+def make_tag_origin(dest, tags):
+    """A git repo at `dest` with one commit and a lightweight tag for each of `tags`; returns its posix path (a stand-in
+    for the release repository whose tags `git ls-remote --tags` lists)."""
+    init_repo(dest)
+    write(dest, "README.md", "# releases\n")
+    commit_all(dest, "chore: initial")
+    for t in tags:
+        git(dest, "tag", t)
+    return posix(dest)
+
+
+def give_origin(download, url):
+    """Make a download tree a git repo whose `origin` is url (what a `git clone` of the release repo looks like)."""
+    git(download, "init", "-q")
+    git(download, "remote", "add", "origin", url)
 
 
 # --- changes in flight ------------------------------------------------------------------------------------------

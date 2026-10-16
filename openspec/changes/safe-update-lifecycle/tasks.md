@@ -116,7 +116,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 5. Store ownership
 
-- [ ] 5.1 Write failing tests in `evals/update/test_store.py`:
+- [x] 5.1 Write failing tests in `evals/update/test_store.py`:
   - `TestStoreRecord` (claim, second claimer, unreadable);
   - `TestOwner` (owner update, other within version, other refused naming the highest matching tag);
   - `TestFreeStore` (busy with same schema, busy with changed schema, own staging only);

@@ -84,6 +84,20 @@ class TestCollect(Base):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.names(doc)["add-z"]["status"], "validated")
 
+    def test_configured_main_is_the_planning_main(self):
+        co = self.checkout()
+        fx.add_change_branch(co.code, "add-z")
+        fx.git(co.code, "checkout", "-q", "-b", "trunk", "main")
+        fx.archive_change(co.code, "add-z")  # archived on `trunk`, not on main
+        fx.git(co.code, "checkout", "-q", "main")
+        self.download(failing=True)
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual((code, doc["refusals"][0]["change"]), (1, "add-z"), err)  # main has no archive: still in flight
+        fx.write(co.code, "openspec/specwright.yaml", "finish: local\nmain_branch: trunk # the project's main\n")
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual(code, 0, err)  # the configured main holds the archive
+        self.assertNotIn("add-z", self.names(doc))
+
     def test_remote_only_change_is_warning(self):
         co = self.checkout()
         fx.add_change_remote(co.code, "add-v")
