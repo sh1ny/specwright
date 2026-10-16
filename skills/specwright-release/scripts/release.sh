@@ -945,12 +945,11 @@ BASH = os.environ.get("RELEASE_BASH") or shutil.which("bash")
 
 
 def code_slug(st):
-    r = git(st.root, "config", "--get", "remote.origin.url")
-    m = GH_URL.match(text_of(r)) if r.returncode == 0 else None
-    if not m:
+    slug = release_slug(st)  # the same repository the release names, so a shorthand origin rewritten to github.com works
+    if not slug:
         raise Stop("no_github_origin", "store-backed notes in pr mode need origin to be a github.com repository (to find the "
                    "merged code PRs)")
-    return f"{m.group(1)}/{m.group(2)}"
+    return slug
 
 
 def gh_run(st, *args):
@@ -1211,15 +1210,25 @@ def with_file(text, fn):
             pass
 
 
+def release_slug(st):
+    """owner/name of the GitHub release: the configured remote.origin.url when it is a github.com URL, else the fetch URL
+    after insteadOf rewriting (a shorthand such as `corp:acme/app` that git expands to github.com), else None (not_github).
+    check_push_destination has already stopped when both are github.com URLs naming different repositories."""
+    m = GH_URL.match(origin_url(st) or "")
+    if not m:
+        r = git(st.root, "remote", "get-url", "origin")
+        m = GH_URL.match(text_of(r)) if r.returncode == 0 else None
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
 def release_state(st, tag):
     """The GitHub release of `tag`: (state, slug) with state existing | absent | disabled | not_github. A read-only
     `gh release view`; "release not found" is absent, any other failure is exit 3 (release_view_failed)."""
     if not st.github_release:
         return "disabled", None
-    m = GH_URL.match(origin_url(st) or "")
-    if not m:
+    slug = release_slug(st)
+    if not slug:
         return "not_github", None
-    slug = f"{m.group(1)}/{m.group(2)}"
     r = gh_run(st, "release", "view", tag, "--repo", slug)
     if r.returncode == 0:
         return "existing", slug

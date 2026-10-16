@@ -203,7 +203,7 @@ Publish SHALL check the tag locally and on origin (`ls-remote`) before writing. 
 - **THEN** publish stops before creating any tag and names the failed fetch
 
 ### Requirement: The tag is pushed where it was checked
-Publish SHALL stop before any write when a push URL of origin names another repository than its fetch URL (the same owner and name on github.com in any URL form, else the same URL), or when a URL rewrite makes the fetch URL another github.com repository than the configured `remote.origin.url`, naming both: the tag checks use the fetch URL and the GitHub release the configured one.
+Publish SHALL stop before any write when a push URL of origin names another repository than its fetch URL (the same owner and name on github.com in any URL form, else the same URL), or when a URL rewrite makes the fetch URL another github.com repository than the configured `remote.origin.url`, naming both: the tag checks use the fetch URL and the GitHub release the configured one, or the fetch URL when only that one is a github.com URL.
 
 #### Scenario: Push URL elsewhere
 - **WHEN** `remote.origin.pushurl` names a fork while origin fetches from the upstream repository
@@ -222,6 +222,10 @@ A local tag and an origin tag at the release commit that are different tag objec
 
 ### Requirement: The GitHub release is optional and created once
 With `release.github_release` true, publish SHALL create a GitHub release for the pushed tag, after the tag is on origin, with the tag's message as its body (never notes derived again). A release that already exists for the tag SHALL be left unchanged. With the key false, or an origin not on github.com, no release SHALL be created and the report SHALL say so.
+
+#### Scenario: Shorthand rewritten to GitHub
+- **WHEN** `remote.origin.url` is `corp:acme/app` and an `insteadOf` rule expands `corp:` to a github.com URL
+- **THEN** publish pushes the tag to `acme/app` and creates the GitHub release there, and does not report `not_github`
 
 #### Scenario: Release created
 - **WHEN** `github_release` is true and `v0.5.0` is on origin with no GitHub release

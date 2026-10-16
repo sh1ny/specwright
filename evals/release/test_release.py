@@ -1056,6 +1056,25 @@ class TestGithubRelease(PubFlow):
         self.assertEqual(self.gh_calls(), [])
         self.assertEqual(fx.git(self.bare, "tag"), self.TAG)
 
+    def test_shorthand_rewritten_to_github_creates_release(self):
+        # origin is a non-GitHub shorthand that insteadOf expands to github.com: git reaches GitHub, so the release is
+        # created there and not skipped as not_github. A fake ssh serves the github.com URL from the local bare repo.
+        fx.git(self.work, "config", "--unset", f"url.{self.bare.as_posix()}.insteadOf")
+        fx.git(self.work, "config", "remote.origin.url", "corp:acme/code")
+        fx.git(self.work, "config", "url.ssh://git@github.com/.insteadOf", "corp:")
+        ssh = self.tmp / "fake-ssh"
+        ssh.write_text('#!/bin/sh\nfor last; do :; done\ncase "$last" in\n'
+                       f'  git-upload-pack*) exec git upload-pack "{self.bare.as_posix()}";;\n'
+                       f'  git-receive-pack*) exec git receive-pack "{self.bare.as_posix()}";;\nesac\nexit 1\n',
+                       encoding="utf-8", newline="\n")
+        env = {**self.env(), "GIT_SSH_COMMAND": f'sh "{ssh.as_posix()}"', "GIT_SSH_VARIANT": "ssh"}
+        code, doc, raw = self.publish(env=env)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["github_release"], "created")
+        create = self.creates()[0]["argv"]
+        self.assertEqual(create[create.index("--repo") + 1], CODE_SLUG)
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+
 
 class TestThisRepo(Base):
     def test_backfill_ranges(self):

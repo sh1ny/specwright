@@ -2,35 +2,32 @@
 
 ## Metadata
 
-- **Round:** 5
-- **Prior round:** 4. APPROVE, covering the notes boundary in a clone without tags and two entries capturing in one file. Its two Suggestions (the D4 wording, and the `status` header plus the design `status` line) were applied and re-checked, so the verdict stood (`CHANGES_APPLIED: n/a`). This round reviews the uncommitted amendments since commit b9237ba. They answer a Codex P1 on PR #92: with `remote.origin.pushurl` set to a fork, publish checked the tag on the fetch URL but pushed it to the push URL.
+- **Round:** 6
+- **Prior round:** 5. APPROVE: publish stops on a push URL to another repository. Its Suggestion S1 was applied and re-checked: publish also stops when an insteadOf rewrite turns the configured github.com repository into another one, and the check runs first, before any network read. The verdict stood (`CHANGES_APPLIED: n/a`). This round reviews the uncommitted amendments since commit 90faf3b. They answer a Codex P2 on PR #92 (thread PRRT_kwDOS22yKc6tR3sc): a non-GitHub shorthand origin that insteadOf expands to github.com got `not_github`, so the GitHub release was silently skipped.
 - **Reviewer:** fresh-context subagent (specwright-reviewer, Claude Code harness)
-- **Re-check run (S1):** fresh-context subagent (specwright-reviewer, Claude Code harness), after the author's edits. I read the Rebuttals, `check_push_destination` and `cmd_publish` in release.sh, and the requirement "The tag is pushed where it was checked" with its new scenario "Rewrite to another GitHub repository". I ran `-k push_url -k rewrite_to_another`: 2 passed. S1 is applied:
-  - Publish now stops with `push_url_mismatch` when the configured `remote.origin.url` and the rewritten fetch URL are both github.com URLs naming different repositories.
-  - The check now runs first in `cmd_publish`, before `load_main` and any `ls-remote`, using local reads only.
-  - A rewrite to a mirror that is not on github.com still passes. The spec now says this plainly: the tag checks use the fetch URL and the release uses the configured one.
-  - These edits apply this round's Suggestion and change no reviewed decision, so the APPROVE verdict stands.
+- **Re-check run (S1-S2):** fresh-context subagent (specwright-reviewer, Claude Code harness), after the author's edits. I read the specwright-release SKILL.md Run login paragraph (:34) and `code_slug` in release.sh, and ran `-k shorthand -k store -k not_github`: 3 passed.
+  - **S1 is applied.** "Origin on github.com" now means the fetch URL from `git remote get-url origin` (after `insteadOf`, `github.com.` included), never the raw `remote.origin.url`. That matches specwright-finish, specwright-pr and `release_slug`, so a shorthand origin is fenced (ADR 0008).
+  - **S2 is applied.** `code_slug` returns `release_slug(st)` and still raises `no_github_origin` when that is None, so store-backed pr-mode notes and the release name the same repository.
+  - These edits apply this round's Suggestions and change no reviewed decision, so the APPROVE verdict stands.
 - **Reviewed:**
   - The amendment diff (`git diff -- openspec skills evals`):
     - design.md D6 step 1
-    - specs/releases/spec.md, the new requirement "The tag is pushed where it was checked"
-    - skills/specwright-release/SKILL.md, the Stops row
-    - release.sh: `same_remote`, `check_push_destination`, and the call in `cmd_publish`
-    - evals/release/test_release.py, `test_push_url_elsewhere_stops`
-  - Also read in release.sh: `GH_URL`, `origin_url`, `code_slug`, `release_state`/`github_release`, `remote_tag` and `published_tags`.
-  - Also read: skills/specwright-pr/scripts/as.sh, the URL and userinfo checks over every remote's fetch and push URLs and the insteadOf/pushInsteadOf rules; ADRs 0008 and 0010.
-  - Ran `-k TestPublish -k push_url`: 10 passed, on git 2.55.0.windows.4.
+    - specs/releases/spec.md: "The tag is pushed where it was checked", and the new scenario "Shorthand rewritten to GitHub"
+    - release.sh: `release_slug` and `release_state`
+    - evals/release/test_release.py: `test_shorthand_rewritten_to_github_creates_release`
+  - Also read in release.sh: `check_push_destination`, `origin_url`, `code_slug`/`merged_pulls`, `GH_URL`.
+  - Also read: skills/specwright-release/SKILL.md (Run login, publish steps 1-3); the fence rule in skills/specwright-finish/SKILL.md:16 and skills/specwright-pr/SKILL.md:51; ADRs 0008 and 0010.
+  - Ran `-k shorthand -k not_github -k rewrite_to_another`: 3 passed, on git 2.55.0.windows.4.
 
 <!-- This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes) voids it. -->
 
 What holds:
-- **Placement.** `check_push_destination` runs after `no_origin` and before the tag checks and every write. Before it, only reads have happened (`status_doc`, including its `ls-remote` calls). So a mismatch leaves no tag, no push and no `gh` call, which the eval asserts against origin and the fork.
-- **Rewrite rules.** `git remote get-url` and `get-url --push --all` return URLs after insteadOf and pushInsteadOf rewriting. The comparison is therefore between the URL `ls-remote` and `fetch` actually contact and the URL(s) `push` actually contacts.
-  - The common `url."git@github.com:".pushInsteadOf "https://github.com/"` setup still passes, because `same_remote` matches the github.com owner/name in any form and case.
-  - A pushInsteadOf that sends pushes to a fork is caught, as is an explicit `pushurl`.
-  - Each of several push URLs is checked (`--all`).
-- **Fails closed.** A non-GitHub pair that differs only in form (`ssh://host/x` against `host:x`) stops rather than passes.
-- **Fence and ADRs.** as.sh already refuses a github.com push or fetch URL, or rewrite rule, that carries userinfo. The new reads are local `git remote` calls, outside ADR 0008's network rule. The stop writes nothing, which is consistent with ADR 0010.
+- **`release_slug` order.** It prefers the configured `remote.origin.url` when that is a github.com URL. Otherwise it uses `git remote get-url origin`, the URL after insteadOf, and returns None only when neither is on github.com.
+- **Agreement with the push check.** `check_push_destination` runs first in `cmd_publish` and has already stopped when both URLs are on github.com but name different repositories. The push URLs must name the fetch URL's repository. So for the shorthand case, the release repository, the tag checks and the push all name the same repository.
+- **Mirror rewrite.** Publish still releases on the configured repository when insteadOf points it at a mirror that is not on github.com. That is unchanged and is what the spec states.
+- **The eval.** It drives real git over a fake ssh to the bare repository. It asserts that `--repo` is the slug and that the tag reached the bare repository.
+- **Old configurations.** The `not_github` eval still passes, so a genuinely non-GitHub origin is still skipped.
+- **ADR 0010.** It is unaffected: no tag is moved or deleted.
 
 ## Findings
 
@@ -44,12 +41,12 @@ None.
 
 ### Suggestions
 
-- **S1. The GitHub release repository still comes from the unrewritten URL.**
-  - **The claim.** The new requirement says "the tag checks and the GitHub release use the fetch URL".
-  - **The code.** `release_state` and `github_release` take the slug from `origin_url`, which is `git config --get remote.origin.url`: the raw value, before insteadOf. The tag checks and the push use the rewritten URL.
-  - **Where they diverge.** They differ only under an insteadOf rule that changes the github.com owner or name. For example, `url."https://github.com/me/".insteadOf "https://github.com/upstream/"` with origin set to `https://github.com/upstream/x`. Fetch and push both go to `me/x`, so the new check passes, and the tag is checked and pushed there. `gh release create --repo upstream/x --verify-tag` then fails (exit 3, "a re-run resumes"), and every re-run fails the same way.
-  - **Why it is not blocking.** That configuration is rare, and nothing is written to the wrong place: the release creation fails, it does not land elsewhere.
-  - **The fix.** Either take the release slug from `git remote get-url origin`, or add the raw `remote.origin.url` to the `same_remote` comparison, so that all three destinations must agree. Alternatively, reword the requirement to name the raw URL for the release.
+- **S1. specwright-release SKILL.md should say which URL "origin on github.com" means.**
+  - **The gap.** The skill fences each step (fetch, `untagged`, `publish`) only "with origin on github.com" (SKILL.md:34-38) and never says which URL to test. specwright-finish (:16) and specwright-pr (:51) both define it as the fetch URL from `git remote get-url <remote>`. `release_slug` now uses that rewritten URL too.
+  - **The risk.** An agent that tests the raw `remote.origin.url` sees `corp:acme/app`, judges it not on github.com, and runs `bash scripts/release.sh publish` without `as.sh`. Publish then reaches GitHub with `git ls-remote`, `git push` and, new this round, `gh release create`, under whatever account is active. ADR 0008 forbids exactly that.
+  - **Why not blocking.** The unfenced git calls were already possible before this round. The change adds the `gh` call.
+  - **The fix.** One sentence in the Run login paragraph, matching finish and pr: on github.com means "`git remote get-url origin` is on github.com (`github.com.` included), whatever `remote.origin.url` says". This is recommended before merge.
+- **S2. `code_slug` still reads the raw `remote.origin.url`.** It serves `merged_pulls`, which finds the merged code PRs for store-backed notes in pr mode. With a shorthand origin, a store-backed project now gets its GitHub release, but `status` and `publish` stop earlier with `no_github_origin` ("need origin to be a github.com repository"). Have `code_slug` use `release_slug`, or say in D5/D6 that store-backed pr-mode notes need a github.com `remote.origin.url`.
 
 ## Verdict
 
@@ -65,5 +62,3 @@ CHANGES_APPLIED: n/a
 ## Rebuttals
 
 <!-- Author: fixed (cite) or rebutted (reason) per finding. A Critical/Moderate rebuttal counts only once marked "accepted by reviewer". -->
-
-- **S1:** applied. `check_push_destination` also stops (`push_url_mismatch`) when the configured `remote.origin.url` and the rewritten fetch URL are both github.com URLs naming different repositories; a rewrite to a non-GitHub mirror (the eval harness's own setup) still passes. The check now runs first in `cmd_publish`, before any network read. Requirement "The tag is pushed where it was checked" names it, with the new scenario "Rewrite to another GitHub repository"; D6 updated; eval `test_rewrite_to_another_github_repo_stops`.
