@@ -13,12 +13,12 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 | install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy complete | evals/update/test_interrupt.py | TestInterrupt.test_kill_during_swap_resumes | green |
 | install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy incomplete | evals/update/test_update.py | TestRecover.test_damaged_staging_rolls_back | green |
 | install-update → Interrupted swap resumes or rolls back | Journal from another version | evals/update/test_update.py | TestRecover.test_journal_for_other_version_recovered_first | green |
-| install-update → Update installs a release tag by default | Latest tag | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_installs_latest_tag | red |
-| install-update → Update installs a release tag by default | Named version has no tag | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_named_version_without_tag_stops | red |
-| install-update → Update installs a release tag by default | Named version predates the update script | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_refuses_below_minimum_release | red |
-| install-update → Update installs a release tag by default | Latest tag predates the update script | evals/git-workflow/evals.json | eval-install-latest-tag-predates-script | red |
-| install-update → Update installs a release tag by default | Script interface differs from the prompt | evals/update/test_update.py + evals/git-workflow/test_instructions.py | TestPlan.test_plan_reports_interface; InstallUpdateLifecycle.test_step3_checks_script_interface | red |
-| install-update → Update installs a release tag by default | No tags | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_falls_back_to_main_without_tags | red |
+| install-update → Update installs a release tag by default | Latest tag | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_installs_latest_tag | green |
+| install-update → Update installs a release tag by default | Named version has no tag | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_named_version_without_tag_stops | green |
+| install-update → Update installs a release tag by default | Named version predates the update script | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_refuses_below_minimum_release | green |
+| install-update → Update installs a release tag by default | Latest tag predates the update script | evals/git-workflow/evals.json | eval-install-latest-tag-predates-script | green |
+| install-update → Update installs a release tag by default | Script interface differs from the prompt | evals/update/test_update.py + evals/git-workflow/test_instructions.py | TestPlan.test_plan_reports_interface; InstallUpdateLifecycle.test_step3_checks_script_interface | green |
+| install-update → Update installs a release tag by default | No tags | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_falls_back_to_main_without_tags | green |
 | install-update → Workflow update validates changes in flight | Changes in flight still validate | evals/update/test_inflight.py | TestInflight.test_valid_change_allows_workflow_update | green |
 | install-update → Workflow update validates changes in flight | A change in flight fails | evals/update/test_inflight.py | TestInflight.test_failing_change_refuses_workflow_update | green |
 | install-update → Workflow update validates changes in flight | Change started after planning | evals/update/test_inflight.py | TestInflight.test_change_started_after_plan_stops_swap | green |
@@ -27,8 +27,8 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 | install-update → Update finds changes in flight on their branches | Branch whose change is archived | evals/update/test_inflight.py | TestCollect.test_archived_change_not_in_flight | green |
 | install-update → Update finds changes in flight on their branches | Archive of a longer name | evals/update/test_inflight.py | TestCollect.test_archive_name_matched_exactly | green |
 | install-update → Update finds changes in flight on their branches | Change only on a remote branch | evals/update/test_inflight.py | TestCollect.test_remote_only_change_is_warning | green |
-| install-update → Update report tells running sessions to restart | Version changed | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step8_restart_notice_after_swap | red |
-| install-update → Update report tells running sessions to restart | Refused update | evals/git-workflow/test_instructions.py + evals/update/test_update.py | InstallUpdateLifecycle.test_step8_no_restart_notice_when_unchanged; TestPlan.test_refusal_reports_unchanged | red |
+| install-update → Update report tells running sessions to restart | Version changed | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step8_restart_notice_after_swap | green |
+| install-update → Update report tells running sessions to restart | Refused update | evals/git-workflow/test_instructions.py + evals/update/test_update.py | InstallUpdateLifecycle.test_step8_no_restart_notice_when_unchanged; TestPlan.test_refusal_reports_unchanged | green |
 | planning-stores → A store records its schema version and owner | First update claims the store | evals/update/test_store.py | TestStoreRecord.test_first_update_claims_store | green |
 | planning-stores → A store records its schema version and owner | Two projects claim at once | evals/update/test_store.py | TestStoreRecord.test_second_claimer_names_owner | green |
 | planning-stores → A store records its schema version and owner | Unreadable record | evals/update/test_store.py | TestStoreRecord.test_unreadable_record_stops | green |
@@ -146,7 +146,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - Step 7 reports `store config managed by owner <id>` otherwise, and runs `finish` after the stamp.
 
   Add the graded agent eval `eval-install-latest-tag-predates-script` to `evals/git-workflow/evals.json`, with grader checks in `grade.py` and grader tests in `test_grade.py`. Its fixture is a local repo whose only tag is `v0.5.0`. Verify that the text tests fail.
-- [ ] 6.2 Rewrite README install Steps 3-8 to match:
+- [x] 6.2 Rewrite README install Steps 3-8 to match:
   - Step 3: tag choice, minimum release 0.6.0, interface 1, the offer of `main`;
   - Step 4: the script calls and the restart-relevant `swapped` flag;
   - Step 5: the store role gate and `note-config`;

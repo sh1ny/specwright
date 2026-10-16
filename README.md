@@ -46,6 +46,8 @@ flowchart LR
 
 > **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.14.1) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.14.1, override)`.
 
+> **Releases and interruptions:** the update installs the latest release tag (`v<version>`) unless you name a version or ask for `main`, and reports the ref it installed. It stages the new files, swaps them in with a journal (`openspec/.specwright/update.json`) and stamps `VERSION` last, so an interrupted run is resumed or rolled back by the next one. The staging directories are named `.specwright-update-*/` (next to the skills, agents and schema they replace) and are removed when the update finishes. You may add `.specwright-update-*/` to your `.gitignore` so an interrupted update never shows up in a commit.
+
 Copy the prompt below and paste it into your coding agent. **The same prompt installs and updates.**
 
 ```text
@@ -101,9 +103,29 @@ Ask which agents this project uses (several may apply) and confirm the paths:
 - Codex: skills → `.agents/skills/`
 - Other: ask for the skills directory.
 
-Step 3 - Download and compare versions
-- Clone https://github.com/sh1ny/specwright to a temporary directory
-  (`git clone --depth 1`, or any other method that works).
+Step 3 - Choose the version, download and compare versions
+- Choose the ref to install. This prompt needs release 0.6.0 as its minimum
+  and drives update-script interface 1 (Step 4).
+  - Default: the latest release tag. Run
+    `git ls-remote --tags --refs https://github.com/sh1ny/specwright 'v*'`,
+    keep the tags of the form `v<major>.<minor>.<patch>` and take the highest
+    by semver (semantic version order, not text order).
+  - A version the user named (say `0.6.1`) is the tag `v0.6.1`. If that tag
+    does not exist, STOP before Step 4: name it and list the tags that exist,
+    and write no file.
+  - `main` only when the user asks for it, or when the repository has no
+    release tag: then install `main` and record `main (no release tag)` for
+    Step 8.
+  - Minimum release: if the chosen tag (the named one, or the highest) is
+    below 0.6.0, STOP before Step 4: name the tag and the minimum release
+    0.6.0, say versions before 0.6.0 cannot be installed by this update,
+    offer to install `main` instead, and write no file. Install `main` only
+    if the user then says so.
+- Clone the chosen ref to a temporary directory:
+  `git clone --depth 1 --branch <tag> https://github.com/sh1ny/specwright <tmp>`
+  (`--branch main` for `main`; any other method that gets exactly that ref
+  works). Record the ref installed (`v0.6.0`, `main`, or
+  `main (no release tag)`) for Step 8.
 - Read the downloaded `VERSION` and `OPENSPEC_VERSION` (`<pin>`, the
   OpenSpec version this release is checked against) and the installed
   `openspec/.specwright/VERSION` (missing = fresh install, or an earlier
@@ -143,29 +165,75 @@ Step 3 - Download and compare versions
   version. An override naming a different version is not an override:
   STOP as on a mismatch, naming `<found>`. An override given in a reply
   after the mismatch stop comes after the temporary directory was deleted:
-  clone the repository again, as at the start of this step, and run this
+  clone the repository again at the same ref, and run this
   step's checks on the new copy with the override in force. The override holds
   for this run only: nothing is stored, and the next run checks again. With
   it, record `OpenSpec <found> (pinned <pin>, override)` for Step 8.
+- Check the update script, before Step 4 stages anything: the download must
+  hold `scripts/update.sh`, and `bash <download>/scripts/update.sh plan`
+  (the options of Step 4; it writes nothing, except that it first recovers a
+  pending journal, see Step 4) must report `interface` 1. If the
+  download has no `scripts/update.sh`, or `plan` reports another interface,
+  STOP before Step 4: name the ref, the interface found (or that there is
+  none) and interface 1 (the one this prompt drives), delete the temporary
+  directory and write no file.
 
-Step 4 - Install files (track new vs updated)
-- In every chosen skills directory, replace each `specwright-*` directory
-  with the downloaded one: delete the installed copy, then copy the new one
-  recursively, so files removed upstream do not linger. If an installed
-  `specwright-*` directory has no downloaded counterpart, list it and ask
-  before removing it.
-- Copy `agents/claude/*.md` into `.claude/agents/` if Claude Code was chosen,
-  and `agents/omp/*.md` into `.omp/agents/` if OMP was chosen. If an
-  installed agent file has a different `model:` value than the downloaded
-  one, the user changed it: keep their value and say so.
-- Replace `<root>/openspec/schemas/specwright/` with the downloaded
-  `schemas/specwright/`.
+Step 4 - Install files (the update script stages, then swaps)
+`update.sh` below is the downloaded `<download>/scripts/update.sh`, run from the
+download with `bash`, never an installed copy. Every call takes the same
+options: `--code <code checkout>`, `--root <root.path>`, `--skills <dir>` for
+each chosen skills directory, `--agents claude=<dir>` and `--agents omp=<dir>`
+for each chosen agents directory, `--download <download>` and `--ref <ref>`.
+It prints one JSON document; `"ok": false` with an `error` is a stop. The
+script replaces every `specwright-*` skill directory, the agent files and
+`<root>/openspec/schemas/specwright/` with the downloaded ones, so files
+removed upstream do not linger, and keeps the user's `model:` value in an
+installed agent file (say so in Step 8).
+- Run `update.sh` `plan`. Read `from`, `to`, `kind` (fresh, patch,
+  workflow, reinstall or downgrade), `role`, `orphans`, `journal`, `warnings`,
+  the changes in flight with their validation result, and `refusals`.
+  - An earlier update that did not finish: the first `plan` of this run (the
+    Step 3 check) runs `recover` on its journal before anything else and
+    reports a `recovered` object. Tell the user its `message`:
+    `discarded unfinished update to <to>`, `resumed update to <to>` or
+    `rolled back to <prev>`. A `journal` still listed afterwards in phase
+    `swapped` with this download's `to` is a swap that finished before the
+    stamp: set `swapped` to true, skip `stage` and `swap`, and go on with
+    Steps 5-7.
+  - A refusal (exit 1, `"error": "refused"`, `"unchanged": true`, listed in
+    `refusals`): a change in flight that fails validation against the new
+    schema, a store another project owns, a busy store, and so on. Tell the
+    user each refusal as the script words it, STOP, and report that the
+    installed version is unchanged (Step 8). Nothing was changed, so only the
+    temporary directory is left to delete.
+  - `orphans` are installed `specwright-*` names with no downloaded
+    counterpart (the script never touches them): list them and ask before
+    removing them, and remove only those the user agrees to, after `swap`.
+  - Keep `warnings` for Step 8 (a change in flight found only on a remote
+    branch is not validated), and the changes validated against `<to>`.
+- Run `update.sh` `stage`: it copies every new skill directory, agent file and
+  the schema into a staging directory next to its target
+  (`.specwright-update-*/`) and verifies the copy. On `verification_failed`
+  (it names the files and removes the staging) STOP and report that the
+  installed version is unchanged. Until the swap, every installed file keeps
+  its previous content.
+- Run `update.sh` `swap`. When it reports `ok`, set `swapped` to true and keep
+  its `store_written` value and its `restart` notice. When it refuses (the
+  changes in flight differ from the plan, the store is busy, ...), `swapped`
+  stays false: STOP and report that the installed version is unchanged. When
+  it fails part-way (an error that is not a refusal), tell the user to rerun
+  this prompt: `recover` resumes or rolls back the swap.
 - Legacy openspec-git-flow: if `openspec-git-branch`, `openspec-git-commit` or
   `openspec-git-merge` skill directories exist in a chosen skills directory,
   or `openspec/.git-flow/` exists, list them and ask before removing them.
 - Do not write `openspec/.specwright/VERSION` yet; Step 7 does, last.
 
 Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
+- Run this step only when `plan` reported role `none` (a repo-local project)
+  or `swap` reported `store_written: true` (this project owns the store, or
+  has just claimed it). Otherwise skip it: another project owns the store's
+  config.yaml, so leave `config.yaml` as it is and carry the owner `<id>` from
+  `plan` to Step 7.
 - If it does not exist, copy the downloaded `templates/openspec/config.yaml`.
 - Otherwise:
   - `schema:` - if it is missing or `spec-driven`, set it to `specwright`. If
@@ -182,6 +250,9 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
     any line naming `openspec-git-branch`, `openspec-git-commit` or
     `openspec-git-merge`. Leave every other line alone, including the
     project's own lines that mention Specwright.
+- After the merge (or the copy), run `update.sh` `note-config`: it records the
+  merged config.yaml's hash in the journal, so a later rollback knows what this
+  install wrote. On `"ok": false`, report it and go on to Step 7.
 
 Step 6 - Settings (openspec/specwright.yaml in the code checkout)
 - If it does not exist, copy the downloaded
@@ -213,7 +284,7 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   If the user's file has keys the downloaded file no longer has (uncommented
   or commented out), list them and ask before removing them.
 
-Step 7 - Verify, stamp the version, clean up
+Step 7 - Verify, stamp the version, finish, clean up
 - Run `openspec schema validate specwright` inside `<root>`.
 - Every file of the downloaded `skills/specwright-*` directories exists,
   with the same content, in every chosen skills directory, and nothing else
@@ -223,27 +294,50 @@ Step 7 - Verify, stamp the version, clean up
 - `<root>/openspec/config.yaml` has `schema: specwright` (or the schema the user
   chose to keep - then report "installed, but not the default schema"),
   every downloaded context line exactly once, and no other managed line.
+  When Step 5 was skipped this check is another project's file: do not count
+  it as a failure, report it as `store config managed by owner <id>`, and the
+  version is still stamped.
 - `openspec/specwright.yaml` has every uncommented dotted path in the
   downloaded `templates/openspec/specwright.yaml` (commented-out paths are
   optional), unless the user chose otherwise in Step 6.
-- If every check passes, copy `VERSION` to `openspec/.specwright/VERSION`.
-  If any fails, do not write it: report each failed check and how to fix it,
-  and never claim success.
+- If every check passes, copy `VERSION` to `openspec/.specwright/VERSION` (the
+  stamp), then run `update.sh` `finish`: it removes the previous copies, the
+  staging directories and the journal (run it again if it was interrupted).
+  If any check fails, do not write the stamp: report each failed check and how
+  to fix it, and never claim success. Say the update is swapped but not
+  stamped: after the fix, rerun this prompt (it goes straight to Steps 5-7),
+  or roll back with `update.sh` `recover --rollback` (it reports
+  `rolled back to <prev>`, and stops when the store is busy or no longer this
+  project's).
 - Delete the temporary directory.
 
-Step 8 - Report briefly: version change (fresh, <old> → <new>, or
-reinstall), directories used, skills and agents installed (new vs updated,
-models kept), config and settings created/merged/unchanged (keys added or
-removed), legacy files removed, and the result of each Step 7 check. When `<root>`
-is a store, list the files this install left uncommitted there (by path,
-from `git status --porcelain` in the store) and say the user commits them in
-the store; this prompt never commits. Tell the user that new skills and
-agent definitions load only in a new agent session started after this
-install: start one before relying on them. Report the OpenSpec version
-as recorded in Step 3: `OpenSpec <found> (pinned)`, or
-`OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1 recorded a missing
-PR prerequisite, add the line `PR workflow not ready: <missing>` (for
-example `PR workflow not ready: gh 2.40+`).
+Step 8 - Report briefly: the ref installed (`v0.6.0`, `main` as asked, or
+`main (no release tag)`), version change (fresh, <old> → <new>, or reinstall),
+directories used, skills and agents installed (new vs updated, models kept),
+orphans removed or kept, config and settings created/merged/unchanged (keys
+added or removed), legacy files removed, and the result of each Step 7 check
+(the config.yaml check may read `store config managed by owner <id>`). In a
+workflow update, list each change in flight that `plan` validated against
+<new>. Give the store role (none, claim, owner or other) and, in a store, the
+owner (after a claim: this project now owns the store's schema), and list each
+`warnings` entry: a change in flight found only on a remote branch (name and
+ref) is in flight elsewhere, not validated. When `<root>` is a store, list the
+files this install left uncommitted there (by path, from
+`git status --porcelain` in the store, `openspec/.specwright/STORE` included)
+and say the user commits them in the store; this prompt never commits.
+- Restart notice, only after a swap (`swapped` is true): say that agent
+  sessions started before this update still run the <old> skills and must be
+  restarted before they continue a change on <new> (after a fresh install,
+  sessions started before the install). New skills and agent definitions load
+  only in a new agent session started after this install: start one before
+  relying on them.
+- Without a swap (a refused, stopped or failed update that changed no installed
+  file): no restart notice. Say that the installed version is unchanged.
+Report the OpenSpec version as recorded in Step 3: `OpenSpec <found> (pinned)`,
+or `OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1
+recorded a missing PR prerequisite, add the line
+`PR workflow not ready: <missing>` (for example
+`PR workflow not ready: gh 2.40+`).
 ```
 
 ## ⚡ First Steps After Install
@@ -391,7 +485,12 @@ Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) 
 - **One change in progress per store per machine.** OpenSpec registers one checkout per store, so a store on another change's branch is busy: the branch gate stops and names that branch. Finish or archive that change first. The gate itself holds a lock (`specwright-gate.lock` in the store's git dir) while it creates both branches; a lock left by an interrupted session is removed only after you confirm no other session is in its gate.
 - **The PR pair.** A store-backed change has the same branch name in both repos and, in `finish: pr`, up to two PRs: the store PR (planning) and the code PR, linked to each other. The expected PR set is the PRs the change can have: a planning-only change (no code commits, marked with `specwright-change.yaml`) expects only the store PR. Watch, feedback and cleanup act on the expected PRs only, and the roadmap counts a store-backed change done only with proof that its code is merged too, or that it is planning-only; otherwise it shows "planning merged, code pending".
 - **Store settings.** `planning_store:` in the code repo's `openspec/specwright.yaml` holds the store's `main_branch`, `login`, `validate` (runs in `<root.path>`; `pr.validate` never runs in the store) and `reviewers`. Each defaults to the code repo's value; see the commented block in the template.
-- **Install.** The install prompt puts the schema and the `context:` lines in `<root.path>/openspec/` and leaves those files uncommitted in the store for you to commit; `specwright.yaml`, skills and agents go in the code repo.
+- **Install.** The install prompt (through `update.sh`, see below) puts the schema and the `context:` lines in `<root.path>/openspec/` only for the store's owner, and leaves those files uncommitted in the store for you to commit; `specwright.yaml`, skills and agents go in the code repo. The install never commits.
+- **Owner and `STORE`.** `<root.path>/openspec/.specwright/STORE` records the store's schema `version:` and its `owner:` (the code repo's `origin` as `host/owner/repo`, else `path:<checkout>`). The first project to update a store without one claims it, and the report says so. The report gives this project's role: `none` (repo-local), `claim`, `owner` or `other`. Commit `STORE` in the store, as the install leaves it uncommitted.
+- **Only the owner updates the store's schema.** Only the owner writes the store's schema and the `context:` lines of its `config.yaml`, and only while the store is free: on its main with nothing uncommitted except this update's staging. Another project installs its code-side files only (skills, agents, `VERSION`) and is refused, before any write, when its target differs from the store's recorded version in major or minor: the report names the store's version, its owner and the highest release tag with the store's major and minor version, and says the owner updates the store first.
+- **Busy store.** When the store is on a change branch or dirty, a patch update whose staged schema is byte-identical to the installed one swaps the code side only (the report says the store schema was already current); any other update is refused, naming the store's branch: finish that change first. An owner's workflow update is also refused while another project's change is in flight in the store, naming each.
+- **Transferring ownership.** There is no command: change `owner:` in `STORE` by a manual commit in the store, then the new owner runs the update.
+- **An interrupted store swap** holds the store's gate lock (`change: specwright-update <from> -> <to>`, with its checkout) until the update is rerun from that checkout, which resumes or rolls back and releases it. Another project's change gate stops, names that checkout and does not offer to remove the lock. The gate also compares the project's installed version with the store's record before it creates a branch.
 - **References.** Stores listed under `references:` in a project's `config.yaml` are read-only: the skills may read their specs (`openspec context --json`) but never branch, commit or push there. An unresolved reference is named in the report, and the work goes on.
 - **`Feedback-Round` trailer.** Review-fix commits now carry a `Feedback-Round: <n>` trailer, in repo-local projects too, so the round limit counts the same in one repo or two. Branches from before this count their `address review feedback` commits as before.
 - **`cleanup-plan` contract (0.1.13).** `pr-pair.sh cleanup-plan` no longer returns `force_delete` or `force_delete_allowed`. Each repo's plan now lists `checkout`, `pull`, a `branch-check` command and `delete: ["git", "branch", "-D", <branch>]`; run the delete only when `branch-check` answers `delete: true` (the branch tip is on main, or is the merged PR's head or an ancestor of it). A script that read the removed fields must call `branch-check` instead.
@@ -469,7 +568,7 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 Store evals (`eval-store-*`) need two repos, so the fixture is a directory, not a repo: `code/` is the project, `store/` is its OpenSpec store. The fixture also writes `eval.env`. The agent under test must run `source <repo>/eval.env` first and work from `<repo>/code`. The file points the OpenSpec registry and config (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`) and Specwright's watch state (`SPECWRIGHT_STATE_DIR`) at the run directory, and puts a fake `gh` first on `PATH`. Your own registry and state are never touched. The fake `gh` ([`evals/fakes/gh.py`](evals/fakes/gh.py)) keeps its state in `gh-state.json` and logs every call to `gh-log.jsonl`; `grade.py` reads both repos and that log.
 
-Test the fake `gh` with `python -m unittest discover evals/pr-pair`, the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`, and `release.sh` (against scratch repos and the fake `gh`) with `python -m unittest discover evals/release`.
+Test the fake `gh` with `python -m unittest discover evals/pr-pair`, the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`, and `release.sh` (against scratch repos and the fake `gh`) with `python -m unittest discover evals/release`. Test `update.sh` (the staged swap, journal and recovery, against scratch repos) with `python -m unittest discover evals/update`.
 
 To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
 
