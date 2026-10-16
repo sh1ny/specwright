@@ -18,7 +18,9 @@
 #                                     the tag annotation and the release body), tag_local (sha the local tag points at, or
 #                                     null), tag_remote (the commit the tag points at on origin, from one read-only
 #                                     `git ls-remote --tags origin`, or null; also null with no origin remote; an unreadable
-#                                     origin is exit 3, remote_tags_unreadable), tag_object {local, remote} (each side's tag
+#                                     origin is exit 3, remote_tags_unreadable), previous (from tags locally or on origin:
+#                                     one more `git ls-remote --tags --refs origin`, also exit 3 when unreadable),
+#                                     tag_object {local, remote} (each side's tag
 #                                     object id, or null), repo and tag_repo (the code repo: the only one
 #                                     ever tagged), github_release (existing|absent from a read-only `gh release view <tag>
 #                                     --repo o/n`; disabled when release.github_release is false, not_github when origin is not
@@ -490,6 +492,9 @@ class Hit:
     def end(self, _=1):
         return self.span1[1]
 
+    def span(self, _=1):
+        return self.span1
+
 
 def find_versions(c, text):
     """Every match of `c` in `text` as Hit, reading CRLF line ends as LF so `$` matches before CRLF (a Windows
@@ -593,11 +598,22 @@ def cmd_bump(st, a):
     else:
         raise disagree(tree, by, files)
     # every replacement in memory first, then one temp file + rename per file
-    plan = {}
+    # entries that match the same file each contribute their capture: compose them, so none is lost
+    spans, raws = {}, {}
     for f, ms, raw in matches:
         m = ms[0]
+        raws[f] = raw
         if m.group(1) != target:
-            plan[f] = (decode(raw)[:m.start(1)] + target + decode(raw)[m.end(1):]).encode("utf-8", "surrogateescape")
+            spans.setdefault(f, set()).add(m.span(1))
+    plan = {}
+    for f, ss in spans.items():
+        text, end = decode(raws[f]), None
+        for a, b in sorted(ss, reverse=True):
+            if end is not None and b > end:
+                raise Stop("bad_version_files", f"{f}: two version_files entries capture overlapping text; make their "
+                           "patterns capture the same version or separate ones", file=f)
+            text, end = text[:a] + target + text[b:], a
+        plan[f] = text.encode("utf-8", "surrogateescape")
     changed, pending = [], sorted(plan)
     for f in sorted(plan):
         full = os.path.join(st.root, f)
@@ -715,16 +731,19 @@ def local_tags(st):
 def published_tags(st):
     """The tags that count as published: the ones on origin, or with no origin remote the local ones. A local tag whose push
     failed is not published, so `untagged` still lists it and publish of a newer version waits for it. Exit 3 when origin
-    cannot be read."""
+    cannot be read. Read once per run: publish asks twice (the older-untagged gate and the notes range)."""
     if origin_url(st) is None:
         return local_tags(st)
+    if getattr(st, "_published", None) is not None:
+        return st._published
     r = git(st.root, "ls-remote", "--tags", "--refs", "origin")
     if r.returncode != 0:
         shown = "git ls-remote --tags --refs origin"
         raise Stop("remote_tags_unreadable", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; no tag was written",
                    code=3, call=shown)
-    return {name[len("refs/tags/"):] for name in (l.partition("\t")[2] for l in text_of(r).splitlines())
-            if name.startswith("refs/tags/")}
+    st._published = {name[len("refs/tags/"):] for name in (l.partition("\t")[2] for l in text_of(r).splitlines())
+                     if name.startswith("refs/tags/")}
+    return st._published
 
 
 def tag_for(st, version):
@@ -1090,7 +1109,7 @@ def status_doc(st, a, loaded=None, release=True):
     shared, files = agree(CommitTree(st.root, sha), entries)
     if shared != v:
         raise Stop("version_mismatch", f"version files at release commit {sha[:12]} read {shared}, not {v}")
-    tags = local_tags(st)
+    tags = local_tags(st) | published_tags(st)  # a clone that never fetched tags still sees origin's (D4)
     prev = previous_release(st, rel, v, tags)
     prev_sha = prev[1] if prev else None
     rng = range_commits(st, prev_sha, sha)

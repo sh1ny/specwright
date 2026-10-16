@@ -320,6 +320,26 @@ class TestBump(Base):
         self.assertStops(out, "pkg/VERSION", "a symlink at commit")
         self.assertEqual(out[1]["error"], "bad_version_files")
 
+    def test_overlapping_entries_bump_every_capture(self):
+        # Two entries match pkg.txt and capture different lines; a third captures the same span as the first. Bump
+        # rewrites both lines once. A partly overlapping capture reads another value, so it stops before any write.
+        rx = r"^(\d+\.\d+\.\d+)$"
+        self.repo(version_files={"VERSION": rx, "pkg.txt": r"^version = (\S+)$", "*.txt": r"^min = (\S+)$",
+                                 "p*.txt": r"^version = (\S+)$"})
+        fx.commit(self.work, "pkg", {"pkg.txt": "version = 0.4.2\nmin = 0.4.2\n"})
+        code, doc, raw = self.release("bump", "--to", "0.5.0")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(self.read("pkg.txt"), b"version = 0.5.0\nmin = 0.5.0\n")
+        self.assertEqual(self.release("check")[1]["version"], "0.5.0")
+        self.work = fx.make_repo(self.tmp / "partial", version_files={"VERSION": rx, "pkg.txt": r"^v = (\S+)$",
+                                                                      "*.txt": r"^v = (\d+\.\d+)"})
+        fx.commit(self.work, "pkg", {"pkg.txt": "v = 0.4.2\n"})
+        before = fx.snapshot(self.work)
+        out = self.release("bump", "--to", "0.5.0")
+        self.assertEqual(out[0], 1, out[2])
+        self.assertEqual(out[1]["error"], "version_files_disagree")
+        self.assertEqual(fx.snapshot(self.work), before)
+
     def test_bump_refuses_when_a_file_does_not_match(self):
         self.repo()
         fx.write(self.work, "README.md", "# Demo\n")
@@ -390,6 +410,23 @@ class TestReleaseCommit(Flow):
 
 
 class TestNotes(Flow):
+    def test_backfill_boundary_counts_origin_only_tags(self):
+        # A fresh clone that never fetched tags: v0.1.0 and v0.4.0 are only on origin. Backfilling 0.3.0 starts its range
+        # at the highest lower tag, 0.1.0, not at the 0.2.0 value just before it.
+        self.repo(version="0.0.9")
+        c1 = fx.squash_merge(self.work, "add-a", "0.1.0", 1)
+        fx.squash_merge(self.work, "add-b", "0.2.0", 2)
+        fx.squash_merge(self.work, "add-c", "0.3.0", 3)
+        c4 = fx.squash_merge(self.work, "add-d", "0.4.0", 4)
+        fx.push(self.work)
+        for name, at in (("v0.1.0", c1), ("v0.4.0", c4)):
+            fx.git(self.work, "tag", "-a", name, "-m", name, at)
+            fx.git(self.work, "push", "-q", "origin", f"refs/tags/{name}:refs/tags/{name}")
+            fx.git(self.work, "tag", "-d", name)
+        doc = self.status("0.3.0")
+        self.assertEqual((doc["previous"]["version"], doc["previous"]["basis"]), ("0.1.0", "tag"))
+        self.assertEqual([c["name"] for c in doc["changes"]], ["add-b", "add-c"])
+
     def test_one_change(self):
         self.repo(version="0.4.1")
         fx.squash_merge(self.work, "add-x", "0.4.2", 90, why="Operators cannot tell which build they run. More detail.")

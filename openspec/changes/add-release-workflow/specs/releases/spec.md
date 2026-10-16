@@ -104,7 +104,7 @@ Publish SHALL stop before any write, naming the commit, when V's release commit 
 - **THEN** bump and publish exit non-zero naming both settings, and no file or tag is written
 
 ### Requirement: Notes list the changes merged since the previous release
-Notes for V SHALL list every change whose merge lands after the previous release commit and up to V's release commit, each with its change name, the first sentence of its archived proposal's Why, and its PR number when main's commit subject names one. The previous release commit SHALL be the release commit of the highest lower version whose tag exists, else the first-parent commit where the primary version file took the value before V.
+Notes for V SHALL list every change whose merge lands after the previous release commit and up to V's release commit, each with its change name, the first sentence of its archived proposal's Why, and its PR number when main's commit subject names one. The previous release commit SHALL be the release commit of the highest lower version whose tag exists locally or on origin, else the first-parent commit where the primary version file took the value before V.
 
 #### Scenario: One change in the range
 - **WHEN** publish runs for 0.4.2 and only `2026-10-15-pin-openspec-version` was archived between the 0.4.1 and 0.4.2 release commits
@@ -117,6 +117,10 @@ Notes for V SHALL list every change whose merge lands after the previous release
 #### Scenario: No change in the range
 - **WHEN** the range holds no archived change (only a roadmap `docs/close-*` merge)
 - **THEN** the notes say no change was archived in this release and publish continues
+
+#### Scenario: Backfill in a clone without the tags
+- **WHEN** `v0.1.0` and `v0.4.0` exist only on origin (the clone never fetched tags) and publish runs for 0.3.0
+- **THEN** the range starts at 0.1.0's release commit, and the notes list the 0.2.0 and 0.3.0 changes
 
 #### Scenario: Backfill with no earlier tag
 - **WHEN** no tag exists and publish runs for 0.4.1
