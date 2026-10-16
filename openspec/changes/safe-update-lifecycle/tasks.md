@@ -140,7 +140,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 6. Install prompt and docs
 
-- [ ] 6.1 Write failing text tests in `evals/git-workflow/test_instructions.py`, class `InstallUpdateLifecycle`, for the six Step 3, Step 4, Step 5, Step 7 and Step 8 rows of the test map, plus:
+- [x] 6.1 Write failing text tests in `evals/git-workflow/test_instructions.py`, class `InstallUpdateLifecycle`, for the six Step 3, Step 4, Step 5, Step 7 and Step 8 rows of the test map, plus:
   - Step 4 runs `update.sh plan`/`stage`/`swap` and acts on refusals;
   - Step 5 runs only for role `none` or `store_written: true`, then `note-config`;
   - Step 7 reports `store config managed by owner <id>` otherwise, and runs `finish` after the stamp.

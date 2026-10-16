@@ -822,5 +822,72 @@ class BranchStoreEvals(unittest.TestCase):
         self.assertIn("Both repos are still on main with only the main branch and no new commit", failed)
 
 
+class InstallLatestTagPredatesScript(unittest.TestCase):
+    """eval-install-latest-tag-predates-script: the highest tag is v0.5.0, so the update stops before staging and offers main."""
+
+    NAME = "eval-install-latest-tag-predates-script"
+    GOOD = ("Stopped before staging: the latest release tag is v0.5.0, and this update needs the minimum release 0.6.0 "
+            "(v0.5.0 has no update script). Shall I install main instead? No file was written.")
+
+    def fixture(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name) / "repo"
+        fixtures.build(self.NAME, repo)
+        return repo
+
+    def results(self, repo, report):
+        return {t: ok for t, ok, _ in grade.check_install(self.NAME, repo, repo / "code", repo / "store", report.lower())}
+
+    def assertions(self):
+        evals = json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]
+        return next(e["assertions"] for e in evals if e["name"] == self.NAME)
+
+    def failed(self, res):
+        return sorted(t for t, ok in res.items() if not ok)
+
+    def test_fixture_source_has_only_the_old_tag(self):
+        repo = self.fixture()
+        src = repo / "specwright-src"
+        self.assertEqual(grade.git(src, "tag", "--list").split(), ["v0.5.0"])
+        self.assertIsNone(grade.git(src, "cat-file", "-e", "v0.5.0:scripts/update.sh"))
+        self.assertIsNotNone(grade.git(src, "cat-file", "-e", "main:scripts/update.sh"))
+        self.assertEqual(grade.git(src, "show", "v0.5.0:VERSION").strip(), "0.5.0")
+
+    def test_stop_that_writes_nothing_passes_every_check(self):
+        res = self.results(self.fixture(), self.GOOD)
+        self.assertEqual(sorted(res), sorted(self.assertions()))
+        self.assertEqual(self.failed(res), [])
+
+    def test_install_of_the_old_tag_fails(self):
+        repo = self.fixture()
+        fixtures.write(repo / "code", ".claude/skills/specwright-commit/SKILL.md", "x\n")
+        fixtures.write(repo / "code", "openspec/.specwright/VERSION", "0.5.0\n")
+        res = self.results(repo, "Installation complete. Specwright v0.5.0 installed.")
+        for t in ("No skill, agent, schema or specwright.yaml was written in either repo, and both trees are unchanged",
+                  "openspec/.specwright/VERSION is absent", "The report does not say the install completed"):
+            self.assertIn(t, self.failed(res))
+
+    def test_staging_left_behind_fails(self):
+        repo = self.fixture()
+        fixtures.write(repo / "code", ".claude/.specwright-update-skills/new/x.md", "x\n")
+        res = self.results(repo, self.GOOD)
+        self.assertIn("No staging directory (.specwright-update-*) exists in either repo", self.failed(res))
+
+    def test_report_without_the_tag_the_minimum_or_the_main_offer_fails(self):
+        repo = self.fixture()
+        res = self.results(repo, "Cannot install: the update script is missing. Nothing was written.")
+        self.assertEqual(self.failed(res), ["The report names the latest tag v0.5.0 and the minimum release 0.6.0",
+                                           "The report offers to install main"])
+        res = self.results(repo, "Latest tag v0.5.0 is below the minimum release 0.6.0. I will install main now.")
+        self.assertEqual(self.failed(res), ["The report offers to install main"])
+
+    def test_source_repo_changed_fails(self):
+        repo = self.fixture()
+        fixtures.git(repo / "specwright-src", "tag", "v0.6.0", "main")
+        self.assertEqual(self.failed(self.results(repo, self.GOOD)),
+                         ["The Specwright source repo is unchanged: its only tag is still v0.5.0 and its tree is clean"])
+
+
 if __name__ == "__main__":
     unittest.main()

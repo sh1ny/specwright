@@ -1151,6 +1151,25 @@ def openspec_in(cwd, *args, xdg=None):
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
+def check_stale_tag(repo, code, store, rep):
+    """eval-install-latest-tag-predates-script: the Specwright source repo (<run>/specwright-src) has only the tag v0.5.0, so the
+    install stops before staging, names the tag and the minimum release 0.6.0 and offers main. The shared install checks
+    cover the project; these cover the staging, the source and the report."""
+    R = []
+    staged = [p.relative_to(r).as_posix() for r in (code, store) if r.is_dir() for p in r.rglob(".specwright-update-*")]
+    R.append(("No staging directory (.specwright-update-*) exists in either repo", not staged, f"staging={staged}"))
+    src = repo / "specwright-src"
+    tags = (git(src, "tag", "--list") or "").split()
+    R.append(("The Specwright source repo is unchanged: its only tag is still v0.5.0 and its tree is clean",
+              tags == ["v0.5.0"] and not status_of(src), f"tags={tags} status={status_of(src)}"))
+    named = [x for x in ("v0.5.0", "0.6.0") if x not in rep]
+    R.append(("The report names the latest tag v0.5.0 and the minimum release 0.6.0", bool(rep) and not named, f"missing={named}"))
+    offer = [x for x in sentences(rep) if re.search(r"\bmain\b", x)
+             and re.search(r"\?|offer|would you|do you want|shall i|want me|let me know|if you (want|like|prefer)|say the word", x)]
+    R.append(("The report offers to install main", bool(offer), f"matching sentences={offer[:2]}"))
+    return R
+
+
 def check_install(name, repo, code, store, rep):
     """Install evals: the README install prompt runs in a code repo whose planning root is a registered store
     (the store repo's top level, or planning/ inside it). Schema and config.yaml belong under <root.path>/openspec/;
@@ -1158,7 +1177,8 @@ def check_install(name, repo, code, store, rep):
     R = []
     nested = name == "eval-install-nested-store"
     other = name == "eval-install-store-other-schema"
-    refused = name == "eval-install-openspec-mismatch"  # the fake openspec reports 1.15.0 against the 1.14.1 pin
+    stale_tag = name == "eval-install-latest-tag-predates-script"  # the highest release tag is v0.5.0, below the minimum release 0.6.0
+    refused = name == "eval-install-openspec-mismatch" or stale_tag  # the fake openspec reports 1.15.0 against the 1.14.1 pin
     root = store / "planning" if nested else store
     rel = "planning/openspec/" if nested else "openspec/"
     cfg_p = root / "openspec" / "config.yaml"
@@ -1178,8 +1198,11 @@ def check_install(name, repo, code, store, rep):
                   f"written={written} code status={status_of(code)} store status={status_of(store)}"))
         stamp = code / "openspec/.specwright/VERSION"
         R.append(("openspec/.specwright/VERSION is absent", not stamp.exists(), f"exists={stamp.exists()}"))
-        named = [x for x in ("1.15.0", "1.14.1", "npm i -g @fission-ai/openspec@1.14.1") if x not in rep]
-        R.append(("The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1", bool(rep) and not named, f"missing={named}"))
+        if stale_tag:
+            R.extend(check_stale_tag(repo, code, store, rep))
+        else:
+            named = [x for x in ("1.15.0", "1.14.1", "npm i -g @fission-ai/openspec@1.14.1") if x not in rep]
+            R.append(("The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1", bool(rep) and not named, f"missing={named}"))
         claims = [x for x in sentences(rep)
                   if re.search(r"install(ation)? (is |was )?(complete|done|finished|successful)|successfully installed|specwright (is )?installed", x)
                   and not re.search(NEGATION, x)]

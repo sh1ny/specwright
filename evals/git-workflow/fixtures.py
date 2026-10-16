@@ -895,6 +895,26 @@ def install_base(dest, kind):
     env_file(dest)
 
 
+def specwright_source(dest):
+    """<dest>/specwright-src stands in for the Specwright repository: its only release tag is v0.5.0, whose tree has no
+    scripts/update.sh, and main is one commit ahead (VERSION 0.6.0, with the update script). An install prompt that picks the
+    latest release tag therefore finds one below its minimum release (0.6.0)."""
+    src = dest / "specwright-src"
+    init(src)
+    write(src, "VERSION", "0.5.0\n")
+    write(src, "OPENSPEC_VERSION", "1.14.1\n")
+    write(src, "skills/specwright-commit/SKILL.md", "---\nname: specwright-commit\n---\nCommit each task.\n")
+    shutil.copytree(ROOT / "schemas" / "specwright", src / "schemas" / "specwright")
+    shutil.copytree(ROOT / "templates" / "openspec", src / "templates" / "openspec")
+    git(src, "add", "-A")
+    git(src, "commit", "-q", "-m", "chore: release 0.5.0")
+    git(src, "tag", "-a", "v0.5.0", "-m", "v0.5.0")
+    write(src, "VERSION", "0.6.0\n")
+    write(src, "scripts/update.sh", "#!/usr/bin/env bash\necho '{\"ok\": true, \"interface\": 1}'\n")
+    git(src, "add", "-A")
+    git(src, "commit", "-q", "-m", "feat: update script")
+
+
 def references_base(dest, registered=True, ref_id="team-plans"):
     """<dest>/code keeps its own openspec/ root (schema, specs, config.yaml with `references: [team-plans]`),
     so planning is repo-local; <dest>/team-plans is the referenced store: a git repo holding a shared spec,
@@ -1276,6 +1296,9 @@ def build(name, repo):
     if name in ("eval-install-openspec-mismatch", "eval-install-openspec-override"):
         install_base(repo, "store")
         return install_fake_openspec(repo, "1.15.0")
+    if name == "eval-install-latest-tag-predates-script":
+        install_base(repo, "store")
+        return specwright_source(repo)
     if name.startswith("eval-install-"):
         return install_base(repo, {"eval-install-store": "store", "eval-install-store-other-schema": "other-schema",
                                    "eval-install-nested-store": "nested"}[name])

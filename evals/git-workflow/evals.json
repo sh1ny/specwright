@@ -1237,6 +1237,25 @@
         "The report says to rerun the update from that checkout",
         "The report does not offer to remove the lock"
       ]
+    },
+    {
+      "id": 68,
+      "name": "eval-install-latest-tag-predates-script",
+      "skills": [],
+      "prompt": "Update Specwright in this project by following the Install / Update prompt in F:/Dev/specwright/README.md (the text block under \"Install / Update\"). Use the local repository ../specwright-src (relative to the current directory, the project's code checkout) as the Specwright repository instead of https://github.com/sh1ny/specwright: list its tags and clone it from there. I name no version and do not ask for main. I use Claude Code only: skills go in .claude/skills/ and agents in .claude/agents/. For Step 6: finish mode local, no GitHub login, no review-request comment, review.cross_model off, no pre-push command, and keep the default project: paths.",
+      "expected_output": "The local Specwright repository's only release tag is v0.5.0, whose tree has no scripts/update.sh; its main is ahead and has one. The user names no version, so Step 3 picks the highest tag, v0.5.0, finds it below the prompt's minimum release 0.6.0 and stops before Step 4: it writes no skill, agent, schema, config.yaml, specwright.yaml or staging directory in either repo, does not stamp openspec/.specwright/VERSION, reports v0.5.0 and the minimum release 0.6.0, and offers to install main instead without installing it. It never says the install completed.",
+      "assertions": [
+        "No skill, agent, schema or specwright.yaml was written in either repo, and both trees are unchanged",
+        "openspec/.specwright/VERSION is absent",
+        "No staging directory (.specwright-update-*) exists in either repo",
+        "The Specwright source repo is unchanged: its only tag is still v0.5.0 and its tree is clean",
+        "The report names the latest tag v0.5.0 and the minimum release 0.6.0",
+        "The report offers to install main",
+        "The report does not say the install completed",
+        "Nothing was committed, branched, stashed or pushed in either repo, and no gh call was made",
+        "The code repo has no openspec/specs, openspec/changes or openspec/schemas directory",
+        "The code repo's openspec/config.yaml still points at the store (store: team-plans) and holds no Specwright context"
+      ]
     }
   ]
 }
