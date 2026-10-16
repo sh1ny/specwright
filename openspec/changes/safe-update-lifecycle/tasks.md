@@ -128,7 +128,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - `TestStoreInterrupt.test_kill_after_lock_before_rename_discards_and_releases`.
 
   Verify that they fail.
-- [ ] 5.2 Implement D5:
+- [x] 5.2 Implement D5:
   - roles `none|claim|owner|other` from `STORE` and the normalised `origin` id;
   - code-side-only staging for `other`, and the version refusal naming the highest matching tag (from `git ls-remote --tags` on the download's origin);
   - in `swap`: the token in the journal, then `mkdir` of `specwright-gate.lock`, then the `owner` file;
