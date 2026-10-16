@@ -319,6 +319,10 @@ class Settings:
             raise Stop("no_version_files", "release.version_files must map each path or glob to a regular expression")
         out = []
         for path, rx in vf.items():
+            parts = str(path).replace("\\", "/").split("/")
+            if os.path.isabs(str(path)) or parts[0] == "" or re.match(r"^[A-Za-z]:", str(path)) or ".." in parts:
+                raise Stop("bad_version_files", f"release.version_files entry '{path}' must be a relative path inside the "
+                           "repository (not absolute, no '..')")
             if not isinstance(rx, str) or not rx:
                 raise Stop("bad_version_files", f"release.version_files entry '{path}' needs a regular expression")
             try:
@@ -362,6 +366,14 @@ def has_glob(p):
     return any(ch in p for ch in "*?[")
 
 
+def inside(root, path):
+    """True when the resolved `path` lies under the resolved `root` (another drive is outside)."""
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:
+        return False
+
+
 class WorkTree:
     label = "the working tree"
 
@@ -373,6 +385,11 @@ class WorkTree:
             hits = globmod.glob(os.path.join(globmod.escape(self.root), pattern), recursive=True)
         else:
             hits = [os.path.join(self.root, pattern)]
+        real = os.path.realpath(self.root)
+        for h in hits:
+            if os.path.isfile(h) and not inside(real, os.path.realpath(h)):
+                raise Stop("bad_version_files", f"release.version_files entry '{pattern}' reaches "
+                           f"{os.path.relpath(h, self.root).replace(os.sep, '/')} through a symlink outside the repository")
         return sorted({os.path.relpath(h, self.root).replace(os.sep, "/") for h in hits if os.path.isfile(h)})
 
     def read_all(self, paths):
@@ -599,7 +616,8 @@ def ref_exists(root, ref):
 def primary_history(st, entries, ref):
     """The commits on `ref`'s first-parent history that touch the primary file, oldest first, as [(sha, value)]. The value is
     the one version the primary file reads there (every match of every file the entry names), None when it reads none or
-    several. One `git log` and one `cat-file --batch` for a literal path."""
+    several. One `git log` and one `cat-file --batch`; for a glob the log's first-parent name-status tracks which matching
+    files exist at each commit."""
     path, _, c = entries[0]
     spec = f":(glob){path}" if has_glob(path) else f":(literal){path}"
     r = git(st.root, "log", "--first-parent", "--format=%H", "--reverse", ref, "--", spec)
@@ -608,11 +626,26 @@ def primary_history(st, entries, ref):
     shas = text_of(r).split()
     texts = []
     if has_glob(path):
-        for sha in shas:
-            tree = CommitTree(st.root, sha)
-            fs = tree.files(path)
-            data = tree.read_all(fs) if fs else {}
-            texts.append([decode(data[f]) for f in fs])
+        r = git(st.root, "log", "-z", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--name-status",
+                "--format=%x01%H", "--reverse", ref, "--", spec)
+        if r.returncode != 0:
+            raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
+        rx, present, per_sha, sha = glob_regex(path), set(), {}, None
+        tokens = iter(r.stdout.decode("utf-8", "surrogateescape").split("\0"))
+        for tok in tokens:
+            if tok.startswith("\x01"):
+                if sha is not None:
+                    per_sha[sha] = sorted(present)
+                sha = tok[1:]
+            elif tok.strip():
+                name = next(tokens, "")
+                if rx.match(name):
+                    (present.discard if tok.strip() == "D" else present.add)(name)
+        if sha is not None:
+            per_sha[sha] = sorted(present)
+        files = [per_sha.get(s, []) for s in shas]
+        got = iter(cat_batch(st.root, [f"{s}:{f}" for s, fs in zip(shas, files) for f in fs]))
+        texts = [[decode(b) for b in (next(got) for _ in fs) if b is not None] for fs in files]
     else:
         texts = [[decode(b)] if b is not None else [] for b in cat_batch(st.root, [f"{s}:{path}" for s in shas])]
     out = []
@@ -652,6 +685,21 @@ def local_tags(st):
     return set(text_of(r).split()) if r.returncode == 0 else set()
 
 
+def published_tags(st):
+    """The tags that count as published: the ones on origin, or with no origin remote the local ones. A local tag whose push
+    failed is not published, so `untagged` still lists it and publish of a newer version waits for it. Exit 3 when origin
+    cannot be read."""
+    if origin_url(st) is None:
+        return local_tags(st)
+    r = git(st.root, "ls-remote", "--tags", "--refs", "origin")
+    if r.returncode != 0:
+        shown = "git ls-remote --tags --refs origin"
+        raise Stop("remote_tags_unreadable", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; no tag was written",
+                   code=3, call=shown)
+    return {name[len("refs/tags/"):] for name in (l.partition("\t")[2] for l in text_of(r).splitlines())
+            if name.startswith("refs/tags/")}
+
+
 def tag_for(st, version):
     return st.tag.replace("{version}", version)
 
@@ -668,13 +716,17 @@ def previous_release(st, rel, version, tags):
     return (b, rel.first[b], "history") if b is not None else None
 
 
-def untagged_since_latest(st, rel, tags):
+def untagged_since_latest(st, rel, tags, local=frozenset()):
     """Versions after the latest tagged one (highest semver with a tag) in first-appearance order that have no tag; with no tag
-    at all, only the current version. Returns (versions, latest tagged version or None)."""
+    at all, only the current version. Every version whose tag is in `local` but not in `tags` (a tag push that failed) is
+    listed too, whatever the anchor. Returns (versions, latest tagged version or None)."""
     latest = max((v for v in rel.order if sv(v) and tag_for(st, v) in tags), key=sv, default=None)
     if latest is None:
-        return ([rel.current] if rel.current is not None else []), None
-    return [v for v in rel.order[rel.order.index(latest) + 1:] if sv(v) and tag_for(st, v) not in tags], latest
+        want = {rel.current} if rel.current is not None else set()
+    else:
+        want = {v for v in rel.order[rel.order.index(latest) + 1:] if sv(v)}
+    want |= {v for v in rel.order if sv(v) and tag_for(st, v) in local}
+    return [v for v in rel.order if v in want and tag_for(st, v) not in tags], latest
 
 
 SUBJECT_PR = re.compile(r"\(#(\d+)\)\s*$|^Merge pull request #(\d+)\b")
@@ -890,6 +942,18 @@ def is_ancestor(root, sha, tip):
     return git(root, "merge-base", "--is-ancestor", sha, tip).returncode == 0
 
 
+BRANCH_PREFIXES = {"feat": ("add", "feat", "feature", "implement", "introduce"),
+                   "bugfix": ("fix", "bugfix", "hotfix", "patch", "resolve"),
+                   "refactor": ("refactor", "restructure", "cleanup"), "docs": ("docs", "doc", "document"),
+                   "chore": ("chore", "bump", "deps", "ci", "build")}
+
+
+def branch_prefix(change):
+    """The change branch's prefix from the name's first token, as specwright-branch derives it (anything else: feat)."""
+    first = change.split("-", 1)[0].lower()
+    return next((p for p, words in BRANCH_PREFIXES.items() if first in words), "feat")
+
+
 def store_changes(st, a, prev, rel, rng):
     """D5: archive directories on the store's main (not planning-only) whose code-merge proof lies in the code range.
     Returns (entries [(dirname, pr)], store commit, prefix, info)."""
@@ -914,7 +978,7 @@ def store_changes(st, a, prev, rel, rng):
             if not p.get("merged_at") or not sha or repo.lower() != slug.lower() or "/" not in ref:
                 continue
             name = ref.rsplit("/", 1)[1]
-            if name not in cands or any(f[1] == cands[name] for f in found):
+            if name not in cands or ref != f"{branch_prefix(name)}/{name}" or any(f[1] == cands[name] for f in found):
                 continue
             if is_ancestor(st.root, sha, rel) and not (prev and is_ancestor(st.root, sha, prev)):
                 found.append((pos.get(sha, len(pos)), cands[name], p.get("number")))
@@ -956,10 +1020,10 @@ def release_commit_of(st, entries, ref, rel, v):
 
 
 def refuse_older_untagged(st, rel, tags, v):
-    older = [u for u in untagged_since_latest(st, rel, tags)[0] if sv(v) and sv(u) and sv(u) < sv(v)]
+    older = [u for u in untagged_since_latest(st, rel, tags, local_tags(st))[0] if sv(v) and sv(u) and sv(u) < sv(v)]
     if older:
         names = ", ".join(older)
-        raise Stop("older_untagged", f"older version(s) without a tag: {names}; publish {older[0]} "
+        raise Stop("older_untagged", f"older version(s) not published (no tag on origin): {names}; publish {older[0]} "
                    f"(tag {tag_for(st, older[0])}) before {v}", versions=older)
 
 
@@ -969,10 +1033,10 @@ def origin_url(st):
 
 
 def remote_tag(st, tag):
-    """The commit `tag` points at on origin (the peeled commit of an annotated tag), or None; exit 3 when origin cannot be read.
-    With no origin remote there is nothing to read: None."""
+    """(commit, annotated) for `tag` on origin: the peeled commit of an annotated tag (annotated True), or the commit of a
+    lightweight one (False); (None, None) when absent or with no origin remote. Exit 3 when origin cannot be read."""
     if origin_url(st) is None:
-        return None
+        return None, None
     r = git(st.root, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
     if r.returncode != 0:
         shown = f"git ls-remote --tags origin refs/tags/{tag}"
@@ -985,7 +1049,7 @@ def remote_tag(st, tag):
             obj = sha
         elif name == f"refs/tags/{tag}^{{}}":
             peeled = sha
-    return (peeled or obj) if obj else None
+    return ((peeled or obj), peeled is not None) if obj else (None, None)
 
 
 def status_doc(st, a, loaded=None, release=True):
@@ -1015,11 +1079,17 @@ def status_doc(st, a, loaded=None, release=True):
         c["why"] = None
     tag = tag_for(st, v)
     tl = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
+    remote, remote_annotated = remote_tag(st, tag)
+    lightweight = []
+    if tl.returncode == 0 and text_of(git(st.root, "cat-file", "-t", f"refs/tags/{tag}")) != "tag":
+        lightweight.append("locally")
+    if remote and not remote_annotated:
+        lightweight.append("on origin")
     return {"ok": True, "version": v, "tag": tag, "release_commit": sha, "main": ref, "files": files,
             "previous": {"commit": prev_sha, "version": prev[0] if prev else None, "basis": prev[2] if prev else None},
             "range": {"from": prev_sha, "to": sha, "commits": len(rng)},
             "changes": changes, "notes": build_notes(tag, changes),
-            "tag_local": text_of(tl) if tl.returncode == 0 else None, "tag_remote": remote_tag(st, tag),
+            "tag_local": text_of(tl) if tl.returncode == 0 else None, "tag_remote": remote, "tag_lightweight": lightweight,
             **({"github_release": release_state(st, tag)[0]} if release else {}), "repo": st.root, "tag_repo": st.root, **({"store": info} if info else {})}
 
 
@@ -1029,8 +1099,8 @@ def cmd_status(st, a):
 
 def cmd_untagged(st, a):
     entries, ref, rel = load_main(st, a)
-    tags = local_tags(st)
-    versions, latest = untagged_since_latest(st, rel, tags)
+    tags = published_tags(st)
+    versions, latest = untagged_since_latest(st, rel, tags, local_tags(st))
     return {"ok": True, "main": ref, "latest_tagged": latest,
             "untagged": [{"version": u, "tag": tag_for(st, u), "release_commit": rel.first[u]} for u in versions]}
 
@@ -1100,7 +1170,7 @@ def cmd_publish(st, a):
     loaded = load_main(st, a)
     entries, ref, rel = loaded
     release_commit_of(st, entries, ref, rel, v)
-    refuse_older_untagged(st, rel, local_tags(st), v)
+    refuse_older_untagged(st, rel, published_tags(st), v)
     doc = status_doc(st, {**a, "_cmd": "publish"}, loaded, release=False)  # agreement at the release commit, notes, local and remote tag
     tag, sha, notes = doc["tag"], doc["release_commit"], doc["notes"]
     if origin_url(st) is None:
@@ -1111,6 +1181,11 @@ def cmd_publish(st, a):
             raise Stop("tag_conflict", f"tag {tag} already points at {at} {where}, but the release commit for {v} is {sha}; "
                        "nothing was written. Fix the tag by hand: publish never moves, deletes or forces a tag",
                        tag=tag, tag_commit=at, release_commit=sha, where=where)
+    if doc["tag_lightweight"]:
+        where = " and ".join(doc["tag_lightweight"])
+        raise Stop("lightweight_tag", f"tag {tag} exists {where} as a lightweight tag at the release commit; a release is an "
+                   "annotated tag, and nothing was written. Replace it by hand: publish never moves, deletes or forces a tag",
+                   tag=tag, where=doc["tag_lightweight"])
     # D6: read each step's state, do only what is missing
     if local:
         tag_local = "existing"

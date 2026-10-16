@@ -32,7 +32,7 @@ A tracked task in the change's last task group, committed by the orchestrator th
 Once the change is on main (callers: `specwright-finish`, `specwright-pr` **watch**, `specwright-roadmap` **close**):
 
 1. Fetch main and tags fenced when origin is on github.com (`bash <specwright-pr>/scripts/as.sh <run login> git fetch origin <main> --tags`), else plain `git fetch`. Pass `--main origin/<main>` after a fetch, `--main <main>` otherwise.
-2. `bash scripts/release.sh untagged --main <ref>` lists the versions after the latest tagged one that have no tag, oldest first (no tag at all: only the current version). Publish each oldest first and stop at the first failure.
+2. `bash <specwright-pr>/scripts/as.sh <run login> bash scripts/release.sh untagged --main <ref>` (it reads origin's tags; with no run login, plain `bash scripts/release.sh untagged ...`) lists the versions after the latest published one that are not published, oldest first (none published: only the current version). Published means the tag is on origin (with no origin remote: a local tag); a version whose tag is local but not on origin (a failed push) is always listed, and a re-run pushes it. Publish each oldest first and stop at the first failure.
 3. `bash <specwright-pr>/scripts/as.sh <run login> bash scripts/release.sh publish --version <version> --main <ref>` from the code repo, so every git and `gh` call inherits the fence; with no run login, plain `bash scripts/release.sh publish ...`. It checks the remote, stops on a conflicting tag, creates the annotated tag, pushes only `refs/tags/<tag>` and creates the GitHub release. It is idempotent: a re-run resumes.
 4. Store-backed: add `--store <store toplevel>` (and `--store-main <ref>`, `--store-prefix <P>`) to `status` and `publish`, so the notes come from the store's archive. Only the code repo is tagged.
 
@@ -51,6 +51,8 @@ Show the error and tag nothing more. None is fixed by moving, deleting or forcin
 | 1 | version files disagree | the user fixes them by hand; run `check` |
 | 1 | version not on main | publish after the release commit reaches main |
 | 1 | tag exists at another commit | the user fixes it by hand |
+| 1 | a lightweight tag at the release commit | the user replaces it by hand with an annotated tag, or deletes it |
+| 1 | a `version_files` entry outside the repository | the user fixes `release.version_files` |
 | 1 | an older version is untagged | publish it first (`untagged` lists it) |
 | 3 | network or fence failure | report it; a re-run of publish resumes |
 

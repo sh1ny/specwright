@@ -160,6 +160,55 @@ class TestCheck(Base):
         self.repo(version_files={"VERSION": r"^(\d+\.\d+\.\d+)$", "pkg/*/VERSION": r"^(\d+\.\d+\.\d+)$"})
         self.assertStops(self.release("check"), "pkg/*/VERSION")
 
+    def test_paths_outside_the_repo_refused(self):
+        outside = self.tmp / "outside.txt"
+        outside.write_text("0.4.2\n", encoding="utf-8")
+        for i, entry in enumerate(("../outside.txt", outside.as_posix(), "skills/../../outside.txt", "/etc/VERSION")):
+            with self.subTest(entry=entry):
+                self.work = fx.make_repo(self.tmp / str(i), version_files={"VERSION": r"^(\d+\.\d+\.\d+)$",
+                                                                          entry: r"^(\d+\.\d+\.\d+)$"})
+                for sub in (["check"], ["bump", "--to", "0.5.0"]):
+                    out = self.release(*sub)
+                    self.assertStops(out, entry, "inside the repository")
+                    self.assertEqual(out[1]["error"], "bad_version_files")
+                self.assertEqual(outside.read_text(encoding="utf-8"), "0.4.2\n")
+                self.assertEqual(fx.git(self.work, "status", "--porcelain"), "")
+
+    def test_symlinked_directory_outside_refused(self):
+        outside = self.tmp / "elsewhere"
+        outside.mkdir()
+        (outside / "SKILL.md").write_text(fx.skill_text("x", "0.4.2"), encoding="utf-8")
+        self.repo()
+        try:
+            os.symlink(outside, self.work / "skills" / "linked", target_is_directory=True)
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"no symlinks here: {e}")
+        for sub in (["check"], ["bump", "--to", "0.5.0"]):
+            out = self.release(*sub)
+            self.assertStops(out, "skills/linked/SKILL.md", "outside the repository")
+            self.assertEqual(out[1]["error"], "bad_version_files")
+        self.assertEqual((outside / "SKILL.md").read_text(encoding="utf-8"), fx.skill_text("x", "0.4.2"))
+
+    def test_glob_primary_reads_every_file_present(self):
+        # The primary glob reads every matching file at each commit, not only the ones the commit changed.
+        self.repo(version="0.4.0", version_files={"skills/*/SKILL.md": r"^  version: (\S+)$",
+                                                  "VERSION": r"^(\d+\.\d+\.\d+)$"})
+        c1 = fx.squash_merge(self.work, "add-a", "0.4.1", 1)
+        fx.git(self.work, "rm", "-q", "skills/specwright-debug/SKILL.md")
+        fx.commit(self.work, "chore: drop debug (#2)")
+        c3 = fx.squash_merge(self.work, "add-b", "0.5.0", 3)
+        fx.commit(self.work, "chore: add stale (#4)", {"skills/specwright-new/SKILL.md": fx.skill_text("specwright-new", "0.4.9")})
+        fx.set_version(self.work, "0.6.0", skills=("specwright-pr",))
+        fx.commit(self.work, "feat: half bump (#5)")  # pr reads 0.6.0, new still 0.4.9: no single version
+        self.assertEqual(self.release("status", "--version", "0.4.1")[1]["release_commit"], c1)
+        self.assertEqual(self.release("status", "--version", "0.5.0")[1]["release_commit"], c3)
+        out = self.release("status", "--version", "0.6.0")
+        self.assertStops(out, "0.6.0")
+        self.assertEqual(out[1]["error"], "no_release_commit")
+        code, doc, raw = self.release("untagged")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])
+
 
 class TestBump(Base):
     def read(self, rel):
@@ -379,6 +428,12 @@ class TestNotes(Flow):
 
 
 class TestUntagged(Flow):
+    def tag(self, name, rev="HEAD", push=True):
+        """A published tag reaches origin; push=False leaves it local, as a failed tag push does."""
+        fx.git(self.work, "tag", "-a", name, "-m", name, rev)
+        if push:
+            fx.git(self.work, "push", "-q", "origin", f"refs/tags/{name}:refs/tags/{name}")
+
     def untagged(self, *extra):
         code, doc, raw = self.release("untagged", *extra)
         self.assertEqual(code, 0, raw)
@@ -422,6 +477,49 @@ class TestUntagged(Flow):
         fx.squash_merge(self.work, "a", "0.5.1", 1)
         self.tag("v0.5.1")
         self.assertEqual(self.untagged()["untagged"], [])
+
+    def test_local_only_tag_is_not_published(self):
+        # 0.5.1's tag push failed: the local tag stays, but the version is still offered and blocks 0.6.0.
+        self.repo(version="0.5.0")
+        self.tag("v0.5.0")
+        c1 = fx.squash_merge(self.work, "a", "0.5.1", 1)
+        self.tag("v0.5.1", push=False)
+        fx.squash_merge(self.work, "b", "0.6.0", 2)
+        doc = self.untagged()
+        self.assertEqual([(u["version"], u["release_commit"]) for u in doc["untagged"]][0], ("0.5.1", c1))
+        self.assertEqual(doc["latest_tagged"], "0.5.0")
+        out = self.release("publish", "--version", "0.6.0")
+        self.assertStops(out, "0.5.1")
+        self.assertEqual(out[1]["error"], "older_untagged")
+        self.assertEqual(fx.git(self.tmp / "origin.git", "tag"), "v0.5.0")
+
+    def test_first_release_push_failed(self):
+        # nothing on origin and v0.3.0 only local: 0.3.0 is still listed before 0.3.1, and blocks it
+        self.repo(version="0.3.0")
+        c0 = self.sha()
+        self.tag("v0.3.0", push=False)
+        c1 = fx.squash_merge(self.work, "a", "0.3.1", 1)
+        doc = self.untagged()
+        self.assertEqual([(u["version"], u["release_commit"]) for u in doc["untagged"]], [("0.3.0", c0), ("0.3.1", c1)])
+        self.assertIsNone(doc["latest_tagged"])
+        out = self.release("publish", "--version", "0.3.1")
+        self.assertStops(out, "0.3.0")
+        self.assertEqual(out[1]["error"], "older_untagged")
+        self.assertEqual(fx.git(self.tmp / "origin.git", "tag"), "")
+
+    def test_without_origin_local_tags_count(self):
+        self.repo(version="0.5.0")
+        fx.git(self.work, "remote", "remove", "origin")
+        self.tag("v0.5.0", push=False)
+        fx.squash_merge(self.work, "a", "0.5.1", 1)
+        self.assertEqual([u["version"] for u in self.untagged()["untagged"]], ["0.5.1"])
+
+    def test_origin_unreadable(self):
+        self.repo(version="0.5.0")
+        fx.git(self.work, "config", "remote.origin.url", str(self.tmp / "does-not-exist.git"))
+        code, doc, raw = self.release("untagged")
+        self.assertEqual(code, 3, raw)
+        self.assertEqual(doc["error"], "remote_tags_unreadable")
 
     def test_no_tag_current_only(self):
         self.repo(version="0.2.0")
@@ -490,6 +588,16 @@ class TestStoreNotes(GhFlow):
         code, doc, raw = self.release("status", "--version", version, "--store", str(store), *extra, env=self.env())
         self.assertEqual(code, expect, raw)
         return doc
+
+    def test_other_prefix_is_not_proof(self):
+        # add-x's branch is feat/add-x, so a merged docs/add-x PR is no proof; fix-y's branch is bugfix/fix-y.
+        self.code()
+        store = fx.make_store(self.tmp, [("add-x", "X reason.", False), ("fix-y", "Y reason.", False)])
+        sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        self.pull(90, "add-x", sha, prefix="docs")
+        self.pull(91, "fix-y", sha, prefix="bugfix")
+        doc = self.store_status(store, "0.4.2")
+        self.assertEqual([(c["name"], c["pr"]) for c in doc["changes"]], [("fix-y", 91)])
 
     def test_merged_pr_in_range(self):
         self.code()
@@ -687,6 +795,27 @@ class TestPublish(PubFlow):
                 self.assertEqual(self.remote(), remote_before)
                 self.assertEqual(self.gh_calls(), [])
                 self.assertEqual(self.releases(), {})
+                if local:
+                    fx.git(self.work, "tag", "-d", self.TAG)
+                else:
+                    fx.git(self.bare, "tag", "-d", self.TAG)
+
+    def test_lightweight_tag_stops(self):
+        # a lightweight tag at the release commit, on origin only and then locally only
+        for local in (False, True):
+            with self.subTest(local=local):
+                fx.git(self.work, "tag", self.TAG, self.rc)
+                if not local:
+                    fx.git(self.work, "push", "-q", "origin", f"refs/tags/{self.TAG}:refs/tags/{self.TAG}")
+                    fx.git(self.work, "tag", "-d", self.TAG)
+                tags_before, remote_before = fx.git(self.work, "tag"), self.remote()
+                code, doc, raw = self.publish()
+                self.assertEqual(code, 1, raw)
+                self.assertEqual(doc["error"], "lightweight_tag")
+                self.assertIn("locally" if local else "on origin", doc["message"])
+                self.assertEqual(fx.git(self.work, "tag"), tags_before)
+                self.assertEqual(self.remote(), remote_before)
+                self.assertEqual(self.creates(), [])
                 if local:
                     fx.git(self.work, "tag", "-d", self.TAG)
                 else:

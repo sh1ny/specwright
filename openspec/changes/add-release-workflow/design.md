@@ -63,7 +63,7 @@ See proposal.md for the problem. Facts the approach depends on:
 
 - **Choice:** In a store-backed project:
   - The candidates are archive directories on the store's main, excluding those with `code_changes: none`.
-  - A candidate is in V's range when its proof lies in the code range. In local mode that is a first-parent subject `merge: <change-name>`. In pr mode it is a merged PR from `<owner>/<repo>:<prefix>/<change-name>` whose `merge_commit_sha` is an ancestor of the release commit and not of the previous one. That is one paginated `gh api pulls?state=closed&base=<main>` call through `as.sh`, the discovery roadmap status already uses (`skills/specwright-roadmap/SKILL.md`, store-backed done rule).
+  - A candidate is in V's range when its proof lies in the code range. In local mode that is a first-parent subject `merge: <change-name>`. In pr mode it is a merged PR from `<owner>/<repo>:<prefix>/<change-name>`, the full head ref with `<prefix>` derived from the change name as `specwright-branch` does, whose `merge_commit_sha` is an ancestor of the release commit and not of the previous one. That is one paginated `gh api pulls?state=closed&base=<main>` call through `as.sh`, the discovery roadmap status already uses (`skills/specwright-roadmap/SKILL.md`, store-backed done rule).
   - Only the code repo is tagged.
 - **Rejected:** tagging the store as well, because a store is shared by several projects with independent versions (#36), so one store tag namespace would collide. Also rejected: an archive diff by time on the store, because store and code merges are not ordered.
 - **Reversal cost:** medium. Store tags could be added later without changing code tags.
@@ -71,7 +71,7 @@ See proposal.md for the problem. Facts the approach depends on:
 ### D6: Publish is a sequence of idempotent steps judged by observed state
 
 - **Choice:** Publish reads the state before each step and does only what is missing, in this order:
-  1. **Check.** `git ls-remote --tags origin refs/tags/<tag>` (through `as.sh`) and `git rev-parse <tag>^{commit}`. A tag at another commit, locally or on origin, stops publish (exit 1, both commits named).
+  1. **Check.** `git ls-remote --tags origin refs/tags/<tag>` (through `as.sh`) and `git rev-parse <tag>^{commit}`. A tag at another commit, locally or on origin, stops publish (exit 1, both commits named). So does a lightweight tag at the release commit (locally `git cat-file -t` is not `tag`; on origin `ls-remote` lists no peeled `^{}` line): a release is an annotated tag.
   2. **Local tag.**
      - On origin at the release commit but not local: `git fetch origin refs/tags/<tag>:refs/tags/<tag>` (through `as.sh`). Never create a second tag object.
      - Absent on both: `git tag -a <tag> -F <notes> <release commit>`.
@@ -84,13 +84,13 @@ See proposal.md for the problem. Facts the approach depends on:
 
 ### D7: Version files are a path → regex map read by the existing YAML subset
 
-- **Choice:** `release.version_files` maps a path or glob (Python `glob`, relative to the repo root) to a regex with one capture group, applied with `re.MULTILINE`. Its first key is the primary file. `check` reads every matched file and requires exactly one match per file and one shared value. Which tree it reads depends on the subcommand. `check` and `bump` read the working tree. `status` and `publish` read V's release commit, with the current `version_files`: globs through `git ls-tree -r --name-only <c>`, contents through `git show <c>:<path>`. They stop unless the shared version there is V, so a backfill from a newer checkout checks the old commit's files. `bump` computes every replacement in memory, then writes each file to a temp file and renames it in place. A failure before the first rename changes nothing. A failure between renames (disk error) leaves files that `check` reports as disagreeing, and bump to the same target then completes the rest (renames are per file, and bump accepts files already at the target only when the others are at the current version).
+- **Choice:** `release.version_files` maps a path or glob (Python `glob`, relative to the repo root; an absolute entry, one with a `..` segment, or a working-tree match that resolves through a symlink outside the repository is refused, so bump never writes outside it) to a regex with one capture group, applied with `re.MULTILINE`. Its first key is the primary file. `check` reads every matched file and requires exactly one match per file and one shared value. Which tree it reads depends on the subcommand. `check` and `bump` read the working tree. `status` and `publish` read V's release commit, with the current `version_files`: globs through `git ls-tree -r --name-only <c>` (for the primary file's history, one `git log --name-status` pass tracks the matching files at each commit), contents through `git show <c>:<path>`. They stop unless the shared version there is V, so a backfill from a newer checkout checks the old commit's files. `bump` computes every replacement in memory, then writes each file to a temp file and renames it in place. A failure before the first rename changes nothing. A failure between renames (disk error) leaves files that `check` reports as disagreeing, and bump to the same target then completes the rest (renames are per file, and bump accepts files already at the target only when the others are at the current version).
 - **Rejected:** typed formats (`json:version`, `toml:package.version`, badge), because each format is a parser to maintain. A regex covers all of Specwright's files and the common `package.json` / `Cargo.toml` lines.
 - **Reversal cost:** medium. It is a settings format (Boundaries: a new key keeps a safe default).
 
 ### D8: Offers sit after cleanup and before the roadmap offer; local mode never auto-publishes
 
-- **Choice:** Finish (once the change is on main) and watch (after agent-merge cleanup) run `release.sh untagged` (below). They offer publish for each listed version oldest first, or with `release.auto: true` publish them oldest first and stop at the first failure. Then they make their roadmap offer. Publish of V refuses while a lower version on the `untagged` list is still untagged, so an unpublished version cannot be skipped and have its changes absorbed into a later release's notes. `finish: local` never runs publish itself, because its merge is not pushed (`skills/specwright-finish/SKILL.md:73`). It reports that the version can be published once `main` is pushed. Close lists `release.sh untagged` and offers each version, oldest first.
+- **Choice:** Finish (once the change is on main) and watch (after agent-merge cleanup) run `release.sh untagged` (below). They offer publish for each listed version oldest first, or with `release.auto: true` publish them oldest first and stop at the first failure. Then they make their roadmap offer. Publish of V refuses while a lower version on the `untagged` list is still untagged, so an unpublished version cannot be skipped and have its changes absorbed into a later release's notes. `finish: local` never runs publish itself, because its merge is not pushed (`skills/specwright-finish/SKILL.md:73`). It reports that the version can be published once `main` is pushed. Close lists `release.sh untagged` and offers each version, oldest first. All three run `untagged` fenced with the run login (`[as]`), since it reads origin's tags (ADR 0008).
 - **Rejected:** publishing from inside the merge step, before cleanup, because a cleanup failure (pull refused) would leave a release of a main the checkout cannot see.
 - **Reversal cost:** low.
 
@@ -106,7 +106,7 @@ See proposal.md for the problem. Facts the approach depends on:
   - `check`: version files and the shared version.
   - `bump --to <v>`.
   - `status [--version <v>]`: release commit, range, notes, local, remote and GitHub release state; read-only apart from `ls-remote`.
-  - `untagged`: the versions in the primary file's first-parent history on main, after the latest tagged version, that have no tag, oldest first. With no tag at all, only the current version is listed: the history before a project's first release is backfilled only on request (`publish --version`), never offered.
+  - `untagged`: the versions in the primary file's first-parent history on main, after the latest published version, that are not published, oldest first. Published means the tag is on origin (`git ls-remote --tags --refs origin`; with no origin remote, a local tag). Every version whose tag is local but not on origin (a failed push) is listed too, whatever the anchor and also when nothing is published, so it is still offered and still blocks a newer version. Run it as `[as] bash release.sh untagged ...`. With nothing published, only the current version is listed: the history before a project's first release is backfilled only on request (`publish --version`), never offered.
   - `publish --version <v>`: run as `[as] bash release.sh publish ...` from the code repo, so every git and `gh` call inherits the fence.
 
   `--main <ref>` selects the main ref: the skill passes `origin/<main>` after a fenced fetch when origin is on github.com, else `<main>`. The tagger identity is git's committer identity, and the skill runs publish under the user's commit-identity rules.
@@ -184,7 +184,7 @@ sequenceDiagram
 | Two sessions publish V at once | Both see no tag; one push wins | The loser's push is rejected (tag exists). Its re-check sees the same commit and counts it done; `gh release create` for an existing release fails, then `view` shows it, so it is counted done | yes | Nobody needs to; both report success |
 | Finish/watch offer | `untagged` fails | The offer is skipped with the error; the roadmap offer still follows | yes | The user |
 | Release commit check | The first V commit is a single-parent commit without `(#n)` (rebase merge or direct push), or `pr.merge_method: rebase` with releases on | Exit 1 before any write, naming the commit or the settings; the user tags by hand or changes the method | yes | The user |
-| Publish with an older untagged version | A lower version after the latest tag has no tag | Exit 1 naming it; publish it first | yes | The user |
+| Publish with an older untagged version | A lower version on the `untagged` list (after the latest published tag, or with a local tag not on origin) | Exit 1 naming it; publish it first | yes | The user |
 
 ## Resource Bounds (FULL)
 
@@ -194,17 +194,18 @@ sequenceDiagram
 | Archive set difference | Archive directory count (~11 today) | None | none | Thousands of names fit in memory |
 | `proposal.md` reads | One per change in range | First 64 KB read; Why sentence clipped at 300 characters with `…` | none | Same |
 | Store-backed closed-PR discovery | Paginated, all pages (as roadmap status) | Same unbounded read as #40 | No Specwright deadline (#40) | Slow on large histories; the same gap as #40, not widened |
-| `untagged` versions | Versions since the latest tag | None | none | Small |
+| `untagged` versions | Versions since the latest published tag, plus local-only tags | None | none | Small |
 | Notes size | Clipped per entry; GitHub's 125,000-character release body limit | Over 100 entries: list names only, then `…and N more` | — | Bounded |
 
 ## Flow & State Gaps (FULL)
 
 - **Bump without merge.** Status on main reports the old version as current, and nothing is offered until the merge.
 - **A change that does not bump** (roadmap `docs/` PRs, a forgotten bump). Main's version already has a tag, so nothing is offered. Its archive lands in the next release's range and is listed there.
-- **Two versions merged before either is published.** The release commits are distinct (D3). `untagged` lists both, and publish of the newer one refuses until the older one is tagged (D8), so each version keeps its own notes.
+- **Two versions merged before either is published.** The release commits are distinct (D3). `untagged` lists both, and publish of the newer one refuses until the older one is published (D8), so each version keeps its own notes.
 - **Rebase merge.** Refused (D3).
 - **Backfill order.** Backfill below the latest tag is not blocked. Its range starts at the highest lower tagged version, else the value before V, so 0.4.1 and 0.4.2 get correct notes in either order. They are run oldest first anyway (tasks).
 - **Two changes in flight bumping to the same version.** The second to merge carries no version change on main (the version already reads V), so V's release commit is the first one. The second change lands in the next release's range. The design review of the second change's proposal is where its target version is corrected. Not built: a branch-time check, because a branch cannot see unmerged siblings.
+- **`finish: local` offline.** `untagged` reads origin's tags, so with origin unreachable a local finish cannot list the untagged versions: the offer is skipped with the error (Failure table), as for any `untagged` failure. That is expected; publish needs origin anyway.
 - **Version going backwards on main** (a revert of a bump). The first commit reading V still identifies V's release. A later commit reading V again is ignored, and `untagged` lists versions by first appearance only.
 - **Local main stale.** The skill fetches first (fenced) and passes `origin/<main>`. With no origin, publish refuses at the push step (exit 3), which says no origin.
 - **Store moved during publish.** Store-backed notes read the store's main once per run. A store merge that lands mid-run is picked up by the next release.

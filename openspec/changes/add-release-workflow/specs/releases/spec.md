@@ -17,6 +17,17 @@ Cuts a project's releases from its merged work: one version across the configure
 - **WHEN** `specwright.yaml` has no `release:` block and the user runs publish
 - **THEN** publish exits non-zero with a message naming `release.enabled`, and no tag, commit or GitHub release is created
 
+### Requirement: Version file paths stay inside the repository
+Each `release.version_files` path or glob SHALL be relative and inside the repository: an absolute entry, one with a `..` segment, or a working-tree match that resolves outside the repository (through a symlink) SHALL stop the run before any write, naming it.
+
+#### Scenario: Entry outside the repository
+- **WHEN** `release.version_files` has the entry `../shared/VERSION`
+- **THEN** check and bump exit non-zero naming the entry, and no file inside or outside the repository is changed
+
+#### Scenario: Glob through a symlink outside the repository
+- **WHEN** `skills/linked` is a symlink to a directory outside the repository and `skills/*/SKILL.md` matches a file in it
+- **THEN** check and bump exit non-zero naming that file, and it is unchanged
+
 ### Requirement: Version files agree before any write
 `release.version_files` SHALL map each path or glob to a regular expression with one capture group; its first entry is the primary file. Every matched file SHALL hold exactly one match and all captured versions SHALL be equal, else the run SHALL stop before any write naming each offending file. Bump and check read the working tree; status and publish read V's release commit, with the current `version_files`, and stop unless the shared version there is V.
 
@@ -105,11 +116,15 @@ Notes for V SHALL list every change whose merge lands after the previous release
 - **THEN** the range starts at the commit where `VERSION` first read 0.4.0, and the notes list `fix-m2-gaps` with `#89`
 
 ### Requirement: Store-backed notes use the code-merge proof
-In a store-backed project, a change SHALL be in V's notes when its archive is on the store's main and its code-merge proof (the `merge: <change-name>` subject in local mode; in pr mode the merged PR from `<prefix>/<change-name>` whose merge commit is in the code range) lies in the code range. A planning-only change (`code_changes: none`) SHALL be left out.
+In a store-backed project, a change SHALL be in V's notes when its archive is on the store's main and its code-merge proof (the `merge: <change-name>` subject in local mode; in pr mode the merged PR from the code repo's own `<prefix>/<change-name>` branch, `<prefix>` derived from the change name as `specwright-branch` does, whose merge commit is in the code range) lies in the code range. A planning-only change (`code_changes: none`) SHALL be left out.
 
 #### Scenario: Code PR merged in the range
 - **WHEN** store-backed change `add-x` is archived on the store's main and its code PR from `feat/add-x` merged at a commit in the range
 - **THEN** the notes list `add-x`
+
+#### Scenario: PR from another prefix
+- **WHEN** a merged PR from `docs/add-x` has its merge commit in the range, and `add-x`'s branch is `feat/add-x`
+- **THEN** that PR is not proof, and the notes leave `add-x` out unless `feat/add-x` merged in the range
 
 #### Scenario: Code still pending
 - **WHEN** change `add-y` is archived on the store's main but its code PR is still open
@@ -135,18 +150,26 @@ Publish SHALL create an annotated tag named by `release.tag` (default `v{version
 - **THEN** the code repo has the tag and the store has no new tag
 
 ### Requirement: Older untagged versions are published first
-`release.sh untagged` SHALL list the versions in main's first-parent history of the primary file, after the latest tagged version (with no tag at all: only the current version), that have no tag, oldest first. Publish of V SHALL stop before any write while a version on that list is lower than V, naming it.
+`release.sh untagged` SHALL list the versions in main's first-parent history of the primary file, after the latest published version (with none published: only the current version), that are not published, oldest first. Published means the tag is on `origin` (with no `origin` remote: a local tag). A version with a local tag not on origin SHALL always be listed. Publish of V SHALL stop before any write while a version on that list is lower than V, naming it.
 
 #### Scenario: Older version untagged
 - **WHEN** `v0.4.2` is the latest tag, 0.5.0 has no tag and publish runs for 0.5.1
 - **THEN** publish exits non-zero naming 0.5.0, and `v0.5.1` is not created
+
+#### Scenario: Tag push failed earlier
+- **WHEN** `v0.4.2` is on origin, `v0.5.0` exists locally but not on origin (its push failed), and 0.5.1 is merged
+- **THEN** `untagged` lists 0.5.0, and publish of 0.5.1 exits non-zero naming 0.5.0
+
+#### Scenario: First release's tag push failed
+- **WHEN** origin has no tag, `v0.3.0` exists only locally (its push failed) and 0.3.1 is merged
+- **THEN** `untagged` lists 0.3.0 then 0.3.1, and publish of 0.3.1 exits non-zero naming 0.3.0
 
 #### Scenario: Backfill below the latest tag
 - **WHEN** `v0.5.0` is the only tag and publish runs for 0.4.1
 - **THEN** publish is not blocked, and the notes range starts at the commit where `VERSION` first read 0.4.0
 
 ### Requirement: Re-runs never move a published tag
-Publish SHALL check the tag locally and on origin (`ls-remote`) before writing. A tag that already exists on the release commit SHALL be kept and that step counted done; one on origin but not local SHALL be fetched, never created again. A tag on any other commit SHALL stop publish before any write, naming both commits. Publish SHALL NOT delete, move or force-push a tag.
+Publish SHALL check the tag locally and on origin (`ls-remote`) before writing. A tag that already exists on the release commit SHALL be kept and that step counted done; one on origin but not local SHALL be fetched, never created again. A tag on any other commit SHALL stop publish before any write, naming both commits. A lightweight tag, locally or on origin, SHALL stop publish before any write, naming where it is. Publish SHALL NOT delete, move or force-push a tag.
 
 #### Scenario: Re-run after an interrupted publish
 - **WHEN** `v0.5.0` exists on origin at the release commit but no GitHub release exists
@@ -159,6 +182,10 @@ Publish SHALL check the tag locally and on origin (`ls-remote`) before writing. 
 #### Scenario: Tag on another commit
 - **WHEN** `v0.4.2` exists on origin at a commit other than `4f9b823`
 - **THEN** publish exits non-zero naming both commits, and the tag, its target and the GitHub releases are unchanged
+
+#### Scenario: Lightweight tag
+- **WHEN** `v0.5.0` is on origin at the release commit as a lightweight tag (no `refs/tags/v0.5.0^{}` in `ls-remote`)
+- **THEN** publish exits non-zero saying the tag is lightweight, and writes no tag and no GitHub release
 
 #### Scenario: Remote tags unreadable
 - **WHEN** `git ls-remote --tags origin` fails or the fence refuses it
