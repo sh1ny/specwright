@@ -7,12 +7,12 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | install-update → Update stages the new version before it swaps it in | Update completes | evals/update/test_update.py | TestStage.test_update_completes | green |
-| install-update → Update stages the new version before it swaps it in | Interrupted before the swap | evals/update/test_interrupt.py | TestInterrupt.test_kill_before_swap_leaves_previous_runnable | red |
+| install-update → Update stages the new version before it swaps it in | Interrupted before the swap | evals/update/test_interrupt.py | TestInterrupt.test_kill_before_swap_leaves_previous_runnable | green |
 | install-update → Update stages the new version before it swaps it in | Staged copy fails verification | evals/update/test_update.py | TestStage.test_staged_copy_fails_verification | green |
-| install-update → Interrupted swap resumes or rolls back | Rerun after an interruption before the swap | evals/update/test_update.py | TestRecover.test_rerun_discards_unswapped_staging | red |
-| install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy complete | evals/update/test_interrupt.py | TestInterrupt.test_kill_during_swap_resumes | red |
-| install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy incomplete | evals/update/test_update.py | TestRecover.test_damaged_staging_rolls_back | red |
-| install-update → Interrupted swap resumes or rolls back | Journal from another version | evals/update/test_update.py | TestRecover.test_journal_for_other_version_recovered_first | red |
+| install-update → Interrupted swap resumes or rolls back | Rerun after an interruption before the swap | evals/update/test_update.py | TestRecover.test_rerun_discards_unswapped_staging | green |
+| install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy complete | evals/update/test_interrupt.py | TestInterrupt.test_kill_during_swap_resumes | green |
+| install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy incomplete | evals/update/test_update.py | TestRecover.test_damaged_staging_rolls_back | green |
+| install-update → Interrupted swap resumes or rolls back | Journal from another version | evals/update/test_update.py | TestRecover.test_journal_for_other_version_recovered_first | green |
 | install-update → Update installs a release tag by default | Latest tag | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_installs_latest_tag | red |
 | install-update → Update installs a release tag by default | Named version has no tag | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_named_version_without_tag_stops | red |
 | install-update → Update installs a release tag by default | Named version predates the update script | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_refuses_below_minimum_release | red |
@@ -95,7 +95,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - `TestInterrupt.test_kill_during_swap_resumes`, which kills at every operation of the swap, reruns, and asserts the result is exactly the previous or exactly the new version, with no journal, staging or lock left.
 
   Verify that they fail for the missing `recover`.
-- [ ] 3.2 Implement `recover` (discard / resume / roll back / finish-only, per D3) and call it at the start of `plan` when a journal exists. Report `discarded unfinished update to <to>`, `resumed update to <to>` or `rolled back to <prev>`. Verify that the five tests pass and flip their rows green.
+- [x] 3.2 Implement `recover` (discard / resume / roll back / finish-only, per D3) and call it at the start of `plan` when a journal exists. Report `discarded unfinished update to <to>`, `resumed update to <to>` or `rolled back to <prev>`. Verify that the five tests pass and flip their rows green.
 
 ## 4. Changes in flight
 

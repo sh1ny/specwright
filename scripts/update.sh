@@ -25,7 +25,10 @@
 #            role (none: no store handling yet), targets (every directory or file that stage will replace), orphans
 #            (installed specwright-* names with no downloaded counterpart; never touched), journal (a pending
 #            update.json: {from, to, phase, format} or null), refusals and warnings. Writes nothing outside
-#            <download>/.update-scratch/ (nothing at all today). A refusal is exit 1, error "refused".
+#            <download>/.update-scratch/ (nothing at all today), with one exception: when a journal is pending, plan
+#            first runs recover (below) and adds recovered: {action, message, from, to} to its document; journal then
+#            shows what is left. A journal that is not format 1 is not recovered (plan refuses it as unreadable).
+#            A refusal is exit 1, error "refused".
 #   stage    copies every new skill directory, agent file and the schema into a staging directory beside its target
 #            (D2): <parent>/.specwright-update-<basename>/new/. Agent files carry the user's `model:` line over.
 #            Writes the journal (format 1) first, verifies the staged copy against a SHA-256 manifest and stops with
@@ -37,7 +40,18 @@
 #            the journal and the disk.
 #   finish   once VERSION reads the target version (the prompt's Step 7 stamp): removes old/, the staging directories
 #            and the journal. Rerunning it is safe.
-#   (recover resumes or rolls back a pending journal; it is not part of this script yet.)
+#   recover  decides from the journal and the disk (design D3), and prints action, message, from, to:
+#              - swap not started (no target old-moved or swapped)  -> discarded: staging and journal removed;
+#                message `discarded unfinished update to <to>`
+#              - phase swapped and VERSION already reads <to>        -> finished: staging and journal removed
+#              - every staged file (in new/ or already swapped in) matches the manifest -> resumed: the rest of the
+#                swap runs; message `resumed update to <to>`. The journal stays (phase swapped) for the prompt's
+#                Step 7 stamp and finish, unless the update is not the download's own version (the download's VERSION
+#                differs from <to>) or VERSION already reads <to>: then VERSION is written as <to> and the update is
+#                finished, so that the download's own update can start from it
+#              - otherwise -> rolled back: each old/ is moved back, each swapped-in new copy is removed, staging and
+#                journal removed, VERSION untouched; message `rolled back to <from>`
+#            Also removes a leftover update.json.tmp. With no journal it reports action none. plan calls it first.
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 1, from, to, ref, kind,
 # role, code, root, phase (staging | staged | swapping | swapped), groups, targets (state pending | staged |
 # old-moved | swapped), manifest ({group, path, sha256} for every staged file).
@@ -98,7 +112,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$sub" ] || usage "one subcommand only"; sub=$1; shift ;;
   esac
 done
-[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap or finish"
+[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, finish or recover"
 [ -n "$code" ] || native code "$PWD"
 [ -n "$root" ] || root=$code
 if [ -z "$download" ]; then
@@ -209,9 +223,124 @@ remove_staging() {  # remove every staging directory of the journal (or of the p
   done < <(pyx staging "${PYARGS[@]}")
 }
 
+# --- recover ----------------------------------------------------------------------------------------------------
+# Needs the lock. Every step checks the disk before it acts, and the journal is removed last, so a rerun after a kill
+# during recover decides again from what is left.
+
+REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO=""
+
+recover_cleanup() {  # staging first, journal last
+  remove_staging
+  rm -f "$jtmp"
+  rm -f "$journal"
+}
+
+recover_after() {  # runs after every outcome; a store target and its gate lock are released here (group 5)
+  :
+}
+
+recover_rollback() {
+  local l gid name type dir staging state inst new old tgt
+  load_targets
+  for l in "${TARGETS[@]}"; do
+    IFS='|' read -r gid name type dir staging state inst <<< "$l"
+    new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
+    if [ -e "$old" ]; then  # the old copy was moved aside: put it back, dropping a new copy that was swapped in
+      if [ -e "$tgt" ]; then rm -rf "$tgt" || die rename_failed "could not remove $tgt"; fi
+      mkdir -p "$dir"
+      mv "$old" "$tgt" || die rename_failed "could not move $old back to $tgt (a directory held open by another program?)"
+    elif [ "$inst" = false ] && [ ! -e "$new" ] && [ -e "$tgt" ]; then  # first install: the swapped-in copy goes
+      rm -rf "$tgt" || die rename_failed "could not remove $tgt"
+    fi
+  done
+  recover_cleanup
+}
+
+recover_core() {
+  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO=""
+  if [ ! -f "$journal" ]; then rm -f "$jtmp"; return 0; fi
+  jload
+  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  local phase to from now="" dlv="" l started=0 vrc=0
+  phase=$(jfield phase)
+  case "$phase" in staging|staged|swapping|swapped) ;; *) die journal_unreadable "update.json has phase '$phase'" ;; esac
+  to=$(jfield to) from=$(jfield from)
+  [ "$from" != null ] || from=""
+  [ -n "$to" ] || die journal_unreadable "update.json has no target version"
+  REC_FROM=$from REC_TO=$to
+  [ ! -f "$state_dir/VERSION" ] || read -r now < "$state_dir/VERSION" || true
+  now=${now//$'\r'/}
+  for l in "${JL[@]}"; do
+    case "$l" in '    {"gid": '*'"state": "old-moved"}'*|'    {"gid": '*'"state": "swapped"}'*) started=1; break ;; esac
+  done
+  if [ "$phase" = swapped ] && [ "$now" = "$to" ]; then
+    recover_cleanup
+    REC_ACTION=finished REC_MSG="finished update to $to"
+  elif [ "$started" = 0 ]; then
+    recover_cleanup
+    REC_ACTION=discarded REC_MSG="discarded unfinished update to $to"
+  else
+    pyx verify-swap "${PYARGS[@]}" >/dev/null || vrc=$?
+    if [ "$vrc" = 0 ]; then
+      swap_loop
+      [ ! -f "$download/VERSION" ] || read -r dlv < "$download/VERSION" || true
+      dlv=${dlv//$'\r'/}
+      if [ "$now" = "$to" ] || [ "$dlv" != "$to" ]; then  # nobody will stamp this update: do it here, then finish
+        [ "$now" = "$to" ] || printf '%s\n' "$to" > "$state_dir/VERSION"
+        recover_cleanup
+      fi
+      REC_ACTION=resumed REC_MSG="resumed update to $to"
+    else
+      recover_rollback
+      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}"
+    fi
+  fi
+  recover_after
+}
+
+q() { if [ -n "$1" ]; then printf '"%s"' "$1"; else printf null; fi; }  # a JSON string or null
+
+rec_json() {  # the recovered object: action, message, from, to
+  printf '{"action": "%s", "message": "%s", "from": %s, "to": %s}' "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")"
+}
+
+lock_extra_members() {  # the members of LOCK_EXTRA, for splicing into another object ("" when none)
+  local x=${LOCK_EXTRA#\{}
+  printf '%s' "${x%\}}"
+}
+
+do_recover() {
+  acquire_lock
+  recover_core
+  local now="" lx
+  [ ! -f "$state_dir/VERSION" ] || read -r now < "$state_dir/VERSION" || true
+  now=${now//$'\r'/}
+  lx=$(lock_extra_members)
+  printf '{"ok": true, "interface": 1, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s%s}\n' \
+    "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "${lx:+, $lx}"
+}
+
 # --- subcommands ------------------------------------------------------------------------------------------------
 
-do_plan() { pyx plan "${PYARGS[@]}"; }
+do_plan() {
+  if [ -f "$journal" ]; then
+    jload
+    local ph lx
+    ph=$(jfield phase)
+    if [ "$(jfield format)" = 1 ]; then
+      case "$ph" in
+        staging|staged|swapping|swapped)
+          acquire_lock
+          recover_core
+          release_lock
+          lx=$(lock_extra_members)
+          pyx plan "${PYARGS[@]}" --extra "{\"recovered\": $(rec_json)${lx:+, $lx}}"
+          return 0 ;;
+      esac
+    fi
+  fi
+  pyx plan "${PYARGS[@]}"
+}
 
 do_stage() {
   local out rc=0
@@ -250,35 +379,25 @@ do_stage() {
   pyx report "${PYARGS[@]}" stage --extra "$LOCK_EXTRA"
 }
 
-do_swap() {
-  acquire_lock
-  [ -f "$journal" ] || die no_journal "no staged update is recorded in $journal; run stage first"
-  jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
-  local phase
-  phase=$(jfield phase)
-  case "$phase" in
-    staged|swapping|swapped) ;;
-    *) die not_staged "the recorded update is in phase '$phase', not staged; run recover first" ;;
-  esac
-  if [ "$phase" = staged ]; then
-    local vout vrc=0
-    vout=$(pyx verify "${PYARGS[@]}") || vrc=$?
-    if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
-  fi
-  [ "$phase" = swapped ] || jwrite_phase swapping
-  local l gid name type dir staging state new old tgt
-  local made=" "  # directories already created in this run
+TARGETS=()
+load_targets() {  # fill TARGETS with "gid|name|type|dir|staging|state|installed" from the journal lines in JL
+  local l
   local re='^    \{"gid": "([^"]*)", "name": "([^"]*)", "type": "([^"]*)", "dir": "([^"]*)", "staging": "([^"]*)", "installed": (true|false), "state": "([a-z-]+)"\}'
-  local targets=()
+  TARGETS=()
   for l in "${JL[@]}"; do
     if [[ "$l" == '    {"gid": '* ]]; then
       [[ "$l" =~ $re ]] || die journal_unreadable "update.json has a target line this script cannot read"
-      targets+=("${BASH_REMATCH[1]}|${BASH_REMATCH[2]}|${BASH_REMATCH[3]}|${BASH_REMATCH[4]}|${BASH_REMATCH[5]}|${BASH_REMATCH[7]}")
+      TARGETS+=("${BASH_REMATCH[1]}|${BASH_REMATCH[2]}|${BASH_REMATCH[3]}|${BASH_REMATCH[4]}|${BASH_REMATCH[5]}|${BASH_REMATCH[7]}|${BASH_REMATCH[6]}")
     fi
   done
-  for l in "${targets[@]}"; do
-    IFS='|' read -r gid name type dir staging state <<< "$l"
+}
+
+swap_loop() {  # the renames of every target, from the journal in JL and the disk; ends with phase swapped
+  local l gid name type dir staging state inst new old tgt
+  local made=" "  # directories already created in this run
+  load_targets
+  for l in "${TARGETS[@]}"; do
+    IFS='|' read -r gid name type dir staging state inst <<< "$l"
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
     if [ ! -e "$new" ]; then  # already swapped (a rerun after an interruption)
       [ -e "$tgt" ] || die inconsistent "$name: neither $new nor $tgt exists"
@@ -297,6 +416,26 @@ do_swap() {
     { [ -e "$tgt" ] && [ ! -e "$new" ]; } || die inconsistent "$name: the rename to $tgt did not take effect"
   done
   jwrite_phase swapped
+}
+
+do_swap() {
+  acquire_lock
+  [ -f "$journal" ] || die no_journal "no staged update is recorded in $journal; run stage first"
+  jload
+  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  local phase
+  phase=$(jfield phase)
+  case "$phase" in
+    staged|swapping|swapped) ;;
+    *) die not_staged "the recorded update is in phase '$phase', not staged; run recover first" ;;
+  esac
+  if [ "$phase" = staged ]; then
+    local vout vrc=0
+    vout=$(pyx verify "${PYARGS[@]}") || vrc=$?
+    if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+  fi
+  [ "$phase" = swapped ] || jwrite_phase swapping
+  swap_loop
   pyx report "${PYARGS[@]}" swap --extra "$LOCK_EXTRA"
 }
 
@@ -326,8 +465,8 @@ case "$sub" in
   stage) do_stage ;;
   swap) do_swap ;;
   finish) do_finish ;;
-  recover) die not_implemented "recover is not part of this version of update.sh" ;;
-  *) usage "unknown subcommand $sub (plan, stage, swap, finish)" ;;
+  recover) do_recover ;;
+  *) usage "unknown subcommand $sub (plan, stage, swap, finish, recover)" ;;
 esac
 exit "$?"
 
@@ -525,6 +664,8 @@ def make_plan(o):
 
 def cmd_plan(o, pos):
     doc, _ = make_plan(o)
+    if o.get("extra"):
+        doc.update(json.loads(o["extra"]))
     emit(doc, 0 if doc["ok"] else 1)
 
 
@@ -621,6 +762,30 @@ def cmd_verify(o, pos):
     doc = base_doc(o, False)
     doc.update({"error": "verification_failed", "message": f"the staged copy differs from the download: {names}", "mismatches": mism})
     emit(doc, 1)
+
+
+def cmd_verify_swap(o, pos):
+    """Exit 0 when every staged file matches the manifest, wherever the swap left it (in new/ or already swapped in)."""
+    j = load_journal(o)
+    groups = {g["id"]: g for g in j["groups"]}
+    want = {(m["group"], m["path"]) for m in j["manifest"]}
+    bad = []
+    for m in j["manifest"]:
+        g = groups[m["group"]]
+        top = m["path"].split("/")[0]
+        f = Path(g["staging"]) / "new" / m["path"]
+        if not (Path(g["staging"]) / "new" / top).exists():
+            f = Path(g["dir"]) / m["path"]
+        if not f.is_file() or sha(f.read_bytes()) != m["sha256"]:
+            bad.append(m["path"])
+    for g in j["groups"]:
+        new = Path(g["staging"]) / "new"
+        if new.is_dir():
+            for f in new.rglob("*"):
+                if f.is_file() and (g["id"], f.relative_to(new).as_posix()) not in want:
+                    bad.append(f.relative_to(new).as_posix())
+    print(json.dumps({"ok": not bad, "bad": bad}))
+    sys.exit(1 if bad else 0)
 
 
 def cmd_err(o, pos):
