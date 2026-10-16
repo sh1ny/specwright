@@ -703,5 +703,124 @@ class ReleaseEvals(unittest.TestCase):
         self.assertNotIn("Exactly one merge request was sent, with squash and the ready head", failed)
 
 
+class BranchStoreEvals(unittest.TestCase):
+    """eval-branch-store-*: the store-version gate and the update lock. Simulated runs (a gate that stops leaves the fixture as it
+    was; a gate that continues creates both branches) grade green, and the wrong runs grade red."""
+
+    NAMES = ("eval-branch-store-version-match", "eval-branch-store-version-behind", "eval-branch-store-update-lock")
+    BEHIND = ("Stopped: this project is at 0.5.0 but the store is at 0.6.0, owned by alice-laptop. "
+              "Update this project to 0.6, then rerun the gate. No branch was created.")
+    LOCKED = ("Stopped before touching either repo: an update from C:\\elsewhere\\code holds the store. "
+              "Rerun the update there. I am not offering to remove the lock.")
+
+    def fixture(self, name):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        repo = run_dir / "repo"
+        fixtures.build(name, repo)
+        (run_dir / "outputs").mkdir()
+        return run_dir, repo
+
+    def grade(self, name, run_dir, report):
+        (run_dir / "outputs" / "report.md").write_text(report, encoding="utf-8")
+        return {t: ok for t, ok, _ in grade.check_store(name, run_dir / "repo", run_dir)}
+
+    def failed(self, res):
+        return [t for t, ok in res.items() if not ok]
+
+    def branch_both(self, repo):
+        for r in ("code", "store"):
+            grade.git(repo / r, "checkout", "-q", "-b", "feat/add-csv-export")
+
+    def lock_dir(self, repo):
+        cd = grade.git(repo / "store", "rev-parse", "--path-format=absolute", "--git-common-dir")
+        return Path(cd) / "specwright-gate.lock"
+
+    def test_evals_json_lists_the_graders_assertions(self):
+        evals = {e["name"]: e for e in json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]}
+        for name in self.NAMES:
+            run_dir, _ = self.fixture(name)
+            self.assertEqual(list(self.grade(name, run_dir, "")), evals[name]["assertions"], name)
+            self.assertTrue(evals[name]["prompt"] and evals[name]["expected_output"], name)
+            self.assertEqual(evals[name]["skills"], ["specwright-branch"], name)
+
+    def test_fixtures_record_the_versions_and_the_update_lock(self):
+        _, repo = self.fixture("eval-branch-store-version-match")
+        self.assertEqual((repo / "code/openspec/.specwright/VERSION").read_text(encoding="utf-8").strip(), "0.6.1")
+        self.assertEqual((repo / "store/openspec/.specwright/STORE").read_text(encoding="utf-8"), "version: 0.6.0\nowner: alice-laptop\n")
+        _, repo = self.fixture("eval-branch-store-version-behind")
+        self.assertEqual((repo / "code/openspec/.specwright/VERSION").read_text(encoding="utf-8").strip(), "0.5.0")
+        self.assertEqual(grade.git(repo / "code", "status", "--porcelain"), "")
+        self.assertEqual(grade.git(repo / "store", "status", "--porcelain"), "")
+        _, repo = self.fixture("eval-branch-store-update-lock")
+        owner = (self.lock_dir(repo) / "owner").read_text(encoding="utf-8")
+        self.assertIn("change: specwright-update 0.5.0 -> 0.6.0\n", owner)
+        self.assertIn("code: C:/elsewhere/code\n", owner)
+        self.assertIn("token: ", owner)
+
+    def test_match_with_both_branches_created_passes(self):
+        run_dir, repo = self.fixture("eval-branch-store-version-match")
+        self.branch_both(repo)
+        res = self.grade("eval-branch-store-version-match", run_dir, "On branch feat/add-csv-export in the code repo and the store.")
+        self.assertEqual(self.failed(res), [])
+
+    def test_match_that_stops_on_a_mismatch_fails(self):
+        run_dir, _ = self.fixture("eval-branch-store-version-match")
+        res = self.grade("eval-branch-store-version-match", run_dir, "Version mismatch: update this project.")
+        self.assertIn("Both repos are on feat/add-csv-export, each branch at its repo's main with no new commits", self.failed(res))
+        self.assertIn("The report does not stop on a version mismatch", self.failed(res))
+
+    def test_match_that_leaves_the_lock_fails(self):
+        run_dir, repo = self.fixture("eval-branch-store-version-match")
+        self.branch_both(repo)
+        self.lock_dir(repo).mkdir()
+        self.assertEqual(self.failed(self.grade("eval-branch-store-version-match", run_dir, "ok")),
+                         ["No gate lock is left in the store"])
+
+    def test_behind_stop_with_versions_owner_and_advice_passes(self):
+        run_dir, _ = self.fixture("eval-branch-store-version-behind")
+        self.assertEqual(self.failed(self.grade("eval-branch-store-version-behind", run_dir, self.BEHIND)), [])
+
+    def test_behind_that_created_a_branch_fails(self):
+        run_dir, repo = self.fixture("eval-branch-store-version-behind")
+        self.branch_both(repo)
+        res = self.grade("eval-branch-store-version-behind", run_dir, self.BEHIND)
+        self.assertEqual(self.failed(res), ["Both repos are still on main with only the main branch and no new commit"])
+
+    def test_behind_report_without_the_owner_or_the_advice_fails(self):
+        run_dir, _ = self.fixture("eval-branch-store-version-behind")
+        res = self.grade("eval-branch-store-version-behind", run_dir, "Stopped: project 0.5.0, store 0.6.0.")
+        self.assertEqual(self.failed(res), ["The report names this project's version 0.5.0, the store's version 0.6.0 and the store's owner alice-laptop",
+                                           "The report says to update this project to 0.6"])
+        res = self.grade("eval-branch-store-version-behind", run_dir, "Stopped: 0.5.0 vs 0.6.0 (alice-laptop). The store owner updates it first.")
+        self.assertEqual(self.failed(res), ["The report says to update this project to 0.6"])
+
+    def test_update_lock_stop_passes(self):
+        run_dir, _ = self.fixture("eval-branch-store-update-lock")
+        self.assertEqual(self.failed(self.grade("eval-branch-store-update-lock", run_dir, self.LOCKED)), [])
+
+    def test_update_lock_with_a_removal_offer_fails(self):
+        run_dir, _ = self.fixture("eval-branch-store-update-lock")
+        res = self.grade("eval-branch-store-update-lock", run_dir,
+                         "An update from C:/elsewhere/code holds the store. Rerun the update there, or confirm and I will remove the lock.")
+        self.assertEqual(self.failed(res), ["The report does not offer to remove the lock"])
+
+    def test_update_lock_report_without_the_rerun_or_the_checkout_fails(self):
+        run_dir, _ = self.fixture("eval-branch-store-update-lock")
+        res = self.grade("eval-branch-store-update-lock", run_dir, "The store is locked by another session.")
+        self.assertEqual(self.failed(res), ["The report names the update and its checkout C:/elsewhere/code",
+                                           "The report says to rerun the update from that checkout"])
+
+    def test_update_lock_removed_or_branch_created_fails(self):
+        run_dir, repo = self.fixture("eval-branch-store-update-lock")
+        fixtures.rmtree(self.lock_dir(repo))
+        self.branch_both(repo)
+        failed = self.failed(self.grade("eval-branch-store-update-lock", run_dir, self.LOCKED))
+        self.assertIn("The update's gate lock and its owner file are still there, unchanged", failed)
+        self.assertIn("Both repos are still on main with only the main branch and no new commit", failed)
+
+
 if __name__ == "__main__":
     unittest.main()

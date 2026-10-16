@@ -1113,6 +1113,8 @@ def check_store(name, repo, run):
         R.extend(check_references(name, repo, code, rep))
     elif name.startswith("eval-store-branch-"):
         R.extend(check_store_branch(name, code, store, rep))
+    elif name.startswith("eval-branch-store-"):
+        R.extend(check_branch_store(name, code, store, rep))
     elif name.startswith(("eval-store-finish-", "eval-store-archive-on-main")):
         R.extend(check_store_finish(name, repo, code, store, rep))
     elif name in ("eval-store-ship-push-rejected", "eval-store-ship-code-push-rejected",
@@ -1960,6 +1962,67 @@ def check_store_branch(name, code, store, rep):
             R.append(("The report shows the date the lock was taken", bool(date) and date in rep, f"date={date!r}"))
             hit = re.search(r"confirm|remove the lock|stale", rep)
             R.append(("The report asks the user to confirm before removing the lock", bool(hit), f"match={hit.group(0) if hit else None}"))
+    return R
+
+
+def check_branch_store(name, code, store, rep):
+    """eval-branch-store-*: the change gate's store-version check and the update lock (specwright-branch store steps 1 and 2)."""
+    R = []
+    on = lambda r: git(r, "branch", "--show-current")
+    bs = lambda r: (git(r, "branch", "--format=%(refname:short)") or "").splitlines()
+    cd = git(store, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    lock = Path(cd) / "specwright-gate.lock" if cd else None
+    new = "feat/add-csv-export"
+    dirs = [r / "openspec/changes/add-csv-export" for r in (code, store) if (r / "openspec/changes/add-csv-export").exists()]
+    code_main = ["chore: record install version", INITIAL]
+    store_main = ["chore: record store version", *STORE_MAIN]
+    no_lock = ("No gate lock is left in the store", lock is not None and not lock.exists(), f"lock={lock}")
+    if name == "eval-branch-store-version-match":
+        # project 0.6.1 against store 0.6.0: the same major.minor, so the gate continues
+        tips = [git(r, "rev-parse", new) for r in (code, store)]
+        mtips = [git(r, "rev-parse", "main") for r in (code, store)]
+        R.append(("Both repos are on feat/add-csv-export, each branch at its repo's main with no new commits",
+                  on(code) == on(store) == new and all(tips) and tips == mtips,
+                  f"code={on(code)} store={on(store)} tips={tips} mains={mtips}"))
+        R.append(("Both mains are unchanged",
+                  subjects(code, "main") == code_main and subjects(store, "main") == store_main,
+                  f"code main={subjects(code, 'main')} store main={subjects(store, 'main')}"))
+        R.append(no_lock)
+        stopped = re.search(r"mismatch|behind|update (this project|the store)", rep)
+        R.append(("The report does not stop on a version mismatch", not stopped, f"match={stopped.group(0) if stopped else None}"))
+    elif name == "eval-branch-store-version-behind":
+        # project 0.5.0 against store 0.6.0 owned by alice-laptop: the gate stops before any branch
+        R.append(("Both repos are still on main with only the main branch and no new commit",
+                  on(code) == on(store) == "main" and bs(code) == bs(store) == ["main"]
+                  and subjects(code, "main") == code_main and subjects(store, "main") == store_main,
+                  f"code={on(code)} {bs(code)} store={on(store)} {bs(store)}"))
+        R.append(("No change directory was created in either repo", not dirs, f"dirs={dirs}"))
+        R.append(no_lock)
+        have = [v for v in ("0.5.0", "0.6.0", "alice-laptop") if v in rep]
+        R.append(("The report names this project's version 0.5.0, the store's version 0.6.0 and the store's owner alice-laptop",
+                  len(have) == 3, f"found={have}"))
+        up = re.search(r"update[^.\n]{0,60}(this project|code repo|project)[^.\n]{0,60}0\.6|"
+                       r"(this project|code repo)[^.\n]{0,60}update[^.\n]{0,40}0\.6", rep)
+        R.append(("The report says to update this project to 0.6", bool(up), f"match={up.group(0) if up else None}"))
+    else:  # eval-branch-store-update-lock
+        R.append(("Both repos are still on main with only the main branch and no new commit",
+                  on(code) == on(store) == "main" and bs(code) == bs(store) == ["main"]
+                  and subjects(code, "main") == [INITIAL] and subjects(store, "main") == STORE_MAIN,
+                  f"code={on(code)} {bs(code)} store={on(store)} {bs(store)}"))
+        R.append(("No change directory was created in either repo", not dirs, f"dirs={dirs}"))
+        owner = lock / "owner" if lock else None
+        text = owner.read_text(encoding="utf-8") if owner and owner.is_file() else None
+        R.append(("The update's gate lock and its owner file are still there, unchanged",
+                  text is not None and "change: specwright-update 0.5.0 -> 0.6.0" in text and "code: C:/elsewhere/code" in text,
+                  f"owner={text!r}"))
+        R.append(("The report names the update and its checkout C:/elsewhere/code",
+                  "update" in rep and "c:/elsewhere/code" in rep, f"report excerpt={rep[-200:]!r}"))
+        rerun = re.search(r"re-?run[^.\n]{0,80}update|update[^.\n]{0,80}re-?run|run the update again", rep)
+        R.append(("The report says to rerun the update from that checkout", bool(rerun), f"match={rerun.group(0) if rerun else None}"))
+        offers = [x for x in re.split(r"(?<=[.!?\n])\s+", rep)
+                  if re.search(r"remov|delet|rm -r|clear", x) and re.search(r"lock", x)
+                  and not re.search(r"\bnot\b|n't|\bnever\b|\bno\b|without", x)]
+        R.append(("The report does not offer to remove the lock", not offers, f"offers={offers}"))
     return R
 
 

@@ -293,13 +293,15 @@ def done_pair(dest, t):
     commit_tick(dest / "store", t)
 
 
-def gate_lock(store, when, change="other-change", checkout="C:/elsewhere/code"):
-    """Another session's gate lock in the store's git common dir, taken at `when` (a datetime)."""
+def gate_lock(store, when, change="other-change", checkout="C:/elsewhere/code", owner=None):
+    """Another session's gate lock in the store's git common dir, taken at `when` (a datetime).
+    `owner`: the owner file's text, when it is not the gate's own three lines."""
     r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=store,
                        check=True, capture_output=True, text=True)
     lock = Path(r.stdout.strip()) / "specwright-gate.lock"
     lock.mkdir()
-    (lock / "owner").write_text(f"time: {when.isoformat(timespec='seconds')}\nchange: {change}\ncheckout: {checkout}\n",
+    (lock / "owner").write_text(owner if owner is not None else
+                                f"time: {when.isoformat(timespec='seconds')}\nchange: {change}\ncheckout: {checkout}\n",
                                 encoding="utf-8", newline="\n")
 
 
@@ -682,6 +684,28 @@ def build_roadmap_next_gap(repo, dirty):
     write(repo, ".git/fixture-state.json", json.dumps(state, indent=2))
     if dirty:
         write(repo, "README.md", "# greeter\n\nA tiny greeting library. WIP edit.\n")
+
+
+def build_branch_store(name, dest):
+    """Store-version gate fixtures (specwright-branch, store step 2) and the update lock (store step 1).
+    The project's install version (openspec/.specwright/VERSION) is committed in the code repo and the store's record
+    (openspec/.specwright/STORE: version and owner) in the store, both clean on main."""
+    code, store = dest / "code", dest / "store"
+    store_base(dest)
+    if name == "eval-branch-store-update-lock":
+        # another project's update holds the store: its owner file is the update's, not a change gate's
+        when = datetime.now(timezone.utc)
+        gate_lock(store, when, owner=(f"time: {when.isoformat(timespec='seconds')}\n"
+                                      "change: specwright-update 0.5.0 -> 0.6.0\ncode: C:/elsewhere/code\ntoken: 0123456789abcdef\n"))
+        return
+    project_version, store_version = {"eval-branch-store-version-match": ("0.6.1", "0.6.0"),
+                                      "eval-branch-store-version-behind": ("0.5.0", "0.6.0")}[name]
+    write(code, "openspec/.specwright/VERSION", project_version + "\n")
+    git(code, "add", "-A")
+    git(code, "commit", "-q", "-m", "chore: record install version")
+    write(store, "openspec/.specwright/STORE", f"version: {store_version}\nowner: alice-laptop\n")
+    git(store, "add", "-A")
+    git(store, "commit", "-q", "-m", "chore: record store version")
 
 
 def build_store(name, dest):
@@ -1257,6 +1281,8 @@ def build(name, repo):
                                    "eval-install-nested-store": "nested"}[name])
     if name in ("eval-references-apply", "eval-references-unregistered"):
         return references_base(repo, registered=name == "eval-references-apply")
+    if name.startswith("eval-branch-store-"):
+        return build_branch_store(name, repo)
     if name.startswith(("eval-store-", "eval-nested-", "eval-root-")):
         return build_store(name, repo)
     if name in ("eval-roadmap-next-gap", "eval-roadmap-next-gap-dirty-main"):

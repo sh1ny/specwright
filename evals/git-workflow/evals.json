@@ -1189,6 +1189,54 @@
         "The release came after the cleanup: the gh log has the merge, the remote branch DELETE, then the release create, and the tag push follows the pull and the local branch deletion (the git trace)",
         "No commit was amended"
       ]
+    },
+    {
+      "id": 65,
+      "name": "eval-branch-store-version-match",
+      "skills": [
+        "specwright-branch"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV.",
+      "expected_output": "The project's install version is 0.6.1 and the store's record says 0.6.0 (same major.minor): the gate passes the version check and creates feat/add-csv-export in the code repo and the store, then releases the lock.",
+      "assertions": [
+        "Both repos are on feat/add-csv-export, each branch at its repo's main with no new commits",
+        "Both mains are unchanged",
+        "No gate lock is left in the store",
+        "The report does not stop on a version mismatch"
+      ]
+    },
+    {
+      "id": 66,
+      "name": "eval-branch-store-version-behind",
+      "skills": [
+        "specwright-branch"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV.",
+      "expected_output": "The project's install version is 0.5.0 and the store's record says 0.6.0, owned by alice-laptop: the gate stops before any branch in either repo, names both versions and the owner, says to update this project to 0.6, and releases the lock.",
+      "assertions": [
+        "Both repos are still on main with only the main branch and no new commit",
+        "No change directory was created in either repo",
+        "No gate lock is left in the store",
+        "The report names this project's version 0.5.0, the store's version 0.6.0 and the store's owner alice-laptop",
+        "The report says to update this project to 0.6"
+      ]
+    },
+    {
+      "id": 67,
+      "name": "eval-branch-store-update-lock",
+      "skills": [
+        "specwright-branch"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV.",
+      "expected_output": "Another project's store update holds the gate lock (owner change: specwright-update 0.5.0 -> 0.6.0, code: C:/elsewhere/code): the gate stops before touching either repo, names the update and its checkout, says to rerun the update there, does not offer to remove the lock, and leaves it in place.",
+      "assertions": [
+        "Both repos are still on main with only the main branch and no new commit",
+        "No change directory was created in either repo",
+        "The update's gate lock and its owner file are still there, unchanged",
+        "The report names the update and its checkout C:/elsewhere/code",
+        "The report says to rerun the update from that checkout",
+        "The report does not offer to remove the lock"
+      ]
     }
   ]
 }

@@ -157,7 +157,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 7. Gates
 
-- [ ] 7.1 Write failing text tests in `evals/git-workflow/test_instructions.py`, class `BranchGateStoreVersion`:
+- [x] 7.1 Write failing text tests in `evals/git-workflow/test_instructions.py`, class `BranchGateStoreVersion`:
   - the major.minor comparison;
   - "owner updates the store first";
   - the missing `VERSION` stop;

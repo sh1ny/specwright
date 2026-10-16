@@ -319,6 +319,49 @@ class PlanningStores(unittest.TestCase):
                          "the stop does not name both the expected and the found branch")
 
 
+class BranchGateStoreVersion(unittest.TestCase):
+    """The change gate compares the project's install version with the store's, and meets the update lock (D5, D6)."""
+
+    def step2(self):
+        return mode_block(branch_store_section(), 2)
+
+    def test_gate_compares_major_minor(self):
+        s = self.step2()
+        self.assertRegex(s, r"openspec/\.specwright/VERSION", "store step 2 does not read the project's VERSION")
+        self.assertRegex(s, r"openspec/\.specwright/STORE", "store step 2 does not read the store's STORE record")
+        self.assertRegex(s, r"(?is)\bone (shell )?call\b.{0,200}\bVERSION|\bVERSION\b.{0,300}\bone (shell )?call\b",
+                         "VERSION and STORE are not read in one shell call")
+        self.assertRegex(s, r"major\.minor", "store step 2 does not compare major.minor")
+        self.assertRegex(s, r"(?is)mismatch.{0,200}(both versions|name\w* both).{0,80}owner|(both versions).{0,80}owner",
+                         "a mismatch does not name both versions and the owner")
+        self.assertRegex(s, r"(?is)no `?STORE`?.{0,80}pass|`?STORE`? (is )?(absent|missing).{0,80}pass|pass\w*.{0,60}no `?STORE`?",
+                         "a store with no STORE record does not pass")
+        self.assertRegex(s, r"(?is)unreadable `?STORE`?|`?STORE`? (is )?unreadable", "an unreadable STORE does not stop")
+        self.assertRegex(s, r"(?is)release.{0,40}lock", "a version stop does not release the lock")
+        self.assertRegex(s, r"(?is)update this project to", "a project behind the store is not told to update itself")
+
+    def test_gate_says_owner_updates_store_first(self):
+        self.assertRegex(self.step2(), r"(?is)store.{0,30}behind.{0,300}owner.{0,60}updates? the store first",
+                         "a store behind the project does not say its owner updates the store first")
+
+    def test_gate_stops_without_version_file(self):
+        s = self.step2()
+        self.assertRegex(s, r"(?is)missing `?VERSION`?|no `?VERSION`?", "a missing VERSION does not stop")
+        self.assertRegex(s, r"(?is)(missing|no) `?VERSION`?.{0,300}run the (install|update) in this project",
+                         "a missing VERSION does not say to run the install or update in this project")
+
+    def test_gate_names_update_lock_without_removal(self):
+        for label, step in (("specwright-branch store step 1", mode_block(branch_store_section(), 1)),
+                            ("specwright-roadmap store step 1", mode_block(store_part(committing_project_files()), 1))):
+            with self.subTest(label):
+                self.assertRegex(step, r"(?is)`change:` starts with `specwright-update`|change.{0,40}starts with `specwright-update`",
+                                 f"{label}: the update lock is not recognised by its change")
+                self.assertRegex(step, r"(?is)specwright-update.{0,400}rerun the update from",
+                                 f"{label}: the update lock does not say to rerun the update")
+                self.assertRegex(step, r"(?is)rerun the update from.{0,200}(no|not|never)[^.]{0,30}(offer|removal|remov)",
+                                 f"{label}: the update lock still offers removal")
+
+
 PR_SKILL = ROOT / "skills" / "specwright-pr" / "SKILL.md"
 
 
