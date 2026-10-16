@@ -316,6 +316,9 @@ class Settings:
         """Stop before any write unless releases are enabled (and, for bump and publish, not with rebase merges)."""
         if not self.enabled:
             raise Stop("release_disabled", "releases are off: set release.enabled: true in openspec/specwright.yaml")
+        if "{version}" not in self.tag:
+            raise Stop("bad_tag_template", f"release.tag '{self.tag}' has no {{version}} placeholder: every version would map "
+                       "to one tag, and later versions would read as published; use a template such as v{version}")
         if rebase and self.merge_method == "rebase":
             raise Stop("rebase_merge", "release.enabled cannot be used with pr.merge_method: rebase: a rebase merge "
                        "leaves no single release commit; change pr.merge_method or set release.enabled to false")

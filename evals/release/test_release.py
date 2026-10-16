@@ -91,6 +91,20 @@ class TestOptIn(Base):
         self.assertEqual(fx.snapshot(self.work), before)
         self.assertEqual(fx.git(self.work, "tag"), "")
 
+    def test_tag_template_without_version_refused(self):
+        # A template with no {version} maps every version to one tag: after one publish, every older version would read
+        # as published and never be offered. Every subcommand stops before any read or write.
+        self.repo()
+        fx.write(self.work, "openspec/specwright.yaml",
+                 fx.settings_text(fx.DEFAULT_VERSION_FILES, extra_release='  tag: "release"\n'))
+        before = fx.snapshot(self.work)
+        for args in (("check",), ("bump", "--to", "0.5.0"), ("untagged",), ("publish", "--version", "0.4.2")):
+            out = self.release(*args)
+            self.assertStops(out, "release.tag", "{version}")
+            self.assertEqual(out[1]["error"], "bad_tag_template")
+        self.assertEqual(fx.snapshot(self.work), before)
+        self.assertEqual(fx.git(self.work, "tag"), "")
+
     def test_usage_errors_exit_2(self):
         self.repo()
         self.assertEqual(self.release("nonsense")[0], 2)

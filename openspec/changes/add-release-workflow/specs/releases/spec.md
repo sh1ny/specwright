@@ -146,11 +146,15 @@ In a store-backed project, a change SHALL be in V's notes when its archive is on
 - **THEN** publish stops before creating the tag and names the failed call
 
 ### Requirement: Publish creates and pushes an annotated tag
-Publish SHALL create an annotated tag named by `release.tag` (default `v{version}`) on the release commit, with the notes as its message, and push only that tag ref to `origin` under the run login (through `as.sh` for a github.com origin). It SHALL NOT push any branch. In a store-backed project it SHALL tag the code repo only.
+Publish SHALL create an annotated tag named by `release.tag` (default `v{version}`; a template without `{version}` SHALL stop every subcommand, since every version would map to one tag) on the release commit, with the notes as its message, and push only that tag ref to `origin` under the run login (through `as.sh` for a github.com origin). It SHALL NOT push any branch. In a store-backed project it SHALL tag the code repo only.
 
 #### Scenario: New release
 - **WHEN** publish runs for 0.5.0 and no `v0.5.0` tag exists locally or on origin
 - **THEN** `git cat-file -t v0.5.0` prints `tag`, `v0.5.0^{commit}` is the release commit, and `origin` has `refs/tags/v0.5.0`
+
+#### Scenario: Tag template without the version
+- **WHEN** `release.tag` is `release`
+- **THEN** every subcommand exits non-zero naming `release.tag` and `{version}`, and no file or tag is written
 
 #### Scenario: Push refused by the fence
 - **WHEN** `as.sh` refuses (exit 3) or the tag push fails

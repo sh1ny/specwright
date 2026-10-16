@@ -64,7 +64,7 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertIn("github.login", publish)
         self.assertNotIn("with no run login, plain", text)
         self.assertNotRegex(text, r"git fetch[^`\n]*--tags")
-        self.assertIn("git fetch origin <main>`", text)
+        self.assertIn("git fetch --no-tags origin <main>`", text)  # tagOpt=--tags would otherwise fetch every tag
 
 
 class TestFinishText(unittest.TestCase):
