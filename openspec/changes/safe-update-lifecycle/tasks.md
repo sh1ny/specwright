@@ -64,7 +64,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 2. Fixtures and staging
 
-- [ ] 2.1 Create `evals/update/fixtures.py`. It builds:
+- [x] 2.1 Create `evals/update/fixtures.py`. It builds:
   - a scratch code checkout (git, `openspec/config.yaml`, `openspec/.specwright/VERSION`, chosen skills and agents directories);
   - download trees for two or more versions, made from this repo's `skills/`, `agents/`, `schemas/` and `scripts/` with `VERSION` rewritten and an optional schema edit;
   - a store pair (store repo with its own root, two code repos A and B declaring it);
