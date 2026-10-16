@@ -6,9 +6,9 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| install-update → Update stages the new version before it swaps it in | Update completes | evals/update/test_update.py | TestStage.test_update_completes | red |
+| install-update → Update stages the new version before it swaps it in | Update completes | evals/update/test_update.py | TestStage.test_update_completes | green |
 | install-update → Update stages the new version before it swaps it in | Interrupted before the swap | evals/update/test_interrupt.py | TestInterrupt.test_kill_before_swap_leaves_previous_runnable | red |
-| install-update → Update stages the new version before it swaps it in | Staged copy fails verification | evals/update/test_update.py | TestStage.test_staged_copy_fails_verification | red |
+| install-update → Update stages the new version before it swaps it in | Staged copy fails verification | evals/update/test_update.py | TestStage.test_staged_copy_fails_verification | green |
 | install-update → Interrupted swap resumes or rolls back | Rerun after an interruption before the swap | evals/update/test_update.py | TestRecover.test_rerun_discards_unswapped_staging | red |
 | install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy complete | evals/update/test_interrupt.py | TestInterrupt.test_kill_during_swap_resumes | red |
 | install-update → Interrupted swap resumes or rolls back | Interrupted during the swap, staged copy incomplete | evals/update/test_update.py | TestRecover.test_damaged_staging_rolls_back | red |
@@ -72,7 +72,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
   Also add `evals/update/shims/` with `mv`, `cp` and `rm` wrappers. Each counts its calls in `$UPDATE_SHIM_COUNT`, and at call `$UPDATE_KILL_AT` sends `SIGKILL` to `$UPDATE_KILL_PID` before acting. Verify with a fixture self-test, `evals/update/test_fixtures.py`, that builds each layout and runs the real `openspec validate` in it.
 - [x] 2.2 Write failing tests `TestPlan.test_plan_reports_interface`, `TestPlan.test_refusal_reports_unchanged`, `TestStage.test_update_completes` and `TestStage.test_staged_copy_fails_verification` in `evals/update/test_update.py`. Verify they fail because `scripts/update.sh` does not exist.
-- [ ] 2.3 Implement `scripts/update.sh`:
+- [x] 2.3 Implement `scripts/update.sh`:
   - one JSON document per subcommand, `release.sh` style;
   - external `mv`/`cp`/`rm` only for file operations;
   - the update lock `openspec/.specwright/update.lock` (pid and host; same-host dead pid replaced and reported);
