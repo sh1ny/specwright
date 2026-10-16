@@ -22,19 +22,40 @@
 #
 # Subcommands:
 #   plan     read only. Prints interface (1), from, to, ref, kind (fresh | patch | workflow | reinstall | downgrade),
-#            role (none: no store handling yet), targets (every directory or file that stage will replace), orphans
+#            role (none: no store handling yet), inflight_checked, inflight, targets (every directory or file that stage will replace), orphans
 #            (installed specwright-* names with no downloaded counterpart; never touched), journal (a pending
 #            update.json: {from, to, phase, format} or null), refusals and warnings. Writes nothing outside
-#            <download>/.update-scratch/ (nothing at all today), with one exception: when a journal is pending, plan
+#            <download>/.update-scratch/ (removed before plan returns), with one exception: when a journal is pending, plan
 #            first runs recover (below) and adds recovered: {action, message, from, to} to its document; journal then
 #            shows what is left. A journal that is not format 1 is not recovered (plan refuses it as unreadable).
 #            A refusal is exit 1, error "refused".
+#            Changes in flight (design D4), on a workflow update only (no installed VERSION, or a different major
+#            or minor; a patch update, a reinstall and a same-minor downgrade skip it: inflight_checked false):
+#              - collected: every change directory in <root>/openspec/changes/ other than archive/, and every local
+#                branch feat|bugfix|refactor|docs|chore/<name> of the planning repo (the git repo of --root) whose
+#                tree holds <P>/changes/<name>/ while the planning main (origin/main when present, else main; then
+#                master) has no archive named <name> or YYYY-MM-DD-<name> exactly. A branch's change is read with
+#                git archive, so it validates with that branch's specs. The working tree wins over a branch.
+#              - a remote-tracking origin/<prefix>/<name> that holds an unarchived change and has no local branch is
+#                a warning {code in_flight_elsewhere, name, ref, message}: not validated, never a refusal, no fetch.
+#              - each change on the specwright schema gets a scratch root in <download>/.update-scratch/ (the new
+#                schema, `schema: specwright`, the main specs, the change) and three checks run there with cwd = the
+#                scratch root: `openspec schema validate specwright`, `openspec validate <name>` and
+#                `openspec status --change <name> --json` (no status[] error; every artifact whose files exist has
+#                each required artifact done or skipped). A change whose .openspec.yaml does not name specwright is
+#                listed with status "not on specwright" and not checked.
+#              - inflight lists {name, source (working tree | the branch), status, validated_against}; a failing
+#                change is a refusal {code change_invalid, change, ref, message} naming the change and the first error.
 #   stage    copies every new skill directory, agent file and the schema into a staging directory beside its target
 #            (D2): <parent>/.specwright-update-<basename>/new/. Agent files carry the user's `model:` line over.
 #            Writes the journal (format 1) first, verifies the staged copy against a SHA-256 manifest and stops with
 #            error verification_failed (naming each file, staging and journal removed) when a file differs. Installed
-#            files are untouched. Refuses while a journal is pending (run recover first).
-#   swap     re-verifies the staged copy, then replaces each target with two renames: target -> old/<name>, then
+#            files are untouched. Refuses while a journal is pending (run recover first). Runs plan first (so a
+#            failing change refuses it) and records the collected set and results in the journal (inflight).
+#   swap     re-verifies the staged copy and, on a workflow update, collects and validates the changes in flight
+#            again against the staged schema; any difference from the journal's record (a new, removed or now
+#            failing change) stops it before the first rename with error inflight_changed, naming the changes
+#            (differences[]), and changes no installed file. Then replaces each target with two renames: target -> old/<name>, then
 #            new/<name> -> target. The journal records each step before it runs. Prints store_written (false:
 #            this script never writes a store) and a restart notice. Rerunning after an interruption goes on from
 #            the journal and the disk.
@@ -354,7 +375,7 @@ do_stage() {
   [ ! -e "$jtmp" ] || rm -f "$jtmp"
   [ ! -e "$download/.update-scratch" ] || rm -rf "$download/.update-scratch"
   remove_staging
-  pyx journal-new "${PYARGS[@]}" "$jtmp"
+  pyx journal-new "${PYARGS[@]}" --plan "$out" "$jtmp"
   mv -f "$jtmp" "$journal"
   local op a b c
   while IFS=$'\t' read -r op a b c; do
@@ -433,6 +454,9 @@ do_swap() {
     local vout vrc=0
     vout=$(pyx verify "${PYARGS[@]}") || vrc=$?
     if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+    vrc=0  # a workflow update: the changes in flight must still be the ones the plan validated (before any rename)
+    vout=$(pyx swap-check "${PYARGS[@]}") || vrc=$?
+    if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
   fi
   [ "$phase" = swapped ] || jwrite_phase swapping
   swap_loop
@@ -473,17 +497,23 @@ exit "$?"
 : <<'PYSRC_EOF'
 #---PYSRC---
 import hashlib
+import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 sys.stdout.reconfigure(newline="\n")  # no CRLF on Windows: the shell reads these lines
 INTERFACE = 1
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 STATE_REL = "openspec/.specwright"
-VALUE_OPTS = ("code", "root", "download", "ref", "error", "message", "extra")
+VALUE_OPTS = ("code", "root", "download", "ref", "error", "message", "extra", "plan")
+PREFIXES = ("feat", "bugfix", "refactor", "docs", "chore")
+SCRATCH = ".update-scratch"
 
 
 def parse(argv):
@@ -544,6 +574,11 @@ def kind_of(frm, to):
     return "workflow" if a[:2] != b[:2] else "patch"
 
 
+def workflow_update(frm, to):
+    """A workflow update: no installed VERSION, or a different major or minor (a downgrade across a minor too)."""
+    return frm is None or vtuple(frm)[:2] != vtuple(to)[:2]
+
+
 def load_journal(o):
     """The parsed journal, None when absent; ValueError when unreadable or of another format."""
     p = journal_path(o)
@@ -556,6 +591,195 @@ def load_journal(o):
     if not isinstance(j, dict) or j.get("format") != 1:
         raise ValueError(f"update.json has format {j.get('format') if isinstance(j, dict) else None!r}, not 1")
     return j
+
+
+# --- changes in flight (design D4) --------------------------------------------------------------------------------
+
+def git(top, *args):
+    r = subprocess.run(["git", "-C", str(top), "-c", "core.quotepath=off", *args], capture_output=True)
+    return r.returncode, r.stdout
+
+
+def git_lines(top, *args):
+    rc, out = git(top, *args)
+    return [x for x in out.decode("utf-8", "replace").split("\n") if x.strip()] if rc == 0 else []
+
+
+def planning_repo(o):
+    """(toplevel, P): the planning repo's toplevel and <root>/openspec relative to it; (None, None) outside a repo."""
+    rc, out = git(o["root"], "rev-parse", "--show-toplevel")
+    if rc != 0:
+        return None, None
+    top = Path(out.decode("utf-8", "replace").strip()).resolve()
+    try:
+        return top, (Path(o["root"]) / "openspec").resolve().relative_to(top).as_posix()
+    except ValueError:
+        return None, None
+
+
+def planning_main(top):
+    """The planning main: origin/<main> when present, else the local main (main, else master)."""
+    for c in ("main", "master"):
+        for ref in (f"refs/remotes/origin/{c}", f"refs/heads/{c}"):
+            if git(top, "rev-parse", "--verify", "-q", ref + "^{commit}")[0] == 0:
+                return ref
+    return None
+
+
+def branch_parts(short):
+    """(prefix, change name) of a branch `<prefix>/<name>`, else None."""
+    prefix, _, name = short.partition("/")
+    return (prefix, name) if prefix in PREFIXES and name and "/" not in name else None
+
+
+def collect(o):
+    """(items, warnings): every change in flight, as {name, source, ref}. source is `working tree` or the local branch;
+    ref is the git ref to read from (None for the working tree). Remote-only changes are warnings."""
+    items, warnings, seen = [], [], set()
+    changes = Path(o["root"]) / "openspec" / "changes"
+    if changes.is_dir():
+        for d in sorted(changes.iterdir()):
+            if d.is_dir() and d.name != "archive":
+                items.append({"name": d.name, "source": "working tree", "ref": None})
+                seen.add(d.name)
+    top, planning = planning_repo(o)
+    if top is None:
+        return items, warnings
+    main = planning_main(top)
+    archived = git_lines(top, "ls-tree", "--name-only", f"{main}:{planning}/changes/archive") if main else []
+
+    def is_archived(name):
+        return any(a == name or re.fullmatch(r"\d{4}-\d{2}-\d{2}-" + re.escape(name), a) for a in archived)
+
+    def holds(ref, name):
+        rc, out = git(top, "cat-file", "-t", f"{ref}:{planning}/changes/{name}")
+        return rc == 0 and out.strip() == b"tree"
+
+    local = set()
+    for short in sorted(git_lines(top, "for-each-ref", "--format=%(refname:short)", "refs/heads/")):
+        local.add(short)
+        parts = branch_parts(short)
+        if parts and parts[1] not in seen and holds("refs/heads/" + short, parts[1]) and not is_archived(parts[1]):
+            items.append({"name": parts[1], "source": short, "ref": "refs/heads/" + short})
+            seen.add(parts[1])
+    for full in sorted(git_lines(top, "for-each-ref", "--format=%(refname)", "refs/remotes/origin/")):
+        short = full[len("refs/remotes/origin/"):]
+        parts = branch_parts(short)
+        if parts and short not in local and parts[1] not in seen and holds(full, parts[1]) and not is_archived(parts[1]):
+            warnings.append({"code": "in_flight_elsewhere", "name": parts[1], "ref": f"origin/{short}",
+                             "message": f"{parts[1]} on origin/{short}: in flight elsewhere, not validated"})
+    return items, warnings
+
+
+def extract_branch(o, item, scratch):
+    """git archive of the branch's change and specs into scratch/openspec/ (the branch's own specs, as validated)."""
+    top, planning = planning_repo(o)
+    paths = git_lines(top, "ls-tree", "--name-only", item["ref"], "--", f"{planning}/changes/{item['name']}", f"{planning}/specs")
+    rc, data = git(top, "archive", "--format=tar", item["ref"], "--", *paths)
+    if rc != 0:
+        raise OSError(f"git archive {item['ref']} failed")
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        for m in tar:
+            if not m.name.startswith(planning + "/") or ".." in m.name.split("/") or not (m.isfile() or m.isdir()):
+                continue
+            dest = scratch / "openspec" / m.name[len(planning) + 1:]
+            if m.isdir():
+                dest.mkdir(parents=True, exist_ok=True)
+            else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(tar.extractfile(m).read())
+
+
+def run_openspec(args, cwd):
+    exe = shutil.which("openspec")
+    if not exe:
+        return 127, "", "the openspec CLI is not on PATH"
+    r = subprocess.run([exe, *args], cwd=str(cwd), env={**os.environ, "OPENSPEC_TELEMETRY": "0"}, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    return r.returncode, r.stdout, r.stderr
+
+
+def first_error(text):
+    lines = [x.strip() for x in text.splitlines() if x.strip() and not x.strip().startswith("Note:")]
+    for x in lines:
+        if x.lower().startswith("error"):
+            return x
+    return lines[0] if lines else "no output"
+
+
+def check_change(scratch, name):
+    """The three checks of design D4; the first error as text, None when the change passes."""
+    rc, out, err = run_openspec(["schema", "validate", "specwright"], scratch)
+    if rc != 0:
+        return "openspec schema validate specwright: " + first_error(out + "\n" + err)
+    rc, out, err = run_openspec(["validate", name, "--json"], scratch)
+    try:
+        item = json.loads(out)["items"][0]
+        if not item.get("valid", rc == 0):
+            iss = (item.get("issues") or [{}])[0]
+            return f"openspec validate {name}: " + (f"{iss['path']}: " if iss.get("path") else "") + str(iss.get("message", "invalid"))
+    except (ValueError, KeyError, IndexError, TypeError):
+        if rc != 0:
+            return f"openspec validate {name}: " + first_error(out + "\n" + err)
+    rc, out, err = run_openspec(["status", "--change", name, "--json"], scratch)
+    try:
+        st = json.loads(out)
+    except ValueError:
+        return f"openspec status {name}: " + first_error(err + "\n" + out)
+    bad = [x for x in st.get("status", []) if x.get("severity") == "error"] if isinstance(st.get("status"), list) else []
+    if bad:
+        return f"openspec status {name}: " + str(bad[0].get("message", bad[0].get("code", "error")))
+    arts = {a["id"]: a for a in st.get("artifacts", [])}
+    paths = st.get("artifactPaths", {})
+    for a in arts.values():
+        if a.get("status") == "done" or paths.get(a["id"], {}).get("existingOutputPaths"):
+            for r in a.get("requires", []):
+                if arts.get(r, {}).get("status") not in ("done", "skipped"):
+                    return f"openspec status {name}: artifact {a['id']} exists but its dependency {r} is {arts.get(r, {}).get('status', 'missing')}"
+    return None
+
+
+def inflight_entries(o, to, schema_dir):
+    """(entries, warnings) for a workflow update: every change in flight, validated against schema_dir in its own
+    scratch root under <download>/.update-scratch/ (removed on the way out). An entry has name, source, status
+    (validated | not on specwright | invalid), validated_against and, when invalid, error."""
+    items, warnings = collect(o)
+    base = Path(o["download"]) / SCRATCH
+    entries = []
+    try:
+        for i, it in enumerate(items, 1):
+            scratch = base / f"{i}-{it['name']}"
+            e = {"name": it["name"], "source": it["source"], "status": "validated", "validated_against": to}
+            try:
+                (scratch / "openspec").mkdir(parents=True)
+                if it["ref"] is None:
+                    root = Path(o["root"]) / "openspec"
+                    shutil.copytree(root / "changes" / it["name"], scratch / "openspec" / "changes" / it["name"])
+                    if (root / "specs").is_dir():
+                        shutil.copytree(root / "specs", scratch / "openspec" / "specs")
+                else:
+                    extract_branch(o, it, scratch)
+                meta = scratch / "openspec" / "changes" / it["name"] / ".openspec.yaml"
+                m = re.search(r"^schema:\s*['\"]?([^\s'\"#]+)", meta.read_text(encoding="utf-8", errors="replace"), re.M) if meta.is_file() else None
+                if not m or m.group(1) != "specwright":
+                    e.update({"status": "not on specwright", "validated_against": None})
+                else:
+                    shutil.copytree(schema_dir, scratch / "openspec" / "schemas" / "specwright")
+                    (scratch / "openspec" / "config.yaml").write_text("schema: specwright\n", encoding="utf-8", newline="\n")
+                    (scratch / "openspec" / "specs").mkdir(exist_ok=True)
+                    err = check_change(scratch, it["name"])
+                    if err:
+                        e.update({"status": "invalid", "error": err})
+            except OSError as ex:
+                e.update({"status": "invalid", "error": f"could not read the change: {ex}"})
+            entries.append(e)
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    return entries, warnings
+
+
+def entry_key(e):
+    return (e["name"], e["source"], e["status"])
 
 
 def installed_unchanged(o):
@@ -634,7 +858,9 @@ def build_groups(o, refusals):
     return groups, orphans
 
 
-def make_plan(o):
+def make_plan(o, check=False):
+    """The plan document and groups. check=True (cmd_plan) also collects and validates the changes in flight of a
+    workflow update against the download's schema; every other caller (stage, ops) reuses the verdict."""
     refusals, warnings = [], []
     inst, exists = read_version(state_dir(o) / "VERSION")
     if exists and not (inst and SEMVER.match(inst)):
@@ -652,18 +878,31 @@ def make_plan(o):
     except ValueError as e:
         refusals.append({"code": "journal_unreadable", "message": str(e)})
     groups, orphans = build_groups(o, refusals)
+    inflight, checked = [], False
+    if check and to and not refusals and workflow_update(inst, to):
+        checked = True
+        entries, found = inflight_entries(o, to, Path(o["download"]) / "schemas" / "specwright")
+        warnings.extend(found)
+        for e in entries:
+            if e["status"] == "invalid":
+                where = "" if e["source"] == "working tree" else f" on {e['source']}"
+                refusals.append({"code": "change_invalid", "change": e["name"], "ref": None if not where else e["source"],
+                                 "message": f"change {e['name']}{where or ' (working tree)'} fails validation against {to}: {e['error']}"})
+            else:
+                inflight.append(e)
     doc = base_doc(o, not refusals)
     doc.update({"from": inst, "to": to, "ref": o.get("ref"), "kind": kind_of(inst, to) if to else None, "role": "none",
                 "targets": [{"group": g["id"], "kind": g["kind"], "dir": g["dir"], "name": it["name"], "installed": it["installed"]}
                             for g in groups for it in g["items"]],
-                "orphans": orphans, "journal": journal, "refusals": refusals, "warnings": warnings})
+                "orphans": orphans, "journal": journal, "inflight_checked": checked, "inflight": inflight,
+                "refusals": refusals, "warnings": warnings})
     if refusals:
         doc.update({"error": "refused", "message": refusals[0]["message"], "unchanged": True})
     return doc, groups
 
 
 def cmd_plan(o, pos):
-    doc, _ = make_plan(o)
+    doc, _ = make_plan(o, check=True)
     if o.get("extra"):
         doc.update(json.loads(o["extra"]))
     emit(doc, 0 if doc["ok"] else 1)
@@ -689,8 +928,11 @@ def cmd_journal_new(o, pos):
     doc, groups = make_plan(o)
     if not doc["ok"]:
         emit(doc, 1)
+    plan = json.loads(o["plan"]) if o.get("plan") else {}
+    inflight = {"checked": plan.get("inflight_checked", False), "changes": plan.get("inflight", []),
+                "warnings": [w for w in plan.get("warnings", []) if w.get("code") == "in_flight_elsewhere"]}
     head = {"format": 1, "from": doc["from"], "to": doc["to"], "ref": o.get("ref"), "kind": doc["kind"], "role": "none",
-            "code": o["code"], "root": o["root"]}
+            "code": o["code"], "root": o["root"], "inflight": inflight}
     lines = ["{"] + [f"  {json.dumps(k)}: {json.dumps(v, ensure_ascii=False)}," for k, v in head.items()] + ['  "phase": "staging",']
     groups_j = [{k: v for k, v in g.items() if k != "items"} for g in groups]
     targets = [{"gid": g["id"], "name": it["name"], "type": it["type"], "dir": g["dir"], "staging": g["staging"],
@@ -788,6 +1030,36 @@ def cmd_verify_swap(o, pos):
     sys.exit(1 if bad else 0)
 
 
+def cmd_swap_check(o, pos):
+    """Before the first rename of a workflow update: collect and validate again, against the staged schema, and stop
+    when the set of changes in flight or any result differs from what stage recorded in the journal."""
+    j = load_journal(o)
+    rec = j.get("inflight") or {}
+    if not rec.get("checked"):
+        print(json.dumps({"ok": True, "checked": False}))
+        return
+    schema = next(g for g in j["groups"] if g["kind"] == "schema")["staging"] + "/new/specwright"
+    entries, _ = inflight_entries(o, j["to"], schema)
+    was, now = {entry_key(e): e for e in rec.get("changes", [])}, {entry_key(e): e for e in entries}
+    diffs = []
+    for k, e in now.items():
+        if k not in was:
+            if e["status"] == "invalid":
+                diffs.append(f"{e['name']} ({e['source']}) fails validation against {j['to']}: {e['error']}")
+            else:
+                diffs.append(f"{e['name']} ({e['source']}) was not in flight when the update was planned")
+    for k, e in was.items():
+        if k not in now:
+            diffs.append(f"{e['name']} ({e['source']}) was in flight when the update was planned and is not now")
+    if not diffs:
+        print(json.dumps({"ok": True, "checked": True, "changes": len(entries)}))
+        return
+    doc = base_doc(o, False)
+    doc.update({"error": "inflight_changed", "differences": diffs,
+                "message": "the changes in flight differ from the plan, so nothing was swapped: " + "; ".join(diffs)})
+    emit(doc, 1)
+
+
 def cmd_err(o, pos):
     doc = base_doc(o, False)
     doc.update({"error": o["error"], "message": o["message"]})
@@ -803,6 +1075,9 @@ def cmd_report(o, pos):
     doc = base_doc(o, True)
     doc.update({"subcommand": sub, "state": j["phase"], "from": j["from"], "to": j["to"], "ref": j.get("ref"), "kind": j.get("kind"),
                 "role": j.get("role"), "files": len(j["manifest"]),
+                "inflight_checked": (j.get("inflight") or {}).get("checked", False),
+                "inflight": (j.get("inflight") or {}).get("changes", []),
+                "warnings": (j.get("inflight") or {}).get("warnings", []),
                 "groups": [{"id": g["id"], "kind": g["kind"], "dir": g["dir"], "staging": g["staging"],
                             "targets": sum(1 for t in j["targets"] if t["gid"] == g["id"])} for g in j["groups"]]})
     if sub == "swap":

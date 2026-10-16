@@ -19,14 +19,14 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 | install-update → Update installs a release tag by default | Latest tag predates the update script | evals/git-workflow/evals.json | eval-install-latest-tag-predates-script | red |
 | install-update → Update installs a release tag by default | Script interface differs from the prompt | evals/update/test_update.py + evals/git-workflow/test_instructions.py | TestPlan.test_plan_reports_interface; InstallUpdateLifecycle.test_step3_checks_script_interface | red |
 | install-update → Update installs a release tag by default | No tags | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step3_falls_back_to_main_without_tags | red |
-| install-update → Workflow update validates changes in flight | Changes in flight still validate | evals/update/test_inflight.py | TestInflight.test_valid_change_allows_workflow_update | red |
-| install-update → Workflow update validates changes in flight | A change in flight fails | evals/update/test_inflight.py | TestInflight.test_failing_change_refuses_workflow_update | red |
-| install-update → Workflow update validates changes in flight | Change started after planning | evals/update/test_inflight.py | TestInflight.test_change_started_after_plan_stops_swap | red |
-| install-update → Workflow update validates changes in flight | Patch update with a change in flight | evals/update/test_inflight.py | TestInflight.test_patch_update_skips_validation | red |
-| install-update → Update finds changes in flight on their branches | Change in flight on its branch only | evals/update/test_inflight.py | TestCollect.test_change_on_branch_only_is_found | red |
-| install-update → Update finds changes in flight on their branches | Branch whose change is archived | evals/update/test_inflight.py | TestCollect.test_archived_change_not_in_flight | red |
-| install-update → Update finds changes in flight on their branches | Archive of a longer name | evals/update/test_inflight.py | TestCollect.test_archive_name_matched_exactly | red |
-| install-update → Update finds changes in flight on their branches | Change only on a remote branch | evals/update/test_inflight.py | TestCollect.test_remote_only_change_is_warning | red |
+| install-update → Workflow update validates changes in flight | Changes in flight still validate | evals/update/test_inflight.py | TestInflight.test_valid_change_allows_workflow_update | green |
+| install-update → Workflow update validates changes in flight | A change in flight fails | evals/update/test_inflight.py | TestInflight.test_failing_change_refuses_workflow_update | green |
+| install-update → Workflow update validates changes in flight | Change started after planning | evals/update/test_inflight.py | TestInflight.test_change_started_after_plan_stops_swap | green |
+| install-update → Workflow update validates changes in flight | Patch update with a change in flight | evals/update/test_inflight.py | TestInflight.test_patch_update_skips_validation | green |
+| install-update → Update finds changes in flight on their branches | Change in flight on its branch only | evals/update/test_inflight.py | TestCollect.test_change_on_branch_only_is_found | green |
+| install-update → Update finds changes in flight on their branches | Branch whose change is archived | evals/update/test_inflight.py | TestCollect.test_archived_change_not_in_flight | green |
+| install-update → Update finds changes in flight on their branches | Archive of a longer name | evals/update/test_inflight.py | TestCollect.test_archive_name_matched_exactly | green |
+| install-update → Update finds changes in flight on their branches | Change only on a remote branch | evals/update/test_inflight.py | TestCollect.test_remote_only_change_is_warning | green |
 | install-update → Update report tells running sessions to restart | Version changed | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step8_restart_notice_after_swap | red |
 | install-update → Update report tells running sessions to restart | Refused update | evals/git-workflow/test_instructions.py + evals/update/test_update.py | InstallUpdateLifecycle.test_step8_no_restart_notice_when_unchanged; TestPlan.test_refusal_reports_unchanged | red |
 | planning-stores → A store records its schema version and owner | First update claims the store | evals/update/test_store.py | TestStoreRecord.test_first_update_claims_store | red |
@@ -104,7 +104,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - `TestInflight`: valid, failing, started after plan, patch.
 
   The failing-change fixture uses a download whose schema adds a required artifact ahead of `proposal`. Verify that they fail.
-- [ ] 4.2 Implement the D4 collection and validation:
+- [x] 4.2 Implement the D4 collection and validation:
   - working-tree change directories;
   - local `refs/heads/{feat,bugfix,refactor,docs,chore}/*` holding an unarchived change, with an exact archive-name match;
   - remote-only changes as `warnings`;
