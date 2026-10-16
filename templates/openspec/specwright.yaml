@@ -113,3 +113,25 @@ pr:
 #   validate: "openspec validate --all --strict"
 #   # Reviewers on the store PR. Default: pr.reviewers; {} = none.
 #   reviewers: {}
+
+# Releases (specwright-release). Opt-in: nothing is tagged unless enabled.
+# Refused with pr.merge_method: rebase (a rebase merge replays the bump as
+# its own commit, so the tag would miss the rest of the change).
+# Tags are never moved, deleted or forced.
+release:
+  # true = a change's last task bumps the version files, and publish tags the
+  # merged main commit with an annotated tag after the change is on main.
+  enabled: false
+  # true = finish and watch publish without asking (never after a local merge).
+  # false = they ask first.
+  auto: false
+  # true = also create the GitHub release from the tag's message.
+  github_release: true
+  # Tag name; {version} is the version read from the primary file.
+  tag: "v{version}"
+  # Path or glob -> regex with exactly one capture group (the version). The
+  # first key is the primary file. Every file must match exactly once and all
+  # must agree. Keep the regexes single-quoted.
+  version_files:
+    VERSION: '^(\d+\.\d+\.\d+)$'
+    # package.json: '^  "version": "(\d+\.\d+\.\d+)",$'

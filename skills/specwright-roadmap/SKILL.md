@@ -2,7 +2,7 @@
 name: specwright-roadmap
 description: "Project-level planning above OpenSpec changes: strategy, architecture baseline (foundational ADRs) and a milestone roadmap. Modes: init (turn a big project idea or brief into strategy, architecture and roadmap), next (start the next change of the current milestone, or offer close at its end), close (verify a milestone's exit criteria and plan the next one), status. Triggers: a project idea too big for one change, 'plan this project', 'create a roadmap', 'what's next on the roadmap', 'next change/milestone', 'close the milestone', 'roadmap status', or specwright-finish offering next/close."
 metadata:
-  version: 0.4.2
+  version: 0.5.0
 ---
 
 # Specwright Roadmap
@@ -69,6 +69,7 @@ Input: the user's project idea (any size), plus the repo if code exists. Work on
 1. Every change of the milestone done (on main, as derived above)? If not, list what is left and stop.
 2. Walk the exit criteria. Run agent-verifiable checks yourself. Ask the user to run user-verified ones and record their results; anything skipped is recorded as unverified, never passed.
 3. Any criterion fails → propose the change that fixes it (via **next**); do not close. Any criterion unverified → list it and stop; the milestone stays in Now until it has a passing result.
+3b. **Releases**, only with `release.enabled` true (otherwise list no versions and offer no release): list each version in main's first-parent history of the primary version file that has no tag on origin, as `[as] bash <specwright-release>/scripts/release.sh untagged --main <ref>` lists them (`specwright-release` **publish** step 2: fenced with the run login, since it reads origin's tags; a version is published when its tag is on origin, and a local tag not on origin is always listed), and offer to publish them oldest first. Publish nothing without the user's yes; a refused or failed publish is reported and never blocks the close.
 4. Close on branch `docs/close-<milestone>` (see Committing project files): move the milestone to Done with the date and one line on what was learned.
 5. Re-plan with what the milestone taught: promote Next to Now and revise Later. How Next becomes Now depends on its split:
    - Next has a `**Split agreed:** <date>` line: keep its changes, their names and their order, and drop the line. When the finished milestone suggests an amendment (a change no longer needed, a new one, another order), propose it to the user and apply it only if they agree. Never re-plan an agreed split silently.

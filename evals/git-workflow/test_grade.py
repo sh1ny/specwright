@@ -377,5 +377,331 @@ class InstallOpenSpecPin(unittest.TestCase):
         self.assertTrue(self.results(name, repo, "OpenSpec 1.15.0 (pinned 1.14.1, override)")[line])
 
 
+RELEASE_SH = fixtures.posix(fixtures.ROOT) + "/skills/specwright-release/scripts/release.sh"
+AS_SH = fixtures.posix(fixtures.ROOT) + "/skills/specwright-pr/scripts/as.sh"
+RELEASE_NAMES = ("eval-finish-release-offer", "eval-finish-release-auto", "eval-finish-release-disabled",
+                 "eval-finish-local-release-reported", "eval-agent-merge-release-auto")
+OFFER_REPORT = "Cleanup done: main is current.\n\nVersion 0.5.0 has no tag yet. Shall I publish v0.5.0 (tag and GitHub release)?\n\nNext: specwright-roadmap next, or close?"
+PUBLISHED_REPORT = "Cleanup done.\n\nrelease v0.5.0: tag pushed at abc1234, GitHub release created.\n\nNext: specwright-roadmap next, or close?"
+
+
+class ReleaseHelpers(unittest.TestCase):
+    """The pure helpers of the release graders."""
+
+    def test_tag_writes_only_flags_what_changes_tags(self):
+        for c in (["tag", "-a", "v1", "-m", "x"], ["tag", "v1"], ["tag", "-d", "v1"], ["tag", "-f", "v1"], ["tag", "-am", "x", "v1"],
+                  ["tag", "--annotate", "--cleanup=verbatim", "-F", "f", "v1", "abc"], ["tag", "-s", "v1"]):
+            self.assertEqual(grade.tag_writes([c]), [c], c)
+        for c in (["tag"], ["tag", "-l"], ["tag", "-l", "v*"], ["tag", "-l", "--format=%(contents)", "v1"], ["tag", "--list", "v*"],
+                  ["tag", "--contains", "abc"], ["tag", "--points-at", "HEAD"], ["status"]):
+            self.assertEqual(grade.tag_writes([c]), [], c)
+
+    def test_force_like_finds_every_forcing_form(self):
+        for argv in (["--force"], ["-f"], ["--force-with-lease"], ["--force-with-lease=main"], ["--tags"], ["--mirror"], ["--all"], ["--delete"],
+                     ["-d"], ["-fq"], ["+refs/tags/v1:refs/tags/v1"], ["--prune"]):
+            self.assertTrue(grade.force_like(argv), argv)
+        self.assertEqual(grade.force_like(["origin", "refs/tags/v0.5.0:refs/tags/v0.5.0", "-q", "--verify-tag"]), [])
+
+    def test_push_refspecs_skip_the_remote_and_options(self):
+        self.assertEqual(grade.push_refspecs(["push", "origin", "refs/tags/v1:refs/tags/v1"]), ["refs/tags/v1:refs/tags/v1"])
+        self.assertEqual(grade.push_refspecs(["push", "-q", "origin", "main", "v1"]), ["main", "v1"])
+        self.assertEqual(grade.push_refspecs(["push"]), [])
+
+    def test_report_order_and_offer(self):
+        low = OFFER_REPORT.lower()
+        self.assertTrue(grade.release_offered(low))
+        self.assertLess(grade.release_pos(low), grade.roadmap_pos(low))
+        late = "next: specwright-roadmap next, or close?\n\nshall i publish v0.5.0?"
+        self.assertGreater(grade.release_pos(late), grade.roadmap_pos(late))
+        self.assertFalse(grade.release_offered("version 0.5.0 is released and tagged."))
+        self.assertFalse(grade.release_offered("nothing to finish - archive is on main."))
+        self.assertIsNone(grade.release_pos("the 0.5.0 milestone is unrelated"))
+        self.assertTrue(grade.near("v0.5.0 is untagged.\nit can be published once main is pushed.", r"0\.5\.0", r"push", grade.RELEASE_WORDS))
+        self.assertFalse(grade.near("v0.5.0 is untagged. push main.\n\n\nunrelated. tag it later.", r"0\.5\.0", r"push", r"publish"))
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class ReleaseEvals(unittest.TestCase):
+    """The five release fixtures and graders: simulated runs (git and the fake gh through the fixture's shims, and the real
+    release.sh publish) grade green, and the wrong runs grade red."""
+
+    def fixture(self, name):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        repo = run_dir / "repo"
+        fixtures.build(name, repo)
+        (run_dir / "outputs").mkdir()
+        return run_dir, repo
+
+    def sh(self, repo, script):
+        r = subprocess.run(["bash", "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout.strip()
+
+    def grade(self, name, run_dir, report):
+        (run_dir / "outputs" / "report.md").write_text(report, encoding="utf-8")
+        return {t: ok for t, ok, _ in grade.check(name, run_dir / "repo", run_dir)}
+
+    def failed(self, res):
+        return [t for t, ok in res.items() if not ok]
+
+    def cleanup(self, repo):
+        self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+
+    def publish(self, repo):
+        return json.loads(self.sh(repo, f"bash {AS_SH} eval-bot bash {RELEASE_SH} --dir . publish --version 0.5.0 --main origin/main"))
+
+    def test_evals_json_lists_the_graders_assertions(self):
+        evals = {e["name"]: e for e in json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]}
+        ids = [e["id"] for e in evals.values()]
+        self.assertEqual(len(ids), len(set(ids)), "duplicate eval ids")
+        for name in RELEASE_NAMES:
+            run_dir, repo = self.fixture(name)
+            self.assertEqual(list(self.grade(name, run_dir, "")), evals[name]["assertions"], name)
+            self.assertTrue(evals[name]["prompt"] and evals[name]["expected_output"], name)
+
+    def test_pr_fixtures_untagged_lists_0_5_0_on_origins_main(self):
+        for name in RELEASE_NAMES[:2]:
+            _, repo = self.fixture(name)
+            doc = json.loads(self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main origin/main"))
+            self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"], name)
+            self.assertEqual(grade.git(repo, "log", "-1", "--format=%s", "origin/main"), "Add greeting (#7)")
+            self.assertEqual(self.sh(repo, "git remote get-url origin"), "https://github.com/acme/greeter.git", name)
+            self.assertEqual(grade.git(repo, "tag"), "")
+            self.assertEqual(grade.git(repo / "ob.git", "tag"), "")
+
+    def test_settings_blocks(self):
+        for name, auto in (("eval-finish-release-offer", "false"), ("eval-finish-release-auto", "true")):
+            _, repo = self.fixture(name)
+            text = (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8")
+            self.assertIn(f"release:\n  enabled: true\n  auto: {auto}\n", text, name)
+            self.assertIn("VERSION: '^(\\d+\\.\\d+\\.\\d+)$'", text)
+        _, repo = self.fixture("eval-finish-release-disabled")
+        self.assertIn("release:\n  enabled: false\n", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
+
+    # eval-finish-release-offer
+    def test_offer_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-finish-release-offer")
+        self.cleanup(repo)
+        self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main origin/main")  # reading the list is allowed
+        res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
+        self.assertTrue(res and not self.failed(res), self.failed(res))
+
+    def test_offer_run_that_publishes_unasked_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-offer")
+        self.cleanup(repo)
+        self.publish(repo)
+        res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
+        for t in ("No tag exists locally or on origin, and no git tag write or git push ran", "No gh release call was made (no create, no view)"):
+            self.assertIn(t, self.failed(res))
+
+    def test_offer_report_without_offer_or_in_the_wrong_order_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-offer")
+        self.cleanup(repo)
+        res = self.grade("eval-finish-release-offer", run_dir, "Nothing to finish - archive is on main.\n\nNext: specwright-roadmap next, or close?")
+        self.assertEqual(self.failed(res), ["The report offers to publish 0.5.0 (asks, naming the version and publish, release or tag)",
+                                            "The release offer comes before the roadmap offer (specwright-roadmap next or close)"])
+        res = self.grade("eval-finish-release-offer", run_dir, "Next: specwright-roadmap next, or close?\n\nShall I publish v0.5.0?")
+        self.assertEqual(self.failed(res), ["The release offer comes before the roadmap offer (specwright-roadmap next or close)"])
+
+    def test_offer_run_without_a_refresh_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-offer")
+        self.sh(repo, "git fetch -q origin main --tags")
+        res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
+        self.assertEqual(self.failed(res), ["The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)"])
+
+    # eval-finish-release-auto
+    def test_auto_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        doc = self.publish(repo)
+        self.assertEqual((doc["tag_local"], doc["tag_remote"], doc["github_release"]), ("created", "pushed", "created"))
+        res = self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)
+        self.assertTrue(res and not self.failed(res), self.failed(res))
+
+    def test_auto_run_without_a_release_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        res = self.grade("eval-finish-release-auto", run_dir, OFFER_REPORT)
+        failed = self.failed(res)
+        for t in ("An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either",
+                  "Exactly one gh release create v0.5.0 was made, with --verify-tag", "The fake gh holds the release, and its body equals the tag's message",
+                  "The release step pushed only the tag: every git push names only refs/tags/v0.5.0, and origin holds no other new ref"):
+            self.assertIn(t, failed)
+
+    def test_auto_run_with_a_tag_only_on_origin_or_a_lightweight_tag_fails(self):
+        key = "An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either"
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        self.sh(repo, "git tag v0.5.0 && git push -q origin refs/tags/v0.5.0:refs/tags/v0.5.0")
+        self.assertIn(key, self.failed(self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)))
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        self.sh(repo, "git tag -a v0.5.0 -m notes")  # never pushed
+        self.assertIn(key, self.failed(self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)))
+
+    def test_auto_run_that_pushes_a_branch_or_forces_fails(self):
+        push = "The release step pushed only the tag: every git push names only refs/tags/v0.5.0, and origin holds no other new ref"
+        force = "No git push or gh release call used --force, -f, --force-with-lease, --tags, --mirror, --all or --delete, or a + refspec"
+        for extra in ("git push -q origin main", "git push -q origin main:refs/heads/side"):
+            run_dir, repo = self.fixture("eval-finish-release-auto")
+            self.cleanup(repo)
+            self.publish(repo)
+            self.sh(repo, extra)
+            self.assertIn(push, self.failed(self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)), extra)
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        self.publish(repo)
+        self.sh(repo, "git push -q --force origin refs/tags/v0.5.0:refs/tags/v0.5.0")
+        self.assertIn(force, self.failed(self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)))
+
+    def test_auto_run_whose_release_body_differs_from_the_tag_message_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        self.sh(repo, "git tag -a v0.5.0 -m 'the tag message' && git push -q origin refs/tags/v0.5.0:refs/tags/v0.5.0 "
+                      "&& GIT_CONFIG_GLOBAL=\"$PWD/state/gitconfig-release\" gh release create v0.5.0 --repo acme/greeter --verify-tag "
+                      "--title v0.5.0 -n 'other notes'")
+        res = self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)
+        self.assertEqual(self.failed(res), ["The fake gh holds the release, and its body equals the tag's message"])
+
+    def test_auto_report_without_a_roadmap_offer_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-auto")
+        self.cleanup(repo)
+        self.publish(repo)
+        res = self.grade("eval-finish-release-auto", run_dir, "release v0.5.0: tag pushed, GitHub release created.")
+        self.assertEqual(self.failed(res), ["The report names the release of 0.5.0, then offers the roadmap mode (next or close), the release first"])
+
+    # eval-finish-release-disabled
+    def test_disabled_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-finish-release-disabled")
+        self.cleanup(repo)
+        res = self.grade("eval-finish-release-disabled", run_dir, "Nothing to finish - archive is on main.\n\nNext: specwright-roadmap next, or close?")
+        self.assertTrue(res and not self.failed(res), self.failed(res))
+        res = self.grade("eval-finish-release-disabled", run_dir, "Pull request #7 was released to main and cleaned up. Next: specwright-roadmap next?")
+        self.assertTrue(res and not self.failed(res), "the word 'released' must not count as a release step: " + str(self.failed(res)))
+
+    def test_disabled_run_that_mentions_or_makes_a_release_fails(self):
+        key = "The report has no release step: no publish, untagged, release, tag or 0.5.0"
+        run_dir, repo = self.fixture("eval-finish-release-disabled")
+        self.cleanup(repo)
+        for text in ("Version 0.5.0 is untagged. Next: specwright-roadmap next?", "Shall I publish it? Next: specwright-roadmap next?",
+                     "The release is not enabled. Next: specwright-roadmap next?", "Nothing to tag. Next: specwright-roadmap next?"):
+            self.assertIn(key, self.failed(self.grade("eval-finish-release-disabled", run_dir, text)), text)
+        self.sh(repo, "git tag -a v0.5.0 -m notes && gh release create v0.5.0 --repo acme/greeter -n notes")
+        res = self.grade("eval-finish-release-disabled", run_dir, "Next: specwright-roadmap next?")
+        for t in ("No tag exists locally or on origin, and no git tag write or git push ran", "No gh release call was made (no create, no view)",
+                  "No git tag or ls-remote command ran (the git trace)"):
+            self.assertIn(t, self.failed(res))
+
+    def test_disabled_report_without_roadmap_offer_fails(self):
+        run_dir, repo = self.fixture("eval-finish-release-disabled")
+        self.cleanup(repo)
+        res = self.grade("eval-finish-release-disabled", run_dir, "Nothing to finish - archive is on main.")
+        self.assertEqual(self.failed(res), ["The report offers the roadmap mode (next or close): finish went on as usual"])
+
+    # eval-finish-local-release-reported
+    LOCAL_REPORT = "Merged add-greeting into main. Local only - push main when ready.\n\nv0.5.0 is untagged: publish it once main is pushed."
+
+    def local_run(self, repo):
+        self.sh(repo, "git add -A && git commit -q -m 'feat(add-greeting): archive change' && git checkout -q main "
+                      "&& git merge -q --no-ff feat/add-greeting -m 'merge: add-greeting' && git branch -q -d feat/add-greeting")
+
+    def test_local_fixture_is_ready_and_bumps_the_version_on_the_branch(self):
+        _, repo = self.fixture("eval-finish-local-release-reported")
+        self.assertEqual(grade.git(repo, "branch", "--show-current"), "feat/add-greeting")
+        self.assertEqual(grade.git(repo, "show", "main:VERSION"), "0.4.0")
+        self.assertEqual(grade.git(repo, "show", "HEAD:VERSION"), "0.5.0")
+        text = (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8")
+        self.assertIn("finish: local\n", text)
+        self.assertIn("release:\n  enabled: true\n  auto: true\n", text)
+        self.assertEqual(grade.git(repo, "rev-parse", "main"), grade.git(repo / "ob.git", "rev-parse", "main"))
+
+    def test_local_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-finish-local-release-reported")
+        self.local_run(repo)
+        self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main main")
+        res = self.grade("eval-finish-local-release-reported", run_dir, self.LOCAL_REPORT)
+        self.assertTrue(res and not self.failed(res), self.failed(res))
+        doc = json.loads(self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main main"))
+        self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"], "main's merge commit carries the release")
+
+    def test_local_run_that_publishes_fails(self):
+        run_dir, repo = self.fixture("eval-finish-local-release-reported")
+        self.local_run(repo)
+        self.sh(repo, f"bash {AS_SH} eval-bot bash {RELEASE_SH} --dir . publish --version 0.5.0 --main main")
+        res = self.grade("eval-finish-local-release-reported", run_dir, "Published v0.5.0.")
+        for t in ("No tag was created", "Nothing was pushed: origin keeps its main and has no tag, no git push ran, and no gh release call was made",
+                  "The report says v0.5.0 can be published after main is pushed"):
+            self.assertIn(t, self.failed(res))
+
+    def test_local_run_that_pushes_main_fails_and_one_that_stays_silent_fails(self):
+        run_dir, repo = self.fixture("eval-finish-local-release-reported")
+        self.local_run(repo)
+        self.sh(repo, "git push -q origin main")
+        res = self.grade("eval-finish-local-release-reported", run_dir, self.LOCAL_REPORT)
+        self.assertEqual(self.failed(res), ["Nothing was pushed: origin keeps its main and has no tag, no git push ran, and no gh release call was made"])
+        run_dir, repo = self.fixture("eval-finish-local-release-reported")
+        self.local_run(repo)
+        res = self.grade("eval-finish-local-release-reported", run_dir, "Merged add-greeting into main. Local only - push main when ready.")
+        self.assertEqual(self.failed(res), ["The report says v0.5.0 can be published after main is pushed"])
+
+    def test_local_run_that_does_not_merge_fails(self):
+        run_dir, repo = self.fixture("eval-finish-local-release-reported")
+        res = self.grade("eval-finish-local-release-reported", run_dir, self.LOCAL_REPORT)
+        self.assertIn("Now on main, and main HEAD is a merge commit with two parents and subject merge: add-greeting", self.failed(res))
+
+    # eval-agent-merge-release-auto
+    def agent_run(self, repo, publish=True):
+        tip = grade.git(repo, "rev-parse", "HEAD")
+        self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method=squash -f sha={tip}")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git branch -q -D feat/add-greeting")
+        self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
+        if publish:
+            self.publish(repo)
+
+    def test_agent_fixture_bumps_the_version_in_the_squash_commit_and_waits_for_the_merge(self):
+        _, repo = self.fixture("eval-agent-merge-release-auto")
+        self.assertEqual(grade.git(repo / "ob.git", "show", "main:VERSION"), "0.5.0")
+        self.assertEqual(grade.git(repo, "show", "main:VERSION"), "0.4.0")
+        self.assertEqual(grade.git(repo, "log", "-1", "--format=%s", "feat/add-greeting~1"), "feat(add-greeting): bump version to 0.5.0")
+        text = (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8")
+        self.assertIn("merge: agent", text)
+        self.assertIn("release:\n  enabled: true\n  auto: true\n", text)
+        before = subprocess.run(["bash", "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
+        self.assertNotEqual(before.returncode, 0, "a pull before the merge must fail at the unreachable proxy")
+
+    def test_agent_run_passes_every_check(self):
+        run_dir, repo = self.fixture("eval-agent-merge-release-auto")
+        self.agent_run(repo)
+        res = self.grade("eval-agent-merge-release-auto", run_dir, PUBLISHED_REPORT)
+        self.assertTrue(res and not self.failed(res), self.failed(res))
+
+    def test_agent_run_that_releases_before_the_cleanup_fails(self):
+        run_dir, repo = self.fixture("eval-agent-merge-release-auto")
+        tip = grade.git(repo, "rev-parse", "HEAD")
+        self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method=squash -f sha={tip}")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.publish(repo)
+        self.sh(repo, "git branch -q -D feat/add-greeting")
+        self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
+        res = self.grade("eval-agent-merge-release-auto", run_dir, PUBLISHED_REPORT)
+        self.assertEqual(self.failed(res), [
+            "The release came after the cleanup: the gh log has the merge, the remote branch DELETE, then the release create, and the tag push "
+            "follows the pull and the local branch deletion (the git trace)"])
+
+    def test_agent_run_without_a_release_or_a_report_line_fails(self):
+        run_dir, repo = self.fixture("eval-agent-merge-release-auto")
+        self.agent_run(repo, publish=False)
+        res = self.grade("eval-agent-merge-release-auto", run_dir, "Merged #7. Next: specwright-roadmap next, or close the milestone?")
+        failed = self.failed(res)
+        self.assertIn("Exactly one gh release create v0.5.0 was made, with --verify-tag", failed)
+        self.assertIn("An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either", failed)
+        self.assertIn("The report names the release of 0.5.0, then offers the roadmap mode (next or close), the release first", failed)
+        self.assertNotIn("Exactly one merge request was sent, with squash and the ready head", failed)
+
+
 if __name__ == "__main__":
     unittest.main()

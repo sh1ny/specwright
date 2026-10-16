@@ -688,6 +688,80 @@ class PrEvidence(FakeGhCase):
             self.assertEqual(self.gh(*argv, check=False).returncode, code)
 
 
+class Releases(FakeGhCase):
+    def seed_tags(self, tags=("v1.0.0",)):
+        st = self.st()
+        st["repos"] = {"o/n": {"remote_tags": list(tags)}}
+        self.seed(st)
+
+    def notes(self, text="## Notes\nbody\n"):
+        f = self.tmp / "notes.md"
+        f.write_text(text, encoding="utf-8", newline="")
+        return str(f)
+
+    def test_release_create_then_view(self):
+        self.seed_tags()
+        r = self.gh("release", "create", "v1.0.0", "--verify-tag", "--title", "v1.0.0", "--notes-file", self.notes(), "-R", "o/n")
+        self.assertEqual(r.stdout.strip(), "https://github.com/o/n/releases/tag/v1.0.0")
+        self.assertEqual(self.st()["repos"]["o/n"]["releases"]["v1.0.0"]["body"], "## Notes\nbody\n")
+        v = json.loads(self.gh("release", "view", "v1.0.0", "--repo", "o/n", "--json", "tagName,name,body,url").stdout)
+        self.assertEqual((v["tagName"], v["name"], v["body"]), ("v1.0.0", "v1.0.0", "## Notes\nbody\n"))
+        self.assertEqual(self.gh("release", "view", "v1.0.0", "-R", "o/n", "--json", "tagName", "-q", ".tagName").stdout.strip(), "v1.0.0")
+        self.assertEqual(self.gh("release", "view", "v1.0.0", "-R", "o/n").returncode, 0)
+
+    def test_release_view_missing(self):
+        self.seed_tags()
+        r = self.gh("release", "view", "v9.9.9", "-R", "o/n", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("release not found", r.stderr)
+
+    def test_release_create_verify_tag_needs_the_remote_tag(self):
+        self.seed_tags(["v1.0.0"])
+        r = self.gh("release", "create", "v2.0.0", "--verify-tag", "-t", "x", "-F", self.notes(), "-R", "o/n", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tag v2.0.0 doesn't exist in the repo o/n, aborting due to --verify-tag flag", r.stderr)
+        self.assertEqual(self.st()["repos"]["o/n"].get("releases", {}), {})
+
+    def test_release_create_twice_is_refused(self):
+        self.seed_tags()
+        args = ("release", "create", "v1.0.0", "--verify-tag", "--title", "t", "--notes-file", self.notes(), "-R", "o/n")
+        self.gh(*args)
+        r = self.gh(*args, check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("a release with the same tag name already exists: v1.0.0", r.stderr)
+
+    def test_release_tag_from_git_origin_and_repo_from_gh_repo(self):
+        origin, work = self.tmp / "origin.git", self.tmp / "work"
+        for cmd in (["git", "init", "-q", "--bare", str(origin)], ["git", "init", "-q", str(work)]):
+            subprocess.run(cmd, check=True)
+        git = ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "c"], check=True)
+        subprocess.run([*git, "remote", "add", "origin", str(origin)], check=True)
+        subprocess.run([*git, "tag", "v1.0.0"], check=True)
+        e = {**os.environ, "FAKE_GH_STATE": str(self.state), "FAKE_GH_LOG": str(self.logf), "GH_REPO": "o/n"}
+        e.pop("GH_TOKEN", None)
+        e.pop("GITHUB_TOKEN", None)
+
+        def run(tag):
+            return subprocess.run([sys.executable, str(GH), "release", "create", tag, "--verify-tag", "--notes", "n"],
+                                  capture_output=True, text=True, env=e, cwd=work)
+        self.assertEqual(run("v1.0.0").returncode, 1)  # tagged locally, not pushed
+        subprocess.run([*git, "push", "-q", "origin", "v1.0.0"], check=True)
+        r = run("v1.0.0")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "https://github.com/o/n/releases/tag/v1.0.0"), r.stderr)
+
+    def test_release_calls_are_logged_and_obey_failure_and_host_rules(self):
+        self.seed_tags()
+        st = self.st()
+        st["fail"] = [{"match": r"release create", "exit": 5, "stderr": "boom"}]
+        self.seed(st)
+        r = self.gh("release", "create", "v1.0.0", "-R", "o/n", check=False)
+        self.assertEqual((r.returncode, r.stderr.strip()), (5, "boom"))
+        self.assertEqual(self.gh("release", "view", "v1.0.0", "-R", "o/n", env={"GH_HOST": "ghe.example"}, check=False).returncode, 1)
+        lines = [json.loads(x) for x in self.logf.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([l["argv"][:2] for l in lines], [["release", "create"], ["release", "view"]])
+
+
 @unittest.skipUnless(shutil.which("sh"), "needs sh")
 class Shim(FakeGhCase):
     def test_install_fake_gh_shim(self):

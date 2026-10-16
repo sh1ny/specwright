@@ -27,7 +27,13 @@ Optional per-repo "readers": [logins] - only they may call `api repos/<o>/<n>/..
 Optional per-repo "activity": [{"ref": "refs/heads/b", "after": "<sha>", "timestamp": "..."}]
 backs `api repos/<o>/<n>/activity?ref=...` (the push-time lookup).
 Covers: auth token (and its --help, which names --user), api (user, pulls list/get, activity,
-issue comments list/create/patch), pr create/view/comment/edit, repo view. Anything else exits 2.
+issue comments list/create/patch), pr create/view/comment/edit, repo view,
+release view <tag> [--json tagName,name,body,url [--jq]] / release create <tag> [--verify-tag] [-t title] [-F notes-file | -n notes]
+(add-release-workflow). Anything else exits 2.
+Releases: per repo "releases": {"<tag>": {"tag_name", "name", "body", "created_at"}}; "remote_tags": ["v0.5.0", ...] declares
+the tags on the remote for --verify-tag; when the key is absent the fake asks `git ls-remote --tags origin refs/tags/<tag>`
+in the cwd. view of a missing tag: exit 1, `release not found`. create: missing tag under --verify-tag, or an existing
+release, exit 1; success prints https://github.com/<o>/<n>/releases/tag/<tag>. The repo comes from --repo/-R, GH_REPO or origin.
 Like real gh, `api --paginate` prints each page's JSON one after another.
 
 Reactions and closing references (state keys; add them with the helpers add_review_comment_reaction,
@@ -893,6 +899,45 @@ def cmd_repo(st, args):
     print(f"name:\t{slug}\nurl:\t{full['url']}")
 
 
+def remote_has_tag(repo, tag):
+    """Whether the tag exists on the remote: the state list repos[slug]["remote_tags"] when present (deterministic),
+    else `git ls-remote --tags origin refs/tags/<tag>` in the cwd (test repos use a local bare origin)."""
+    if "remote_tags" in repo:
+        return tag in repo["remote_tags"]
+    r = subprocess.run(["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"], capture_output=True, text=True)
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def cmd_release(st, args):
+    sub, args = (args[:1] or [""])[0], args[1:]
+    V = {"--repo": "repo", "-R": "repo", "--title": "title", "-t": "title", "--notes": "notes", "-n": "notes",
+         "--notes-file": "notes-file", "-F": "notes-file", "--json": "json", "--jq": "jq", "-q": "jq"}
+    if sub not in ("view", "create"):
+        raise Fail(f"fake gh: unsupported release command {sub!r}", 2)
+    o, pos = parse(args, V, ("--verify-tag",))
+    slug, repo = repo_of(o, st)
+    if not pos:
+        raise Fail(f"fake gh: release {sub} needs a tag", 2)
+    tag = pos[0]
+    releases = repo.setdefault("releases", {})
+    if sub == "view":
+        rel = releases.get(tag)
+        if rel is None:
+            raise Fail("release not found")
+        full = {"tagName": rel["tag_name"], "name": rel.get("name", ""), "body": rel.get("body", ""),
+                "url": f"{HOST}/{slug}/releases/tag/{tag}"}
+        if "json" in o:
+            return emit({k: full[k] for k in one(o, "json").split(",") if k in full}, one(o, "jq"))
+        return print(f"title:\t{full['name']}\ntag:\t{tag}\nurl:\t{full['url']}\n--\n{full['body']}")
+    if "verify-tag" in o and not remote_has_tag(repo, tag):
+        raise Fail(f"tag {tag} doesn't exist in the repo {slug}, aborting due to --verify-tag flag")
+    if tag in releases:
+        raise Fail(f"a release with the same tag name already exists: {tag}")
+    notes = read_file(one(o, "notes-file")) if "notes-file" in o else one(o, "notes", "")
+    releases[tag] = {"tag_name": tag, "name": one(o, "title", tag), "body": notes, "created_at": now(st)}
+    print(f"{HOST}/{slug}/releases/tag/{tag}")
+
+
 def host_of(argv):
     """The host a call targets: --hostname, else a non-empty GH_HOST, else github.com."""
     for i, a in enumerate(argv):
@@ -913,7 +958,7 @@ def main(argv):
         inject_failure(st, argv)
         if host_of(argv) != "github.com" and "--help" not in argv:
             raise Fail(f"fake gh: host {host_of(argv)} is not supported (only github.com)", 1)
-        cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo}
+        cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo, "release": cmd_release}
         if not argv or argv[0] not in cmds:
             raise Fail(f"fake gh: unsupported command: {' '.join(argv)}", 2)
         cmds[argv[0]](st, argv[1:])

@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.4.2-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.5.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -35,6 +35,7 @@ flowchart LR
 | Pre-ship review | [`specwright-review`](skills/specwright-review/SKILL.md) | Cross-model review of the finished change; ship and the local merge wait for a pass |
 | PR | [`specwright-pr`](skills/specwright-pr/SKILL.md) | Ship, address feedback, watch CI (`finish: pr`) |
 | Archive | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive commit, then local `--no-ff` merge or push to the PR |
+| Release (opt-in) | [`specwright-release`](skills/specwright-release/SKILL.md) | Version bump as the last task, tag and GitHub release after merge |
 | Across changes | [`specwright-roadmap`](skills/specwright-roadmap/SKILL.md) | Strategy, architecture baseline, milestones |
 
 ---
@@ -287,6 +288,7 @@ example `PR workflow not ready: gh 2.40+`).
 | [`specwright-review`](skills/specwright-review/SKILL.md) | End of apply, ship and local merge (pre-ship); design reviews | Reviewer routes (`review-run.sh`: select, run, record, gate), pre-ship fix and waiver rules — see the [brief](skills/specwright-review/references/brief.md) and [findings schema](skills/specwright-review/references/findings.schema.json) |
 | [`specwright-pr`](skills/specwright-pr/SKILL.md) | "open a PR", "address review comments", "watch the PR" | `ship` / `feedback` / `watch` — see [description guide](skills/specwright-pr/references/description.md) and [feedback rubric](skills/specwright-pr/references/rubric.md) |
 | [`specwright-debug`](skills/specwright-debug/SKILL.md) | Unexpected failures, bug reports, failing CI | Reproduce → trace → hypothesis → test-first fix; CI mode |
+| [`specwright-release`](skills/specwright-release/SKILL.md) | "release", "tag", "publish v0.5.0" (with `release.enabled`); offered by finish, watch and roadmap close | `bump` (a tracked task) and `publish`: the annotated tag on the merged main commit and the optional GitHub release, via [`release.sh`](skills/specwright-release/scripts/release.sh) |
 | [`specwright-roadmap`](skills/specwright-roadmap/SKILL.md) | "plan this project", "what's next on the roadmap", "close the milestone" | `init` / `next` / `close` / `status` — templates for [strategy](skills/specwright-roadmap/references/strategy.md), [architecture](skills/specwright-roadmap/references/architecture.md), [roadmap](skills/specwright-roadmap/references/roadmap.md) |
 
 ### Agents
@@ -355,11 +357,22 @@ pr:
   merge: user                   # user = you merge on GitHub; agent = watch merges a ready PR (finish: pr, a required reviewer)
   merge_method: merge           # agent merge: merge | squash | rebase
   delete_branch: true           # agent mode: delete the merged remote branch, only at the merged head
+
+release:                        # opt-in; refused with pr.merge_method: rebase
+  enabled: false                # true = opt in
+  auto: false                   # true = finish / watch publish without asking (never after a local merge)
+  github_release: true          # also create the GitHub release from the tag's message
+  tag: "v{version}"
+  version_files:                # path or glob -> regex with one capture group; the first is the primary; every file must match once and agree
+    VERSION: '^(\d+\.\d+\.\d+)$'
+    package.json: '^  "version": "(\d+\.\d+\.\d+)",$'
 ```
 
 Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
 
 **Agent merge (0.4.0).** With `pr.merge: agent` and `finish: pr`, **watch** finishes the job you used to do by hand: once the PR is ready it archives the change without asking, waits for the archive head, merges the PR through GitHub's REST merge at the head it reported ready (a push in between makes GitHub refuse), reads the PR back, then cleans up: main pulled, the local branch deleted under the usual check, the remote branch deleted with `pr.delete_branch` while it is still at the merged head and no open PR is based on it, and the roadmap **next** or **close** offered (ADR 0009). It needs at least one `required` reviewer, else it reports ready and merges nothing. A refusal (branch protection, a merge queue, a disallowed method) stops with GitHub's message; Specwright never uses admin rights, auto-merge, a merge queue, another method or a review dismissal. GitHub records the run login as the merger. The default, `user`, keeps the earlier behaviour.
+
+**Releases.** Opt-in with `release.enabled`. The version bump is a tracked task in the change's last task group (`bash skills/specwright-release/scripts/release.sh bump --to <version>`, checked with `check`). After the change is on main, `publish` tags the merged main commit with an annotated `v<version>` tag, with notes taken from the archived changes, pushes only that tag and optionally creates the GitHub release. Tags are never moved, deleted or forced, and a rebase-merged release is refused. A store-backed project tags the code repo only.
 
 **GitHub identity (0.3.0).** Every `gh` call and every git fetch, pull and push to a github.com remote runs through `as.sh` as one verified login (ADR 0008). With `github.login` empty, the first step you start resolves the active `gh` account once and hands it to every step it runs (ship, watch, feedback, archive, finish), so another agent's `gh auth switch` cannot redirect the run. A new request in a later session resolves again: if you switch `gh` accounts between sessions, set `github.login`. Remotes on other hosts are not fenced.
 - **BREAKING:** with `github.login` empty, an environment that has only `GH_TOKEN` and no stored `gh` login (CI, containers, cloud agents) now stops before its first GitHub call; environment tokens never pick the login. Run `gh auth login --with-token` (and optionally set `github.login`).
@@ -456,7 +469,7 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 Store evals (`eval-store-*`) need two repos, so the fixture is a directory, not a repo: `code/` is the project, `store/` is its OpenSpec store. The fixture also writes `eval.env`. The agent under test must run `source <repo>/eval.env` first and work from `<repo>/code`. The file points the OpenSpec registry and config (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`) and Specwright's watch state (`SPECWRIGHT_STATE_DIR`) at the run directory, and puts a fake `gh` first on `PATH`. Your own registry and state are never touched. The fake `gh` ([`evals/fakes/gh.py`](evals/fakes/gh.py)) keeps its state in `gh-state.json` and logs every call to `gh-log.jsonl`; `grade.py` reads both repos and that log.
 
-Test the fake `gh` with `python -m unittest discover evals/pr-pair`, and the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`.
+Test the fake `gh` with `python -m unittest discover evals/pr-pair`, the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`, and `release.sh` (against scratch repos and the fake `gh`) with `python -m unittest discover evals/release`.
 
 To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
 
