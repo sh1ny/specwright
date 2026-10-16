@@ -52,7 +52,8 @@ Show the error and tag nothing more. None is fixed by moving, deleting or forcin
 | 1 | version not on main | publish after the release commit reaches main |
 | 1 | tag exists at another commit | the user fixes it by hand |
 | 1 | a lightweight tag at the release commit | the user replaces it by hand with an annotated tag, or deletes it |
-| 1 | a `version_files` entry outside the repository | the user fixes `release.version_files` |
+| 1 | `tag_mismatch`: the local tag and origin's are different tag objects (a lost push race) | the user deletes the local tag (`git tag -d <tag>`); a re-run fetches origin's |
+| 1 | a `version_files` entry outside the repository, or a symlink | the user fixes `release.version_files` (list the file a link points to) |
 | 1 | an older version is untagged | publish it first (`untagged` lists it) |
 | 3 | network or fence failure | report it; a re-run of publish resumes |
 

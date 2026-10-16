@@ -209,6 +209,22 @@ class TestCheck(Base):
         self.assertEqual(code, 0, raw)
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])
 
+    def test_glob_primary_merge_diffs_first_parent_on_any_git(self):
+        # A merge's first-parent diff carries the files its branch added, whatever log.diffMerges says, and without
+        # --diff-merges (git 2.31+ only): the merge adds a stale SKILL.md, so it is not the release commit of 0.5.0.
+        self.repo(version="0.4.0", version_files={"skills/*/SKILL.md": r"^  version: (\S+)$",
+                                                  "VERSION": r"^(\d+\.\d+\.\d+)$"})
+        fx.git(self.work, "config", "log.diffMerges", "combined")
+        fx.git(self.work, "checkout", "-q", "-b", "feat/add-n")
+        fx.set_version(self.work, "0.5.0")
+        fx.commit(self.work, "feat(add-n): do add-n", {"skills/specwright-new/SKILL.md": fx.skill_text("specwright-new", "0.4.9")})
+        fx.git(self.work, "checkout", "-q", "main")
+        fx.git(self.work, "merge", "-q", "--no-ff", "-m", "Merge pull request #3 from acme/feat/add-n", "feat/add-n")
+        fixed = fx.commit(self.work, "fix: new skill version (#4)",
+                          {"skills/specwright-new/SKILL.md": fx.skill_text("specwright-new", "0.5.0")})
+        self.assertEqual(self.release("status", "--version", "0.5.0")[1]["release_commit"], fixed)
+        self.assertNotIn("--diff-merges", SCRIPT.read_text(encoding="utf-8"))
+
 
 class TestBump(Base):
     def read(self, rel):
@@ -266,6 +282,43 @@ class TestBump(Base):
         for target in ("v0.5", "0.5.0-beta", "0.5", "0.5.0.1", " 0.5.0"):
             self.assertStops(self.release("bump", "--to", target), "MAJOR.MINOR.PATCH")
         self.assertEqual(fx.snapshot(self.work), before)
+
+    def test_symlinked_version_file_refused(self):
+        # A version file that is a link, or reached through a linked directory, inside the repository: git would store
+        # the link text, so status and publish could not read it. Check and bump stop and change nothing.
+        rx = r"^(\d+\.\d+\.\d+)$"
+        for entry, make in (("pkg/VERSION", lambda: os.symlink(os.path.join("..", "VERSION"), self.work / "pkg" / "VERSION")),
+                            ("alias/*/VERSION", lambda: os.symlink("pkg", self.work / "alias", target_is_directory=True))):
+            with self.subTest(entry=entry):
+                self.work = fx.make_repo(self.tmp / entry.split("/")[0], version_files={"VERSION": rx, entry: rx})
+                (self.work / "pkg").mkdir()
+                if entry.startswith("alias"):
+                    fx.write(self.work, "pkg/x/VERSION", "0.4.2\n")
+                try:
+                    make()
+                except (OSError, NotImplementedError) as e:
+                    self.skipTest(f"no symlinks here: {e}")
+                before = fx.snapshot(self.work)
+                for sub in (["check"], ["bump", "--to", "0.5.0"]):
+                    out = self.release(*sub)
+                    self.assertStops(out, "through a symlink;", "List the file the link points to")
+                    self.assertEqual(out[1]["error"], "bad_version_files")
+                self.assertEqual(fx.snapshot(self.work), before)
+                self.assertEqual(self.read("VERSION"), b"0.4.2\n")
+
+    def test_symlink_at_release_commit_refused(self):
+        # A link committed as a version file (mode 120000, the blob is the link text) stops status, naming it.
+        rx = r"^(\d+\.\d+\.\d+)$"
+        self.repo(version="0.4.0", version_files={"VERSION": rx, "pkg/VERSION": rx})
+        fx.set_version(self.work, "0.5.0")
+        fx.git(self.work, "add", "-A")
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.work, input="../VERSION", capture_output=True,
+                              text=True, check=True).stdout.strip()
+        fx.git(self.work, "update-index", "--add", "--cacheinfo", f"120000,{blob},pkg/VERSION")
+        fx.git(self.work, "commit", "-q", "-m", "feat(add-l): link the version (#5)")
+        out = self.release("status", "--version", "0.5.0")
+        self.assertStops(out, "pkg/VERSION", "a symlink at commit")
+        self.assertEqual(out[1]["error"], "bad_version_files")
 
     def test_bump_refuses_when_a_file_does_not_match(self):
         self.repo()
@@ -779,6 +832,27 @@ class TestPublish(PubFlow):
         self.assertEqual(self.obj(), origin_obj)  # fetched, not created again
         self.assertEqual((doc["tag_local"], doc["tag_remote"]), ("fetched", "existing"))
         self.assertEqual(self.releases()[self.TAG]["body"].strip(), "Origin notes only")
+
+    def test_lost_push_race_stops(self):
+        # Origin holds another clone's tag object at the release commit; the local one lost the push. Publish stops
+        # rather than release with the local message, and after `git tag -d` a re-run fetches origin's tag.
+        self.seed_tag(local=False, message="Origin notes\n")
+        origin_obj = self.remote(self.TAG).splitlines()[0].split()[0]
+        fx.git(self.work, "tag", "-a", self.TAG, "-m", "Local notes", self.rc)
+        local_obj = self.obj()
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "tag_mismatch")
+        for needle in (local_obj[:12], origin_obj[:12], f"git tag -d {self.TAG}"):
+            self.assertIn(needle, doc["message"])
+        self.assertEqual(self.obj(), local_obj)
+        self.assertEqual(self.gh_calls(), [])
+        self.assertEqual(self.releases(), {})
+        fx.git(self.work, "tag", "-d", self.TAG)
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((doc["tag_local"], doc["tag_remote"]), ("fetched", "existing"))
+        self.assertEqual(self.releases()[self.TAG]["body"].strip(), "Origin notes")
 
     def test_conflicting_tag_stops(self):
         # the tag sits at another commit, on origin only and then locally only

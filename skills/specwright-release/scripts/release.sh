@@ -18,7 +18,8 @@
 #                                     the tag annotation and the release body), tag_local (sha the local tag points at, or
 #                                     null), tag_remote (the commit the tag points at on origin, from one read-only
 #                                     `git ls-remote --tags origin`, or null; also null with no origin remote; an unreadable
-#                                     origin is exit 3, remote_tags_unreadable), repo and tag_repo (the code repo: the only one
+#                                     origin is exit 3, remote_tags_unreadable), tag_object {local, remote} (each side's tag
+#                                     object id, or null), repo and tag_repo (the code repo: the only one
 #                                     ever tagged), github_release (existing|absent from a read-only `gh release view <tag>
 #                                     --repo o/n`; disabled when release.github_release is false, not_github when origin is not
 #                                     on github.com; any other gh failure is exit 3, release_view_failed), store (with --store).
@@ -36,9 +37,12 @@
 #                                     the release commit (notes = its message), `git push origin refs/tags/<tag>:refs/tags/<tag>`
 #                                     (never --tags, --force or a branch), then `gh release create --verify-tag` (body = the
 #                                     tag's message) when release.github_release is on and origin is on github.com. A tag at
-#                                     another commit, locally or on origin, is exit 1 tag_conflict before any write. Unreadable
+#                                     another commit, locally or on origin, is exit 1 tag_conflict before any write; local and
+#                                     origin tags at the release commit as different tag objects (a lost push race) are exit 1
+#                                     tag_mismatch before any write, so the release body is always origin's tag. Unreadable
 #                                     origin tags: exit 3 remote_tags_unreadable before any tag. A failed push: exit 3
-#                                     tag_push_failed (the local tag stays; a re-run pushes it; no release is created). A failed
+#                                     tag_push_failed (the local tag stays; a re-run pushes it, or stops with tag_mismatch when
+#                                     another clone's tag reached origin first; no release is created). A failed
 #                                     release: exit 3 release_create_failed (the tag stays on origin; a re-run creates only the
 #                                     release). JSON: ok, version, tag, release_commit, tag_local created|existing|fetched,
 #                                     tag_remote pushed|existing, github_release created|existing|disabled|not_github,
@@ -387,9 +391,17 @@ class WorkTree:
             hits = [os.path.join(self.root, pattern)]
         real = os.path.realpath(self.root)
         for h in hits:
-            if os.path.isfile(h) and not inside(real, os.path.realpath(h)):
-                raise Stop("bad_version_files", f"release.version_files entry '{pattern}' reaches "
-                           f"{os.path.relpath(h, self.root).replace(os.sep, '/')} through a symlink outside the repository")
+            if not os.path.isfile(h):
+                continue
+            rel = os.path.relpath(h, self.root).replace(os.sep, "/")
+            target = os.path.realpath(h)
+            if not inside(real, target):
+                raise Stop("bad_version_files", f"release.version_files entry '{pattern}' reaches {rel} through a symlink "
+                           "outside the repository")
+            if os.path.normcase(target) != os.path.normcase(os.path.join(real, os.path.normpath(rel))):
+                raise Stop("bad_version_files", f"release.version_files entry '{pattern}' reaches {rel} through a symlink; "
+                           "git stores a link as its text, so status and publish could not read the version at a commit. "
+                           "List the file the link points to instead")
         return sorted({os.path.relpath(h, self.root).replace(os.sep, "/") for h in hits if os.path.isfile(h)})
 
     def read_all(self, paths):
@@ -425,21 +437,34 @@ class CommitTree:
     def __init__(self, root, commit):
         self.root, self.commit = root, commit
         self.label = f"commit {commit[:12]}"
-        self._names = None
+        self._names = self._links = None
 
     def names(self):
         if self._names is None:
-            r = git(self.root, "ls-tree", "-r", "--name-only", "-z", self.commit)
+            r = git(self.root, "ls-tree", "-r", "-z", self.commit)
             if r.returncode != 0:
                 raise Stop("git_failed", f"git ls-tree failed at {self.commit}: {err_of(r)}", code=3)
-            self._names = [n for n in r.stdout.decode("utf-8", "surrogateescape").split("\0") if n]
+            self._names, self._links = [], set()
+            for row in r.stdout.decode("utf-8", "surrogateescape").split("\0"):
+                meta, tab, name = row.partition("\t")
+                if tab:
+                    self._names.append(name)
+                    if meta.startswith("120000 "):
+                        self._links.add(name)
         return self._names
 
     def files(self, pattern):
         if not has_glob(pattern):
-            return [pattern] if pattern in self.names() else []
-        rx = glob_regex(pattern)
-        return sorted(n for n in self.names() if rx.match(n))
+            hits = [pattern] if pattern in self.names() else []
+        else:
+            rx = glob_regex(pattern)
+            hits = sorted(n for n in self.names() if rx.match(n))
+        for n in hits:
+            if n in self._links:
+                raise Stop("bad_version_files", f"release.version_files entry '{pattern}' matches {n}, a symlink at "
+                           f"{self.label}; git stores a link as its text, so no version can be read there. List the file "
+                           "the link points to instead")
+        return hits
 
     def read_all(self, paths):
         paths = list(paths)
@@ -626,8 +651,10 @@ def primary_history(st, entries, ref):
     shas = text_of(r).split()
     texts = []
     if has_glob(path):
-        r = git(st.root, "log", "-z", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--name-status",
-                "--format=%x01%H", "--reverse", ref, "--", spec)
+        # -m with --first-parent diffs a merge against its first parent on any git (the diff-merges option needs 2.31); the -c
+        # pins that on 2.31+, where -m follows log.diffMerges (older git ignores the key)
+        r = git(st.root, "-c", "log.diffMerges=first-parent", "log", "-z", "--first-parent", "-m", "--no-renames",
+                "--name-status", "--format=%x01%H", "--reverse", ref, "--", spec)
         if r.returncode != 0:
             raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
         rx, present, per_sha, sha = glob_regex(path), set(), {}, None
@@ -1033,10 +1060,11 @@ def origin_url(st):
 
 
 def remote_tag(st, tag):
-    """(commit, annotated) for `tag` on origin: the peeled commit of an annotated tag (annotated True), or the commit of a
-    lightweight one (False); (None, None) when absent or with no origin remote. Exit 3 when origin cannot be read."""
+    """(commit, annotated, object) for `tag` on origin: the peeled commit of an annotated tag (annotated True), or the commit
+    of a lightweight one (False), and the ref's object id; (None, None, None) when absent or with no origin remote. Exit 3
+    when origin cannot be read."""
     if origin_url(st) is None:
-        return None, None
+        return None, None, None
     r = git(st.root, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
     if r.returncode != 0:
         shown = f"git ls-remote --tags origin refs/tags/{tag}"
@@ -1049,7 +1077,7 @@ def remote_tag(st, tag):
             obj = sha
         elif name == f"refs/tags/{tag}^{{}}":
             peeled = sha
-    return ((peeled or obj), peeled is not None) if obj else (None, None)
+    return ((peeled or obj), peeled is not None, obj) if obj else (None, None, None)
 
 
 def status_doc(st, a, loaded=None, release=True):
@@ -1079,7 +1107,8 @@ def status_doc(st, a, loaded=None, release=True):
         c["why"] = None
     tag = tag_for(st, v)
     tl = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
-    remote, remote_annotated = remote_tag(st, tag)
+    remote, remote_annotated, remote_obj = remote_tag(st, tag)
+    lo = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}") if tl.returncode == 0 else None
     lightweight = []
     if tl.returncode == 0 and text_of(git(st.root, "cat-file", "-t", f"refs/tags/{tag}")) != "tag":
         lightweight.append("locally")
@@ -1090,6 +1119,7 @@ def status_doc(st, a, loaded=None, release=True):
             "range": {"from": prev_sha, "to": sha, "commits": len(rng)},
             "changes": changes, "notes": build_notes(tag, changes),
             "tag_local": text_of(tl) if tl.returncode == 0 else None, "tag_remote": remote, "tag_lightweight": lightweight,
+            "tag_object": {"local": text_of(lo) if lo is not None and lo.returncode == 0 else None, "remote": remote_obj},
             **({"github_release": release_state(st, tag)[0]} if release else {}), "repo": st.root, "tag_repo": st.root, **({"store": info} if info else {})}
 
 
@@ -1186,6 +1216,13 @@ def cmd_publish(st, a):
         raise Stop("lightweight_tag", f"tag {tag} exists {where} as a lightweight tag at the release commit; a release is an "
                    "annotated tag, and nothing was written. Replace it by hand: publish never moves, deletes or forces a tag",
                    tag=tag, where=doc["tag_lightweight"])
+    objs = doc["tag_object"]
+    if local and remote and objs["local"] != objs["remote"]:
+        raise Stop("tag_mismatch", f"tag {tag} is at the release commit both locally and on origin, but as different tag "
+                   f"objects (local {objs['local'][:12]}, origin {objs['remote'][:12]}): a lost push race. The release body "
+                   "must be origin's tag message, and nothing was written. Delete the local tag by hand "
+                   f"(git tag -d {tag}); a re-run then fetches origin's: publish never moves, deletes or forces a tag",
+                   tag=tag, local_object=objs["local"], remote_object=objs["remote"])
     # D6: read each step's state, do only what is missing
     if local:
         tag_local = "existing"
@@ -1209,7 +1246,8 @@ def cmd_publish(st, a):
         r = git(st.root, "push", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
         if r.returncode != 0:
             raise Stop("tag_push_failed", f"git push origin refs/tags/{tag}:refs/tags/{tag} failed: {err_of(r) or 'exit ' + str(r.returncode)}; "
-                       f"the local tag {tag} exists and a re-run pushes it; no GitHub release was created", code=3,
+                       f"the local tag {tag} exists and a re-run pushes it (or stops with tag_mismatch if another clone's {tag} "
+                       "reached origin first); no GitHub release was created", code=3,
                        call=f"git push origin refs/tags/{tag}")
         tag_remote = "pushed"
     gh_state, url = github_release(st, tag)

@@ -28,6 +28,13 @@ Each `release.version_files` path or glob SHALL be relative and inside the repos
 - **WHEN** `skills/linked` is a symlink to a directory outside the repository and `skills/*/SKILL.md` matches a file in it
 - **THEN** check and bump exit non-zero naming that file, and it is unchanged
 
+### Requirement: Version files are not symlinks
+A version file match that is a symlink, or is reached through one, inside the repository SHALL stop the run before any write, naming it, in the working tree and at a commit: git stores a link as its text, so the version could not be read at the release commit.
+
+#### Scenario: Symlink inside the repository
+- **WHEN** `release.version_files` has `pkg/VERSION`, a symlink to `VERSION`
+- **THEN** check and bump exit non-zero naming `pkg/VERSION`, no file is changed, and status of a commit holding the link exits non-zero naming it
+
 ### Requirement: Version files agree before any write
 `release.version_files` SHALL map each path or glob to a regular expression with one capture group; its first entry is the primary file. Every matched file SHALL hold exactly one match and all captured versions SHALL be equal, else the run SHALL stop before any write naming each offending file. Bump and check read the working tree; status and publish read V's release commit, with the current `version_files`, and stop unless the shared version there is V.
 
@@ -143,7 +150,7 @@ Publish SHALL create an annotated tag named by `release.tag` (default `v{version
 
 #### Scenario: Push refused by the fence
 - **WHEN** `as.sh` refuses (exit 3) or the tag push fails
-- **THEN** publish exits non-zero with the push error, no GitHub release is created, and the report says the local tag exists and a re-run pushes it
+- **THEN** publish exits non-zero with the push error, no GitHub release is created, and the report says the local tag exists and a re-run pushes it (or stops as in "Lost push race" when another clone's tag reached origin first)
 
 #### Scenario: Store-backed project
 - **WHEN** publish runs in a store-backed project
@@ -190,6 +197,13 @@ Publish SHALL check the tag locally and on origin (`ls-remote`) before writing. 
 #### Scenario: Remote tags unreadable
 - **WHEN** `git ls-remote --tags origin` fails or the fence refuses it
 - **THEN** publish stops before creating any tag and names the failed fetch
+
+### Requirement: A release uses the tag on origin
+A local tag and an origin tag at the release commit that are different tag objects SHALL stop publish before any write, naming both objects, so the release body is always the message of the tag on origin.
+
+#### Scenario: Lost push race
+- **WHEN** `v0.5.0` is on origin at the release commit, and the local `v0.5.0` is another annotated tag object at the same commit (its push lost to another clone's)
+- **THEN** publish exits non-zero naming both tag objects, and creates no GitHub release; once the user deletes the local tag, a re-run fetches origin's and releases with its message
 
 ### Requirement: The GitHub release is optional and created once
 With `release.github_release` true, publish SHALL create a GitHub release for the pushed tag, after the tag is on origin, with the tag's message as its body (never notes derived again). A release that already exists for the tag SHALL be left unchanged. With the key false, or an origin not on github.com, no release SHALL be created and the report SHALL say so.
