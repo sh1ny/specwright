@@ -29,22 +29,22 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 | install-update → Update finds changes in flight on their branches | Change only on a remote branch | evals/update/test_inflight.py | TestCollect.test_remote_only_change_is_warning | green |
 | install-update → Update report tells running sessions to restart | Version changed | evals/git-workflow/test_instructions.py | InstallUpdateLifecycle.test_step8_restart_notice_after_swap | red |
 | install-update → Update report tells running sessions to restart | Refused update | evals/git-workflow/test_instructions.py + evals/update/test_update.py | InstallUpdateLifecycle.test_step8_no_restart_notice_when_unchanged; TestPlan.test_refusal_reports_unchanged | red |
-| planning-stores → A store records its schema version and owner | First update claims the store | evals/update/test_store.py | TestStoreRecord.test_first_update_claims_store | red |
-| planning-stores → A store records its schema version and owner | Two projects claim at once | evals/update/test_store.py | TestStoreRecord.test_second_claimer_names_owner | red |
-| planning-stores → A store records its schema version and owner | Unreadable record | evals/update/test_store.py | TestStoreRecord.test_unreadable_record_stops | red |
-| planning-stores → Only the owner replaces a store's schema | Owner updates | evals/update/test_store.py | TestOwner.test_owner_update_leaves_other_project_unchanged | red |
-| planning-stores → Only the owner replaces a store's schema | Another project updates within the store's version | evals/update/test_store.py | TestOwner.test_other_project_patch_leaves_store_unchanged | red |
-| planning-stores → Only the owner replaces a store's schema | Another project would leave the store's version | evals/update/test_store.py | TestOwner.test_other_project_minor_refused_names_matching_tag | red |
-| planning-stores → The store schema is swapped only on a free store | Store busy, schema unchanged | evals/update/test_store.py | TestFreeStore.test_busy_store_patch_same_schema_code_side_only | red |
-| planning-stores → The store schema is swapped only on a free store | Store busy, schema changed | evals/update/test_store.py | TestFreeStore.test_busy_store_schema_change_refused | red |
-| planning-stores → The store schema is swapped only on a free store | Only this update's staging is untracked | evals/update/test_store.py | TestFreeStore.test_own_staging_does_not_make_store_busy | red |
-| planning-stores → A store workflow update waits for other projects' changes | Another project's change in flight | evals/update/test_store.py | TestAttribution.test_other_projects_change_refuses_owner_update | red |
-| planning-stores → A store workflow update waits for other projects' changes | Only the owner's change in flight | evals/update/test_store.py | TestAttribution.test_owner_change_validated_and_update_completes | red |
-| planning-stores → An interrupted store swap is recovered from its own checkout | Rerun from the same checkout | evals/update/test_interrupt.py | TestStoreInterrupt.test_kill_during_store_swap_rerun_recovers_and_releases_lock | red |
-| planning-stores → An interrupted store swap is recovered from its own checkout | Interrupted after taking the lock, before the first rename | evals/update/test_interrupt.py | TestStoreInterrupt.test_kill_after_lock_before_rename_discards_and_releases | red |
-| planning-stores → An interrupted store swap is recovered from its own checkout | Rollback after Step 7 failed, store untouched since | evals/update/test_store.py | TestStoreRollback.test_rollback_after_step7_restores_schema_config_and_record | red |
+| planning-stores → A store records its schema version and owner | First update claims the store | evals/update/test_store.py | TestStoreRecord.test_first_update_claims_store | green |
+| planning-stores → A store records its schema version and owner | Two projects claim at once | evals/update/test_store.py | TestStoreRecord.test_second_claimer_names_owner | green |
+| planning-stores → A store records its schema version and owner | Unreadable record | evals/update/test_store.py | TestStoreRecord.test_unreadable_record_stops | green |
+| planning-stores → Only the owner replaces a store's schema | Owner updates | evals/update/test_store.py | TestOwner.test_owner_update_leaves_other_project_unchanged | green |
+| planning-stores → Only the owner replaces a store's schema | Another project updates within the store's version | evals/update/test_store.py | TestOwner.test_other_project_patch_leaves_store_unchanged | green |
+| planning-stores → Only the owner replaces a store's schema | Another project would leave the store's version | evals/update/test_store.py | TestOwner.test_other_project_minor_refused_names_matching_tag | green |
+| planning-stores → The store schema is swapped only on a free store | Store busy, schema unchanged | evals/update/test_store.py | TestFreeStore.test_busy_store_patch_same_schema_code_side_only | green |
+| planning-stores → The store schema is swapped only on a free store | Store busy, schema changed | evals/update/test_store.py | TestFreeStore.test_busy_store_schema_change_refused | green |
+| planning-stores → The store schema is swapped only on a free store | Only this update's staging is untracked | evals/update/test_store.py | TestFreeStore.test_own_staging_does_not_make_store_busy | green |
+| planning-stores → A store workflow update waits for other projects' changes | Another project's change in flight | evals/update/test_store.py | TestAttribution.test_other_projects_change_refuses_owner_update | green |
+| planning-stores → A store workflow update waits for other projects' changes | Only the owner's change in flight | evals/update/test_store.py | TestAttribution.test_owner_change_validated_and_update_completes | green |
+| planning-stores → An interrupted store swap is recovered from its own checkout | Rerun from the same checkout | evals/update/test_interrupt.py | TestStoreInterrupt.test_kill_during_store_swap_rerun_recovers_and_releases_lock | green |
+| planning-stores → An interrupted store swap is recovered from its own checkout | Interrupted after taking the lock, before the first rename | evals/update/test_interrupt.py | TestStoreInterrupt.test_kill_after_lock_before_rename_discards_and_releases | green |
+| planning-stores → An interrupted store swap is recovered from its own checkout | Rollback after Step 7 failed, store untouched since | evals/update/test_store.py | TestStoreRollback.test_rollback_after_step7_restores_schema_config_and_record | green |
 | planning-stores → An interrupted store swap is recovered from its own checkout | Another project's gate meets the update lock | evals/git-workflow/test_instructions.py + evals/git-workflow/evals.json | BranchGateStoreVersion.test_gate_names_update_lock_without_removal; eval-branch-store-update-lock | green |
-| planning-stores → An interrupted store swap is recovered from its own checkout | Rollback after another project moved on | evals/update/test_store.py | TestStoreRollback.test_rollback_refused_when_store_busy_keeps_swapped_state | red |
+| planning-stores → An interrupted store swap is recovered from its own checkout | Rollback after another project moved on | evals/update/test_store.py | TestStoreRollback.test_rollback_refused_when_store_busy_keeps_swapped_state | green |
 | planning-stores → Change gate checks the store's version | Versions match | evals/git-workflow/evals.json | eval-branch-store-version-match | green |
 | planning-stores → Change gate checks the store's version | Project behind the store | evals/git-workflow/test_instructions.py + evals/git-workflow/evals.json | BranchGateStoreVersion.test_gate_compares_major_minor; eval-branch-store-version-behind | green |
 | planning-stores → Change gate checks the store's version | Store behind the project | evals/git-workflow/test_instructions.py | BranchGateStoreVersion.test_gate_says_owner_updates_store_first | green |
@@ -136,7 +136,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - `store_written` in the `swap` JSON;
   - `recover` taking over and releasing a lock with this checkout's token, and sending a lock whose `owner` file is missing or empty to the user;
   - a rollback that re-runs the store checks.
-- [ ] 5.3 Add `update.sh note-config`. The prompt runs it right after Step 5, and it records the merged `<root>/openspec/config.yaml` content hash in the journal, so the recovery free check accepts it (re-check note in review.md). Cover it in `TestStoreRollback.test_rollback_after_step7_restores_schema_config_and_record`, which runs `note-config` between `swap` and the failed Step 7. Verify that every test from 5.1 passes and flip the rows green.
+- [x] 5.3 Add `update.sh note-config`. The prompt runs it right after Step 5, and it records the merged `<root>/openspec/config.yaml` content hash in the journal, so the recovery free check accepts it (re-check note in review.md). Cover it in `TestStoreRollback.test_rollback_after_step7_restores_schema_config_and_record`, which runs `note-config` between `swap` and the failed Step 7. Verify that every test from 5.1 passes and flip the rows green.
 
 ## 6. Install prompt and docs
 
