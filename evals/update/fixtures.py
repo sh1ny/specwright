@@ -131,11 +131,11 @@ def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skill
     return dest
 
 
-def make_mini_download(dest, version, skills=1):
+def make_mini_download(dest, version, skills=1, schema_edit=None):
     """make_download with only the first `skills` specwright-* directories and one claude agent file: the same flow
     with a handful of file operations, for the evals that run update.sh many times (the interruption matrix)."""
     names = sorted(p.name for p in (ROOT / "skills").glob("specwright-*") if p.is_dir())
-    dl = make_download(dest, version, drop_skills=names[skills:])
+    dl = make_download(dest, version, drop_skills=names[skills:], schema_edit=schema_edit)
     agents = sorted((dl / "agents" / "claude").glob("*.md"))
     for p in agents[1:]:
         p.unlink()

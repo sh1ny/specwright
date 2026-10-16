@@ -99,7 +99,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 4. Changes in flight
 
-- [ ] 4.1 Write failing tests in `evals/update/test_inflight.py`:
+- [x] 4.1 Write failing tests in `evals/update/test_inflight.py`:
   - `TestCollect`: branch only, archived, archive of a longer name, remote only;
   - `TestInflight`: valid, failing, started after plan, patch.
 
