@@ -206,5 +206,112 @@ class TestStage(Base):
         self.assertEqual(co.version_file.read_text(), "0.5.0\n")
 
 
+class TestRecover(Base):
+    """recover (called first by plan when a journal exists): discard, resume, roll back (design D3)."""
+
+    def mini(self, installed="0.5.0", target="0.6.0", skills=2):
+        co = fx.make_checkout(self.tmp, installed, skills_dirs=(".claude/skills",),
+                              download=fx.make_mini_download(self.tmp / f"dl-{installed}", installed, skills))
+        self.co = co
+        self.dl = fx.make_mini_download(self.tmp / f"dl-new-{target}", target, skills)
+        self.shims = fx.install_shims(self.tmp / "shims")
+        return co
+
+    def installed(self):
+        co = self.co
+        return {"skills": fx.tree(co.skills[0]), "agents": fx.tree(co.agents["claude"]), "schema": fx.tree(co.schema)}
+
+    def kill_swap(self, at=10):
+        """Stage, then run swap killed at its `at`-th mv/cp/rm call: with the mini layout the two skills are swapped in
+        and the agent file and the schema are still staged."""
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual(code, 0, err)
+        count = self.tmp / "count"
+        code, doc, out, err = fx.run_update(self.dl, [*self.co.args(), "swap"], shim_dir=self.shims, count_file=count,
+                                            kill_at=at)
+        self.assertNotEqual(code, 0, "the swap was meant to be killed")
+        journal = fx.json.loads(self.co.journal.read_text(encoding="utf-8"))
+        states = [t["state"] for t in journal["targets"]]
+        self.assertEqual(journal["phase"], "swapping")
+        self.assertIn("swapped", states)
+        self.assertIn("staged", states)
+        return journal
+
+    def clean(self):
+        self.assertEqual(self.staging_dirs(), [])
+        self.assertFalse(self.co.journal.exists())
+        self.assertFalse(self.co.journal.with_suffix(".json.tmp").exists())
+        self.assertFalse(self.co.lock.exists())
+
+    def test_rerun_discards_unswapped_staging(self):
+        co = self.mini()
+        before = self.installed()
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(co.journal.exists())
+        self.assertTrue(self.staging_dirs())
+        code, doc, err = self.run_sub("plan")  # the rerun: plan recovers first
+        self.assertEqual(code, 0, err)
+        self.assertEqual(doc["recovered"]["action"], "discarded")
+        self.assertEqual(doc["recovered"]["message"], "discarded unfinished update to 0.6.0")
+        self.assertIsNone(doc["journal"])
+        self.clean()
+        self.assertEqual(self.installed(), before)
+        self.assertEqual(co.version_file.read_text(), "0.5.0\n")
+        code, doc, err = self.run_sub("stage")  # and stages again from the new download
+        self.assertEqual(code, 0, err)
+        self.assertEqual((doc["from"], doc["to"], doc["state"]), ("0.5.0", "0.6.0", "staged"))
+
+    def test_recover_without_journal_clears_leftover_tmp(self):
+        co = self.mini()
+        tmp = co.journal.with_suffix(".json.tmp")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text("{", encoding="utf-8")
+        code, doc, err = self.run_sub("recover")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(doc["action"], "none")
+        self.assertFalse(tmp.exists())
+        self.assertFalse(co.lock.exists())
+
+    def test_damaged_staging_rolls_back(self):
+        co = self.mini()
+        before = self.installed()
+        journal = self.kill_swap()
+        self.assertNotEqual(self.installed(), before)  # the swap did start
+        staged = [t for t in journal["targets"] if t["state"] == "staged"]
+        victim = Path(staged[-1]["staging"]) / "new" / staged[-1]["name"]
+        self.assertTrue(victim.exists(), victim)
+        if victim.is_dir():
+            victim = sorted(f for f in victim.rglob("*") if f.is_file())[0]
+        with open(victim, "ab") as f:
+            f.write(b"tampered\n")
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(doc["recovered"]["action"], "rolled-back")
+        self.assertEqual(doc["recovered"]["message"], "rolled back to 0.5.0")
+        self.clean()
+        self.assertEqual(self.installed(), before)
+        self.assertEqual(co.version_file.read_text(), "0.5.0\n")
+        r = fx.openspec(["schema", "validate", "specwright"], cwd=co.root)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_journal_for_other_version_recovered_first(self):
+        co = self.mini()
+        self.kill_swap()
+        dl2 = fx.make_mini_download(self.tmp / "dl-new-0.6.1", "0.6.1", 2)
+        code, doc, err = self.run_sub("plan", dl=dl2)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(doc["recovered"]["message"], "resumed update to 0.6.0")
+        self.assertIsNone(doc["journal"])
+        self.clean()
+        self.assertEqual(co.version_file.read_text(), "0.6.0\n")  # the 0.6.0 update ended; the 0.6.1 update starts from it
+        for name in sorted(p.name for p in co.skills[0].glob("specwright-*")):
+            self.assertEqual(fx.tree(co.skills[0] / name), fx.tree(self.dl / "skills" / name))
+        self.assertEqual((doc["from"], doc["to"], doc["kind"]), ("0.6.0", "0.6.1", "patch"))
+        code, doc, err = self.run_sub("stage", dl=dl2)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((doc["from"], doc["to"], doc["state"]), ("0.6.0", "0.6.1", "staged"))
+
+
 if __name__ == "__main__":
     unittest.main()

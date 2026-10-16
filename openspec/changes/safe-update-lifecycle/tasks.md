@@ -85,7 +85,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 3. Recovery and the interruption criterion
 
-- [ ] 3.1 Write failing tests in `evals/update/test_update.py`:
+- [x] 3.1 Write failing tests in `evals/update/test_update.py`:
   - `TestRecover.test_rerun_discards_unswapped_staging`;
   - `TestRecover.test_damaged_staging_rolls_back`;
   - `TestRecover.test_journal_for_other_version_recovered_first`.
