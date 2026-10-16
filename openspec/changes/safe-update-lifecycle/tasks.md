@@ -52,7 +52,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 
 ## 1. ADR and architecture
 
-- [ ] 1.1 Write `docs/adr/0011-staged-updates-and-store-ownership.md` (MADR-short, `Status: accepted`, today's date, no `Supersedes`). It records:
+- [x] 1.1 Write `docs/adr/0011-staged-updates-and-store-ownership.md` (MADR-short, `Status: accepted`, today's date, no `Supersedes`). It records:
   - D1-D3: a journaled script stages and swaps, and the prompt keeps the questions;
   - D5: the owner-only store schema swap on a free store, the gate-lock token and its recovery;
   - the journal in the project as an exception to ADR 0003's local-state location;
