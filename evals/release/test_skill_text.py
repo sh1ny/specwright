@@ -55,6 +55,17 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertRegex(text, r"(?i)store")
         self.assertRegex(text, r"(?i)backfill")
 
+    def test_publish_is_fenced_and_fetches_main_only(self):
+        # A user-started publish resolves its run login instead of running unfenced, and step 1 fetches main alone:
+        # `--tags` would fail on a divergent local tag before release.sh can report tag_mismatch.
+        text = read(SKILLS / "specwright-release" / "SKILL.md")
+        publish = paragraph(text, r"\*\*Run login\.\*\*", "the publish run-login rule")
+        self.assertIn("as.sh --resolve", publish)
+        self.assertIn("github.login", publish)
+        self.assertNotIn("with no run login, plain", text)
+        self.assertNotRegex(text, r"git fetch[^`\n]*--tags")
+        self.assertIn("git fetch origin <main>`", text)
+
 
 class TestFinishText(unittest.TestCase):
     def setUp(self):
