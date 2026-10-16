@@ -43,12 +43,12 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 | planning-stores → An interrupted store swap is recovered from its own checkout | Rerun from the same checkout | evals/update/test_interrupt.py | TestStoreInterrupt.test_kill_during_store_swap_rerun_recovers_and_releases_lock | red |
 | planning-stores → An interrupted store swap is recovered from its own checkout | Interrupted after taking the lock, before the first rename | evals/update/test_interrupt.py | TestStoreInterrupt.test_kill_after_lock_before_rename_discards_and_releases | red |
 | planning-stores → An interrupted store swap is recovered from its own checkout | Rollback after Step 7 failed, store untouched since | evals/update/test_store.py | TestStoreRollback.test_rollback_after_step7_restores_schema_config_and_record | red |
-| planning-stores → An interrupted store swap is recovered from its own checkout | Another project's gate meets the update lock | evals/git-workflow/test_instructions.py + evals/git-workflow/evals.json | BranchGateStoreVersion.test_gate_names_update_lock_without_removal; eval-branch-store-update-lock | red |
+| planning-stores → An interrupted store swap is recovered from its own checkout | Another project's gate meets the update lock | evals/git-workflow/test_instructions.py + evals/git-workflow/evals.json | BranchGateStoreVersion.test_gate_names_update_lock_without_removal; eval-branch-store-update-lock | green |
 | planning-stores → An interrupted store swap is recovered from its own checkout | Rollback after another project moved on | evals/update/test_store.py | TestStoreRollback.test_rollback_refused_when_store_busy_keeps_swapped_state | red |
-| planning-stores → Change gate checks the store's version | Versions match | evals/git-workflow/evals.json | eval-branch-store-version-match | red |
-| planning-stores → Change gate checks the store's version | Project behind the store | evals/git-workflow/test_instructions.py + evals/git-workflow/evals.json | BranchGateStoreVersion.test_gate_compares_major_minor; eval-branch-store-version-behind | red |
-| planning-stores → Change gate checks the store's version | Store behind the project | evals/git-workflow/test_instructions.py | BranchGateStoreVersion.test_gate_says_owner_updates_store_first | red |
-| planning-stores → Change gate checks the store's version | Project has no completed install | evals/git-workflow/test_instructions.py | BranchGateStoreVersion.test_gate_stops_without_version_file | red |
+| planning-stores → Change gate checks the store's version | Versions match | evals/git-workflow/evals.json | eval-branch-store-version-match | green |
+| planning-stores → Change gate checks the store's version | Project behind the store | evals/git-workflow/test_instructions.py + evals/git-workflow/evals.json | BranchGateStoreVersion.test_gate_compares_major_minor; eval-branch-store-version-behind | green |
+| planning-stores → Change gate checks the store's version | Store behind the project | evals/git-workflow/test_instructions.py | BranchGateStoreVersion.test_gate_says_owner_updates_store_first | green |
+| planning-stores → Change gate checks the store's version | Project has no completed install | evals/git-workflow/test_instructions.py | BranchGateStoreVersion.test_gate_stops_without_version_file | green |
 
 ## 1. ADR and architecture
 
@@ -164,7 +164,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
   - the update-lock message without a removal offer, in both `skills/specwright-branch/SKILL.md` and `skills/specwright-roadmap/SKILL.md`.
 
   Add graded agent evals `eval-branch-store-version-match`, `eval-branch-store-version-behind` and `eval-branch-store-update-lock` with grader checks and grader tests. Verify that the text tests fail.
-- [ ] 7.2 Edit `skills/specwright-branch/SKILL.md`: in store step 2, with the lock held, read `VERSION` and `STORE` in one shell call, compare `major.minor`, and stop on a mismatch, a missing `VERSION` or an unreadable `STORE`, naming both versions and the owner. In store step 1, an `owner` whose `change:` starts with `specwright-update` gives "rerun the update from <code>" and no removal offer. Make the same lock-message edit in `skills/specwright-roadmap/SKILL.md` (Committing project files, store step 1). Verify that the text tests pass, re-install the skills, run the three agent evals and flip the rows green.
+- [x] 7.2 Edit `skills/specwright-branch/SKILL.md`: in store step 2, with the lock held, read `VERSION` and `STORE` in one shell call, compare `major.minor`, and stop on a mismatch, a missing `VERSION` or an unreadable `STORE`, naming both versions and the owner. In store step 1, an `owner` whose `change:` starts with `specwright-update` gives "rerun the update from <code>" and no removal offer. Make the same lock-message edit in `skills/specwright-roadmap/SKILL.md` (Committing project files, store step 1). Verify that the text tests pass, re-install the skills, run the three agent evals and flip the rows green.
 
 ## 8. Release 0.6.0 bump and integration
 

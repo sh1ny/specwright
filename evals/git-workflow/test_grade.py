@@ -783,6 +783,12 @@ class BranchStoreEvals(unittest.TestCase):
         run_dir, _ = self.fixture("eval-branch-store-version-behind")
         self.assertEqual(self.failed(self.grade("eval-branch-store-version-behind", run_dir, self.BEHIND)), [])
 
+    def test_behind_advice_worded_as_needs_updating_passes(self):
+        run_dir, _ = self.fixture("eval-branch-store-version-behind")
+        rep = ("Stopped: VERSION 0.5.0, STORE 0.6.0, owner alice-laptop. This project needs updating to "
+               "Specwright 0.6 to match the store.")
+        self.assertEqual(self.failed(self.grade("eval-branch-store-version-behind", run_dir, rep)), [])
+
     def test_behind_that_created_a_branch_fails(self):
         run_dir, repo = self.fixture("eval-branch-store-version-behind")
         self.branch_both(repo)
