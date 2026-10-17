@@ -1163,44 +1163,69 @@ def first_error(text):
 
 
 def check_change(scratch, name):
-    """The three checks of design D4; the first error as text, None when the change passes."""
+    """The three checks of design D4: (step, first error as text), None when the change passes. The step is schema,
+    validate or status (design D8), or error when an openspec run failed without a result that says the change fails."""
     rc, out, err = run_openspec(["schema", "validate", "specwright"], scratch)
     if rc != 0:
-        return "openspec schema validate specwright: " + first_error(out + "\n" + err)
+        return "schema", "openspec schema validate specwright: " + first_error(out + "\n" + err)
     rc, out, err = run_openspec(["validate", name, "--json"], scratch)
     try:
         if rc != 0 and json.loads(out)["items"][0].get("valid", False) is True:  # a failed run fails whatever its item says
-            return f"openspec validate {name}: " + first_error(err + "\n" + out)
+            return "error", f"openspec validate {name}: " + first_error(err + "\n" + out)
         item = json.loads(out)["items"][0]
         if not item.get("valid", rc == 0):
             iss = (item.get("issues") or [{}])[0]
-            return f"openspec validate {name}: " + (f"{iss['path']}: " if iss.get("path") else "") + str(iss.get("message", "invalid"))
+            return "validate", f"openspec validate {name}: " + (f"{iss['path']}: " if iss.get("path") else "") + str(iss.get("message", "invalid"))
     except (ValueError, KeyError, IndexError, TypeError):
         if rc != 0:
-            return f"openspec validate {name}: " + first_error(out + "\n" + err)
+            return "error", f"openspec validate {name}: " + first_error(out + "\n" + err)
     rc, out, err = run_openspec(["status", "--change", name, "--json"], scratch)
     if rc != 0:  # a failed run fails the check even when its output parses as JSON
-        return f"openspec status {name}: " + first_error(err + "\n" + out)
+        return "error", f"openspec status {name}: " + first_error(err + "\n" + out)
     try:
         st = json.loads(out)
     except ValueError:
-        return f"openspec status {name}: " + first_error(err + "\n" + out)
+        return "error", f"openspec status {name}: " + first_error(err + "\n" + out)
     bad = [x for x in st.get("status", []) if x.get("severity") == "error"] if isinstance(st.get("status"), list) else []
     if bad:
-        return f"openspec status {name}: " + str(bad[0].get("message", bad[0].get("code", "error")))
+        return "status", f"openspec status {name}: " + str(bad[0].get("message", bad[0].get("code", "error")))
     arts = {a["id"]: a for a in st.get("artifacts", [])}
     paths = st.get("artifactPaths", {})
     for a in arts.values():
         if a.get("status") == "done" or paths.get(a["id"], {}).get("existingOutputPaths"):
             for r in a.get("requires", []):
                 if arts.get(r, {}).get("status") not in ("done", "skipped"):
-                    return f"openspec status {name}: artifact {a['id']} exists but its dependency {r} is {arts.get(r, {}).get('status', 'missing')}"
+                    return "status", f"openspec status {name}: artifact {a['id']} exists but its dependency {r} is {arts.get(r, {}).get('status', 'missing')}"
     return None
 
 
 def own_change(o, name, branches):
     """True when this project's code repo has a local branch <prefix>/<name> for one of the gate's prefixes."""
     return any(f"{p}/{name}" in branches for p in PREFIXES)
+
+
+def installed_note(o, scratch, name, to, role):
+    """Design D8: after a change failed against the target, check it again against the installed schema, in its own
+    scratch root. The note `; it already fails on <installed> (<error>), so the update to <to> did not cause it`, only
+    when the installed schema passes `openspec schema validate` and the change then fails validate or status;
+    otherwise "" (no installed VERSION, no schema directory, an invalid installed schema, a failed openspec run, or a pass)."""
+    src = Path(o["root"]) / "openspec" / "schemas" / "specwright"
+    label, _ = read_version(state_dir(o) / "VERSION")
+    if role in ("owner", "claim"):  # the schema on disk is the owner's: the store's recorded version names it
+        rec, _ = read_record(record_path(o))
+        label = rec["version"] if rec else label
+    if not (label and SEMVER.match(label) and (src / "schema.yaml").is_file()):
+        return ""
+    inst = scratch.parent / (scratch.name + "-installed")
+    try:
+        shutil.copytree(scratch / "openspec", inst / "openspec", ignore=shutil.ignore_patterns("schemas"))
+        shutil.copytree(src, inst / "openspec" / "schemas" / "specwright")
+        r = check_change(inst, name)
+    except OSError:
+        return ""
+    if r is None or r[0] not in ("validate", "status"):  # a confirmed failure only: never an invalid schema or a failed run
+        return ""
+    return f"; it already fails on {label} ({r[1]}), so the update to {to} did not cause it"
 
 
 def inflight_entries(o, to, schema_dir, role="none"):
@@ -1238,9 +1263,10 @@ def inflight_entries(o, to, schema_dir, role="none"):
                     shutil.copytree(schema_dir, scratch / "openspec" / "schemas" / "specwright")
                     (scratch / "openspec" / "config.yaml").write_text("schema: specwright\n", encoding="utf-8", newline="\n")
                     (scratch / "openspec" / "specs").mkdir(exist_ok=True)
-                    err = check_change(scratch, it["name"])
-                    if err:
-                        e.update({"status": "invalid", "error": err})
+                    r = check_change(scratch, it["name"])
+                    if r:
+                        e.update({"status": "invalid", "error": r[1],
+                                  "note": installed_note(o, scratch, it["name"], to, role)})
             except OSError as ex:
                 e.update({"status": "invalid", "error": f"could not read the change: {ex}"})
             entries.append(e)
@@ -1687,7 +1713,7 @@ def make_plan(o, check=False):
             elif e["status"] == "invalid":
                 where = "" if e["source"] == "working tree" else f" on {e['source']}"
                 refusals.append({"code": "change_invalid", "change": e["name"], "ref": None if not where else e["source"],
-                                 "message": f"change {e['name']}{where or ' (working tree)'} fails validation against {to}: {e['error']}"})
+                                 "message": f"change {e['name']}{where or ' (working tree)'} fails validation against {to}: {e['error']}{e.get('note', '')}"})
             else:
                 inflight.append(e)
     doc = base_doc(o, not refusals)
@@ -1885,7 +1911,7 @@ def cmd_swap_check(o, pos):
     for k, e in now.items():
         if k not in was:
             if e["status"] == "invalid":
-                diffs.append(f"{e['name']} ({e['source']}) fails validation against {j['to']}: {e['error']}")
+                diffs.append(f"{e['name']} ({e['source']}) fails validation against {j['to']}: {e['error']}{e.get('note', '')}")
             elif e["status"] == "other project":
                 diffs.append(f"{e['name']} ({e['source']}) belongs to another project and is in flight in the store")
             else:

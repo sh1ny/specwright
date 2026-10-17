@@ -18,11 +18,11 @@
 | install-update → Workflow update validates changes in flight | A change in flight fails | evals/update/test_inflight.py | test_failing_change_refuses_workflow_update | green |
 | install-update → Workflow update validates changes in flight | Change started after planning | evals/update/test_inflight.py | test_change_started_after_plan_stops_swap | green |
 | install-update → Workflow update validates changes in flight | Patch update with a change in flight | evals/update/test_inflight.py | test_patch_update_skips_validation | green |
-| install-update → A refused change is also checked against the installed schema | Change already incomplete on the installed version | evals/update/test_inflight.py | test_refusal_names_installed_version_when_change_already_fails (plan and swap-check) | red |
-| install-update → A refused change is also checked against the installed schema | Change fails only on the target | evals/update/test_inflight.py | test_refusal_blames_target_when_installed_passes | red |
-| install-update → A refused change is also checked against the installed schema | Installed schema fails under the current OpenSpec | evals/update/test_inflight.py | test_no_installed_claim_when_installed_schema_invalid | red |
-| install-update → A refused change is also checked against the installed schema | OpenSpec fails during the installed check | evals/update/test_inflight.py | test_no_installed_claim_when_openspec_errors | red |
-| install-update → A refused change is also checked against the installed schema | No installed schema to compare with | evals/update/test_inflight.py | test_no_installed_claim_without_installed_version | red |
+| install-update → A refused change is also checked against the installed schema | Change already incomplete on the installed version | evals/update/test_inflight.py | test_refusal_names_installed_version_when_change_already_fails (plan and swap-check) | green |
+| install-update → A refused change is also checked against the installed schema | Change fails only on the target | evals/update/test_inflight.py | test_refusal_blames_target_when_installed_passes | green |
+| install-update → A refused change is also checked against the installed schema | Installed schema fails under the current OpenSpec | evals/update/test_inflight.py | test_no_installed_claim_when_installed_schema_invalid | green |
+| install-update → A refused change is also checked against the installed schema | OpenSpec fails during the installed check | evals/update/test_inflight.py | test_no_installed_claim_when_openspec_errors | green |
+| install-update → A refused change is also checked against the installed schema | No installed schema to compare with | evals/update/test_inflight.py | test_no_installed_claim_without_installed_version | green |
 | releases → Older untagged versions are published first | Older version untagged | evals/release/test_release.py | TestUntagged.test_older_blocks_newer | green |
 | releases → Older untagged versions are published first | Tag push failed earlier | evals/release/test_release.py | TestUntagged.test_local_only_tag_is_not_published | green |
 | releases → Older untagged versions are published first | First release's tag push failed | evals/release/test_release.py | TestUntagged.test_first_release_push_failed | green |
@@ -175,7 +175,7 @@
   - `test_no_installed_claim_without_installed_version`
 
   Confirm that they fail for the right reason.
-- [ ] 5.2 In `scripts/update.sh`:
+- [x] 5.2 In `scripts/update.sh`:
   - have `check_change` return the failing step with its error, and `error` for an `openspec` run that failed without a result saying the change fails;
   - add the installed-schema recheck for invalid entries in `make_plan` and `cmd_swap_check` per design D8, in its own scratch directory, labelled by `VERSION` or by the store's `STORE` version;
   - append the note only when the installed schema validates and the change then fails `validate` or `status`, never on an `error` step.
