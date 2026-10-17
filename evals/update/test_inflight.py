@@ -216,5 +216,100 @@ class TestInflight(Base):
         self.assertFalse((self.dl / ".update-scratch").exists())
 
 
+class TestInstalledRecheck(Base):
+    """Design D8 (#99): a refusal also says when the change already fails on the installed schema."""
+
+    TASKS = {"tasks.md": "## 1. Work\n\n- [ ] 1.1 Do it\n"}  # tasks.md without review.md: invalid on any release
+
+    def stale(self):
+        co = self.checkout()
+        fx.add_change_worktree(co.code, "add-x", files=self.TASKS)
+        return co
+
+    def test_refusal_names_installed_version_when_change_already_fails(self):
+        co = self.stale()
+        self.download()  # a harmless schema edit: the target did not cause the failure
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual((code, doc["error"], doc["refusals"][0]["code"]), (1, "refused", "change_invalid"), doc)
+        msg = doc["refusals"][0]["message"]
+        self.assertIn("fails validation against 0.6.0", msg)
+        self.assertIn("; it already fails on 0.5.0 (", msg)
+        self.assertIn("so the update to 0.6.0 did not cause it", msg)
+        self.assertTrue(doc["unchanged"])
+        # at swap-check: the change turns invalid between stage and swap
+        fx.rmtree(co.code / "openspec" / "changes" / "add-x")
+        fx.add_change_worktree(co.code, "add-x")
+        self.assertEqual(self.run_sub("plan")[0], 0)
+        self.assertEqual(self.run_sub("stage")[0], 0)
+        before = self.installed()
+        fx.add_change_worktree(co.code, "add-x", files=self.TASKS)
+        code, doc, err = self.run_sub("swap")
+        self.assertEqual((code, doc["error"]), (1, "inflight_changed"), doc)
+        self.assertIn("it already fails on 0.5.0 (", doc["message"])
+        self.assertIn("so the update to 0.6.0 did not cause it", doc["message"])
+        self.assertEqual(self.installed(), before)
+        self.assertFalse((self.dl / ".update-scratch").exists())
+
+    def test_refusal_blames_target_when_installed_passes(self):
+        co = self.checkout()
+        fx.add_change_worktree(co.code, "add-x")
+        self.download(failing=True)
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual((code, doc["error"]), (1, "refused"), doc)
+        msg = doc["refusals"][0]["message"]
+        self.assertIn("research", msg)
+        self.assertNotIn("already fails", msg)
+        self.assertNotIn("did not cause it", msg)
+
+    def test_no_installed_claim_when_installed_schema_invalid(self):
+        co = self.stale()
+        self.download()
+        schema = co.schema / "schema.yaml"
+        schema.write_text("name: specwright\nversion: [unclosed\nartifacts: {\n", encoding="utf-8", newline="")
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual((code, doc["error"]), (1, "refused"), doc)
+        msg = doc["refusals"][0]["message"]
+        self.assertIn("fails validation against 0.6.0", msg)
+        self.assertNotIn("already fails", msg)
+
+    def test_no_installed_claim_when_openspec_errors(self):
+        """`openspec validate` fails to run in the installed recheck: no claim about the installed version."""
+        import os
+        import shutil
+        import sys
+        co = self.stale()
+        self.download()
+        real = shutil.which("openspec")
+        wrap = self.tmp / "wrap"
+        wrap.mkdir()
+        (wrap / "openspec.py").write_text(
+            "import os, subprocess, sys\n"
+            "if os.path.basename(os.getcwd()).endswith('-installed') and sys.argv[1:2] == ['validate']:\n"
+            "    sys.stderr.write('Error: openspec crashed\\n')\n"
+            "    sys.exit(1)\n"
+            "sys.exit(subprocess.call([os.environ['REAL_OPENSPEC'], *sys.argv[1:]]))\n", encoding="utf-8")
+        py = Path(sys.executable).as_posix()
+        (wrap / "openspec").write_text(f'#!/bin/sh\nexec "{py}" "{(wrap / "openspec.py").as_posix()}" "$@"\n', encoding="utf-8", newline="\n")
+        (wrap / "openspec").chmod(0o755)
+        (wrap / "openspec.cmd").write_text(f'@"{sys.executable}" "{wrap / "openspec.py"}" %*\r\n', encoding="utf-8", newline="")
+        self.env = {**self.env, "REAL_OPENSPEC": real, "PATH": str(wrap) + os.pathsep + self.env.get("PATH", os.environ["PATH"])}
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual((code, doc["error"]), (1, "refused"), doc)
+        msg = doc["refusals"][0]["message"]
+        self.assertIn("fails validation against 0.6.0: openspec status add-x: artifact tasks exists", msg)  # the real target error
+        self.assertNotIn("already fails", msg)
+        self.assertNotIn("did not cause it", msg)
+
+    def test_no_installed_claim_without_installed_version(self):
+        co = self.stale()
+        self.download()
+        co.version_file.unlink()
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual((code, doc["error"]), (1, "refused"), doc)
+        msg = doc["refusals"][0]["message"]
+        self.assertIn("fails validation against 0.6.0", msg)
+        self.assertNotIn("already fails", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

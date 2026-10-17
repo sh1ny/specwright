@@ -167,7 +167,7 @@
 
 ## 5. Update refusal names the installed version (#99)
 
-- [ ] 5.1 Write the failing tests in `evals/update/test_inflight.py`:
+- [x] 5.1 Write the failing tests in `evals/update/test_inflight.py`:
   - `test_refusal_names_installed_version_when_change_already_fails`: a change with `tasks.md` and no `review.md`, at the plan and at swap-check;
   - `test_refusal_blames_target_when_installed_passes`, using `Base.download(failing=True)`;
   - `test_no_installed_claim_when_installed_schema_invalid`: the installed schema corrupted so that `openspec schema validate` fails;
