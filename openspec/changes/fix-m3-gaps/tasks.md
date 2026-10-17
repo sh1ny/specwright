@@ -67,11 +67,11 @@
 | review-routes → Review output is validated and fails closed | Large OMP event stream with a small answer | evals/review-routes/test_review_run.py | test_omp_large_stream_small_answer_valid | green |
 | review-routes → Review output is validated and fails closed | OMP answer over the bound | evals/review-routes/test_review_run.py | test_omp_answer_over_bound_invalid | green |
 | review-routes → Review output is validated and fails closed | OMP stream without a final message | evals/review-routes/test_review_run.py | test_omp_stream_without_agent_end_invalid | green |
-| planning-stores → Store staging belongs to one checkout | Two checkouts stage against one store | evals/update/test_store.py | TestStagingPerCheckout.test_two_checkouts_stage_separately | red |
-| planning-stores → Store staging belongs to one checkout | Discard after a refused swap keeps the other checkout's rollback copy | evals/update/test_store.py | TestStagingPerCheckout.test_refused_swap_recover_keeps_other_rollback_copy | red |
-| planning-stores → Store staging belongs to one checkout | Another checkout's staging makes the store busy | evals/update/test_store.py | TestStagingPerCheckout.test_other_checkout_staging_makes_store_busy | red |
-| planning-stores → Store staging belongs to one checkout | Both checkouts staged before either swapped | evals/update/test_store.py | TestStagingPerCheckout.test_both_staged_first_refused_swap_discards_and_other_swaps | red |
-| planning-stores → Store staging belongs to one checkout | Interrupted update from an earlier version | evals/update/test_store.py | TestStagingPerCheckout.test_recover_uses_legacy_shared_staging_from_journal | red |
+| planning-stores → Store staging belongs to one checkout | Two checkouts stage against one store | evals/update/test_store.py | TestStagingPerCheckout.test_two_checkouts_stage_separately | green |
+| planning-stores → Store staging belongs to one checkout | Discard after a refused swap keeps the other checkout's rollback copy | evals/update/test_store.py | TestStagingPerCheckout.test_refused_swap_recover_keeps_other_rollback_copy | green |
+| planning-stores → Store staging belongs to one checkout | Another checkout's staging makes the store busy | evals/update/test_store.py | TestStagingPerCheckout.test_other_checkout_staging_makes_store_busy | green |
+| planning-stores → Store staging belongs to one checkout | Both checkouts staged before either swapped | evals/update/test_store.py | TestStagingPerCheckout.test_both_staged_first_refused_swap_discards_and_other_swaps | green |
+| planning-stores → Store staging belongs to one checkout | Interrupted update from an earlier version | evals/update/test_store.py | TestStagingPerCheckout.test_recover_uses_legacy_shared_staging_from_journal | green |
 | debugging → A debug stash is named and reported | Dirty tree is tested | evals/git-workflow/test_instructions.py | DebugStash.test_stash_is_named_and_ref_reported | green |
 | debugging → A debug stash is named and reported | Restore conflicts | evals/git-workflow/test_instructions.py | DebugStash.test_conflicting_restore_keeps_stash_and_stops | green |
 | debugging → An interrupted debug stash is found on the next run | Earlier run was interrupted | evals/git-workflow/test_instructions.py | DebugStash.test_start_of_run_lists_leftover_stash_and_offers_restore | green |
@@ -157,7 +157,7 @@
   - a hand-written `format: 1` journal naming the legacy shared path is recovered with that path.
 
   Confirm that they fail for the right reason.
-- [ ] 4.2 In `scripts/update.sh`:
+- [x] 4.2 In `scripts/update.sh`:
   - key the store schema group's staging path in `mk_group` by the first 12 hex digits of SHA-256 of the normalised `code` path (design D7);
   - make `store_busy_reason` report `another checkout's update is staged in the store: <path>; finish or recover it by rerunning the update in that checkout` for an untracked `openspec/.specwright-update-schemas*` that is not this journal's;
   - make a swap refused before its first rename remove its own staging directories and journal, as `recover` does for a swap that never started (design D7, review round 2 M1);
