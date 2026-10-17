@@ -34,17 +34,17 @@
 | releases → A bumped version is greater than main's before it merges | Branch did not bump | evals/release/test_release.py | TestCheckMain.test_no_bump_passes | green |
 | releases → A bumped version is greater than main's before it merges | Main was merged into the branch after the duplicate landed | evals/release/test_release.py | TestCheckMain.test_duplicate_after_main_merged_in_refused | green |
 | releases → A bumped version is greater than main's before it merges | Main has no version yet | evals/release/test_release.py | TestCheckMain.test_main_without_version_passes | green |
-| releases → Ship, local merge and watch check the version against main | Ship of a duplicate version | evals/release/test_skill_text.py | TestShipText.test_ship_checks_version_against_fetched_main_before_push | red |
-| releases → Ship, local merge and watch check the version against main | Main merged a duplicate while the PR waited | evals/release/test_skill_text.py | TestWatchText.test_watch_checks_version_before_ready_and_merge | red |
-| releases → Ship, local merge and watch check the version against main | Local merge of a duplicate version | evals/release/test_skill_text.py | TestFinishText.test_local_merge_checks_version_before_merge | red |
-| releases → Ship, local merge and watch check the version against main | Releases disabled | evals/release/test_skill_text.py | test_version_check_only_with_release_enabled | red |
+| releases → Ship, local merge and watch check the version against main | Ship of a duplicate version | evals/release/test_skill_text.py | TestShipText.test_ship_checks_version_against_fetched_main_before_push | green |
+| releases → Ship, local merge and watch check the version against main | Main merged a duplicate while the PR waited | evals/release/test_skill_text.py | TestWatchText.test_watch_checks_version_before_ready_and_merge | green |
+| releases → Ship, local merge and watch check the version against main | Local merge of a duplicate version | evals/release/test_skill_text.py | TestFinishText.test_local_merge_checks_version_before_merge | green |
+| releases → Ship, local merge and watch check the version against main | Releases disabled | evals/release/test_skill_text.py | test_version_check_only_with_release_enabled | green |
 | change-finish → Finish offers a release once the change is on main | Untagged version after a PR merge | evals/release/test_skill_text.py | TestFinishText.test_release_step_before_roadmap_offer | green |
 | change-finish → Finish offers a release once the change is on main | Auto release | evals/release/test_skill_text.py | TestFinishText.test_offers_untagged_oldest_first | green |
 | change-finish → Finish offers a release once the change is on main | An earlier version was left untagged | evals/release/test_skill_text.py | TestFinishText.test_offers_untagged_oldest_first | green |
 | change-finish → Finish offers a release once the change is on main | Version already tagged | evals/release/test_skill_text.py | TestFinishText.test_no_offer_when_untagged_empty | green |
 | change-finish → Finish offers a release once the change is on main | Releases disabled | evals/release/test_skill_text.py | TestFinishText.test_release_step_before_roadmap_offer | green |
 | change-finish → Finish offers a release once the change is on main | Auto publish fails | evals/release/test_skill_text.py | TestFinishText.test_publish_failure_keeps_roadmap_offer | green |
-| change-finish → Finish offers a release once the change is on main | Local finish with a github.com origin and no login | evals/release/test_skill_text.py | TestFinishText.test_local_mode_reads_local_tags_unfenced | red |
+| change-finish → Finish offers a release once the change is on main | Local finish with a github.com origin and no login | evals/release/test_skill_text.py | TestFinishText.test_local_mode_reads_local_tags_unfenced | green |
 | review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | green |
 | review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/trial.md | recorded trial (`git status --porcelain` after the write request); re-run for codex on Windows in 3.5 | n/a (recorded trial: needs real reviewer CLIs) |
 | review-routes → Reviewers run isolated and read-only | Codex on Windows with a sandbox setting | evals/review-routes/test_review_run.py | test_codex_windows_forwards_sandbox_only | red |
@@ -108,7 +108,7 @@
   - `test_version_check_only_with_release_enabled`
 
   Confirm that they fail on the current text.
-- [ ] 2.4 Edit the skill texts:
+- [x] 2.4 Edit the skill texts:
   - `skills/specwright-finish/SKILL.md`: the Release step uses `--local` in `finish: local`, and the `## local` merge step runs `check --main <main>` before `git merge`.
   - `skills/specwright-pr/SKILL.md`: ship runs `check --main origin/<main>` after the fenced fetch, before the push; watch step 3 runs it before ready and before the merge, against a refreshed `origin/<main>`. A refusal stops with the message to bump again.
   - `skills/specwright-release/SKILL.md`: the `bump` and `publish` sections describe `check --main` and `untagged --local`, plus the error-table row.
