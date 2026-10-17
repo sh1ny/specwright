@@ -192,7 +192,7 @@
 
 ## 7. Architecture, release 0.6.1 and integration
 
-- [ ] 7.1 Update `openspec/architecture.md`:
+- [x] 7.1 Update `openspec/architecture.md`:
   - the `specwright-debug` row: it owns the named stash until it is restored;
   - the update journal and staging row: the store staging is keyed by checkout;
   - the Reviewer routes contract sentence: the verdict and `CHANGES_APPLIED` values, the subagent's scratch file with `record --out`, the OMP answer bound, and that this tightens ADR 0007's validation.
