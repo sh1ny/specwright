@@ -87,7 +87,7 @@
 
 ## 2. Releases: local tag read and version-ahead check (#93, #94)
 
-- [ ] 2.1 Write the failing `release.sh` tests in `evals/release/test_release.py`:
+- [x] 2.1 Write the failing `release.sh` tests in `evals/release/test_release.py`:
   - `TestUntagged.test_local_flag_reads_no_remote`: origin points at an unreachable URL, and a `git` shim on PATH records any `ls-remote`.
   - `TestUntagged.test_local_flag_counts_local_tag_and_says_so`
   - `TestUntagged.test_without_origin_reports_local_tags`: `"tags": "local"`.

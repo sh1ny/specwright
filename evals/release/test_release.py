@@ -632,6 +632,130 @@ class TestUntagged(Flow):
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.3.0"])
         self.assertIsNone(doc["latest_tagged"])
 
+    def test_local_flag_reads_no_remote(self):
+        # origin is unreachable and git traces every process it starts: --local exits 0 and no ls-remote ran
+        self.repo(version="0.4.2")
+        self.tag("v0.4.2", push=False)
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.git(self.work, "config", "remote.origin.url", str(self.tmp / "does-not-exist.git"))
+        trace = self.tmp / "trace.log"
+        env = {**os.environ, "GIT_TRACE": str(trace)}
+        code, doc, raw = self.release("untagged", "--local", env=env)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])
+        self.assertEqual(doc["tags"], "local")
+        self.assertTrue(trace.is_file() and trace.stat().st_size > 0, "git trace is empty: the test would prove nothing")
+        self.assertNotIn("ls-remote", trace.read_text(encoding="utf-8", errors="replace"))
+
+    def test_local_flag_counts_local_tag_and_says_so(self):
+        # v0.5.0 exists only locally (its push failed): --local counts it, and the output says the list is from local tags
+        self.repo(version="0.4.2")
+        self.tag("v0.4.2")
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        self.tag("v0.5.0", push=False)
+        doc = self.untagged("--local")
+        self.assertEqual(doc["untagged"], [])
+        self.assertEqual(doc["latest_tagged"], "0.5.0")
+        self.assertEqual(doc["tags"], "local")
+        self.assertEqual(self.untagged()["tags"], "origin")
+        self.assertEqual([u["version"] for u in self.untagged()["untagged"]], ["0.5.0"])
+
+    def test_without_origin_reports_local_tags(self):
+        self.repo(version="0.5.0")
+        fx.git(self.work, "remote", "remove", "origin")
+        self.tag("v0.5.0", push=False)
+        self.assertEqual(self.untagged()["tags"], "local")
+
+
+class TestCheckMain(Flow):
+    """check --main <ref>: a bumped branch must be greater than <ref>'s version (design D3)."""
+
+    def branch(self, name="feat/b", at=None):
+        fx.git(self.work, "checkout", "-q", "-b", name, *([at] if at else []))
+
+    def bump_branch(self, version, change="b"):
+        fx.set_version(self.work, version)
+        fx.commit(self.work, f"feat({change}): bump", fx.archive_files(change))
+
+    def two_bumps(self, branch_version="0.5.0", main_version="0.5.0"):
+        """feat/a merged to main at main_version and pushed; feat/b (from the initial commit) bumped to branch_version."""
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", main_version, 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        self.bump_branch(branch_version)
+
+    def check(self, *extra):
+        return self.release("check", "--main", "origin/main", *extra)
+
+    def test_duplicate_bump_refused(self):
+        self.two_bumps()
+        out = self.check()
+        self.assertStops(out, "0.5.0", "bump")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+        self.assertIn("origin/main", out[1]["message"])
+
+    def test_main_ahead_refused(self):
+        self.two_bumps(branch_version="0.5.0", main_version="0.6.0")
+        out = self.check()
+        self.assertStops(out, "0.5.0", "0.6.0")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+
+    def test_bump_ahead_passes(self):
+        self.repo(version="0.4.2")
+        self.branch()
+        self.bump_branch("0.5.0")
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((doc["ok"], doc["version"]), (True, "0.5.0"))
+
+    def test_no_bump_passes(self):
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        fx.commit(self.work, "feat(b): work", {"src/b.txt": "b\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.4.2")
+
+    def test_duplicate_after_main_merged_in_refused(self):
+        self.two_bumps()
+        fx.git(self.work, "merge", "-q", "--no-edit", "origin/main")
+        self.assertEqual(fx.git(self.work, "rev-list", "--min-parents=2", "-n1", "HEAD").strip() != "", True)
+        out = self.check()
+        self.assertStops(out, "0.5.0", "bump")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+
+    def test_main_without_version_passes(self):
+        self.repo(version="0.4.2")
+        fx.git(self.work, "rm", "-q", "VERSION")
+        fx.git(self.work, "commit", "-q", "-m", "drop VERSION")
+        fx.push(self.work)
+        self.branch()
+        self.bump_branch("0.1.0")
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.1.0")
+
+    def test_without_main_unchanged(self):
+        self.two_bumps()
+        code, doc, raw = self.release("check")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_agreement_checked_first(self):
+        self.two_bumps()
+        fx.write(self.work, "README.md", fx.readme_text("0.9.9"))
+        out = self.check()
+        self.assertEqual(out[1]["error"], "version_files_disagree", out[2])
+
+    def test_missing_ref(self):
+        self.repo()
+        self.assertEqual(self.release("check", "--main", "origin/nope")[1]["error"], "no_main")
+
 
 GH_SCRIPT = '#!/bin/sh\nexec python "{}" "$@"\n'
 CODE_SLUG = "acme/code"
