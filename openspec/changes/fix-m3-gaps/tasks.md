@@ -148,7 +148,7 @@
 
 ## 4. Store staging per checkout (#97)
 
-- [ ] 4.1 Write the failing tests in `evals/update/test_store.py`, new class `TestStagingPerCheckout`, using `make_store_pair`. Cover all five scenarios from the test map:
+- [x] 4.1 Write the failing tests in `evals/update/test_store.py`, new class `TestStagingPerCheckout`, using `make_store_pair`. Cover all five scenarios from the test map:
   - both A and B stage, giving two directories, each named in its own journal;
   - A swaps, B stages and its swap is refused: B's refused swap removes only B's staging and journal, A's `<idA>/old` survives and A's `recover --rollback` restores the old schema;
   - B's busy message names A's staging directory and says to rerun the update in that checkout, and B's staging and journal are gone;

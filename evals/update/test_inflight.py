@@ -199,7 +199,8 @@ class TestInflight(Base):
         self.assertIn("add-w", doc["message"])
         self.assertTrue(doc["unchanged"])
         self.assertEqual(self.installed(), before)  # stopped before any rename
-        self.assertIn(b'"phase": "staged"', co.journal.read_bytes())
+        self.assertFalse(co.journal.exists(), "the refused swap removed its journal")  # design D7
+        self.assertEqual(list(co.code.rglob(".specwright-update-*")), [], "and its staging")
 
     def test_patch_update_skips_validation(self):
         co = self.checkout("0.6.0")

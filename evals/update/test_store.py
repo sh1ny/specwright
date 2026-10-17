@@ -10,6 +10,7 @@ Run: python -m unittest discover evals/update -p "test_store.py"
 """
 import hashlib
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -114,19 +115,21 @@ class TestStoreRecord(Base):
         dl = self.download("0.6.0", fx.schema_edit_comment)
         for co in (self.a, self.b):
             self.assertEqual(self.ok(co, dl, "plan")["role"], "claim")
-        # both stage before either swaps (B first: they share the store's schema staging directory), then A swaps first
+        # B stages as a claimer, then A's claim lands in the store (A's own update would be refused for B's staging,
+        # design D7, so its record is written directly): B's swap reads STORE again under the lock
         self.ok(self.b, dl, "stage")
-        self.ok(self.a, dl, "stage")
-        self.ok(self.a, dl, "swap")
-        self.stamp_finish(self.a, dl, "0.6.0")
-        b_before, store_before = self.installed(self.b), fx.snapshot(self.store)
+        fx.write_store_record(self.store, "0.6.0", self.owner_a)
+        store_before = self.store_state()
+        b_before = self.installed(self.b)
         code, doc, err = self.run_sub(self.b, dl, "swap")
         self.assertEqual(code, 1, doc)
         self.assertEqual(doc["error"], "store_claimed")
         self.assertIn(self.owner_a, doc["message"])  # A, not the first claimer's uncommitted files
         self.assertNotIn("uncommitted", doc["message"])
         self.assertEqual(self.record(), fx.record_text("0.6.0", self.owner_a))
-        self.assertEqual(fx.snapshot(self.store), store_before)
+        self.assertEqual(self.store_state(), store_before)
+        self.assertEqual(self.staging_left(), [], "B's refused swap took its staging with it")
+        self.assertFalse(self.b.journal.exists())
         self.assertEqual(self.installed(self.b), b_before)  # B's skills, agents and VERSION: nothing written
         self.assertFalse(self.lock.exists(), "the lock B took is released")
 
@@ -212,20 +215,18 @@ class TestOwner(Base):
     def test_other_project_swap_refused_when_store_moved_after_stage(self):
         self.pair("0.6.0")
         dl = self.download("0.6.1")
+        b_before = fx.snapshot(self.b.code)
         self.ok(self.b, dl, "plan")
         self.ok(self.b, dl, "stage")
         fx.write_store_record(self.store, "0.7.0", self.owner_a)  # the owner moved the store after B staged
-        b_before, store_before = fx.snapshot(self.b.code), fx.snapshot(self.store)
+        store_before = fx.snapshot(self.store)
         code, doc, err = self.run_sub(self.b, dl, "swap")
         self.assertEqual(code, 1, doc)
         self.assertEqual(doc["error"], "other_store_version")
         for want in ("0.7.0", self.owner_a, "Nothing was written"):
             self.assertIn(want, doc["message"])
-        self.assertEqual(fx.snapshot(self.b.code), b_before)  # installed files, staging and journal untouched
+        self.assertEqual(fx.snapshot(self.b.code), b_before)  # installed files untouched; the refused swap removed its staging and journal
         self.assertEqual(fx.snapshot(self.store), store_before)
-        code, doc, err = self.run_sub(self.b, dl, "recover")
-        self.assertEqual(code, 0, doc)
-        self.assertEqual(doc["action"], "discarded")
         self.assertEqual(self.staging_left(), [])
 
 
@@ -235,13 +236,14 @@ class TestOwner(Base):
         self.ok(self.a, dl, "plan")
         self.ok(self.a, dl, "stage")
         fx.write_store_record(self.store, "0.7.0", self.owner_a)  # another checkout of A advanced the store and committed it
-        a_before, store_before = self.installed(self.a), fx.snapshot(self.store)
+        a_before, store_before = self.installed(self.a), self.store_state()
         code, doc, err = self.run_sub(self.a, dl, "swap")
         self.assertEqual(code, 1, doc)
         self.assertEqual(doc["error"], "store_version_changed")
         for want in ("0.7.0", self.owner_a, "0.6.0", "nothing was written", "rerun the update"):
             self.assertIn(want, doc["message"].replace("Rerun", "rerun"))
-        self.assertEqual(fx.snapshot(self.store), store_before)  # the schema and STORE are as the other checkout left them
+        self.assertEqual(self.store_state(), store_before)  # the schema and STORE are as the other checkout left them
+        self.assertEqual(self.staging_left(), [])  # the refused swap removed its staging
         self.assertEqual(self.installed(self.a), a_before)  # nothing installed was touched
         self.assertFalse(self.lock.exists(), "the gate lock is released")
 
@@ -252,13 +254,14 @@ class TestOwner(Base):
         self.assertEqual(self.ok(self.a, dl, "plan")["role"], "claim")
         self.ok(self.a, dl, "stage")
         fx.write_store_record(self.store, "0.7.0", self.owner_a)  # another checkout of A claimed it first, at a newer version
-        a_before, store_before = self.installed(self.a), fx.snapshot(self.store)
+        a_before, store_before = self.installed(self.a), self.store_state()
         code, doc, err = self.run_sub(self.a, dl, "swap")
         self.assertEqual(code, 1, doc)
         self.assertEqual(doc["error"], "store_claimed")
         for want in ("0.7.0", self.owner_a, "0.6.0", "nothing was written"):
             self.assertIn(want, doc["message"])
-        self.assertEqual(fx.snapshot(self.store), store_before)  # the schema and STORE are as the other checkout left them
+        self.assertEqual(self.store_state(), store_before)  # the schema and STORE are as the other checkout left them
+        self.assertEqual(self.staging_left(), [])  # the refused swap removed its staging
         self.assertEqual(self.installed(self.a), a_before)
         self.assertFalse(self.lock.exists(), "the gate lock is released")
 
@@ -324,8 +327,11 @@ class TestFreeStore(Base):
         self.assertIn("notes.txt", doc["message"])
         self.assertFalse(self.lock.exists())
         self.assertEqual(self.record(), fx.record_text("0.5.0", self.owner_a))
+        self.assertEqual(self.staging_left(), [])  # the refused swap removed its staging and journal
         stray.unlink()
-        self.assertTrue(self.ok(self.a, dl, "swap")["store_written"])  # the rerun swaps once the store is clean
+        self.ok(self.a, dl, "plan")  # the rerun stages again and swaps once the store is clean
+        self.ok(self.a, dl, "stage")
+        self.assertTrue(self.ok(self.a, dl, "swap")["store_written"])
 
     def test_rename_into_own_staging_makes_store_busy(self):
         """A rename lists both paths: the source outside this update's staging makes the store busy."""
@@ -333,7 +339,8 @@ class TestFreeStore(Base):
         dl = self.download("0.6.0", fx.schema_edit_comment)
         self.ok(self.a, dl, "plan")
         self.ok(self.a, dl, "stage")
-        fx.git(self.store, "mv", "openspec/config.yaml", "openspec/.specwright-update-schemas/moved.yaml")
+        staging = next((self.store / "openspec").glob(".specwright-update-schemas*")).relative_to(self.store).as_posix()
+        fx.git(self.store, "mv", "openspec/config.yaml", f"{staging}/moved.yaml")
         self.assertTrue(any(x.startswith("R  ") for x in self.porcelain()), self.porcelain())
         a_before = self.installed(self.a)
         code, doc, err = self.run_sub(self.a, dl, "swap")
@@ -350,7 +357,7 @@ class TestFreeStore(Base):
         self.ok(self.a, dl, "stage")
         lines = self.porcelain()
         self.assertTrue(lines)
-        self.assertTrue(all(x.startswith("?? openspec/.specwright-update-schemas/") for x in lines), lines)  # only the staging
+        self.assertTrue(all(x.startswith("?? openspec/.specwright-update-schemas-") for x in lines), lines)  # only the staging
         swap = self.ok(self.a, dl, "swap")
         self.assertTrue(swap["store_written"])
         self.assertEqual(fx.tree(self.a.schema), fx.tree(dl / "schemas" / "specwright"))
@@ -365,7 +372,129 @@ class TestFreeStore(Base):
         self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)  # no known main: the store is not on it
         self.assertIn("trunk", doc["message"])
         fx.write(self.a.code, "openspec/specwright.yaml", "planning_store:\n  login: bot\n  main_branch: trunk # the store's main\n")
+        self.ok(self.a, dl, "plan")  # the refused swap removed its staging: plan and stage again
+        self.ok(self.a, dl, "stage")
         self.assertTrue(self.ok(self.a, dl, "swap")["store_written"])
+
+
+class TestStagingPerCheckout(Base):
+    """Design D7 (#97): the store schema staging directory is keyed by the code checkout, so two checkouts that stage
+    against one store never share (or delete) each other's `new/` and `old/`."""
+
+    def journal(self, co):
+        return json.loads(co.journal.read_text(encoding="utf-8"))
+
+    def store_staging(self, co):
+        return Path(self.journal(co)["store_staging"])
+
+    def staged_pair(self):
+        """Both checkouts claim the store and stage; neither has swapped."""
+        self.pair("0.5.0", record=None)
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        for co in (self.a, self.b):
+            self.assertEqual(self.ok(co, dl, "plan")["role"], "claim")
+        self.ok(self.a, dl, "stage")
+        self.ok(self.b, dl, "stage")
+        return dl
+
+    def test_two_checkouts_stage_separately(self):
+        self.staged_pair()
+        sa, sb = self.store_staging(self.a), self.store_staging(self.b)
+        self.assertNotEqual(sa, sb)
+        for s in (sa, sb):
+            self.assertEqual(s.parent, self.store / "openspec")
+            self.assertTrue(s.name.startswith(".specwright-update-schemas-"), s.name)
+            self.assertTrue((s / "new" / "specwright").is_dir(), s)
+        found = sorted(p.name for p in (self.store / "openspec").glob(".specwright-update-schemas*"))
+        self.assertEqual(found, sorted([sa.name, sb.name]))
+        for co in (self.a, self.b):  # each journal names its own, for the group and for the store
+            j = self.journal(co)
+            self.assertEqual(next(g["staging"] for g in j["groups"] if g["kind"] == "schema"), j["store_staging"])
+        # the code-side staging keeps its name
+        self.assertTrue((self.a.code / ".claude" / ".specwright-update-skills" / "new").is_dir())
+
+    def test_refused_swap_recover_keeps_other_rollback_copy(self):
+        # two clones of one repository share an owner id (the same origin)
+        self.pair("0.5.0", record=None)
+        for co in (self.a, self.b):
+            fx.git(co.code, "remote", "add", "origin", "https://example.com/team/app.git")
+        fx.write_store_record(self.store, "0.5.0", "example.com/team/app")
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        a_before, store_before = self.installed(self.a), self.store_state()
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        self.ok(self.a, dl, "swap")
+        sa = self.store_staging(self.a)
+        self.assertTrue((sa / "old" / "specwright").is_dir(), "A's rollback copy of the old schema")
+        self.assertEqual(self.ok(self.b, dl, "plan")["role"], "owner")
+        self.ok(self.b, dl, "stage")
+        sb = self.store_staging(self.b)
+        self.assertNotEqual(sa, sb)
+        code, doc, err = self.run_sub(self.b, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertFalse(sb.exists(), "B's refused swap removes its own staging directory")
+        self.assertFalse(self.b.journal.exists(), "and its own journal")
+        self.assertTrue((sa / "old" / "specwright").is_dir(), "B's recovery must leave A's old/ alone")
+        rec = self.ok(self.a, dl, "recover", "--rollback")
+        self.assertEqual(rec["message"], "rolled back to 0.5.0")
+        self.assertEqual(self.store_state()["schema"], store_before["schema"])
+        self.assertEqual(self.installed(self.a), a_before)
+        self.assertEqual(self.staging_left(), [])
+
+    def test_other_checkout_staging_makes_store_busy(self):
+        dl = self.staged_pair()
+        sa = self.store_staging(self.a)
+        b_before = self.installed(self.b)
+        code, doc, err = self.run_sub(self.b, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertIn("another checkout's update is staged in the store", doc["message"])
+        self.assertIn(sa.name, doc["message"])
+        self.assertIn("finish or recover it by rerunning the update in that checkout", doc["message"])
+        self.assertNotIn("uncommitted changes", doc["message"])  # ahead of the generic dirty-tree reason
+        self.assertEqual(self.installed(self.b), b_before)
+        self.assertFalse(self.lock.exists())
+        self.assertFalse(self.b.journal.exists(), "B's staging and journal are gone")
+        self.assertTrue((sa / "new" / "specwright").is_dir(), "A's staging is untouched")
+        self.assertEqual([p.name for p in (self.store / "openspec").glob(".specwright-update-schemas*")], [sa.name])
+
+    def test_both_staged_first_refused_swap_discards_and_other_swaps(self):
+        dl = self.staged_pair()
+        sa, sb = self.store_staging(self.a), self.store_staging(self.b)
+        a_before = self.installed(self.a)
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertIn(sb.name, doc["message"])
+        self.assertFalse(sa.exists(), "A's refused swap removes its own staging")
+        self.assertFalse(self.a.journal.exists(), "and its own journal")
+        self.assertEqual(self.installed(self.a), a_before)
+        self.assertTrue((sb / "new" / "specwright").is_dir(), "B's staging is untouched")
+        self.assertTrue(self.ok(self.b, dl, "swap")["store_written"])
+        self.stamp_finish(self.b, dl, "0.6.0")
+        self.assertEqual(self.staging_left(), [])
+        # A reruns after B finished: plan and stage, and the swap is not refused for staging
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertNotIn("staged in the store", json.dumps(doc), doc)
+        self.assertEqual(code, 0, doc)
+
+    def test_recover_uses_legacy_shared_staging_from_journal(self):
+        self.pair("0.5.0", record=None)
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        new = self.store_staging(self.a)
+        legacy = new.parent / ".specwright-update-schemas"
+        new.rename(legacy)
+        text = self.a.journal.read_text(encoding="utf-8").replace(new.as_posix(), legacy.as_posix())
+        self.a.journal.write_text(text, encoding="utf-8", newline="\n")
+        self.assertEqual(self.journal(self.a)["format"], 1)
+        self.assertEqual(self.store_staging(self.a), legacy)
+        rec = self.ok(self.a, dl, "recover")
+        self.assertEqual(rec["action"], "discarded")
+        self.assertFalse(legacy.exists())
+        self.assertFalse(self.a.journal.exists())
+        self.assertEqual(self.staging_left(), [])
 
 
 class TestAttribution(Base):
