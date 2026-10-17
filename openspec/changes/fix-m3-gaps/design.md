@@ -146,8 +146,8 @@ sequenceDiagram
     participant S as Store
     participant B as update.sh (checkout B)
     A->>S: stage → .specwright-update-schemas-<idA>/new
-    B->>S: stage → .specwright-update-schemas-<idB>/new
     A->>S: swap (gate lock) → old schema into <idA>/old
+    B->>S: stage → .specwright-update-schemas-<idB>/new
     B->>S: swap: free-store check
     S-->>B: busy: another checkout's staging (<idA>)
     B->>S: recover → rm -rf <idB> only
@@ -221,6 +221,7 @@ flowchart LR
 ## Flow & State Gaps (FULL)
 
 - **#97, A abandoned forever.** A's staging blocks every owner swap in the store. The busy message names A's directory and says to finish or recover it from that checkout. Nobody else deletes it, because only A's journal knows whether its `old/` is still needed.
+- **#97, both checkouts staged before either swapped.** Each one's staging makes the store busy for the other, so neither swap runs. Each busy message names the other's directory; the user recovers one checkout (its own staging only) and the other then swaps. A swap that ignored a foreign `new/` was rejected: it would read another checkout's directory contents, which only that checkout's journal describes.
 - **#97, upgrade in flight.** A checkout whose interrupted update was journaled by 0.6.0 recovers with the 0.6.1 script, using the journal's shared path. If another checkout then stages with 0.6.1, it gets its own directory, and the shared one makes the store busy, as any untracked path does today.
 - **#94, both PRs open at once.** Whichever passes watch first merges. The other's watch check refuses before ready or merge. With `pr.merge: user`, a user who merges on GitHub without waiting for ready bypasses the check; this is the same trust boundary as every other ready condition, and the issue stays visible: `untagged` lists the version once, and its notes cover both changes.
 - **#94, re-bump.** A bump to a greater version on the branch is an ordinary fix commit after review. The pre-ship review does not rerun for it (the existing fix-round rules apply).
