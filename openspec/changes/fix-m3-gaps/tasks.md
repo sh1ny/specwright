@@ -26,14 +26,14 @@
 | releases → Older untagged versions are published first | Tag push failed earlier | evals/release/test_release.py | TestUntagged.test_local_only_tag_is_not_published | green |
 | releases → Older untagged versions are published first | First release's tag push failed | evals/release/test_release.py | TestUntagged.test_first_release_push_failed | green |
 | releases → Older untagged versions are published first | Backfill below the latest tag | evals/release/test_release.py | TestUntagged.test_backfill_below_latest | green |
-| releases → Older untagged versions are published first | Local tags only | evals/release/test_release.py | TestUntagged.test_local_flag_reads_no_remote | red |
-| releases → Older untagged versions are published first | Local read with a local-only tag | evals/release/test_release.py | TestUntagged.test_local_flag_counts_local_tag_and_says_so (also test_without_origin_reports_local_tags) | red |
-| releases → A bumped version is greater than main's before it merges | Two changes bump to the same version | evals/release/test_release.py | TestCheckMain.test_duplicate_bump_refused | red |
-| releases → A bumped version is greater than main's before it merges | Main moved past the bump | evals/release/test_release.py | TestCheckMain.test_main_ahead_refused | red |
-| releases → A bumped version is greater than main's before it merges | Bump still ahead | evals/release/test_release.py | TestCheckMain.test_bump_ahead_passes | red |
-| releases → A bumped version is greater than main's before it merges | Branch did not bump | evals/release/test_release.py | TestCheckMain.test_no_bump_passes | red |
-| releases → A bumped version is greater than main's before it merges | Main was merged into the branch after the duplicate landed | evals/release/test_release.py | TestCheckMain.test_duplicate_after_main_merged_in_refused | red |
-| releases → A bumped version is greater than main's before it merges | Main has no version yet | evals/release/test_release.py | TestCheckMain.test_main_without_version_passes | red |
+| releases → Older untagged versions are published first | Local tags only | evals/release/test_release.py | TestUntagged.test_local_flag_reads_no_remote | green |
+| releases → Older untagged versions are published first | Local read with a local-only tag | evals/release/test_release.py | TestUntagged.test_local_flag_counts_local_tag_and_says_so (also test_without_origin_reports_local_tags) | green |
+| releases → A bumped version is greater than main's before it merges | Two changes bump to the same version | evals/release/test_release.py | TestCheckMain.test_duplicate_bump_refused | green |
+| releases → A bumped version is greater than main's before it merges | Main moved past the bump | evals/release/test_release.py | TestCheckMain.test_main_ahead_refused | green |
+| releases → A bumped version is greater than main's before it merges | Bump still ahead | evals/release/test_release.py | TestCheckMain.test_bump_ahead_passes | green |
+| releases → A bumped version is greater than main's before it merges | Branch did not bump | evals/release/test_release.py | TestCheckMain.test_no_bump_passes | green |
+| releases → A bumped version is greater than main's before it merges | Main was merged into the branch after the duplicate landed | evals/release/test_release.py | TestCheckMain.test_duplicate_after_main_merged_in_refused | green |
+| releases → A bumped version is greater than main's before it merges | Main has no version yet | evals/release/test_release.py | TestCheckMain.test_main_without_version_passes | green |
 | releases → Ship, local merge and watch check the version against main | Ship of a duplicate version | evals/release/test_skill_text.py | TestShipText.test_ship_checks_version_against_fetched_main_before_push | red |
 | releases → Ship, local merge and watch check the version against main | Main merged a duplicate while the PR waited | evals/release/test_skill_text.py | TestWatchText.test_watch_checks_version_before_ready_and_merge | red |
 | releases → Ship, local merge and watch check the version against main | Local merge of a duplicate version | evals/release/test_skill_text.py | TestFinishText.test_local_merge_checks_version_before_merge | red |
@@ -94,7 +94,7 @@
   - The new class `TestCheckMain`, built from the `make_repo`, `merge_commit` and `push` fixtures, for the six check scenarios. These include `feat/b` with `origin/main` merged in, and `origin/main` without a `VERSION` file.
 
   Confirm that each fails for the right reason (unknown option, or no refusal).
-- [ ] 2.2 In `skills/specwright-release/scripts/release.sh`:
+- [x] 2.2 In `skills/specwright-release/scripts/release.sh`:
   - add `untagged --local` and the `tags` field per design D2;
   - add `check --main <ref>` per design D3: the merge-base version, the `--no-merges <ref>..HEAD` primary-file log, refusal `version_not_ahead_of_main`, and no readable version at `<ref>` passing;
   - update the `COMMANDS` table and the stale header comment ("no local tag", line 33).
