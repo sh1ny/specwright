@@ -68,6 +68,7 @@ ACCEPTED = ("codex", "claude", "omp")
 RUNTIMES = ("claude", "codex", "omp", "other")
 REFS = Path(os.environ["REVIEW_RUN_DIR"]).parent / "references"
 MAX_OUTPUT = 2 * 1024 * 1024
+MAX_EVENT_LINE = 16 * 1024 * 1024  # one OMP event line (agent_end carries every message of the session)
 MAX_FINDINGS = 100
 PROBE_TIMEOUT = 10
 ENV = dict(os.environ)
@@ -312,13 +313,15 @@ def kill_tree(pid):
 
 
 class Captured:
-    def __init__(self, rc, out, out_size, err, timed_out, error=None):
+    def __init__(self, rc, out, out_size, err, timed_out, error=None, scanned=None):
         self.rc, self.out, self.out_size, self.err, self.timed_out, self.error = rc, out, out_size, err, timed_out, error
+        self.scanned = scanned
 
 
-def capture(cmd, timeout, stdin_path=None, cwd=None):
+def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None):
     """Run `cmd` with a deadline. Output goes to files, so a huge output costs disk, not memory, and a killed process
-    tree cannot leave a pipe open. Returns the first MAX_OUTPUT+1 bytes of stdout and the size."""
+    tree cannot leave a pipe open. Returns the first MAX_OUTPUT+1 bytes of stdout and the size. `scan`, when given, is
+    called with the stdout file's path after a normal exit and its result is returned as `.scanned`."""
     work = tempfile.mkdtemp(prefix="specwright-run-")
     try:
         with open(os.path.join(work, "out"), "wb") as fo, open(os.path.join(work, "err"), "wb") as fe:
@@ -342,12 +345,13 @@ def capture(cmd, timeout, stdin_path=None, cwd=None):
                 if fi:
                     fi.close()
         size = os.path.getsize(os.path.join(work, "out"))
+        scanned = scan(os.path.join(work, "out")) if scan and not timed_out and rc == 0 else None
         with open(os.path.join(work, "out"), "rb") as f:
             out = f.read(MAX_OUTPUT + 1)
         with open(os.path.join(work, "err"), "rb") as f:
             f.seek(max(0, os.path.getsize(os.path.join(work, "err")) - 2000))
             err = f.read().decode("utf-8", "replace")
-        return Captured(rc, out, size, err, timed_out)
+        return Captured(rc, out, size, err, timed_out, scanned=scanned)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -761,9 +765,36 @@ def schema_for_claude():
     return json.dumps(schema, separators=(",", ":"))
 
 
-def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=()):
+def host_os():
+    """os.name, or the value of REVIEW_RUN_TEST_OS_NAME: a hook so the tests can run the Windows branch anywhere."""
+    return os.environ.get("REVIEW_RUN_TEST_OS_NAME") or os.name
+
+
+def codex_windows_sandbox():
+    """The `windows.sandbox` value of the user's codex config on Windows, or None. The config stays ignored
+    (--ignore-user-config); only this one setting, when it is a plain name, is passed on. Anything else (not Windows, no
+    file, a TOML error, another value, a Python without tomllib) yields None, which is the command line without it."""
+    if host_os() != "nt":
+        return None
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        return None
+    home = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
+    try:
+        with open(os.path.join(home, "config.toml"), "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, ValueError):
+        return None
+    win = data.get("windows") if isinstance(data, dict) else None
+    value = win.get("sandbox") if isinstance(win, dict) else None
+    return value if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9-]*", value) else None
+
+
+def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=(), sandbox=None):
     """The fixed command line of a route (D3). The prompt goes by stdin or file, never argv.
-    dirs: directories outside the checkout the reviewer must read (the planning store)."""
+    dirs: directories outside the checkout the reviewer must read (the planning store).
+    sandbox: the codex `windows.sandbox` name to pass on (codex_windows_sandbox)."""
     model, level = cfg.model(route), cfg.level(route)
     if route == "codex":
         cmd = [exe, "exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config", "--skip-git-repo-check"]
@@ -777,6 +808,8 @@ def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=())
             cmd += ["-m", model]
         if level:
             cmd += ["-c", f"model_reasoning_effort={level}"]
+        if sandbox:
+            cmd += ["-c", f'windows.sandbox="{sandbox}"']
         return cmd + ["-"], prompt_path, last
     if route == "claude":
         cmd = [exe, "-p", "--safe-mode", "--disable-slash-commands", "--tools", "Read,Grep,Glob", "--restricted"]
@@ -806,16 +839,30 @@ def text_of(message):
     return ""
 
 
-def omp_last_text(raw):
-    """The last assistant text of the agent_end event in OMP's --mode json stream, or None."""
+def omp_scan(path):
+    """(the last agent_end event of OMP's --mode json stream in `path`, None), or (None, 'too large') when one line passes
+    MAX_EVENT_LINE. Reads line by line in binary, so memory stays at one bounded line."""
     end = None
-    for line in raw.decode("utf-8", "replace").splitlines():
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(ev, dict) and ev.get("type") == "agent_end":
-            end = ev
+    with open(path, "rb") as f:
+        while True:
+            line = f.readline(MAX_EVENT_LINE + 1)
+            if not line:
+                break
+            if len(line) > MAX_EVENT_LINE and not line.endswith(b"\n"):
+                return None, "too large"
+            if b"agent_end" not in line:
+                continue
+            try:
+                ev = json.loads(line.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "agent_end":
+                end = ev
+    return end, None
+
+
+def omp_last_text(end):
+    """The last assistant text of an agent_end event, or None."""
     if end is None:
         return None
     texts = [text_of(m) for m in end.get("messages") or [] if isinstance(m, dict) and m.get("role") == "assistant"]
@@ -844,10 +891,13 @@ def omp_session_actual(session_dir):
     return model or "unknown", level or "unknown"
 
 
-def make_receipt(route, skipped, cfg, version, started, actual):
-    return {"route": route, "skipped": skipped, "requested_model": cfg.model(route) or "default",
-            "requested_thinking": cfg.level(route) or "default", "actual_model": actual[0], "actual_thinking": actual[1],
-            "cli_version": version or "unknown", "started_at": started, "finished_at": now()}
+def make_receipt(route, skipped, cfg, version, started, actual, sandbox=None):
+    rec = {"route": route, "skipped": skipped, "requested_model": cfg.model(route) or "default",
+           "requested_thinking": cfg.level(route) or "default", "actual_model": actual[0], "actual_thinking": actual[1],
+           "cli_version": version or "unknown", "started_at": started, "finished_at": now()}
+    if sandbox:
+        rec["windows_sandbox"] = sandbox  # the one codex setting forwarded from the user's config
+    return rec
 
 
 def fail(status, error, message, route, receipt, **extra):
@@ -937,24 +987,25 @@ def cmd_run(argv):
             prompt_path, cwd = a["prompt_file"], os.getcwd()
         session_dir = tempfile.mkdtemp(prefix="specwright-omp-session-") if route == "omp" else None
         dirs = [norm(os.path.abspath(a["store"]))] if a.get("store") else []
-        cmd, stdin_path, last_file = command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs)
+        sandbox = codex_windows_sandbox() if route == "codex" else None
+        cmd, stdin_path, last_file = command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs, sandbox)
 
         _exe, version, _reason = probe(route)
         started = now()
-        res = capture(cmd, cfg.timeout, stdin_path=stdin_path, cwd=cwd)
+        res = capture(cmd, cfg.timeout, stdin_path=stdin_path, cwd=cwd, scan=omp_scan if route == "omp" else None)
         actual = ("unknown", "unknown")
         if route == "omp":
             actual = omp_session_actual(session_dir)
         keep = {"session_dir": norm(session_dir)} if session_dir else {}
 
         def stop(status, error, message, **extra):
-            fail(status, error, message, route, make_receipt(route, skipped, cfg, version, started, actual), **keep, **extra)
+            fail(status, error, message, route, make_receipt(route, skipped, cfg, version, started, actual, sandbox), **keep, **extra)
 
         if res.timed_out:
             stop("timeout", "timeout", f"{route} was still running after review.timeout ({cfg.timeout}s); its process tree was stopped")
         if res.rc != 0:
             stop("failed", "reviewer_failed", f"{route} exited {res.rc}: {res.err.strip()[-500:]}", exit_code=res.rc)
-        if route != "codex" and res.out_size > MAX_OUTPUT:  # codex's stdout is only events; its answer is the -o file
+        if route == "claude" and res.out_size > MAX_OUTPUT:  # codex's and omp's stdout are event streams; their answer is bounded below
             stop("invalid", "invalid_output", "output too large")
 
         text, parsed = None, None
@@ -979,11 +1030,16 @@ def cmd_run(argv):
             else:
                 text = obj.get("result") if isinstance(obj.get("result"), str) else ""
         else:
-            text = omp_last_text(res.out)
+            end, problem = res.scanned or (None, None)
+            if problem:
+                stop("invalid", "invalid_output", "output too large")  # one event line passed MAX_EVENT_LINE
+            text = omp_last_text(end)
             if text is None:
                 stop("invalid", "invalid_output", "omp's event stream has no assistant message in agent_end")
+            if len(text.encode("utf-8")) > MAX_OUTPUT:
+                stop("invalid", "invalid_output", "output too large")
 
-        receipt = make_receipt(route, skipped, cfg, version, started, actual)
+        receipt = make_receipt(route, skipped, cfg, version, started, actual, sandbox)
         if kind == "preship":
             if parsed is None:
                 parsed = json_from_text(text)

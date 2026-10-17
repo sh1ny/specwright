@@ -47,9 +47,9 @@
 | change-finish → Finish offers a release once the change is on main | Local finish with a github.com origin and no login | evals/release/test_skill_text.py | TestFinishText.test_local_mode_reads_local_tags_unfenced | green |
 | review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | green |
 | review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/trial.md | recorded trial (`git status --porcelain` after the write request); re-run for codex on Windows in 3.5 | n/a (recorded trial: needs real reviewer CLIs) |
-| review-routes → Reviewers run isolated and read-only | Codex on Windows with a sandbox setting | evals/review-routes/test_review_run.py | test_codex_windows_forwards_sandbox_only | red |
-| review-routes → Reviewers run isolated and read-only | Codex on Windows without a usable setting | evals/review-routes/test_review_run.py | test_codex_windows_no_usable_sandbox_adds_nothing | red |
-| review-routes → Reviewers run isolated and read-only | Codex off Windows | evals/review-routes/test_review_run.py | test_codex_off_windows_adds_no_sandbox | red |
+| review-routes → Reviewers run isolated and read-only | Codex on Windows with a sandbox setting | evals/review-routes/test_review_run.py | test_codex_windows_forwards_sandbox_only | green |
+| review-routes → Reviewers run isolated and read-only | Codex on Windows without a usable setting | evals/review-routes/test_review_run.py | test_codex_windows_no_usable_sandbox_adds_nothing | green |
+| review-routes → Reviewers run isolated and read-only | Codex off Windows | evals/review-routes/test_review_run.py | test_codex_off_windows_adds_no_sandbox | green |
 | review-routes → Review output is validated and fails closed | Valid findings | evals/review-routes/test_review_run.py | test_valid_findings_recorded | green |
 | review-routes → Review output is validated and fails closed | Output that is not JSON | evals/review-routes/test_review_run.py | test_prose_output_invalid_no_fallthrough | green |
 | review-routes → Review output is validated and fails closed | Subagent design review without a verdict | evals/review-routes/test_review_run.py | test_record_design_without_verdict_invalid | green |
@@ -61,9 +61,9 @@
 | review-routes → Review output is validated and fails closed | Verdict a reviewer may not set | evals/review-routes/test_review_run.py | test_design_override_and_skipped_verdicts_invalid | green |
 | review-routes → Review output is validated and fails closed | CHANGES_APPLIED does not match the verdict | evals/review-routes/test_review_run.py | test_design_changes_applied_must_match_verdict | green |
 | review-routes → Review output is validated and fails closed | Valid re-check | evals/review-routes/test_review_run.py | test_design_recheck_with_changes_applied_yes_valid | green |
-| review-routes → Review output is validated and fails closed | Large OMP event stream with a small answer | evals/review-routes/test_review_run.py | test_omp_large_stream_small_answer_valid | red |
-| review-routes → Review output is validated and fails closed | OMP answer over the bound | evals/review-routes/test_review_run.py | test_omp_answer_over_bound_invalid | red |
-| review-routes → Review output is validated and fails closed | OMP stream without a final message | evals/review-routes/test_review_run.py | test_omp_stream_without_agent_end_invalid | red |
+| review-routes → Review output is validated and fails closed | Large OMP event stream with a small answer | evals/review-routes/test_review_run.py | test_omp_large_stream_small_answer_valid | green |
+| review-routes → Review output is validated and fails closed | OMP answer over the bound | evals/review-routes/test_review_run.py | test_omp_answer_over_bound_invalid | green |
+| review-routes → Review output is validated and fails closed | OMP stream without a final message | evals/review-routes/test_review_run.py | test_omp_stream_without_agent_end_invalid | green |
 | planning-stores → Store staging belongs to one checkout | Two checkouts stage against one store | evals/update/test_store.py | TestStagingPerCheckout.test_two_checkouts_stage_separately | red |
 | planning-stores → Store staging belongs to one checkout | Discard after a refused swap keeps the other checkout's rollback copy | evals/update/test_store.py | TestStagingPerCheckout.test_refused_swap_recover_keeps_other_rollback_copy | red |
 | planning-stores → Store staging belongs to one checkout | Another checkout's staging makes the store busy | evals/update/test_store.py | TestStagingPerCheckout.test_other_checkout_staging_makes_store_busy | red |
@@ -127,7 +127,7 @@
 
   Confirm that they fail for the right reason, and that the existing design tests are still green with the new fixtures.
 - [x] 3.2 In `skills/specwright-review/scripts/review-run.sh`, implement `validate_design` per design D5 (whole lines, the value sets, the pairing, the value named in the error), and `record --kind design --scratch` and `--out` (atomic write on success, scratch removed; on exit 3, `--out` untouched and scratch kept and reported). Verify that 3.1's tests pass and that `python -m pytest evals/review-routes` is green, then flip the rows green.
-- [ ] 3.3 Write the failing tests, then implement:
+- [x] 3.3 Write the failing tests, then implement:
   - **Codex sandbox (D4).** `test_codex_windows_forwards_sandbox_only`, `test_codex_windows_no_usable_sandbox_adds_nothing` (missing file, a TOML error, no key, a non-name value) and `test_codex_off_windows_adds_no_sandbox`, with `os.name` and `CODEX_HOME` controlled through test hooks. Update `test_command_lines_read_only_allowlists` and `test_model_and_thinking_flags` for the possible extra `-c` (look up `model_reasoning_effort` by value, not by the first `-c`). Implement the `windows.sandbox` read with `tomllib`, appended as `-c windows.sandbox="<value>"`, and record the forwarded value in the receipt.
   - **OMP answer (D6).** `test_omp_large_stream_small_answer_valid` (a 3 MiB recorded stream from the `reviewcli.py` fake with a 19 KB final answer), `test_omp_answer_over_bound_invalid` and `test_omp_stream_without_agent_end_invalid`. Implement the line-scanning OMP reader with `readline(MAX_EVENT_LINE + 1)`, drop the raw stdout size check for `omp`, and bound the answer with `MAX_OUTPUT`.
 

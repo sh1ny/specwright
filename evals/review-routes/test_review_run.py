@@ -42,6 +42,23 @@ def clean_path():
     return os.pathsep.join(keep)
 
 
+def c_values(argv):
+    """The value of every `-c` in an argv."""
+    return [argv[i + 1] for i, t in enumerate(argv) if t == "-c" and i + 1 < len(argv)]
+
+
+def without_sandbox(argv):
+    """argv without a `-c windows.sandbox=...` pair."""
+    out, i = [], 0
+    while i < len(argv):
+        if argv[i] == "-c" and i + 1 < len(argv) and argv[i + 1].startswith("windows.sandbox="):
+            i += 2
+            continue
+        out.append(argv[i])
+        i += 1
+    return out
+
+
 def pid_alive(pid):
     if sys.platform == "win32":
         r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True)
@@ -74,7 +91,8 @@ class Base(unittest.TestCase):
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
         e.update({"PATH": str(self.bin) + os.pathsep + clean_path(), "SPECWRIGHT_STATE_DIR": str(self.state_dir),
-                  "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PYTHONIOENCODING": "utf-8"})
+                  "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PYTHONIOENCODING": "utf-8",
+                  "CODEX_HOME": str(self.tmp / "codex-home")})  # no config file unless a test writes one
         e.update(self.extra_env)
         return e
 
@@ -321,7 +339,7 @@ class RunTests(Base):
         for route in ("codex", "claude", "omp"):
             self.preship(route, out=f"{route}.json")
         self.assertEqual(self.status(), before)
-        a = self.runs("codex")[0]["argv"]
+        a = without_sandbox(self.runs("codex")[0]["argv"])
         self.assertEqual(a[:8], ["exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config",
                                  "--skip-git-repo-check", "--output-schema"])
         self.assertTrue(a[8].endswith(".json"))
@@ -354,7 +372,8 @@ class RunTests(Base):
             self.preship(route, out=f"{route}.json")
         a = self.runs("codex")[0]["argv"]
         self.assertEqual(a[a.index("-m") + 1], "gpt-x")
-        self.assertEqual(a[a.index("-c") + 1], "model_reasoning_effort=high")
+        self.assertIn("model_reasoning_effort=high", c_values(a))  # by value: a Windows sandbox adds a second -c
+        self.assertEqual([v for v in c_values(a) if not v.startswith("windows.sandbox=")], ["model_reasoning_effort=high"])
         a = self.runs("claude")[0]["argv"]
         self.assertEqual((a[a.index("--model") + 1], a[a.index("--effort") + 1]), ("opus-y", "max"))
         a = self.runs("omp")[0]["argv"]
@@ -496,6 +515,100 @@ class RunTests(Base):
         self.assertNotIn("receipt_file", out)
         self.assertEqual(self.runs("codex")[0]["stdin"], "Review the design.\n")
         self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+
+    # ---- codex sandbox on Windows (fix-m3-gaps, 3.3, D4) -----------------------------------------------
+    def codex_config(self, text, os_name="nt"):
+        home = self.tmp / "codex-home"
+        home.mkdir(exist_ok=True)
+        if text is not None:
+            (home / "config.toml").write_text(text, encoding="utf-8", newline="\n")
+        self.extra_env.update({"CODEX_HOME": str(home), "REVIEW_RUN_TEST_OS_NAME": os_name})  # test hooks for os.name and the home
+        self.install("codex")
+        self.stdout_file("codex", json.dumps(VALID))
+
+    @unittest.skipIf(sys.version_info < (3, 11), "tomllib needs Python 3.11+")
+    def test_codex_windows_forwards_sandbox_only(self):
+        self.codex_config('model = "gpt-9"\n[windows]\nsandbox = "elevated"\n[projects.\'C:\\work\']\ntrust_level = "trusted"\n'
+                          '[mcp_servers.evil]\ncommand = "evil"\n')
+        out = self.preship("codex")
+        a = self.runs("codex")[0]["argv"]
+        self.assertEqual(c_values(a), ['windows.sandbox="elevated"'])
+        self.assertIn("--ignore-user-config", a)
+        self.assertEqual(a[a.index("-s") + 1], "read-only")
+        self.assertFalse([t for t in a if "trust" in t or "evil" in t or "gpt-9" in t], a)
+        self.assertEqual(out["receipt"]["windows_sandbox"], "elevated")
+
+    def test_codex_windows_no_usable_sandbox_adds_nothing(self):
+        cases = {"missing file": None, "TOML error": "[windows\nsandbox = \n", "no key": '[windows]\nother = "x"\n',
+                 "no table": 'model = "x"\n', "not a string": "[windows]\nsandbox = 3\n",
+                 "injection": '[windows]\nsandbox = "x\\" -c y"\n', "upper case": '[windows]\nsandbox = "Elevated"\n',
+                 "empty": '[windows]\nsandbox = ""\n', "leading digit": '[windows]\nsandbox = "1x"\n'}
+        for name, text in cases.items():
+            self.codex_config(text)
+            out = self.preship("codex", out=f"{name}.json")
+            a = self.runs("codex")[-1]["argv"]
+            self.assertEqual(c_values(a), [], name)
+            self.assertFalse([t for t in a if "windows.sandbox" in t], name)
+            self.assertNotIn("windows_sandbox", out["receipt"], name)
+
+    def test_codex_off_windows_adds_no_sandbox(self):
+        self.codex_config('[windows]\nsandbox = "elevated"\n', os_name="posix")
+        out = self.preship("codex")
+        self.assertEqual(c_values(self.runs("codex")[0]["argv"]), [])
+        self.assertNotIn("windows_sandbox", out["receipt"])
+
+    # ---- the OMP answer is bounded, the event stream is not (fix-m3-gaps, 3.3, D6) ----------------------
+    def omp_stream(self, answer, tool_text="", filler_lines=0, agent_end=True):
+        """An OMP event stream: filler events, then an agent_end whose messages carry `tool_text` and the `answer`."""
+        lines = [json.dumps({"type": "agent_start"})]
+        lines += [json.dumps({"type": "message_update", "delta": "x" * 1000})] * filler_lines
+        if agent_end:
+            msgs = [{"role": "user", "content": [{"type": "text", "text": "review"}]}]
+            if tool_text:
+                msgs.append({"role": "toolResult", "content": [{"type": "text", "text": tool_text}]})
+            msgs.append({"role": "assistant", "content": [{"type": "text", "text": answer}]})
+            lines.append(json.dumps({"type": "agent_end", "messages": msgs}))
+        self.stdout_file("omp", "\n".join(lines) + "\n")
+
+    def test_omp_large_stream_small_answer_valid(self):
+        self.install("omp")
+        answer = "# Review\n\n" + ("A finding about the design. " * 700)[:19000] + "\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
+        self.omp_stream(answer, tool_text="t" * (1536 * 1024), filler_lines=1536)  # about 3 MiB on stdout
+        self.assertGreater(Path(self.extra_env["FAKE_OMP_STDOUT"]).stat().st_size, 3 * 1024 * 1024)
+        out = self.design("omp")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), answer)
+
+    def test_omp_answer_over_bound_invalid(self):
+        self.install("omp")
+        self.omp_stream("VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n" + "y" * (2 * 1024 * 1024 + 10))
+        out = self.design("omp", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("output too large", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_omp_event_line_over_bound_invalid(self):
+        self.install("omp")
+        self.omp_stream("VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n", tool_text="t" * (16 * 1024 * 1024 + 10))
+        out = self.design("omp", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("output too large", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_omp_stream_without_agent_end_invalid(self):
+        self.install("omp")
+        self.omp_stream("VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n", filler_lines=20, agent_end=False)
+        out = self.design("omp", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_omp_last_agent_end_wins(self):
+        self.install("omp")
+        first = {"type": "agent_end", "messages": [{"role": "assistant", "content": [{"type": "text", "text": "VERDICT: REVISE\nCHANGES_APPLIED: n/a\n"}]}]}
+        last = {"type": "agent_end", "messages": [{"role": "assistant", "content": [{"type": "text", "text": VERDICT_OK}]}]}
+        self.stdout_file("omp", "\n".join(json.dumps(e) for e in (first, {"type": "turn_end"}, last)) + "\n")
+        self.design("omp")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), VERDICT_OK)
 
     # ---- design verdict values (fix-m3-gaps, 3.1) -----------------------------------------------------
     def test_design_blocked_verdict_invalid_keeps_review(self):
