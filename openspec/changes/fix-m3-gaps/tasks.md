@@ -175,7 +175,7 @@
 
 ## 6. Debug stash recovery (#53)
 
-- [ ] 6.1 Write the failing skill-text tests in `evals/git-workflow/test_instructions.py`, new class `DebugStash` (constant `DEBUG = ROOT / "skills" / "specwright-debug" / "SKILL.md"`), one per test-map row. They cover:
+- [x] 6.1 Write the failing skill-text tests in `evals/git-workflow/test_instructions.py`, new class `DebugStash` (constant `DEBUG = ROOT / "skills" / "specwright-debug" / "SKILL.md"`), one per test-map row. They cover:
   - the named stash `git stash push -u -m "specwright-debug: <topic>"` with the ref reported;
   - the start-of-run `git stash list` scan for `specwright-debug: ` with a restore offer and no new stash until the user decides;
   - restore with `apply`, then `drop` only after the files are verified, each with the ref looked up again by its message;

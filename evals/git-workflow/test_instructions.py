@@ -1483,6 +1483,50 @@ class TestOpenSpecPin(unittest.TestCase):
                          "an override given in a reply does not download the copy again")
 
 
+DEBUG = ROOT / "skills" / "specwright-debug" / "SKILL.md"
+
+
+class DebugStash(unittest.TestCase):
+    """specwright-debug names, reports and finds its stash (debugging spec)."""
+
+    def text(self):
+        return read(DEBUG)
+
+    def test_stash_is_named_and_ref_reported(self):
+        t = self.text()
+        self.assertIn('git stash push -u -m "specwright-debug: <topic>"', t, "the test stash is not named")
+        self.assertRegex(t, r"(?is)report\w*\s+(the\s+)?(stash\s+)?ref", "the stash ref is not reported")
+        self.assertRegex(t, r"(?is)git stash apply.{0,300}git stash drop", "restore is not apply then drop")
+        self.assertRegex(t, r"(?is)drop.{0,120}(only\s+)?(after|once).{0,80}(files|verif)", "the drop does not wait for the files to be verified")
+
+    def test_ref_resolved_by_message_before_apply_and_drop(self):
+        t = self.text()
+        self.assertRegex(t, r"(?is)(look\w*\s+up|find|resolve)\w*.{0,60}(ref\s+)?again.{0,80}message|(ref|stash).{0,60}by\s+(its\s+)?(exact\s+)?message",
+                         "the ref is not looked up again by its message")
+        self.assertRegex(t, r"(?is)before\s+each\s+`?apply`?\s+and\s+(each\s+)?`?drop", "the lookup does not precede each apply and drop")
+        self.assertRegex(t, r"(?is)not\s+found,\s+or\s+found\s+twice,\s+stops", "a missing or doubled message does not stop")
+
+    def test_start_of_run_lists_leftover_stash_and_offers_restore(self):
+        t = self.text()
+        self.assertIn("git stash list", t)
+        self.assertIn("specwright-debug: ", t)
+        self.assertRegex(t, r"(?is)offer.{0,80}restore", "no restore offer for a leftover stash")
+        self.assertRegex(t, r"(?is)(not|no)\s+(stash\w*\s+)?(again|new\s+stash).{0,80}(user\s+decides|decides)|until\s+the\s+user\s+decides",
+                         "the run may stash again before the user decides")
+
+    def test_conflicting_restore_keeps_stash_and_stops(self):
+        t = self.text()
+        self.assertRegex(t, r"(?is)conflict.{0,160}keep.{0,40}stash.{0,80}stop|conflict.{0,160}stop.{0,80}keep.{0,40}stash",
+                         "a conflicting restore does not keep the stash and stop")
+
+    def test_no_leftover_reported_and_continues(self):
+        self.assertRegex(self.text(), r"(?is)no\s+leftover\s+stash\s+and\s+continue", "no leftover stash is not reported")
+
+    def test_only_specwright_debug_stashes_are_offered(self):
+        self.assertRegex(self.text(), r"(?is)other\s+stashes.{0,80}(alone|untouched|never)|(never|not).{0,60}other\s+stash",
+                         "other stashes are not left alone")
+
+
 class InstallUpdateLifecycle(unittest.TestCase):
     """README install Steps 3-8 pick a release tag and drive scripts/update.sh (safe-update-lifecycle)."""
 
