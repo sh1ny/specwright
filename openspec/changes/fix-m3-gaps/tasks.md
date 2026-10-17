@@ -77,7 +77,7 @@
 
 ## 1. Install version token boundary (#91)
 
-- [ ] 1.1 Write the failing tests in `evals/git-workflow/test_instructions.py` `TestOpenSpecPin`:
+- [x] 1.1 Write the failing tests in `evals/git-workflow/test_instructions.py` `TestOpenSpecPin`:
   - `test_step3_run_on_token_is_unreadable`: the Step 3 bullet says a token directly followed by a digit, letter, `.`, `+` or `-` is unreadable output, with `1.14.1.0` and `1.14.1vendor` as examples.
   - `test_step1_run_on_token_is_unreadable`: Step 1 applies the same rule "as Step 3 takes it".
   - `test_readme_token_rule_on_sample_outputs`: takes the token pattern from the README text and applies the stated rule (first match, then the boundary character) to `1.14.1`, `openspec 1.14.1\n`, `1.14.1+vendor.1`, `1.14.1.0` and `1.14.1vendor`. Expect `1.14.1`, `1.14.1`, `1.14.1+vendor.1`, unreadable and unreadable.
