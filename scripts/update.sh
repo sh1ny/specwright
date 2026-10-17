@@ -797,7 +797,7 @@ do_swap() {
     *) die not_staged "the recorded update is in phase '$phase', not staged; run recover first" ;;
   esac
   case "$(jstr role)" in owner|claim) storeful=1 ;; esac
-  if [ "$storeful" = 1 ] && [ "$phase" != staged ]; then  # a started store swap is finished or undone by recover
+  if [ "$phase" != staged ]; then  # a started swap, any role, is finished or undone by recover (its verify-swap decides)
     die swap_interrupted "this update's swap was started (phase $phase); run recover from this checkout to finish or undo it"
   fi
   if [ "$phase" = staged ] && [ "$storeful" = 1 ]; then
@@ -1159,6 +1159,8 @@ def check_change(scratch, name):
         return "openspec schema validate specwright: " + first_error(out + "\n" + err)
     rc, out, err = run_openspec(["validate", name, "--json"], scratch)
     try:
+        if rc != 0 and json.loads(out)["items"][0].get("valid", False) is True:  # a failed run fails whatever its item says
+            return f"openspec validate {name}: " + first_error(err + "\n" + out)
         item = json.loads(out)["items"][0]
         if not item.get("valid", rc == 0):
             iss = (item.get("issues") or [{}])[0]
@@ -1370,9 +1372,10 @@ def dirty_paths(top):
         e, i = parts[i], i + 1
         if len(e) < 4:
             continue
-        if e[0] in "RC":
-            i += 1  # the original path follows
         found.append(e[3:])
+        if e[0] in "RC" and i < len(parts):  # the original path follows; it is checked too (a rename also removes it)
+            found.append(parts[i])
+            i += 1
     return found, None
 
 

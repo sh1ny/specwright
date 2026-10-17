@@ -327,6 +327,22 @@ class TestFreeStore(Base):
         stray.unlink()
         self.assertTrue(self.ok(self.a, dl, "swap")["store_written"])  # the rerun swaps once the store is clean
 
+    def test_rename_into_own_staging_makes_store_busy(self):
+        """A rename lists both paths: the source outside this update's staging makes the store busy."""
+        self.pair("0.5.0")
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        fx.git(self.store, "mv", "openspec/config.yaml", "openspec/.specwright-update-schemas/moved.yaml")
+        self.assertTrue(any(x.startswith("R  ") for x in self.porcelain()), self.porcelain())
+        a_before = self.installed(self.a)
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertIn("openspec/config.yaml", doc["message"])
+        self.assertEqual(self.installed(self.a), a_before)
+        self.assertEqual(self.record(), fx.record_text("0.5.0", self.owner_a))
+        self.assertFalse(self.lock.exists())
+
     def test_own_staging_does_not_make_store_busy(self):
         self.pair("0.5.0")
         dl = self.download("0.6.0", fx.schema_edit_comment)

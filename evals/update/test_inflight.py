@@ -125,21 +125,24 @@ class TestInflight(Base):
         self.assertEqual(fx.tree(co.schema), fx.tree(dl / "schemas" / "specwright"))
         self.assertFalse((dl / ".update-scratch").exists())  # scratch roots are removed on exit
 
-    def test_failed_status_with_json_output_refuses_workflow_update(self):
-        """`openspec status` exiting non-zero fails the third check even when its output parses as JSON."""
+    def wrap_openspec(self, sub, out):
+        """Put an openspec wrapper first on PATH: `openspec <sub> ...` prints `out` and "Error: <sub> broke" on stderr and
+        exits 1; every other command runs the real CLI."""
         import os
         import shutil
         real = shutil.which("openspec")
         wrap = self.tmp / "openspec-wrap"
         wrap.mkdir()
-        (wrap / "openspec.cmd").write_text(
-            f'@echo off\r\nif "%1"=="status" (\r\n  echo {{}}\r\n  echo Error: status broke 1>&2\r\n  exit /b 1\r\n)\r\n"{real}" %*\r\n',
-            encoding="utf-8", newline="")
-        (wrap / "openspec").write_text(
-            f'#!/bin/sh\nif [ "$1" = status ]; then echo "{{}}"; echo "Error: status broke" >&2; exit 1; fi\nexec "{real}" "$@"\n',
-            encoding="utf-8", newline="\n")
+        cmd = ["@echo off", f'if "%1"=="{sub}" (', f"  echo {out}", f"  echo Error: {sub} broke 1>&2", "  exit /b 1", ")",
+               f'"{real}" %*', ""]
+        (wrap / "openspec.cmd").write_text("\r\n".join(cmd), encoding="utf-8", newline="")
+        sh = ["#!/bin/sh", f"""if [ "$1" = {sub} ]; then echo '{out}'; echo "Error: {sub} broke" >&2; exit 1; fi""",
+              f'exec "{real}" "$@"', ""]
+        (wrap / "openspec").write_text("\n".join(sh), encoding="utf-8", newline="")
         (wrap / "openspec").chmod(0o755)
         self.env = {**self.env, "PATH": str(wrap) + os.pathsep + self.env["PATH"]}
+
+    def assert_refused_by_failed(self, sub):
         co = self.checkout()
         fx.add_change_worktree(co.code, "add-x")
         self.download()
@@ -148,8 +151,18 @@ class TestInflight(Base):
         self.assertEqual(code, 1, f"plan: {doc}")
         self.assertEqual(doc["error"], "refused")
         self.assertIn("add-x", doc["message"])
-        self.assertIn("status broke", doc["message"])
+        self.assertIn(f"{sub} broke", doc["message"])
         self.assertEqual(fx.snapshot(co.code), before)
+
+    def test_failed_status_with_json_output_refuses_workflow_update(self):
+        """`openspec status` exiting non-zero fails the third check even when its output parses as JSON."""
+        self.wrap_openspec("status", "{}")
+        self.assert_refused_by_failed("status")
+
+    def test_failed_validate_with_valid_item_refuses_workflow_update(self):
+        """`openspec validate` exiting non-zero fails the second check even when its first item says valid."""
+        self.wrap_openspec("validate", '{"items": [{"valid": true}]}')
+        self.assert_refused_by_failed("validate")
 
     def test_failing_change_refuses_workflow_update(self):
         co = self.checkout()

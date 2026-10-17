@@ -260,7 +260,10 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
     project's own lines that mention Specwright.
 - After the merge (or the copy), run `update.sh` `note-config`: it records the
   merged config.yaml's hash in the journal, so a later rollback knows what this
-  install wrote. On `"ok": false`, report it and go on to Step 7.
+  install wrote. On `"ok": false` (or if it was interrupted), report it and
+  stop: run `note-config` again once its error is resolved, and go on only
+  when it reports `"ok": true`. Without that record a later rollback cannot
+  tell the merged config.yaml from the user's own.
 
 Step 6 - Settings (openspec/specwright.yaml in the code checkout)
 - If it does not exist, copy the downloaded

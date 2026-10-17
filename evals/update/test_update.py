@@ -485,6 +485,27 @@ esac
 """
 
 
+class TestStartedSwap(Base):
+    """A swap that was started and interrupted is finished or undone by recover, never by swap, whatever the role."""
+
+    def test_rerun_swap_after_started_repo_local_swap_goes_to_recover(self):
+        co = self.checkout("0.5.0")
+        self.download("0.6.0")
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertEqual(doc["role"], "none")
+        for phase in ("swapping", "swapped"):
+            with self.subTest(phase=phase):
+                text = co.journal.read_text(encoding="utf-8")
+                text = re.sub(r'(?m)^  "phase": "[a-z]+",$', f'  "phase": "{phase}",', text)
+                co.journal.write_text(text, encoding="utf-8", newline="\n")
+                before = fx.snapshot(co.code)
+                code, doc, err = self.run_sub("swap")
+                self.assertEqual((code, doc["error"]), (1, "swap_interrupted"), doc)
+                self.assertIn("run recover", doc["message"])
+                self.assertEqual(fx.snapshot(co.code), before)
+
+
 class TestStageOpsFailure(Base):
     def test_failed_copy_listing_removes_journal_and_staging(self):
         co = self.checkout("0.5.0")

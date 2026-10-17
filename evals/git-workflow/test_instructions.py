@@ -1527,6 +1527,12 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertIn("note-config", s5, "Step 5 does not run note-config")
         self.assertGreater(s5.rindex("note-config"), s5.index("`context:`"), "note-config does not come after the merge")
 
+    def test_step5_failed_note_config_stops(self):
+        s5 = self.s(5)
+        self.assertNotRegex(s5, r"(?is)note-config.{0,300}go on to Step 7", "a failed note-config still goes on to Step 7")
+        self.assertRegex(s5, r"(?is)`\"ok\": false`.{0,120}stop", "a failed note-config does not stop")
+        self.assertRegex(s5, r"(?is)stop.{0,120}`note-config` again.{0,120}`\"ok\": true`", "Step 5 does not rerun note-config until it succeeds")
+
     def test_step4_resumed_swap_takes_store_written_from_recovered(self):
         s4, s5 = self.s(4), self.s(5)
         self.assertRegex(s4, r"(?is)skip `stage` and `swap`.{0,300}recovered\.store_written", "Step 4 does not take store_written from recovered after a resumed swap")
