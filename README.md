@@ -79,8 +79,8 @@ Step 1 - Check prerequisites
     above (the first
     `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?` token in
     the output, as Step 3 takes it) is not 1.14.1 (the pin this prompt
-    installs), an unpinned OpenSpec may not resolve a store: name the
-    version found, tell the user to run
+    installs) or is unreadable by Step 3's rule, an unpinned OpenSpec may
+    not resolve a store: name the version found (or unreadable), tell the user to run
     `npm i -g @fission-ai/openspec@1.14.1` and rerun this prompt, write
     no file, and STOP. Do not suggest `openspec init` then:
     in a store-backed project it would create a root that overrides the
@@ -138,6 +138,9 @@ Step 3 - Choose the version, download and compare versions
   with `<pin>` as strings: only an exact match passes.
   Against a pin of 1.14.1, 1.14.2, 1.14.1-beta.1 and 1.14.1+vendor.1 are
   each a mismatch.
+  A token directly followed by a digit, letter, `.`, `+` or `-` (for
+  example `1.14.1.0` or `1.14.1vendor`) is unreadable output, not a match on
+  its first part.
   - Exact match: record `OpenSpec <found> (pinned)` for Step 8 and
     continue.
   - Mismatch: unless the override below applies, STOP before Step 4.
@@ -146,7 +149,7 @@ Step 3 - Choose the version, download and compare versions
     the documented override exists (`continue with OpenSpec <found>`)
     without recommending it. Delete the temporary directory and write no
     file.
-  - Output with no version number in it: show the raw output, then handle
+  - Output with no version number in it, or an unreadable token: show the raw output, then handle
     it as a mismatch that no override can apply to (STOP before Step 4,
     with `<found>` as unreadable, `<pin>` and
     `npm i -g @fission-ai/openspec@<pin>`; delete the temporary directory

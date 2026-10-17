@@ -9,8 +9,8 @@
 | install-update → Install checks the OpenSpec version against the pin | Pre-release of the pinned version installed | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_exact_match_counts_prerelease_as_mismatch | green |
 | install-update → Install checks the OpenSpec version against the pin | Build of the pinned version installed | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_exact_match_counts_build_metadata_as_mismatch | green |
 | install-update → Install checks the OpenSpec version against the pin | Version output has no version number | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_unreadable_version_stops | green |
-| install-update → Install checks the OpenSpec version against the pin | Version token runs into other version characters | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_step3_run_on_token_is_unreadable, TestOpenSpecPin.test_readme_token_rule_on_sample_outputs | red |
-| install-update → Install checks the OpenSpec version against the pin | Root check reads a run-on version token | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_step1_run_on_token_is_unreadable | red |
+| install-update → Install checks the OpenSpec version against the pin | Version token runs into other version characters | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_step3_run_on_token_is_unreadable, TestOpenSpecPin.test_readme_token_rule_on_sample_outputs | green |
+| install-update → Install checks the OpenSpec version against the pin | Root check reads a run-on version token | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_step1_run_on_token_is_unreadable | green |
 | install-update → Install checks the OpenSpec version against the pin | Downloaded copy has no pin file | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_missing_pin_file_stops | green |
 | install-update → Install checks the OpenSpec version against the pin | Root check fails on an unpinned OpenSpec | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_step1_root_failure_on_unpinned_cli_names_pin_not_init | green |
 | install-update → Install checks the OpenSpec version against the pin | OpenSpec missing | evals/git-workflow/test_instructions.py | TestOpenSpecPin.test_step1_missing_openspec_names_pinned_install | green |
@@ -83,7 +83,7 @@
   - `test_readme_token_rule_on_sample_outputs`: takes the token pattern from the README text and applies the stated rule (first match, then the boundary character) to `1.14.1`, `openspec 1.14.1\n`, `1.14.1+vendor.1`, `1.14.1.0` and `1.14.1vendor`. Expect `1.14.1`, `1.14.1`, `1.14.1+vendor.1`, unreadable and unreadable.
 
   Run `python -m pytest evals/git-workflow/test_instructions.py -k OpenSpecPin` and confirm that the new tests fail on the missing rule.
-- [ ] 1.2 Edit `README.md` Step 3 (around line 134) and Step 1 (around line 78) per design D1. State the boundary rule once, in Step 3; Step 1 refers to it. Verify that 1.1's tests pass and that all of `TestOpenSpecPin` stays green (update `test_exact_match_counts_build_metadata_as_mismatch` only where the token's surrounding text moved, and keep the `pin_drift` prose check passing). Then flip those rows green.
+- [x] 1.2 Edit `README.md` Step 3 (around line 134) and Step 1 (around line 78) per design D1. State the boundary rule once, in Step 3; Step 1 refers to it. Verify that 1.1's tests pass and that all of `TestOpenSpecPin` stays green (update `test_exact_match_counts_build_metadata_as_mismatch` only where the token's surrounding text moved, and keep the `pin_drift` prose check passing). Then flip those rows green.
 
 ## 2. Releases: local tag read and version-ahead check (#93, #94)
 
