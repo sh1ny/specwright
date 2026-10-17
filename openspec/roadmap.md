@@ -14,13 +14,14 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 - An eval with a hung or oversized `gh` response shows each PR script stopping within its deadline or bound with a named error, and an eval shows a reviewer run stopped once its output passes the bound, with no partial review recorded. (agent)
 - The grader evals show GraphQL mutations and every listed git and `gh` write classified as writes (anything off the read-only allowlist counts as a write), and the agent-merge eval fails a reply that names the next step without offering it. (agent)
 - With the cheap tier configured, watch and the LIGHT implementer run on Haiku, and the stress-tier evals reach the same grade on it as on the default tier; with it unset nothing changes. (agent)
-- Each change ships as its own release: 0.6.1, 0.6.2, 0.6.3 and 0.7.0. (agent)
+- Each change ships as its own release: 0.6.1, 0.7.0, 0.7.1, 0.7.2 and 0.8.0. (agent)
 
 **Changes** (in order; each about one PR):
-1. `fix-m3-gaps` (0.6.1) - known gaps filed during M3 and #53: #91 the install version check needs a boundary after the OpenSpec version token; #93 the remote tag read in `finish: local` fenced or avoided; #94 a version already on main rejected before a second change merges; #95 the codex design review reads the repo on Windows, and an invalid `VERDICT` is refused; #97 store staging directories isolated between checkouts; #99 an update refusal names the installed version when the change already fails there; #100 a deferred or user-waived FULL-tier design review recorded explicitly; #53 `specwright-debug` recovers an interrupted stash.
-2. `bound-pr-scripts` (0.6.2) - #40 bounded metadata processing and command deadlines in the PR scripts; #80 reviewer output bounded while the CLI runs; #64 the closing-reference parser reads GitHub's rendered Markdown.
-3. `exact-eval-grader` (0.6.3) - #74 GraphQL operations parsed instead of matched by first token; #76 git and `gh` writes classified by a read-only allowlist; #87 the agent-merge eval checks a real next-step offer, with a roadmap in its fixture.
-4. `add-cheap-tier` (0.7.0) - #22 Haiku as a cheap tier for bounded work (watch, LIGHT implementer, eval stress tier), evals first. Leans on the exact grader from change 3.
+1. `fix-m3-gaps` (0.6.1) - known gaps filed during M3 and #53: #91 the install version check needs a boundary after the OpenSpec version token; #93 the remote tag read in `finish: local` fenced or avoided; #94 a version already on main rejected before a second change merges; #95 the codex design review reads the repo on Windows, and an invalid `VERDICT` is refused; #97 store staging directories isolated between checkouts; #99 an update refusal names the installed version when the change already fails there; #53 `specwright-debug` recovers an interrupted stash.
+2. `record-review-dispositions` (0.7.0) - #100 a FULL-tier design review that is deferred (a parking change that is never applied) or waived by the user is recorded explicitly, instead of stretching `USER_OVERRIDE`. A workflow change, so it ships as a minor release on its own.
+3. `bound-pr-scripts` (0.7.1) - #40 bounded metadata processing and command deadlines in the PR scripts; #80 reviewer output bounded while the CLI runs; #64 the closing-reference parser reads GitHub's rendered Markdown.
+4. `exact-eval-grader` (0.7.2) - #74 GraphQL operations parsed instead of matched by first token; #76 git and `gh` writes classified by a read-only allowlist; #87 the agent-merge eval checks a real next-step offer, with a roadmap in its fixture.
+5. `add-cheap-tier` (0.8.0) - #22 Haiku as a cheap tier for bounded work (watch, LIGHT implementer, eval stress tier), evals first. Leans on the exact grader from change 4.
 
 ## Next: M5 - Commits and VCS backends
 
