@@ -135,6 +135,17 @@ class TestPlan(Base):
                 self.assertEqual(self.staging_dirs(), [])
                 self.assertEqual(co.version_file.read_text(), "0.5.0\n")
 
+    def test_unreadable_journal_refusal_reports_unchanged(self):
+        co = self.checkout("0.5.0")
+        dl = self.download("0.6.0")
+        co.journal.parent.mkdir(parents=True, exist_ok=True)
+        co.journal.write_text("{\"format\": 1, \"phase\": ", encoding="utf-8")  # cut off mid-write: no swap is known to have started
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual(code, 1, err)
+        self.assertEqual(doc["error"], "refused")
+        self.assertIn("journal_unreadable", [r["code"] for r in doc["refusals"]])
+        self.assertTrue(doc["unchanged"], "an unreadable journal is not proof of a pending swap")
+
 
 class TestStage(Base):
     def agents_expected(self, dl, co, kind="claude"):
@@ -201,6 +212,27 @@ class TestStage(Base):
         self.assertFalse(co.lock.exists())
         r = fx.openspec(["schema", "validate", "specwright"], cwd=co.root)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_repeated_agent_kind_keeps_each_directory_model(self):
+        co = self.checkout("0.5.0")
+        dl = self.download("0.6.0")
+        second = co.code / ".other" / "agents"
+        second.mkdir(parents=True)
+        for p in co.agents["claude"].glob("*.md"):
+            (second / p.name).write_bytes(p.read_bytes())
+        first = co.agents["claude"] / "specwright-implementer.md"
+        sec = second / "specwright-implementer.md"
+        first.write_bytes(first.read_bytes().replace(b"model: sonnet", b"model: opus"))
+        sec.write_bytes(sec.read_bytes().replace(b"model: sonnet", b"model: haiku"))
+        args = [*co.args(), "--agents", f"claude={fx.posix(second)}"]
+        for sub in ("plan", "stage", "swap"):
+            code, doc, out, err = fx.run_update(dl, [*args, sub])
+            self.assertEqual(code, 0, f"{sub}: {doc} {err}")
+        ids = [g["id"] for g in doc["groups"] if g["kind"] == "agents"]
+        self.assertEqual(len(set(ids)), 2, ids)
+        want = (dl / "agents" / "claude" / "specwright-implementer.md").read_bytes()
+        self.assertEqual(first.read_bytes(), want.replace(b"model: sonnet", b"model: opus"))
+        self.assertEqual(sec.read_bytes(), want.replace(b"model: sonnet", b"model: haiku"))
 
     def test_staged_copy_fails_verification(self):
         co = self.checkout("0.5.0")

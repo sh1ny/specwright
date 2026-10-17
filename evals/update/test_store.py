@@ -209,6 +209,25 @@ class TestOwner(Base):
                 self.assertEqual(fx.snapshot(self.b.code), b_before)
                 self.assertEqual(fx.snapshot(self.store), store_before)
 
+    def test_other_project_swap_refused_when_store_moved_after_stage(self):
+        self.pair("0.6.0")
+        dl = self.download("0.6.1")
+        self.ok(self.b, dl, "plan")
+        self.ok(self.b, dl, "stage")
+        fx.write_store_record(self.store, "0.7.0", self.owner_a)  # the owner moved the store after B staged
+        b_before, store_before = fx.snapshot(self.b.code), fx.snapshot(self.store)
+        code, doc, err = self.run_sub(self.b, dl, "swap")
+        self.assertEqual(code, 1, doc)
+        self.assertEqual(doc["error"], "other_store_version")
+        for want in ("0.7.0", self.owner_a, "Nothing was written"):
+            self.assertIn(want, doc["message"])
+        self.assertEqual(fx.snapshot(self.b.code), b_before)  # installed files, staging and journal untouched
+        self.assertEqual(fx.snapshot(self.store), store_before)
+        code, doc, err = self.run_sub(self.b, dl, "recover")
+        self.assertEqual(code, 0, doc)
+        self.assertEqual(doc["action"], "discarded")
+        self.assertEqual(self.staging_left(), [])
+
 
 class TestFreeStore(Base):
     def test_busy_store_patch_same_schema_code_side_only(self):

@@ -30,7 +30,8 @@
 #            first runs recover (below) and adds recovered: {action, message, from, to, store_written} to its document; journal then
 #            shows what is left. A journal that is not format 1 is not recovered (plan refuses it as unreadable).
 #            A refusal is exit 1, error "refused"; its "unchanged" is the state's: true until a swap has started, false
-#            while a journal is in phase swapping or swapped (a resumed swap left the new files in place, VERSION not stamped).
+#            while a readable journal is in phase swapping or swapped (a resumed swap left the new files in place, VERSION not
+#            stamped); an unreadable journal (journal_unreadable) is no proof of a started swap, so it stays true.
 #            --root in another worktree of the code repo (same git common dir, different toplevel) is a refusal (code
 #            root_other_worktree) naming both worktrees: it is not a store, and stage (which runs plan first) writes nothing.
 #            Changes in flight (design D4), on a workflow update only (no installed VERSION, or a different major
@@ -100,6 +101,10 @@
 #                 schema, then STORE is written (version: <to>, owner: <id>; never committed) and store_state becomes
 #                 written;
 #              5. the lock is released.
+#            For other (no gate lock: other projects never write the store, D5), swap reads STORE again before its first
+#            rename, next to the verify and the changes-in-flight check: a record whose major.minor is no longer the
+#            journal's `to`, or that is missing or unreadable, stops it with error other_store_version (the store's version
+#            and owner named, nothing written, rerun the update to plan it again). The journal stays; recover discards it.
 #            A stop at 1-3 releases the lock and has written nothing installed. The document has store_written (true when
 #            the schema and STORE were replaced, so the prompt's Step 5 merges the store's config.yaml) and, for claim,
 #            owner and other, store: {role, id, owner, version, written, claimed, uncommitted[], message}; uncommitted
@@ -710,6 +715,11 @@ do_swap() {
     vrc=0  # a workflow update: the changes in flight must still be the ones the plan validated (before any rename)
     vout=$(pyx swap-check "${PYARGS[@]}") || vrc=$?
     if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+    if [ "$(jstr role)" = other ]; then  # no gate lock for another project (D5): STORE read again just before the first rename
+      vrc=0
+      vout=$(pyx store-recheck "${PYARGS[@]}") || vrc=$?
+      if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+    fi
   fi
   [ "$phase" = swapped ] || jwrite_phase swapping
   swap_loop
@@ -918,9 +928,13 @@ def code_top(o):
 
 
 def common_dir(path):
-    """The absolute git common dir of the repo at `path`, None outside a repo."""
-    rc, out = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    return Path(out.decode("utf-8", "replace").strip()).resolve() if rc == 0 and out.strip() else None
+    """The absolute git common dir of the repo at `path`, None outside a repo. No --path-format (git 2.31+): a relative
+    answer is resolved against `path`, so an older git cannot turn the worktree check off."""
+    rc, out = git(path, "rev-parse", "--git-common-dir")
+    if rc != 0 or not out.strip():
+        return None
+    p = Path(out.decode("utf-8", "replace").strip())
+    return (p if p.is_absolute() else Path(path) / p).resolve()
 
 
 def other_worktree(o):
@@ -1454,14 +1468,14 @@ def build_groups(o, refusals, with_schema=True):
         for p in sorted(Path(g["dir"]).glob("specwright-*")):
             if p.is_dir() and p.name not in names:
                 orphans.append({"group": g["id"], "dir": g["dir"], "name": p.name})
-    for spec in o["agents"]:
+    for i, spec in enumerate(o["agents"], 1):
         kind, _, d = spec.partition("=")
         adir = dl / "agents" / kind
         if not d or not adir.is_dir():
             refusals.append({"code": "agent_kind", "message": f"--agents {spec}: the download has no agents/{kind}"})
             continue
         files = sorted(p.name for p in adir.glob("*.md"))
-        g = mk_group(f"agents-{kind}", "agents", d, [(n, "file", adir / n) for n in files])
+        g = mk_group(f"agents-{i}-{kind}", "agents", d, [(n, "file", adir / n) for n in files])
         g["agent_kind"] = kind
         groups.append(g)
         for p in sorted(Path(g["dir"]).glob("specwright-*.md")):
@@ -1537,7 +1551,10 @@ def make_plan(o, check=False):
     if role in ("claim", "owner", "other"):
         doc["store"] = {"root": o["root"], "version": rec["version"] if rec else None, "owner": rec["owner"] if rec else None, "id": info["id"]}
     if refusals:
-        doc.update({"error": "refused", "message": refusals[0]["message"]})  # unchanged stays base_doc's: false while a swap is pending
+        # unchanged: false only while a readable journal shows a started swap (phase swapping or swapped); an unreadable
+        # journal is not proof of one
+        pending = journal is not None and journal.get("phase") in ("swapping", "swapped")
+        doc.update({"error": "refused", "message": refusals[0]["message"], "unchanged": not pending})
     return doc, groups
 
 
@@ -1734,6 +1751,28 @@ def cmd_swap_check(o, pos):
     doc = base_doc(o, False)
     doc.update({"error": "inflight_changed", "differences": diffs,
                 "message": "the changes in flight differ from the plan, so nothing was swapped: " + "; ".join(diffs)})
+    emit(doc, 1)
+
+
+def cmd_store_recheck(o, pos):
+    """Before the first rename of role other (no gate lock, design D5): read STORE again and stop when its major.minor
+    is no longer the update's target, or when it is unreadable."""
+    j = load_journal(o)
+    rec, problem = read_record(record_path(o))
+    if rec is None and not problem:
+        problem = f"{record_path(o).as_posix()} does not exist"
+    to = vtuple(j["to"])
+    if problem:
+        why = f"the store's record is now unreadable: {problem}"
+    elif vtuple(rec["version"])[:2] == to[:2]:
+        print(json.dumps({"ok": True}))
+        return
+    else:
+        why = f"the store now records version {rec['version']} and its schema is owned by {rec['owner']}"
+    doc = base_doc(o, False)
+    doc.update({"error": "other_store_version", "message": (
+        f"{why}, which is not the {to[0]}.{to[1]} line this project's update to {j['to']} was planned for, and only the owner "
+        "replaces the store's schema. Nothing was written. Rerun the update to plan it again")})
     emit(doc, 1)
 
 
