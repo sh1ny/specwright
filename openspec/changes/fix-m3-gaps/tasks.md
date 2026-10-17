@@ -201,7 +201,7 @@
   - the Reviewer routes contract sentence: the verdict and `CHANGES_APPLIED` values, the subagent's scratch file with `record --out`, the OMP answer bound, and that this tightens ADR 0007's validation.
 
   Verify with `grep -n "specwright-debug: \|schemas-<id>\|record --out" openspec/architecture.md`.
-- [ ] 7.2 `bash skills/specwright-release/scripts/release.sh bump --to 0.6.1` (`VERSION`, the README badge, every `skills/*/SKILL.md` `metadata.version`), verified by `bash skills/specwright-release/scripts/release.sh check` reporting 0.6.1, and by `release.sh check --main origin/main` passing after a fenced fetch.
+- [x] 7.2 `bash skills/specwright-release/scripts/release.sh bump --to 0.6.1` (`VERSION`, the README badge, every `skills/*/SKILL.md` `metadata.version`), verified by `bash skills/specwright-release/scripts/release.sh check` reporting 0.6.1, and by `release.sh check --main origin/main` passing after a fenced fetch.
 - [ ] 7.3 Run `python -m pytest evals/pr-pair evals/git-workflow evals/review-routes evals/update evals/release`. Everything must pass; the update suite takes about half an hour on Windows, so run it in the background. Then run `openspec validate fix-m3-gaps --strict` and `openspec schema validate specwright`.
 
 ## Workflow follow-up
