@@ -67,6 +67,7 @@
 | planning-stores → Store staging belongs to one checkout | Two checkouts stage against one store | evals/update/test_store.py | TestStagingPerCheckout.test_two_checkouts_stage_separately | red |
 | planning-stores → Store staging belongs to one checkout | Discard after a refused swap keeps the other checkout's rollback copy | evals/update/test_store.py | TestStagingPerCheckout.test_refused_swap_recover_keeps_other_rollback_copy | red |
 | planning-stores → Store staging belongs to one checkout | Another checkout's staging makes the store busy | evals/update/test_store.py | TestStagingPerCheckout.test_other_checkout_staging_makes_store_busy | red |
+| planning-stores → Store staging belongs to one checkout | Both checkouts staged before either swapped | evals/update/test_store.py | TestStagingPerCheckout.test_both_staged_first_refused_swap_discards_and_other_swaps | red |
 | planning-stores → Store staging belongs to one checkout | Interrupted update from an earlier version | evals/update/test_store.py | TestStagingPerCheckout.test_recover_uses_legacy_shared_staging_from_journal | red |
 | debugging → A debug stash is named and reported | Dirty tree is tested | evals/git-workflow/test_instructions.py | DebugStash.test_stash_is_named_and_ref_reported | green |
 | debugging → A debug stash is named and reported | Restore conflicts | evals/git-workflow/test_instructions.py | DebugStash.test_conflicting_restore_keeps_stash_and_stops | green |
@@ -143,16 +144,19 @@
 
 ## 4. Store staging per checkout (#97)
 
-- [ ] 4.1 Write the failing tests in `evals/update/test_store.py`, new class `TestStagingPerCheckout`, using `make_store_pair`. Cover all four scenarios from the test map:
+- [ ] 4.1 Write the failing tests in `evals/update/test_store.py`, new class `TestStagingPerCheckout`, using `make_store_pair`. Cover all five scenarios from the test map:
   - both A and B stage, giving two directories, each named in its own journal;
-  - A swaps, B's swap is refused, and B recovers: A's `<idA>/old` survives and A's `recover --rollback` restores the old schema;
-  - B's busy message names A's staging directory;
+  - A swaps, B stages and its swap is refused: B's refused swap removes only B's staging and journal, A's `<idA>/old` survives and A's `recover --rollback` restores the old schema;
+  - B's busy message names A's staging directory and says to rerun the update in that checkout, and B's staging and journal are gone;
+  - both staged: A's swap is refused and removes A's staging and journal, B's swap runs, and A's rerun after B finished is not refused for staging;
+  - `test_second_claimer_names_owner` without moving B's staging aside (B stages after A finished);
   - a hand-written `format: 1` journal naming the legacy shared path is recovered with that path.
 
   Confirm that they fail for the right reason.
 - [ ] 4.2 In `scripts/update.sh`:
   - key the store schema group's staging path in `mk_group` by the first 12 hex digits of SHA-256 of the normalised `code` path (design D7);
-  - make `store_busy_reason` report `another checkout's update is staged in the store: <path>; finish or recover it from that checkout` for an untracked `openspec/.specwright-update-schemas*` that is not this journal's;
+  - make `store_busy_reason` report `another checkout's update is staged in the store: <path>; finish or recover it by rerunning the update in that checkout` for an untracked `openspec/.specwright-update-schemas*` that is not this journal's;
+  - make a swap refused before its first rename remove its own staging directories and journal, as `recover` does for a swap that never started (design D7, review round 2 M1);
   - leave every other user reading the journal's path.
 
   Verify that 4.1's tests pass, that `evals/update/test_update.py` (the code-side staging names at lines 175-177), `test_store.py` and `test_interrupt.py` stay green, and flip the rows green.

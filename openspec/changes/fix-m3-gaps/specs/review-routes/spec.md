@@ -37,7 +37,7 @@ A review from any route, the subagent included, SHALL count as done only when it
 - **THEN** the run exits non-zero with `status: invalid` and the validation error, no findings are recorded, and no other route runs
 
 #### Scenario: Subagent design review without a verdict
-- **WHEN** the `specwright-reviewer` subagent writes a `review.md` with no `VERDICT:` line
+- **WHEN** the `specwright-reviewer` subagent writes a scratch result file with no `VERDICT:` line
 - **THEN** validation exits non-zero with `status: invalid`, and the tasks step does not start
 
 #### Scenario: Design review with two verdicts
