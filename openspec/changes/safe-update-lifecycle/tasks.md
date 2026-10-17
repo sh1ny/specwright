@@ -169,7 +169,7 @@ Script tests run `scripts/update.sh` against scratch projects, downloads and sto
 ## 8. Release 0.6.0 bump and integration
 
 - [x] 8.1 Bump to 0.6.0 with `bash skills/specwright-release/scripts/release.sh bump --to 0.6.0`. Verify that `release.sh check` reports 0.6.0 across every version file, and that `grep -rn '0\.5\.0' VERSION README.md skills/*/SKILL.md` has no version-file hits.
-- [ ] 8.2 Run the full suites: `python -m unittest discover evals/update`, `evals/release`, `evals/pr-pair`, `evals/review-routes` and `evals/git-workflow`, plus `openspec schema validate specwright` and `openspec validate safe-update-lifecycle --strict`. All must pass.
+- [x] 8.2 Run the full suites: `python -m unittest discover evals/update`, `evals/release`, `evals/pr-pair`, `evals/review-routes` and `evals/git-workflow`, plus `openspec schema validate specwright` and `openspec validate safe-update-lifecycle --strict`. All must pass.
 
 ## Workflow follow-up
 
