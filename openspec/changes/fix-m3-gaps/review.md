@@ -73,10 +73,36 @@ VERDICT: APPROVE_WITH_CHANGES
 
 Every Required Change is applied. The verdict stays APPROVE_WITH_CHANGES, and the changes are now marked applied.
 
-CHANGES_APPLIED: yes
+CHANGES_APPLIED: no
 
 ## Rebuttals
 
 - **M1 fixed, preferred option (the user's choice).** D7 now says a swap refused before its first rename (a busy store, changes in flight that differ from the plan, a failed verification) removes this update's staging directories and journal, as `recover` does for a swap that never started; the alternative is recorded as rejected there. The patch code-only path is not a refusal and is unchanged. Flow & State Gaps "#97, both checkouts staged before either swapped" describes the real convergence. `planning-stores`: the requirement text adds the rule; "Another checkout's staging makes the store busy" now ends with B's staging and journal removed; "Discard after a refused swap ..." has B's refused swap remove only its own; new scenario "Both checkouts staged before either swapped" (A refused and cleaned, B swaps, A's rerun not refused for staging). The requested scenario's starting state, two refused swaps that left their staging behind, can no longer arise, so the new scenario starts one step earlier. Failure & Visibility gains the refused-swap row and the `recover --rollback` row blocked by B's staging. Tasks 4.1/4.2 and the test map carry the new test.
 - **S1 applied.** The busy message says `finish or recover it by rerunning the update in that checkout`.
 - **S2 applied.** "Subagent design review without a verdict" names the scratch result file.
+- **M4 applied, preferred option (round 3).** D3's commit clause is decided by the newest commit listed by `git log --no-merges --topo-order` that changed the primary version, counted only when it raised it (a version that is not semver: any change). The `releases` requirement sentence says so; new scenario "Bump reverted on the branch"; task 2.5 and the test map carry `test_bump_reverted_on_branch_passes` beside `test_version_file_edit_without_bump_passes`.
+
+## Re-check (round 3, D3 amendment)
+
+**Reviewer:** fresh-context subagent (Claude Code, Opus 5.5). No project skill was named for this round. **Scope:** only the uncommitted D3 amendment (`git diff -- openspec/changes/fix-m3-gaps/`): the D3 bullet in `design.md`, the `releases` requirement sentence and the new scenario "Version file edited without a bump", task 2.5 and its test-map row. Read against `check_ahead_of`/`primary_at` (`skills/specwright-release/scripts/release.sh:587-618`) and `TestCheckMain` (`evals/release/test_release.py:670`).
+
+What holds:
+- **Review M1 scenario ("Main was merged into the branch after the duplicate landed") still refuses.** `feat/b`'s own bump commit is still listed by `--no-merges <ref>..HEAD`, and it reads 0.5.0 against its first parent's 0.4.2, so it counts. The merge of main is excluded by `--no-merges`, so its 0.5.0 never shows up as a "change" against the branch-side parent. The amendment does not weaken M1. The other D3 scenarios (duplicate, main ahead, bump ahead, no bump, main has no version) are decided by the merge-base rule or the early exit, and the amendment does not touch them.
+- **First parent is a merge.** A non-merge commit made after merging main is compared with the merge result, which already carries main's version. A dependency-only edit there reads the same version and does not count. That is correct.
+- **Glob primary entries.** `primary_at` gives `None` when the glob's files disagree. A commit that makes them disagree also makes the working tree fail `agree()` first (`version_files_disagree`), unless a later commit makes them agree again, and that later state is a real bump. I found no glob-only false refusal or false pass.
+- **Consistency.** The design, the requirement sentence ("changed the primary file's version"), the new scenario, task 2.5 and the red test-map row agree with each other. The test already in the working tree (`test_version_file_edit_without_bump_passes`, which appends `channel: stable` to `VERSION` while the pattern `^(\d+\.\d+\.\d+)$` still reads one version) asserts the scenario as written.
+
+**M4 (Moderate, new in round 3). A branch that bumps and then reverts the bump is still refused, which contradicts the scenario "Branch did not bump".** Under the amended rule, each listed commit is compared with its first parent. In bump-then-revert, commit X changes 0.4.2 to 0.5.0 and the revert Y changes 0.5.0 back to 0.4.2. Both "changed the primary file's version", so the branch counts as bumped. With `origin/main` at 0.5.0, `check --main` stops with `version_not_ahead_of_main` and tells the user to rerun `bump --to` above 0.5.0. That happens at ship, at the local merge, and at watch (no ready report, no merge). The branch's final state is the same as "Branch did not bump" ("leaves the version at 0.4.2 ... exits 0 ... carries no release of its own"). The rule that applies, though, is the requirement's commit clause, and the spec gives no scenario that settles which reading is right.
+
+The trigger is realistic: a change that drops its release task, or a user who undoes an accidental bump, when main has moved past the reverted version. The only ways out are to publish a release the user decided against, or to rewrite branch history. The old rule ("any commit touched the file") had the same refusal, so this is not a regression. The amendment exists to stop counting edits that are not bumps, though, and this is the remaining case of that class.
+
+**Required change (round 3).**
+1. **M4: `design.md` D3, `specs/releases/spec.md`, `tasks.md` 2.5 and the test map.** Do one of the following.
+   - Preferred: decide the commit clause by the **newest** listed commit that changed the version, and count it only when it raised the version (both semver, new > old; for a version that is not semver, any change counts, as now). List the commits with `--topo-order`, so that "newest" does not depend on commit dates.
+     - The M1 merged-main case still refuses: X raised 0.4.2 to 0.5.0.
+     - Bump-then-revert passes: Y lowered the version, and the merge base reads 0.4.2.
+     - Bump then re-bump (0.5.0, then 0.6.0) still counts.
+     - Add the scenario "Bump reverted on the branch" (**WHEN** the branch bumped 0.4.2 to 0.5.0, then reverted to 0.4.2, and `origin/main` is at 0.5.0 / **THEN** the check exits 0), plus a red test-map row and the test in task 2.5.
+   - Acceptable: keep the rule and state the refusal explicitly. Add that scenario with a THEN of "refused; squash the bump and its revert out of the branch history", and say in D3's Failure & Visibility that this is a known refusal and how to clear it.
+
+The verdict stays APPROVE_WITH_CHANGES. CHANGES_APPLIED is reset to no until M4 is applied.

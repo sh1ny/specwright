@@ -32,7 +32,7 @@
 ## ADDED Requirements
 
 ### Requirement: A bumped version is greater than main's before it merges
-`release.sh check --main <ref>` SHALL refuse, before any write, a branch that bumped (its version differs from its merge base with `<ref>`, or one of its own non-merge commits changed the primary file) to a version not greater than `<ref>`'s, naming both versions and saying to bump again. No readable version at `<ref>` SHALL pass.
+`release.sh check --main <ref>` SHALL refuse, before any write, a branch that bumped (its version differs from its merge base with `<ref>`, or the newest of its own non-merge commits that changed the primary file's version raised it) to a version not greater than `<ref>`'s, naming both versions and saying to bump again. No readable version at `<ref>` SHALL pass.
 
 #### Scenario: Two changes bump to the same version
 - **WHEN** branches `feat/a` and `feat/b` both start at 0.4.2 and bump to 0.5.0, `feat/a` has merged, and ship runs for `feat/b` with `origin/main` at 0.5.0
@@ -45,6 +45,14 @@
 #### Scenario: Bump still ahead
 - **WHEN** the branch bumped from 0.4.2 to 0.5.0 and `origin/main` is still at 0.4.2
 - **THEN** the check exits 0 and reports version 0.5.0
+
+#### Scenario: Version file edited without a bump
+- **WHEN** a change branch edits the primary file but leaves its version at 0.4.2, and `origin/main` has moved to 0.5.0
+- **THEN** the check exits 0: an edit that keeps the version is not a bump
+
+#### Scenario: Bump reverted on the branch
+- **WHEN** a change branch bumped 0.4.2 to 0.5.0, a later commit set it back to 0.4.2, and `origin/main` has moved to 0.5.0
+- **THEN** the check exits 0: the branch carries no bump
 
 #### Scenario: Branch did not bump
 - **WHEN** a change branch leaves the version at 0.4.2 and `origin/main` has moved to 0.5.0
