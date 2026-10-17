@@ -61,7 +61,19 @@ VERDICT: APPROVE_WITH_CHANGES
      - add a scenario: "**WHEN** A and B both had a swap refused with their staging left in the store, and the user reruns the update prompt in A / **THEN** A's update swaps, or B's leftover is named and the next rerun in A swaps, with no step outside the prompt";
      - record that a foreign staging directory also refuses `recover --rollback` (the Failure & Visibility table), so a user whose Step 7 failed knows which checkout to clean up first.
 
-CHANGES_APPLIED: no
+**Re-check (round 2, reviewer):** I re-checked only M1 and the applied suggestions S1/S2 against commit dcbb344 (`design.md`, `specs/planning-stores/spec.md`, `specs/review-routes/spec.md`, with `tasks.md` for traceability). `openspec validate fix-m3-gaps --strict` passes.
+- **M1: applied.** The preferred option is in D7: a swap refused before its first rename (busy store, in-flight changes that differ from the plan, failed verification) removes this update's staging directories and journal, as `recover` does for a swap that never started. The rejected alternative (refusing in `plan`/`stage`) is recorded with its reason. Each sub-item:
+  - The Flow & State Gaps entry "both checkouts staged before either swapped" now describes the actual convergence: the first swap is refused and cleans up, the other swaps, and a later rerun is not refused for staging. This holds under the new rule, because a refused checkout no longer leaves a directory behind for the rerun loop to re-create.
+  - The `planning-stores` requirement adds the rule. The THEN of "Another checkout's staging makes the store busy" now ends with "B's own staging and journal are removed" and names the rerun action. "Discard after a refused swap ..." moves the removal into B's refused swap, so it no longer depends on a bare `recover`.
+  - New scenario "Both checkouts staged before either swapped". It starts one step earlier than the wording I asked for. I accept the author's reason: under the new rule, two refused swaps can no longer leave their staging behind. The scenario still asserts what I required: convergence through reruns of the prompt, with no step outside it ("a rerun of A's update after B finished is not refused because of staging").
+  - Failure & Visibility has a row for the refused swap and a row for `recover --rollback` blocked by B's staging. The second row names B's directory and the path by which it clears: B's swap is refused by A's retained staging and removes B's own. That path is consistent with the new rule.
+  - Tasks 4.1/4.2 and the test map carry the new scenario and the code change.
+- **S1: applied.** The busy message in D7 and in task 4.2 reads `finish or recover it by rerunning the update in that checkout`, and the busy-store scenario asserts it.
+- **S2: applied.** "Subagent design review without a verdict" now says the subagent "writes a scratch result file".
+
+Every Required Change is applied. The verdict stays APPROVE_WITH_CHANGES, and the changes are now marked applied.
+
+CHANGES_APPLIED: yes
 
 ## Rebuttals
 
