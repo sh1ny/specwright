@@ -593,6 +593,20 @@ def primary_at(st, entries, commit):
     return next(iter(vals)) if len(vals) == 1 else None
 
 
+def own_bump(st, entries, commits):
+    """D3: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
+    the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump."""
+    for c in commits:
+        mine = primary_at(st, entries, c)
+        parent = primary_at(st, entries, f"{c}^") if ref_exists(st.root, f"{c}^") else None
+        if mine == parent:
+            continue
+        if mine is None:
+            return False
+        return parent is None or not (sv(mine) and sv(parent)) or sv(mine) > sv(parent)
+    return False
+
+
 def check_ahead_of(st, entries, ref, version):
     """D3: a branch that bumped must be greater than `ref`'s version."""
     if not ref_exists(st.root, ref):
@@ -604,11 +618,11 @@ def check_ahead_of(st, entries, ref, version):
     base_version = primary_at(st, entries, text_of(base)) if base.returncode == 0 and text_of(base) else None
     bumped = base_version != version
     if not bumped:
-        r = git(st.root, "log", "--no-merges", "--format=%H", f"{ref}..HEAD", "--",
+        r = git(st.root, "log", "--no-merges", "--topo-order", "--format=%H", f"{ref}..HEAD", "--",
                 f":(glob){entries[0][0]}" if has_glob(entries[0][0]) else f":(literal){entries[0][0]}")
         if r.returncode != 0:
             raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
-        bumped = bool(text_of(r))
+        bumped = own_bump(st, entries, text_of(r).split())
     if bumped and not (sv(version) and sv(theirs) and sv(version) > sv(theirs)):
         raise Stop("version_not_ahead_of_main", f"this branch bumped to {version}, which is not greater than {ref}'s {theirs}: "
                    f"another change reached {ref} first. Rerun bump --to with a version greater than {theirs}",

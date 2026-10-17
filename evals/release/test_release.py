@@ -721,6 +721,30 @@ class TestCheckMain(Flow):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.4.2")
 
+    def test_version_file_edit_without_bump_passes(self):
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        fx.commit(self.work, "feat(b): note in VERSION", {"VERSION": "0.4.2\nchannel: stable\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.4.2")
+
+    def test_bump_reverted_on_branch_passes(self):
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        self.bump_branch("0.5.0")
+        fx.set_version(self.work, "0.4.2")
+        fx.git(self.work, "commit", "-q", "-am", "feat(b): drop the bump")
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.4.2")
+
     def test_duplicate_after_main_merged_in_refused(self):
         self.two_bumps()
         fx.git(self.work, "merge", "-q", "--no-edit", "origin/main")
