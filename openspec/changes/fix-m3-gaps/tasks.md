@@ -117,7 +117,7 @@
 
 ## 3. Review routes: verdict values, subagent scratch, codex sandbox, OMP answer (#95)
 
-- [ ] 3.1 Move the review-routes fixtures to valid values: `VERDICT_OK` becomes `VERDICT: APPROVE` with `CHANGES_APPLIED: n/a`, and the two-verdict fixtures use valid values. Then write the failing validation tests in `evals/review-routes/test_review_run.py`:
+- [x] 3.1 Move the review-routes fixtures to valid values: `VERDICT_OK` becomes `VERDICT: APPROVE` with `CHANGES_APPLIED: n/a`, and the two-verdict fixtures use valid values. Then write the failing validation tests in `evals/review-routes/test_review_run.py`:
   - `test_design_blocked_verdict_invalid_keeps_review`: an earlier `review.md` stays byte-identical.
   - `test_design_override_and_skipped_verdicts_invalid`, for `run` and `record`.
   - `test_design_changes_applied_must_match_verdict`
