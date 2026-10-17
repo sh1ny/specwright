@@ -46,7 +46,7 @@
 | change-finish → Finish offers a release once the change is on main | Auto publish fails | evals/release/test_skill_text.py | TestFinishText.test_publish_failure_keeps_roadmap_offer | green |
 | change-finish → Finish offers a release once the change is on main | Local finish with a github.com origin and no login | evals/release/test_skill_text.py | TestFinishText.test_local_mode_reads_local_tags_unfenced | green |
 | review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | green |
-| review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/trial.md | recorded trial (`git status --porcelain` after the write request); re-run for codex on Windows in 3.5 | n/a (recorded trial: needs real reviewer CLIs) |
+| review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/trial.md | recorded trial (`git status --porcelain` after the write request); re-run for codex on Windows in 3.5 | n/a (recorded trial: needs real reviewer CLIs; 3.5 run recorded, porcelain unchanged) |
 | review-routes → Reviewers run isolated and read-only | Codex on Windows with a sandbox setting | evals/review-routes/test_review_run.py | test_codex_windows_forwards_sandbox_only | green |
 | review-routes → Reviewers run isolated and read-only | Codex on Windows without a usable setting | evals/review-routes/test_review_run.py | test_codex_windows_no_usable_sandbox_adds_nothing | green |
 | review-routes → Reviewers run isolated and read-only | Codex off Windows | evals/review-routes/test_review_run.py | test_codex_off_windows_adds_no_sandbox | green |
@@ -140,7 +140,7 @@
   - `agents/claude/specwright-reviewer.md` and `agents/omp/specwright-reviewer.md` (write the single output file the request names).
 
   Add `test_subagent_design_dispatch_uses_scratch_and_record_out` to `evals/review-routes/test_skill_text.py`. Verify with `python -m pytest evals/review-routes` and `openspec schema validate specwright` (from `schemas/`, and from the repo root for the installed copy).
-- [ ] 3.5 Recorded trial on this Windows machine: run a real design review with `review-run.sh run --kind design --route codex` against this change, with the user's `windows.sandbox` forwarded. Confirm that codex reads the checkout (a valid verdict, and no `BLOCKED`) and that `git status --porcelain` is unchanged after a write request. Append the run (CLI version, argv, exit, verdict, porcelain) to `evals/review-routes/trial.md`. If codex is not installed or has no `windows.sandbox` setting here, record that and report it for the user to run.
+- [x] 3.5 Recorded trial on this Windows machine: run a real design review with `review-run.sh run --kind design --route codex` against this change, with the user's `windows.sandbox` forwarded. Confirm that codex reads the checkout (a valid verdict, and no `BLOCKED`) and that `git status --porcelain` is unchanged after a write request. Append the run (CLI version, argv, exit, verdict, porcelain) to `evals/review-routes/trial.md`. If codex is not installed or has no `windows.sandbox` setting here, record that and report it for the user to run.
 
 ## 4. Store staging per checkout (#97)
 

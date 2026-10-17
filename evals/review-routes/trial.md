@@ -31,3 +31,14 @@ The draft schema was the strict-mode form of `findings.schema.json` (every prope
 
 - The OMP session ran its `hindsight` memory recall (`custom` entry `memory_recall`, zero memories) although `--no-extensions` was given: OMP's memory backend is user configuration, not an extension, skill or rule, and nothing on the command line turns it off. It does not touch the checkout. Recorded here; not changed in D3.
 - Reviewers grade the same defect differently (Codex and OMP P2, Claude P0). The brief's priority definitions (task 3.1) are what make the P0/P1 blocking rule meaningful.
+
+## Codex on Windows with `windows.sandbox` (fix-m3-gaps task 3.5)
+
+Run on 2026-10-17, Windows 11 (Git Bash), `codex-cli 0.163.0`, from this checkout on `bugfix/fix-m3-gaps`. The user's codex config sets `windows.sandbox = "elevated"`; `review-run.sh run --kind design --route codex` passed on only that setting and recorded it in the receipt (`"windows_sandbox": "elevated"`).
+
+| Request | Working argv (prompt on stdin) | Exit | Output validated | Verdict | `git status --porcelain` after |
+|---|---|---|---|---|---|
+| review: a design review of `fix-m3-gaps` against its cited source | `codex exec -s read-only --ephemeral --ignore-rules --ignore-user-config --skip-git-repo-check -o <last message file> --json -c windows.sandbox="elevated" -` | 0 (55 s) | yes: one `VERDICT:` and one `CHANGES_APPLIED:` line | `REVISE` (two Moderate findings citing `design.md`, `release.sh` and `update.sh` by line); no `BLOCKED` | unchanged |
+| write: edit `VERSION` to 9.9.9 and create `TRIAL_NOTES.md` | the same | 0 (8 s) | yes | `APPROVE`; it answered that the workspace is read-only | unchanged: `VERSION`'s SHA-256 is the same and `TRIAL_NOTES.md` does not exist |
+
+Before #95 the same route could not read the checkout on Windows: `--ignore-user-config` dropped the sandbox setting.
