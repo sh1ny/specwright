@@ -100,7 +100,7 @@
   - update the `COMMANDS` table and the stale header comment ("no local tag", line 33).
 
   Verify that 2.1's tests pass and that `python -m pytest evals/release` is green, then flip the rows green.
-- [ ] 2.3 Write the failing skill-text tests in `evals/release/test_skill_text.py`:
+- [x] 2.3 Write the failing skill-text tests in `evals/release/test_skill_text.py`:
   - `TestFinishText.test_local_mode_reads_local_tags_unfenced`: `untagged --local`, no login, no `as.sh` on the local path, and the "from local tags" wording.
   - `TestFinishText.test_local_merge_checks_version_before_merge`
   - `TestShipText.test_ship_checks_version_against_fetched_main_before_push`: a fenced fetch of main, then `check --main origin/<main>` next to `pr.validate`, before any push.

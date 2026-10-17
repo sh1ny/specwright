@@ -25,6 +25,13 @@ def sections(text):
             for i, (start, title) in enumerate(marks)}
 
 
+def line_with(text, pattern, what):
+    """The single line that matches pattern."""
+    m = re.search(pattern + r".*$", text, re.M)
+    assert m, f"{what} not found"
+    return m.group(0)
+
+
 def paragraph(text, start_pattern, what):
     """The block (up to the next blank line) that starts at the first line matching start_pattern."""
     m = re.search(start_pattern, text, re.M)
@@ -111,12 +118,49 @@ class TestFinishText(unittest.TestCase):
         self.assertRegex(s, r"(?i)untagged")
 
 
+    def test_local_mode_reads_local_tags_unfenced(self):
+        s = self.step
+        local = re.search(r"[^.]*untagged --local[^.]*\.", s)
+        self.assertTrue(local, "the Release step has no `untagged --local` sentence for finish: local")
+        self.assertNotIn("as.sh", local.group(0))
+        self.assertNotIn("[as]", local.group(0))
+        self.assertRegex(s, r"(?is)`finish: local`.{0,120}untagged --local")
+        self.assertRegex(s, r"(?i)no login")
+        self.assertRegex(s, r"(?i)from local tags")
+        self.assertRegex(s, r"(?i)no network call")
+
+    def test_local_merge_checks_version_before_merge(self):
+        local = sections(self.text)["local"]
+        check = line_with(local, r"^- \*\*Version check\*\*", "finish: the **Version check** bullet of ## local")
+        self.assertIn("release.sh check --main <main>", check)
+        self.assertRegex(check, r"release\.enabled")
+        self.assertRegex(check, r"(?i)before the merge|before `git merge")
+        self.assertRegex(check, r"(?is)refus[^.]*stops?[^.]*merge|stops?[^.]*before `git merge`")
+        self.assertRegex(check, r"(?i)bump")
+        self.assertLess(local.index(check), local.index("git merge --no-ff"), "the check comes after the merge")
+
+
 class TestWatchText(unittest.TestCase):
     def setUp(self):
         text = read(SKILLS / "specwright-pr" / "SKILL.md")
         self.assertTrue(text)
         self.cleanup = sections(text)["cleanup after merge"]
         self.step = paragraph(self.cleanup, r"^- \*\*Release step\*\*", "pr: the **Release step** bullet")
+
+    def test_watch_checks_version_before_ready_and_merge(self):
+        watch = sections(read(SKILLS / "specwright-pr" / "SKILL.md"))["watch"]
+        step = line_with(watch, r"^   - \*\*Version check\*\*", "watch: the **Version check** bullet in step 3")
+        self.assertIn("release.sh check --main origin/<main>", step)
+        self.assertRegex(step, r"release\.enabled")
+        self.assertRegex(step, r"git fetch origin <main>")
+        self.assertRegex(step, r"(?i)before (it )?report")
+        self.assertRegex(step, r"(?i)before (each|the) merge")
+        self.assertRegex(step, r"(?is)refus[^.]*(neither|no)[^.]*ready")
+        self.assertRegex(step, r"(?i)bump")
+        self.assertLess(watch.index("3. Ready, per PR"), watch.index(step))
+        self.assertLess(watch.index(step), watch.index("**Archive before merge:**"))
+        merge = line_with(watch, r"^   - \*\*Merge:\*\*", "watch: the **Merge:** bullet")
+        self.assertIn("**Version check**", merge)
 
     def test_release_only_after_cleanup(self):
         c, s = self.cleanup, self.step
@@ -147,6 +191,43 @@ class TestWatchText(unittest.TestCase):
         self.assertRegex(s, r"(?is)publish failure[^.]*(merge|cleanup)[^.]*(undo|kept|stay|done)|(merge|cleanup)[^.]*(not undone|stay|stays|done)[^.]*publish")
         self.assertRegex(s, r"(?is)report[^.]*error")
         self.assertRegex(s, r"(?is)re-run[^.]*publish[^.]*resumes")
+
+
+class TestShipText(unittest.TestCase):
+    def setUp(self):
+        text = read(SKILLS / "specwright-pr" / "SKILL.md")
+        self.assertTrue(text)
+        self.ship = sections(text)["ship"]
+
+    def test_ship_checks_version_against_fetched_main_before_push(self):
+        ship = self.ship
+        step = line_with(ship, r"^   2\. .*release\.sh check --main origin/<main>", "ship: the version check item")
+        self.assertRegex(step, r"release\.enabled")
+        fetch = step.index("git fetch origin <main>")
+        self.assertIn("[as]", step[:fetch], "the fetch is not fenced")
+        self.assertLess(fetch, step.index("check --main origin/<main>"), "the check comes before the fetch")
+        self.assertRegex(step, r"(?is)refus[^.]*stop")
+        self.assertRegex(step, r"(?i)bump")
+        self.assertLess(ship.index("Run that repo's validate"), ship.index(step), "the check comes before validate")
+        self.assertLess(ship.index(step), ship.index("git push -u origin HEAD"), "the check comes after the push")
+
+
+class TestVersionCheckOptIn(unittest.TestCase):
+    def test_version_check_only_with_release_enabled(self):
+        pr = read(SKILLS / "specwright-pr" / "SKILL.md")
+        finish = read(SKILLS / "specwright-finish" / "SKILL.md")
+        ship = sections(pr)["ship"]
+        for name, line in (
+            ("ship", next(l for l in ship.splitlines() if "check --main" in l)),
+            ("watch", next(l for l in sections(pr)["watch"].splitlines() if "check --main" in l)),
+            ("local merge", next(l for l in sections(finish)["local"].splitlines() if "check --main" in l)),
+        ):
+            self.assertRegex(line, r"(?i)(only )?with `release\.enabled` true", f"{name}: the check is not tied to release.enabled")
+        # every mention of the check, in either skill, sits on a line that names release.enabled or points at the Version check
+        for text in (pr, finish):
+            for l in text.splitlines():
+                if "check --main" in l:
+                    self.assertTrue("release.enabled" in l, f"a check --main line without release.enabled: {l[:80]}")
 
 
 class TestCloseText(unittest.TestCase):
