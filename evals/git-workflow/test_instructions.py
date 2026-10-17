@@ -319,6 +319,49 @@ class PlanningStores(unittest.TestCase):
                          "the stop does not name both the expected and the found branch")
 
 
+class BranchGateStoreVersion(unittest.TestCase):
+    """The change gate compares the project's install version with the store's, and meets the update lock (D5, D6)."""
+
+    def step2(self):
+        return mode_block(branch_store_section(), 2)
+
+    def test_gate_compares_major_minor(self):
+        s = self.step2()
+        self.assertRegex(s, r"openspec/\.specwright/VERSION", "store step 2 does not read the project's VERSION")
+        self.assertRegex(s, r"openspec/\.specwright/STORE", "store step 2 does not read the store's STORE record")
+        self.assertRegex(s, r"(?is)\bone (shell )?call\b.{0,200}\bVERSION|\bVERSION\b.{0,300}\bone (shell )?call\b",
+                         "VERSION and STORE are not read in one shell call")
+        self.assertRegex(s, r"major\.minor", "store step 2 does not compare major.minor")
+        self.assertRegex(s, r"(?is)mismatch.{0,200}(both versions|name\w* both).{0,80}owner|(both versions).{0,80}owner",
+                         "a mismatch does not name both versions and the owner")
+        self.assertRegex(s, r"(?is)no `?STORE`?.{0,80}pass|`?STORE`? (is )?(absent|missing).{0,80}pass|pass\w*.{0,60}no `?STORE`?",
+                         "a store with no STORE record does not pass")
+        self.assertRegex(s, r"(?is)unreadable `?STORE`?|`?STORE`? (is )?unreadable", "an unreadable STORE does not stop")
+        self.assertRegex(s, r"(?is)release.{0,40}lock", "a version stop does not release the lock")
+        self.assertRegex(s, r"(?is)update this project to", "a project behind the store is not told to update itself")
+
+    def test_gate_says_owner_updates_store_first(self):
+        self.assertRegex(self.step2(), r"(?is)store.{0,30}behind.{0,300}owner.{0,60}updates? the store first",
+                         "a store behind the project does not say its owner updates the store first")
+
+    def test_gate_stops_without_version_file(self):
+        s = self.step2()
+        self.assertRegex(s, r"(?is)missing `?VERSION`?|no `?VERSION`?", "a missing VERSION does not stop")
+        self.assertRegex(s, r"(?is)(missing|no) `?VERSION`?.{0,300}run the (install|update) in this project",
+                         "a missing VERSION does not say to run the install or update in this project")
+
+    def test_gate_names_update_lock_without_removal(self):
+        for label, step in (("specwright-branch store step 1", mode_block(branch_store_section(), 1)),
+                            ("specwright-roadmap store step 1", mode_block(store_part(committing_project_files()), 1))):
+            with self.subTest(label):
+                self.assertRegex(step, r"(?is)`change:` starts with `specwright-update`|change.{0,40}starts with `specwright-update`",
+                                 f"{label}: the update lock is not recognised by its change")
+                self.assertRegex(step, r"(?is)specwright-update.{0,400}rerun the update from",
+                                 f"{label}: the update lock does not say to rerun the update")
+                self.assertRegex(step, r"(?is)rerun the update from.{0,200}(no|not|never)[^.]{0,30}(offer|removal|remov)",
+                                 f"{label}: the update lock still offers removal")
+
+
 PR_SKILL = ROOT / "skills" / "specwright-pr" / "SKILL.md"
 
 
@@ -1400,6 +1443,148 @@ class TestOpenSpecPin(unittest.TestCase):
         b = self.override()
         self.assertRegex(b, r"(?is)reply.{0,200}(clone|download).{0,40}again|(clone|download).{0,40}again.{0,200}reply",
                          "an override given in a reply does not download the copy again")
+
+
+class InstallUpdateLifecycle(unittest.TestCase):
+    """README install Steps 3-8 pick a release tag and drive scripts/update.sh (safe-update-lifecycle)."""
+
+    def s(self, n):
+        text = step(read(README), f"Step {n}")
+        self.assertTrue(text, f"README install prompt has no Step {n}")
+        return text
+
+    def branch(self, s, *patterns):
+        """The first bullet (top-level or nested) of a step matching every pattern."""
+        for b in re.split(r"\n(?=\s*- )", s):
+            if all(re.search(p, b, re.I | re.S) for p in patterns):
+                return b
+        self.fail(f"no bullet matches {patterns}")
+
+    def assert_stops_before_staging(self, b):
+        self.assertRegex(b, r"STOP", "the bullet does not STOP")
+        self.assertRegex(b, r"(?i)before\s+Step\s+4", "the bullet does not stop before Step 4")
+        self.assertRegex(b, r"(?i)write\s+no\s+file", "the bullet does not rule out writes")
+
+    # Step 3: which ref is installed.
+
+    def test_step3_installs_latest_tag(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"git ls-remote --tags --refs \S+ 'v\*'", "Step 3 does not list the release tags")
+        self.assertRegex(s3, r"(?is)highest.{0,60}(semver|semantic)", "Step 3 does not take the highest semver tag")
+        self.assertRegex(s3, r"git clone --depth 1 --branch <tag>", "Step 3 does not clone the chosen tag")
+        self.assertRegex(s3, r"(?is)latest.{0,40}tag|tag.{0,60}default", "the latest tag is not the default")
+        self.assertRegex(self.s(8), r"(?is)\bref\b.{0,20}installed", "Step 8 does not report the ref installed")
+
+    def test_step3_named_version_without_tag_stops(self):
+        b = self.branch(self.s(3), r"named", r"does not exist")
+        self.assert_stops_before_staging(b)
+        self.assertRegex(b, r"(?is)list.{0,40}tags.{0,40}exist|tags that (do )?exist", "the stop does not list the tags that exist")
+
+    def test_step3_refuses_below_minimum_release(self):
+        b = self.branch(self.s(3), r"minimum release", r"0\.6\.0")
+        self.assert_stops_before_staging(b)
+        self.assertRegex(b, r"(?i)named|highest|latest", "the minimum applies to the default tag too")
+        self.assertRegex(b, r"(?i)cannot be installed", "the stop does not say versions before 0.6.0 cannot be installed")
+        self.assertRegex(b, r"(?i)offer.{0,60}`main`", "the stop does not offer main")
+
+    def test_step3_checks_script_interface(self):
+        b = self.branch(self.s(3), r"scripts/update\.sh", r"interface")
+        self.assert_stops_before_staging(b)
+        self.assertRegex(b, r"\bplan\b", "the interface is not read from `plan`")
+        self.assertRegex(b, r"(?i)interface\s+1\b", "the prompt does not name the interface it drives")
+        self.assertRegex(b, r"(?is)name the ref.{0,80}interface", "the stop does not name the ref and the interfaces")
+        self.assertRegex(b, r"(?i)has no `scripts/update\.sh", "a download without the script is not stopped")
+
+    def test_step3_falls_back_to_main_without_tags(self):
+        s3 = self.s(3)
+        self.assertIn("main (no release tag)", s3, "Step 3 does not name the no-tag report")
+        self.assertRegex(s3, r"(?is)`main`.{0,120}(asks|request)", "Step 3 does not limit main to a request")
+        self.assertRegex(s3, r"(?is)no release tag.{0,200}`main`|`main`.{0,200}no release tag", "Step 3 does not fall back to main without tags")
+        self.assertIn("main (no release tag)", self.s(8), "Step 8 does not report `main (no release tag)`")
+
+    # Step 4: the script does the file work.
+
+    def test_step4_runs_update_script_and_acts_on_refusals(self):
+        s4 = self.s(4)
+        for sub in ("plan", "stage", "swap"):
+            self.assertRegex(s4, rf"update\.sh.{{0,300}}`{sub}`|`{sub}`.{{0,300}}update\.sh", f"Step 4 does not run update.sh {sub}")
+        self.assertRegex(s4, r"(?i)from the download|download.{0,40}never an installed", "Step 4 may run an installed copy of the script")
+        self.assertRegex(s4, r"(?is)refus.{0,300}STOP", "Step 4 does not stop on a refusal")
+        self.assertRegex(s4, r"(?is)refus.{0,300}(unchanged|nothing (was )?changed)", "a refusal does not say the installation is unchanged")
+        self.assertRegex(s4, r"`swapped`", "Step 4 does not record the swapped flag")
+        self.assertRegex(s4, r"`store_written`", "Step 4 does not read store_written")
+        self.assertRegex(s4, r"(?is)`recover`.{0,400}resumed update to", "Step 4 does not run recover and say what it did")
+        self.assertRegex(s4, r"(?is)orphans.{0,200}ask", "Step 4 does not ask about installed skills with no downloaded counterpart")
+        self.assertRegex(s4, r"(?is)do not write.{0,80}VERSION", "Step 4 may write the stamp")
+
+    # Step 5: only the project that writes the store's config merges it.
+
+    def test_step5_runs_only_for_role_none_or_store_written_then_note_config(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)only.{0,200}role\s+`none`.{0,200}`store_written: true`", "Step 5 is not gated on role none or store_written")
+        self.assertRegex(s5, r"(?is)otherwise.{0,40}skip|skip.{0,80}otherwise|any other role.{0,80}skip", "Step 5 does not skip for other roles")
+        self.assertRegex(s5, r"(?is)leave.{0,60}config\.yaml", "a skipped Step 5 may touch the store's config.yaml")
+        self.assertIn("note-config", s5, "Step 5 does not run note-config")
+        self.assertGreater(s5.rindex("note-config"), s5.index("`context:`"), "note-config does not come after the merge")
+
+    def test_step5_failed_note_config_stops(self):
+        s5 = self.s(5)
+        self.assertNotRegex(s5, r"(?is)note-config.{0,300}go on to Step 7", "a failed note-config still goes on to Step 7")
+        self.assertRegex(s5, r"(?is)`\"ok\": false`.{0,120}stop", "a failed note-config does not stop")
+        self.assertRegex(s5, r"(?is)stop.{0,120}`note-config` again.{0,120}`\"ok\": true`", "Step 5 does not rerun note-config until it succeeds")
+
+    def test_step4_resumed_swap_takes_store_written_from_recovered(self):
+        s4, s5 = self.s(4), self.s(5)
+        self.assertRegex(s4, r"(?is)skip `stage` and `swap`.{0,300}recovered\.store_written", "Step 4 does not take store_written from recovered after a resumed swap")
+        self.assertRegex(s5, r"(?is)recovered\.store_written", "Step 5 does not name recovered.store_written as the other source")
+        self.assertRegex(s5, r"(?is)`swap`.{0,200}`store_written: true`.{0,300}recovered\.store_written", "Step 5 does not name both sources")
+
+    def test_step4_refusal_with_unchanged_false_is_not_reported_unchanged(self):
+        b = self.branch(self.s(4), r'"unchanged": false')
+        self.assertRegex(b, r"(?is)not (report|say).{0,60}unchanged", "an unchanged:false refusal may be reported as unchanged")
+        self.assertRegex(b, r"(?is)installed but not stamped", "the refusal does not say the files are installed but not stamped")
+        self.assertRegex(b, r"(?is)restart notice", "the refusal does not give the restart notice")
+        self.assertRegex(b, r"(?is)rerunning this prompt.{0,120}completes the update", "the refusal does not say a rerun completes the update")
+
+    # Step 7: the stamp, the store config line, finish.
+
+    def test_step7_reports_store_config_managed_and_runs_finish(self):
+        s7 = self.s(7)
+        self.assertIn("store config managed by owner <id>", s7, "Step 7 does not report the skipped config.yaml check")
+        self.assertRegex(s7, r"(?is)store config managed by owner <id>.{0,200}(not|never).{0,40}fail|(not|never).{0,40}fail.{0,200}store config managed",
+                         "the skipped config.yaml check may count as a failure")
+        self.assertRegex(s7, r"(?is)still.{0,40}stamp|stamp.{0,200}still|VERSION.{0,80}still", "a managed store config blocks the stamp")
+        self.assertRegex(s7, r"update\.sh.{0,80}`finish`|`finish`", "Step 7 does not run finish")
+        self.assertGreater(s7.index("`finish`"), s7.index("openspec/.specwright/VERSION"), "finish does not run after the stamp")
+        self.assertRegex(s7, r"recover --rollback", "Step 7 does not offer the rollback after a failed check")
+
+    # Step 8: the restart notice follows a swap only.
+
+    def test_step8_restart_notice_after_swap(self):
+        s8 = self.s(8)
+        self.assertRegex(s8, r"(?is)only.{0,40}(after|when).{0,60}swap|swapped", "Step 8 does not tie the notice to a swap")
+        notice = re.search(r"(?is)(started before|still run).{0,300}restart.{0,300}", s8)
+        self.assertTrue(notice, "Step 8 has no restart notice for running sessions")
+        self.assertRegex(notice.group(0), r"(?s)<old>.{0,200}<new>", "the notice does not name the previous and the new version")
+        self.assertRegex(s8, r"(?is)" + NEW_SESSION, "Step 8 does not keep the new-session instruction")
+        self.assertRegex(s8, r"(?is)store role.{0,80}owner", "Step 8 does not report the store role and owner")
+        self.assertRegex(s8, r"(?is)remote.{0,120}(not validated|warning)", "Step 8 does not report remote-only changes as warnings")
+
+    def test_step8_no_restart_notice_when_unchanged(self):
+        s8 = self.s(8)
+        self.assertRegex(s8, r"(?is)no restart notice", "Step 8 does not rule out the notice without a swap")
+        self.assertRegex(s8, r"(?is)(refus|stop|fail).{0,300}installed version is unchanged", "a refused update does not say the installed version is unchanged")
+
+    # Docs around the prompt.
+
+    def test_docs_name_staging_ignore_and_update_evals(self):
+        readme = read(README)
+        self.assertIn(".specwright-update-*/", readme, "the README does not name the staging directories")
+        self.assertIn(".specwright-update-*/", read(ROOT / ".gitignore"), ".gitignore does not ignore the staging directories")
+        self.assertRegex(section(readme, r"\S* ?Stores") or "", r"(?s)STORE.{0,1500}manual commit|manual commit.{0,1500}STORE", "Stores does not explain the transfer")
+        self.assertIn("python -m unittest discover evals/update", readme, "the README Evals section does not name evals/update")
+        testing = section(read(CONTRIBUTING), "Testing")
+        self.assertIn("python -m unittest discover evals/update", testing or "", "CONTRIBUTING Testing does not name evals/update")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,34 @@
+#!/bin/sh
+# PATH shim for the update evals: counts its calls and can SIGKILL the update script before acting.
+#   UPDATE_SHIM_COUNT  file holding the number of mv/cp/rm calls so far (all three shims share it). Unset: no counting.
+#                      Each call is also appended to "$UPDATE_SHIM_COUNT.log" as "<n> <tool> <args>".
+#   UPDATE_KILL_AT     call number N: at the N-th call the shim sends SIGKILL to $UPDATE_KILL_PID and exits
+#                      without running the real tool.
+#   UPDATE_KILL_PID    the process to kill (the update script's own pid).
+# Otherwise it execs the real cp, found on PATH by skipping this directory.
+name=cp
+here=$(cd "$(dirname "$0")" && pwd)
+if [ -n "${UPDATE_SHIM_COUNT:-}" ]; then
+  n=$(cat "$UPDATE_SHIM_COUNT" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" > "$UPDATE_SHIM_COUNT"
+  echo "$n $name $*" >> "$UPDATE_SHIM_COUNT.log"
+  if [ -n "${UPDATE_KILL_AT:-}" ] && [ "$n" -eq "$UPDATE_KILL_AT" ]; then
+    kill -9 "${UPDATE_KILL_PID:?UPDATE_KILL_PID is not set}" 2>/dev/null
+    exit 137
+  fi
+fi
+oldifs=$IFS
+IFS=:
+for d in $PATH; do
+  [ -n "$d" ] || continue
+  dir=$(cd "$d" 2>/dev/null && pwd) || continue
+  [ "$dir" = "$here" ] && continue
+  if [ -f "$dir/$name" ] || [ -f "$dir/$name.exe" ]; then
+    IFS=$oldifs
+    exec "$dir/$name" "$@"
+  fi
+done
+IFS=$oldifs
+echo "$name shim: no real $name on PATH" >&2
+exit 127
