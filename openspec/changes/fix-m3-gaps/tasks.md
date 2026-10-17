@@ -68,12 +68,12 @@
 | planning-stores → Store staging belongs to one checkout | Discard after a refused swap keeps the other checkout's rollback copy | evals/update/test_store.py | TestStagingPerCheckout.test_refused_swap_recover_keeps_other_rollback_copy | red |
 | planning-stores → Store staging belongs to one checkout | Another checkout's staging makes the store busy | evals/update/test_store.py | TestStagingPerCheckout.test_other_checkout_staging_makes_store_busy | red |
 | planning-stores → Store staging belongs to one checkout | Interrupted update from an earlier version | evals/update/test_store.py | TestStagingPerCheckout.test_recover_uses_legacy_shared_staging_from_journal | red |
-| debugging → A debug stash is named and reported | Dirty tree is tested | evals/git-workflow/test_instructions.py | DebugStash.test_stash_is_named_and_ref_reported | red |
-| debugging → A debug stash is named and reported | Restore conflicts | evals/git-workflow/test_instructions.py | DebugStash.test_conflicting_restore_keeps_stash_and_stops | red |
-| debugging → An interrupted debug stash is found on the next run | Earlier run was interrupted | evals/git-workflow/test_instructions.py | DebugStash.test_start_of_run_lists_leftover_stash_and_offers_restore | red |
-| debugging → An interrupted debug stash is found on the next run | Stash ref moved since it was reported | evals/git-workflow/test_instructions.py | DebugStash.test_ref_resolved_by_message_before_apply_and_drop | red |
-| debugging → An interrupted debug stash is found on the next run | No leftover stash | evals/git-workflow/test_instructions.py | DebugStash.test_no_leftover_reported_and_continues | red |
-| debugging → An interrupted debug stash is found on the next run | Other stashes are left alone | evals/git-workflow/test_instructions.py | DebugStash.test_only_specwright_debug_stashes_are_offered | red |
+| debugging → A debug stash is named and reported | Dirty tree is tested | evals/git-workflow/test_instructions.py | DebugStash.test_stash_is_named_and_ref_reported | green |
+| debugging → A debug stash is named and reported | Restore conflicts | evals/git-workflow/test_instructions.py | DebugStash.test_conflicting_restore_keeps_stash_and_stops | green |
+| debugging → An interrupted debug stash is found on the next run | Earlier run was interrupted | evals/git-workflow/test_instructions.py | DebugStash.test_start_of_run_lists_leftover_stash_and_offers_restore | green |
+| debugging → An interrupted debug stash is found on the next run | Stash ref moved since it was reported | evals/git-workflow/test_instructions.py | DebugStash.test_ref_resolved_by_message_before_apply_and_drop | green |
+| debugging → An interrupted debug stash is found on the next run | No leftover stash | evals/git-workflow/test_instructions.py | DebugStash.test_no_leftover_reported_and_continues | green |
+| debugging → An interrupted debug stash is found on the next run | Other stashes are left alone | evals/git-workflow/test_instructions.py | DebugStash.test_only_specwright_debug_stashes_are_offered | green |
 
 ## 1. Install version token boundary (#91)
 
@@ -184,7 +184,7 @@
   - other stashes left alone.
 
   Confirm that they fail on the current text.
-- [ ] 6.2 Edit `skills/specwright-debug/SKILL.md` per design D9. Verify that 6.1's tests pass with `python -m pytest evals/git-workflow/test_instructions.py -k DebugStash`, then flip the rows green.
+- [x] 6.2 Edit `skills/specwright-debug/SKILL.md` per design D9. Verify that 6.1's tests pass with `python -m pytest evals/git-workflow/test_instructions.py -k DebugStash`, then flip the rows green.
 
 ## 7. Architecture, release 0.6.1 and integration
 
