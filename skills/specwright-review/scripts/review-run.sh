@@ -19,9 +19,14 @@
 #                                     in a store. --store is the claude route's --add-dir in both kinds (--restricted reads only
 #                                     the working directories). --selection is the JSON `select` printed.
 #   record --kind preship|design --change name --result file --route r [--store dir] [--base m --store-base m]
-#       [--preflight file (required for preship)] [--selection file]
+#       [--preflight file (required for preship)] [--selection file] [--out review file (design)]
 #                                     validate a file the specwright-reviewer subagent wrote; preship writes the record for the
-#                                     preflight heads (exit 3 heads_moved when HEAD moved since), design writes nothing else
+#                                     preflight heads (exit 3 heads_moved when HEAD moved since). design with --out writes that
+#                                     file atomically only when the result validates and removes the result (a scratch file);
+#                                     on exit 3 --out is untouched and the scratch path is in the output. Without --out it only
+#                                     validates in place
+#   record --kind design --change name --scratch
+#                                     print {scratch}: a fresh <state dir>/design/<change>/<timestamp>.md for the subagent to write
 #   waive --change name --finding id --reason text [--store dir] [--prefix P]
 #                                     add a user waiver to the record `gate` would use (the archive commit's parent included)
 #   gate --change name [--store dir] [--prefix P]   -> {status: pass|missing|blocked, heads, reviewed_heads, open}
@@ -584,14 +589,36 @@ def validate_findings(obj):
     return None
 
 
+VERDICTS = ("APPROVE", "APPROVE_WITH_CHANGES", "REVISE")
+CHANGES_AFTER = {"APPROVE": "n/a", "APPROVE_WITH_CHANGES": ("no", "yes"), "REVISE": "n/a"}
+
+
+def line_value(line, key):
+    """The value after `KEY: ` on a whole line (trailing whitespace stripped); None when the line is not a KEY: line."""
+    line = line.rstrip()
+    if not line.startswith(key + ":"):
+        return None
+    rest = line[len(key) + 1:]
+    return rest[1:] if rest.startswith(" ") else rest
+
+
 def validate_design(text):
-    """None when `text` has exactly one VERDICT: line and a CHANGES_APPLIED: line, else the first error."""
+    """None when `text` has exactly one VERDICT: <v> line (v a verdict a reviewer may emit) and exactly one
+    CHANGES_APPLIED: <c> line that fits it, else the first error, naming the value."""
     lines = text.splitlines()
-    verdicts = sum(1 for l in lines if l.startswith("VERDICT:"))
-    if verdicts != 1:
-        return f"expected exactly one VERDICT: line, found {verdicts}"
-    if not any(l.startswith("CHANGES_APPLIED:") for l in lines):
-        return "no CHANGES_APPLIED: line"
+    verdicts = [v for v in (line_value(l, "VERDICT") for l in lines) if v is not None]
+    if len(verdicts) != 1:
+        return f"expected exactly one VERDICT: line, found {len(verdicts)}"
+    verdict = verdicts[0]
+    if verdict not in VERDICTS:
+        return f"VERDICT: {verdict!r} is not one a reviewer may return; accepted: {', '.join(VERDICTS)}"
+    applied = [v for v in (line_value(l, "CHANGES_APPLIED") for l in lines) if v is not None]
+    if len(applied) != 1:
+        return f"expected exactly one CHANGES_APPLIED: line, found {len(applied)}"
+    allowed = CHANGES_AFTER[verdict]
+    allowed = (allowed,) if isinstance(allowed, str) else allowed
+    if applied[0] not in allowed:
+        return f"CHANGES_APPLIED: {applied[0]!r} does not fit VERDICT: {verdict}; accepted: {', '.join(allowed)}"
     return None
 
 
@@ -1030,14 +1057,33 @@ def read_result(path):
     return p.read_text(encoding="utf-8", errors="replace")
 
 
+def design_scratch(change):
+    """A fresh result path for a subagent design review: <state dir>/design/<change>/<timestamp>.md."""
+    d = state_dir() / "design" / change
+    d.mkdir(parents=True, exist_ok=True)
+    while True:
+        p = d / (datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".md")
+        if not p.exists():
+            return p
+
+
 def cmd_record(argv):
+    scratch = "--scratch" in argv
+    argv = [t for t in argv if t != "--scratch"]
     a, _ = parse_args(argv, {"--kind": "kind", "--change": "change", "--result": "result", "--route": "route", "--store": "store",
                              "--base": "base", "--store-base": "store_base", "--settings": "settings",
-                             "--preflight": "preflight", "--selection": "selection"})
+                             "--preflight": "preflight", "--selection": "selection", "--out": "out"})
+    if scratch:
+        need(a, "kind", "change")
+        if a["kind"] != "design":
+            usage("--scratch is for --kind design")
+        return {"ok": True, "scratch": norm(design_scratch(a["change"]))}
     need(a, "kind", "change", "result", "route")
     kind, route = a["kind"], a["route"]
     if kind not in ("preship", "design"):
         usage("--kind is preship or design")
+    if a.get("out") and kind != "design":
+        usage("--out is for --kind design")
     if kind == "preship":
         need(a, "preflight")
     if route not in ACCEPTED + ("subagent",):
@@ -1057,7 +1103,10 @@ def cmd_record(argv):
             usage(f"--preflight {a['preflight']} is not the output of `preflight` (no heads)")
 
     def invalid(message):
-        fail("invalid", "invalid_output", message, route, make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown")))
+        # a refused --out review keeps its scratch file, and the report names it
+        extra = {"scratch": norm(a["result"])} if a.get("out") else {}
+        fail("invalid", "invalid_output", message, route, make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown")),
+             **extra)
 
     if text is None:
         invalid("output too large")
@@ -1065,8 +1114,16 @@ def cmd_record(argv):
         err = validate_design(text)
         if err:
             invalid(err)
-        return {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"]),
-                "receipt": make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown"))}
+        result = {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"]),
+                  "receipt": make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown"))}
+        if a.get("out"):
+            atomic_write(a["out"], text)
+            try:
+                os.unlink(a["result"])
+            except OSError:
+                pass
+            result["out"] = norm(a["out"])
+        return result
     parsed = json_from_text(text)
     if parsed is None:
         invalid("output is not JSON: " + (text.strip()[:120] or "(empty)"))
