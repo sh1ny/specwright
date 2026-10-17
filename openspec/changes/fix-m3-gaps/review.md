@@ -73,7 +73,7 @@ VERDICT: APPROVE_WITH_CHANGES
 
 Every Required Change is applied. The verdict stays APPROVE_WITH_CHANGES, and the changes are now marked applied.
 
-CHANGES_APPLIED: no
+CHANGES_APPLIED: yes
 
 ## Rebuttals
 
@@ -106,3 +106,13 @@ The trigger is realistic: a change that drops its release task, or a user who un
    - Acceptable: keep the rule and state the refusal explicitly. Add that scenario with a THEN of "refused; squash the bump and its revert out of the branch history", and say in D3's Failure & Visibility that this is a known refusal and how to clear it.
 
 The verdict stays APPROVE_WITH_CHANGES. CHANGES_APPLIED is reset to no until M4 is applied.
+
+## Re-check (round 3, M4)
+
+**Reviewer:** fresh-context subagent (Claude Code, Opus 5.5). No project skill was named for this round. **Scope:** only M4, against commit 8dccd27 (`design.md` D3, `specs/releases/spec.md`, `tasks.md` 2.5 and the test map) and the uncommitted `own_bump`/`check_ahead_of` (`skills/specwright-release/scripts/release.sh:596-625`) with `TestCheckMain` (`evals/release/test_release.py`). `python -m pytest evals/release/test_release.py -k TestCheckMain`: 11 passed.
+
+- **M4: applied, preferred option.** D3's commit clause now takes the newest commit listed by `git log --no-merges --topo-order` whose primary version differs from its first parent's, and counts it only when it raised the version. The requirement sentence says the same ("the newest of its own non-merge commits that changed the primary file's version raised it"). The new scenario "Bump reverted on the branch" has the THEN I asked for (exit 0). Task 2.5 and the test-map row name `test_bump_reverted_on_branch_passes`.
+- **Implementation is consistent.** `check_ahead_of` adds `--topo-order` and passes the listed SHAs, newest first, to `own_bump`. That function skips commits whose version equals the parent's (the dependency-edit case), returns false when the newest change lowered the version (the revert), and returns true when it raised it, when the parent has no readable version, or when either side is not semver. The three cases I listed hold. Merged main: X (0.4.2 to 0.5.0) is the only listed change, so the branch is refused, and `test_duplicate_after_main_merged_in_refused` still passes. Bump-then-revert: Y is newest and lowered the version, so it passes. Re-bump: 0.5.0 to 0.6.0 is newest and raised it, so it counts. Both new tests assert exit 0 with version 0.4.2, as the scenarios state.
+- **Nit, not blocking.** D3 and the requirement say "raised it" but do not carry the parenthetical from the required change: for a version that is not semver, any change counts. The code does that (`not (sv(mine) and sv(parent))`), and so does the M4 rebuttal. Adding the half-sentence to D3 would make that branch of the code traceable. Either way the outcome is a refusal, because the ahead check also needs semver.
+
+M4 is applied. The verdict stays APPROVE_WITH_CHANGES, and every Required Change is now marked applied.
