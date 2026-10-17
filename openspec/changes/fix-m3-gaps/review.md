@@ -81,6 +81,8 @@ CHANGES_APPLIED: yes
 - **S1 applied.** The busy message says `finish or recover it by rerunning the update in that checkout`.
 - **S2 applied.** "Subagent design review without a verdict" names the scratch result file.
 - **M4 applied, preferred option (round 3).** D3's commit clause is decided by the newest commit listed by `git log --no-merges --topo-order` that changed the primary version, counted only when it raised it (a version that is not semver: any change). The `releases` requirement sentence says so; new scenario "Bump reverted on the branch"; task 2.5 and the test map carry `test_bump_reverted_on_branch_passes` beside `test_version_file_edit_without_bump_passes`.
+- **M5 applied (round 5).** "A refused design review leaves the earlier review file unchanged" says a design review that fails validation or passes the deadline leaves any earlier review file unchanged.
+- **M6 applied (round 5).** The requirement is "The size bound applies to the answer", for every route: codex's last-message file, claude's printed output (its stdout is the answer), and OMP's final `agent_end` message; the three test-map rows are renamed.
 
 ## Re-check (round 3, D3 amendment)
 
@@ -133,3 +135,36 @@ M4 is applied. The verdict stays APPROVE_WITH_CHANGES, and every Required Change
 - **The "STORE names owner A" half comes from the fixture here.** It is still exercised by a real swap in `test_first_update_claims_store` (`test_store.py:96-109`), so no coverage is lost.
 
 No new gap with a concrete consequence. The verdict stays APPROVE_WITH_CHANGES. Every Required Change remains applied.
+
+## Re-check (round 5, requirement split)
+
+**Reviewer:** fresh-context subagent (Claude Code, Opus 5.5). No project skill was named for this round. **Scope:** only the uncommitted split of three requirements (`git diff -- openspec/changes/fix-m3-gaps/`), compared with the committed deltas (`git show HEAD:openspec/changes/fix-m3-gaps/specs/{change-finish,releases,review-routes}/spec.md`) and the main specs (`openspec/specs/<cap>/spec.md`). I read `skills/specwright-review/scripts/review-run.sh:995-1045` to check what the moved sentences govern. `openspec validate fix-m3-gaps --strict` passes, and every requirement in the review-routes delta is now 479 characters or fewer.
+
+What holds:
+- **change-finish.** The committed MODIFIED text was main's text word for word, plus one sentence about `finish: local`, and its six other scenarios match main's. Dropping the MODIFIED block loses nothing. The ADDED "Local finish lists untagged versions from local tags" carries that sentence. Its extra clause, "to publish after `main` is pushed", comes from the scenario's THEN and from main's "Local finish publishes no tag without a push decision", so it adds no new rule. The scenario is filed under the requirement it exercises.
+- **releases.** Same pattern. The committed MODIFIED text was main's text plus the `--local` sentences, and its four other scenarios match main's. The ADDED "Untagged versions can be read from local tags only" keeps both `--local` sentences, including "whenever it read local tags, including with no `origin` remote", and both `--local` scenarios.
+- **review-routes MODIFIED.** The text is main's, with `exactly one` added for `CHANGES_APPLIED:`. The five scenarios match main's, except that "Subagent design review without a verdict" now names the scratch file (round 2's S2).
+- **Verdict values.** "Design review verdict values are checked" keeps the allowed `VERDICT:` values and the `CHANGES_APPLIED:` pairing. "Naming the value" is already asserted by the scenarios. Its four scenarios all exercise a verdict or pairing being refused or accepted.
+- **Scratch file.** "A refused design review leaves the earlier review file unchanged" keeps the scratch-file rule. "Kept and named in the report" matches the existing scenario and `test_record_out_refused_keeps_review_and_scratch`.
+- **Test map.** The map and the delta scenarios are one-to-one: every delta scenario has exactly one row with the same capability, requirement and scenario name. Ten rows (six for "Finish offers a release once the change is on main", four for "Older untagged versions are published first") now name scenarios that exist only in main's specs. Those names still match main exactly, and the rows record tests that stay green. That is harmless, so no change is required for them. Drop them if the map should cover only the change's own scenarios.
+
+**M5 (Moderate). A design review that passes the deadline is no longer required to leave the earlier review file unchanged.** The committed sentence was: "A route that ran but whose output fails validation, *or that passes the deadline*, SHALL be a failed review that stops the caller and leaves any earlier review file unchanged". The new rule says "A design review that fails validation SHALL leave any earlier review file unchanged". Nothing in the split says that a timed-out design review leaves `review.md` alone. The MODIFIED text and "Reviewer exceeds the deadline" only say the run stops with `status: timeout` and no other route runs. The code is fine today (`stop("timeout", ...)` at `review-run.sh:1004-1005` exits before any write). Once archived, though, the main spec would not forbid a timeout path from replacing a valid `review.md` with a partial one. The committed delta did forbid that.
+
+**M6 (Moderate). The answer-not-stream size bound was narrowed from every route to OMP only.** The committed sentence was general: "The size bound applies to the review's answer, not to a route's event stream." The new requirement starts "For the OMP route". Codex's stdout is also an event stream (`review-run.sh:1008`, comment "codex's and omp's stdout are event streams; their answer is bounded below"), and the bound is applied to its `-o` last-message file (`:1013-1015`). With the split, the spec no longer requires that. A change that bounded codex's stream would refuse a large codex run with a small valid answer, which is the same failure this change fixes for OMP, and it would not contradict any spec text.
+
+## Required Changes (round 5)
+
+1. **M5: `specs/review-routes/spec.md`, "A refused design review leaves the earlier review file unchanged".** Restore the deadline case. For example: "A design review that fails validation or passes the deadline SHALL leave any earlier review file unchanged." This keeps the requirement under 500 characters. No new scenario or test-map row is needed.
+2. **M6: `specs/review-routes/spec.md`, "The OMP size bound applies to the answer".** Make it cover every route again. For example, rename it to "The size bound applies to the answer" with the text: "The 2 MiB output bound SHALL apply to the review's answer (codex's last-message file, claude's printed result, OMP's final message of the last `agent_end` event), not to a route's event stream. An OMP stream with no `agent_end` event SHALL fail validation." Rename the three `tasks.md` test-map rows to match. The OMP scenarios stay under it.
+
+The verdict stays APPROVE_WITH_CHANGES. CHANGES_APPLIED is reset to no until M5 and M6 are applied.
+
+## Re-check (round 5, M5 and M6)
+
+**Reviewer:** fresh-context subagent (Claude Code, Opus 5.5). No project skill was named for this round. **Scope:** only M5 and M6 and their test-map rows, in the uncommitted `specs/review-routes/spec.md` and `tasks.md` (`git diff -- openspec/changes/fix-m3-gaps/`), read against `skills/specwright-review/scripts/review-run.sh:1003-1020`. `openspec validate fix-m3-gaps --strict` passes.
+
+- **M5: applied.** "A refused design review leaves the earlier review file unchanged" now opens with "A design review that fails validation or passes the deadline SHALL leave any earlier review file unchanged". That brings back the deadline case the committed delta had. It matches the code: `stop("timeout", ...)` at `:1003-1004` exits before any write.
+- **M6: applied.** The requirement is now "The size bound applies to the answer" and covers every route. It names codex's last-message file, claude's printed output and OMP's final `agent_end` message, and says the bound does not apply to a route's event stream. "Claude's printed output" is accurate. The claude route's stdout is its answer, and the code bounds the whole stdout (`:1007`). Codex's `-o` file is bounded at `:1013`. The `agent_end` rule is kept, and the three OMP scenarios sit under the renamed requirement.
+- **Test map: matches.** The three OMP rows now name "review-routes → The size bound applies to the answer". No row or delta header still uses the old name "The OMP size bound applies to the answer". The other renamed rows also match their requirements in the delta. Those are the verdict-values rows, the scratch-file rows, the releases `--local` rows and the change-finish local row.
+
+No new gap. The verdict stays APPROVE_WITH_CHANGES. Every Required Change is now applied, so CHANGES_APPLIED is set to yes.

@@ -27,8 +27,8 @@
 | releases → Older untagged versions are published first | Tag push failed earlier | evals/release/test_release.py | TestUntagged.test_local_only_tag_is_not_published | green |
 | releases → Older untagged versions are published first | First release's tag push failed | evals/release/test_release.py | TestUntagged.test_first_release_push_failed | green |
 | releases → Older untagged versions are published first | Backfill below the latest tag | evals/release/test_release.py | TestUntagged.test_backfill_below_latest | green |
-| releases → Older untagged versions are published first | Local tags only | evals/release/test_release.py | TestUntagged.test_local_flag_reads_no_remote | green |
-| releases → Older untagged versions are published first | Local read with a local-only tag | evals/release/test_release.py | TestUntagged.test_local_flag_counts_local_tag_and_says_so (also test_without_origin_reports_local_tags) | green |
+| releases → Untagged versions can be read from local tags only | Local tags only | evals/release/test_release.py | TestUntagged.test_local_flag_reads_no_remote | green |
+| releases → Untagged versions can be read from local tags only | Local read with a local-only tag | evals/release/test_release.py | TestUntagged.test_local_flag_counts_local_tag_and_says_so (also test_without_origin_reports_local_tags) | green |
 | releases → A bumped version is greater than main's before it merges | Two changes bump to the same version | evals/release/test_release.py | TestCheckMain.test_duplicate_bump_refused | green |
 | releases → A bumped version is greater than main's before it merges | Main moved past the bump | evals/release/test_release.py | TestCheckMain.test_main_ahead_refused | green |
 | releases → A bumped version is greater than main's before it merges | Bump still ahead | evals/release/test_release.py | TestCheckMain.test_bump_ahead_passes | green |
@@ -47,7 +47,7 @@
 | change-finish → Finish offers a release once the change is on main | Version already tagged | evals/release/test_skill_text.py | TestFinishText.test_no_offer_when_untagged_empty | green |
 | change-finish → Finish offers a release once the change is on main | Releases disabled | evals/release/test_skill_text.py | TestFinishText.test_release_step_before_roadmap_offer | green |
 | change-finish → Finish offers a release once the change is on main | Auto publish fails | evals/release/test_skill_text.py | TestFinishText.test_publish_failure_keeps_roadmap_offer | green |
-| change-finish → Finish offers a release once the change is on main | Local finish with a github.com origin and no login | evals/release/test_skill_text.py | TestFinishText.test_local_mode_reads_local_tags_unfenced | green |
+| change-finish → Local finish lists untagged versions from local tags | Local finish with a github.com origin and no login | evals/release/test_skill_text.py | TestFinishText.test_local_mode_reads_local_tags_unfenced | green |
 | review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | green |
 | review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/trial.md | recorded trial (`git status --porcelain` after the write request); re-run for codex on Windows in 3.5 | n/a (recorded trial: needs real reviewer CLIs; 3.5 run recorded, porcelain unchanged) |
 | review-routes → Reviewers run isolated and read-only | Codex on Windows with a sandbox setting | evals/review-routes/test_review_run.py | test_codex_windows_forwards_sandbox_only | green |
@@ -58,15 +58,15 @@
 | review-routes → Review output is validated and fails closed | Subagent design review without a verdict | evals/review-routes/test_review_run.py | test_record_design_without_verdict_invalid | green |
 | review-routes → Review output is validated and fails closed | Design review with two verdicts | evals/review-routes/test_review_run.py | test_design_two_verdicts_invalid_no_file | green |
 | review-routes → Review output is validated and fails closed | Reviewer exceeds the deadline | evals/review-routes/test_review_run.py | test_timeout_kills_reviewer_exit_3 | green |
-| review-routes → Review output is validated and fails closed | Design review that could not review | evals/review-routes/test_review_run.py | test_design_blocked_verdict_invalid_keeps_review | green |
-| review-routes → Review output is validated and fails closed | Subagent design review that could not review | evals/review-routes/test_review_run.py | test_record_out_refused_keeps_review_and_scratch | green |
-| review-routes → Review output is validated and fails closed | Valid subagent design review | evals/review-routes/test_review_run.py | test_record_out_valid_writes_review_removes_scratch | green |
-| review-routes → Review output is validated and fails closed | Verdict a reviewer may not set | evals/review-routes/test_review_run.py | test_design_override_and_skipped_verdicts_invalid | green |
-| review-routes → Review output is validated and fails closed | CHANGES_APPLIED does not match the verdict | evals/review-routes/test_review_run.py | test_design_changes_applied_must_match_verdict | green |
-| review-routes → Review output is validated and fails closed | Valid re-check | evals/review-routes/test_review_run.py | test_design_recheck_with_changes_applied_yes_valid | green |
-| review-routes → Review output is validated and fails closed | Large OMP event stream with a small answer | evals/review-routes/test_review_run.py | test_omp_large_stream_small_answer_valid | green |
-| review-routes → Review output is validated and fails closed | OMP answer over the bound | evals/review-routes/test_review_run.py | test_omp_answer_over_bound_invalid | green |
-| review-routes → Review output is validated and fails closed | OMP stream without a final message | evals/review-routes/test_review_run.py | test_omp_stream_without_agent_end_invalid | green |
+| review-routes → Design review verdict values are checked | Design review that could not review | evals/review-routes/test_review_run.py | test_design_blocked_verdict_invalid_keeps_review | green |
+| review-routes → A refused design review leaves the earlier review file unchanged | Subagent design review that could not review | evals/review-routes/test_review_run.py | test_record_out_refused_keeps_review_and_scratch | green |
+| review-routes → A refused design review leaves the earlier review file unchanged | Valid subagent design review | evals/review-routes/test_review_run.py | test_record_out_valid_writes_review_removes_scratch | green |
+| review-routes → Design review verdict values are checked | Verdict a reviewer may not set | evals/review-routes/test_review_run.py | test_design_override_and_skipped_verdicts_invalid | green |
+| review-routes → Design review verdict values are checked | CHANGES_APPLIED does not match the verdict | evals/review-routes/test_review_run.py | test_design_changes_applied_must_match_verdict | green |
+| review-routes → Design review verdict values are checked | Valid re-check | evals/review-routes/test_review_run.py | test_design_recheck_with_changes_applied_yes_valid | green |
+| review-routes → The size bound applies to the answer | Large OMP event stream with a small answer | evals/review-routes/test_review_run.py | test_omp_large_stream_small_answer_valid | green |
+| review-routes → The size bound applies to the answer | OMP answer over the bound | evals/review-routes/test_review_run.py | test_omp_answer_over_bound_invalid | green |
+| review-routes → The size bound applies to the answer | OMP stream without a final message | evals/review-routes/test_review_run.py | test_omp_stream_without_agent_end_invalid | green |
 | planning-stores → Store staging belongs to one checkout | Two checkouts stage against one store | evals/update/test_store.py | TestStagingPerCheckout.test_two_checkouts_stage_separately | green |
 | planning-stores → Store staging belongs to one checkout | Discard after a refused swap keeps the other checkout's rollback copy | evals/update/test_store.py | TestStagingPerCheckout.test_refused_swap_recover_keeps_other_rollback_copy | green |
 | planning-stores → Store staging belongs to one checkout | Another checkout's staging makes the store busy | evals/update/test_store.py | TestStagingPerCheckout.test_other_checkout_staging_makes_store_busy | green |

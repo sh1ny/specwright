@@ -1,25 +1,9 @@
 # Spec Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Older untagged versions are published first
-`release.sh untagged` SHALL list the versions in main's first-parent history of the primary file, after the latest published version (with none published: only the current version), that are not published, oldest first. Published means the tag is on `origin` (with no `origin` remote: a local tag). A version with a local tag not on origin SHALL always be listed. Publish of V SHALL stop before any write while a version on that list is lower than V, naming it. With `--local`, `untagged` SHALL read local tags only, make no network call, and say in its output that the list comes from local tags; its output SHALL say so whenever it read local tags, including with no `origin` remote.
-
-#### Scenario: Older version untagged
-- **WHEN** `v0.4.2` is the latest tag, 0.5.0 has no tag and publish runs for 0.5.1
-- **THEN** publish exits non-zero naming 0.5.0, and `v0.5.1` is not created
-
-#### Scenario: Tag push failed earlier
-- **WHEN** `v0.4.2` is on origin, `v0.5.0` exists locally but not on origin (its push failed), and 0.5.1 is merged
-- **THEN** `untagged` lists 0.5.0, and publish of 0.5.1 exits non-zero naming 0.5.0
-
-#### Scenario: First release's tag push failed
-- **WHEN** origin has no tag, `v0.3.0` exists only locally (its push failed) and 0.3.1 is merged
-- **THEN** `untagged` lists 0.3.0 then 0.3.1, and publish of 0.3.1 exits non-zero naming 0.3.0
-
-#### Scenario: Backfill below the latest tag
-- **WHEN** `v0.5.0` is the only tag and publish runs for 0.4.1
-- **THEN** publish is not blocked, and the notes range starts at the commit where `VERSION` first read 0.4.0
+### Requirement: Untagged versions can be read from local tags only
+With `--local`, `release.sh untagged` SHALL read local tags only, make no network call, and say in its output that the list comes from local tags. Its output SHALL say so whenever it read local tags, including with no `origin` remote.
 
 #### Scenario: Local tags only
 - **WHEN** `v0.4.2` exists locally, origin points at an unreachable URL, main's version is 0.5.0, and `untagged --local` runs
@@ -28,8 +12,6 @@
 #### Scenario: Local read with a local-only tag
 - **WHEN** `v0.5.0` exists only locally (its push failed) and `untagged --local` runs with main at 0.5.0
 - **THEN** it lists nothing, and its output still says the list comes from local tags, so origin may lack a tag it counted
-
-## ADDED Requirements
 
 ### Requirement: A bumped version is greater than main's before it merges
 `release.sh check --main <ref>` SHALL refuse, before any write, a branch that bumped (its version differs from its merge base with `<ref>`, or the newest of its own non-merge commits that changed the primary file's version raised it) to a version not greater than `<ref>`'s, naming both versions and saying to bump again. No readable version at `<ref>` SHALL pass.
