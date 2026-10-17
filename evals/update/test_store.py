@@ -229,6 +229,23 @@ class TestOwner(Base):
         self.assertEqual(self.staging_left(), [])
 
 
+    def test_owner_swap_stops_when_store_version_advanced_after_stage(self):
+        self.pair("0.6.0")
+        dl = self.download("0.6.1")
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        fx.write_store_record(self.store, "0.7.0", self.owner_a)  # another checkout of A advanced the store and committed it
+        a_before, store_before = self.installed(self.a), fx.snapshot(self.store)
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertEqual(code, 1, doc)
+        self.assertEqual(doc["error"], "store_version_changed")
+        for want in ("0.7.0", self.owner_a, "0.6.0", "nothing was written", "rerun the update"):
+            self.assertIn(want, doc["message"].replace("Rerun", "rerun"))
+        self.assertEqual(fx.snapshot(self.store), store_before)  # the schema and STORE are as the other checkout left them
+        self.assertEqual(self.installed(self.a), a_before)  # nothing installed was touched
+        self.assertFalse(self.lock.exists(), "the gate lock is released")
+
+
 class TestFreeStore(Base):
     def test_busy_store_patch_same_schema_code_side_only(self):
         self.pair("0.6.0")

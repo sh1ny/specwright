@@ -440,6 +440,7 @@ class TestLockWithoutOwner(Base):
         self.assertIn("lock_replaced", doc)
         self.assertEqual(doc["lock_replaced"]["reason"], "lock_without_owner")
         self.assertFalse(co.lock.exists())
+        self.assertEqual(sorted(p.name for p in co.lock.parent.glob("update.lock.stale.*")), [])
 
     def test_fresh_ownerless_lock_reports_locked(self):
         co = self.checkout("0.5.0")
@@ -448,6 +449,160 @@ class TestLockWithoutOwner(Base):
         code, doc, err = self.run_sub("stage")
         self.assertEqual((code, doc["error"]), (1, "locked"), doc)
         self.assertTrue(co.lock.is_dir())
+
+
+RACE_SHIM = r"""#!/bin/sh
+# Race shim: at the first mv/rm call naming the lock, another run is simulated taking the stale lock first (removed and
+# made afresh, before its owner write); then the real tool runs on what is there now.
+name=__NAME__
+here=$(cd "$(dirname "$0")" && pwd)
+real() {
+  oldifs=$IFS; IFS=:
+  for d in $PATH; do
+    [ -n "$d" ] || continue
+    dir=$(cd "$d" 2>/dev/null && pwd) || continue
+    [ "$dir" = "$here" ] && continue
+    if [ -f "$dir/$1" ] || [ -f "$dir/$1.exe" ]; then IFS=$oldifs; echo "$dir/$1"; return; fi
+  done
+  IFS=$oldifs
+}
+case " $* " in
+  *update.lock*)
+    if [ ! -e "$RACE_MARK" ]; then
+      : > "$RACE_MARK"
+      "$(real rm)" -rf "$RACE_LOCK"
+      mkdir "$RACE_LOCK"
+    fi ;;
+esac
+exec "$(real "$name")" "$@"
+"""
+
+
+class TestStaleLockRace(Base):
+    """Two runs can judge the same stale lock. The takeover renames it aside and judges it again, so a lock another run
+    took meanwhile is put back and this run reports locked, instead of removing a live lock (both runs holding it)."""
+
+    def setUp(self):
+        super().setUp()
+        self.co_ = self.checkout("0.5.0")
+        self.download("0.6.0")
+        self.shims = self.tmp / "race-shims"
+        self.shims.mkdir()
+        for n in ("mv", "rm"):
+            (self.shims / n).write_text(RACE_SHIM.replace("__NAME__", n), encoding="utf-8", newline="\n")
+            (self.shims / n).chmod(0o755)
+
+    def host(self):
+        import subprocess
+        return subprocess.run(["bash", "-c", 'echo "${HOSTNAME:-$(hostname)}"'], capture_output=True, text=True).stdout.strip()
+
+    def stale_lock(self, owner):
+        lock = self.co.lock
+        lock.mkdir(parents=True)
+        if owner:
+            (lock / "owner").write_text(owner, encoding="utf-8", newline="\n")
+        t = time.time() - 3600
+        os.utime(lock, (t, t))
+        return lock
+
+    def run_race(self):
+        env = dict(os.environ)
+        env["PATH"] = str(self.shims) + os.pathsep + env["PATH"]
+        env["RACE_MARK"] = fx.posix(self.tmp / "race-mark")
+        env["RACE_LOCK"] = fx.posix(self.co.lock)
+        return self.run_sub("stage", env=env)
+
+    def leftovers(self):
+        return sorted(p.name for p in self.co.lock.parent.glob("update.lock.stale.*"))
+
+    def assert_lock_kept(self, code, doc):
+        self.assertTrue((self.tmp / "race-mark").exists(), "the race shim never ran")
+        self.assertEqual((code, doc["error"]), (1, "locked"), doc)
+        self.assertTrue(self.co.lock.is_dir(), "the other run's lock is put back")
+        self.assertEqual(self.leftovers(), [])
+        self.assertFalse(self.co.journal.exists())
+
+    def test_ownerless_lock_taken_meanwhile_is_kept(self):
+        self.stale_lock(None)
+        code, doc, err = self.run_race()
+        self.assert_lock_kept(code, doc)
+
+    def test_dead_owner_lock_taken_meanwhile_is_kept(self):
+        self.stale_lock(f"pid: 999999\nhost: {self.host()}\n")
+        code, doc, err = self.run_race()
+        self.assert_lock_kept(code, doc)
+
+    def test_dead_owner_lock_is_taken_over_without_leftovers(self):
+        self.stale_lock(f"pid: 999999\nhost: {self.host()}\n")
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertEqual(doc["lock_replaced"], {"pid": 999999, "host": self.host()})
+        self.assertFalse(self.co.lock.exists())
+        self.assertEqual(self.leftovers(), [])
+
+
+class TestJournalIntegrity(Base):
+    """A journal is read as a whole before any line of it is trusted: a damaged file whose formatted lines survive stops
+    plan and recover (journal_unreadable) and leaves the journal, the staging and the installed files as they are."""
+
+    def mini(self, tag):
+        tmp = Path(tempfile.mkdtemp(dir=self.tmp))
+        old = fx.make_mini_download(tmp / "dl-0.5.0", "0.5.0", 2)
+        new = fx.make_mini_download(tmp / "dl-0.6.0", "0.6.0", 2)
+        co = fx.make_checkout(tmp, "0.5.0", skills_dirs=(".claude/skills",), download=old)
+        return tmp, co, new
+
+    def damage(self, co):
+        with open(co.journal, "ab") as f:
+            f.write(b"garbage after the document" + bytes([10]))
+
+    def kept(self, co):
+        return {k: v for k, v in fx.snapshot(co.code).items() if not k.startswith("openspec/.specwright/update.lock")}
+
+    def test_garbage_after_staged_journal_stops_recover_and_plan(self):
+        tmp, co, dl = self.mini("staged")
+        code, _, out, err = fx.run_update(dl, [*co.args(), "stage"])
+        self.assertEqual(code, 0, out + err)
+        self.damage(co)
+        before = self.kept(co)
+        staging = sorted(p.name for p in co.code.rglob(".specwright-update-*"))
+        self.assertTrue(staging)
+        code, doc, out, err = fx.run_update(dl, [*co.args(), "recover"])
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(doc["error"], "journal_unreadable")
+        self.assertEqual(self.kept(co), before, "recover must touch nothing")
+        self.assertTrue(co.journal.exists())
+        self.assertEqual(sorted(p.name for p in co.code.rglob(".specwright-update-*")), staging)
+        self.assertFalse((co.code / "openspec/.specwright/update.lock").exists(), "the lock is released")
+        code, doc, out, err = fx.run_update(dl, [*co.args(), "plan"])
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("journal_unreadable", [r["code"] for r in doc["refusals"]])
+        self.assertEqual(self.kept(co), before, "plan must touch nothing")
+
+    def test_garbage_after_mid_swap_journal_stops_recover_untouched(self):
+        shims = fx.install_shims(self.tmp / "shims")
+        for n in range(1, 60):
+            tmp, co, dl = self.mini(f"swap{n}")
+            counter = tmp / "count"
+            code, _, out, err = fx.run_update(dl, [*co.args(), "stage"])
+            self.assertEqual(code, 0, out + err)
+            code, _, out, err = fx.run_update(dl, [*co.args(), "swap"], shim_dir=shims, count_file=counter, kill_at=n)
+            if code == 0:
+                self.fail("no kill point leaves a started swap")
+            if not co.journal.exists():
+                continue
+            if '"state": "swapped"' not in co.journal.read_text(encoding="utf-8"):
+                continue
+            break
+        else:
+            self.fail("no kill point leaves a started swap")
+        self.damage(co)
+        before = self.kept(co)
+        code, doc, out, err = fx.run_update(dl, [*co.args(), "recover"])
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(doc["error"], "journal_unreadable")
+        self.assertEqual(self.kept(co), before, "recover must not move any installed file")
+        self.assertTrue(co.journal.exists())
 
 
 if __name__ == "__main__":

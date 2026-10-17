@@ -101,6 +101,10 @@
 #                 schema, then STORE is written (version: <to>, owner: <id>; never committed) and store_state becomes
 #                 written;
 #              5. the lock is released.
+#            Step 1 for an owner also requires the record's version to still be the journal's store_version (what plan saw):
+#            another checkout of the same owner may have advanced and committed the store since, and this swap would write the
+#            older schema and STORE back. Otherwise it stops with error store_version_changed (nothing written, rerun the
+#            update to plan it again).
 #            For other (no gate lock: other projects never write the store, D5), swap reads STORE again before its first
 #            rename, next to the verify and the changes-in-flight check: a record whose major.minor is no longer the
 #            journal's `to`, or that is missing or unreadable, stops it with error other_store_version (the store's version
@@ -243,6 +247,34 @@ LOCK_HELD=0
 LOCK_EXTRA='{}'
 release_lock() { if [ "$LOCK_HELD" = 1 ]; then LOCK_HELD=0; rm -rf "$lock"; fi; }
 
+# claim_stale_lock dead PID HOST | claim_stale_lock ownerless: take over the stale lock acquire_lock just judged. Two runs
+# can judge the same stale lock, and one may remove it and take the lock afresh before the other acts, so the lock is
+# renamed aside first (only one run's rename succeeds) and the renamed directory is judged again: still the same stale
+# lock -> removed, exit 0, and the caller retries the mkdir; a lock taken since (a live run's) -> renamed back and
+# reported as locked. Exit 1 when another run moved or removed it first: the caller just retries the mkdir.
+claim_stale_lock() {
+  local aside="$lock.stale.$$" p="" h="" l stale=0
+  mv "$lock" "$aside" 2>/dev/null || return 1
+  if [ -f "$aside/owner" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in
+        "pid: "*) p=${l#pid: } ;;
+        "host: "*) h=${l#host: } ;;
+      esac
+    done < "$aside/owner"
+  fi
+  if [ "$1" = dead ]; then
+    [ "$p" = "$2" ] && [ "$h" = "$3" ] && ! kill -0 "$p" 2>/dev/null && stale=1
+  elif [ -z "$p" ] && [ -z "$h" ] && [ -n "$(find "$aside" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+    stale=1
+  fi
+  if [ "$stale" = 1 ]; then rm -rf "$aside"; return 0; fi
+  # -T: never move it into a lock a third run has taken meanwhile; that run keeps the lock and the aside copy stays
+  mv -T "$aside" "$lock" 2>/dev/null \
+    || die locked "another update took $lock while this run was replacing a stale lock; its lock was left at $aside"
+  die locked "another update holds $lock (pid ${p:-unknown} on ${h:-unknown host}); wait for it to finish"
+}
+
 acquire_lock() {
   local host=${HOSTNAME:-$(hostname)} owner_pid owner_host l tries=0
   mkdir -p "$state_dir"
@@ -258,16 +290,16 @@ acquire_lock() {
     fi
     tries=$((tries + 1))
     if [ "$tries" -le 3 ] && [ "$owner_host" = "$host" ] && [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
-      LOCK_EXTRA="{\"lock_replaced\": {\"pid\": $owner_pid, \"host\": \"$owner_host\"}}"
-      rm -rf "$lock"
+      claim_stale_lock dead "$owner_pid" "$owner_host" \
+        && LOCK_EXTRA="{\"lock_replaced\": {\"pid\": $owner_pid, \"host\": \"$owner_host\"}}"
       continue
     fi
     # lock_without_owner: killed between the mkdir and the owner write. Within the acquisition window (60 s) the lock may
     # be a run midway through taking it, so it stays "locked"; an older ownerless lock is stale and taken over.
     if [ "$tries" -le 3 ] && { [ -z "$owner_pid" ] || [ -z "$owner_host" ]; } && [ -d "$lock" ] \
        && [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
-      LOCK_EXTRA='{"lock_replaced": {"pid": null, "host": null, "reason": "lock_without_owner"}}'
-      rm -rf "$lock"
+      claim_stale_lock ownerless \
+        && LOCK_EXTRA='{"lock_replaced": {"pid": null, "host": null, "reason": "lock_without_owner"}}'
       continue
     fi
     die locked "another update holds $lock (pid ${owner_pid:-unknown} on ${owner_host:-unknown host}); wait for it to finish"
@@ -283,7 +315,12 @@ trap release_lock EXIT
 # mv. No process but mv runs per journal write, which keeps a swap fast on Windows.
 
 JL=()
-jload() { mapfile -t JL < "$journal"; }
+jload_raw() { mapfile -t JL < "$journal"; }
+jload() {  # the journal must parse as a whole (journal-check) before any line of it is trusted; a failure stops, nothing touched
+  local chk
+  chk=$(pyx journal-check "${PYARGS[@]}") || { printf '%s\n' "$chk"; exit 1; }
+  jload_raw
+}
 jflush() { printf '%s\n' "${JL[@]}" > "$jtmp"; mv -f "$jtmp" "$journal"; }
 
 jfield() {  # jfield KEY: the top-level string or number value of KEY ("" when missing)
@@ -343,10 +380,11 @@ jwrite_all_targets() {  # jwrite_all_targets FROM TO
 }
 
 remove_staging() {  # remove every staging directory of the journal (or of the plan when there is no journal)
-  local d
+  local d list
+  list=$(pyx staging "${PYARGS[@]}") || { printf '%s\n' "$list"; exit 1; }  # a failed reader stops: never an empty list
   while IFS= read -r d; do
     [ -z "$d" ] || [ ! -e "$d" ] || rm -rf "$d"
-  done < <(pyx staging "${PYARGS[@]}")
+  done <<< "$list"
 }
 
 # --- recover ----------------------------------------------------------------------------------------------------
@@ -597,8 +635,8 @@ do_recover() {
 # --- subcommands ------------------------------------------------------------------------------------------------
 
 do_plan() {
-  if [ -f "$journal" ]; then
-    jload
+  if [ -f "$journal" ] && pyx journal-check "${PYARGS[@]}" >/dev/null 2>&1; then  # an unreadable journal is left to plan's refusal
+    jload_raw
     local ph lx
     ph=$(jfield phase)
     if [ "$(jfield format)" = 1 ]; then
@@ -630,13 +668,14 @@ do_stage() {
   remove_staging
   pyx journal-new "${PYARGS[@]}" --plan "$out" "$jtmp"
   mv -f "$jtmp" "$journal"
-  local op a b c
+  local op a b c opslist
+  opslist=$(pyx ops "${PYARGS[@]}") || { printf '%s\n' "$opslist"; exit 1; }
   while IFS=$'\t' read -r op a b c; do
     case "$op" in
       mkdir) mkdir -p "$a" ;;
       cp) if [ "$a" = "-R" ]; then cp -R "$b" "$c/"; else cp "$b" "$c/"; fi ;;
     esac
-  done < <(pyx ops "${PYARGS[@]}")
+  done <<< "$opslist"
   pyx carry "${PYARGS[@]}"
   local vout vrc=0
   vout=$(pyx verify "${PYARGS[@]}") || vrc=$?
@@ -1420,6 +1459,9 @@ def cmd_store_check(o, pos):
                      f"only the owner replaces its schema, and nothing was written. Rerun the update to plan it again")
             stop("store_owner_changed", f"the store's schema is now owned by {rec['owner']} (version {rec['version']}), not by {me}; "
                  f"nothing was written. Rerun the update to plan it again")
+        if j["role"] == "owner" and rec is not None and rec["version"] != j.get("store_version"):
+            stop("store_version_changed", f"the store now records version {rec['version']} (owner {rec['owner']}), not the "
+                 f"{j.get('store_version')} this update was planned against; nothing was written. Rerun the update to plan it again")
         staging = [p for p in (rel_to(top, g["staging"]) for g in j["groups"]) if p]
         reason, _ = store_busy_reason(o, top, lambda p: under(p, staging))
         if reason is None:
@@ -1439,6 +1481,13 @@ def cmd_store_check(o, pos):
         stop("store_busy", f"{reason}. The rollback stops before any rename and the swapped state and the journal are kept; "
              f"the store stays on {j['to']}. Finish that change, then run the rollback again")
     emit({"ok": True, "mode": "rollback"})
+
+
+def cmd_journal_check(o, pos):
+    """The whole journal must parse as a JSON object of format 1 (the shell reads it line by line, so a damaged file
+    whose formatted lines survive must not pass). Silent exit 0 when it does; a ValueError is journal_unreadable."""
+    if load_journal(o) is None:
+        raise ValueError("update.json does not exist")
 
 
 def cmd_journal_drop_store(o, pos):
