@@ -132,7 +132,7 @@
   - **OMP answer (D6).** `test_omp_large_stream_small_answer_valid` (a 3 MiB recorded stream from the `reviewcli.py` fake with a 19 KB final answer), `test_omp_answer_over_bound_invalid` and `test_omp_stream_without_agent_end_invalid`. Implement the line-scanning OMP reader with `readline(MAX_EVENT_LINE + 1)`, drop the raw stdout size check for `omp`, and bound the answer with `MAX_OUTPUT`.
 
   Verify with `python -m pytest evals/review-routes` and flip the rows green.
-- [ ] 3.4 Switch the subagent design-review dispatch to the scratch file and `record --out`:
+- [x] 3.4 Switch the subagent design-review dispatch to the scratch file and `record --out`:
   - `schemas/specwright/schema.yaml` (review instruction, subagent route; instruction text only);
   - `skills/specwright-review/SKILL.md` (Design reviews `subagent`, and the CLI-route sentence naming the value check);
   - `skills/specwright-roadmap/SKILL.md` (init step 5);

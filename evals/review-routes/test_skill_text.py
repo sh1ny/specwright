@@ -206,6 +206,8 @@ class DesignReviewCallers(unittest.TestCase):
         calls = re.findall(r"review-run\.sh (?:run|record) --kind design[^`]*", text)
         self.assertTrue(calls, f"{path.name} has no design review call")
         for call in calls:
+            if "--scratch" in call:  # only prints a scratch path; it writes no receipt
+                continue
             self.assertIn("--selection", call, f"{path.name}: `{call}` does not pass --selection")
 
     def test_design_runs_document_store(self):
@@ -215,6 +217,35 @@ class DesignReviewCallers(unittest.TestCase):
             for m in re.finditer(r"review-run\.sh run --kind design[^`]*`", text):
                 self.assertIn("--store <store toplevel>", text[m.start():m.end() + 160],
                               f"{path.name}: `{m.group(0)}` has no store-backed --store variant")
+
+    def test_subagent_design_dispatch_uses_scratch_and_record_out(self):
+        # the subagent writes a scratch file named by `record --scratch`; `record --out` copies it to the review file only
+        # when it validates, so a refused review never replaces an earlier one (fix-m3-gaps, D5)
+        steps = {
+            "schema": re.search(r"(?s)Subagent route:.{0,1200}", re.sub(r"[ \t]*\n[ \t]*", "\n", read(SCHEMA))),
+            "roadmap": re.search(r"(?s)the `specwright-reviewer` agent in baseline mode.{0,900}", re.sub(r"\s+", " ", read(ROADMAP))),
+            "review": re.search(r"(?s)\*\*`subagent`:\*\*.{0,1500}", read(REVIEW)),
+        }
+        for name, m in steps.items():
+            self.assertTrue(m, f"{name}: no subagent design-review step found")
+            text = re.sub(r"\s+", " ", m.group(0))
+            self.assertRegex(text, r"record --kind design --change (<[^>]+>|baseline) --scratch", f"{name}: no `record --kind design --scratch` call")
+            self.assertRegex(text, r"--result <scratch[^>]*> --out [<\w]", f"{name}: record is not given the scratch result and --out")
+            self.assertLess(text.find("--scratch"), text.find("--out"), f"{name}: --out comes before the scratch file exists")
+            self.assertNotRegex(text, r"--result <review\.md>|--result <review file>|--result openspec/architecture-review\.md",
+                                f"{name}: still validates the review file in place")
+        review = re.sub(r"\s+", " ", steps["review"].group(0))
+        self.assertRegex(review, r"(?i)exit 3.{0,200}(earlier|untouched|unchanged)", "review: exit 3 does not say the review file is untouched")
+        self.assertRegex(review, r"(?i)scratch", "review: the scratch path is not reported")
+        for agent in (ROOT / "agents" / "claude" / "specwright-reviewer.md", ROOT / "agents" / "omp" / "specwright-reviewer.md"):
+            self.assertRegex(read(agent), r"(?i)single output file the request names",
+                             f"{agent.parent.name}: the agent does not write the single output file the request names")
+
+    def test_cli_design_route_names_the_value_check(self):
+        text = re.sub(r"\s+", " ", read(REVIEW))
+        self.assertRegex(text, r"(?i)CHANGES_APPLIED.{0,200}(APPROVE_WITH_CHANGES|REVISE)",
+                         "the CLI-route sentence does not name the verdict value check")
+        self.assertRegex(text, r"(?i)Windows.{0,200}Python 3\.11", "the codex route note does not say Windows needs Python 3.11+")
 
     def test_schema(self):
         self.check(SCHEMA)
