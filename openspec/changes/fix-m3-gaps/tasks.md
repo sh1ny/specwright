@@ -21,6 +21,7 @@
 | install-update → A refused change is also checked against the installed schema | Change already incomplete on the installed version | evals/update/test_inflight.py | test_refusal_names_installed_version_when_change_already_fails (plan and swap-check) | red |
 | install-update → A refused change is also checked against the installed schema | Change fails only on the target | evals/update/test_inflight.py | test_refusal_blames_target_when_installed_passes | red |
 | install-update → A refused change is also checked against the installed schema | Installed schema fails under the current OpenSpec | evals/update/test_inflight.py | test_no_installed_claim_when_installed_schema_invalid | red |
+| install-update → A refused change is also checked against the installed schema | OpenSpec fails during the installed check | evals/update/test_inflight.py | test_no_installed_claim_when_openspec_errors | red |
 | install-update → A refused change is also checked against the installed schema | No installed schema to compare with | evals/update/test_inflight.py | test_no_installed_claim_without_installed_version | red |
 | releases → Older untagged versions are published first | Older version untagged | evals/release/test_release.py | TestUntagged.test_older_blocks_newer | green |
 | releases → Older untagged versions are published first | Tag push failed earlier | evals/release/test_release.py | TestUntagged.test_local_only_tag_is_not_published | green |
@@ -152,7 +153,7 @@
   - A swaps, B stages and its swap is refused: B's refused swap removes only B's staging and journal, A's `<idA>/old` survives and A's `recover --rollback` restores the old schema;
   - B's busy message names A's staging directory and says to rerun the update in that checkout, and B's staging and journal are gone;
   - both staged: A's swap is refused and removes A's staging and journal, B's swap runs, and A's rerun after B finished is not refused for staging;
-  - `test_second_claimer_names_owner` without moving B's staging aside (B stages after A finished);
+  - `test_second_claimer_names_owner` without moving B's staging aside: B stages as a claimer, then A's claim is recorded in the store (A's real update would be refused for B's staging), and B's swap is refused as `store_claimed` naming A, with B's staging and journal gone;
   - a hand-written `format: 1` journal naming the legacy shared path is recovered with that path.
 
   Confirm that they fail for the right reason.
@@ -170,13 +171,14 @@
   - `test_refusal_names_installed_version_when_change_already_fails`: a change with `tasks.md` and no `review.md`, at the plan and at swap-check;
   - `test_refusal_blames_target_when_installed_passes`, using `Base.download(failing=True)`;
   - `test_no_installed_claim_when_installed_schema_invalid`: the installed schema corrupted so that `openspec schema validate` fails;
+  - `test_no_installed_claim_when_openspec_errors`: an `openspec` wrapper whose `validate` exits 1 with no result in the installed check only;
   - `test_no_installed_claim_without_installed_version`
 
   Confirm that they fail for the right reason.
 - [ ] 5.2 In `scripts/update.sh`:
-  - have `check_change` return the failing step with its error;
+  - have `check_change` return the failing step with its error, and `error` for an `openspec` run that failed without a result saying the change fails;
   - add the installed-schema recheck for invalid entries in `make_plan` and `cmd_swap_check` per design D8, in its own scratch directory, labelled by `VERSION` or by the store's `STORE` version;
-  - append the note only when the installed schema validates.
+  - append the note only when the installed schema validates and the change then fails `validate` or `status`, never on an `error` step.
 
   Verify that 5.1's tests pass and that `python -m pytest evals/update/test_inflight.py` is green, then flip the rows green.
 

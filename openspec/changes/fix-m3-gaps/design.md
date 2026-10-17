@@ -119,8 +119,8 @@ See `proposal.md` for the seven issues. Current code:
 - **Choice:** After `inflight_entries` finds an invalid entry (plan, or swap-check), `update.sh` validates that one change again against the installed schema directory (`<root>/openspec/schemas/specwright`), in its own scratch directory (`{i}-{name}-installed`).
   - The label is the installed version: the project's `VERSION`, or for a store the `STORE` record's version, since the store's schema on disk is the owner's.
   - When there is no installed `VERSION` or no schema directory, the second check is skipped.
-  - `check_change` returns the failing step along with its error: `schema`, `validate` or `status`.
-  - The message adds `; it already fails on <installed> (<that error>), so the update to <to> did not cause it` only when the installed schema passes `openspec schema validate` and the change then fails `validate` or `status` against it.
+  - `check_change` returns the failing step along with its error: `schema`, `validate` or `status`, or `error` when an `openspec` run exits non-zero without a result that says the change fails, or prints output it cannot read (codex trial in task 3.5).
+  - The message adds `; it already fails on <installed> (<that error>), so the update to <to> did not cause it` only when the installed schema passes `openspec schema validate` and the change then fails `validate` or `status` against it; an `error` step is no such failure.
   - When the installed schema itself fails `schema validate` under the current OpenSpec, or `openspec` errors, the message keeps only the target error and makes no claim about the installed version (review M3).
   - The refusal code and the outcome are unchanged.
 - **Rejected:** Validate every change against both schemas on every plan. That doubles the three `openspec` calls per change on the common path, where everything validates, to improve a message on the rare failure path.

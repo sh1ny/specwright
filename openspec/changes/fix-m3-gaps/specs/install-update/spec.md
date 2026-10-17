@@ -82,6 +82,10 @@ When a change in flight fails validation against the target version, at the plan
 - **WHEN** an update from 0.4.2 to 0.6.0 refuses change `add-x`, and the installed 0.4.2 schema itself fails `openspec schema validate` under the OpenSpec now installed
 - **THEN** the refusal names `add-x` and the 0.6.0 error, and makes no claim that `add-x` already fails on 0.4.2
 
+#### Scenario: OpenSpec fails during the installed check
+- **WHEN** an update from 0.5.0 to 0.6.0 refuses change `add-x`, and `openspec validate` exits non-zero without a validation result when run against the installed 0.5.0 schema
+- **THEN** the refusal names `add-x` and the 0.6.0 error, and makes no claim that `add-x` already fails on 0.5.0
+
 #### Scenario: No installed schema to compare with
 - **WHEN** a workflow update with no installed `VERSION` refuses change `add-x`
 - **THEN** the refusal names `add-x` and the target's error, makes no claim about an installed version, and the update writes no file
