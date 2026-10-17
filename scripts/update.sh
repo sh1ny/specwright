@@ -265,7 +265,7 @@ claim_stale_lock() {
   fi
   if [ "$1" = dead ]; then
     [ "$p" = "$2" ] && [ "$h" = "$3" ] && ! kill -0 "$p" 2>/dev/null && stale=1
-  elif [ -z "$p" ] && [ -z "$h" ] && [ -n "$(find "$aside" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+  elif { [ -z "$p" ] || [ -z "$h" ]; } && [ -n "$(find "$aside" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
     stale=1
   fi
   if [ "$stale" = 1 ]; then rm -rf "$aside"; return 0; fi
@@ -669,7 +669,8 @@ do_stage() {
   pyx journal-new "${PYARGS[@]}" --plan "$out" "$jtmp"
   mv -f "$jtmp" "$journal"
   local op a b c opslist
-  opslist=$(pyx ops "${PYARGS[@]}") || { printf '%s\n' "$opslist"; exit 1; }
+  # a failed listing is cleaned up as a failed verify is: the journal still says "staging", installed files untouched
+  opslist=$(pyx ops "${PYARGS[@]}") || { remove_staging; rm -f "$journal"; printf '%s\n' "$opslist"; exit 1; }
   while IFS=$'\t' read -r op a b c; do
     case "$op" in
       mkdir) mkdir -p "$a" ;;
@@ -1166,6 +1167,8 @@ def check_change(scratch, name):
         if rc != 0:
             return f"openspec validate {name}: " + first_error(out + "\n" + err)
     rc, out, err = run_openspec(["status", "--change", name, "--json"], scratch)
+    if rc != 0:  # a failed run fails the check even when its output parses as JSON
+        return f"openspec status {name}: " + first_error(err + "\n" + out)
     try:
         st = json.loads(out)
     except ValueError:
@@ -1459,6 +1462,11 @@ def cmd_store_check(o, pos):
                      f"only the owner replaces its schema, and nothing was written. Rerun the update to plan it again")
             stop("store_owner_changed", f"the store's schema is now owned by {rec['owner']} (version {rec['version']}), not by {me}; "
                  f"nothing was written. Rerun the update to plan it again")
+        # checkouts of one repository share the owner id, so a record another checkout wrote since this claim was planned
+        # passes the owner test above; any version but this update's own target means the claim is stale
+        if j["role"] == "claim" and rec is not None and rec["version"] != j["to"]:
+            stop("store_claimed", f"the store was claimed by {rec['owner']} (version {rec['version']}) after this update was planned "
+                 f"to claim it at {j['to']}: only the owner replaces its schema, and nothing was written. Rerun the update to plan it again")
         if j["role"] == "owner" and rec is not None and rec["version"] != j.get("store_version"):
             stop("store_version_changed", f"the store now records version {rec['version']} (owner {rec['owner']}), not the "
                  f"{j.get('store_version')} this update was planned against; nothing was written. Rerun the update to plan it again")

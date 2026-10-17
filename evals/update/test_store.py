@@ -246,6 +246,23 @@ class TestOwner(Base):
         self.assertFalse(self.lock.exists(), "the gate lock is released")
 
 
+    def test_claim_swap_stops_when_same_repo_checkout_recorded_newer_version(self):
+        self.pair("0.5.0", record=None)
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.assertEqual(self.ok(self.a, dl, "plan")["role"], "claim")
+        self.ok(self.a, dl, "stage")
+        fx.write_store_record(self.store, "0.7.0", self.owner_a)  # another checkout of A claimed it first, at a newer version
+        a_before, store_before = self.installed(self.a), fx.snapshot(self.store)
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertEqual(code, 1, doc)
+        self.assertEqual(doc["error"], "store_claimed")
+        for want in ("0.7.0", self.owner_a, "0.6.0", "nothing was written"):
+            self.assertIn(want, doc["message"])
+        self.assertEqual(fx.snapshot(self.store), store_before)  # the schema and STORE are as the other checkout left them
+        self.assertEqual(self.installed(self.a), a_before)
+        self.assertFalse(self.lock.exists(), "the gate lock is released")
+
+
 class TestFreeStore(Base):
     def test_busy_store_patch_same_schema_code_side_only(self):
         self.pair("0.6.0")

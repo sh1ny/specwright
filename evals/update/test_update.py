@@ -450,6 +450,62 @@ class TestLockWithoutOwner(Base):
         self.assertEqual((code, doc["error"]), (1, "locked"), doc)
         self.assertTrue(co.lock.is_dir())
 
+    def test_old_lock_with_partial_owner_is_taken_over(self):
+        """Killed mid owner write: only the pid line. The re-check after the rename judges it as the first check did."""
+        co = self.checkout("0.5.0")
+        self.download("0.6.0")
+        self.lock = self.co.lock
+        self.lock.mkdir(parents=True)
+        (self.lock / "owner").write_text("pid: 4242\n", encoding="utf-8", newline="\n")
+        t = time.time() - 3600
+        os.utime(self.lock, (t, t))
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertEqual(doc["lock_replaced"]["reason"], "lock_without_owner")
+        self.assertFalse(co.lock.exists())
+        self.assertEqual(sorted(p.name for p in co.lock.parent.glob("update.lock.stale.*")), [])
+
+
+BREAK_SHIM = r"""#!/bin/sh
+# Break shim: right after the first mv naming update.json.tmp (stage writing its journal), BREAK_PATH is removed, so
+# what stage does next (listing its copies from a fresh plan) fails.
+here=$(cd "$(dirname "$0")" && pwd)
+oldifs=$IFS; IFS=:
+for d in $PATH; do
+  [ -n "$d" ] || continue
+  dir=$(cd "$d" 2>/dev/null && pwd) || continue
+  [ "$dir" = "$here" ] && continue
+  if [ -f "$dir/mv" ] || [ -f "$dir/mv.exe" ]; then real="$dir/mv"; break; fi
+done
+IFS=$oldifs
+"$real" "$@" || exit $?
+case " $* " in
+  *update.json.tmp*) if [ ! -e "$BREAK_MARK" ]; then : > "$BREAK_MARK"; rm -rf "$BREAK_PATH"; fi ;;
+esac
+"""
+
+
+class TestStageOpsFailure(Base):
+    def test_failed_copy_listing_removes_journal_and_staging(self):
+        co = self.checkout("0.5.0")
+        dl = self.download("0.6.0")
+        shims = self.tmp / "break-shims"
+        shims.mkdir()
+        (shims / "mv").write_text(BREAK_SHIM, encoding="utf-8", newline="\n")
+        (shims / "mv").chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = str(shims) + os.pathsep + env["PATH"]
+        env["BREAK_MARK"] = fx.posix(self.tmp / "break-mark")
+        env["BREAK_PATH"] = fx.posix(dl / "skills")
+        before = fx.tree(co.skills[0])
+        code, doc, out, err = fx.run_update(dl, [*co.args(), "stage"], env=env)
+        self.assertTrue((self.tmp / "break-mark").exists(), "the break shim never ran")
+        self.assertEqual(code, 1, f"{out} {err}")
+        self.assertFalse(co.journal.exists(), "the journal written before the failure is removed")
+        self.assertEqual(self.staging_dirs(), [])
+        self.assertFalse(co.lock.exists())
+        self.assertEqual(fx.tree(co.skills[0]), before)
+
 
 RACE_SHIM = r"""#!/bin/sh
 # Race shim: at the first mv/rm call naming the lock, another run is simulated taking the stale lock first (removed and

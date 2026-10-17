@@ -125,6 +125,32 @@ class TestInflight(Base):
         self.assertEqual(fx.tree(co.schema), fx.tree(dl / "schemas" / "specwright"))
         self.assertFalse((dl / ".update-scratch").exists())  # scratch roots are removed on exit
 
+    def test_failed_status_with_json_output_refuses_workflow_update(self):
+        """`openspec status` exiting non-zero fails the third check even when its output parses as JSON."""
+        import os
+        import shutil
+        real = shutil.which("openspec")
+        wrap = self.tmp / "openspec-wrap"
+        wrap.mkdir()
+        (wrap / "openspec.cmd").write_text(
+            f'@echo off\r\nif "%1"=="status" (\r\n  echo {{}}\r\n  echo Error: status broke 1>&2\r\n  exit /b 1\r\n)\r\n"{real}" %*\r\n',
+            encoding="utf-8", newline="")
+        (wrap / "openspec").write_text(
+            f'#!/bin/sh\nif [ "$1" = status ]; then echo "{{}}"; echo "Error: status broke" >&2; exit 1; fi\nexec "{real}" "$@"\n',
+            encoding="utf-8", newline="\n")
+        (wrap / "openspec").chmod(0o755)
+        self.env = {**self.env, "PATH": str(wrap) + os.pathsep + self.env["PATH"]}
+        co = self.checkout()
+        fx.add_change_worktree(co.code, "add-x")
+        self.download()
+        before = fx.snapshot(co.code)
+        code, doc, err = self.run_sub("plan")
+        self.assertEqual(code, 1, f"plan: {doc}")
+        self.assertEqual(doc["error"], "refused")
+        self.assertIn("add-x", doc["message"])
+        self.assertIn("status broke", doc["message"])
+        self.assertEqual(fx.snapshot(co.code), before)
+
     def test_failing_change_refuses_workflow_update(self):
         co = self.checkout()
         fx.add_change_worktree(co.code, "add-x")
