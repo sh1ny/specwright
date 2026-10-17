@@ -199,13 +199,20 @@ installed agent file (say so in Step 8).
     `rolled back to <prev>`. A `journal` still listed afterwards in phase
     `swapped` with this download's `to` is a swap that finished before the
     stamp: set `swapped` to true, skip `stage` and `swap`, and go on with
-    Steps 5-7.
-  - A refusal (exit 1, `"error": "refused"`, `"unchanged": true`, listed in
-    `refusals`): a change in flight that fails validation against the new
-    schema, a store another project owns, a busy store, and so on. Tell the
-    user each refusal as the script words it, STOP, and report that the
-    installed version is unchanged (Step 8). Nothing was changed, so only the
-    temporary directory is left to delete.
+    Steps 5-7. No `swap` report exists then: take `store_written` from
+    `recovered.store_written` in `plan`'s document, in place of `swap`'s.
+  - A refusal (exit 1, `"error": "refused"`, listed in `refusals`): a change
+    in flight that fails validation against the new schema, a store another
+    project owns, a busy store, and so on. Tell the user each refusal as the
+    script words it and STOP.
+    - With `"unchanged": true`, report that the installed version is
+      unchanged (Step 8). Nothing was changed, so only the temporary directory
+      is left to delete.
+    - With `"unchanged": false`, a resumed swap is pending: the new files are
+      in place, but VERSION is not stamped. Do not report the installation as
+      unchanged. Say that `<to>`'s files are installed but not stamped, give
+      the restart notice (Step 8), and say that rerunning this prompt once the
+      refusal is resolved completes the update.
   - `orphans` are installed `specwright-*` names with no downloaded
     counterpart (the script never touches them): list them and ask before
     removing them, and remove only those the user agrees to, after `swap`.
@@ -231,9 +238,10 @@ installed agent file (say so in Step 8).
 Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
 - Run this step only when `plan` reported role `none` (a repo-local project)
   or `swap` reported `store_written: true` (this project owns the store, or
-  has just claimed it). Otherwise skip it: another project owns the store's
-  config.yaml, so leave `config.yaml` as it is and carry the owner `<id>` from
-  `plan` to Step 7.
+  has just claimed it). When `plan` resumed the swap and no `swap` ran, use
+  `recovered.store_written` from `plan` instead. Otherwise skip it: another
+  project owns the store's config.yaml, so leave `config.yaml` as it is and
+  carry the owner `<id>` from `plan` to Step 7.
 - If it does not exist, copy the downloaded `templates/openspec/config.yaml`.
 - Otherwise:
   - `schema:` - if it is missing or `spec-driven`, set it to `specwright`. If

@@ -118,6 +118,48 @@ class TestInterrupt(unittest.TestCase):
                     self.assertEqual(self.co.version_file.read_text(), "0.5.0\n")
                 self.assertEqual(self.leftovers(), [])
 
+    def swap_killed_after_first_target(self):
+        """Stage, then kill the swap at the first call after which the first target is swapped in. Returns the target."""
+        import json
+        for n in range(self.first_rename, self.total + 1):
+            self.reset()
+            code, _, _, err = self.upd("stage", count=True)
+            self.assertEqual(code, 0, err)
+            self.upd("swap", count=True, kill_at=n)
+            if not self.co.journal.exists():
+                continue
+            t = json.loads(self.co.journal.read_text(encoding="utf-8"))["targets"][0]
+            if t["state"] == "swapped" and not (Path(t["staging"]) / "new" / t["name"]).exists():
+                return t
+        self.fail("no kill point leaves the first target swapped")
+
+    def test_refusal_after_resumed_swap_reports_not_unchanged(self):
+        self.swap_killed_after_first_target()
+        schema = self.dl_new / "schemas" / "specwright" / "schema.yaml"
+        saved = schema.read_bytes()
+        schema.unlink()  # the download is now incomplete: plan recovers first, then refuses
+        try:
+            code, doc, out, err = self.upd("plan")
+        finally:
+            schema.write_bytes(saved)
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(doc["error"], "refused")
+        self.assertEqual(doc["recovered"]["action"], "resumed")
+        self.assertEqual(doc["journal"]["phase"], "swapped")
+        self.assertFalse(doc["unchanged"], "the new files are in place and VERSION is not stamped")
+
+    def test_extra_file_in_swapped_target_rolls_back(self):
+        t = self.swap_killed_after_first_target()
+        extra = Path(t["dir"]) / t["name"] / "stray.txt"
+        extra.write_text("not in the download\n", encoding="utf-8")
+        code, doc, out, err = self.upd("plan")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(doc["recovered"]["action"], "rolled-back")
+        self.assertTrue(doc["recovered"]["message"].startswith("rolled back to "), doc["recovered"]["message"])
+        self.assertEqual(self.installed(), self.old)
+        self.assertEqual(self.co.version_file.read_text(), "0.5.0\n")
+        self.assertEqual(self.leftovers(), [])
+
 
 class TestStoreInterrupt(unittest.TestCase):
     """The owner A of a store updates 0.5.0 -> 0.6.0 (the schema differs). The staged state is saved once; every run

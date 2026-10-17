@@ -94,6 +94,28 @@ class TestPlan(Base):
         self.assertIn("specwright-extra", names)
         self.assertNotIn("specwright-debug", names)
 
+    def test_root_in_other_worktree_refused_and_nothing_written(self):
+        co = self.checkout("0.5.0")
+        dl = self.download("0.6.0", schema_edit=fx.schema_edit_comment)
+        wt = self.tmp / "code-wt"
+        fx.git(co.code, "worktree", "add", "-q", "-b", "other", str(wt))
+        co.root = wt  # a planning root in a sibling worktree of the code repo: same git common dir, other toplevel
+        before = {"code": fx.snapshot(co.code), "wt": fx.snapshot(wt)}
+        for sub in ("plan", "stage"):
+            with self.subTest(sub):
+                code, doc, err = self.run_sub(sub)
+                self.assertEqual(code, 1, err)
+                self.assertEqual(doc["error"], "refused")
+                self.assertEqual(doc["role"], "none")
+                codes = [r["code"] for r in doc["refusals"]]
+                self.assertIn("root_other_worktree", codes)
+                msg = next(r["message"] for r in doc["refusals"] if r["code"] == "root_other_worktree")
+                self.assertIn(fx.posix(co.code.resolve()), msg)
+                self.assertIn(fx.posix(wt.resolve()), msg)
+                self.assertEqual({"code": fx.snapshot(co.code), "wt": fx.snapshot(wt)}, before)
+                self.assertEqual(self.staging_dirs(), [])
+                self.assertEqual([p for p in wt.rglob(".specwright-update-*")], [])
+
     def test_refusal_reports_unchanged(self):
         co = self.checkout("0.5.0")
         dl = self.download("0.6.0")

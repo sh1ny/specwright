@@ -1527,6 +1527,19 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertIn("note-config", s5, "Step 5 does not run note-config")
         self.assertGreater(s5.rindex("note-config"), s5.index("`context:`"), "note-config does not come after the merge")
 
+    def test_step4_resumed_swap_takes_store_written_from_recovered(self):
+        s4, s5 = self.s(4), self.s(5)
+        self.assertRegex(s4, r"(?is)skip `stage` and `swap`.{0,300}recovered\.store_written", "Step 4 does not take store_written from recovered after a resumed swap")
+        self.assertRegex(s5, r"(?is)recovered\.store_written", "Step 5 does not name recovered.store_written as the other source")
+        self.assertRegex(s5, r"(?is)`swap`.{0,200}`store_written: true`.{0,300}recovered\.store_written", "Step 5 does not name both sources")
+
+    def test_step4_refusal_with_unchanged_false_is_not_reported_unchanged(self):
+        b = self.branch(self.s(4), r'"unchanged": false')
+        self.assertRegex(b, r"(?is)not (report|say).{0,60}unchanged", "an unchanged:false refusal may be reported as unchanged")
+        self.assertRegex(b, r"(?is)installed but not stamped", "the refusal does not say the files are installed but not stamped")
+        self.assertRegex(b, r"(?is)restart notice", "the refusal does not give the restart notice")
+        self.assertRegex(b, r"(?is)rerunning this prompt.{0,120}completes the update", "the refusal does not say a rerun completes the update")
+
     # Step 7: the stamp, the store config line, finish.
 
     def test_step7_reports_store_config_managed_and_runs_finish(self):

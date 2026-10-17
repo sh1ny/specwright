@@ -29,7 +29,10 @@
 #            <download>/.update-scratch/ (removed before plan returns), with one exception: when a journal is pending, plan
 #            first runs recover (below) and adds recovered: {action, message, from, to, store_written} to its document; journal then
 #            shows what is left. A journal that is not format 1 is not recovered (plan refuses it as unreadable).
-#            A refusal is exit 1, error "refused".
+#            A refusal is exit 1, error "refused"; its "unchanged" is the state's: true until a swap has started, false
+#            while a journal is in phase swapping or swapped (a resumed swap left the new files in place, VERSION not stamped).
+#            --root in another worktree of the code repo (same git common dir, different toplevel) is a refusal (code
+#            root_other_worktree) naming both worktrees: it is not a store, and stage (which runs plan first) writes nothing.
 #            Changes in flight (design D4), on a workflow update only (no installed VERSION, or a different major
 #            or minor; a patch update, a reinstall and a same-minor downgrade skip it: inflight_checked false):
 #              - collected: every change directory in <root>/openspec/changes/ other than archive/, and every local
@@ -914,10 +917,28 @@ def code_top(o):
     return Path(out.decode("utf-8", "replace").strip() if rc == 0 and out.strip() else o["code"]).resolve()
 
 
-def is_store(o):
-    """True when the planning root lives in a git repo other than the code checkout's (a planning store)."""
+def common_dir(path):
+    """The absolute git common dir of the repo at `path`, None outside a repo."""
+    rc, out = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    return Path(out.decode("utf-8", "replace").strip()).resolve() if rc == 0 and out.strip() else None
+
+
+def other_worktree(o):
+    """(root toplevel, code toplevel) when --root is in another worktree of the code repo (same git common dir, different
+    toplevel), else None. Commits there would land on that worktree's branch, so it is neither a store nor writable."""
     top, _ = planning_repo(o)
-    return top is not None and top != code_top(o)
+    ctop = code_top(o)
+    if top is None or top == ctop:
+        return None
+    cd = common_dir(top)
+    return (top, ctop) if cd is not None and cd == common_dir(ctop) else None
+
+
+def is_store(o):
+    """True when the planning root lives in a git repo other than the code checkout's (a planning store): a different
+    git common dir. Another worktree of the code repo is not a store (plan refuses it: root_other_worktree)."""
+    top, _ = planning_repo(o)
+    return top is not None and top != code_top(o) and other_worktree(o) is None
 
 
 def configured_main(o):
@@ -1484,6 +1505,12 @@ def make_plan(o, check=False):
                 f"the store records version {rec['version']} and its schema is owned by {rec['owner']}, so this project's update to {to} "
                 f"would leave that version, and only the owner replaces the store's schema. Nothing was written. {named[0].upper()}{named[1:]}: "
                 f"update this project to {tag or 'it'} instead, or have {rec['owner']} update the store first")})
+    wt = other_worktree(o)
+    if wt:
+        refusals.append({"code": "root_other_worktree", "message": (
+            f"--root is in the worktree {wt[0].as_posix()}, another worktree of the code repo's worktree {wt[1].as_posix()}; "
+            "commits there would land on that worktree's branch. Nothing was written. Run the update from the worktree "
+            "that holds --root, or give a --root in this worktree or in a separate planning repo")})
     groups, orphans = build_groups(o, refusals, with_schema=role != "other")
     inflight, checked = [], False
     if check and to and not refusals and workflow_update(inst, to) and role != "other":
@@ -1510,7 +1537,7 @@ def make_plan(o, check=False):
     if role in ("claim", "owner", "other"):
         doc["store"] = {"root": o["root"], "version": rec["version"] if rec else None, "owner": rec["owner"] if rec else None, "id": info["id"]}
     if refusals:
-        doc.update({"error": "refused", "message": refusals[0]["message"], "unchanged": True})
+        doc.update({"error": "refused", "message": refusals[0]["message"]})  # unchanged stays base_doc's: false while a swap is pending
     return doc, groups
 
 
@@ -1636,6 +1663,18 @@ def cmd_verify(o, pos):
     emit(doc, 1)
 
 
+def swapped_tops(j):
+    """(group, top-level name) of each manifest entry that comes from the installed target: its name is no longer in the
+    group's new/ staging. Only these entries are scanned, never other contents of the target dir (user skills)."""
+    groups = {g["id"]: g for g in j["groups"]}
+    seen = set()
+    for m in j["manifest"]:
+        g, top = groups[m["group"]], m["path"].split("/")[0]
+        if (g["id"], top) not in seen and not (Path(g["staging"]) / "new" / top).exists():
+            seen.add((g["id"], top))
+            yield g, top
+
+
 def cmd_verify_swap(o, pos):
     """Exit 0 when every staged file matches the manifest, wherever the swap left it (in new/ or already swapped in)."""
     j = load_journal(o)
@@ -1656,6 +1695,12 @@ def cmd_verify_swap(o, pos):
             for f in new.rglob("*"):
                 if f.is_file() and (g["id"], f.relative_to(new).as_posix()) not in want:
                     bad.append(f.relative_to(new).as_posix())
+    for g, top in swapped_tops(j):  # a swapped-in entry may hold files the download does not
+        d = Path(g["dir"]) / top
+        if d.is_dir():
+            for f in d.rglob("*"):
+                if f.is_file() and (g["id"], f"{top}/{f.relative_to(d).as_posix()}") not in want:
+                    bad.append(f"{top}/{f.relative_to(d).as_posix()}")
     print(json.dumps({"ok": not bad, "bad": bad}))
     sys.exit(1 if bad else 0)
 
