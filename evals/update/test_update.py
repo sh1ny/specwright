@@ -9,6 +9,7 @@ import importlib.util
 import os
 import re
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -365,6 +366,88 @@ class TestRecover(Base):
         code, doc, err = self.run_sub("stage", dl=dl2)
         self.assertEqual(code, 0, err)
         self.assertEqual((doc["from"], doc["to"], doc["state"]), ("0.6.0", "0.6.1", "staged"))
+
+
+class TestRepoLocalConfigRollback(Base):
+    """A repo-local install (role none): recover --rollback after a completed swap puts config.yaml back too."""
+
+    def swapped(self, fresh=False):
+        if fresh:
+            co = fx.make_checkout(self.tmp, None, skills_dirs=(".claude/skills",))
+            (co.root / "openspec" / "config.yaml").unlink()
+            self.co = co
+        else:
+            co = self.co = fx.make_checkout(self.tmp, "0.5.0", skills_dirs=(".claude/skills",))
+        self.dl = fx.make_download(self.tmp / "dl-new-0.6.0", "0.6.0")
+        self.cfg = co.root / "openspec" / "config.yaml"
+        self.before = self.cfg.read_bytes() if self.cfg.exists() else None
+        for sub in ("plan", "stage", "swap"):
+            code, doc, err = self.run_sub(sub)
+            self.assertEqual(code, 0, f"{sub}: {doc} {err}")
+            if sub == "plan":
+                self.assertEqual(doc["role"], "none")
+        self.merged = (self.before or b"") + b"# merged by Step 5\n"
+        self.cfg.write_bytes(self.merged)  # the prompt's Step 5
+        code, doc, err = self.run_sub("note-config")
+        self.assertEqual(code, 0, f"{doc} {err}")
+
+    def test_rollback_restores_previous_config(self):
+        self.swapped()
+        code, doc, err = self.run_sub("recover", "--rollback")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertEqual(doc["action"], "rolled-back")
+        self.assertEqual(self.cfg.read_bytes(), self.before)
+        self.assertEqual(self.staging_dirs(), [])
+        self.assertFalse(self.co.journal.exists())
+
+    def test_rollback_removes_config_created_by_fresh_install(self):
+        self.swapped(fresh=True)
+        self.assertTrue(self.cfg.exists())
+        code, doc, err = self.run_sub("recover", "--rollback")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertEqual(doc["action"], "rolled-back")
+        self.assertFalse(self.cfg.exists())
+        self.assertEqual(self.staging_dirs(), [])
+
+    def test_rollback_keeps_config_edited_after_note_config(self):
+        self.swapped()
+        edited = self.merged + b"# the user's own edit\n"
+        self.cfg.write_bytes(edited)
+        code, doc, err = self.run_sub("recover", "--rollback")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertEqual(doc["action"], "rolled-back")
+        self.assertEqual(self.cfg.read_bytes(), edited)
+        self.assertIn("config.yaml", doc["message"])
+        self.assertIn("kept", doc["message"])
+
+
+class TestLockWithoutOwner(Base):
+    """A lock directory with no owner file (killed between the mkdir and the owner write): stale after a short window."""
+
+    def make_lock(self, age):
+        self.lock = self.co.lock
+        self.lock.mkdir(parents=True)
+        if age:
+            t = time.time() - age
+            os.utime(self.lock, (t, t))
+
+    def test_old_ownerless_lock_is_taken_over(self):
+        co = self.checkout("0.5.0")
+        self.download("0.6.0")
+        self.make_lock(3600)
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual(code, 0, f"{doc} {err}")
+        self.assertIn("lock_replaced", doc)
+        self.assertEqual(doc["lock_replaced"]["reason"], "lock_without_owner")
+        self.assertFalse(co.lock.exists())
+
+    def test_fresh_ownerless_lock_reports_locked(self):
+        co = self.checkout("0.5.0")
+        self.download("0.6.0")
+        self.make_lock(0)
+        code, doc, err = self.run_sub("stage")
+        self.assertEqual((code, doc["error"]), (1, "locked"), doc)
+        self.assertTrue(co.lock.is_dir())
 
 
 if __name__ == "__main__":

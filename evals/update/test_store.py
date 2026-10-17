@@ -263,6 +263,21 @@ class TestFreeStore(Base):
         self.assertEqual(self.store_state(), store_before)
         self.assertFalse(self.lock.exists(), "the gate lock it took is released")
 
+    def test_failed_git_status_makes_store_busy_and_nothing_is_swapped(self):
+        self.pair("0.5.0")
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        a_before, store_before = self.installed(self.a), self.store_state()
+        (self.store / ".git" / "index").write_bytes(b"garbage, not an index\n")
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertIn("git status failed", doc["message"])
+        self.assertTrue(doc["unchanged"])
+        self.assertEqual(self.installed(self.a), a_before)
+        self.assertEqual(self.store_state(), store_before)
+        self.assertFalse(self.lock.exists(), "the gate lock it took is released")
+
     def test_dirty_store_refused_then_clean_store_swaps(self):
         self.pair("0.5.0")
         dl = self.download("0.6.0", fx.schema_edit_comment)
@@ -392,6 +407,16 @@ class TestStoreRollback(Base):
         rec = self.ok(self.a, dl, "recover", "--rollback")
         self.assertEqual(rec["message"], "rolled back to 0.5.0")
         self.assertEqual(self.store_state(), self.before["store"])
+    def test_rollback_stops_when_git_status_fails(self):
+        dl = self.swapped()
+        swapped_store = self.store_state()
+        (self.store / ".git" / "index").write_bytes(b"garbage, not an index\n")
+        code, doc, err = self.run_sub(self.a, dl, "recover", "--rollback")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertIn("git status failed", doc["message"])
+        self.assertEqual(self.store_state(), swapped_store)
+        self.assertTrue(self.a.journal.exists())
+        self.assertFalse(self.lock.exists())
 
 
 if __name__ == "__main__":

@@ -139,6 +139,10 @@
 #            may list only this update's staging, the swapped-in schema, STORE and the config.yaml noted by note-config,
 #            each with the recorded content. Otherwise it stops before any rename (error store_busy, naming the branch or
 #            the paths; store_owner_changed for STORE), releases the lock and keeps the swapped state and the journal.
+#            A repo-local install (role none) saves its config.yaml (or its absence) under <schema staging>/prev/ before the
+#            first rename (journal prev_config) and a rollback puts it back (restore_local_config), or removes the file
+#            when it was absent, unless the file differs from what note-config recorded (config_sha) and from the saved
+#            copy: then it is kept and the recover message says so.
 #            Also removes a leftover update.json.tmp. With no journal it reports action none. plan calls it first.
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 1, from, to, ref, kind,
 # role, code, root, inflight, owner_id, store_owner, store_version, store_record, store_lock, store_staging,
@@ -146,7 +150,8 @@
 # swapping | swapped), groups, targets (state pending | staged | old-moved | swapped), manifest ({group, path, sha256}
 # for every staged file).
 # Lock: openspec/.specwright/update.lock (a directory made with mkdir) holds `pid:` and `host:`. A lock held by a dead pid
-# on this host is replaced and reported as lock_replaced; any other holder stops the run (error locked).
+# on this host is replaced and reported as lock_replaced; so is a lock with no complete owner file (pid and host) once
+# the lock directory is older than 60 s (reason lock_without_owner); any other holder stops the run (error locked).
 # File operations use the external mv, cp and rm only (never builtins or Python), so the evals can put counting shims
 # first on PATH and see every step (design: Testing the interruption criterion).
 # Exit: 0 done, 1 stop (the JSON has "ok": false, "error" and "message"), 2 usage.
@@ -257,6 +262,14 @@ acquire_lock() {
       rm -rf "$lock"
       continue
     fi
+    # lock_without_owner: killed between the mkdir and the owner write. Within the acquisition window (60 s) the lock may
+    # be a run midway through taking it, so it stays "locked"; an older ownerless lock is stale and taken over.
+    if [ "$tries" -le 3 ] && { [ -z "$owner_pid" ] || [ -z "$owner_host" ]; } && [ -d "$lock" ] \
+       && [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+      LOCK_EXTRA='{"lock_replaced": {"pid": null, "host": null, "reason": "lock_without_owner"}}'
+      rm -rf "$lock"
+      continue
+    fi
     die locked "another update holds $lock (pid ${owner_pid:-unknown} on ${owner_host:-unknown host}); wait for it to finish"
   done
   LOCK_HELD=1
@@ -340,7 +353,7 @@ remove_staging() {  # remove every staging directory of the journal (or of the p
 # Needs the lock. Every step checks the disk before it acts, and the journal is removed last, so a rerun after a kill
 # during recover decides again from what is left.
 
-REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO="" REC_SW=false
+REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
 
 recover_cleanup() {  # staging first, journal last
   remove_staging
@@ -454,15 +467,40 @@ restore_store_files() {  # the store's previous config.yaml and STORE (or their 
   fi
 }
 
+restore_local_config() {  # restore_local_config SCHEMA_STAGING: a repo-local install's config.yaml as it was before the update
+  local prev="$1/prev/config.yaml" cfg="$root/openspec/config.yaml" pc written cur
+  pc=$(jstr prev_config) written=$(jstr config_sha)
+  [ -n "$pc" ] || return 0  # never saved: the swap did not get that far
+  if [ "$pc" = present ]; then
+    [ -f "$prev" ] || return 0
+    if [ -e "$cfg" ]; then
+      cur=$(pyx sha-file "$cfg")
+      if [ "$cur" != "$written" ] && [ "$cur" != "$(pyx sha-file "$prev")" ]; then
+        REC_NOTE="config.yaml kept: it was edited after note-config"
+        return 0
+      fi
+    fi
+    cp "$prev" "$cfg" || die rename_failed "could not restore $cfg"
+  elif [ -n "$written" ] && [ -e "$cfg" ]; then  # absent before the update: the merge created it
+    cur=$(pyx sha-file "$cfg")
+    if [ "$cur" = "$written" ]; then
+      rm -f "$cfg"
+    else
+      REC_NOTE="config.yaml kept: it was edited after note-config"
+    fi
+  fi
+}
+
 recover_after() {  # runs after every outcome: the update's own store gate lock is released in all of them
   gate_release
 }
 
 recover_rollback() {
-  local l gid name type dir staging state inst new old tgt
+  local l gid name type dir staging state inst new old tgt sstaging=""
   load_targets
   for l in "${TARGETS[@]}"; do
     IFS='|' read -r gid name type dir staging state inst <<< "$l"
+    [ "$gid" != schema ] || sstaging=$staging
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
     if [ -e "$old" ]; then  # the old copy was moved aside: put it back, dropping a new copy that was swapped in
       if [ -e "$tgt" ]; then rm -rf "$tgt" || die rename_failed "could not remove $tgt"; fi
@@ -472,12 +510,14 @@ recover_rollback() {
       rm -rf "$tgt" || die rename_failed "could not remove $tgt"
     fi
   done
-  case "$(jstr role)/$(jstr store_state)" in owner/pending|owner/written|claim/pending|claim/written) restore_store_files ;; esac
+  case "$(jstr role)/$(jstr store_state)" in owner/pending|owner/written|claim/pending|claim/written) restore_store_files ;;
+    none/*) [ -z "$sstaging" ] || restore_local_config "$sstaging" ;;
+  esac
   recover_cleanup
 }
 
 recover_core() {
-  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false
+  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
   if [ ! -f "$journal" ]; then rm -f "$jtmp"; return 0; fi
   jload
   [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
@@ -526,7 +566,7 @@ recover_core() {
     else
       if [ "$storeful" = 1 ] && { [ "$sst" = pending ] || [ "$sst" = written ]; }; then recover_gate rollback; fi
       recover_rollback
-      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}"
+      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}"
     fi
   fi
   recover_after
@@ -691,6 +731,20 @@ swap_store_prepare() {  # the store half of the swap (design D5) up to the first
   jset_field prev_store "\"$prevs\""
 }
 
+save_local_config() {  # role none: the config.yaml (or its absence) before the update, in the schema group's staging
+  local l gid name type dir staging state inst cfg="$root/openspec/config.yaml" prevc=absent
+  load_targets
+  for l in "${TARGETS[@]}"; do
+    IFS='|' read -r gid name type dir staging state inst <<< "$l"
+    [ "$gid" = schema ] || continue
+    mkdir -p "$staging/prev"
+    if [ -f "$cfg" ]; then cp "$cfg" "$staging/prev/config.yaml" || die rename_failed "could not save $cfg"; prevc=present; fi
+    jset_field prev_config "\"$prevc\""
+    jflush
+    return 0
+  done
+}
+
 do_swap() {
   acquire_lock
   [ -f "$journal" ] || die no_journal "no staged update is recorded in $journal; run stage first"
@@ -715,6 +769,7 @@ do_swap() {
     vrc=0  # a workflow update: the changes in flight must still be the ones the plan validated (before any rename)
     vout=$(pyx swap-check "${PYARGS[@]}") || vrc=$?
     if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+    if [ "$(jstr role)" = none ]; then save_local_config; fi  # before the first rename
     if [ "$(jstr role)" = other ]; then  # no gate lock for another project (D5): STORE read again just before the first rename
       vrc=0
       vout=$(pyx store-recheck "${PYARGS[@]}") || vrc=$?
@@ -1261,9 +1316,14 @@ def store_main_name(o, top):
 
 
 def dirty_paths(top):
-    """The paths `git status --porcelain` lists in the store (every untracked file by name)."""
-    rc, out = git(top, "status", "--porcelain", "-z", "--untracked-files=all")
-    parts, found, i = out.decode("utf-8", "replace").split("\0"), [], 0
+    """(paths, problem): the paths `git status --porcelain` lists in the store (every untracked file by name), and None;
+    when git status itself fails, ([], "git status failed ..."), which the caller must treat as a busy store."""
+    r = subprocess.run(["git", "-C", str(top), "-c", "core.quotepath=off", "status", "--porcelain", "-z", "--untracked-files=all"],
+                       capture_output=True)
+    if r.returncode != 0:
+        err = " ".join(r.stderr.decode("utf-8", "replace").split()) or "no message"
+        return [], f"git status failed in the store (exit {r.returncode}: {err})"
+    parts, found, i = r.stdout.decode("utf-8", "replace").split("\0"), [], 0
     while i < len(parts):
         e, i = parts[i], i + 1
         if len(e) < 4:
@@ -1271,7 +1331,7 @@ def dirty_paths(top):
         if e[0] in "RC":
             i += 1  # the original path follows
         found.append(e[3:])
-    return found
+    return found, None
 
 
 def under(path, prefixes):
@@ -1294,7 +1354,10 @@ def store_busy_reason(o, top, allowed):
         return "the store has a detached HEAD", branch
     if branch != main:
         return f"the store is on {branch}, not on its main ({main or 'no main branch found'})", branch
-    dirty = [p for p in dirty_paths(top) if not allowed(p)]
+    paths, problem = dirty_paths(top)
+    if problem:
+        return problem, branch
+    dirty = [p for p in paths if not allowed(p)]
     if dirty:
         shown = ", ".join(dirty[:5]) + (f" and {len(dirty) - 5} more" if len(dirty) > 5 else "")
         return f"the store has uncommitted changes: {shown}", branch
