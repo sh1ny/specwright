@@ -255,10 +255,10 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
     lines from the downloaded `templates/openspec/config.yaml` (leave any
     commented-out example alone). Otherwise, a
     line is Specwright-managed when it starts with
-    `MANDATORY: Invoke the 'specwright-`, `Project-level planning (strategy`
-    or `Specwright settings (`. Remove every managed line (older wordings and
-    duplicates alike), then append each downloaded context line once. Remove
-    any line naming `openspec-git-branch`, `openspec-git-commit` or
+    `MANDATORY: Invoke the 'specwright-`, `MANDATORY: Before archiving a change`,
+    `Project-level planning (strategy` or `Specwright settings (`. Remove
+    every managed line (older wordings and duplicates alike), then append
+    each downloaded context line once. Remove any line naming `openspec-git-branch`, `openspec-git-commit` or
     `openspec-git-merge`. Leave every other line alone, including the
     project's own lines that mention Specwright.
 - After the merge (or the copy), run `update.sh` `note-config`: it records the
