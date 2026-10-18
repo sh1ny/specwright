@@ -1772,6 +1772,63 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertRegex(table, r"\| `WAIVED` \|", "README has no WAIVED row")
         self.assertRegex(table, r"(?is)USER_OVERRIDE.{0,400}rewrit.{0,100}DEFERRED|rewrit.{0,200}DEFERRED.{0,200}USER_OVERRIDE", "README lacks the note on rewriting a deferral recorded as USER_OVERRIDE")
 
+    # Archive refusal (task group 2).
+
+    @staticmethod
+    def _context_lines(path):
+        text = read(path)
+        block = text[text.index("context: |"):]
+        lines = []
+        for ln in block.splitlines()[1:]:
+            if not ln.startswith("  "):
+                break
+            lines.append(ln.strip())
+        return lines
+
+    def test_config_context_refuses_archive_of_deferred(self):
+        own = ROOT / "openspec" / "config.yaml"  # git-ignored: absent in a fresh clone
+        for path in (ROOT / "templates" / "openspec" / "config.yaml", *([own] if own.exists() else [])):
+            lines = [ln for ln in self._context_lines(path) if ln.startswith("MANDATORY: Before archiving a change")]
+            where = str(path.relative_to(ROOT))
+            self.assertEqual(len(lines), 1, f"{where} does not carry exactly one archive-refusal context line")
+            ln = lines[0]
+            for name in ("/opsx:archive", "/opsx:bulk-archive", "openspec-archive-change", "'openspec archive'"):
+                self.assertIn(name, ln, f"{where} refusal line does not name {name}")
+            self.assertIn("review.md", ln, f"{where} refusal line does not read review.md")
+            self.assertIn("`VERDICT: DEFERRED`", ln, f"{where} refusal line does not name VERDICT: DEFERRED")
+            self.assertRegex(ln, r"(?is)do not archive", f"{where} does not say do not archive")
+            self.assertRegex(ln, r"(?is)move nothing", f"{where} does not say move nothing")
+            self.assertRegex(ln, r"(?is)sync no spec", f"{where} does not say sync no spec")
+            self.assertIn("`Deferred to:`", ln, f"{where} does not name the Deferred to: targets")
+            self.assertRegex(ln, r"(?is)bulk archive.{0,80}skip.{0,80}archive the rest", f"{where} does not skip the change in a bulk archive")
+
+    def test_finish_step0_stops_on_deferred_and_lists_restore_groups(self):
+        text = read(FINISH)
+        flat = re.sub(r"\s+", " ", text)
+        self.assertTrue("0. **" in text, "finish has no step 0")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("VERDICT: DEFERRED", s0, "step 0 does not check VERDICT: DEFERRED")
+        self.assertRegex(s0, r"(?is)archive.{0,40}(director|name)", "step 0 does not read the archived review.md")
+        self.assertRegex(s0, r"(?is)every (archived )?change|each archived change", "step 0 does not check every archived change")
+        self.assertRegex(s0, r"(?is)no commit.{0,60}merge.{0,40}push|before any commit, merge or push", "step 0 does not stop before commit, merge and push")
+        self.assertRegex(s0, r"(?is)no restore|restore nothing|never restores?|runs? no restore", "step 0 does not forbid restoring itself")
+        self.assertIn("git restore -- <file>", s0, "step 0 does not give the main-spec restore")
+        self.assertRegex(s0, r"(?is)uncommitted edits", "step 0 does not warn about the user's uncommitted edits")
+        self.assertRegex(s0, r"(?is)(created|untracked).{0,200}delete", "step 0 does not list created main specs to delete")
+        self.assertIn("git restore -- <P>/changes/<name>/", s0, "step 0 does not give the change directory restore")
+        self.assertRegex(s0, r"(?is)otherwise.{0,60}move.{0,60}back", "step 0 does not give the move-back fallback")
+        row = next((r for r in text.splitlines() if r.startswith("| archive paths uncommitted, no A")), "")
+        self.assertRegex(row, r"(?i)steps 0-3|starts? at step 0", "the Resume table's first row does not reach step 0")
+
+    def test_template_context_lines_use_managed_prefixes(self):
+        readme = re.sub(r"\s+", " ", read(README))
+        start = readme.index("is Specwright-managed when it starts with")
+        end = readme.index("Remove every managed line", start)
+        prefixes = re.findall(r"`([^`]+)`", readme[start:end])
+        self.assertIn("MANDATORY: Before archiving a change", prefixes, "README Step 5 does not list the archive-refusal prefix")
+        for ln in self._context_lines(ROOT / "templates" / "openspec" / "config.yaml"):
+            self.assertTrue(any(ln.startswith(p) for p in prefixes), f"context line is not covered by a managed prefix: {ln[:60]}")
+
 
 if __name__ == "__main__":
     unittest.main()
