@@ -50,7 +50,7 @@ Extra tests, with no scenario row: `DRD.test_template_context_lines_use_managed_
 
 ## 3. Parking changes in watch and the roadmap
 
-- [ ] 3.1 Write the failing tests for test map rows 8-9 (DRD), the five project-planning `red` rows in `ProjectPlanning`, and `test_baseline_gate_lists_own_verdicts_without_deferred_or_waived`. Confirm that they fail for the missing text.
+- [x] 3.1 Write the failing tests for test map rows 8-9 (DRD), the five project-planning `red` rows in `ProjectPlanning`, and `test_baseline_gate_lists_own_verdicts_without_deferred_or_waived`. Confirm that they fail for the missing text.
 - [ ] 3.2 Watch skips parked changes: `skills/specwright-pr/SKILL.md` watch **Archive before merge**: when the change's `review.md` holds `VERDICT: DEFERRED`, archive nothing, report the PR ready as a parked change for the user to merge, and send no merge request. Ordinary changes are unchanged. Verify rows 8-9 pass, flip green, and run `python -m unittest discover evals/pr-pair` to confirm nothing regressed.
 - [ ] 3.3 Roadmap parking changes: `skills/specwright-roadmap/SKILL.md`:
   - init step 5: replace "the same precheck as tasks" with its own list, and state that DEFERRED, WAIVED and SKIPPED_LIGHT never pass the baseline.

@@ -517,6 +517,42 @@ class ProjectPlanning(unittest.TestCase):
                          "the rule does not re-run the baseline review")
         self.assertRegex(block, r"(?i)before.{0,60}(reply|report|done)", "the review is not re-run before the fix is reported done")
 
+    def test_roadmap_next_skips_parked_change(self):
+        s2 = re.sub(r"\s+", " ", mode_step("next", 2))
+        self.assertRegex(s2, r"(?i)review\.md", "next step 2 does not read the active changes' review.md")
+        self.assertIn("`VERDICT: DEFERRED`", s2, "next step 2 does not name VERDICT: DEFERRED")
+        self.assertRegex(s2, r"(?i)DEFERRED.{0,200}parked", "next step 2 does not call a DEFERRED change parked")
+        self.assertRegex(s2, r"(?i)never offer\w* (to resume )?(it|the parked)", "next step 2 may offer to resume a parked change")
+        self.assertRegex(s2, r"(?i)continu\w* (to )?step 3 as if (it were|the change were) not active", "next does not go on to step 3 as if the parked change were not active")
+
+    def test_roadmap_status_lists_parked_with_targets(self):
+        sec = re.sub(r"\s+", " ", section(read(ROADMAP), r"status\b"))
+        self.assertRegex(sec, r"(?i)`parked`", "status has no `parked` state")
+        self.assertRegex(sec, r"(?i)`parked`.{0,120}`Deferred to:`", "status does not list the Deferred to: targets of a parked change")
+        self.assertRegex(sec, r"(?i)never as active|not as active", "status may list a parked change as active")
+
+    def test_roadmap_next_resumes_non_parked_change(self):
+        s2 = re.sub(r"\s+", " ", mode_step("next", 2))
+        self.assertRegex(s2, r"(?i)every other active change.{0,120}(offer|resume)", "next does not offer every other active change for resume")
+        self.assertRegex(s2, r"(?i)(with no|without a|no) `review\.md`.{0,80}(offer|resume)|including one with no `review\.md`", "an active change with no review.md is not offered for resume")
+
+    def test_roadmap_next_and_status_on_parking_branch(self):
+        s2 = re.sub(r"\s+", " ", mode_step("next", 2))
+        self.assertRegex(s2, r"(?i)parking change.{0,40}on its own branch", "next does not say the parking change is on its own branch")
+        self.assertRegex(s2, r"(?i)starts? from main once it has merged", "next does not say it starts from main once the parking change has merged")
+        self.assertRegex(s2, r"(?i)start\w* nothing.{0,60}no branch.{0,20}no change", "next may create a branch or change on the parking branch")
+        sec = re.sub(r"\s+", " ", section(read(ROADMAP), r"status\b"))
+        self.assertRegex(sec, r"(?i)parking change.{0,40}on its own branch.{0,120}starts? from main once it has merged", "status does not say the same on the parking branch")
+
+    def test_baseline_gate_lists_own_verdicts_without_deferred_or_waived(self):
+        s5 = re.sub(r"\s+", " ", mode_step("init", 5))
+        self.assertNotRegex(s5, r"(?i)same precheck as tasks", "init step 5 still borrows the tasks precheck")
+        self.assertIn("`VERDICT: APPROVE`", s5, "the baseline gate does not list VERDICT: APPROVE")
+        self.assertRegex(s5, r"(?i)`VERDICT: APPROVE_WITH_CHANGES`.{0,60}`CHANGES_APPLIED: yes`", "the baseline gate does not tie APPROVE_WITH_CHANGES to CHANGES_APPLIED: yes")
+        self.assertRegex(s5, r"(?i)`VERDICT: USER_OVERRIDE`.{0,40}after escalation", "the baseline gate does not list USER_OVERRIDE after escalation")
+        self.assertRegex(s5, r"(?i)DEFERRED, WAIVED and SKIPPED_LIGHT never pass the baseline", "the baseline gate does not refuse DEFERRED, WAIVED and SKIPPED_LIGHT")
+        self.assertRegex(s5, r"(?i)never pass the baseline.{0,300}no roadmap.{0,200}Status: proposed.{0,200}needs a review", "a refused verdict does not leave the ADRs proposed, write no roadmap and tell the user")
+
 
 def prerequisites():
     """The README's **Prerequisites:** paragraph."""
@@ -1828,6 +1864,30 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertIn("MANDATORY: Before archiving a change", prefixes, "README Step 5 does not list the archive-refusal prefix")
         for ln in self._context_lines(ROOT / "templates" / "openspec" / "config.yaml"):
             self.assertTrue(any(ln.startswith(p) for p in prefixes), f"context line is not covered by a managed prefix: {ln[:60]}")
+
+    # Watch and parked changes (task group 3).
+
+    @staticmethod
+    def _archive_before_merge():
+        watch = section(read(PR_SKILL), r"watch\b")
+        m = re.search(r"^   - \*\*Archive before merge:\*\*.*?(?=^   - \*\*Merge:\*\*)", watch or "", re.M | re.S)
+        assert m, "watch has no Archive before merge bullet"
+        return re.sub(r"\s+", " ", m.group(0))
+
+    def test_watch_skips_archive_for_deferred_and_reports_parked(self):
+        b = self._archive_before_merge()
+        self.assertIn("`VERDICT: DEFERRED`", b, "Archive before merge does not name VERDICT: DEFERRED")
+        self.assertRegex(b, r"(?i)review\.md.{0,80}whole line.{0,40}`VERDICT: DEFERRED`", "Archive before merge does not read review.md for a whole DEFERRED line")
+        self.assertRegex(b, r"(?i)DEFERRED.{0,300}archive nothing", "watch archives a DEFERRED change")
+        self.assertRegex(b, r"(?i)DEFERRED.{0,400}ready as a parked change.{0,80}user (merges|to merge)", "watch does not report the PR ready as a parked change for the user to merge")
+        self.assertRegex(b, r"(?i)DEFERRED.{0,500}(sends?|send) no merge request", "watch may send a merge request for a parked change")
+
+    def test_watch_archive_before_merge_kept_for_other_verdicts(self):
+        b = self._archive_before_merge()
+        self.assertIn("ask `Ready. Archive <change-name> on this branch now?`", b, "the user-mode archive question was lost")
+        self.assertIn("when `merge` is `agent`, archive without asking", b, "the agent-mode archive was lost")
+        self.assertRegex(b, r"(?i)every other change \(any other verdict, or no `review\.md`\) archives", "the DEFERRED skip is not scoped to DEFERRED only")
+        self.assertNotRegex(b, r"(?i)APPROVE.{0,40}(skip|parked)", "the skip names a verdict other than DEFERRED")
 
 
 if __name__ == "__main__":
