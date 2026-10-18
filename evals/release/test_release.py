@@ -764,6 +764,18 @@ class TestCheckMain(Flow):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.1.0")
 
+    def test_main_with_duplicate_version_match_passes(self):
+        # main's primary file matches its pattern twice: not exactly one match, so main has no readable version
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.commit(self.work, "chore: VERSION twice", {"VERSION": "0.5.0\n0.5.0\n"})
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        self.bump_branch("0.5.0")
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
     def test_without_main_unchanged(self):
         self.two_bumps()
         code, doc, raw = self.release("check")

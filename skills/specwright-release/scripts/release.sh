@@ -585,11 +585,17 @@ def sv(v):
 
 # ---- subcommands ------------------------------------------------------------------------------------------------
 def primary_at(st, entries, commit):
-    """The one version the primary file reads at `commit`, or None when it reads none or several."""
+    """The one version the primary file reads at `commit`, or None when a file matches other than once or the files
+    disagree."""
     path, _, c = entries[0]
     tree = CommitTree(st.root, commit)
     blobs = tree.read_all(tree.files(path))
-    vals = {m.group(1) for b in blobs.values() for m in find_versions(c, decode(b))}
+    vals = set()
+    for b in blobs.values():  # exactly one match per file, as read_versions requires; the files must then agree
+        ms = find_versions(c, decode(b))
+        if len(ms) != 1:
+            return None
+        vals.add(ms[0].group(1))
     return next(iter(vals)) if len(vals) == 1 else None
 
 

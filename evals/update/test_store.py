@@ -387,9 +387,14 @@ class TestStagingPerCheckout(Base):
     def store_staging(self, co):
         return Path(self.journal(co)["store_staging"])
 
-    def staged_pair(self):
-        """Both checkouts claim the store and stage; neither has swapped."""
+    def staged_pair(self, ignored=False):
+        """Both checkouts claim the store and stage; neither has swapped. ignored: the store's .gitignore hides the
+        staging directories, as Specwright's own does."""
         self.pair("0.5.0", record=None)
+        if ignored:
+            (self.store / ".gitignore").write_text(".specwright-update-*/\n", encoding="utf-8", newline="\n")
+            fx.git(self.store, "add", ".gitignore")
+            fx.git(self.store, "commit", "-q", "-m", "ignore update staging")
         dl = self.download("0.6.0", fx.schema_edit_comment)
         for co in (self.a, self.b):
             self.assertEqual(self.ok(co, dl, "plan")["role"], "claim")
@@ -456,6 +461,19 @@ class TestStagingPerCheckout(Base):
         self.assertFalse(self.b.journal.exists(), "B's staging and journal are gone")
         self.assertTrue((sa / "new" / "specwright").is_dir(), "A's staging is untouched")
         self.assertEqual([p.name for p in (self.store / "openspec").glob(".specwright-update-schemas*")], [sa.name])
+
+    def test_other_checkout_staging_ignored_by_git_makes_store_busy(self):
+        # `git status` omits ignored paths, so the staging directory is looked for on disk too
+        dl = self.staged_pair(ignored=True)
+        sa = self.store_staging(self.a)
+        self.assertEqual(fx.git(self.store, "status", "--porcelain").strip(), "", "the staging is not ignored")
+        b_before = self.installed(self.b)
+        code, doc, err = self.run_sub(self.b, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_busy"), doc)
+        self.assertIn("another checkout's update is staged in the store", doc["message"])
+        self.assertIn(sa.name, doc["message"])
+        self.assertEqual(self.installed(self.b), b_before)
+        self.assertTrue((sa / "new" / "specwright").is_dir(), "A's staging is untouched")
 
     def test_both_staged_first_refused_swap_discards_and_other_swaps(self):
         dl = self.staged_pair()

@@ -1415,6 +1415,18 @@ def dirty_paths(top):
     return found, None
 
 
+def ignored_staging(top):
+    """(paths, problem): the store staging directories Git ignores (a `.specwright-update-*/` rule hides them from
+    `git status`), each without its trailing slash, and None; when git fails, ([], "git ls-files failed ...")."""
+    r = subprocess.run(["git", "-C", str(top), "-c", "core.quotepath=off", "ls-files", "-z", "--others", "--ignored",
+                        "--exclude-standard", "--directory"], capture_output=True)
+    if r.returncode != 0:
+        err = " ".join(r.stderr.decode("utf-8", "replace").split()) or "no message"
+        return [], f"git ls-files failed in the store (exit {r.returncode}: {err})"
+    found = [p.rstrip("/") for p in r.stdout.decode("utf-8", "replace").split("\0") if p]
+    return [p for p in found if STAGING_RX.match(p) and STAGING_RX.match(p).group(0) == p], None
+
+
 def under(path, prefixes):
     return any(path == p or path.startswith(p + "/") for p in prefixes)
 
@@ -1424,6 +1436,9 @@ def rel_to(top, p):
         return Path(p).resolve().relative_to(top).as_posix()
     except ValueError:
         return None
+
+
+STAGING_RX = re.compile(r"^(?:.*/)?openspec/\.specwright-update-schemas[^/]*")
 
 
 def store_busy_reason(o, top, allowed):
@@ -1438,10 +1453,13 @@ def store_busy_reason(o, top, allowed):
     paths, problem = dirty_paths(top)
     if problem:
         return problem, branch
+    hidden, problem = ignored_staging(top)
+    if problem:
+        return problem, branch
     dirty = [p for p in paths if not allowed(p)]
     other = []  # another checkout's store staging (design D7), reported ahead of the generic reason
-    for p in dirty:
-        m = re.match(r"^(?:.*/)?openspec/\.specwright-update-schemas[^/]*", p)
+    for p in dirty + [h for h in hidden if not allowed(h)]:
+        m = STAGING_RX.match(p)
         if m and m.group(0) not in other:
             other.append(m.group(0))
     if other:
