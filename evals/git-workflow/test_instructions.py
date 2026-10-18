@@ -1676,5 +1676,102 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertIn("python -m unittest discover evals/update", testing or "", "CONTRIBUTING Testing does not name evals/update")
 
 
+REVIEW_TEMPLATE = ROOT / "schemas" / "specwright" / "templates" / "review.md"
+
+
+class DesignReviewDispositions(unittest.TestCase):
+    """DEFERRED and WAIVED are user-owned design-review verdicts (record-review-dispositions)."""
+
+    @classmethod
+    def setUpClass(cls):
+        text = read(SCHEMA)
+
+        def flat(chunk):
+            return re.sub(r"\s+", " ", chunk)  # instruction lines wrap; phrases must not depend on where
+
+        cls.review = flat(text[text.index("  - id: review"):text.index("  - id: tasks")])
+        cls.precheck = flat(text[text.index("PRECHECK:"):text.index("Before writing tasks")])
+        cls.gate = flat(text[text.index("GATE:"):text.index("Work through pending tasks")])
+
+    def test_tasks_precheck_accepts_deferred_with_target(self):
+        p = self.precheck
+        self.assertIn("`VERDICT: DEFERRED`", p, "tasks PRECHECK does not name VERDICT: DEFERRED")
+        self.assertRegex(p, r"(?is)DEFERRED.{0,400}Deferred to:.{0,200}(at least one|a) target", "DEFERRED does not require a Deferred to: line naming a target")
+        self.assertRegex(p, r"(?is)DEFERRED.{0,400}CHANGES_APPLIED: n/a", "DEFERRED is not tied to CHANGES_APPLIED: n/a")
+
+    def test_tasks_precheck_accepts_waived_with_user_words(self):
+        p = self.precheck
+        self.assertIn("`VERDICT: WAIVED`", p, "tasks PRECHECK does not name VERDICT: WAIVED")
+        self.assertRegex(p, r"(?is)WAIVED.{0,500}User decision:.{0,200}quoted", "WAIVED does not require a quoted User decision: line")
+        self.assertIn("No design review ran.", p, "WAIVED does not require the 'No design review ran.' line")
+        self.assertRegex(p, r"(?is)WAIVED.{0,600}CHANGES_APPLIED: n/a", "WAIVED is not tied to CHANGES_APPLIED: n/a")
+
+    def test_tasks_precheck_matches_whole_lines_for_new_verdicts(self):
+        p = self.precheck
+        self.assertRegex(p, r"(?is)whole lines", "PRECHECK lost whole-line matching")
+        self.assertIn("DEFERRED_LATER", p, "PRECHECK does not name DEFERRED_LATER as a non-match")
+        self.assertIn("WAIVED?", p, "PRECHECK does not name WAIVED? as a non-match")
+
+    def test_apply_gate_refuses_deferred_and_says_review_needed(self):
+        g = self.gate
+        self.assertRegex(g, r"(?is)tasks precheck", "apply GATE does not reuse the tasks precheck")
+        self.assertRegex(g, r"(?is)`VERDICT: DEFERRED`.{0,300}STOP", "apply GATE does not stop on VERDICT: DEFERRED")
+        self.assertRegex(g, r"(?is)before any task is implemented.{0,40}ticked.{0,40}committed", "apply does not stop before implementing, ticking or committing")
+        self.assertRegex(g, r"(?is)deferred", "apply does not say the change is deferred")
+        self.assertIn("Deferred to:", g, "apply does not name the Deferred to: targets")
+        self.assertRegex(g, r"(?is)design review.{0,60}first|first.{0,60}design review", "apply does not say a design review is needed first")
+        self.assertRegex(g, r"(?is)(not|never) rewrites? the verdict", "apply does not forbid rewriting the verdict")
+
+    def test_tasks_precheck_stops_on_deferred_without_target(self):
+        p = self.precheck
+        self.assertRegex(p, r"(?is)DEFERRED.{0,600}STOP", "no stop for DEFERRED without a target")
+        self.assertRegex(p, r"(?is)where each part.{0,40}review will happen", "precheck does not ask where each part's review will happen")
+
+    def test_waiver_records_user_words_and_no_review_ran(self):
+        r = self.review
+        self.assertRegex(r, r'(?is)WAIVED.{0,900}\*\*User decision:\*\* "<the user\'s words>"', "WAIVED does not record the quoted User decision line")
+        self.assertIn("No design review ran.", r, "WAIVED does not record 'No design review ran.'")
+        self.assertRegex(r, r"(?is)WAIVED.{0,1200}CHANGES_APPLIED: n/a", "WAIVED does not carry CHANGES_APPLIED: n/a")
+        self.assertRegex(r, r"(?is)DEFERRED.{0,900}\*\*Deferred to:\*\*", "DEFERRED does not record the Deferred to: line")
+        self.assertRegex(r, r"(?is)DEFERRED.{0,600}(parking|never applied)", "DEFERRED is not limited to a parking change")
+
+    def test_waiver_without_user_words_refused_at_tasks_and_apply(self):
+        p, g = self.precheck, self.gate
+        self.assertRegex(p, r"(?is)WAIVED.{0,900}STOP", "tasks precheck does not stop on a WAIVED without its record")
+        self.assertRegex(g, r"(?is)WAIVED.{0,300}(without|missing|lacks?).{0,200}(STOP|stops?)|WAIVED.{0,300}fails? the tasks precheck", "apply does not stop on a WAIVED without its record")
+
+    def test_agent_never_offers_waiver_or_deferral(self):
+        r = self.review
+        self.assertRegex(r, r"(?is)never (offer|suggest)s?.{0,300}(DEFERRED|WAIVED|deferral|waiver)", "review instruction does not forbid offering the new verdicts")
+        self.assertRegex(r, r"(?is)never (offer|suggest).{0,400}(route fails|failed route)", "offering after a failed route is not ruled out")
+        self.assertRegex(r, r"(?is)never (offer|suggest).{0,400}REVISE", "offering after REVISE rounds is not ruled out")
+        self.assertRegex(r, r"(?is)never (offer|suggest).{0,500}(way past|missing review)", "offering as a way past a missing review is not ruled out")
+        self.assertIn("If no route works, STOP and tell the user", r, "the no-route STOP rule was lost")
+
+    def test_waiver_does_not_waive_preship(self):
+        r = self.review
+        self.assertRegex(r, r"(?is)WAIVED.{0,1500}pre-ship.{0,120}(not waived|still runs|does not waive|never waive)", "WAIVED does not keep the pre-ship review")
+
+    def test_user_override_only_after_escalation(self):
+        r = self.review
+        self.assertRegex(r, r"(?is)USER_OVERRIDE.{0,300}(after 2 consecutive REVISE|escalat)", "USER_OVERRIDE is not limited to escalation")
+        self.assertRegex(r, r"(?is)USER_OVERRIDE.{0,500}user's words.{0,80}open findings", "USER_OVERRIDE does not record the user's words and open findings")
+        self.assertRegex(r, r"(?is)(deferral|DEFERRED).{0,200}(waiver|WAIVED).{0,100}never.{0,80}USER_OVERRIDE", "a deferral or waiver is not barred from USER_OVERRIDE")
+
+    def test_review_template_and_readme_list_new_verdicts(self):
+        t = read(REVIEW_TEMPLATE)
+        self.assertRegex(t, r"DEFERRED \| WAIVED", "template verdict comment does not list DEFERRED | WAIVED")
+        self.assertIn("none (DEFERRED by the user)", t)
+        self.assertIn("none (WAIVED by the user)", t)
+        self.assertIn("**Deferred to:**", t)
+        self.assertIn("**User decision:**", t)
+        readme = read(README)
+        table = readme[readme.index("Review verdicts"):]
+        table = table[:table.index("</details>")]
+        self.assertRegex(table, r"\| `DEFERRED` \|", "README has no DEFERRED row")
+        self.assertRegex(table, r"\| `WAIVED` \|", "README has no WAIVED row")
+        self.assertRegex(table, r"(?is)USER_OVERRIDE.{0,400}rewrit.{0,100}DEFERRED|rewrit.{0,200}DEFERRED.{0,200}USER_OVERRIDE", "README lacks the note on rewriting a deferral recorded as USER_OVERRIDE")
+
+
 if __name__ == "__main__":
     unittest.main()
