@@ -537,7 +537,11 @@ No trigger → **LIGHT** (triage, context, decisions). Any trigger → **FULL**:
 | `APPROVE` | Tasks may be written |
 | `APPROVE_WITH_CHANGES` | Apply the listed changes; tasks wait for `CHANGES_APPLIED: yes` |
 | `REVISE` | Fix and re-review; two REVISE rounds in a row escalate to the user |
-| `USER_OVERRIDE` | After escalation, the user decided to proceed; their words and the open findings are recorded |
+| `USER_OVERRIDE` | Only after two REVISE rounds were escalated and the user decided to proceed; their words and the open findings are recorded |
+| `DEFERRED` | The user declared a FULL-tier change a parking change that is never applied; `Deferred to:` names where its parts get reviewed. Tasks may be written; apply refuses it |
+| `WAIVED` | The user explicitly decided to apply with no design review; their quoted words and `No design review ran.` are recorded. The pre-ship review still runs |
+
+The agent never offers `DEFERRED` or `WAIVED`. A project that recorded a deferral as `USER_OVERRIDE` may rewrite it as `DEFERRED`.
 
 A verdict covers only what was reviewed: editing proposal, specs or design afterwards voids it.
 </details>
