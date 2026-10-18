@@ -109,14 +109,14 @@ Every review run SHALL write a receipt naming the route it used, each skipped ro
 - **THEN** the receipt has `requested_model: "default"` and `actual_model: "unknown"`
 
 ### Requirement: Design review verdict values are checked
-A design review's `VERDICT:` value SHALL be `APPROVE`, `APPROVE_WITH_CHANGES` or `REVISE`, and its `CHANGES_APPLIED:` value SHALL be `no` or `yes` after `APPROVE_WITH_CHANGES` and `n/a` after any other verdict. Any other value SHALL fail validation, naming the value.
+A design review's `VERDICT:` value SHALL be `APPROVE`, `APPROVE_WITH_CHANGES` or `REVISE`, and its `CHANGES_APPLIED:` value SHALL be `no` or `yes` after `APPROVE_WITH_CHANGES` and `n/a` after any other verdict. Any other value SHALL fail validation, naming the value. The verdicts the author or the user records (`USER_OVERRIDE`, `SKIPPED_LIGHT`, `DEFERRED`, `WAIVED`) are among the refused values.
 
 #### Scenario: Design review that could not review
 - **WHEN** a codex design review prints `VERDICT: BLOCKED` and `CHANGES_APPLIED: n/a`, and the change's `review.md` holds an earlier valid review
 - **THEN** the run exits 3 with `status: invalid` and an error naming `BLOCKED`, `review.md` is byte-identical to before, and no other route runs
 
 #### Scenario: Verdict a reviewer may not set
-- **WHEN** a reviewer CLI or the subagent returns `VERDICT: USER_OVERRIDE` or `VERDICT: SKIPPED_LIGHT`
+- **WHEN** a reviewer CLI or the subagent returns `VERDICT: USER_OVERRIDE`, `VERDICT: SKIPPED_LIGHT`, `VERDICT: DEFERRED` or `VERDICT: WAIVED`
 - **THEN** validation exits non-zero with `status: invalid` naming the value, and no review file is written by the run
 
 #### Scenario: CHANGES_APPLIED does not match the verdict
