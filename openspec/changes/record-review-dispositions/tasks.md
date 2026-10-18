@@ -59,7 +59,7 @@ Extra tests, with no scenario row: `DRD.test_template_context_lines_use_managed_
   - A short parking-change note: when the pattern fits, DEFERRED only by the user's decision, the user merges the parking branch, next moves a milestone's part into its own reviewed change, and removing an emptied parking change is the user's edit.
 
   Verify the project-planning rows and the baseline test pass, flip them green, and confirm `test_roadmap_accepts_adrs_only_after_gate` is still green.
-- [ ] 3.4 `openspec/architecture.md`: the `review.md` State ownership row gains the orchestrator writing DEFERRED and WAIVED on the user's decision, and the baseline row says neither verdict is written there. Verify by `git diff openspec/architecture.md` showing only those two rows changed.
+- [x] 3.4 `openspec/architecture.md`: the `review.md` State ownership row gains the orchestrator writing DEFERRED and WAIVED on the user's decision, and the baseline row says neither verdict is written there. Verify by `git diff openspec/architecture.md` showing only those two rows changed.
 
 ## 4. Integration and release
 
