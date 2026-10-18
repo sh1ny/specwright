@@ -1853,6 +1853,7 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertRegex(s0, r"(?is)(created|untracked).{0,200}delete", "step 0 does not list created main specs to delete")
         self.assertIn("git restore -- <P>/changes/<name>/", s0, "step 0 does not give the change directory restore")
         self.assertRegex(s0, r"(?is)otherwise.{0,60}move.{0,60}back", "step 0 does not give the move-back fallback")
+        self.assertRegex(s0, r"(?is)git restore -- <P>/changes/<name>/.{0,200}delete.{0,40}<P>/changes/archive/<archived-name>/", "after git restore, step 0 does not say to delete the archive copy")
         row = next((r for r in text.splitlines() if r.startswith("| archive paths uncommitted, no A")), "")
         self.assertRegex(row, r"(?i)steps 0-3|starts? at step 0", "the Resume table's first row does not reach step 0")
 

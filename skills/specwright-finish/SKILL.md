@@ -57,7 +57,7 @@ Report `Nothing to finish - archive is on <main>` only when every repo is done; 
 0. **Deferred check**, before any commit, merge or push: for each archived change (bulk archive: every one), read `<P>/changes/archive/<archived-name>/review.md` (the **Archive name** rule). A whole line `VERDICT: DEFERRED` in any → stop: no commit, no merge, no push. Tell the user that change must not be archived, and run no restore yourself (it could drop their own edits). List how to undo it, in three groups:
    - modified (tracked) main specs: `git restore -- <file>` each; warn that this also discards the user's own uncommitted edits in that file;
    - created (untracked) main specs: the user deletes them;
-   - the change directory: `git restore -- <P>/changes/<name>/` when it was committed, otherwise move it back from the archive directory.
+   - the change directory: `git restore -- <P>/changes/<name>/` when it was committed, then delete the archive copy `<P>/changes/archive/<archived-name>/`; otherwise move it back from the archive directory.
 1. **Branch:** `git branch --show-current`. If the branch's change name differs from the archived change, confirm with the user. On main:
    - No archive changes left uncommitted (the archive already reached main) → **Resume**; report `Nothing to finish - archive is on <main>` only when it finds every repo done.
    - Otherwise (the PR merged before archive ran; normally `specwright-pr` **watch** archives on the PR branch first) → offer `git checkout -b chore/archive-<change-name>`; the uncommitted archive carries over. Continue from step 2 on that branch, or stop if the user declines. Never commit on main.
