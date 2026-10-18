@@ -129,7 +129,7 @@ See `proposal.md` for the seven issues. Current code:
 ### D9: The debug stash is named, reported and looked for at the start (#53)
 
 - **Choice:** In `specwright-debug`:
-  - Step one of every run is `git stash list`, filtered for messages that start with `specwright-debug: `. Each one found is reported with its ref and topic, together with an offer to restore it (`git stash apply <ref>`, then `git stash drop <ref>` only once the apply succeeded). The run does not stash again until the user decides.
+  - Step one of every run is `git stash list`, keeping the entries whose message, after Git's `On <branch>: ` prefix, starts with `specwright-debug: `. Each one found is reported with its ref and topic, together with an offer to restore it (`git stash apply <ref>`, then `git stash drop <ref>` only once the apply succeeded). The run does not stash again until the user decides.
   - `stash@{n}` shifts whenever another stash is pushed. So right before each `apply` and each `drop`, the ref is looked up again by its exact message in a fresh `git stash list`, never taken from an earlier report (review S5). A message that is not found, or that matches twice, stops with the list shown.
   - The test step uses `git stash push -u -m "specwright-debug: <topic>"`, reports the ref, restores with `apply`, and drops the stash only after checking that the files are back.
   - A conflicting restore keeps the stash and stops.

@@ -10,13 +10,13 @@ metadata:
 Find the cause before changing code. One hypothesis, one change, at a time.
 
 ## 1. Reproduce
-- Start with `git stash list`, filtered for messages that start with `specwright-debug: `. Report each one found with its ref and topic and offer to restore it (see Stash below); do not stash again until the user decides. None found: report no leftover stash and continue. Other stashes (yours or the user's) are left alone: never offered, applied or dropped.
+- Start with `git stash list`. Each entry reads `stash@{n}: On <branch>: <message>`, so match the marker after Git's `On <branch>: ` prefix: take the entries whose message starts with `specwright-debug: `. Report each one found with its ref and topic and offer to restore it (see Stash below); do not stash again until the user decides. None found: report no leftover stash and continue. Other stashes (yours or the user's) are left alone: never offered, applied or dropped.
 - Read the whole report or thread, not just the title. Get the exact error, inputs and environment.
 - Build a named, repeatable check that fails on this bug now (a test, a command, a script). No reproduction means no fix - report what you tried.
 - A dirty tree is a suspect: check `git status`; if needed, test with `git stash push -u -m "specwright-debug: <topic>"` and report the stash ref (for example `stash@{0}`). Restore it as below once the test is done.
 
 ### Stash
-- `stash@{n}` shifts when another stash is pushed. Before each `apply` and each `drop`, look the ref up again by its exact message in a fresh `git stash list`, never from an earlier report. A message not found, or found twice, stops with the list shown.
+- `stash@{n}` shifts when another stash is pushed. Before each `apply` and each `drop`, look the ref up again by its exact message (the text after `On <branch>: `) in a fresh `git stash list`, never from an earlier report. A message not found, or found twice, stops with the list shown.
 - Restore: `git stash apply <ref>`, then `git stash drop <ref>` only after checking the files are back. Report the files restored.
 - A conflict keeps the stash: stop, report its ref and the conflicting paths, and ask the user how to proceed.
 

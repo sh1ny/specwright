@@ -215,7 +215,12 @@ class TestShipText(unittest.TestCase):
         self.assertRegex(step, r"(?i)bump")
         # the store is pushed first, so the code repo's check runs once, before either repo is validated or pushed
         self.assertRegex(step, r"(?i)once,? before either repo")
-        self.assertLess(ship.index(step), ship.index("Run that repo's validate"), "the check comes after validate")
+        validate = line_with(ship, r"^   2\. .*validate", "ship: the validate item")
+        # every repo of the set runs its own validate, the store's included, before its push
+        self.assertRegex(validate, r"(?i)each repo")
+        self.assertIn("`planning_store.validate` in the store", validate)
+        self.assertIn("`pr.validate` in the code repo", validate)
+        self.assertLess(ship.index(step), ship.index(validate), "the check comes after validate")
         self.assertLess(ship.index(step), ship.index("git push -u origin HEAD"), "the check comes after the push")
 
 

@@ -1519,6 +1519,13 @@ class DebugStash(unittest.TestCase):
         self.assertRegex(t, r"(?is)conflict.{0,160}keep.{0,40}stash.{0,80}stop|conflict.{0,160}stop.{0,80}keep.{0,40}stash",
                          "a conflicting restore does not keep the stash and stop")
 
+    def test_marker_is_matched_after_git_prefix(self):
+        # `git stash list` prints `stash@{n}: On <branch>: <message>`, so the marker is never at the start of a line
+        t = self.text()
+        self.assertIn("On <branch>: ", t, "the list format with Git's branch prefix is not named")
+        self.assertRegex(t, r"(?is)after\s+(Git's\s+)?`On <branch>: `", "the marker is not matched after Git's prefix")
+        self.assertNotRegex(t, r"(?i)messages that start with `specwright-debug: `", "the marker is still matched at the start of the line")
+
     def test_no_leftover_reported_and_continues(self):
         self.assertRegex(self.text(), r"(?is)no\s+leftover\s+stash\s+and\s+continue", "no leftover stash is not reported")
 
