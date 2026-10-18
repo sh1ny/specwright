@@ -25,13 +25,13 @@ Every new test below lives in `evals/git-workflow/test_instructions.py`, in a ne
 | review-routes → Design review verdict values are checked | Verdict a reviewer may not set | evals/review-routes/test_review_run.py | test_design_override_and_skipped_verdicts_invalid (extended to DEFERRED, WAIVED) | green |
 | review-routes → Design review verdict values are checked | CHANGES_APPLIED does not match the verdict | evals/review-routes/test_review_run.py | test_design_changes_applied_must_match_verdict | green |
 | review-routes → Design review verdict values are checked | Valid re-check | evals/review-routes/test_review_run.py | test_design_recheck_with_changes_applied_yes_valid | green |
-| project-planning → A parked change is never resumed | Only a parking change is active | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_skips_parked_change | red |
-| project-planning → A parked change is never resumed | Status shows the parked change | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_status_lists_parked_with_targets | red |
-| project-planning → A parked change is never resumed | Parking change and a change in progress | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_resumes_non_parked_change | red |
-| project-planning → A parked change is never resumed | Next run on the parking change's branch | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_and_status_on_parking_branch | red |
-| project-planning → A parked change is never resumed | Active change with no review yet | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_resumes_non_parked_change (no-review half) | red |
+| project-planning → A parked change is never resumed | Only a parking change is active | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_skips_parked_change | green |
+| project-planning → A parked change is never resumed | Status shows the parked change | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_status_lists_parked_with_targets | green |
+| project-planning → A parked change is never resumed | Parking change and a change in progress | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_resumes_non_parked_change | green |
+| project-planning → A parked change is never resumed | Next run on the parking change's branch | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_and_status_on_parking_branch | green |
+| project-planning → A parked change is never resumed | Active change with no review yet | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_next_resumes_non_parked_change (no-review half) | green |
 | project-planning → The baseline gate passes only a review or an escalation | Baseline passes review | evals/git-workflow/test_instructions.py | ProjectPlanning.test_roadmap_accepts_adrs_only_after_gate | green |
-| project-planning → The baseline gate passes only a review or an escalation | Baseline recorded as waived or deferred | evals/git-workflow/test_instructions.py | ProjectPlanning.test_baseline_gate_lists_own_verdicts_without_deferred_or_waived | red |
+| project-planning → The baseline gate passes only a review or an escalation | Baseline recorded as waived or deferred | evals/git-workflow/test_instructions.py | ProjectPlanning.test_baseline_gate_lists_own_verdicts_without_deferred_or_waived | green |
 
 Extra tests, with no scenario row: `DRD.test_template_context_lines_use_managed_prefixes` (review S4/M1: every `context:` line in `templates/openspec/config.yaml` starts with a prefix README install Step 5 names) and `DRD.test_review_template_and_readme_list_new_verdicts`.
 
@@ -52,7 +52,7 @@ Extra tests, with no scenario row: `DRD.test_template_context_lines_use_managed_
 
 - [x] 3.1 Write the failing tests for test map rows 8-9 (DRD), the five project-planning `red` rows in `ProjectPlanning`, and `test_baseline_gate_lists_own_verdicts_without_deferred_or_waived`. Confirm that they fail for the missing text.
 - [x] 3.2 Watch skips parked changes: `skills/specwright-pr/SKILL.md` watch **Archive before merge**: when the change's `review.md` holds `VERDICT: DEFERRED`, archive nothing, report the PR ready as a parked change for the user to merge, and send no merge request. Ordinary changes are unchanged. Verify rows 8-9 pass, flip green, and run `python -m unittest discover evals/pr-pair` to confirm nothing regressed.
-- [ ] 3.3 Roadmap parking changes: `skills/specwright-roadmap/SKILL.md`:
+- [x] 3.3 Roadmap parking changes: `skills/specwright-roadmap/SKILL.md`:
   - init step 5: replace "the same precheck as tasks" with its own list, and state that DEFERRED, WAIVED and SKIPPED_LIGHT never pass the baseline.
   - next step 2: a change whose `review.md` holds `VERDICT: DEFERRED` is parked, never offered for resume, and next continues as if it were not active. On the parking branch, next says it starts from main once the parking change has merged, and starts nothing.
   - status: lists parked changes with their `Deferred to:` targets, and says the same on the parking branch (review S5).
