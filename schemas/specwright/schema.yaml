@@ -364,10 +364,25 @@ artifacts:
       `CHANGES_APPLIED: n/a`. A verdict covers only the contents reviewed:
       editing proposal, specs or design for any other reason voids it. Each
       full review increments the round; after 2 consecutive REVISE rounds,
-      stop and escalate to the user. If the user then decides to proceed
-      anyway, record `VERDICT: USER_OVERRIDE` with `CHANGES_APPLIED: n/a`, the
-      user's words and the open findings; only an explicit user decision
-      allows it.
+      stop and escalate to the user. `VERDICT: USER_OVERRIDE` only after those
+      2 REVISE rounds were escalated and the user then decides to proceed
+      anyway: record it with `CHANGES_APPLIED: n/a`, the user's words and the
+      open findings. A deferral or waiver is never recorded as USER_OVERRIDE.
+
+      Two more verdicts exist only on the user's word; reviewers never produce
+      them (`review-run.sh` refuses both):
+      - `VERDICT: DEFERRED`: only when the user declared a FULL-tier change a
+        parking change that is never applied; its parts get their design
+        review where they are built. Add `- **Deferred to:** <changes or
+        milestones>` to the metadata, and `CHANGES_APPLIED: n/a`.
+      - `VERDICT: WAIVED`: only on the user's explicit decision to apply with
+        no design review. Add `- **User decision:** "<the user's words>"` to
+        the metadata, the line `No design review ran.` and
+        `CHANGES_APPLIED: n/a`. The pre-ship review is not waived: it still
+        runs.
+      The agent never offers or suggests DEFERRED or WAIVED: not when a route
+      fails, not after REVISE rounds, not as a way past a missing review. If
+      no route works, STOP and tell the user.
     requires:
       - proposal
       - specs
@@ -381,8 +396,15 @@ artifacts:
       PRECHECK: review.md must contain a line exactly equal to
       `VERDICT: APPROVE`, `VERDICT: SKIPPED_LIGHT` or `VERDICT: USER_OVERRIDE`,
       or exactly `VERDICT: APPROVE_WITH_CHANGES` together with a line exactly
-      `CHANGES_APPLIED: yes`. Match whole lines: `APPROVE` is a prefix of
-      `APPROVE_WITH_CHANGES`. Otherwise STOP and finish the review loop first.
+      `CHANGES_APPLIED: yes`, or exactly `VERDICT: DEFERRED` together with
+      `CHANGES_APPLIED: n/a` and a `Deferred to:` line naming at least one
+      target (without one, STOP and ask the user where each part's review
+      will happen), or exactly `VERDICT: WAIVED` together with
+      `CHANGES_APPLIED: n/a`, a `User decision:` line with the user's quoted
+      words and the line `No design review ran.` (any of them missing: STOP).
+      Match whole lines: `APPROVE` is a prefix of `APPROVE_WITH_CHANGES`, and
+      `VERDICT: DEFERRED_LATER` or `VERDICT: WAIVED?` match nothing.
+      Otherwise STOP and finish the review loop first.
 
       Before writing tasks, check design.md for Open Questions. If any of them
       would change what gets built, resolve them with the user first - do not
@@ -450,7 +472,12 @@ apply:
   requires: [tasks]
   tracks: tasks.md
   instruction: |
-    GATE: same verdict precheck as tasks. If it fails, STOP.
+    GATE: the tasks precheck, except that `VERDICT: DEFERRED` also STOPs,
+    before any task is implemented, ticked or committed: say the change is
+    deferred, name its `Deferred to:` targets and say that applying it needs
+    a design review first; never rewrite the verdict. A `VERDICT: WAIVED`
+    without its `User decision:` line or `No design review ran.` line fails
+    the tasks precheck. If the precheck fails, STOP.
 
     Work through pending tasks in order and mark each complete as you go.
 
