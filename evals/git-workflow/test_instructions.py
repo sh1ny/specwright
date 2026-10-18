@@ -1743,8 +1743,10 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertRegex(p, r"(?is)WAIVED.{0,600}CHANGES_APPLIED: n/a", "WAIVED is not tied to CHANGES_APPLIED: n/a")
 
     def test_tasks_precheck_ignores_commented_and_placeholder_records(self):
-        # The template carries every record line inside comments, so an unedited one must not pass (PR #104 review).
+        # The template carries the three DEFERRED/WAIVED record lines inside comments, so an unedited one must not pass (PR #104 review).
         p = self.precheck
+        self.assertIn("`Deferred to:`, `User decision:` and `No design review ran.` lines count only outside", p,
+                      "PRECHECK does not name which record lines must sit outside a comment")
         self.assertRegex(p, r"(?is)outside an HTML comment", "PRECHECK counts a record line inside an HTML comment")
         self.assertIn("<changes or milestones>", p, "PRECHECK accepts the Deferred to: placeholder")
         self.assertIn("<the user's words>", p, "PRECHECK accepts the User decision: placeholder")

@@ -21,6 +21,13 @@ Tasks SHALL be written only when `review.md` has a whole line equal to `VERDICT:
 - **WHEN** `review.md` holds `VERDICT: DEFERRED_LATER` or `VERDICT: WAIVED?`
 - **THEN** the precheck stops, because no whole line matches an accepted verdict
 
+### Requirement: A disposition record counts only when filled in
+A `Deferred to:`, `User decision:` or `No design review ran.` line SHALL count toward the tasks precheck only outside an HTML comment and only with a real value, never the template's placeholder. A record that fails this SHALL count as missing.
+
+#### Scenario: Record left inside a template comment
+- **WHEN** `review.md` holds `VERDICT: DEFERRED` or `VERDICT: WAIVED` with `CHANGES_APPLIED: n/a`, but its `Deferred to:` or `User decision:` line sits inside an `<!-- ... -->` comment or still reads `<changes or milestones>` or `"<the user's words>"`
+- **THEN** the tasks precheck stops, because the record is missing
+
 ### Requirement: A deferred review never ships code
 `VERDICT: DEFERRED` SHALL be written only when the user has declared a FULL-tier change a parking change that is never applied, and SHALL record in a `Deferred to:` line the change or milestone where each part's design review will happen. The apply gate SHALL refuse a change whose `review.md` is `DEFERRED`, and archive SHALL refuse it too.
 

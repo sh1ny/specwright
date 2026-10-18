@@ -402,8 +402,9 @@ artifacts:
       will happen), or exactly `VERDICT: WAIVED` together with
       `CHANGES_APPLIED: n/a`, a `User decision:` line with the user's quoted
       words and the line `No design review ran.` (any of them missing: STOP).
-      These record lines count only outside an HTML comment (the template
-      carries them inside `<!-- ... -->`) and only with a real value: a
+      The `Deferred to:`, `User decision:` and `No design review ran.` lines
+      count only outside an HTML comment (the template carries all three
+      inside `<!-- ... -->`) and only with a real value: a
       `Deferred to:` line still reading `<changes or milestones>` or a
       `User decision:` line still reading `"<the user's words>"` is a
       placeholder and counts as missing. Match whole lines: `APPROVE` is a prefix of `APPROVE_WITH_CHANGES`, and
