@@ -63,7 +63,7 @@ Extra tests, with no scenario row: `DRD.test_template_context_lines_use_managed_
 
 ## 4. Integration and release
 
-- [ ] 4.1 Run every suite the M4 exit criteria name: `python -m unittest discover evals/git-workflow`, `evals/review-routes`, `evals/pr-pair`, `evals/update`, `evals/release` (each with its usual `-p` pattern). All pass, and every test map row is green.
+- [x] 4.1 Run every suite the M4 exit criteria name: `python -m unittest discover evals/git-workflow`, `evals/review-routes`, `evals/pr-pair`, `evals/update`, `evals/release` (each with its usual `-p` pattern). All pass, and every test map row is green.
 - [ ] 4.2 `openspec validate record-review-dispositions --strict` and `cd F:/Dev/specwright && openspec schema validate specwright` both pass.
 - [ ] 4.3 `bash skills/specwright-release/scripts/release.sh bump --to 0.7.0` (`VERSION`, the README badge, every `skills/*/SKILL.md` `metadata.version`), verified by `bash skills/specwright-release/scripts/release.sh check` reporting 0.7.0, and by `release.sh check --main origin/main` passing after a fenced fetch.
 
