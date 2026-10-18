@@ -1742,6 +1742,14 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertIn("No design review ran.", p, "WAIVED does not require the 'No design review ran.' line")
         self.assertRegex(p, r"(?is)WAIVED.{0,600}CHANGES_APPLIED: n/a", "WAIVED is not tied to CHANGES_APPLIED: n/a")
 
+    def test_tasks_precheck_ignores_commented_and_placeholder_records(self):
+        # The template carries every record line inside comments, so an unedited one must not pass (PR #104 review).
+        p = self.precheck
+        self.assertRegex(p, r"(?is)outside an HTML comment", "PRECHECK counts a record line inside an HTML comment")
+        self.assertIn("<changes or milestones>", p, "PRECHECK accepts the Deferred to: placeholder")
+        self.assertIn("<the user's words>", p, "PRECHECK accepts the User decision: placeholder")
+        self.assertRegex(p, r"(?is)placeholder.{0,200}missing|missing.{0,200}placeholder", "PRECHECK does not treat a placeholder as missing")
+
     def test_tasks_precheck_matches_whole_lines_for_new_verdicts(self):
         p = self.precheck
         self.assertRegex(p, r"(?is)whole lines", "PRECHECK lost whole-line matching")
