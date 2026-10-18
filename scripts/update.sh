@@ -93,7 +93,7 @@
 #                 one swap its code side only: the store targets and the record leave the journal, the staging in the store
 #                 is removed, the lock is released at once and store.message says `store schema already current`
 #                 (store_written false). Any other update stops with error store_busy naming the branch or the dirty
-#                 paths and saying to finish that change first;
+#                 paths and saying to finish that change first, or, when it is another checkout's staging, to finish or recover it by rerunning the update in that checkout;
 #              3. the staged copy is verified and the changes in flight are collected, attributed and validated again
 #                 (error inflight_changed on a difference);
 #              4. the store's current config.yaml and STORE (or their absence) are saved under <schema staging>/prev/ and
@@ -101,6 +101,9 @@
 #                 schema, then STORE is written (version: <to>, owner: <id>; never committed) and store_state becomes
 #                 written;
 #              5. the lock is released.
+#              A swap refused in steps 1-3 (or in the verify, swap-check and store-recheck of a non-store swap) never started: it
+#              removes this update's staging directories and journal before it exits, as recover does for an update whose
+#              swap never started; the refusal document is unchanged.
 #            Step 1 for an owner also requires the record's version to still be the journal's store_version (what plan saw):
 #            another checkout of the same owner may have advanced and committed the store since, and this swap would write the
 #            older schema and STORE back. Otherwise it stops with error store_version_changed (nothing written, rerun the
@@ -732,6 +735,13 @@ swap_loop() {  # the renames of every target, from the journal in JL and the dis
   jwrite_phase swapped
 }
 
+swap_refused() {  # a swap refused before its first rename (design D7): this update's staging and journal go, then the refusal
+  recover_cleanup
+  printf '%s
+' "$1"
+  exit 1
+}
+
 swap_store_prepare() {  # the store half of the swap (design D5) up to the first rename; every stop releases the gate lock
   local from to gate tok out rc=0 vout vrc=0 staging cfg rec prevc=absent prevs=absent
   from=$(jfield from) to=$(jfield to) gate=$(jstr store_lock)
@@ -746,9 +756,9 @@ swap_store_prepare() {  # the store half of the swap (design D5) up to the first
   gate_write_owner "$from" "$to" "$tok"
   # under the lock: 1. STORE read again, 2. the store is free
   out=$(pyx store-check "${PYARGS[@]}" --mode swap) || rc=$?
-  if [ "$rc" != 0 ]; then gate_release; printf '%s\n' "$out"; exit 1; fi
+  if [ "$rc" != 0 ]; then gate_release; swap_refused "$out"; fi
   vout=$(pyx verify "${PYARGS[@]}") || vrc=$?
-  if [ "$vrc" != 0 ]; then gate_release; printf '%s\n' "$vout"; exit 1; fi
+  if [ "$vrc" != 0 ]; then gate_release; swap_refused "$vout"; fi
   case "$out" in
     *'"mode": "code-only"'*)  # busy store, schema unchanged: leave the store alone, swap the code side only
       staging=$(jstr store_staging)
@@ -762,7 +772,7 @@ swap_store_prepare() {  # the store half of the swap (design D5) up to the first
   # 3. the changes in flight again, 4. the store's current config.yaml and STORE saved for a rollback
   vrc=0
   vout=$(pyx swap-check "${PYARGS[@]}") || vrc=$?
-  if [ "$vrc" != 0 ]; then gate_release; printf '%s\n' "$vout"; exit 1; fi
+  if [ "$vrc" != 0 ]; then gate_release; swap_refused "$vout"; fi
   staging=$(jstr store_staging) cfg="$root/openspec/config.yaml" rec=$(jstr store_record)
   mkdir -p "$staging/prev"
   if [ -f "$cfg" ]; then cp "$cfg" "$staging/prev/config.yaml"; prevc=present; fi
@@ -805,15 +815,15 @@ do_swap() {
   elif [ "$phase" = staged ]; then
     local vout vrc=0
     vout=$(pyx verify "${PYARGS[@]}") || vrc=$?
-    if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+    if [ "$vrc" != 0 ]; then swap_refused "$vout"; fi
     vrc=0  # a workflow update: the changes in flight must still be the ones the plan validated (before any rename)
     vout=$(pyx swap-check "${PYARGS[@]}") || vrc=$?
-    if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+    if [ "$vrc" != 0 ]; then swap_refused "$vout"; fi
     if [ "$(jstr role)" = none ]; then save_local_config; fi  # before the first rename
     if [ "$(jstr role)" = other ]; then  # no gate lock for another project (D5): STORE read again just before the first rename
       vrc=0
       vout=$(pyx store-recheck "${PYARGS[@]}") || vrc=$?
-      if [ "$vrc" != 0 ]; then printf '%s\n' "$vout"; exit 1; fi
+      if [ "$vrc" != 0 ]; then swap_refused "$vout"; fi
     fi
   fi
   [ "$phase" = swapped ] || jwrite_phase swapping
@@ -1153,44 +1163,69 @@ def first_error(text):
 
 
 def check_change(scratch, name):
-    """The three checks of design D4; the first error as text, None when the change passes."""
+    """The three checks of design D4: (step, first error as text), None when the change passes. The step is schema,
+    validate or status (design D8), or error when an openspec run failed without a result that says the change fails."""
     rc, out, err = run_openspec(["schema", "validate", "specwright"], scratch)
     if rc != 0:
-        return "openspec schema validate specwright: " + first_error(out + "\n" + err)
+        return "schema", "openspec schema validate specwright: " + first_error(out + "\n" + err)
     rc, out, err = run_openspec(["validate", name, "--json"], scratch)
     try:
         if rc != 0 and json.loads(out)["items"][0].get("valid", False) is True:  # a failed run fails whatever its item says
-            return f"openspec validate {name}: " + first_error(err + "\n" + out)
+            return "error", f"openspec validate {name}: " + first_error(err + "\n" + out)
         item = json.loads(out)["items"][0]
         if not item.get("valid", rc == 0):
             iss = (item.get("issues") or [{}])[0]
-            return f"openspec validate {name}: " + (f"{iss['path']}: " if iss.get("path") else "") + str(iss.get("message", "invalid"))
+            return "validate", f"openspec validate {name}: " + (f"{iss['path']}: " if iss.get("path") else "") + str(iss.get("message", "invalid"))
     except (ValueError, KeyError, IndexError, TypeError):
         if rc != 0:
-            return f"openspec validate {name}: " + first_error(out + "\n" + err)
+            return "error", f"openspec validate {name}: " + first_error(out + "\n" + err)
     rc, out, err = run_openspec(["status", "--change", name, "--json"], scratch)
     if rc != 0:  # a failed run fails the check even when its output parses as JSON
-        return f"openspec status {name}: " + first_error(err + "\n" + out)
+        return "error", f"openspec status {name}: " + first_error(err + "\n" + out)
     try:
         st = json.loads(out)
     except ValueError:
-        return f"openspec status {name}: " + first_error(err + "\n" + out)
+        return "error", f"openspec status {name}: " + first_error(err + "\n" + out)
     bad = [x for x in st.get("status", []) if x.get("severity") == "error"] if isinstance(st.get("status"), list) else []
     if bad:
-        return f"openspec status {name}: " + str(bad[0].get("message", bad[0].get("code", "error")))
+        return "status", f"openspec status {name}: " + str(bad[0].get("message", bad[0].get("code", "error")))
     arts = {a["id"]: a for a in st.get("artifacts", [])}
     paths = st.get("artifactPaths", {})
     for a in arts.values():
         if a.get("status") == "done" or paths.get(a["id"], {}).get("existingOutputPaths"):
             for r in a.get("requires", []):
                 if arts.get(r, {}).get("status") not in ("done", "skipped"):
-                    return f"openspec status {name}: artifact {a['id']} exists but its dependency {r} is {arts.get(r, {}).get('status', 'missing')}"
+                    return "status", f"openspec status {name}: artifact {a['id']} exists but its dependency {r} is {arts.get(r, {}).get('status', 'missing')}"
     return None
 
 
 def own_change(o, name, branches):
     """True when this project's code repo has a local branch <prefix>/<name> for one of the gate's prefixes."""
     return any(f"{p}/{name}" in branches for p in PREFIXES)
+
+
+def installed_note(o, scratch, name, to, role):
+    """Design D8: after a change failed against the target, check it again against the installed schema, in its own
+    scratch root. The note `; it already fails on <installed> (<error>), so the update to <to> did not cause it`, only
+    when the installed schema passes `openspec schema validate` and the change then fails validate or status;
+    otherwise "" (no installed VERSION, no schema directory, an invalid installed schema, a failed openspec run, or a pass)."""
+    src = Path(o["root"]) / "openspec" / "schemas" / "specwright"
+    label, _ = read_version(state_dir(o) / "VERSION")
+    if role in ("owner", "claim"):  # the schema on disk is the owner's: the store's recorded version names it
+        rec, _ = read_record(record_path(o))
+        label = rec["version"] if rec else label
+    if not (label and SEMVER.match(label) and (src / "schema.yaml").is_file()):
+        return ""
+    inst = scratch.parent / (scratch.name + "-installed")
+    try:
+        shutil.copytree(scratch / "openspec", inst / "openspec", ignore=shutil.ignore_patterns("schemas"))
+        shutil.copytree(src, inst / "openspec" / "schemas" / "specwright")
+        r = check_change(inst, name)
+    except OSError:
+        return ""
+    if r is None or r[0] not in ("validate", "status"):  # a confirmed failure only: never an invalid schema or a failed run
+        return ""
+    return f"; it already fails on {label} ({r[1]}), so the update to {to} did not cause it"
 
 
 def inflight_entries(o, to, schema_dir, role="none"):
@@ -1228,9 +1263,10 @@ def inflight_entries(o, to, schema_dir, role="none"):
                     shutil.copytree(schema_dir, scratch / "openspec" / "schemas" / "specwright")
                     (scratch / "openspec" / "config.yaml").write_text("schema: specwright\n", encoding="utf-8", newline="\n")
                     (scratch / "openspec" / "specs").mkdir(exist_ok=True)
-                    err = check_change(scratch, it["name"])
-                    if err:
-                        e.update({"status": "invalid", "error": err})
+                    r = check_change(scratch, it["name"])
+                    if r:
+                        e.update({"status": "invalid", "error": r[1],
+                                  "note": installed_note(o, scratch, it["name"], to, role)})
             except OSError as ex:
                 e.update({"status": "invalid", "error": f"could not read the change: {ex}"})
             entries.append(e)
@@ -1379,6 +1415,18 @@ def dirty_paths(top):
     return found, None
 
 
+def ignored_staging(top):
+    """(paths, problem): the store staging directories Git ignores (a `.specwright-update-*/` rule hides them from
+    `git status`), each without its trailing slash, and None; when git fails, ([], "git ls-files failed ...")."""
+    r = subprocess.run(["git", "-C", str(top), "-c", "core.quotepath=off", "ls-files", "-z", "--others", "--ignored",
+                        "--exclude-standard", "--directory"], capture_output=True)
+    if r.returncode != 0:
+        err = " ".join(r.stderr.decode("utf-8", "replace").split()) or "no message"
+        return [], f"git ls-files failed in the store (exit {r.returncode}: {err})"
+    found = [p.rstrip("/") for p in r.stdout.decode("utf-8", "replace").split("\0") if p]
+    return [p for p in found if STAGING_RX.match(p) and STAGING_RX.match(p).group(0) == p], None
+
+
 def under(path, prefixes):
     return any(path == p or path.startswith(p + "/") for p in prefixes)
 
@@ -1388,6 +1436,9 @@ def rel_to(top, p):
         return Path(p).resolve().relative_to(top).as_posix()
     except ValueError:
         return None
+
+
+STAGING_RX = re.compile(r"^(?:.*/)?openspec/\.specwright-update-schemas[^/]*")
 
 
 def store_busy_reason(o, top, allowed):
@@ -1402,7 +1453,17 @@ def store_busy_reason(o, top, allowed):
     paths, problem = dirty_paths(top)
     if problem:
         return problem, branch
+    hidden, problem = ignored_staging(top)
+    if problem:
+        return problem, branch
     dirty = [p for p in paths if not allowed(p)]
+    other = []  # another checkout's store staging (design D7), reported ahead of the generic reason
+    for p in dirty + [h for h in hidden if not allowed(h)]:
+        m = STAGING_RX.match(p)
+        if m and m.group(0) not in other:
+            other.append(m.group(0))
+    if other:
+        return f"another checkout's update is staged in the store: {other[0]}; finish or recover it by rerunning the update in that checkout", branch
     if dirty:
         shown = ", ".join(dirty[:5]) + (f" and {len(dirty) - 5} more" if len(dirty) > 5 else "")
         return f"the store has uncommitted changes: {shown}", branch
@@ -1566,16 +1627,23 @@ def carry_model(data, installed):
     return data[:i] + old + data[i + len(new):]
 
 
-def mk_group(gid, kind, d, items):
+def checkout_id(code):
+    """First 12 hex digits of SHA-256 over the code path (forward slashes, lower-cased on Windows): keys the store
+    staging directory per checkout (design D7)."""
+    c = code.replace("\\", "/").rstrip("/")
+    return sha((c.lower() if os.name == "nt" else c).encode("utf-8"))[:12]
+
+
+def mk_group(gid, kind, d, items, suffix=""):
     d = d.replace("\\", "/").rstrip("/")
     parent, _, base = d.rpartition("/")
-    g = {"id": gid, "kind": kind, "dir": d, "staging": f"{parent}/.specwright-update-{base}", "items": []}
+    g = {"id": gid, "kind": kind, "dir": d, "staging": f"{parent}/.specwright-update-{base}{suffix}", "items": []}
     for name, typ, src in items:
         g["items"].append({"name": name, "type": typ, "src": src, "installed": (Path(d) / name).exists()})
     return g
 
 
-def build_groups(o, refusals, with_schema=True):
+def build_groups(o, refusals, with_schema=True, store=False):
     dl = Path(o["download"])
     groups, orphans = [], []
     names = sorted(p.name for p in (dl / "skills").glob("specwright-*") if p.is_dir())
@@ -1605,7 +1673,8 @@ def build_groups(o, refusals, with_schema=True):
             if p.is_file() and p.name not in files:
                 orphans.append({"group": g["id"], "dir": g["dir"], "name": p.name})
     if with_schema:  # another project's update leaves the store's schema alone
-        groups.append(mk_group("schema", "schema", f"{o['root']}/openspec/schemas", [("specwright", "dir", dl / "schemas" / "specwright")]))
+        groups.append(mk_group("schema", "schema", f"{o['root']}/openspec/schemas", [("specwright", "dir", dl / "schemas" / "specwright")],
+                               suffix="-" + checkout_id(o["code"]) if store else ""))  # a store is shared by checkouts (D7)
     return groups, orphans
 
 
@@ -1648,7 +1717,7 @@ def make_plan(o, check=False):
             f"--root is in the worktree {wt[0].as_posix()}, another worktree of the code repo's worktree {wt[1].as_posix()}; "
             "commits there would land on that worktree's branch. Nothing was written. Run the update from the worktree "
             "that holds --root, or give a --root in this worktree or in a separate planning repo")})
-    groups, orphans = build_groups(o, refusals, with_schema=role != "other")
+    groups, orphans = build_groups(o, refusals, with_schema=role != "other", store=role in ("claim", "owner"))
     inflight, checked = [], False
     if check and to and not refusals and workflow_update(inst, to) and role != "other":
         checked = True
@@ -1662,7 +1731,7 @@ def make_plan(o, check=False):
             elif e["status"] == "invalid":
                 where = "" if e["source"] == "working tree" else f" on {e['source']}"
                 refusals.append({"code": "change_invalid", "change": e["name"], "ref": None if not where else e["source"],
-                                 "message": f"change {e['name']}{where or ' (working tree)'} fails validation against {to}: {e['error']}"})
+                                 "message": f"change {e['name']}{where or ' (working tree)'} fails validation against {to}: {e['error']}{e.get('note', '')}"})
             else:
                 inflight.append(e)
     doc = base_doc(o, not refusals)
@@ -1860,7 +1929,7 @@ def cmd_swap_check(o, pos):
     for k, e in now.items():
         if k not in was:
             if e["status"] == "invalid":
-                diffs.append(f"{e['name']} ({e['source']}) fails validation against {j['to']}: {e['error']}")
+                diffs.append(f"{e['name']} ({e['source']}) fails validation against {j['to']}: {e['error']}{e.get('note', '')}")
             elif e["status"] == "other project":
                 diffs.append(f"{e['name']} ({e['source']}) belongs to another project and is in flight in the store")
             else:

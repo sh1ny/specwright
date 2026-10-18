@@ -23,7 +23,7 @@ FINDING = {"id": "F1", "priority": "P1", "category": "code", "file": "mathutil.p
            "title": "clamp is wrong", "body": "returns the upper bound", "spec_class": None}
 MINOR = {**FINDING, "id": "F2", "priority": "P2", "title": "nit", "line": None}
 VALID = {"summary": "one real defect", "findings": [FINDING, MINOR]}
-VERDICT_OK = "# Review\n\nLooks fine.\n\nVERDICT: approve\nCHANGES_APPLIED: none\n"
+VERDICT_OK = "# Review\n\nLooks fine.\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
 
 
 def rmtree(p):
@@ -40,6 +40,23 @@ def clean_path():
         if d and not any(shutil.which(n, path=d) for n in ("codex", "claude", "omp")):
             keep.append(d)
     return os.pathsep.join(keep)
+
+
+def c_values(argv):
+    """The value of every `-c` in an argv."""
+    return [argv[i + 1] for i, t in enumerate(argv) if t == "-c" and i + 1 < len(argv)]
+
+
+def without_sandbox(argv):
+    """argv without a `-c windows.sandbox=...` pair."""
+    out, i = [], 0
+    while i < len(argv):
+        if argv[i] == "-c" and i + 1 < len(argv) and argv[i + 1].startswith("windows.sandbox="):
+            i += 2
+            continue
+        out.append(argv[i])
+        i += 1
+    return out
 
 
 def pid_alive(pid):
@@ -74,7 +91,8 @@ class Base(unittest.TestCase):
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
         e.update({"PATH": str(self.bin) + os.pathsep + clean_path(), "SPECWRIGHT_STATE_DIR": str(self.state_dir),
-                  "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PYTHONIOENCODING": "utf-8"})
+                  "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PYTHONIOENCODING": "utf-8",
+                  "CODEX_HOME": str(self.tmp / "codex-home")})  # no config file unless a test writes one
         e.update(self.extra_env)
         return e
 
@@ -321,7 +339,7 @@ class RunTests(Base):
         for route in ("codex", "claude", "omp"):
             self.preship(route, out=f"{route}.json")
         self.assertEqual(self.status(), before)
-        a = self.runs("codex")[0]["argv"]
+        a = without_sandbox(self.runs("codex")[0]["argv"])
         self.assertEqual(a[:8], ["exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config",
                                  "--skip-git-repo-check", "--output-schema"])
         self.assertTrue(a[8].endswith(".json"))
@@ -354,7 +372,8 @@ class RunTests(Base):
             self.preship(route, out=f"{route}.json")
         a = self.runs("codex")[0]["argv"]
         self.assertEqual(a[a.index("-m") + 1], "gpt-x")
-        self.assertEqual(a[a.index("-c") + 1], "model_reasoning_effort=high")
+        self.assertIn("model_reasoning_effort=high", c_values(a))  # by value: a Windows sandbox adds a second -c
+        self.assertEqual([v for v in c_values(a) if not v.startswith("windows.sandbox=")], ["model_reasoning_effort=high"])
         a = self.runs("claude")[0]["argv"]
         self.assertEqual((a[a.index("--model") + 1], a[a.index("--effort") + 1]), ("opus-y", "max"))
         a = self.runs("omp")[0]["argv"]
@@ -473,14 +492,14 @@ class RunTests(Base):
 
     def test_record_design_without_verdict_invalid(self):
         # needs the `record` subcommand (group 4); stays red until then
-        review = self.put("review.md", "# Review\n\nNo verdict here.\nCHANGES_APPLIED: none\n")
+        review = self.put("review.md", "# Review\n\nNo verdict here.\nCHANGES_APPLIED: n/a\n")
         out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
                           "--settings", self.settings, expect=3)
         self.assertEqual(out["status"], "invalid")
 
     def test_design_two_verdicts_invalid_no_file(self):
         self.install("codex")
-        self.stdout_file("codex", "VERDICT: approve\nmore\nVERDICT: reject\nCHANGES_APPLIED: none\n")
+        self.stdout_file("codex", "VERDICT: APPROVE\nmore\nVERDICT: REVISE\nCHANGES_APPLIED: n/a\n")
         out = self.design("codex", expect=3)
         self.assertEqual(out["status"], "invalid")
         self.assertFalse((self.tmp / "review.md").exists())
@@ -496,6 +515,156 @@ class RunTests(Base):
         self.assertNotIn("receipt_file", out)
         self.assertEqual(self.runs("codex")[0]["stdin"], "Review the design.\n")
         self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+
+    # ---- codex sandbox on Windows (fix-m3-gaps, 3.3, D4) -----------------------------------------------
+    def codex_config(self, text, os_name="nt"):
+        home = self.tmp / "codex-home"
+        home.mkdir(exist_ok=True)
+        if text is not None:
+            (home / "config.toml").write_text(text, encoding="utf-8", newline="\n")
+        self.extra_env.update({"CODEX_HOME": str(home), "REVIEW_RUN_TEST_OS_NAME": os_name})  # test hooks for os.name and the home
+        self.install("codex")
+        self.stdout_file("codex", json.dumps(VALID))
+
+    @unittest.skipIf(sys.version_info < (3, 11), "tomllib needs Python 3.11+")
+    def test_codex_windows_forwards_sandbox_only(self):
+        self.codex_config('model = "gpt-9"\n[windows]\nsandbox = "elevated"\n[projects.\'C:\\work\']\ntrust_level = "trusted"\n'
+                          '[mcp_servers.evil]\ncommand = "evil"\n')
+        out = self.preship("codex")
+        a = self.runs("codex")[0]["argv"]
+        self.assertEqual(c_values(a), ['windows.sandbox="elevated"'])
+        self.assertIn("--ignore-user-config", a)
+        self.assertEqual(a[a.index("-s") + 1], "read-only")
+        self.assertFalse([t for t in a if "trust" in t or "evil" in t or "gpt-9" in t], a)
+        self.assertEqual(out["receipt"]["windows_sandbox"], "elevated")
+
+    def test_codex_windows_no_usable_sandbox_adds_nothing(self):
+        cases = {"missing file": None, "TOML error": "[windows\nsandbox = \n", "no key": '[windows]\nother = "x"\n',
+                 "no table": 'model = "x"\n', "not a string": "[windows]\nsandbox = 3\n",
+                 "injection": '[windows]\nsandbox = "x\\" -c y"\n', "upper case": '[windows]\nsandbox = "Elevated"\n',
+                 "empty": '[windows]\nsandbox = ""\n', "leading digit": '[windows]\nsandbox = "1x"\n'}
+        for name, text in cases.items():
+            self.codex_config(text)
+            out = self.preship("codex", out=f"{name}.json")
+            a = self.runs("codex")[-1]["argv"]
+            self.assertEqual(c_values(a), [], name)
+            self.assertFalse([t for t in a if "windows.sandbox" in t], name)
+            self.assertNotIn("windows_sandbox", out["receipt"], name)
+
+    def test_codex_off_windows_adds_no_sandbox(self):
+        self.codex_config('[windows]\nsandbox = "elevated"\n', os_name="posix")
+        out = self.preship("codex")
+        self.assertEqual(c_values(self.runs("codex")[0]["argv"]), [])
+        self.assertNotIn("windows_sandbox", out["receipt"])
+
+    # ---- the OMP answer is bounded, the event stream is not (fix-m3-gaps, 3.3, D6) ----------------------
+    def omp_stream(self, answer, tool_text="", filler_lines=0, agent_end=True):
+        """An OMP event stream: filler events, then an agent_end whose messages carry `tool_text` and the `answer`."""
+        lines = [json.dumps({"type": "agent_start"})]
+        lines += [json.dumps({"type": "message_update", "delta": "x" * 1000})] * filler_lines
+        if agent_end:
+            msgs = [{"role": "user", "content": [{"type": "text", "text": "review"}]}]
+            if tool_text:
+                msgs.append({"role": "toolResult", "content": [{"type": "text", "text": tool_text}]})
+            msgs.append({"role": "assistant", "content": [{"type": "text", "text": answer}]})
+            lines.append(json.dumps({"type": "agent_end", "messages": msgs}))
+        self.stdout_file("omp", "\n".join(lines) + "\n")
+
+    def test_omp_large_stream_small_answer_valid(self):
+        self.install("omp")
+        answer = "# Review\n\n" + ("A finding about the design. " * 700)[:19000] + "\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
+        self.omp_stream(answer, tool_text="t" * (1536 * 1024), filler_lines=1536)  # about 3 MiB on stdout
+        self.assertGreater(Path(self.extra_env["FAKE_OMP_STDOUT"]).stat().st_size, 3 * 1024 * 1024)
+        out = self.design("omp")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), answer)
+
+    def test_omp_answer_over_bound_invalid(self):
+        self.install("omp")
+        self.omp_stream("VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n" + "y" * (2 * 1024 * 1024 + 10))
+        out = self.design("omp", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("output too large", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_omp_event_line_over_bound_invalid(self):
+        self.install("omp")
+        self.omp_stream("VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n", tool_text="t" * (16 * 1024 * 1024 + 10))
+        out = self.design("omp", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("output too large", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_omp_stream_without_agent_end_invalid(self):
+        self.install("omp")
+        self.omp_stream("VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n", filler_lines=20, agent_end=False)
+        out = self.design("omp", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_omp_last_agent_end_wins(self):
+        self.install("omp")
+        first = {"type": "agent_end", "messages": [{"role": "assistant", "content": [{"type": "text", "text": "VERDICT: REVISE\nCHANGES_APPLIED: n/a\n"}]}]}
+        last = {"type": "agent_end", "messages": [{"role": "assistant", "content": [{"type": "text", "text": VERDICT_OK}]}]}
+        self.stdout_file("omp", "\n".join(json.dumps(e) for e in (first, {"type": "turn_end"}, last)) + "\n")
+        self.design("omp")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), VERDICT_OK)
+
+    # ---- design verdict values (fix-m3-gaps, 3.1) -----------------------------------------------------
+    def test_design_blocked_verdict_invalid_keeps_review(self):
+        self.install("codex", "claude", "omp")
+        earlier = (self.tmp / "review.md")
+        earlier.write_bytes(b"# Earlier review\n\nVERDICT: REVISE\nCHANGES_APPLIED: n/a\n")
+        before = earlier.read_bytes()
+        self.stdout_file("codex", "# Review\n\nI could not read the files.\n\nVERDICT: BLOCKED\nCHANGES_APPLIED: n/a\n")
+        out = self.design("codex", expect=3)
+        self.assertEqual((out["status"], out["route"]), ("invalid", "codex"))
+        self.assertIn("BLOCKED", out["message"])
+        self.assertEqual(earlier.read_bytes(), before)
+        self.assertEqual(self.runs("claude") + self.runs("omp"), [])
+
+    def test_design_override_and_skipped_verdicts_invalid(self):
+        self.install("codex")
+        for value in ("USER_OVERRIDE", "SKIPPED_LIGHT"):
+            text = f"# Review\n\nVERDICT: {value}\nCHANGES_APPLIED: n/a\n"
+            self.stdout_file("codex", text)
+            out = self.design("codex", expect=3, out=f"run-{value}.md")
+            self.assertEqual(out["status"], "invalid", value)
+            self.assertIn(value, out["message"])
+            self.assertFalse((self.tmp / f"run-{value}.md").exists())
+            result = self.put(f"record-{value}.md", text)
+            out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", result, "--route", "subagent",
+                              "--settings", self.settings, expect=3)
+            self.assertEqual(out["status"], "invalid", value)
+            self.assertIn(value, out["message"])
+
+    def test_design_changes_applied_must_match_verdict(self):
+        self.install("codex")
+        bad = [("APPROVE", "yes"), ("APPROVE", "no"), ("REVISE", "none"), ("REVISE", "yes"),
+               ("APPROVE_WITH_CHANGES", "n/a"), ("APPROVE_WITH_CHANGES", "none")]
+        for i, (verdict, applied) in enumerate(bad):
+            self.stdout_file("codex", f"VERDICT: {verdict}\nCHANGES_APPLIED: {applied}\n")
+            out = self.design("codex", expect=3, out=f"bad-{i}.md")
+            self.assertEqual(out["status"], "invalid", (verdict, applied))
+            self.assertIn(applied, out["message"])
+            self.assertFalse((self.tmp / f"bad-{i}.md").exists())
+        for i, (verdict, applied) in enumerate([("APPROVE", "n/a"), ("REVISE", "n/a"), ("APPROVE_WITH_CHANGES", "no"),
+                                                ("APPROVE_WITH_CHANGES", "yes")]):
+            text = f"VERDICT: {verdict}  \nCHANGES_APPLIED: {applied}\t\n"  # trailing whitespace is stripped
+            self.stdout_file("codex", text)
+            self.design("codex", out=f"good-{i}.md")
+            self.assertEqual((self.tmp / f"good-{i}.md").read_text(encoding="utf-8"), text)
+        for text in ("VERDICT: approve\nCHANGES_APPLIED: n/a\n", "VERDICT:  APPROVE\nCHANGES_APPLIED: n/a\n",
+                     "VERDICT: APPROVE\n", "VERDICT: APPROVE\nCHANGES_APPLIED: n/a\nCHANGES_APPLIED: n/a\n"):
+            self.stdout_file("codex", text)
+            self.assertEqual(self.design("codex", expect=3, out="odd.md")["status"], "invalid", text)
+
+    def test_design_recheck_with_changes_applied_yes_valid(self):
+        self.install("codex")
+        self.stdout_file("codex", "# Review\n\nRe-check.\n\nVERDICT: APPROVE_WITH_CHANGES\nCHANGES_APPLIED: yes\n")
+        out = self.design("codex")
+        self.assertEqual(out["status"], "ok")
+        self.assertIn("APPROVE_WITH_CHANGES", (self.tmp / "review.md").read_text(encoding="utf-8"))
 
     def test_timeout_kills_reviewer_exit_3(self):
         self.install("codex", "claude")
@@ -843,10 +1012,72 @@ class RecordGateTests(Base):
         self.assertEqual(out["receipt"]["actual_model"], "unknown")
 
     def test_record_design_two_verdicts_invalid(self):
-        review = self.put("review.md", "VERDICT: a\nVERDICT: b\nCHANGES_APPLIED: none\n")
+        review = self.put("review.md", "VERDICT: APPROVE\nVERDICT: REVISE\nCHANGES_APPLIED: n/a\n")
         out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
                           "--settings", self.settings, expect=3)
         self.assertEqual(out["status"], "invalid")
+
+    def scratch(self):
+        out = self.script("record", "--kind", "design", "--change", CHANGE, "--scratch", "--settings", self.settings)
+        return out, Path(out["scratch"])
+
+    def record_out(self, scratch, review, expect=0):
+        return self.script("record", "--kind", "design", "--change", CHANGE, "--result", scratch, "--out", review,
+                           "--route", "subagent", "--settings", self.settings, expect=expect)
+
+    def test_record_scratch_prints_fresh_path_under_state_dir(self):
+        out, first = self.scratch()
+        _out, second = self.scratch()
+        self.assertNotEqual(first, second)
+        for p in (first, second):
+            self.assertEqual(p.parent.resolve(), (self.state_dir / "design" / CHANGE).resolve())
+            self.assertEqual(p.suffix, ".md")
+            self.assertFalse(p.exists())
+        self.assertTrue(out["ok"])
+
+    def test_record_out_valid_writes_review_removes_scratch(self):
+        _out, scratch = self.scratch()
+        text = "# Review\n\nVERDICT: REVISE\nCHANGES_APPLIED: n/a\n"
+        scratch.write_text(text, encoding="utf-8", newline="\n")
+        review = self.tmp / "review.md"
+        review.write_bytes(b"older review\n")
+        out = self.record_out(scratch, review)
+        self.assertEqual((out["status"], out["route"]), ("ok", "subagent"))
+        self.assertEqual(review.read_text(encoding="utf-8"), text)
+        self.assertFalse(scratch.exists())
+        self.assertEqual(list(self.tmp.glob("review.md.*")), [])
+
+    def test_record_out_refused_keeps_review_and_scratch(self):
+        _out, scratch = self.scratch()
+        scratch.write_text("# Review\n\nVERDICT: BLOCKED\nCHANGES_APPLIED: n/a\n", encoding="utf-8", newline="\n")
+        review = self.tmp / "review.md"
+        review.write_bytes(b"# Earlier review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        out = self.record_out(scratch, review, expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("BLOCKED", out["message"])
+        self.assertEqual(review.read_bytes(), before)
+        self.assertTrue(scratch.is_file())
+        self.assertEqual(Path(out["scratch"]).resolve(), scratch.resolve())
+        missing = self.tmp / "none-yet.md"
+        self.record_out(scratch, missing, expect=3)
+        self.assertFalse(missing.exists())
+
+    def test_record_out_same_file_keeps_review(self):
+        # --result and --out naming one file: the validated review is written and not then deleted as the scratch file
+        review = self.put("review.md", "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        out = self.record_out(review, f"{self.tmp.as_posix()}/./review.md")  # another spelling of the same file
+        self.assertEqual(out["status"], "ok")
+        self.assertTrue(review.is_file())
+        self.assertEqual(review.read_bytes(), before)
+
+    def test_record_without_out_still_validates_in_place(self):
+        review = self.put("review.md", "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",
+                          "--settings", self.settings)
+        self.assertEqual(out["status"], "ok")
+        self.assertTrue(review.is_file())
 
     def test_record_preship_requires_preflight(self):
         out = self.record(preflight=False, expect=2)

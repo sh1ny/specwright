@@ -19,9 +19,14 @@
 #                                     in a store. --store is the claude route's --add-dir in both kinds (--restricted reads only
 #                                     the working directories). --selection is the JSON `select` printed.
 #   record --kind preship|design --change name --result file --route r [--store dir] [--base m --store-base m]
-#       [--preflight file (required for preship)] [--selection file]
+#       [--preflight file (required for preship)] [--selection file] [--out review file (design)]
 #                                     validate a file the specwright-reviewer subagent wrote; preship writes the record for the
-#                                     preflight heads (exit 3 heads_moved when HEAD moved since), design writes nothing else
+#                                     preflight heads (exit 3 heads_moved when HEAD moved since). design with --out writes that
+#                                     file atomically only when the result validates and removes the result (a scratch file);
+#                                     on exit 3 --out is untouched and the scratch path is in the output. Without --out it only
+#                                     validates in place
+#   record --kind design --change name --scratch
+#                                     print {scratch}: a fresh <state dir>/design/<change>/<timestamp>.md for the subagent to write
 #   waive --change name --finding id --reason text [--store dir] [--prefix P]
 #                                     add a user waiver to the record `gate` would use (the archive commit's parent included)
 #   gate --change name [--store dir] [--prefix P]   -> {status: pass|missing|blocked, heads, reviewed_heads, open}
@@ -63,6 +68,7 @@ ACCEPTED = ("codex", "claude", "omp")
 RUNTIMES = ("claude", "codex", "omp", "other")
 REFS = Path(os.environ["REVIEW_RUN_DIR"]).parent / "references"
 MAX_OUTPUT = 2 * 1024 * 1024
+MAX_EVENT_LINE = 16 * 1024 * 1024  # one OMP event line (agent_end carries every message of the session)
 MAX_FINDINGS = 100
 PROBE_TIMEOUT = 10
 ENV = dict(os.environ)
@@ -292,6 +298,13 @@ def norm(p):
     return str(p).replace("\\", "/")
 
 
+def same_file(a, b):
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def kill_tree(pid):
     """Stop a process and everything it started, BY PID. Never by name or pattern."""
     if os.name == "nt":
@@ -307,13 +320,15 @@ def kill_tree(pid):
 
 
 class Captured:
-    def __init__(self, rc, out, out_size, err, timed_out, error=None):
+    def __init__(self, rc, out, out_size, err, timed_out, error=None, scanned=None):
         self.rc, self.out, self.out_size, self.err, self.timed_out, self.error = rc, out, out_size, err, timed_out, error
+        self.scanned = scanned
 
 
-def capture(cmd, timeout, stdin_path=None, cwd=None):
+def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None):
     """Run `cmd` with a deadline. Output goes to files, so a huge output costs disk, not memory, and a killed process
-    tree cannot leave a pipe open. Returns the first MAX_OUTPUT+1 bytes of stdout and the size."""
+    tree cannot leave a pipe open. Returns the first MAX_OUTPUT+1 bytes of stdout and the size. `scan`, when given, is
+    called with the stdout file's path after a normal exit and its result is returned as `.scanned`."""
     work = tempfile.mkdtemp(prefix="specwright-run-")
     try:
         with open(os.path.join(work, "out"), "wb") as fo, open(os.path.join(work, "err"), "wb") as fe:
@@ -337,12 +352,13 @@ def capture(cmd, timeout, stdin_path=None, cwd=None):
                 if fi:
                     fi.close()
         size = os.path.getsize(os.path.join(work, "out"))
+        scanned = scan(os.path.join(work, "out")) if scan and not timed_out and rc == 0 else None
         with open(os.path.join(work, "out"), "rb") as f:
             out = f.read(MAX_OUTPUT + 1)
         with open(os.path.join(work, "err"), "rb") as f:
             f.seek(max(0, os.path.getsize(os.path.join(work, "err")) - 2000))
             err = f.read().decode("utf-8", "replace")
-        return Captured(rc, out, size, err, timed_out)
+        return Captured(rc, out, size, err, timed_out, scanned=scanned)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -584,14 +600,36 @@ def validate_findings(obj):
     return None
 
 
+VERDICTS = ("APPROVE", "APPROVE_WITH_CHANGES", "REVISE")
+CHANGES_AFTER = {"APPROVE": "n/a", "APPROVE_WITH_CHANGES": ("no", "yes"), "REVISE": "n/a"}
+
+
+def line_value(line, key):
+    """The value after `KEY: ` on a whole line (trailing whitespace stripped); None when the line is not a KEY: line."""
+    line = line.rstrip()
+    if not line.startswith(key + ":"):
+        return None
+    rest = line[len(key) + 1:]
+    return rest[1:] if rest.startswith(" ") else rest
+
+
 def validate_design(text):
-    """None when `text` has exactly one VERDICT: line and a CHANGES_APPLIED: line, else the first error."""
+    """None when `text` has exactly one VERDICT: <v> line (v a verdict a reviewer may emit) and exactly one
+    CHANGES_APPLIED: <c> line that fits it, else the first error, naming the value."""
     lines = text.splitlines()
-    verdicts = sum(1 for l in lines if l.startswith("VERDICT:"))
-    if verdicts != 1:
-        return f"expected exactly one VERDICT: line, found {verdicts}"
-    if not any(l.startswith("CHANGES_APPLIED:") for l in lines):
-        return "no CHANGES_APPLIED: line"
+    verdicts = [v for v in (line_value(l, "VERDICT") for l in lines) if v is not None]
+    if len(verdicts) != 1:
+        return f"expected exactly one VERDICT: line, found {len(verdicts)}"
+    verdict = verdicts[0]
+    if verdict not in VERDICTS:
+        return f"VERDICT: {verdict!r} is not one a reviewer may return; accepted: {', '.join(VERDICTS)}"
+    applied = [v for v in (line_value(l, "CHANGES_APPLIED") for l in lines) if v is not None]
+    if len(applied) != 1:
+        return f"expected exactly one CHANGES_APPLIED: line, found {len(applied)}"
+    allowed = CHANGES_AFTER[verdict]
+    allowed = (allowed,) if isinstance(allowed, str) else allowed
+    if applied[0] not in allowed:
+        return f"CHANGES_APPLIED: {applied[0]!r} does not fit VERDICT: {verdict}; accepted: {', '.join(allowed)}"
     return None
 
 
@@ -734,9 +772,36 @@ def schema_for_claude():
     return json.dumps(schema, separators=(",", ":"))
 
 
-def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=()):
+def host_os():
+    """os.name, or the value of REVIEW_RUN_TEST_OS_NAME: a hook so the tests can run the Windows branch anywhere."""
+    return os.environ.get("REVIEW_RUN_TEST_OS_NAME") or os.name
+
+
+def codex_windows_sandbox():
+    """The `windows.sandbox` value of the user's codex config on Windows, or None. The config stays ignored
+    (--ignore-user-config); only this one setting, when it is a plain name, is passed on. Anything else (not Windows, no
+    file, a TOML error, another value, a Python without tomllib) yields None, which is the command line without it."""
+    if host_os() != "nt":
+        return None
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        return None
+    home = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
+    try:
+        with open(os.path.join(home, "config.toml"), "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, ValueError):
+        return None
+    win = data.get("windows") if isinstance(data, dict) else None
+    value = win.get("sandbox") if isinstance(win, dict) else None
+    return value if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9-]*", value) else None
+
+
+def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=(), sandbox=None):
     """The fixed command line of a route (D3). The prompt goes by stdin or file, never argv.
-    dirs: directories outside the checkout the reviewer must read (the planning store)."""
+    dirs: directories outside the checkout the reviewer must read (the planning store).
+    sandbox: the codex `windows.sandbox` name to pass on (codex_windows_sandbox)."""
     model, level = cfg.model(route), cfg.level(route)
     if route == "codex":
         cmd = [exe, "exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config", "--skip-git-repo-check"]
@@ -750,6 +815,8 @@ def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=())
             cmd += ["-m", model]
         if level:
             cmd += ["-c", f"model_reasoning_effort={level}"]
+        if sandbox:
+            cmd += ["-c", f'windows.sandbox="{sandbox}"']
         return cmd + ["-"], prompt_path, last
     if route == "claude":
         cmd = [exe, "-p", "--safe-mode", "--disable-slash-commands", "--tools", "Read,Grep,Glob", "--restricted"]
@@ -779,16 +846,30 @@ def text_of(message):
     return ""
 
 
-def omp_last_text(raw):
-    """The last assistant text of the agent_end event in OMP's --mode json stream, or None."""
+def omp_scan(path):
+    """(the last agent_end event of OMP's --mode json stream in `path`, None), or (None, 'too large') when one line passes
+    MAX_EVENT_LINE. Reads line by line in binary, so memory stays at one bounded line."""
     end = None
-    for line in raw.decode("utf-8", "replace").splitlines():
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(ev, dict) and ev.get("type") == "agent_end":
-            end = ev
+    with open(path, "rb") as f:
+        while True:
+            line = f.readline(MAX_EVENT_LINE + 1)
+            if not line:
+                break
+            if len(line) > MAX_EVENT_LINE and not line.endswith(b"\n"):
+                return None, "too large"
+            if b"agent_end" not in line:
+                continue
+            try:
+                ev = json.loads(line.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "agent_end":
+                end = ev
+    return end, None
+
+
+def omp_last_text(end):
+    """The last assistant text of an agent_end event, or None."""
     if end is None:
         return None
     texts = [text_of(m) for m in end.get("messages") or [] if isinstance(m, dict) and m.get("role") == "assistant"]
@@ -817,10 +898,13 @@ def omp_session_actual(session_dir):
     return model or "unknown", level or "unknown"
 
 
-def make_receipt(route, skipped, cfg, version, started, actual):
-    return {"route": route, "skipped": skipped, "requested_model": cfg.model(route) or "default",
-            "requested_thinking": cfg.level(route) or "default", "actual_model": actual[0], "actual_thinking": actual[1],
-            "cli_version": version or "unknown", "started_at": started, "finished_at": now()}
+def make_receipt(route, skipped, cfg, version, started, actual, sandbox=None):
+    rec = {"route": route, "skipped": skipped, "requested_model": cfg.model(route) or "default",
+           "requested_thinking": cfg.level(route) or "default", "actual_model": actual[0], "actual_thinking": actual[1],
+           "cli_version": version or "unknown", "started_at": started, "finished_at": now()}
+    if sandbox:
+        rec["windows_sandbox"] = sandbox  # the one codex setting forwarded from the user's config
+    return rec
 
 
 def fail(status, error, message, route, receipt, **extra):
@@ -910,24 +994,25 @@ def cmd_run(argv):
             prompt_path, cwd = a["prompt_file"], os.getcwd()
         session_dir = tempfile.mkdtemp(prefix="specwright-omp-session-") if route == "omp" else None
         dirs = [norm(os.path.abspath(a["store"]))] if a.get("store") else []
-        cmd, stdin_path, last_file = command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs)
+        sandbox = codex_windows_sandbox() if route == "codex" else None
+        cmd, stdin_path, last_file = command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs, sandbox)
 
         _exe, version, _reason = probe(route)
         started = now()
-        res = capture(cmd, cfg.timeout, stdin_path=stdin_path, cwd=cwd)
+        res = capture(cmd, cfg.timeout, stdin_path=stdin_path, cwd=cwd, scan=omp_scan if route == "omp" else None)
         actual = ("unknown", "unknown")
         if route == "omp":
             actual = omp_session_actual(session_dir)
         keep = {"session_dir": norm(session_dir)} if session_dir else {}
 
         def stop(status, error, message, **extra):
-            fail(status, error, message, route, make_receipt(route, skipped, cfg, version, started, actual), **keep, **extra)
+            fail(status, error, message, route, make_receipt(route, skipped, cfg, version, started, actual, sandbox), **keep, **extra)
 
         if res.timed_out:
             stop("timeout", "timeout", f"{route} was still running after review.timeout ({cfg.timeout}s); its process tree was stopped")
         if res.rc != 0:
             stop("failed", "reviewer_failed", f"{route} exited {res.rc}: {res.err.strip()[-500:]}", exit_code=res.rc)
-        if route != "codex" and res.out_size > MAX_OUTPUT:  # codex's stdout is only events; its answer is the -o file
+        if route == "claude" and res.out_size > MAX_OUTPUT:  # codex's and omp's stdout are event streams; their answer is bounded below
             stop("invalid", "invalid_output", "output too large")
 
         text, parsed = None, None
@@ -952,11 +1037,16 @@ def cmd_run(argv):
             else:
                 text = obj.get("result") if isinstance(obj.get("result"), str) else ""
         else:
-            text = omp_last_text(res.out)
+            end, problem = res.scanned or (None, None)
+            if problem:
+                stop("invalid", "invalid_output", "output too large")  # one event line passed MAX_EVENT_LINE
+            text = omp_last_text(end)
             if text is None:
                 stop("invalid", "invalid_output", "omp's event stream has no assistant message in agent_end")
+            if len(text.encode("utf-8")) > MAX_OUTPUT:
+                stop("invalid", "invalid_output", "output too large")
 
-        receipt = make_receipt(route, skipped, cfg, version, started, actual)
+        receipt = make_receipt(route, skipped, cfg, version, started, actual, sandbox)
         if kind == "preship":
             if parsed is None:
                 parsed = json_from_text(text)
@@ -1030,14 +1120,33 @@ def read_result(path):
     return p.read_text(encoding="utf-8", errors="replace")
 
 
+def design_scratch(change):
+    """A fresh result path for a subagent design review: <state dir>/design/<change>/<timestamp>.md."""
+    d = state_dir() / "design" / change
+    d.mkdir(parents=True, exist_ok=True)
+    while True:
+        p = d / (datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".md")
+        if not p.exists():
+            return p
+
+
 def cmd_record(argv):
+    scratch = "--scratch" in argv
+    argv = [t for t in argv if t != "--scratch"]
     a, _ = parse_args(argv, {"--kind": "kind", "--change": "change", "--result": "result", "--route": "route", "--store": "store",
                              "--base": "base", "--store-base": "store_base", "--settings": "settings",
-                             "--preflight": "preflight", "--selection": "selection"})
+                             "--preflight": "preflight", "--selection": "selection", "--out": "out"})
+    if scratch:
+        need(a, "kind", "change")
+        if a["kind"] != "design":
+            usage("--scratch is for --kind design")
+        return {"ok": True, "scratch": norm(design_scratch(a["change"]))}
     need(a, "kind", "change", "result", "route")
     kind, route = a["kind"], a["route"]
     if kind not in ("preship", "design"):
         usage("--kind is preship or design")
+    if a.get("out") and kind != "design":
+        usage("--out is for --kind design")
     if kind == "preship":
         need(a, "preflight")
     if route not in ACCEPTED + ("subagent",):
@@ -1057,7 +1166,10 @@ def cmd_record(argv):
             usage(f"--preflight {a['preflight']} is not the output of `preflight` (no heads)")
 
     def invalid(message):
-        fail("invalid", "invalid_output", message, route, make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown")))
+        # a refused --out review keeps its scratch file, and the report names it
+        extra = {"scratch": norm(a["result"])} if a.get("out") else {}
+        fail("invalid", "invalid_output", message, route, make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown")),
+             **extra)
 
     if text is None:
         invalid("output too large")
@@ -1065,8 +1177,17 @@ def cmd_record(argv):
         err = validate_design(text)
         if err:
             invalid(err)
-        return {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"]),
-                "receipt": make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown"))}
+        result = {"ok": True, "status": "ok", "kind": "design", "route": route, "result": norm(a["result"]),
+                  "receipt": make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown"))}
+        if a.get("out"):
+            atomic_write(a["out"], text)
+            if not same_file(a["result"], a["out"]):  # one file named twice is the review, not a scratch file
+                try:
+                    os.unlink(a["result"])
+                except OSError:
+                    pass
+            result["out"] = norm(a["out"])
+        return result
     parsed = json_from_text(text)
     if parsed is None:
         invalid("output is not JSON: " + (text.strip()[:120] or "(empty)"))

@@ -1378,6 +1378,44 @@ class TestOpenSpecPin(unittest.TestCase):
         self.assertIn(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?", unpinned.group(0), "Step 1 does not take the version token")
         self.assertRegex(unpinned.group(0), r"(?is)as\s+Step\s+3\s+takes\s+it", "Step 1 does not take the token as Step 3 does")
 
+    def test_step3_run_on_token_is_unreadable(self):
+        _, check = self.s3_check()
+        self.assertRegex(check, r"(?is)directly\s+followed\s+by\s+a\s+digit,\s+(a\s+)?letter,\s+`\.`,\s+`\+`\s+or\s+`-`.{0,120}unreadable",
+                         "Step 3 does not call a run-on token unreadable output")
+        self.assertIn("1.14.1.0", check, "Step 3 does not give 1.14.1.0 as an example")
+        self.assertIn("1.14.1vendor", check, "Step 3 does not give 1.14.1vendor as an example")
+        self.assertNotIn("(?!", check, "Step 3 uses a negative lookahead")
+
+    def test_step1_run_on_token_is_unreadable(self):
+        root = install_bullet(step(read(README), "Step 1"), r"openspec list --json")
+        unpinned = re.search(r"(?is)version.{0,40}recorded.{0,200}?\bnot\s+\d.{0,400}?STOP", root or "")
+        self.assertTrue(unpinned, "the root-check failure has no comparison with the pin")
+        self.assertRegex(unpinned.group(0), r"(?is)as\s+Step\s+3\s+takes\s+it", "Step 1 does not refer to Step 3's rule")
+        self.assertRegex(unpinned.group(0), r"(?is)unreadable", "Step 1 does not treat a run-on token as unreadable")
+        self.assertNotIn("(?!", root, "Step 1 uses a negative lookahead")
+
+    def test_readme_token_rule_on_sample_outputs(self):
+        # Run the rule as the README states it: first match of its own token pattern, then the boundary character.
+        _, check = self.s3_check()
+        m = re.search(r"`(\\d\+\\\.\\d\+\\\.\\d\+[^`]*)`", check)
+        self.assertTrue(m, "Step 3 states no token pattern")
+        token = re.compile(m.group(1))
+        rule = re.search(r"directly\s+followed\s+by\s+a\s+digit,\s+(?:a\s+)?letter,\s+`(.)`,\s+`(.)`\s+or\s+`(.)`", check)
+        self.assertTrue(rule, "Step 3 states no boundary rule")
+        bound = "0-9A-Za-z" + "".join(re.escape(c) for c in rule.groups())
+
+        def read_version(out):
+            t = token.search(out)
+            if not t:
+                return "unreadable"
+            if re.match(rf"[{bound}]", out[t.end():t.end() + 1]):
+                return "unreadable"
+            return t.group(0)
+
+        for out, want in (("1.14.1", "1.14.1"), ("openspec 1.14.1\n", "1.14.1"), ("1.14.1+vendor.1", "1.14.1+vendor.1"),
+                          ("1.14.1.0", "unreadable"), ("1.14.1vendor", "unreadable")):
+            self.assertEqual(read_version(out), want, f"the README rule reads {out!r} wrongly")
+
     def test_eval_scaffolding_matches_pin(self):
         # The pin evals spell the pin out too; the fake must report another version, or the refusal tests nothing.
         pin, here = openspec_pin(), Path(__file__).resolve().parent
@@ -1443,6 +1481,57 @@ class TestOpenSpecPin(unittest.TestCase):
         b = self.override()
         self.assertRegex(b, r"(?is)reply.{0,200}(clone|download).{0,40}again|(clone|download).{0,40}again.{0,200}reply",
                          "an override given in a reply does not download the copy again")
+
+
+DEBUG = ROOT / "skills" / "specwright-debug" / "SKILL.md"
+
+
+class DebugStash(unittest.TestCase):
+    """specwright-debug names, reports and finds its stash (debugging spec)."""
+
+    def text(self):
+        return read(DEBUG)
+
+    def test_stash_is_named_and_ref_reported(self):
+        t = self.text()
+        self.assertIn('git stash push -u -m "specwright-debug: <topic>"', t, "the test stash is not named")
+        self.assertRegex(t, r"(?is)report\w*\s+(the\s+)?(stash\s+)?ref", "the stash ref is not reported")
+        self.assertRegex(t, r"(?is)git stash apply.{0,300}git stash drop", "restore is not apply then drop")
+        self.assertRegex(t, r"(?is)drop.{0,120}(only\s+)?(after|once).{0,80}(files|verif)", "the drop does not wait for the files to be verified")
+
+    def test_ref_resolved_by_message_before_apply_and_drop(self):
+        t = self.text()
+        self.assertRegex(t, r"(?is)(look\w*\s+up|find|resolve)\w*.{0,60}(ref\s+)?again.{0,80}message|(ref|stash).{0,60}by\s+(its\s+)?(exact\s+)?message",
+                         "the ref is not looked up again by its message")
+        self.assertRegex(t, r"(?is)before\s+each\s+`?apply`?\s+and\s+(each\s+)?`?drop", "the lookup does not precede each apply and drop")
+        self.assertRegex(t, r"(?is)not\s+found,\s+or\s+found\s+twice,\s+stops", "a missing or doubled message does not stop")
+
+    def test_start_of_run_lists_leftover_stash_and_offers_restore(self):
+        t = self.text()
+        self.assertIn("git stash list", t)
+        self.assertIn("specwright-debug: ", t)
+        self.assertRegex(t, r"(?is)offer.{0,80}restore", "no restore offer for a leftover stash")
+        self.assertRegex(t, r"(?is)(not|no)\s+(stash\w*\s+)?(again|new\s+stash).{0,80}(user\s+decides|decides)|until\s+the\s+user\s+decides",
+                         "the run may stash again before the user decides")
+
+    def test_conflicting_restore_keeps_stash_and_stops(self):
+        t = self.text()
+        self.assertRegex(t, r"(?is)conflict.{0,160}keep.{0,40}stash.{0,80}stop|conflict.{0,160}stop.{0,80}keep.{0,40}stash",
+                         "a conflicting restore does not keep the stash and stop")
+
+    def test_marker_is_matched_after_git_prefix(self):
+        # `git stash list` prints `stash@{n}: On <branch>: <message>`, so the marker is never at the start of a line
+        t = self.text()
+        self.assertIn("On <branch>: ", t, "the list format with Git's branch prefix is not named")
+        self.assertRegex(t, r"(?is)after\s+(Git's\s+)?`On <branch>: `", "the marker is not matched after Git's prefix")
+        self.assertNotRegex(t, r"(?i)messages that start with `specwright-debug: `", "the marker is still matched at the start of the line")
+
+    def test_no_leftover_reported_and_continues(self):
+        self.assertRegex(self.text(), r"(?is)no\s+leftover\s+stash\s+and\s+continue", "no leftover stash is not reported")
+
+    def test_only_specwright_debug_stashes_are_offered(self):
+        self.assertRegex(self.text(), r"(?is)other\s+stashes.{0,80}(alone|untouched|never)|(never|not).{0,60}other\s+stash",
+                         "other stashes are not left alone")
 
 
 class InstallUpdateLifecycle(unittest.TestCase):

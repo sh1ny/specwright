@@ -4,8 +4,11 @@
 # JSON document.
 #
 # Usage: bash release.sh [--dir <repo>] <subcommand> [options]
-#   check                             read the version files in the working tree: exactly one match per file, one shared
-#                                     version -> version + the files read
+#   check [--main <ref>]              read the version files in the working tree: exactly one match per file, one shared
+#                                     version -> version + the files read. With --main, then refuse (exit 1,
+#                                     version_not_ahead_of_main) a branch that bumped to a version not greater than <ref>'s. It
+#                                     bumped when its version differs from the merge base's with <ref>, or a non-merge commit in
+#                                     <ref>..HEAD changed the primary file; no readable version at <ref> passes
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
@@ -30,9 +33,10 @@
 #                                     proof is in that range: `merge: <name>` subject (finish: local) or a merged PR from the
 #                                     code repo's own <prefix>/<name> branch (one `gh api --paginate .../pulls` call; a failure
 #                                     is exit 3, pr_discovery_failed). --store-prefix defaults to openspec.
-#   untagged [--main <ref>]           versions in main's history of the primary file after the latest tagged one (with no tag:
-#                                     only the current version) that have no local tag, oldest first:
-#                                     {latest_tagged, untagged: [{version, tag, release_commit}]}
+#   untagged [--main <ref>] [--local] versions in main's history of the primary file after the latest tagged one (with no tag:
+#                                     only the current version) that are not published, oldest first (published = tag on origin;
+#                                     --local, or no origin remote: a local tag, with no network call):
+#                                     {latest_tagged, tags: local|origin, untagged: [{version, tag, release_commit}]}
 #   publish --version V [--main ref] [--store ...]
 #                                     after the opt-in, merge-method, release-commit, agreement and older-untagged gates, reads
 #                                     the tag locally and on origin (ls-remote) and does only what is missing: annotated tag on
@@ -115,11 +119,18 @@ def err_of(r):
     return r.stderr.decode("utf-8", "replace").strip()
 
 
+class Flag(str):
+    """An option that takes no value: its spec entry is Flag(<name>)."""
+
+
 def parse_args(argv, spec):
     a, pos, i = {}, [], 0
     while i < len(argv):
         t = argv[i]
-        if t in spec:
+        if isinstance(spec.get(t), Flag):
+            a[spec[t]] = True
+            i += 1
+        elif t in spec:
             if i + 1 >= len(argv):
                 usage(f"{t} needs a value")
             a[spec[t]] = argv[i + 1]
@@ -573,8 +584,62 @@ def sv(v):
 
 
 # ---- subcommands ------------------------------------------------------------------------------------------------
+def primary_at(st, entries, commit):
+    """The one version the primary file reads at `commit`, or None when a file matches other than once or the files
+    disagree."""
+    path, _, c = entries[0]
+    tree = CommitTree(st.root, commit)
+    blobs = tree.read_all(tree.files(path))
+    vals = set()
+    for b in blobs.values():  # exactly one match per file, as read_versions requires; the files must then agree
+        ms = find_versions(c, decode(b))
+        if len(ms) != 1:
+            return None
+        vals.add(ms[0].group(1))
+    return next(iter(vals)) if len(vals) == 1 else None
+
+
+def own_bump(st, entries, commits):
+    """D3: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
+    the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump."""
+    for c in commits:
+        mine = primary_at(st, entries, c)
+        parent = primary_at(st, entries, f"{c}^") if ref_exists(st.root, f"{c}^") else None
+        if mine == parent:
+            continue
+        if mine is None:
+            return False
+        return parent is None or not (sv(mine) and sv(parent)) or sv(mine) > sv(parent)
+    return False
+
+
+def check_ahead_of(st, entries, ref, version):
+    """D3: a branch that bumped must be greater than `ref`'s version."""
+    if not ref_exists(st.root, ref):
+        raise Stop("no_main", f"main ref '{ref}' does not exist")
+    theirs = primary_at(st, entries, ref)
+    if theirs is None:
+        return
+    base = git(st.root, "merge-base", "HEAD", ref)
+    base_version = primary_at(st, entries, text_of(base)) if base.returncode == 0 and text_of(base) else None
+    bumped = base_version != version
+    if not bumped:
+        r = git(st.root, "log", "--no-merges", "--topo-order", "--format=%H", f"{ref}..HEAD", "--",
+                f":(glob){entries[0][0]}" if has_glob(entries[0][0]) else f":(literal){entries[0][0]}")
+        if r.returncode != 0:
+            raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
+        bumped = own_bump(st, entries, text_of(r).split())
+    if bumped and not (sv(version) and sv(theirs) and sv(version) > sv(theirs)):
+        raise Stop("version_not_ahead_of_main", f"this branch bumped to {version}, which is not greater than {ref}'s {theirs}: "
+                   f"another change reached {ref} first. Rerun bump --to with a version greater than {theirs}",
+                   version=version, main_version=theirs, main=ref)
+
+
 def cmd_check(st, a):
-    version, files = agree(WorkTree(st.root), st.entries())
+    entries = st.entries()
+    version, files = agree(WorkTree(st.root), entries)
+    if a.get("main"):
+        check_ahead_of(st, entries, a["main"], version)
     return {"ok": True, "version": version, "files": files}
 
 
@@ -1186,9 +1251,10 @@ def cmd_status(st, a):
 
 def cmd_untagged(st, a):
     entries, ref, rel = load_main(st, a)
-    tags = published_tags(st)
+    local = "local" in a or origin_url(st) is None
+    tags = local_tags(st) if local else published_tags(st)
     versions, latest = untagged_since_latest(st, rel, tags, local_tags(st))
-    return {"ok": True, "main": ref, "latest_tagged": latest,
+    return {"ok": True, "main": ref, "tags": "local" if local else "origin", "latest_tagged": latest,
             "untagged": [{"version": u, "tag": tag_for(st, u), "release_commit": rel.first[u]} for u in versions]}
 
 
@@ -1330,10 +1396,10 @@ def cmd_publish(st, a):
 
 STORE_OPTS = {"--store": "store", "--store-main": "store-main", "--store-prefix": "store-prefix"}
 COMMANDS = {
-    "check": (cmd_check, {}),
+    "check": (cmd_check, {"--main": "main"}),
     "bump": (cmd_bump, {"--to": "to"}),
     "status": (cmd_status, {"--version": "version", "--main": "main", **STORE_OPTS}),
-    "untagged": (cmd_untagged, {"--main": "main"}),
+    "untagged": (cmd_untagged, {"--main": "main", "--local": Flag("local")}),
     "publish": (cmd_publish, {"--version": "version", "--main": "main", **STORE_OPTS}),
 }
 
@@ -1345,7 +1411,7 @@ def main(argv):
             usage("--dir needs a value")
         d, rest = rest[1], rest[2:]
     if not rest or rest[0] not in COMMANDS:
-        usage("usage: release.sh [--dir <repo>] check | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] | publish --version V")
+        usage("usage: release.sh [--dir <repo>] check [--main ref] | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] [--local] | publish --version V")
     fn, spec = COMMANDS[rest[0]]
     a, pos = parse_args(rest[1:], spec)
     if pos:
