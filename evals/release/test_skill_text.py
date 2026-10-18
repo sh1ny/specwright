@@ -138,6 +138,11 @@ class TestFinishText(unittest.TestCase):
         self.assertRegex(check, r"(?is)refus[^.]*stops?[^.]*merge|stops?[^.]*before `git merge`")
         self.assertRegex(check, r"(?i)bump")
         self.assertLess(local.index(check), local.index("git merge --no-ff"), "the check comes after the merge")
+        # store-backed, the store merges first: the code repo's check runs before either merge
+        self.assertRegex(check, r"(?i)before either repo's merge")
+        store = paragraph(local, r"^- \*\*Store-backed:\*\*", "finish: the **Store-backed:** bullet of ## local")
+        self.assertLess(store.index("**Version check**"), store.index("merge and delete the store branch"),
+                        "store-backed: the store merges before the version check")
 
 
 class TestWatchText(unittest.TestCase):
@@ -152,7 +157,7 @@ class TestWatchText(unittest.TestCase):
         step = line_with(watch, r"^   - \*\*Version check\*\*", "watch: the **Version check** bullet in step 3")
         self.assertIn("release.sh check --main origin/<main>", step)
         self.assertRegex(step, r"release\.enabled")
-        self.assertRegex(step, r"git fetch origin <main>")
+        self.assertIn("git fetch --no-tags origin <main>", step)
         self.assertRegex(step, r"(?i)before (it )?report")
         self.assertRegex(step, r"(?i)before (each|the) merge")
         self.assertRegex(step, r"(?is)refus[^.]*(neither|no)[^.]*ready")
@@ -201,14 +206,16 @@ class TestShipText(unittest.TestCase):
 
     def test_ship_checks_version_against_fetched_main_before_push(self):
         ship = self.ship
-        step = line_with(ship, r"^   2\. .*release\.sh check --main origin/<main>", "ship: the version check item")
+        step = line_with(ship, r"^   1\. .*release\.sh check --main origin/<main>", "ship: the version check item")
         self.assertRegex(step, r"release\.enabled")
-        fetch = step.index("git fetch origin <main>")
+        fetch = step.index("git fetch --no-tags origin <main>")
         self.assertIn("[as]", step[:fetch], "the fetch is not fenced")
         self.assertLess(fetch, step.index("check --main origin/<main>"), "the check comes before the fetch")
         self.assertRegex(step, r"(?is)refus[^.]*stop")
         self.assertRegex(step, r"(?i)bump")
-        self.assertLess(ship.index("Run that repo's validate"), ship.index(step), "the check comes before validate")
+        # the store is pushed first, so the code repo's check runs once, before either repo is validated or pushed
+        self.assertRegex(step, r"(?i)once,? before either repo")
+        self.assertLess(ship.index(step), ship.index("Run that repo's validate"), "the check comes after validate")
         self.assertLess(ship.index(step), ship.index("git push -u origin HEAD"), "the check comes after the push")
 
 

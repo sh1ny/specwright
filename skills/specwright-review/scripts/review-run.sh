@@ -298,6 +298,13 @@ def norm(p):
     return str(p).replace("\\", "/")
 
 
+def same_file(a, b):
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def kill_tree(pid):
     """Stop a process and everything it started, BY PID. Never by name or pattern."""
     if os.name == "nt":
@@ -1174,10 +1181,11 @@ def cmd_record(argv):
                   "receipt": make_receipt(route, skipped, cfg, None, started, ("unknown", "unknown"))}
         if a.get("out"):
             atomic_write(a["out"], text)
-            try:
-                os.unlink(a["result"])
-            except OSError:
-                pass
+            if not same_file(a["result"], a["out"]):  # one file named twice is the review, not a scratch file
+                try:
+                    os.unlink(a["result"])
+                except OSError:
+                    pass
             result["out"] = norm(a["out"])
         return result
     parsed = json_from_text(text)

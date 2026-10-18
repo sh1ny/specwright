@@ -1063,6 +1063,15 @@ class RecordGateTests(Base):
         self.record_out(scratch, missing, expect=3)
         self.assertFalse(missing.exists())
 
+    def test_record_out_same_file_keeps_review(self):
+        # --result and --out naming one file: the validated review is written and not then deleted as the scratch file
+        review = self.put("review.md", "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        out = self.record_out(review, f"{self.tmp.as_posix()}/./review.md")  # another spelling of the same file
+        self.assertEqual(out["status"], "ok")
+        self.assertTrue(review.is_file())
+        self.assertEqual(review.read_bytes(), before)
+
     def test_record_without_out_still_validates_in_place(self):
         review = self.put("review.md", "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
         out = self.script("record", "--kind", "design", "--change", CHANGE, "--result", review, "--route", "subagent",

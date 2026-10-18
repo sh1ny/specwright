@@ -59,8 +59,8 @@ See `proposal.md` for the seven issues. Current code:
   - Without `--main`, `check` behaves as today.
   
   It runs only with `release.enabled` true, at three points:
-  - `specwright-pr` ship, against `origin/<main>` after a fenced `git fetch origin <main>`, next to `pr.validate` before any push;
-  - `specwright-finish` local merge, against local `<main>` before `git merge`;
+  - `specwright-pr` ship, against `origin/<main>` after a fenced `git fetch --no-tags origin <main>`, once before either repo is validated or pushed;
+  - `specwright-finish` local merge, against local `<main>` before `git merge` (store-backed: before either repo's merge);
   - `specwright-pr` watch, against a refreshed `origin/<main>` before it reports a PR ready or sends the agent merge.
   
   A refusal at watch reports the duplicate and neither reports ready nor merges. The fix is a new bump commit on the branch, as a tracked fix.
