@@ -30,7 +30,7 @@ The install prompt SHALL compare settings by dotted key path, and SHALL treat a 
 - **THEN** Step 6 lists that key and asks before removing it
 
 ### Requirement: Install checks the OpenSpec version against the pin
-Before it writes any file, the install prompt SHALL compare the version that `openspec --version` reports with the downloaded copy's `OPENSPEC_VERSION` and SHALL require an exact match. A different version, newer patch releases included, and output with no version number in it SHALL count as a mismatch.
+Before it writes any file, the install prompt SHALL compare the version that `openspec --version` reports with the downloaded copy's `OPENSPEC_VERSION` and SHALL require an exact match. A different version, newer patch releases included, and output with no version number in it SHALL count as a mismatch. A version token directly followed by another version character (a digit, letter, `.`, `+` or `-`) SHALL count as output with no version number.
 
 #### Scenario: Pinned version installed
 - **WHEN** `openspec --version` prints `1.14.1` and the downloaded `OPENSPEC_VERSION` is `1.14.1`
@@ -52,6 +52,14 @@ Before it writes any file, the install prompt SHALL compare the version that `op
 #### Scenario: Version output has no version number
 - **WHEN** `openspec --version` exits 0 but its output contains no `<major>.<minor>.<patch>` number
 - **THEN** the install stops before Step 4 as on a mismatch, showing the output it could not read
+
+#### Scenario: Version token runs into other version characters
+- **WHEN** `openspec --version` prints `1.14.1.0` or `1.14.1vendor` and the downloaded `OPENSPEC_VERSION` is `1.14.1`
+- **THEN** the install stops before Step 4 as on output with no version number, showing that output, and writes no file
+
+#### Scenario: Root check reads a run-on version token
+- **WHEN** `openspec --version` prints `1.14.1vendor` and `openspec list --json` reports no root
+- **THEN** the install stops in Step 1 treating the version as unreadable, names the pin `1.14.1` and `npm i -g @fission-ai/openspec@1.14.1`, does not suggest `openspec init`, and writes no file
 
 #### Scenario: Downloaded copy has no pin file
 - **WHEN** the downloaded copy has no `OPENSPEC_VERSION` file, or it is empty
@@ -200,3 +208,26 @@ After a swap, the install/update report SHALL say that agent sessions started be
 #### Scenario: Refused update
 - **WHEN** an update stops before the swap (a failed check or a refused workflow update)
 - **THEN** the report gives no restart notice and says the installed version is unchanged
+
+### Requirement: A refused change is also checked against the installed schema
+When a change in flight fails validation against the target version, at the plan or at the swap, the update SHALL also validate it against the schema installed on disk, labelled with that schema's version. Only when that schema itself validates and the change fails against it SHALL the refusal say the change already fails on that version, name that error, and say the update did not cause it. The refusal itself SHALL stay unchanged.
+
+#### Scenario: Change already incomplete on the installed version
+- **WHEN** an update from 0.4.2 to 0.6.0 runs with change `platform-backlog` in flight, whose `tasks.md` exists while `review.md` does not, and it fails `openspec status` against both schemas
+- **THEN** the update stops before the swap as before, and the message names `platform-backlog`, says it already fails on 0.4.2 with the same check, and says the update to 0.6.0 did not cause it
+
+#### Scenario: Change fails only on the target
+- **WHEN** an update from 0.5.0 to 0.6.0 runs with change `add-x` in flight, and `add-x` validates against the installed 0.5.0 schema but fails against 0.6.0
+- **THEN** the refusal names `add-x` and the 0.6.0 error, and does not say the change already fails on 0.5.0
+
+#### Scenario: Installed schema fails under the current OpenSpec
+- **WHEN** an update from 0.4.2 to 0.6.0 refuses change `add-x`, and the installed 0.4.2 schema itself fails `openspec schema validate` under the OpenSpec now installed
+- **THEN** the refusal names `add-x` and the 0.6.0 error, and makes no claim that `add-x` already fails on 0.4.2
+
+#### Scenario: OpenSpec fails during the installed check
+- **WHEN** an update from 0.5.0 to 0.6.0 refuses change `add-x`, and `openspec validate` exits non-zero without a validation result when run against the installed 0.5.0 schema
+- **THEN** the refusal names `add-x` and the 0.6.0 error, and makes no claim that `add-x` already fails on 0.5.0
+
+#### Scenario: No installed schema to compare with
+- **WHEN** a workflow update with no installed `VERSION` refuses change `add-x`
+- **THEN** the refusal names `add-x` and the target's error, makes no claim about an installed version, and the update writes no file
