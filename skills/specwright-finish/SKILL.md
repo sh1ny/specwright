@@ -30,7 +30,7 @@ None of A, M, B in any repo → in `pr` mode, first look up each repo's PR (`dis
 
 | Facts | Next |
 |---|---|
-| archive paths uncommitted, no A | steps 1-3 in order (branch check and recovery branch, planning-only test, archive commit) |
+| archive paths uncommitted, no A | start at step 0 (deferred check), then steps 1-3 in order (branch check and recovery branch, planning-only test, archive commit) |
 | A on branch, not M, B, `local` | merge (`## local`) |
 | code repo, the newest store A's body has the line `Archive-Scope: store-only` | out of scope: report the code branch and its PR state, touch nothing; the repo counts as done |
 | `pr`, the branch's PR merged, B | **After the PR is merged** cleanup, not ship |
@@ -54,6 +54,10 @@ Report `Nothing to finish - archive is on <main>` only when every repo is done; 
 
 ## Steps
 
+0. **Deferred check**, before any commit, merge or push: for each archived change (bulk archive: every one), read `<P>/changes/archive/<archived-name>/review.md` (the **Archive name** rule). A whole line `VERDICT: DEFERRED` in any → stop: no commit, no merge, no push. Tell the user that change must not be archived, and run no restore yourself (it could drop their own edits). List how to undo it, in three groups:
+   - modified (tracked) main specs: `git restore -- <file>` each; warn that this also discards the user's own uncommitted edits in that file;
+   - created (untracked) main specs: the user deletes them;
+   - the change directory: `git restore -- <P>/changes/<name>/` when it was committed, otherwise move it back from the archive directory.
 1. **Branch:** `git branch --show-current`. If the branch's change name differs from the archived change, confirm with the user. On main:
    - No archive changes left uncommitted (the archive already reached main) → **Resume**; report `Nothing to finish - archive is on <main>` only when it finds every repo done.
    - Otherwise (the PR merged before archive ran; normally `specwright-pr` **watch** archives on the PR branch first) → offer `git checkout -b chore/archive-<change-name>`; the uncommitted archive carries over. Continue from step 2 on that branch, or stop if the user declines. Never commit on main.
