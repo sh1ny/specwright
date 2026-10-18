@@ -625,7 +625,7 @@ class RunTests(Base):
 
     def test_design_override_and_skipped_verdicts_invalid(self):
         self.install("codex")
-        for value in ("USER_OVERRIDE", "SKIPPED_LIGHT"):
+        for value in ("USER_OVERRIDE", "SKIPPED_LIGHT", "DEFERRED", "WAIVED"):
             text = f"# Review\n\nVERDICT: {value}\nCHANGES_APPLIED: n/a\n"
             self.stdout_file("codex", text)
             out = self.design("codex", expect=3, out=f"run-{value}.md")
