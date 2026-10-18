@@ -13,8 +13,8 @@ Every new test below lives in `evals/git-workflow/test_instructions.py`, in a ne
 | design-review-gate → A deferred review never ships code | Archive on a deferred change | evals/git-workflow/test_instructions.py | DRD.test_config_context_refuses_archive_of_deferred | green |
 | design-review-gate → A deferred review never ships code | Archive ran anyway | evals/git-workflow/test_instructions.py | DRD.test_finish_step0_stops_on_deferred_and_lists_restore_groups | green |
 | design-review-gate → A deferred review never ships code | Deferral with no target | evals/git-workflow/test_instructions.py | DRD.test_tasks_precheck_stops_on_deferred_without_target | green |
-| design-review-gate → A parking change lands without archive | Watch on a parking change's PR | evals/git-workflow/test_instructions.py | DRD.test_watch_skips_archive_for_deferred_and_reports_parked | red |
-| design-review-gate → A parking change lands without archive | Watch on an ordinary change | evals/git-workflow/test_instructions.py | DRD.test_watch_archive_before_merge_kept_for_other_verdicts | red |
+| design-review-gate → A parking change lands without archive | Watch on a parking change's PR | evals/git-workflow/test_instructions.py | DRD.test_watch_skips_archive_for_deferred_and_reports_parked | green |
+| design-review-gate → A parking change lands without archive | Watch on an ordinary change | evals/git-workflow/test_instructions.py | DRD.test_watch_archive_before_merge_kept_for_other_verdicts | green |
 | design-review-gate → A waiver records the user's decision | User waives the design review | evals/git-workflow/test_instructions.py | DRD.test_waiver_records_user_words_and_no_review_ran | green |
 | design-review-gate → A waiver records the user's decision | Waiver without the user's words | evals/git-workflow/test_instructions.py | DRD.test_waiver_without_user_words_refused_at_tasks_and_apply | green |
 | design-review-gate → A waiver records the user's decision | Review route unavailable | evals/git-workflow/test_instructions.py | DRD.test_agent_never_offers_waiver_or_deferral | green |
@@ -51,7 +51,7 @@ Extra tests, with no scenario row: `DRD.test_template_context_lines_use_managed_
 ## 3. Parking changes in watch and the roadmap
 
 - [x] 3.1 Write the failing tests for test map rows 8-9 (DRD), the five project-planning `red` rows in `ProjectPlanning`, and `test_baseline_gate_lists_own_verdicts_without_deferred_or_waived`. Confirm that they fail for the missing text.
-- [ ] 3.2 Watch skips parked changes: `skills/specwright-pr/SKILL.md` watch **Archive before merge**: when the change's `review.md` holds `VERDICT: DEFERRED`, archive nothing, report the PR ready as a parked change for the user to merge, and send no merge request. Ordinary changes are unchanged. Verify rows 8-9 pass, flip green, and run `python -m unittest discover evals/pr-pair` to confirm nothing regressed.
+- [x] 3.2 Watch skips parked changes: `skills/specwright-pr/SKILL.md` watch **Archive before merge**: when the change's `review.md` holds `VERDICT: DEFERRED`, archive nothing, report the PR ready as a parked change for the user to merge, and send no merge request. Ordinary changes are unchanged. Verify rows 8-9 pass, flip green, and run `python -m unittest discover evals/pr-pair` to confirm nothing regressed.
 - [ ] 3.3 Roadmap parking changes: `skills/specwright-roadmap/SKILL.md`:
   - init step 5: replace "the same precheck as tasks" with its own list, and state that DEFERRED, WAIVED and SKIPPED_LIGHT never pass the baseline.
   - next step 2: a change whose `review.md` holds `VERDICT: DEFERRED` is parked, never offered for resume, and next continues as if it were not active. On the parking branch, next says it starts from main once the parking change has merged, and starts nothing.
