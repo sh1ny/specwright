@@ -1861,13 +1861,36 @@ class DesignReviewDispositions(unittest.TestCase):
     def test_finish_bulk_archive_commit_is_found_by_path(self):
         # A bulk archive commit names several changes, so its subject cannot identify A; the archive path does (PR #104 review).
         flat = re.sub(r"\s+", " ", read(FINISH))
-        find = "git log -1 --format=%H <main>..<branch> -- <P>/changes/archive/<archived-name>/"
+        find = "git log --diff-filter=A --format=%H <main>..<branch> -- <P>/changes/archive/<archived-name>/review.md"
         a = flat[flat.index("- **A** - "):flat.index("- **M** - ")]
         self.assertIn("the commit that added the archive directory", a, "A is not found by the commit that added the archive directory")
         self.assertIn(find, a, "A does not give the path lookup on the branch")
         self.assertRegex(a, r"(?is)bulk archive commit", "A does not cover a bulk archive commit")
         s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
         self.assertIn(find, s0, "step 0 prescribes a revert without saying how to find <A>")
+
+    def test_finish_archive_commit_is_the_one_that_added_it(self):
+        # git log -1 on the archive directory returns the newest commit touching it, e.g. a later review fix (PR #104 review).
+        text = read(FINISH)
+        self.assertNotIn("git log -1 --format=%H <main>..<branch>", text, "A is still the newest commit touching the archive, not the one that added it")
+        flat = re.sub(r"\s+", " ", text)
+        self.assertRegex(flat, r"(?is)oldest.{0,80}several|several.{0,80}oldest", "the lookup does not say which line to take when it prints several")
+
+    def test_finish_resume_deferred_check_reads_branch_review(self):
+        # Resuming on main with the archive committed only on the branch must still run step 0 (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        resume = flat[flat.index("## Resume"):flat.index("| Facts | Next |")]
+        self.assertRegex(resume, r"(?is)uncommitted.{0,120}or A (is )?on the branch|A (is )?on the branch.{0,120}uncommitted", "resume gate is not based on A on the branch")
+        self.assertNotIn("whenever this change's archive directory exists there", resume, "resume gate still needs the archive in the working tree")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("git show <branch>:<P>/changes/archive/<archived-name>/review.md", s0, "step 0 cannot read review.md from the branch")
+
+    def test_finish_committed_archive_undone_by_revert_alone(self):
+        # The restore groups break a revert of a committed archive (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("for an uncommitted archive only", s0, "the restore groups are not scoped to an uncommitted archive")
+        self.assertRegex(s0, r"(?is)committed archive.{0,120}(only|solely|alone).{0,40}revert|revert.{0,60}(only|solely|alone)", "a committed archive is not undone by the revert alone")
 
     def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
         # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
