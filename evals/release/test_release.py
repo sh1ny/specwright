@@ -826,6 +826,36 @@ class TestCheckMain(Flow):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.4.2")
 
+    def test_bump_reverted_by_lower_of_unreadable_set(self):
+        # PR #108, Codex P2: from a merge base reading 0.4.2 and 0.5.0, the branch bumps to 0.6.0, lists 0.6.0 and 0.5.0,
+        # then keeps 0.5.0: keeping the lower of its parent's versions drops the bump, so the older bump must not count.
+        self.repo(version="0.4.2")
+        fx.commit(self.work, "chore: VERSION lists two", {"VERSION": "0.4.2\n0.5.0\n"})
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        self.bump_branch("0.6.0")
+        fx.commit(self.work, "feat(b): VERSION lists two", {"VERSION": "0.6.0\n0.5.0\n"})
+        fx.set_version(self.work, "0.5.0")
+        fx.git(self.work, "commit", "-q", "-am", "feat(b): keep 0.5.0")
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_dedupe_to_highest_of_unreadable_set_keeps_bump(self):
+        # The same walk still counts a bump that a later dedupe keeps: 0.6.0 is the highest of 0.6.0 and 0.5.0.
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.6.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        self.bump_branch("0.6.0")
+        fx.commit(self.work, "feat(b): VERSION lists two", {"VERSION": "0.6.0\n0.5.0\n"})
+        fx.commit(self.work, "fix(b): drop the duplicate", {"VERSION": "0.6.0\n"})
+        out = self.check()
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main", out[2])
+
     def test_without_main_unchanged(self):
         self.two_bumps()
         code, doc, raw = self.release("check")

@@ -14,7 +14,10 @@
 #                       Uncommitted archive (the archive directory is in the working tree and not in HEAD): the members are
 #                       every untracked directory under <P>/changes/archive/ whose <P>/changes/<name>/ is tracked at HEAD and
 #                       missing from the working tree. Committed archive: A is the NEWEST commit in <main>..<branch> that added
-#                       the archive directory's review.md; the members are the archive directories A added.
+#                       the archive directory's review.md; the members are the archive directories A added. A member's name
+#                       is its directory name without the date, unless the change was itself named with a date (that
+#                       <P>/changes/<dated name>/ is the one the archive moved). Main specs include nested capabilities
+#                       (<P>/specs/<area>/<id>/spec.md).
 #                       JSON: ok, mode (uncommitted|committed), archive_commit (A, null when uncommitted), branch, head,
 #                       members [{name, archived_name, deferred}], main_specs {modified[], created[]}, amended[] (main specs
 #                       whose working copy differs from A's synced content), carried_edits[] (archive-copy files with edits
@@ -26,9 +29,11 @@
 #                       guards again), saves backups, builds ONE undo commit in the index (committed mode only), and fixes
 #                       the working tree. Nothing here ever resets, force-pushes or reverts a later commit.
 #                       Refusals (exit 1, ok false, error, message): no_archive (nothing to undo; `commits` lists the add
-#                       commits when the newest add was reverted), dirty_tree (a resume on another branch with a dirty tree),
-#                       staged_changes, target_exists (<P>/changes/<name>/ already exists), backup_exists (the backup
-#                       directory exists), bad_ref, not_a_repo.
+#                       commits when the newest add was reverted), dirty_tree (a resume on another branch with a dirty tree,
+#                       or a synced main spec or member archive directory deleted from the working tree; `files` names
+#                       them), staged_changes, target_exists (<P>/changes/<name>/ already exists), duplicate_member (two
+#                       archive directories restore to one <P>/changes/<name>/), backup_exists (the backup directory
+#                       exists), bad_ref, not_a_repo.
 # Exit: 0 done, 1 stop (the JSON has "ok": false, "error" and "message"), 2 usage.
 # Needs bash, git and Python 3.8+.
 set -euo pipefail
@@ -162,6 +167,24 @@ def cmd_undo(d, a):
     def staged():
         return nul_list(git(top, "diff", "--cached", "--name-only", "-z"))
 
+    def unique_members(order):
+        """Two archive directories that restore to one changes/<name>/ would nest one inside the other."""
+        seen = {}
+        for dname, nm in order:
+            if nm in seen:
+                tgt = join(P, "changes", nm)
+                raise Stop("duplicate_member", f"{seen[nm]} and {dname} both restore to {tgt}; move one out of "
+                           f"{join(P, 'changes', 'archive')}/, then plan again", path=tgt, archived_names=[seen[nm], dname])
+            seen[nm] = dname
+
+    def missing_in_wd(paths):
+        """The script copies each synced main spec and moves each archive directory: one deleted from the working tree
+        would stop it halfway."""
+        gone = [p for p in paths if not os.path.exists(os.path.join(top, p))]
+        if gone:
+            raise Stop("dirty_tree", "Deleted in the working tree: " + ", ".join(gone) + ". Restore them with `git restore -- "
+                       + " ".join(gone) + "` (or commit the deletion), then plan again.", files=gone)
+
     warnings = []
     members = []          # dicts: name, archived_name, deferred, dir
     main_mod, main_new = [], []
@@ -176,12 +199,14 @@ def cmd_undo(d, a):
             dname = rest.split("/", 1)[0]
             if not dname or "/" not in rest:
                 continue
-            nm = DATE_RX.sub("", dname)
             if dname == archived:
                 continue
-            if has(head, join(P, "changes", nm)) and not os.path.exists(os.path.join(top, join(P, "changes", nm))):
-                names[dname] = nm
+            for nm in (dname, DATE_RX.sub("", dname)):  # a change named with a date is archived under that name
+                if has(head, join(P, "changes", nm)) and not os.path.exists(os.path.join(top, join(P, "changes", nm))):
+                    names[dname] = nm
+                    break
         order = [(archived, change)] + sorted(names.items())
+        unique_members(order)
         for dname, nm in order:
             mdir = join(P, "changes", "archive", dname)
             rv = wd_bytes(join(mdir, "review.md")) or b""
@@ -194,16 +219,16 @@ def cmd_undo(d, a):
         caps = []
         for m in members:
             sp = join(m["dir"], "specs")
-            if os.path.isdir(os.path.join(top, sp)):
-                for cap in sorted(os.listdir(os.path.join(top, sp))):
-                    f = join(P, "specs", cap, "spec.md")
-                    if os.path.isfile(os.path.join(top, sp, cap, "spec.md")) and f not in caps:
-                        caps.append(f)
-        for f in caps:
+            for root, _dirs, files in os.walk(os.path.join(top, sp)):  # nested capabilities: specs/<area>/<id>/spec.md
+                rel = os.path.relpath(root, os.path.join(top, sp)).replace(os.sep, "/")
+                if "spec.md" in files and rel != "." and join(P, "specs", rel, "spec.md") not in caps:
+                    caps.append(join(P, "specs", rel, "spec.md"))
+        for f in sorted(caps):
             if has(head, f):
                 main_mod.append(f)
             elif os.path.isfile(os.path.join(top, f)):
                 main_new.append(f)
+        missing_in_wd(main_mod)
         for m in members:
             tgt = join(P, "changes", m["name"])
             if os.path.exists(os.path.join(top, tgt)):
@@ -252,11 +277,13 @@ def cmd_undo(d, a):
                 raise Stop("staged_changes", "The index differs from HEAD: " + ", ".join(staged()) + ". Unstage or commit them first.")
         changes = git(top, "diff-tree", "-r", "--no-renames", "--root", "--no-commit-id", "--name-status", "-z", A).stdout.split(b"\0")
         changes = [x.decode("utf-8", "replace") for x in changes if x]
-        added, mod, new = [], [], []
+        added, mod, new, deleted = [], [], [], []
         for i in range(0, len(changes) - 1, 2):
             st, path = changes[i], changes[i + 1]
             if st == "A":
                 added.append(path)
+            elif st == "D":
+                deleted.append(path)
             if path.startswith(join(P, "specs") + "/"):
                 if st == "M":
                     mod.append(path)
@@ -271,14 +298,17 @@ def cmd_undo(d, a):
                     dnames.append(dn)
         if archived in dnames:
             dnames.remove(archived)
+        cbase = join(P, "changes") + "/"
+        moved = {p[len(cbase):].split("/", 1)[0] for p in deleted if p.startswith(cbase) and not p.startswith(abase)}
         for dn in [archived] + dnames:
             mdir = join(P, "changes", "archive", dn)
-            nm = change if dn == archived else DATE_RX.sub("", dn)
+            nm = change if dn == archived else dn if dn in moved else DATE_RX.sub("", dn)  # a dated name is archived as it is
             if not has(T, mdir):
                 warnings.append(f"{mdir} is not on {branch}; it is not part of this undo.")
                 continue
             rv = blob(T, join(mdir, "review.md")) or b""
             members.append({"name": nm, "archived_name": dn, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))), "dir": mdir})
+        unique_members([(m["archived_name"], m["name"]) for m in members])
         for m in members:
             tgt = join(P, "changes", m["name"])
             if has(T, tgt) or (branch == cb and os.path.exists(os.path.join(top, tgt))):
@@ -295,6 +325,9 @@ def cmd_undo(d, a):
             carried = [x.decode("utf-8", "replace")[3:] for x in out if len(x) > 3]
         amended = []
         backup_files = [f for f in main_mod + main_new if has(T, f)]
+        if branch == cb:  # a resume from another branch checks out a clean tree, where nothing is missing
+            missing = [m["dir"] for m in members] + backup_files
+            missing_in_wd(missing)
         for f in backup_files:
             cur = wd_bytes(f) if branch == cb else None
             if cur is None:

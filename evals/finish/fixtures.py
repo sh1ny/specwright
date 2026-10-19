@@ -123,13 +123,15 @@ def sync_delta(repo, cap, delta, prefix="openspec"):
 
 def archive_one(repo, name, prefix="openspec", date=DATE, marker=False):
     src = Path(repo) / prefix / "changes" / name
-    dst = Path(repo) / prefix / "changes" / "archive" / f"{date}-{name}"
+    dated = name[:4].isdigit() and name[4:5] == "-"  # an already-dated name is archived as it is
+    dst = Path(repo) / prefix / "changes" / "archive" / (name if dated else f"{date}-{name}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
     specs = dst / "specs"
     if specs.is_dir():
-        for cap in sorted(os.listdir(specs)):
-            sync_delta(repo, cap, (specs / cap / "spec.md").read_text(encoding="utf-8"), prefix)
+        for p in sorted(specs.rglob("spec.md")):  # nested capabilities: specs/<area>/<id>/spec.md
+            if p.parent != specs:
+                sync_delta(repo, p.parent.relative_to(specs).as_posix(), p.read_text(encoding="utf-8"), prefix)
     if marker:
         write(repo, f"{prefix}/changes/archive/{date}-{name}/specwright-change.yaml", "code_changes: none\n")
 

@@ -469,6 +469,77 @@ class TestUndoPlan(Base):
         self.assertIn(b"\r\n", base)
         self.assertEqual(base.replace(b"Baseline purpose", b"Amended purpose", 1), amended)
 
+    # ---- PR #108 review round 1 ------------------------------------------------------------------------------
+    def test_uncommitted_nested_capability(self):
+        # Codex P1: a nested capability (specs/<area>/<id>/spec.md) is a main spec the archive created too.
+        nested = f"{P}/specs/id/auth/spec.md"
+        self.single({"a": "New thing", "id/auth": "Auth thing"})
+        fx.archive(self.work, "add-x")
+        self.assertTrue((self.work / nested).is_file())
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertEqual(doc["main_specs"], {"modified": [SPEC_A], "created": [nested]})
+        self.assertFalse((self.work / nested).exists())
+        self.assertEqual(fx.read(self.work, SPEC_A), fx.base_spec("a"))
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def dated_pair(self, commit_it):
+        self.on_branch()
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "X thing"})
+        fx.make_change(self.work, "2026-01-01-hotfix", "APPROVE", {"b": "Hot thing"})
+        fx.archive(self.work, ["add-x", "2026-01-01-hotfix"], commit_it=commit_it)
+        self.assertTrue((self.work / P / "changes" / "archive" / "2026-01-01-hotfix").is_dir())
+
+    def assert_dated_restored(self, out):
+        doc = self.ok(out)
+        self.assertEqual({m["name"] for m in doc["members"]}, {"add-x", "2026-01-01-hotfix"})
+        self.assertTrue((self.work / cd("2026-01-01-hotfix") / "review.md").is_file())
+        self.assertFalse((self.work / cd("hotfix")).exists())
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_bulk_member_with_dated_name_committed(self):
+        # Codex P2: a change whose own name starts with a date keeps that name.
+        self.dated_pair(commit_it=True)
+        self.assert_dated_restored(self.run_all())
+
+    def test_bulk_member_with_dated_name_uncommitted(self):
+        self.dated_pair(commit_it=False)
+        self.assert_dated_restored(self.run_all())
+
+    def test_two_archives_of_one_member_refused(self):
+        # Kody: two archive directories that restore to the same changes/<name>/ would nest one in the other.
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"])
+        fx.write(self.work, f"{P}/changes/archive/2026-10-18-add-y/review.md", "# Review\n\nVERDICT: APPROVE\n")
+        before = fx.state(self.work)
+        self.assertStops(fx.run_plan(self.work, "add-x"), "duplicate_member", "2026-10-18-add-y", f"{fx.DATE}-add-y", cd("add-y"))
+        self.assertEqual(fx.state(self.work), before)
+
+    def test_deleted_synced_spec_refused(self):
+        # Kody: a synced main spec deleted from the working tree would stop the script after it made the backup dir.
+        for commit_it in (False, True):
+            with self.subTest(committed=commit_it):
+                if commit_it:
+                    self.git("checkout", "-q", "-f", "main")
+                    self.git("clean", "-fdq")
+                    self.git("branch", "-D", BRANCH)
+                self.single({"a": "New thing"})
+                fx.archive(self.work, "add-x", commit_it=commit_it)
+                (self.work / SPEC_A).unlink()
+                before = fx.state(self.work)
+                self.assertStops(fx.run_plan(self.work, "add-x"), "dirty_tree", SPEC_A)
+                self.assertEqual(fx.state(self.work), before)
+
+    def test_deleted_archive_dir_refused(self):
+        # Kody: a committed archive directory deleted from the working tree would leave the undo commit made and the
+        # working tree half fixed.
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        fx.rmtree(self.work / ad("add-x"))
+        before = fx.state(self.work)
+        self.assertStops(fx.run_plan(self.work, "add-x"), "dirty_tree", ad("add-x"))
+        self.assertEqual(fx.state(self.work), before)
+
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):
             code, doc, raw = fx.run_finish(self.work, *args)

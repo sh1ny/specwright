@@ -617,8 +617,8 @@ def own_bump(st, entries, commits):
     the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump. A commit whose own
     version is unreadable is no change when its parent's version is among those it matched (or the parent is unreadable
     too), else a bump only when it matched at least one version and every one is greater than the parent's. One whose parent
-    is unreadable is no change when its version is among those the parent matched, else a bump when greater than every
-    semver among them (or none)."""
+    is unreadable is no change when its version is the greatest semver among those the parent matched, no bump when it is a
+    lower one of them, else a bump when greater than every semver among them (or none)."""
     for c in commits:
         mine = primary_at(st, entries, c)
         parent = primary_at(st, entries, f"{c}^") if ref_exists(st.root, f"{c}^") else None
@@ -635,9 +635,11 @@ def own_bump(st, entries, commits):
         if mine is None:
             return False
         if isinstance(parent, Unreadable):
-            if mine in parent.versions:
-                continue
             seen = [sv(v) for v in parent.versions if sv(v)]
+            if mine in parent.versions:
+                if sv(mine) and seen and sv(mine) < max(seen):
+                    return False  # it kept a lower one of its parent's versions: the higher one, a bump, is dropped
+                continue
             return not seen or not sv(mine) or all(sv(mine) > s for s in seen)
         return parent is None or not (sv(mine) and sv(parent)) or sv(mine) > sv(parent)
     return False
