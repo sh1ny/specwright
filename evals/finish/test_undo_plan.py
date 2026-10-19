@@ -433,6 +433,42 @@ class TestUndoPlan(Base):
         self.assertTrue(self.git("log", "-1", "--format=%s").startswith("docs(add-x): undo archive of add-x"))
         self.assertTrue((self.work / P2 / "changes" / "add-x" / "review.md").is_file())
 
+    def crlf_checkout(self):
+        """Check every tracked file out again with core.autocrlf=true and no eol attribute, as Git for Windows does."""
+        self.git("config", "core.autocrlf", "true")
+        for f in self.git("ls-files").splitlines():
+            (self.work / f).unlink()
+        self.git("checkout", "--", ".")
+        self.assertIn(b"\r\n", (self.work / SPEC_A).read_bytes())
+
+    def test_crlf_checkout_is_not_an_amendment(self):
+        # Pre-ship P2: the working tree under autocrlf holds CRLF, the stored blob LF; that alone is no edit.
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.crlf_checkout()
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertEqual(doc["amended"], [])
+        self.assertEqual(doc["carried_edits"], [])
+        self.assertIsNone(doc["after_rerun"])
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_crlf_checkout_saves_base_in_checkout_form(self):
+        # The base copy must match the amended copy's line endings, or merge-file sees every line as changed.
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.crlf_checkout()
+        spec = (self.work / SPEC_A).read_bytes()
+        (self.work / SPEC_A).write_bytes(spec.replace(b"Baseline purpose", b"Amended purpose", 1))
+        fx.git(self.work, "commit", "-q", "-am", "docs: amend the spec")
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertEqual(doc["amended"], [SPEC_A])
+        base = (Path(doc["backup_dir"]) / "base" / SPEC_A).read_bytes()
+        amended = (Path(doc["backup_dir"]) / "amended" / SPEC_A).read_bytes()
+        self.assertIn(b"\r\n", base)
+        self.assertEqual(base.replace(b"Baseline purpose", b"Amended purpose", 1), amended)
+
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):
             code, doc, raw = fx.run_finish(self.work, *args)

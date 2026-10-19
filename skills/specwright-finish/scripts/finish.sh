@@ -147,6 +147,11 @@ def cmd_undo(d, a):
         r = git(top, "cat-file", "blob", f"{tree}:{path}")
         return r.stdout if r.returncode == 0 else None
 
+    def blob_wd(tree, path):
+        """The blob as a checkout writes it (eol and filter attributes, core.autocrlf), to compare with working-tree bytes."""
+        r = git(top, "cat-file", "--filters", f"{tree}:{path}")
+        return r.stdout if r.returncode == 0 else None
+
     def wd_bytes(path):
         try:
             with open(os.path.join(top, path), "rb") as f:
@@ -210,7 +215,7 @@ def cmd_undo(d, a):
                 for fn in files:
                     full = os.path.join(root, fn)
                     rel = os.path.relpath(full, os.path.join(top, m["dir"])).replace(os.sep, "/")
-                    old = blob(head, join(P, "changes", m["name"], rel))
+                    old = blob_wd(head, join(P, "changes", m["name"], rel))
                     with open(full, "rb") as fh:
                         if old is None or fh.read() != old:
                             carried.append(join(m["dir"], rel))
@@ -291,10 +296,11 @@ def cmd_undo(d, a):
         amended = []
         backup_files = [f for f in main_mod + main_new if has(T, f)]
         for f in backup_files:
-            synced = blob(A, f)
             cur = wd_bytes(f) if branch == cb else None
             if cur is None:
-                cur = blob(T, f)
+                cur, synced = blob(T, f), blob(A, f)
+            else:
+                synced = blob_wd(A, f)
             if cur != synced:
                 amended.append(f)
 
@@ -321,7 +327,7 @@ def cmd_undo(d, a):
         lines += ["mkdir -p -- " + " ".join(sq(x) for x in dirs)]
     for f in backup_files:
         if mode == "committed":
-            lines.append(f"git show {sq(A + ':' + f)} > {sq(backup_dir + '/base/' + f)}")
+            lines.append(f"git cat-file --filters {sq(A + ':' + f)} > {sq(backup_dir + '/base/' + f)}")
         lines.append(f"cp -- {sq(f)} {sq(backup_dir + '/amended/' + f)}")
     if not backup_files:
         lines.append(f"mkdir -p -- {sq(backup_dir)}")
