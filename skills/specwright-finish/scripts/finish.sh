@@ -23,7 +23,9 @@
 #                       branch after the archive is left deleted, with a warning), amended[] (main specs whose working copy
 #                       differs from A's synced content), carried_edits[] (archive-copy files with edits
 #                       that are not committed or differ from the change directory), backup_dir
-#                       (<git-dir>/specwright-undo/<archived>/), script, after_rerun (a script, or null), warnings[].
+#                       (<git-dir>/specwright-undo/<archived>/), script, after_rerun (for a bulk archive, a script that
+#                       archives the non-deferred members again and merges back amendments to the main specs they sync;
+#                       null otherwise), warnings[].
 #                       `script` and `after_rerun` are bash texts that begin with `set -euo pipefail`: save each to a file and
 #                       run it with `bash <file>`. `script` guards the branch, HEAD and index first (a resume from another
 #                       branch checks the tree is clean and the branch tip is the planned head BEFORE the checkout, then
@@ -406,8 +408,9 @@ def cmd_undo(d, a):
 
     # ---- after_rerun -------------------------------------------------------------------------------------------
     after = None
-    if mode == "committed" and amended:
-        rerun = [m for m in members if not m["deferred"]]
+    rerun = [m for m in members if not m["deferred"] and m["name"] != change]  # every bulk member but the deferred ones
+    merge, left = [], list(amended) if mode == "committed" else []
+    if mode == "committed" and amended and rerun:
         synced_by_rerun = set()
         for m in rerun:
             for p in nul_list(git(top, "ls-tree", "-r", "--name-only", "-z", T, "--", join(m["dir"], "specs"))):
@@ -416,22 +419,22 @@ def cmd_undo(d, a):
                     synced_by_rerun.add(join(P, rel))
         merge = [f for f in amended if f in synced_by_rerun]
         left = [f for f in amended if f not in synced_by_rerun]
-        if rerun and merge:
-            al = ["set -euo pipefail", f"cd {sq(top)}"]
-            for m in rerun:
-                al.append(f"openspec archive {sq(m['name'])} --yes")
-            for f in merge:
-                al.append(f"git merge-file -L rerun -L archived -L amended {sq(f)} {sq(backup_dir + '/base/' + f)} {sq(backup_dir + '/amended/' + f)}")
-            al.append(f"echo {sq('Amendments merged. Now start finish for: ' + ', '.join(m['name'] for m in rerun))}")
-            after = "\n".join(al) + "\n"
-            warnings.append("Run after_rerun after script: it archives " + ", ".join(m["name"] for m in rerun) +
-                            " again and merges the saved amendments into " + ", ".join(merge) +
-                            ". On a conflict it stops with markers in the file; both copies stay in " + backup_dir + ".")
-        else:
-            left = list(amended)
-        if left:
-            warnings.append("Amendments to " + ", ".join(left) + " were made on top of the deferred change's synced content, so they "
-                            f"are saved in {backup_dir}/amended/ and never merged automatically; review them by hand.")
+    if rerun:
+        names = ", ".join(m["name"] for m in rerun)
+        al = ["set -euo pipefail", f"cd {sq(top)}"]
+        for m in rerun:
+            al.append(f"openspec archive {sq(m['name'])} --yes")
+        for f in merge:
+            al.append(f"git merge-file -L rerun -L archived -L amended {sq(f)} {sq(backup_dir + '/base/' + f)} {sq(backup_dir + '/amended/' + f)}")
+        done = "Amendments merged." if merge else "Archived again by after_rerun."
+        al.append(f"echo {sq(done + ' Now start finish for: ' + names)}")
+        after = "\n".join(al) + "\n"
+        warnings.append("Run after_rerun after script: it archives " + names + " again" +
+                        (" and merges the saved amendments into " + ", ".join(merge) + ". On a conflict it stops with markers "
+                         "in the file; both copies stay in " + backup_dir + "." if merge else "."))
+    if left:
+        warnings.append("Amendments to " + ", ".join(left) + " were made on top of the deferred change's synced content, so they "
+                        f"are saved in {backup_dir}/amended/ and never merged automatically; review them by hand.")
 
     return {"ok": True, "mode": mode, "archive_commit": A, "branch": plan_branch, "head": T,
             "members": [{"name": m["name"], "archived_name": m["archived_name"], "deferred": m["deferred"]} for m in members],

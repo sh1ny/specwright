@@ -335,7 +335,7 @@ class TestUndoPlan(Base):
         self.pair()
         a = fx.archive(self.work, ["add-x", "add-y"], commit_it=True, marker=True)
         n = self.count()
-        out = self.run_all(typ=None)
+        out = self.run_all(typ=None, rerun=False)
         doc = self.ok(out)
         self.assertEqual({m["name"]: m["deferred"] for m in doc["members"]}, {"add-x": True, "add-y": False})
         self.assertTrue(doc["warnings"])
@@ -355,7 +355,7 @@ class TestUndoPlan(Base):
     def test_uncommitted_bulk_members_found(self):
         self.pair()
         fx.archive(self.work, ["add-x", "add-y"])
-        out = self.run_all()
+        out = self.run_all(rerun=False)
         doc = self.ok(out)
         self.assertEqual({m["name"] for m in doc["members"]}, {"add-x", "add-y"})
         self.assertTrue(doc["warnings"])
@@ -446,11 +446,11 @@ class TestUndoPlan(Base):
         self.pair()
         fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
         self.crlf_checkout()
-        out = self.run_all()
+        out = self.run_all(rerun=False)
         doc = self.ok(out)
         self.assertEqual(doc["amended"], [])
         self.assertEqual(doc["carried_edits"], [])
-        self.assertIsNone(doc["after_rerun"])
+        self.assertNotIn("merge-file", doc["after_rerun"])
         self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
 
     def test_crlf_checkout_saves_base_in_checkout_form(self):
@@ -500,18 +500,18 @@ class TestUndoPlan(Base):
     def test_bulk_member_with_dated_name_committed(self):
         # Codex P2: a change whose own name starts with a date keeps that name.
         self.dated_pair(commit_it=True)
-        self.assert_dated_restored(self.run_all())
+        self.assert_dated_restored(self.run_all(rerun=False))
 
     def test_bulk_member_with_dated_name_uncommitted(self):
         self.dated_pair(commit_it=False)
-        self.assert_dated_restored(self.run_all())
+        self.assert_dated_restored(self.run_all(rerun=False))
 
     def test_bulk_member_with_dated_name_and_marker(self):
         # PR #108 round 3, Kody: the fixture writes the marker into the dated member's own archive directory.
         self.dated_pair(commit_it=False, marker=True)
         self.assertEqual(sorted(p.name for p in (self.work / P / "changes" / "archive").iterdir()),
                          ["2026-01-01-hotfix", f"{fx.DATE}-add-x"])
-        self.assert_dated_restored(self.run_all())
+        self.assert_dated_restored(self.run_all(rerun=False))
 
     def test_two_archives_of_one_member_refused(self):
         # Kody: two archive directories that restore to the same changes/<name>/ would nest one in the other.
@@ -586,6 +586,30 @@ class TestUndoPlan(Base):
         before = fx.state(self.work)
         self.assertStops(fx.run_plan(self.work, "add-x"), "member_missing", ad("add-y"))
         self.assertEqual(fx.state(self.work), before)
+
+    # ---- PR #108 review round 4 ------------------------------------------------------------------------------
+    def assert_rerun_archive_only(self, out):
+        doc = self.ok(out)
+        self.assertIsNotNone(doc["after_rerun"], doc["warnings"])
+        self.assertNotIn("merge-file", doc["after_rerun"])
+        self.assertIn("openspec archive add-y --yes", doc["after_rerun"])
+        self.assertNotIn("add-x", doc["after_rerun"])
+        self.assertEqual(out.after.returncode, 0, out.after.stdout + out.after.stderr)
+        self.assertTrue((self.work / cd("add-x") / "review.md").is_file())
+        self.assertTrue((self.work / ad("add-y") / "review.md").is_file())
+        self.assertIn("Y thing", fx.read(self.work, SPEC_A))
+        self.assertNotIn("X thing", fx.read(self.work, SPEC_A))
+
+    def test_bulk_undo_without_amendments_reruns_archive(self):
+        # Codex P2: with no later amendment, a bulk undo still needs the script that archives the other members again.
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.assert_rerun_archive_only(self.run_all())
+
+    def test_uncommitted_bulk_undo_reruns_archive(self):
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"])
+        self.assert_rerun_archive_only(self.run_all())
 
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):

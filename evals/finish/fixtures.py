@@ -220,15 +220,16 @@ def run_bash(work, tmp, text, name, prefix="openspec"):
     return subprocess.run(["bash", str(path)], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
 
 
-def run_scripts(work, tmp, change, prefix="openspec", between=None, **plan_kw):
-    """run_plan, then `script`, then (optionally `between(result)` and) `after_rerun` when the plan printed one."""
+def run_scripts(work, tmp, change, prefix="openspec", between=None, rerun=True, **plan_kw):
+    """run_plan, then `script`, then (optionally `between(result)` and, unless rerun is False) `after_rerun` when the plan
+    printed one."""
     out = SimpleNamespace(plan=run_plan(work, change, prefix=prefix, **plan_kw), script=None, after=None)
     doc = out.plan[1]
     if doc and doc.get("ok") and doc.get("script"):
         out.script = run_bash(work, tmp, doc["script"], "undo", prefix)
         if between:
             between(out)
-        if doc.get("after_rerun") and out.script.returncode == 0:
+        if rerun and doc.get("after_rerun") and out.script.returncode == 0:
             out.after = run_bash(work, tmp, doc["after_rerun"], "after_rerun", prefix)
     return out
 
