@@ -1901,6 +1901,16 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertNotIn("then delete the archive copy", s0, "step 0 still deletes the archive copy")
         self.assertNotIn("git restore -- <P>/changes/<name>/", s0, "step 0 still restores the change directory from git")
 
+    def test_finish_revert_includes_later_commits_on_archive_paths(self):
+        # A later commit amending a path the archive commit added makes a revert of A alone conflict (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("git log --format=%H <A>..<branch> -- $(git show --name-only --format= <A>)", s0, "step 0 does not find later commits on the archive's paths")
+        self.assertIn("git revert --no-edit <those commits> <A>", s0, "step 0 does not revert the later commits with A")
+        self.assertRegex(s0, r"(?is)newest first", "step 0 does not revert newest first")
+        self.assertRegex(s0, r"(?is)other paths.{0,120}(lose|lost|drop)", "step 0 does not warn that mixed commits lose their other changes")
+        self.assertIn("git revert --abort", s0, "step 0 does not say how to back out of a conflicted revert")
+
     def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
         # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
         flat = re.sub(r"\s+", " ", read(FINISH))
