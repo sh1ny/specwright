@@ -1848,6 +1848,24 @@ class DesignReviewDispositions(unittest.TestCase):
             self.assertIn("`Deferred to:`", ln, f"{where} does not name the Deferred to: targets")
             self.assertRegex(ln, r"(?is)bulk archive.{0,80}skip.{0,80}archive the rest", f"{where} does not skip the change in a bulk archive")
 
+    def test_finish_resume_runs_deferred_check_on_committed_archive(self):
+        # A committed but unmerged deferred archive must not reach the merge/ship rows unchecked (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        resume = flat[flat.index("## Resume"):flat.index("| Facts | Next |")]
+        self.assertRegex(resume, r"(?is)before any (table )?row.{0,200}step 0", "resume does not run step 0 before the table rows")
+        self.assertIn("a committed archive gets the same check", resume, "resume skips step 0 for a committed archive")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("git revert --no-edit <A>", s0, "step 0 does not give the revert of a committed archive")
+        self.assertRegex(s0, r"(?is)never (a )?reset", "step 0 does not forbid a reset of the committed archive")
+
+    def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
+        # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("undo the whole bulk archive", s0, "step 0 does not undo a bulk archive as a whole")
+        self.assertRegex(s0, r"(?is)again without the deferred change", "step 0 does not rerun the bulk archive without the deferred change")
+        self.assertRegex(s0, r"(?is)never restore only the deferred change", "step 0 allows restoring only the deferred change's files")
+
     def test_finish_step0_stops_on_deferred_and_lists_restore_groups(self):
         text = read(FINISH)
         flat = re.sub(r"\s+", " ", text)

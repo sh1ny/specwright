@@ -13,6 +13,8 @@ Every new test below lives in `evals/git-workflow/test_instructions.py`, in a ne
 | design-review-gate → A deferred review never ships code | Apply on a deferred change | evals/git-workflow/test_instructions.py | DRD.test_apply_gate_refuses_deferred_and_says_review_needed | green |
 | design-review-gate → A deferred review never ships code | Archive on a deferred change | evals/git-workflow/test_instructions.py | DRD.test_config_context_refuses_archive_of_deferred | green |
 | design-review-gate → A deferred review never ships code | Archive ran anyway | evals/git-workflow/test_instructions.py | DRD.test_finish_step0_stops_on_deferred_and_lists_restore_groups | green |
+| design-review-gate → A deferred review never ships code | Deferred archive already committed | evals/git-workflow/test_instructions.py | DRD.test_finish_resume_runs_deferred_check_on_committed_archive | green |
+| design-review-gate → A deferred review never ships code | Bulk archive that included a deferred change | evals/git-workflow/test_instructions.py | DRD.test_finish_step0_undoes_bulk_archive_as_a_whole | green |
 | design-review-gate → A deferred review never ships code | Deferral with no target | evals/git-workflow/test_instructions.py | DRD.test_tasks_precheck_stops_on_deferred_without_target | green |
 | design-review-gate → A parking change lands without archive | Watch on a parking change's PR | evals/git-workflow/test_instructions.py | DRD.test_watch_skips_archive_for_deferred_and_reports_parked | green |
 | design-review-gate → A parking change lands without archive | Watch on an ordinary change | evals/git-workflow/test_instructions.py | DRD.test_watch_archive_before_merge_kept_for_other_verdicts | green |
