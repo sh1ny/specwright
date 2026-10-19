@@ -42,9 +42,9 @@
 | releases → A bumped version is greater than main's before it merges | Branch did not bump | evals/release/test_release.py | TestCheckMain.test_no_bump_passes | green |
 | releases → A bumped version is greater than main's before it merges | Main was merged into the branch after the duplicate landed | evals/release/test_release.py | TestCheckMain.test_duplicate_after_main_merged_in_refused | green |
 | releases → A bumped version is greater than main's before it merges | Main has no version yet | evals/release/test_release.py | TestCheckMain.test_main_without_version_passes | green |
-| releases → A bumped version is greater than main's before it merges | Merge base repeats the version | evals/release/test_release.py | TestCheckMain.test_unreadable_base_dedupe_is_no_bump | red |
-| releases → A bumped version is greater than main's before it merges | Bump after a repair of an unreadable version | evals/release/test_release.py | TestCheckMain.test_repair_then_bump_refused_when_behind | red |
-| releases → A bumped version is greater than main's before it merges | One commit repairs and bumps | evals/release/test_release.py | TestCheckMain.test_repair_and_bump_in_one_commit_refused | red |
+| releases → A bumped version is greater than main's before it merges | Merge base repeats the version | evals/release/test_release.py | TestCheckMain.test_unreadable_base_dedupe_is_no_bump | green |
+| releases → A bumped version is greater than main's before it merges | Bump after a repair of an unreadable version | evals/release/test_release.py | TestCheckMain.test_repair_then_bump_refused_when_behind | green |
+| releases → A bumped version is greater than main's before it merges | One commit repairs and bumps | evals/release/test_release.py | TestCheckMain.test_repair_and_bump_in_one_commit_refused | green |
 
 ## 1. Undo plan script (#106)
 
@@ -76,7 +76,7 @@
 ## 3. Unreadable is not absent in the release check (#103)
 
 - [x] 3.1 Write the failing `TestCheckMain` tests: `test_unreadable_base_dedupe_is_no_bump`, `test_repair_then_bump_refused_when_behind`, `test_repair_and_bump_in_one_commit_refused`. Verify: the first fails with `version_not_ahead_of_main` on the current `release.sh`, and the others fail or pass for the reason the test names.
-- [ ] 3.2 Implement design D5 in `skills/specwright-release/scripts/release.sh`. `primary_at` returns `None` for absent and an `Unreadable` value with its matched versions otherwise. `check_ahead_of` and `own_bump` follow D5. A commit whose version is outside its unreadable parent's set but not greater than every semver in it is no bump, the same as a readable lowering today (re-check note 3). Update the `check` usage text in the header. Verify: `python -m unittest discover evals/release` passes, including the unchanged `TestCheckMain` rows. Flip the rows green.
+- [x] 3.2 Implement design D5 in `skills/specwright-release/scripts/release.sh`. `primary_at` returns `None` for absent and an `Unreadable` value with its matched versions otherwise. `check_ahead_of` and `own_bump` follow D5. A commit whose version is outside its unreadable parent's set but not greater than every semver in it is no bump, the same as a readable lowering today (re-check note 3). Update the `check` usage text in the header. Verify: `python -m unittest discover evals/release` passes, including the unchanged `TestCheckMain` rows. Flip the rows green.
 
 ## 4. Integration and release
 
