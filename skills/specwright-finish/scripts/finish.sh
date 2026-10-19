@@ -19,8 +19,9 @@
 #                       <P>/changes/<dated name>/ is the one the archive moved). Main specs include nested capabilities
 #                       (<P>/specs/<area>/<id>/spec.md).
 #                       JSON: ok, mode (uncommitted|committed), archive_commit (A, null when uncommitted), branch, head,
-#                       members [{name, archived_name, deferred}], main_specs {modified[], created[]}, amended[] (main specs
-#                       whose working copy differs from A's synced content), carried_edits[] (archive-copy files with edits
+#                       members [{name, archived_name, deferred}], main_specs {modified[], created[]} (a spec deleted on the
+#                       branch after the archive is left deleted, with a warning), amended[] (main specs whose working copy
+#                       differs from A's synced content), carried_edits[] (archive-copy files with edits
 #                       that are not committed or differ from the change directory), backup_dir
 #                       (<git-dir>/specwright-undo/<archived>/), script, after_rerun (a script, or null), warnings[].
 #                       `script` and `after_rerun` are bash texts that begin with `set -euo pipefail`: save each to a file and
@@ -315,8 +316,10 @@ def cmd_undo(d, a):
                 raise Stop("target_exists", f"{tgt} already exists; merge or move it first", path=tgt)
         if os.path.exists(backup_dir):
             raise Stop("backup_exists", f"{backup_dir} exists; move or delete it, then plan again", path=backup_dir)
-        main_mod = [f for f in mod]
+        main_mod = [f for f in mod if has(T, f)]
         main_new = [f for f in new if has(T, f)]
+        for f in [f for f in mod + new if not has(T, f)]:  # a later deletion is an amendment: keep it
+            warnings.append(f"{f} was deleted on {branch} after the archive; the undo leaves it deleted.")
         marker_dirs = {m["name"]: join(m["dir"], "specwright-change.yaml") in added and has(T, join(m["dir"], "specwright-change.yaml")) for m in members}
         carried = []
         if branch == cb:

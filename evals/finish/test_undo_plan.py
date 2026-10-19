@@ -540,6 +540,22 @@ class TestUndoPlan(Base):
         self.assertStops(fx.run_plan(self.work, "add-x"), "dirty_tree", ad("add-x"))
         self.assertEqual(fx.state(self.work), before)
 
+    def test_later_deletion_of_synced_spec_kept(self):
+        # PR #108 round 2, Codex P2: a later commit that deleted a main spec the archive modified is an amendment too;
+        # the undo must not bring the spec back.
+        self.single({"a": "New thing", "b": "B thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.git("rm", "-q", SPEC_A)
+        fx.git(self.work, "commit", "-q", "-m", "docs: retire capability a")
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertEqual(doc["main_specs"]["modified"], [])
+        self.assertFalse((self.work / SPEC_A).exists())
+        self.assertNotIn(SPEC_A, self.git("ls-tree", "-r", "--name-only", "HEAD"))
+        self.assertFalse((self.work / SPEC_B).exists())
+        self.assertTrue(any(SPEC_A in w for w in doc["warnings"]), doc["warnings"])
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):
             code, doc, raw = fx.run_finish(self.work, *args)
