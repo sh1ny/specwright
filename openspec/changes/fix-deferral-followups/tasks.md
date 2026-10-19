@@ -70,7 +70,7 @@
 
 ## 2. Parked change is never a milestone change (#105)
 
-- [ ] 2.1 Write the failing `ProjectPlanning` tests from the test map: close step 1, next step 3 and status each name the parked-listed case (reported as `parked (listed in error)`, neither started nor counted done, removal is the user's planning edit, next and close stop, no roadmap edit); the parking-change note says a parking change is never listed in a milestone's Changes. Verify: they fail on the current text.
+- [x] 2.1 Write the failing `ProjectPlanning` tests from the test map: close step 1, next step 3 and status each name the parked-listed case (reported as `parked (listed in error)`, neither started nor counted done, removal is the user's planning edit, next and close stop, no roadmap edit); the parking-change note says a parking change is never listed in a milestone's Changes. Verify: they fail on the current text.
 - [ ] 2.2 Edit `skills/specwright-roadmap/SKILL.md` (the parking-change note, next step 3, close step 1, status) per design D4. Verify: the four tests pass and the existing parked tests (`test_roadmap_next_skips_parked_change` and the rest) still pass. Flip the rows green.
 
 ## 3. Unreadable is not absent in the release check (#103)

@@ -544,6 +544,37 @@ class ProjectPlanning(unittest.TestCase):
         sec = re.sub(r"\s+", " ", section(read(ROADMAP), r"status\b"))
         self.assertRegex(sec, r"(?i)parking change.{0,40}on its own branch.{0,120}starts? from main once it has merged", "status does not say the same on the parking branch")
 
+    # A parking change is never a milestone change (#105).
+    def assert_parked_listed(self, text, where):
+        self.assertIn("`parked (listed in error)`", text, f"{where} does not report a listed parked change as `parked (listed in error)`")
+        self.assertRegex(text, r"(?i)`parked \(listed in error\)`.{0,200}neither start\w* (it )?nor count\w* (it )?done", f"{where} may start a listed parked change or count it done")
+        self.assertRegex(text, r"(?i)removing it from (the milestone's )?Changes is the user's planning edit", f"{where} does not say removing it from Changes is the user's planning edit")
+
+    def test_close_stops_on_parked_listed_change(self):
+        s1 = re.sub(r"\s+", " ", mode_step("close", 1))
+        self.assertIn("`VERDICT: DEFERRED`", s1, "close step 1 does not check listed changes for VERDICT: DEFERRED")
+        self.assert_parked_listed(s1, "close step 1")
+        self.assertRegex(s1, r"(?i)parked \(listed in error\).{0,400}\bstop", "close does not stop on a listed parked change")
+        self.assertRegex(s1, r"(?i)never edit\w* the roadmap|roadmap (stays|is left) unchanged", "close may edit the roadmap to remove a parked change")
+
+    def test_next_never_starts_parked_listed_change(self):
+        s3 = re.sub(r"\s+", " ", mode_step("next", 3))
+        self.assertIn("`VERDICT: DEFERRED`", s3, "next step 3 does not check listed changes for VERDICT: DEFERRED")
+        self.assert_parked_listed(s3, "next step 3")
+        self.assertRegex(s3, r"(?i)parked \(listed in error\).{0,400}\bstop", "next does not stop on a listed parked change")
+        self.assertRegex(s3, r"(?i)no branch.{0,40}no change", "next may create a branch or change for a listed parked change")
+        self.assertRegex(s3, r"(?i)never edit\w* the roadmap|roadmap (stays|is left) unchanged", "next may edit the roadmap to remove a parked change")
+
+    def test_status_lists_parked_listed_in_error(self):
+        sec = re.sub(r"\s+", " ", section(read(ROADMAP), r"status\b"))
+        self.assert_parked_listed(sec, "status")
+        self.assertRegex(sec, r"(?i)`milestone end: run close`.{0,400}(unless|never|not).{0,200}parked \(listed in error\)|parked \(listed in error\).{0,300}(never|not)\b.{0,60}`milestone end: run close`",
+                         "status may report milestone end while a parked change is listed")
+
+    def test_parking_note_says_never_listed(self):
+        rules = re.sub(r"\s+", " ", section(read(ROADMAP), r"Rules\b"))
+        self.assertRegex(rules, r"(?i)parking change.{0,400}never listed in a milestone's Changes", "the parking-change note does not say it is never listed in a milestone's Changes")
+
     def test_baseline_gate_lists_own_verdicts_without_deferred_or_waived(self):
         s5 = re.sub(r"\s+", " ", mode_step("init", 5))
         self.assertNotRegex(s5, r"(?i)same precheck as tasks", "init step 5 still borrows the tasks precheck")
