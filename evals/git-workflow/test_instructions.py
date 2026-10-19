@@ -1858,6 +1858,17 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertIn("git revert --no-edit <A>", s0, "step 0 does not give the revert of a committed archive")
         self.assertRegex(s0, r"(?is)never (a )?reset", "step 0 does not forbid a reset of the committed archive")
 
+    def test_finish_bulk_archive_commit_is_found_by_path(self):
+        # A bulk archive commit names several changes, so its subject cannot identify A; the archive path does (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        find = "git log -1 --format=%H <main>..<branch> -- <P>/changes/archive/<archived-name>/"
+        a = flat[flat.index("- **A** - "):flat.index("- **M** - ")]
+        self.assertIn("the commit that added the archive directory", a, "A is not found by the commit that added the archive directory")
+        self.assertIn(find, a, "A does not give the path lookup on the branch")
+        self.assertRegex(a, r"(?is)bulk archive commit", "A does not cover a bulk archive commit")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn(find, s0, "step 0 prescribes a revert without saying how to find <A>")
+
     def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
         # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
         flat = re.sub(r"\s+", " ", read(FINISH))
