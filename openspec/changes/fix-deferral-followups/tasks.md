@@ -82,7 +82,7 @@
 
 ## 4. Integration and release
 
-- [ ] 4.1 Run every eval suite the milestone names: `python -m unittest discover` for `evals/finish`, `evals/git-workflow`, `evals/release`, `evals/review-routes`, `evals/pr-pair` and `evals/update`, plus `openspec validate fix-deferral-followups --strict` and `openspec schema validate specwright`. Verify: all pass.
+- [x] 4.1 Run every eval suite the milestone names: `python -m unittest discover` for `evals/finish`, `evals/git-workflow`, `evals/release`, `evals/review-routes`, `evals/pr-pair` and `evals/update`, plus `openspec validate fix-deferral-followups --strict` and `openspec schema validate specwright`. Verify: all pass.
 - [ ] 4.2 `bash skills/specwright-release/scripts/release.sh bump --to 0.7.1` (a patch: fixes only, per CONTRIBUTING.md's pre-1.0 rule). Verify: `release.sh check` reports 0.7.1, and `VERSION`, the README badge and every skill `metadata.version` read 0.7.1.
 
 ## Workflow follow-up
