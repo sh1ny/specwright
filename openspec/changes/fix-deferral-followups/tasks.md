@@ -30,10 +30,10 @@
 | design-review-gate → A deferred review never ships code | Deferred archive already committed | evals/finish/test_undo_plan.py | TestUndoPlan.test_committed_with_later_amendment (one new commit, no ref other than the branch moved) | red |
 | design-review-gate → A deferred review never ships code | Bulk archive that included a deferred change | evals/finish/test_undo_plan.py | TestUndoPlan.test_committed_bulk_undone_whole | red |
 | design-review-gate → A deferred review never ships code | Deferral with no target | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_tasks_precheck_stops_on_deferred_without_target | green |
-| project-planning → A parking change is never a milestone change | Close with a parked change listed | evals/git-workflow/test_instructions.py | ProjectPlanning.test_close_stops_on_parked_listed_change | red |
-| project-planning → A parking change is never a milestone change | Next reaches a parked listed change | evals/git-workflow/test_instructions.py | ProjectPlanning.test_next_never_starts_parked_listed_change | red |
-| project-planning → A parking change is never a milestone change | Status with a parked listed change | evals/git-workflow/test_instructions.py | ProjectPlanning.test_status_lists_parked_listed_in_error | red |
-| project-planning → A parking change is never a milestone change | Parking change not listed | evals/git-workflow/test_instructions.py | ProjectPlanning.test_parking_note_says_never_listed | red |
+| project-planning → A parking change is never a milestone change | Close with a parked change listed | evals/git-workflow/test_instructions.py | ProjectPlanning.test_close_stops_on_parked_listed_change | green |
+| project-planning → A parking change is never a milestone change | Next reaches a parked listed change | evals/git-workflow/test_instructions.py | ProjectPlanning.test_next_never_starts_parked_listed_change | green |
+| project-planning → A parking change is never a milestone change | Status with a parked listed change | evals/git-workflow/test_instructions.py | ProjectPlanning.test_status_lists_parked_listed_in_error | green |
+| project-planning → A parking change is never a milestone change | Parking change not listed | evals/git-workflow/test_instructions.py | ProjectPlanning.test_parking_note_says_never_listed | green |
 | releases → A bumped version is greater than main's before it merges | Two changes bump to the same version | evals/release/test_release.py | TestCheckMain.test_duplicate_bump_refused | green |
 | releases → A bumped version is greater than main's before it merges | Main moved past the bump | evals/release/test_release.py | TestCheckMain.test_main_ahead_refused | green |
 | releases → A bumped version is greater than main's before it merges | Bump still ahead | evals/release/test_release.py | TestCheckMain.test_bump_ahead_passes | green |
@@ -71,7 +71,7 @@
 ## 2. Parked change is never a milestone change (#105)
 
 - [x] 2.1 Write the failing `ProjectPlanning` tests from the test map: close step 1, next step 3 and status each name the parked-listed case (reported as `parked (listed in error)`, neither started nor counted done, removal is the user's planning edit, next and close stop, no roadmap edit); the parking-change note says a parking change is never listed in a milestone's Changes. Verify: they fail on the current text.
-- [ ] 2.2 Edit `skills/specwright-roadmap/SKILL.md` (the parking-change note, next step 3, close step 1, status) per design D4. Verify: the four tests pass and the existing parked tests (`test_roadmap_next_skips_parked_change` and the rest) still pass. Flip the rows green.
+- [x] 2.2 Edit `skills/specwright-roadmap/SKILL.md` (the parking-change note, next step 3, close step 1, status) per design D4. Verify: the four tests pass and the existing parked tests (`test_roadmap_next_skips_parked_change` and the rest) still pass. Flip the rows green.
 
 ## 3. Unreadable is not absent in the release check (#103)
 
