@@ -8,9 +8,9 @@
 |---|---|---|---|---|
 | change-finish → Resume takes the newest add of the archive as its archive commit | Archive added once | evals/finish/test_undo_plan.py | TestUndoPlan.test_archive_commit_is_the_add_not_a_later_edit | green |
 | change-finish → Resume takes the newest add of the archive as its archive commit | Archive reverted and archived again | evals/finish/test_undo_plan.py | TestUndoPlan.test_rearchived_targets_newest_add_only | green |
-| change-finish → Resume takes the newest add of the archive as its archive commit | Archive reverted and archived again (skill text) | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_finish_archive_commit_is_the_newest_add | red |
+| change-finish → Resume takes the newest add of the archive as its archive commit | Archive reverted and archived again (skill text) | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_finish_archive_commit_is_the_newest_add | green |
 | change-finish → A deferred archive's undo is planned by a script that runs nothing | Deferred archive found | evals/finish/test_undo_plan.py | TestUndoPlan.test_plan_writes_nothing | green |
-| change-finish → A deferred archive's undo is planned by a script that runs nothing | Deferred archive found (skill text) | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_finish_step0_runs_undo_plan_and_runs_nothing | red |
+| change-finish → A deferred archive's undo is planned by a script that runs nothing | Deferred archive found (skill text) | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_finish_step0_runs_undo_plan_and_runs_nothing | green |
 | change-finish → A deferred archive's undo is planned by a script that runs nothing | Plan run on a dirty unrelated path in a resume on main | evals/finish/test_undo_plan.py | TestUndoPlan.test_resume_on_dirty_main_refused | green |
 | change-finish → A deferred archive's undo is planned by a script that runs nothing | No archive of the change | evals/finish/test_undo_plan.py | TestUndoPlan.test_no_archive_refused | green |
 | change-finish → A deferred archive's undo is planned by a script that runs nothing | Branch moved after the plan | evals/finish/test_undo_plan.py | TestUndoPlan.test_guard_fails_after_branch_moved | green |
@@ -26,7 +26,7 @@
 | change-finish → The undo restores the pre-archive state without losing any edit | Saved amendment conflicts after the rerun | evals/finish/test_undo_plan.py | TestUndoPlan.test_rerun_conflict_stops_and_keeps_copies | green |
 | design-review-gate → A deferred review never ships code | Apply on a deferred change | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_apply_gate_refuses_deferred_and_says_review_needed | green |
 | design-review-gate → A deferred review never ships code | Archive on a deferred change | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_config_context_refuses_archive_of_deferred | green |
-| design-review-gate → A deferred review never ships code | Archive ran anyway | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_finish_step0_runs_undo_plan_and_runs_nothing | red |
+| design-review-gate → A deferred review never ships code | Archive ran anyway | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_finish_step0_runs_undo_plan_and_runs_nothing | green |
 | design-review-gate → A deferred review never ships code | Deferred archive already committed | evals/finish/test_undo_plan.py | TestUndoPlan.test_committed_with_later_amendment (one new commit, no ref other than the branch moved) | green |
 | design-review-gate → A deferred review never ships code | Bulk archive that included a deferred change | evals/finish/test_undo_plan.py | TestUndoPlan.test_committed_bulk_undone_whole | green |
 | design-review-gate → A deferred review never ships code | Deferral with no target | evals/git-workflow/test_instructions.py | DesignReviewDispositions.test_tasks_precheck_stops_on_deferred_without_target | green |
@@ -59,7 +59,7 @@
   - the refusals `no_archive`, `dirty_tree`, `staged_changes`, `target_exists` and `backup_exists`.
 
   Verify: every `TestUndoPlan` test passes. Flip its rows green.
-- [ ] 1.5 Rewrite `skills/specwright-finish/SKILL.md`:
+- [x] 1.5 Rewrite `skills/specwright-finish/SKILL.md`:
   - step 0: stop on `VERDICT: DEFERRED`, run `bash <specwright-finish>/scripts/finish.sh undo-archive-plan ...` (store-backed: `--dir <store toplevel>`), show `script`, `after_rerun` and `warnings`, and say to save each script and run it with `bash`. Make no commit, merge or push, and run neither script. Remove the three restore groups and the revert chain;
   - Resume's A fact: the newest add line;
   - `allowed-tools`: add `Bash(bash *)`;

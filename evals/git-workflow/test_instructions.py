@@ -1886,8 +1886,7 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertRegex(resume, r"(?is)before any (table )?row.{0,200}step 0", "resume does not run step 0 before the table rows")
         self.assertIn("a committed archive gets the same check", resume, "resume skips step 0 for a committed archive")
         s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertIn("git revert --no-edit <A>", s0, "step 0 does not give the revert of a committed archive")
-        self.assertRegex(s0, r"(?is)never (a )?reset", "step 0 does not forbid a reset of the committed archive")
+        self.assertRegex(s0, r"(?is)committed archive is one new commit.{0,80}never a revert, a reset or a force-push", "step 0 does not undo a committed archive by one forward commit")
 
     def test_finish_bulk_archive_commit_is_found_by_path(self):
         # A bulk archive commit names several changes, so its subject cannot identify A; the archive path does (PR #104 review).
@@ -1897,15 +1896,40 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertIn("the commit that added the archive directory", a, "A is not found by the commit that added the archive directory")
         self.assertIn(find, a, "A does not give the path lookup on the branch")
         self.assertRegex(a, r"(?is)bulk archive commit", "A does not cover a bulk archive commit")
-        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertIn(find, s0, "step 0 prescribes a revert without saying how to find <A>")
 
-    def test_finish_archive_commit_is_the_one_that_added_it(self):
-        # git log -1 on the archive directory returns the newest commit touching it, e.g. a later review fix (PR #104 review).
+    def test_finish_archive_commit_is_the_newest_add(self):
+        # An older add of the archive directory was reverted and archived again; the newest add is the live archive (#106).
         text = read(FINISH)
         self.assertNotIn("git log -1 --format=%H <main>..<branch>", text, "A is still the newest commit touching the archive, not the one that added it")
         flat = re.sub(r"\s+", " ", text)
-        self.assertRegex(flat, r"(?is)oldest.{0,80}several|several.{0,80}oldest", "the lookup does not say which line to take when it prints several")
+        a = flat[flat.index("- **A** - "):flat.index("- **M** - ")]
+        self.assertRegex(a, r"(?is)newest.{0,40}several", "A does not take the newest add when the lookup prints several")
+        self.assertRegex(a, r"(?is)older add.{0,80}reverted", "A does not say an older add was reverted")
+        self.assertNotRegex(flat, r"(?is)oldest line", "finish still takes the oldest add line")
+
+    def test_finish_step0_runs_undo_plan_and_runs_nothing(self):
+        # The undo of a deferred archive is printed by finish.sh, never prose and never run by finish (#106).
+        text = read(FINISH)
+        fm, _ = frontmatter(text)
+        self.assertRegex(fm, r"(?m)^allowed-tools:.*Bash\(bash \*\)", "finish may not run bash scripts")
+        flat = re.sub(r"\s+", " ", text)
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("`VERDICT: DEFERRED`", s0, "step 0 does not check VERDICT: DEFERRED")
+        self.assertRegex(s0, r"(?is)every one", "step 0 does not check every change of a bulk archive")
+        self.assertIn("no commit, no merge, no push", s0, "step 0 does not stop before commit, merge and push")
+        self.assertRegex(s0, r"(?is)run no restore yourself", "step 0 does not forbid restoring itself")
+        self.assertIn("bash <specwright-finish>/scripts/finish.sh undo-archive-plan --change <change-name> --archived-name <archived-name> --prefix <P> --main <main> --branch <branch>", s0, "step 0 does not run the undo plan")
+        self.assertRegex(s0, r"(?is)--dir <store toplevel>", "step 0 does not point the plan at the store")
+        for f in ("`script`", "`after_rerun`", "`warnings`"):
+            self.assertIn(f, s0, f"step 0 does not show {f}")
+        self.assertIn("bash <file>", s0, "step 0 does not say how the user runs a script")
+        self.assertRegex(s0, r"(?is)run neither script yourself", "step 0 may run the printed scripts")
+        self.assertRegex(s0, r"(?is)exit 1.{0,40}`message`.{0,20}stop", "step 0 does not show a refusal and stop")
+        self.assertRegex(s0, r"(?is)never restoring only the deferred change", "step 0 allows restoring only the deferred change's files")
+        for gone in ("git revert", "git restore -- <file>", "three groups"):
+            self.assertNotIn(gone, s0, f"step 0 still prescribes {gone}")
+        row = next((r for r in text.splitlines() if r.startswith("| archive paths uncommitted, no A")), "")
+        self.assertRegex(row, r"(?i)steps 0-3|starts? at step 0", "the Resume table's first row does not reach step 0")
 
     def test_finish_resume_deferred_check_reads_branch_review(self):
         # Resuming on main with the archive committed only on the branch must still run step 0 (PR #104 review).
@@ -1915,57 +1939,6 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertNotIn("whenever this change's archive directory exists there", resume, "resume gate still needs the archive in the working tree")
         s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
         self.assertIn("git show <branch>:<P>/changes/archive/<archived-name>/review.md", s0, "step 0 cannot read review.md from the branch")
-
-    def test_finish_committed_archive_undone_by_revert_alone(self):
-        # The restore groups break a revert of a committed archive (PR #104 review).
-        flat = re.sub(r"\s+", " ", read(FINISH))
-        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertIn("for an uncommitted archive only", s0, "the restore groups are not scoped to an uncommitted archive")
-        self.assertRegex(s0, r"(?is)committed archive.{0,120}(only|solely|alone).{0,40}revert|revert.{0,60}(only|solely|alone)", "a committed archive is not undone by the revert alone")
-
-    def test_finish_undo_moves_change_directory_back(self):
-        # Restoring the committed directory and deleting the archive copy drops the user's uncommitted artifact edits (PR #104 review).
-        flat = re.sub(r"\s+", " ", read(FINISH))
-        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertRegex(s0, r"(?is)move the archive copy back.{0,60}<P>/changes/<name>/.{0,40}committed or not", "step 0 does not move the archive copy back in every case")
-        self.assertRegex(s0, r"(?is)uncommitted edits to the change's artifacts", "step 0 does not say why the archive copy is kept")
-        self.assertNotIn("then delete the archive copy", s0, "step 0 still deletes the archive copy")
-        self.assertNotIn("git restore -- <P>/changes/<name>/", s0, "step 0 still restores the change directory from git")
-
-    def test_finish_revert_includes_later_commits_on_archive_paths(self):
-        # A later commit amending a path the archive commit added makes a revert of A alone conflict (PR #104 review).
-        flat = re.sub(r"\s+", " ", read(FINISH))
-        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertIn("git log --format=%H <A>..<branch> -- $(git show --name-only --format= <A>)", s0, "step 0 does not find later commits on the archive's paths")
-        self.assertIn("git revert --no-edit <those commits> <A>", s0, "step 0 does not revert the later commits with A")
-        self.assertRegex(s0, r"(?is)newest first", "step 0 does not revert newest first")
-        self.assertRegex(s0, r"(?is)other paths.{0,120}(lose|lost|drop)", "step 0 does not warn that mixed commits lose their other changes")
-        self.assertIn("git revert --abort", s0, "step 0 does not say how to back out of a conflicted revert")
-
-    def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
-        # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
-        flat = re.sub(r"\s+", " ", read(FINISH))
-        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertIn("undo the whole bulk archive", s0, "step 0 does not undo a bulk archive as a whole")
-        self.assertRegex(s0, r"(?is)again without the deferred change", "step 0 does not rerun the bulk archive without the deferred change")
-        self.assertRegex(s0, r"(?is)never restore only the deferred change", "step 0 allows restoring only the deferred change's files")
-
-    def test_finish_step0_stops_on_deferred_and_lists_restore_groups(self):
-        text = read(FINISH)
-        flat = re.sub(r"\s+", " ", text)
-        self.assertTrue("0. **" in text, "finish has no step 0")
-        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
-        self.assertIn("VERDICT: DEFERRED", s0, "step 0 does not check VERDICT: DEFERRED")
-        self.assertRegex(s0, r"(?is)archive.{0,40}(director|name)", "step 0 does not read the archived review.md")
-        self.assertRegex(s0, r"(?is)every (archived )?change|each archived change", "step 0 does not check every archived change")
-        self.assertRegex(s0, r"(?is)no commit.{0,60}merge.{0,40}push|before any commit, merge or push", "step 0 does not stop before commit, merge and push")
-        self.assertRegex(s0, r"(?is)no restore|restore nothing|never restores?|runs? no restore", "step 0 does not forbid restoring itself")
-        self.assertIn("git restore -- <file>", s0, "step 0 does not give the main-spec restore")
-        self.assertRegex(s0, r"(?is)uncommitted edits", "step 0 does not warn about the user's uncommitted edits")
-        self.assertRegex(s0, r"(?is)(created|untracked).{0,200}delete", "step 0 does not list created main specs to delete")
-        self.assertRegex(s0, r"(?is)change directory.{0,80}move the archive copy back", "step 0 does not give the change directory's move-back")
-        row = next((r for r in text.splitlines() if r.startswith("| archive paths uncommitted, no A")), "")
-        self.assertRegex(row, r"(?i)steps 0-3|starts? at step 0", "the Resume table's first row does not reach step 0")
 
     def test_template_context_lines_use_managed_prefixes(self):
         readme = re.sub(r"\s+", " ", read(README))
