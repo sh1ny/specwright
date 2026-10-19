@@ -856,6 +856,47 @@ class TestCheckMain(Flow):
         out = self.check()
         self.assertEqual(out[1]["error"], "version_not_ahead_of_main", out[2])
 
+    def test_bump_through_unreadable_then_main_merged_refused(self):
+        # PR #108, Codex P2 (round 5): 0.4.2 -> 0.4.2 and 0.5.0 -> 0.5.0 is a bump made through an unreadable version;
+        # after main, already at 0.5.0, is merged in, the duplicate must still be refused.
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        fx.commit(self.work, "feat(b): VERSION lists two", {"VERSION": "0.4.2\n0.5.0\n"})
+        fx.commit(self.work, "fix(b): keep 0.5.0", {"VERSION": "0.5.0\n"})
+        fx.git(self.work, "merge", "-q", "--no-edit", "origin/main")
+        out = self.check()
+        self.assertStops(out, "0.5.0", "bump")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+
+    def test_main_base_repaired_on_both_sides_passes(self):
+        # Design review round 3, M1: the branch repairs main's broken VERSION to 0.5.0, as main later does: no release.
+        self.repo(version="0.4.2")
+        fx.commit(self.work, "chore: VERSION lists two", {"VERSION": "0.4.2\n0.5.0\n"})
+        base = self.sha()
+        fx.set_version(self.work, "0.5.0")
+        fx.git(self.work, "commit", "-q", "-am", "fix: keep 0.5.0")
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        fx.set_version(self.work, "0.5.0")
+        fx.git(self.work, "commit", "-q", "-am", "fix(b): keep 0.5.0")
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_stray_version_line_removed_passes(self):
+        # Design review round 3, M1: a stray 0.4.2 line added and then removed on a branch at 0.5.0 is no bump.
+        self.repo(version="0.5.0")
+        fx.push(self.work)
+        self.branch("feat/b", self.sha())
+        fx.commit(self.work, "chore(b): stray line", {"VERSION": "0.5.0\n0.4.2\n"})
+        fx.commit(self.work, "fix(b): drop the stray line", {"VERSION": "0.5.0\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
     def test_without_main_unchanged(self):
         self.two_bumps()
         code, doc, raw = self.release("check")

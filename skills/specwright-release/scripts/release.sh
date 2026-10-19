@@ -612,16 +612,32 @@ def primary_at(st, entries, commit):
     return next(iter(vals)) if once and len(vals) == 1 else Unreadable(vals)
 
 
-def own_bump(st, entries, commits):
+def judged_parent(st, entries, commit, ref):
+    """D5: the version `commit` is judged against: its parent's, or, while that is unreadable and not on `ref`, the version
+    of the nearest first-parent ancestor that is readable or on `ref` (PR #108 review, round 5)."""
+    at = f"{commit}^"
+    parent = primary_at(st, entries, at) if ref_exists(st.root, at) else None
+    while isinstance(parent, Unreadable):
+        sha = text_of(git(st.root, "rev-parse", at))
+        if git(st.root, "merge-base", "--is-ancestor", sha, ref).returncode == 0 or not ref_exists(st.root, f"{sha}^"):
+            break
+        at = f"{sha}^"
+        parent = primary_at(st, entries, at)
+    return parent
+
+
+def own_bump(st, entries, commits, ref):
     """D3/D5: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
-    the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump. A commit whose own
-    version is unreadable is no change when its parent's version is among those it matched (or the parent is unreadable
-    too), else a bump only when it matched at least one version and every one is greater than the parent's. One whose parent
-    is unreadable is no change when its version is the greatest semver among those the parent matched, no bump when it is a
-    lower one of them, else a bump when greater than every semver among them (or none)."""
+    the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump. Each commit is
+    judged against judged_parent: an unreadable parent on the branch is looked past, so a bump made through an unreadable
+    version counts and a stray line added and then removed does not. A commit whose own version is unreadable is no change
+    when that version is among those it matched (or it is unreadable too), else a bump only when it matched at least one
+    version and every one is greater. One judged against an unreadable version (on `ref`) is no change when its version is
+    the greatest semver among those matched, no bump when it is a lower one of them, else a bump when greater than every
+    semver among them (or none)."""
     for c in commits:
         mine = primary_at(st, entries, c)
-        parent = primary_at(st, entries, f"{c}^") if ref_exists(st.root, f"{c}^") else None
+        parent = judged_parent(st, entries, c, ref)
         if isinstance(mine, Unreadable):
             if isinstance(parent, Unreadable) or (parent is not None and parent in mine.versions):
                 continue
@@ -639,7 +655,7 @@ def own_bump(st, entries, commits):
             if mine in parent.versions:
                 if sv(mine) and seen and sv(mine) < max(seen):
                     return False  # it kept a lower one of its parent's versions: the higher one, a bump, is dropped
-                continue
+                continue  # it kept the highest of its parent's versions, which is on ref: no change
             return not seen or not sv(mine) or all(sv(mine) > s for s in seen)
         return parent is None or not (sv(mine) and sv(parent)) or sv(mine) > sv(parent)
     return False
@@ -661,7 +677,7 @@ def check_ahead_of(st, entries, ref, version):
                 f":(glob){entries[0][0]}" if has_glob(entries[0][0]) else f":(literal){entries[0][0]}")
         if r.returncode != 0:
             raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
-        bumped = own_bump(st, entries, text_of(r).split())
+        bumped = own_bump(st, entries, text_of(r).split(), ref)
     if bumped and not (sv(version) and sv(theirs) and sv(version) > sv(theirs)):
         raise Stop("version_not_ahead_of_main", f"this branch bumped to {version}, which is not greater than {ref}'s {theirs}: "
                    f"another change reached {ref} first. Rerun bump --to with a version greater than {theirs}",

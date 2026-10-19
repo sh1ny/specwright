@@ -408,7 +408,7 @@ def cmd_undo(d, a):
 
     # ---- after_rerun -------------------------------------------------------------------------------------------
     after = None
-    rerun = [m for m in members if not m["deferred"] and m["name"] != change]  # every bulk member but the deferred ones
+    rerun = [m for m in members if not m["deferred"]]  # every bulk member but the deferred ones, the named one included
     merge, left = [], list(amended) if mode == "committed" else []
     if mode == "committed" and amended and rerun:
         synced_by_rerun = set()

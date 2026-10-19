@@ -611,6 +611,16 @@ class TestUndoPlan(Base):
         fx.archive(self.work, ["add-x", "add-y"])
         self.assert_rerun_archive_only(self.run_all())
 
+    # ---- PR #108 review round 5 ------------------------------------------------------------------------------
+    def test_bulk_undo_named_member_rerun(self):
+        # Codex P2: finish run for add-y (not deferred) undoes the bulk archive for add-x; add-y must be archived again.
+        for commit_it in (True, False):
+            with self.subTest(committed=commit_it):
+                self.setUp()
+                self.pair()
+                fx.archive(self.work, ["add-x", "add-y"], commit_it=commit_it)
+                self.assert_rerun_archive_only(self.run_all("add-y", archived=f"{fx.DATE}-add-y"))
+
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):
             code, doc, raw = fx.run_finish(self.work, *args)

@@ -2,18 +2,31 @@
 
 ## Metadata
 
-- **Round:** 2
-- **Prior round:** Round 1 gave APPROVE_WITH_CHANGES (C1, M1-M4). A re-check run accepted all five Required Changes and set CHANGES_APPLIED to yes. That verdict was voided by an apply-time amendment to specs/releases/spec.md, proposal.md and the tasks.md test map.
-- **Reviewer:** fresh-context subagent (specwright-reviewer, Claude Code harness; route: subagent)
-- **Reviewed:** proposal.md, design.md, specs/{change-finish,design-review-gate,project-planning,releases}/spec.md, tasks.md (test map and task notes), and the amendment diff (`git diff HEAD -- openspec/changes/fix-deferral-followups/`). Also the main spec openspec/specs/releases/spec.md ("A bumped version is greater than main's before it merges"), ADR 0010 (no conflict), skills/specwright-release/scripts/release.sh (`Unreadable`, `primary_at`, `own_bump`, `check_ahead_of`, `cmd_check`), evals/release/test_release.py (TestCheckMain, including `unreadable_base` and the three new tests), and evals/git-workflow/test_specs_strict.py. For the other parts, I spot-checked skills/specwright-finish/scripts/finish.sh (guard before checkout, after_rerun merge list, refusals) and skills/specwright-finish/SKILL.md (allowed-tools, Resume A fact, step 0). The change-finish, design-review-gate and project-planning deltas and design.md are byte-identical to what round 1 reviewed, so I relied on round 1 for them after confirming that the implementation and evals match. I did not re-read ADRs 0001-0003 in full, because round 1's reading of them is unaffected by the amendment.
+- **Round:** 3
+- **Prior round:** Round 1 gave APPROVE_WITH_CHANGES (C1, M1-M4), and a re-check accepted all five Required Changes. Round 2 was run because an apply-time amendment split the unreadable rules into an ADDED releases requirement. It gave APPROVE_WITH_CHANGES (M1, the unreadable-commit rule), and a re-check accepted that too (CHANGES_APPLIED yes). Round 3 runs because an owner-approved behaviour-change amendment voided that verdict. The amendment came from the PR #108 review (Codex P2, round 5) and adds a parent-set bump rule to "An unreadable version is not absent".
+- **Reviewer:** fresh-context subagent (specwright-reviewer, Claude Code harness; route: subagent). No project skills were named for this review.
+- **Reviewed:**
+  - The amendment diff (`git diff HEAD -- openspec/changes/fix-deferral-followups/`): specs/releases/spec.md, the `own_bump` bullet of design.md D5, and in proposal.md the #103 bullet and the Capabilities line. In tasks.md, the new test-map row and task 3.4.
+  - The full proposal.md, design.md (D5 in full), tasks.md, specs/releases/spec.md and the previous review.md.
+  - The main spec openspec/specs/releases/spec.md, requirement "A bumped version is greater than main's before it merges" and its eight scenarios.
+  - In skills/specwright-release/scripts/release.sh: `Unreadable` (:592), `primary_at` (:599), `own_bump` (:615-645) and `check_ahead_of` (:648-668).
+  - In evals/release/test_release.py: `TestCheckMain` (:670-888), including `unreadable_base` and the unreadable tests through `test_bump_through_unreadable_then_main_merged_refused`, which is present in the working tree.
+  - The review template.
+  - The change-finish, design-review-gate and project-planning deltas are outside the amendment, so I relied on rounds 1-2 for them.
 - **Evidence runs:**
-  - `openspec validate fix-deferral-followups --strict`: valid.
-  - `test_specs_strict.py` on the working tree: OK.
-  - The HEAD copy of the change archived into a temp copy of openspec/ fails `validate --specs --strict` on `releases` ("Requirement text is very long (>500 characters)"), so the amendment's reason holds.
-  - `python -m unittest discover evals/release`: 112 OK.
-  - `python -m unittest discover evals/finish`: 26 OK.
-  - A temp-repo reproduction of M1 below, built with evals/release/fixtures.py.
-- **Re-check (same round, new run):** fresh-context subagent re-checked Required Changes 1 and 2 only, against the working-tree specs/releases/spec.md, design.md (D5 `own_bump` bullet), proposal.md (#103 bullet and Capabilities line) and tasks.md (test map row and task 3.3). `openspec validate fix-deferral-followups --strict`: valid. Both changes are satisfied; task 3.3's code is not implemented yet, as expected at this stage.
+  - `openspec validate fix-deferral-followups --strict`: valid. Requirement text lengths: 434 ("An unreadable version is not absent") and 309 (the unreadable-commit requirement), both under 500.
+  - `TestCheckMain.test_bump_through_unreadable_then_main_merged_refused` on the current release.sh: FAILED. This is the expected red, since task 3.4's code is not written yet.
+  - Temp repos built with evals/release/fixtures.py were run against three scripts: the current release.sh, a scratch copy patched to the amended rule, and a scratch copy patched to the fix in Required Change 1. Results, as (exit code, error):
+
+    | Case | current | amended | fix |
+    | --- | --- | --- | --- |
+    | Codex case (0.4.2, then 0.4.2+0.5.0, then 0.5.0, then merge main at 0.5.0) | 0, passes | 1, `version_not_ahead_of_main` | 1, `version_not_ahead_of_main` |
+    | Broken main base repaired on both sides (M1 a) | 0 | 1, `version_not_ahead_of_main` | 0 |
+    | Same, after merging main | 0 | 1, `version_not_ahead_of_main` | 0 |
+    | Stray lower line added and then removed on the branch (M1 b) | 0 | 1, `version_not_ahead_of_main` | 0 |
+
+  - `RELEASE_SH=<fix copy> python -m unittest discover evals/release`: 116 tests OK. That includes every existing `TestCheckMain` row and the new task 3.4 test. No repository file other than this review was edited; the scratch copies live in a temp directory.
+- **Re-check (round 3, new run):** I checked Required Changes 1-4 against the working tree (`git diff HEAD -- openspec/changes/fix-deferral-followups/`). All four are applied. RC1: the requirement text matches word for word (476 characters), the Codex scenario is unchanged, and the two new scenarios match. RC2: the D5 `own_bump` bullet is rewritten as a whole, not as a one-sentence swap. On substance it carries the required text, keeps the "lower one" and "greater than every semver" rules for an unreadable version on `<ref>`, and judges the unreadable-commit rule against the same looked-past version, as the spec's "in place of that parent" requires. The "This covers each case" line names the three new cases. RC3: the proposal's #103 bullet and `releases` Capabilities line carry the required wording. RC4: tasks.md has the two new test-map rows and the rewritten task 3.4, which includes the docstring update. `openspec validate fix-deferral-followups --strict` reports the change valid. In the implementation, `judged_parent` and `own_bump` in release.sh match the amended spec, and the docstring is updated (S1). However, `python -m unittest discover evals/release` gives 118 tests with 1 failure: `test_main_base_repaired_on_both_sides_passes` exits 1 with `version_files_disagree`. This is a defect in the test fixture, not in the rule. The test writes only `VERSION`, so README.md and the SKILL.md files stay at 0.4.2. In a scratch copy that uses `fx.set_version(self.work, "0.5.0")` for both repair commits, the test passes on both the working-tree and the HEAD release.sh. The other two new tests pass, and the Codex test fails on HEAD as it should. So the design artifacts are complete, but the task 3.4 checkbox and the green test-map rows are not yet true (see Rebuttals).
 
 <!-- This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes) voids it. -->
 
@@ -25,37 +38,41 @@ None.
 
 ### Moderate
 
-**M1. "A commit whose own version is unreadable SHALL decide nothing" makes the walk skip a hand-made revert of a bump. A branch with no release is then refused, and the refusal says to bump again.**
+**M1. The parent-set bump rule refuses branches that carry no release. One of them is the repair branch the amendment means to protect.**
 
-The amendment moved this sentence from design D5 into a normative SHALL in the new releases requirement. `own_bump` implements it at release.sh:621 (`if isinstance(mine, Unreadable) or mine == parent: continue`). It works together with the round-1 rule that a commit whose version is in its unreadable parent's set is skipped. Together, the two rules let the walk pass over the commit that actually changed the version:
+The amended sentence reads: "An unreadable parent SHALL count as a bump only when the commit's version is not among the versions it matched, or is the greatest of them while a lower one is among them too." It does not say where the parent sits. In the history walk, the parent of the branch's first version-changing commit is the merge base itself, or some other commit on `<ref>`. The rule therefore reaches back into main's history, and the deliberately unchanged merge-base rule protects nothing.
 
-- base and branch tip are both 0.4.2, and `origin/main` is at 0.5.0;
-- c1 bumps to 0.5.0;
-- c2 reverts it by hand but leaves `VERSION` as `0.4.2\n0.4.2\n`;
-- c3 removes the duplicate.
+a. **A broken main base, repaired on both sides, is refused.** main's `VERSION` lists `0.4.2` and `0.5.0`. The branch forks there and repairs the file to `0.5.0`, and main later repairs it to `0.5.0` too.
+   - `check_ahead_of` sees an unreadable base whose set holds 0.5.0, so it is not bumped by the base rule (release.sh:658), and the walk runs.
+   - The repair commit's parent is that same unreadable base. 0.5.0 is the greatest of {0.4.2, 0.5.0} and a lower one is present, so the commit counts as a bump. The check refuses with "Rerun bump --to with a version greater than 0.5.0".
+   - Merging main first changes nothing, because `ref..HEAD` still lists the repair commit.
+   - This contradicts the stated reason for leaving the merge-base rule unchanged ("a broken main base later fixed on both sides must not refuse a repair branch"). It also contradicts D5's own Rejected bullet, which turns down a rule that "would refuse a branch whose whole purpose is to repair that file".
 
-`check_ahead_of` sees base == version and walks. c3 is skipped (0.4.2 is in c2's set), c2 is skipped (its own version is unreadable), and c1 "raised" 0.4.2 to 0.5.0, so the branch counts as bumped.
+b. **A stray lower line, added and then removed on the branch, is refused.** main and the branch are both at 0.5.0 and the branch never bumps. One commit leaves `VERSION` as `0.5.0\n0.4.2\n` by mistake, and a later commit removes the stray line.
+   - The base is readable and equal to the branch's version, so the walk runs.
+   - The newest commit keeps the greatest of its unreadable parent's set while a lower one is present, so it counts as a bump, and the check refuses a branch whose version never moved.
+   - This is the mirror of round 2's M1, a sloppy hand edit that leaves an extra line, and the main requirement's definition of a bump excludes it: "the newest of its own non-merge commits that changed the primary file's version raised it". No commit changed the version from 0.5.0.
 
-I reproduced this in temp repos with the release fixtures. With a clean revert, the check exits 0. With the duplicate revert, it exits 1 with `version_not_ahead_of_main`: "this branch bumped to 0.4.2, which is not greater than origin/main's 0.5.0 ... Rerun bump --to with a version greater than 0.5.0".
+Both are false refusals of the same class as #103. Each refusal tells the user to bump again, which would ship a release the branch never meant to make. The temp-repo runs above reproduce both under the amended rule. On the current code both pass.
 
-That is the same class of bug as #103: an unreadable reading turns into a false refusal. Here the refusal's advice would make the user ship a release the branch never meant to make. It also contradicts the unchanged main requirement's definition of a bump: "the newest of its own non-merge commits that changed the primary file's version raised it". c2 changed the version (0.5.0 is not among the versions it matched) and did not raise it. A duplicate line in `VERSION` is how #103 arose, so a sloppy hand revert that leaves one is a realistic path.
+The root cause is that the amended rule guesses, from the parent's set alone, whether the unreadable state added the higher version or the lower one. When the unreadable parent is a branch commit, the walk can avoid guessing. It can look past the run of unreadable branch commits to the version before them. If that version is readable, it settles the question: compared with 0.4.2 the commit raised the version (the Codex case), and compared with 0.5.0 nothing changed (case b). Only when that run reaches `<ref>` while still unreadable is the set rule needed, and there the merge-base rule's no-guess reading (case a) is the intended one.
 
-The new SHALL also has no scenario and no test. No TestCheckMain case puts an unreadable version on a branch commit, so the current behaviour is not pinned either way.
+A scratch implementation in `own_bump` passes all 116 release evals and gives the expected result in all four temp-repo cases. It walks first parents from `c^` while the version is unreadable and the commit is not an ancestor of `<ref>` (`git merge-base --is-ancestor`), then treats what it reaches in place of the parent, which means `<ref>` must be passed in. It also keeps the round-2 cases unchanged:
+- "Bump reverted through an unreadable version" compares 0.4.2 with 0.5.0, so it is no bump.
+- `test_bump_reverted_by_lower_of_unreadable_set` compares 0.5.0 with 0.6.0, so it is no bump.
+- `test_dedupe_to_highest_of_unreadable_set_keeps_bump` finds equal versions, so the walk goes on and finds the bump to 0.6.0.
 
-Fix: apply the parent-side rule to the commit's own side as well. A commit whose own version is unreadable is no change when its parent's version is among the versions the commit matched (or both are unreadable). Otherwise it changed the version, and it counts as a bump only when every semver it matched is greater than the parent's version. In the reproduction, c2 then returns False, so the check passes. A bump written twice and then de-duplicated still counts: the bump commit's set {0.5.0} is greater than 0.4.2, and the de-duplicate commit is skipped.
+**What the amendment gets right.** It closes the Codex false pass. Before the change, the dedupe commit was skipped as the "greatest" of its parent's set, and the unreadable commit was skipped because its parent was among its versions. `check --main` therefore passed a duplicate 0.5.0. The new scenario states this case correctly and should stay as written. Apart from M1, the rest of the amendment is consistent:
+- The requirement text is 434 characters and validates under `--strict`.
+- The main requirement and its eight scenarios are untouched and unaffected. None of them puts an unreadable version on a parent, and the eight test rows still pass under the fix.
+- The second new requirement and its scenario are unaffected.
+- The proposal's #103 bullet and Capabilities line, the D5 bullet, and task 3.4 all state the same rule as the spec.
 
 ### Suggestions
 
-**S1.** The eight "A bumped version is greater than main's before it merges" rows in the test map now point at a requirement this change no longer touches. The schema says extra tests need no row, and task 3.2 re-runs them anyway, so they can stay. Keep them deliberately, as the regression net for D5, and don't treat them as scenarios of this change.
+**S1.** Task 3.4 should also update the `own_bump` docstring (release.sh:616-621) and the "This covers each case" line in D5, so that both describe the parent rule that ships. Today the docstring still says "no change when its version is the greatest semver".
 
-**S2.** On its own, the main requirement's wording "its version differs from its merge base" reads as if an unreadable base always differs. The new requirement corrects this, but only a reader of both requirements sees that. The 500-character limit rules out an edit there. Optionally, start the new requirement with "When deciding whether a branch bumped (see "A bumped version is greater than main's before it merges"), ..." so a reader can find the link.
-
-**Amendment otherwise verified.**
-- Splitting the unreadable rules into an ADDED requirement and leaving the main requirement as it is gives the same behaviour as round 1's MODIFIED text, and it passes strict validation, which the HEAD version did not.
-- The proposal's Capabilities line matches the delta.
-- The three moved test-map rows name existing, passing tests.
-- `check_ahead_of`'s base rule (release.sh:645) and the parent rule in `own_bump` (:625-629) match the requirement's second sentence.
-- Round-1 re-check notes 1-3 are implemented: the guard runs before checkout (finish.sh:307-315), after_rerun merges only re-synced specs (:362-382), and the own_bump middle case returns False.
+**S2.** (Carried from round 2.) The eight "A bumped version is greater than main's before it merges" rows in the test map remain the regression net for D5. They are worth keeping, and this round's fix is checked against them.
 
 ## Verdict
 
@@ -63,12 +80,28 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. (M1) specs/releases/spec.md, requirement "An unreadable version is not absent": replace "A commit whose own version is unreadable SHALL decide nothing, and the walk SHALL go on to older commits." with: "A commit whose own version is unreadable SHALL be no change when its parent's version is among the versions it matched, or the parent is also unreadable. Otherwise it SHALL count as a bump only when every version it matched is greater than its parent's." Add the scenario "Bump reverted through an unreadable version":
-   - WHEN the branch bumps 0.4.2 to 0.5.0, a later commit sets `VERSION` back to `0.4.2` twice, a still later one removes the duplicate, and `origin/main` is at 0.5.0;
-   - THEN `check --main origin/main` exits 0 and reports version 0.4.2.
+1. (M1) specs/releases/spec.md, requirement "An unreadable version is not absent".
+   - Replace the requirement text with the following (476 characters):
 
-   Make the same edit to the `own_bump` bullet of design.md D5 and to the last sentence of the #103 bullet in proposal.md.
-2. (M1) tasks.md: add a test-map row for the new scenario (`TestCheckMain.test_bump_reverted_through_unreadable_passes`, starting `red`) and a task that writes it, then changes `own_bump` in release.sh (the `isinstance(mine, Unreadable)` branch at :621) to the rule in change 1. Verify: the new test passes, and so do the existing `test_unreadable_base_dedupe_is_no_bump`, `test_repair_then_bump_refused_when_behind` and `test_repair_and_bump_in_one_commit_refused`.
+     "In `release.sh check --main <ref>`, a primary file that exists but does not read exactly one version SHALL be unreadable, which is not absent. An unreadable merge base, or an unreadable parent on `<ref>`, SHALL count as a bump only when the branch's or commit's version is not among the versions it matched. A commit whose parent is unreadable and on the branch SHALL be judged against its nearest first-parent ancestor that is readable or on `<ref>`, in place of that parent."
+
+   - Keep the scenario "Bump made through an unreadable version" as it is.
+   - Add the scenario "Broken main version repaired on both sides":
+     - WHEN the merge base's `VERSION` lists `0.4.2` and `0.5.0`, the branch's only commit on it keeps `0.5.0`, and `origin/main` has since repaired it to 0.5.0;
+     - THEN `check --main origin/main` exits 0 and reports version 0.5.0.
+   - Add the scenario "Stray version line added and removed":
+     - WHEN the branch starts at 0.5.0, one commit adds a `0.4.2` line to `VERSION`, a later one removes it, and `origin/main` is at 0.5.0;
+     - THEN the check exits 0 and reports version 0.5.0.
+2. (M1) design.md D5, `own_bump` bullet: replace the sentence "When its version is the greatest semver in that set, it is a bump when a lower one is among them (...), else skipped." with the following text:
+
+   "A commit whose parent is unreadable and not on `<ref>` is judged against its nearest first-parent ancestor that is readable or on `<ref>`, in place of that parent (PR #108 review, round 5): a bump made through an unreadable version counts, and a stray line added and then removed does not. When that ancestor is on `<ref>` and unreadable, a commit whose version is the greatest semver in its set is skipped."
+
+   Keep the "lower one" and "greater than every semver" sentences for that last case.
+3. (M1) proposal.md: in the #103 bullet and the `releases` Capabilities line, replace "an unreadable parent only when it is not among them, or is the greatest of them while a lower one is among them too" (and the Capabilities wording of the same rule) with "an unreadable parent on main the same way, and a commit whose unreadable parent is on the branch is judged against the nearest readable version before it".
+4. (M1) tasks.md:
+   - Add two test-map rows under "An unreadable version is not absent", each starting `red`: `TestCheckMain.test_main_base_repaired_on_both_sides_passes` and `TestCheckMain.test_stray_version_line_removed_passes`.
+   - Rewrite task 3.4. Write the three tests and confirm that the Codex test fails on the current release.sh. Then change `own_bump`, which needs `<ref>` passed in from `check_ahead_of`: when the parent is unreadable, walk first parents while the version is unreadable and the commit is not an ancestor of `<ref>`, and judge the commit against what that walk reaches. Update the docstring (S1).
+   - Verify: the two pass-tests already pass on the current code, so record them as guards against the round-5 rule (they fail under it; see Evidence runs). The Codex test and the full `python -m unittest discover evals/release` must pass. Flip the three rows green.
 
 <!-- yes (applied, and re-checked by the reviewer - only the reviewer sets it) | no (outstanding) | n/a (any other verdict) -->
 CHANGES_APPLIED: yes
@@ -77,9 +110,13 @@ CHANGES_APPLIED: yes
 
 <!-- Author: fixed (cite) or rebutted (reason) per finding. A Critical/Moderate rebuttal counts only once marked "accepted by reviewer". -->
 
-- **M1 (Required Change 1):** fixed, with one placement change. The required sentences are used word for word. Added to the "An unreadable version is not absent" requirement, they bring its text to 534 characters, which fails `openspec validate --strict` (the 500-character limit this round's amendment was made for). So they form a second ADDED requirement in specs/releases/spec.md, "An unreadable commit changes the version only when its parent is not among its versions" ("In the history walk of `release.sh check --main <ref>`, a commit whose own version is unreadable SHALL be no change ..."), together with the scenario "Bump reverted through an unreadable version". design.md D5's `own_bump` bullet and proposal.md's #103 bullet carry the same rule, and proposal.md's Capabilities line names both new requirements. `openspec validate fix-deferral-followups --strict` passes, and so does `openspec validate --specs --strict` after a scratch archive (18 passed). One reading to confirm: "every version it matched is greater than its parent's" is read as needing at least one matched version, so a commit that leaves the file matching nothing is not a bump. That case is not a raise, and the walk then reads it as a change that is not a bump (no release).
-  **Accepted by reviewer:** the required sentences appear word for word in the second ADDED requirement (specs/releases/spec.md:20-21), with the scenario "Bump reverted through an unreadable version" (:23-25) as required. Splitting it out instead of extending the first requirement is acceptable: the rule is unchanged, strict validation passes, and the requirement's title states the rule. design.md D5's `own_bump` bullet (:88) and the last sentence of proposal.md's #103 bullet (:25) carry the same rule, and the Capabilities line (:37) names both requirements. The "at least one matched version" reading is accepted: a commit that leaves the file matching nothing has not raised anything, and reading it as a change without a bump agrees with the main requirement's definition of a bump. Implementation note for task 3.3: Python's `all()` is True on an empty set, so the code has to require a non-empty set explicitly to match this reading.
-- **M1 (Required Change 2):** fixed in tasks.md. The test map has the row `TestCheckMain.test_bump_reverted_through_unreadable_passes` (red), and task 3.3 writes that test, confirms it fails with `version_not_ahead_of_main`, changes the `isinstance(mine, Unreadable)` branch of `own_bump`, and verifies the named tests and the whole `evals/release` suite.
-  **Accepted by reviewer:** tasks.md:48 has the row with status `red`, and task 3.3 (tasks.md:81) writes the test, confirms the `version_not_ahead_of_main` failure first, changes the `isinstance(mine, Unreadable)` branch of `own_bump` to the rule in change 1, and verifies the three named tests plus the full suite. Task 3.3 is still unchecked; that is expected, since this change asked for the task, not the code.
-- **S1:** kept as suggested. The eight rows stay deliberately, as the regression net for D5.
-- **S2:** not applied. With the split, a link sentence would bring the first new requirement close to the limit again, and both requirements already open by naming `release.sh check --main <ref>`.
+Prior rounds, condensed (still in force):
+- **Round 1 (C1, M1-M4):** all fixed and accepted by the reviewer on re-check. The design's M4 note, "a version outside the unreadable set is still a change", is the basis for D5.
+- **Round 2 M1 (unreadable commit rule):** fixed as a second ADDED requirement, because the 500-character limit ruled out extending the first one. Accepted by the reviewer. Also accepted: the reading that a commit matching no version is a change but not a bump, which the code implements by requiring a non-empty set (release.sh:628-629).
+- **Round 2 S1:** kept. The eight main-requirement test rows remain the D5 regression net (S2 above).
+- **Round 2 S2:** not applied, by the author's choice (requirement length). Still moot.
+
+Round 3:
+- **M1: fixed, and accepted by the reviewer on re-check.** The spec, design, proposal and tasks follow Required Changes 1-4.
+- **Author-facing note (implementation, not part of this verdict):** `TestCheckMain.test_main_base_repaired_on_both_sides_passes` (evals/release/test_release.py:874-885) fails today with `version_files_disagree`. Its two repair commits write only `VERSION`, so the other version files stay at 0.4.2. Use `fx.set_version(self.work, "0.5.0")` followed by `fx.commit(...)` for both commits, then rerun `python -m unittest discover evals/release`. Until that passes, task 3.4 is not done and its row is not green.
+- **Author on the note:** fixed. Both repair commits now call `fx.set_version(self.work, "0.5.0")` and commit with `git commit -am`. The three task 3.4 tests pass, and so does the full `python -m unittest discover evals/release`.
