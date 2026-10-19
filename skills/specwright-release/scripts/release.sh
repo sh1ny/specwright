@@ -11,7 +11,9 @@
 #                                     commit in <ref>..HEAD that changed the primary file's version raised it; no readable version
 #                                     at <ref> passes. A primary file that exists but does not read exactly one version is
 #                                     unreadable, not absent: an unreadable merge base or parent counts as a bump only when the
-#                                     version is not among the versions it matched (and, for a commit, is greater than all of them)
+#                                     version is not among the versions it matched (and, for a commit, is greater than all of them);
+#                                     a commit whose own version is unreadable changed it only when its parent's version is not
+#                                     among those it matched, and raised it only when all of them are greater
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
@@ -613,12 +615,22 @@ def primary_at(st, entries, commit):
 def own_bump(st, entries, commits):
     """D3/D5: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
     the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump. A commit whose own
-    version is unreadable decides nothing; one whose parent is unreadable is no change when its version is among those the
-    parent matched, else a bump when greater than every semver among them (or none)."""
+    version is unreadable is no change when its parent's version is among those it matched (or the parent is unreadable
+    too), else a bump only when it matched at least one version and every one is greater than the parent's. One whose parent
+    is unreadable is no change when its version is among those the parent matched, else a bump when greater than every
+    semver among them (or none)."""
     for c in commits:
         mine = primary_at(st, entries, c)
         parent = primary_at(st, entries, f"{c}^") if ref_exists(st.root, f"{c}^") else None
-        if isinstance(mine, Unreadable) or mine == parent:
+        if isinstance(mine, Unreadable):
+            if isinstance(parent, Unreadable) or (parent is not None and parent in mine.versions):
+                continue
+            if not mine.versions:
+                return False
+            if parent is None or not sv(parent):
+                return True
+            return all(sv(v) and sv(v) > sv(parent) for v in mine.versions)
+        if mine == parent:
             continue
         if mine is None:
             return False

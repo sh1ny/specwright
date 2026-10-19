@@ -809,6 +809,23 @@ class TestCheckMain(Flow):
         self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
         self.assertEqual((out[1]["version"], out[1]["main_version"]), ("0.5.0", "0.5.0"))
 
+    def test_bump_reverted_through_unreadable_passes(self):
+        # Review round 2, M1: a hand revert that leaves VERSION unreadable still changed the version, so the walk must not
+        # skip it and count the older bump.
+        self.repo(version="0.4.2")
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+        self.bump_branch("0.5.0")
+        fx.set_version(self.work, "0.4.2")
+        fx.write(self.work, "VERSION", "0.4.2\n0.4.2\n")
+        fx.git(self.work, "commit", "-q", "-am", "feat(b): drop the bump, VERSION twice")
+        fx.commit(self.work, "fix(b): drop the duplicate", {"VERSION": "0.4.2\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.4.2")
+
     def test_without_main_unchanged(self):
         self.two_bumps()
         code, doc, raw = self.release("check")
