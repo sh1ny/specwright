@@ -66,7 +66,7 @@
   - a usage header in `finish.sh` matching the other scripts.
 
   Replace the step-0 wording tests in `evals/git-workflow/test_instructions.py` that pin the old prose (`test_finish_committed_archive_undone_by_revert_alone`, `test_finish_undo_moves_change_directory_back`, `test_finish_revert_includes_later_commits_on_archive_paths`, `test_finish_step0_stops_on_deferred_and_lists_restore_groups`, `test_finish_archive_commit_is_the_one_that_added_it`, `test_finish_step0_undoes_bulk_archive_as_a_whole`) with `test_finish_step0_runs_undo_plan_and_runs_nothing` and `test_finish_archive_commit_is_the_newest_add`. Keep the tests that still hold (deferred check on a committed archive, the branch's `review.md`, bulk found by path). Verify: `python -m unittest evals.git-workflow.test_instructions` passes (or the module's usual invocation), and flip those rows green.
-- [ ] 1.6 Document the new script: `CONTRIBUTING.md` (run `python -m unittest discover evals/finish`), the `openspec/architecture.md` components row for `specwright-finish` (its script, one JSON document, read-only git) and the state row for `<git-dir>/specwright-undo/`. Verify: `rg -n "finish.sh|specwright-undo" CONTRIBUTING.md openspec/architecture.md` shows each.
+- [x] 1.6 Document the new script: `CONTRIBUTING.md` (run `python -m unittest discover evals/finish`), the `openspec/architecture.md` components row for `specwright-finish` (its script, one JSON document, read-only git) and the state row for `<git-dir>/specwright-undo/`. Verify: `rg -n "finish.sh|specwright-undo" CONTRIBUTING.md openspec/architecture.md` shows each.
 
 ## 2. Parked change is never a milestone change (#105)
 
