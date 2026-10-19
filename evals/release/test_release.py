@@ -776,6 +776,39 @@ class TestCheckMain(Flow):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.5.0")
 
+    def unreadable_base(self):
+        """The merge base's VERSION holds 0.4.2 twice (unreadable); main then moves to 0.5.0 and feat/b starts at the base."""
+        self.repo(version="0.4.2")
+        fx.commit(self.work, "chore: VERSION twice", {"VERSION": "0.4.2\n0.4.2\n"})
+        base = self.sha()
+        fx.squash_merge(self.work, "a", "0.5.0", 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+
+    def test_unreadable_base_dedupe_is_no_bump(self):
+        self.unreadable_base()
+        fx.commit(self.work, "fix(b): drop the duplicate", {"VERSION": "0.4.2\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.4.2")
+
+    def test_repair_then_bump_refused_when_behind(self):
+        self.unreadable_base()
+        fx.commit(self.work, "fix(b): drop the duplicate", {"VERSION": "0.4.2\n"})
+        self.bump_branch("0.5.0")
+        out = self.check()
+        self.assertStops(out, "0.5.0", "bump")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+        self.assertEqual((out[1]["version"], out[1]["main_version"]), ("0.5.0", "0.5.0"))
+
+    def test_repair_and_bump_in_one_commit_refused(self):
+        self.unreadable_base()
+        self.bump_branch("0.5.0")
+        out = self.check()
+        self.assertStops(out, "0.5.0", "bump")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+        self.assertEqual((out[1]["version"], out[1]["main_version"]), ("0.5.0", "0.5.0"))
+
     def test_without_main_unchanged(self):
         self.two_bumps()
         code, doc, raw = self.release("check")
