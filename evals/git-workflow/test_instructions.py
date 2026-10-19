@@ -517,6 +517,42 @@ class ProjectPlanning(unittest.TestCase):
                          "the rule does not re-run the baseline review")
         self.assertRegex(block, r"(?i)before.{0,60}(reply|report|done)", "the review is not re-run before the fix is reported done")
 
+    def test_roadmap_next_skips_parked_change(self):
+        s2 = re.sub(r"\s+", " ", mode_step("next", 2))
+        self.assertRegex(s2, r"(?i)review\.md", "next step 2 does not read the active changes' review.md")
+        self.assertIn("`VERDICT: DEFERRED`", s2, "next step 2 does not name VERDICT: DEFERRED")
+        self.assertRegex(s2, r"(?i)DEFERRED.{0,200}parked", "next step 2 does not call a DEFERRED change parked")
+        self.assertRegex(s2, r"(?i)never offer\w* (to resume )?(it|the parked)", "next step 2 may offer to resume a parked change")
+        self.assertRegex(s2, r"(?i)continu\w* (to )?step 3 as if (it were|the change were) not active", "next does not go on to step 3 as if the parked change were not active")
+
+    def test_roadmap_status_lists_parked_with_targets(self):
+        sec = re.sub(r"\s+", " ", section(read(ROADMAP), r"status\b"))
+        self.assertRegex(sec, r"(?i)`parked`", "status has no `parked` state")
+        self.assertRegex(sec, r"(?i)`parked`.{0,120}`Deferred to:`", "status does not list the Deferred to: targets of a parked change")
+        self.assertRegex(sec, r"(?i)never as active|not as active", "status may list a parked change as active")
+
+    def test_roadmap_next_resumes_non_parked_change(self):
+        s2 = re.sub(r"\s+", " ", mode_step("next", 2))
+        self.assertRegex(s2, r"(?i)every other active change.{0,120}(offer|resume)", "next does not offer every other active change for resume")
+        self.assertRegex(s2, r"(?i)(with no|without a|no) `review\.md`.{0,80}(offer|resume)|including one with no `review\.md`", "an active change with no review.md is not offered for resume")
+
+    def test_roadmap_next_and_status_on_parking_branch(self):
+        s2 = re.sub(r"\s+", " ", mode_step("next", 2))
+        self.assertRegex(s2, r"(?i)parking change.{0,40}on its own branch", "next does not say the parking change is on its own branch")
+        self.assertRegex(s2, r"(?i)starts? from main once it has merged", "next does not say it starts from main once the parking change has merged")
+        self.assertRegex(s2, r"(?i)start\w* nothing.{0,60}no branch.{0,20}no change", "next may create a branch or change on the parking branch")
+        sec = re.sub(r"\s+", " ", section(read(ROADMAP), r"status\b"))
+        self.assertRegex(sec, r"(?i)parking change.{0,40}on its own branch.{0,120}starts? from main once it has merged", "status does not say the same on the parking branch")
+
+    def test_baseline_gate_lists_own_verdicts_without_deferred_or_waived(self):
+        s5 = re.sub(r"\s+", " ", mode_step("init", 5))
+        self.assertNotRegex(s5, r"(?i)same precheck as tasks", "init step 5 still borrows the tasks precheck")
+        self.assertIn("`VERDICT: APPROVE`", s5, "the baseline gate does not list VERDICT: APPROVE")
+        self.assertRegex(s5, r"(?i)`VERDICT: APPROVE_WITH_CHANGES`.{0,60}`CHANGES_APPLIED: yes`", "the baseline gate does not tie APPROVE_WITH_CHANGES to CHANGES_APPLIED: yes")
+        self.assertRegex(s5, r"(?i)`VERDICT: USER_OVERRIDE`.{0,40}after escalation", "the baseline gate does not list USER_OVERRIDE after escalation")
+        self.assertRegex(s5, r"(?i)DEFERRED, WAIVED and SKIPPED_LIGHT never pass the baseline", "the baseline gate does not refuse DEFERRED, WAIVED and SKIPPED_LIGHT")
+        self.assertRegex(s5, r"(?i)never pass the baseline.{0,300}no roadmap.{0,200}Status: proposed.{0,200}needs a review", "a refused verdict does not leave the ADRs proposed, write no roadmap and tell the user")
+
 
 def prerequisites():
     """The README's **Prerequisites:** paragraph."""
@@ -1674,6 +1710,264 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertIn("python -m unittest discover evals/update", readme, "the README Evals section does not name evals/update")
         testing = section(read(CONTRIBUTING), "Testing")
         self.assertIn("python -m unittest discover evals/update", testing or "", "CONTRIBUTING Testing does not name evals/update")
+
+
+REVIEW_TEMPLATE = ROOT / "schemas" / "specwright" / "templates" / "review.md"
+
+
+class DesignReviewDispositions(unittest.TestCase):
+    """DEFERRED and WAIVED are user-owned design-review verdicts (record-review-dispositions)."""
+
+    @classmethod
+    def setUpClass(cls):
+        text = read(SCHEMA)
+
+        def flat(chunk):
+            return re.sub(r"\s+", " ", chunk)  # instruction lines wrap; phrases must not depend on where
+
+        cls.review = flat(text[text.index("  - id: review"):text.index("  - id: tasks")])
+        cls.precheck = flat(text[text.index("PRECHECK:"):text.index("Before writing tasks")])
+        cls.gate = flat(text[text.index("GATE:"):text.index("Work through pending tasks")])
+
+    def test_tasks_precheck_accepts_deferred_with_target(self):
+        p = self.precheck
+        self.assertIn("`VERDICT: DEFERRED`", p, "tasks PRECHECK does not name VERDICT: DEFERRED")
+        self.assertRegex(p, r"(?is)DEFERRED.{0,400}Deferred to:.{0,200}(at least one|a) target", "DEFERRED does not require a Deferred to: line naming a target")
+        self.assertRegex(p, r"(?is)DEFERRED.{0,400}CHANGES_APPLIED: n/a", "DEFERRED is not tied to CHANGES_APPLIED: n/a")
+
+    def test_tasks_precheck_accepts_waived_with_user_words(self):
+        p = self.precheck
+        self.assertIn("`VERDICT: WAIVED`", p, "tasks PRECHECK does not name VERDICT: WAIVED")
+        self.assertRegex(p, r"(?is)WAIVED.{0,500}User decision:.{0,200}quoted", "WAIVED does not require a quoted User decision: line")
+        self.assertIn("No design review ran.", p, "WAIVED does not require the 'No design review ran.' line")
+        self.assertRegex(p, r"(?is)WAIVED.{0,600}CHANGES_APPLIED: n/a", "WAIVED is not tied to CHANGES_APPLIED: n/a")
+
+    def test_tasks_precheck_ignores_commented_and_placeholder_records(self):
+        # The template carries the three DEFERRED/WAIVED record lines inside comments, so an unedited one must not pass (PR #104 review).
+        p = self.precheck
+        self.assertIn("`Deferred to:`, `User decision:` and `No design review ran.` lines count only outside", p,
+                      "PRECHECK does not name which record lines must sit outside a comment")
+        self.assertRegex(p, r"(?is)outside an HTML comment", "PRECHECK counts a record line inside an HTML comment")
+        self.assertIn("<changes or milestones>", p, "PRECHECK accepts the Deferred to: placeholder")
+        self.assertIn("<the user's words>", p, "PRECHECK accepts the User decision: placeholder")
+        self.assertRegex(p, r"(?is)placeholder.{0,200}missing|missing.{0,200}placeholder", "PRECHECK does not treat a placeholder as missing")
+
+    def test_tasks_precheck_matches_whole_lines_for_new_verdicts(self):
+        p = self.precheck
+        self.assertRegex(p, r"(?is)whole lines", "PRECHECK lost whole-line matching")
+        self.assertIn("DEFERRED_LATER", p, "PRECHECK does not name DEFERRED_LATER as a non-match")
+        self.assertIn("WAIVED?", p, "PRECHECK does not name WAIVED? as a non-match")
+
+    def test_apply_gate_refuses_deferred_and_says_review_needed(self):
+        g = self.gate
+        self.assertRegex(g, r"(?is)tasks precheck", "apply GATE does not reuse the tasks precheck")
+        self.assertRegex(g, r"(?is)`VERDICT: DEFERRED`.{0,300}STOP", "apply GATE does not stop on VERDICT: DEFERRED")
+        self.assertRegex(g, r"(?is)before any task is implemented.{0,40}ticked.{0,40}committed", "apply does not stop before implementing, ticking or committing")
+        self.assertRegex(g, r"(?is)deferred", "apply does not say the change is deferred")
+        self.assertIn("Deferred to:", g, "apply does not name the Deferred to: targets")
+        self.assertRegex(g, r"(?is)design review.{0,60}first|first.{0,60}design review", "apply does not say a design review is needed first")
+        self.assertRegex(g, r"(?is)(not|never) rewrites? the verdict", "apply does not forbid rewriting the verdict")
+
+    def test_tasks_precheck_stops_on_deferred_without_target(self):
+        p = self.precheck
+        self.assertRegex(p, r"(?is)DEFERRED.{0,600}STOP", "no stop for DEFERRED without a target")
+        self.assertRegex(p, r"(?is)where each part.{0,40}review will happen", "precheck does not ask where each part's review will happen")
+
+    def test_waiver_records_user_words_and_no_review_ran(self):
+        r = self.review
+        self.assertRegex(r, r'(?is)WAIVED.{0,900}\*\*User decision:\*\* "<the user\'s words>"', "WAIVED does not record the quoted User decision line")
+        self.assertIn("No design review ran.", r, "WAIVED does not record 'No design review ran.'")
+        self.assertRegex(r, r"(?is)WAIVED.{0,1200}CHANGES_APPLIED: n/a", "WAIVED does not carry CHANGES_APPLIED: n/a")
+        self.assertRegex(r, r"(?is)DEFERRED.{0,900}\*\*Deferred to:\*\*", "DEFERRED does not record the Deferred to: line")
+        self.assertRegex(r, r"(?is)DEFERRED.{0,600}(parking|never applied)", "DEFERRED is not limited to a parking change")
+
+    def test_waiver_without_user_words_refused_at_tasks_and_apply(self):
+        p, g = self.precheck, self.gate
+        self.assertRegex(p, r"(?is)WAIVED.{0,900}STOP", "tasks precheck does not stop on a WAIVED without its record")
+        self.assertRegex(g, r"(?is)WAIVED.{0,300}(without|missing|lacks?).{0,200}(STOP|stops?)|WAIVED.{0,300}fails? the tasks precheck", "apply does not stop on a WAIVED without its record")
+
+    def test_agent_never_offers_waiver_or_deferral(self):
+        r = self.review
+        self.assertRegex(r, r"(?is)never (offer|suggest)s?.{0,300}(DEFERRED|WAIVED|deferral|waiver)", "review instruction does not forbid offering the new verdicts")
+        self.assertRegex(r, r"(?is)never (offer|suggest).{0,400}(route fails|failed route)", "offering after a failed route is not ruled out")
+        self.assertRegex(r, r"(?is)never (offer|suggest).{0,400}REVISE", "offering after REVISE rounds is not ruled out")
+        self.assertRegex(r, r"(?is)never (offer|suggest).{0,500}(way past|missing review)", "offering as a way past a missing review is not ruled out")
+        self.assertIn("If no route works, STOP and tell the user", r, "the no-route STOP rule was lost")
+
+    def test_waiver_does_not_waive_preship(self):
+        r = self.review
+        self.assertRegex(r, r"(?is)WAIVED.{0,1500}pre-ship.{0,120}(not waived|still runs|does not waive|never waive)", "WAIVED does not keep the pre-ship review")
+
+    def test_user_override_only_after_escalation(self):
+        r = self.review
+        self.assertRegex(r, r"(?is)USER_OVERRIDE.{0,300}(after 2 consecutive REVISE|escalat)", "USER_OVERRIDE is not limited to escalation")
+        self.assertRegex(r, r"(?is)USER_OVERRIDE.{0,500}user's words.{0,80}open findings", "USER_OVERRIDE does not record the user's words and open findings")
+        self.assertRegex(r, r"(?is)(deferral|DEFERRED).{0,200}(waiver|WAIVED).{0,100}never.{0,80}USER_OVERRIDE", "a deferral or waiver is not barred from USER_OVERRIDE")
+
+    def test_review_template_and_readme_list_new_verdicts(self):
+        t = read(REVIEW_TEMPLATE)
+        self.assertRegex(t, r"DEFERRED \| WAIVED", "template verdict comment does not list DEFERRED | WAIVED")
+        self.assertIn("none (DEFERRED by the user)", t)
+        self.assertIn("none (WAIVED by the user)", t)
+        self.assertIn("**Deferred to:**", t)
+        self.assertIn("**User decision:**", t)
+        readme = read(README)
+        table = readme[readme.index("Review verdicts"):]
+        table = table[:table.index("</details>")]
+        self.assertRegex(table, r"\| `DEFERRED` \|", "README has no DEFERRED row")
+        self.assertRegex(table, r"\| `WAIVED` \|", "README has no WAIVED row")
+        self.assertRegex(table, r"(?is)USER_OVERRIDE.{0,400}rewrit.{0,100}DEFERRED|rewrit.{0,200}DEFERRED.{0,200}USER_OVERRIDE", "README lacks the note on rewriting a deferral recorded as USER_OVERRIDE")
+
+    # Archive refusal (task group 2).
+
+    @staticmethod
+    def _context_lines(path):
+        text = read(path)
+        block = text[text.index("context: |"):]
+        lines = []
+        for ln in block.splitlines()[1:]:
+            if not ln.startswith("  "):
+                break
+            lines.append(ln.strip())
+        return lines
+
+    def test_config_context_refuses_archive_of_deferred(self):
+        own = ROOT / "openspec" / "config.yaml"  # git-ignored: absent in a fresh clone
+        for path in (ROOT / "templates" / "openspec" / "config.yaml", *([own] if own.exists() else [])):
+            lines = [ln for ln in self._context_lines(path) if ln.startswith("MANDATORY: Before archiving a change")]
+            where = str(path.relative_to(ROOT))
+            self.assertEqual(len(lines), 1, f"{where} does not carry exactly one archive-refusal context line")
+            ln = lines[0]
+            for name in ("/opsx:archive", "/opsx:bulk-archive", "openspec-archive-change", "'openspec archive'"):
+                self.assertIn(name, ln, f"{where} refusal line does not name {name}")
+            self.assertIn("review.md", ln, f"{where} refusal line does not read review.md")
+            self.assertIn("`VERDICT: DEFERRED`", ln, f"{where} refusal line does not name VERDICT: DEFERRED")
+            self.assertRegex(ln, r"(?is)do not archive", f"{where} does not say do not archive")
+            self.assertRegex(ln, r"(?is)move nothing", f"{where} does not say move nothing")
+            self.assertRegex(ln, r"(?is)sync no spec", f"{where} does not say sync no spec")
+            self.assertIn("`Deferred to:`", ln, f"{where} does not name the Deferred to: targets")
+            self.assertRegex(ln, r"(?is)bulk archive.{0,80}skip.{0,80}archive the rest", f"{where} does not skip the change in a bulk archive")
+
+    def test_finish_resume_runs_deferred_check_on_committed_archive(self):
+        # A committed but unmerged deferred archive must not reach the merge/ship rows unchecked (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        resume = flat[flat.index("## Resume"):flat.index("| Facts | Next |")]
+        self.assertRegex(resume, r"(?is)before any (table )?row.{0,200}step 0", "resume does not run step 0 before the table rows")
+        self.assertIn("a committed archive gets the same check", resume, "resume skips step 0 for a committed archive")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("git revert --no-edit <A>", s0, "step 0 does not give the revert of a committed archive")
+        self.assertRegex(s0, r"(?is)never (a )?reset", "step 0 does not forbid a reset of the committed archive")
+
+    def test_finish_bulk_archive_commit_is_found_by_path(self):
+        # A bulk archive commit names several changes, so its subject cannot identify A; the archive path does (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        find = "git log --diff-filter=A --format=%H <main>..<branch> -- <P>/changes/archive/<archived-name>/review.md"
+        a = flat[flat.index("- **A** - "):flat.index("- **M** - ")]
+        self.assertIn("the commit that added the archive directory", a, "A is not found by the commit that added the archive directory")
+        self.assertIn(find, a, "A does not give the path lookup on the branch")
+        self.assertRegex(a, r"(?is)bulk archive commit", "A does not cover a bulk archive commit")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn(find, s0, "step 0 prescribes a revert without saying how to find <A>")
+
+    def test_finish_archive_commit_is_the_one_that_added_it(self):
+        # git log -1 on the archive directory returns the newest commit touching it, e.g. a later review fix (PR #104 review).
+        text = read(FINISH)
+        self.assertNotIn("git log -1 --format=%H <main>..<branch>", text, "A is still the newest commit touching the archive, not the one that added it")
+        flat = re.sub(r"\s+", " ", text)
+        self.assertRegex(flat, r"(?is)oldest.{0,80}several|several.{0,80}oldest", "the lookup does not say which line to take when it prints several")
+
+    def test_finish_resume_deferred_check_reads_branch_review(self):
+        # Resuming on main with the archive committed only on the branch must still run step 0 (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        resume = flat[flat.index("## Resume"):flat.index("| Facts | Next |")]
+        self.assertRegex(resume, r"(?is)uncommitted.{0,120}or A (is )?on the branch|A (is )?on the branch.{0,120}uncommitted", "resume gate is not based on A on the branch")
+        self.assertNotIn("whenever this change's archive directory exists there", resume, "resume gate still needs the archive in the working tree")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("git show <branch>:<P>/changes/archive/<archived-name>/review.md", s0, "step 0 cannot read review.md from the branch")
+
+    def test_finish_committed_archive_undone_by_revert_alone(self):
+        # The restore groups break a revert of a committed archive (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("for an uncommitted archive only", s0, "the restore groups are not scoped to an uncommitted archive")
+        self.assertRegex(s0, r"(?is)committed archive.{0,120}(only|solely|alone).{0,40}revert|revert.{0,60}(only|solely|alone)", "a committed archive is not undone by the revert alone")
+
+    def test_finish_undo_moves_change_directory_back(self):
+        # Restoring the committed directory and deleting the archive copy drops the user's uncommitted artifact edits (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertRegex(s0, r"(?is)move the archive copy back.{0,60}<P>/changes/<name>/.{0,40}committed or not", "step 0 does not move the archive copy back in every case")
+        self.assertRegex(s0, r"(?is)uncommitted edits to the change's artifacts", "step 0 does not say why the archive copy is kept")
+        self.assertNotIn("then delete the archive copy", s0, "step 0 still deletes the archive copy")
+        self.assertNotIn("git restore -- <P>/changes/<name>/", s0, "step 0 still restores the change directory from git")
+
+    def test_finish_revert_includes_later_commits_on_archive_paths(self):
+        # A later commit amending a path the archive commit added makes a revert of A alone conflict (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("git log --format=%H <A>..<branch> -- $(git show --name-only --format= <A>)", s0, "step 0 does not find later commits on the archive's paths")
+        self.assertIn("git revert --no-edit <those commits> <A>", s0, "step 0 does not revert the later commits with A")
+        self.assertRegex(s0, r"(?is)newest first", "step 0 does not revert newest first")
+        self.assertRegex(s0, r"(?is)other paths.{0,120}(lose|lost|drop)", "step 0 does not warn that mixed commits lose their other changes")
+        self.assertIn("git revert --abort", s0, "step 0 does not say how to back out of a conflicted revert")
+
+    def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
+        # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("undo the whole bulk archive", s0, "step 0 does not undo a bulk archive as a whole")
+        self.assertRegex(s0, r"(?is)again without the deferred change", "step 0 does not rerun the bulk archive without the deferred change")
+        self.assertRegex(s0, r"(?is)never restore only the deferred change", "step 0 allows restoring only the deferred change's files")
+
+    def test_finish_step0_stops_on_deferred_and_lists_restore_groups(self):
+        text = read(FINISH)
+        flat = re.sub(r"\s+", " ", text)
+        self.assertTrue("0. **" in text, "finish has no step 0")
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertIn("VERDICT: DEFERRED", s0, "step 0 does not check VERDICT: DEFERRED")
+        self.assertRegex(s0, r"(?is)archive.{0,40}(director|name)", "step 0 does not read the archived review.md")
+        self.assertRegex(s0, r"(?is)every (archived )?change|each archived change", "step 0 does not check every archived change")
+        self.assertRegex(s0, r"(?is)no commit.{0,60}merge.{0,40}push|before any commit, merge or push", "step 0 does not stop before commit, merge and push")
+        self.assertRegex(s0, r"(?is)no restore|restore nothing|never restores?|runs? no restore", "step 0 does not forbid restoring itself")
+        self.assertIn("git restore -- <file>", s0, "step 0 does not give the main-spec restore")
+        self.assertRegex(s0, r"(?is)uncommitted edits", "step 0 does not warn about the user's uncommitted edits")
+        self.assertRegex(s0, r"(?is)(created|untracked).{0,200}delete", "step 0 does not list created main specs to delete")
+        self.assertRegex(s0, r"(?is)change directory.{0,80}move the archive copy back", "step 0 does not give the change directory's move-back")
+        row = next((r for r in text.splitlines() if r.startswith("| archive paths uncommitted, no A")), "")
+        self.assertRegex(row, r"(?i)steps 0-3|starts? at step 0", "the Resume table's first row does not reach step 0")
+
+    def test_template_context_lines_use_managed_prefixes(self):
+        readme = re.sub(r"\s+", " ", read(README))
+        start = readme.index("is Specwright-managed when it starts with")
+        end = readme.index("Remove every managed line", start)
+        prefixes = re.findall(r"`([^`]+)`", readme[start:end])
+        self.assertIn("MANDATORY: Before archiving a change", prefixes, "README Step 5 does not list the archive-refusal prefix")
+        for ln in self._context_lines(ROOT / "templates" / "openspec" / "config.yaml"):
+            self.assertTrue(any(ln.startswith(p) for p in prefixes), f"context line is not covered by a managed prefix: {ln[:60]}")
+
+    # Watch and parked changes (task group 3).
+
+    @staticmethod
+    def _archive_before_merge():
+        watch = section(read(PR_SKILL), r"watch\b")
+        m = re.search(r"^   - \*\*Archive before merge:\*\*.*?(?=^   - \*\*Merge:\*\*)", watch or "", re.M | re.S)
+        assert m, "watch has no Archive before merge bullet"
+        return re.sub(r"\s+", " ", m.group(0))
+
+    def test_watch_skips_archive_for_deferred_and_reports_parked(self):
+        b = self._archive_before_merge()
+        self.assertIn("`VERDICT: DEFERRED`", b, "Archive before merge does not name VERDICT: DEFERRED")
+        self.assertRegex(b, r"(?i)review\.md.{0,80}whole line.{0,40}`VERDICT: DEFERRED`", "Archive before merge does not read review.md for a whole DEFERRED line")
+        self.assertRegex(b, r"(?i)DEFERRED.{0,300}archive nothing", "watch archives a DEFERRED change")
+        self.assertRegex(b, r"(?i)DEFERRED.{0,400}ready as a parked change.{0,80}user (merges|to merge)", "watch does not report the PR ready as a parked change for the user to merge")
+        self.assertRegex(b, r"(?i)DEFERRED.{0,500}(sends?|send) no merge request", "watch may send a merge request for a parked change")
+
+    def test_watch_archive_before_merge_kept_for_other_verdicts(self):
+        b = self._archive_before_merge()
+        self.assertIn("ask `Ready. Archive <change-name> on this branch now?`", b, "the user-mode archive question was lost")
+        self.assertIn("when `merge` is `agent`, archive without asking", b, "the agent-mode archive was lost")
+        self.assertRegex(b, r"(?i)every other change \(any other verdict, or no `review\.md`\) archives", "the DEFERRED skip is not scoped to DEFERRED only")
+        self.assertNotRegex(b, r"(?i)APPROVE.{0,40}(skip|parked)", "the skip names a verdict other than DEFERRED")
 
 
 if __name__ == "__main__":

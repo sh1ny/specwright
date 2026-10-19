@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.6.1-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.7.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -255,10 +255,10 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
     lines from the downloaded `templates/openspec/config.yaml` (leave any
     commented-out example alone). Otherwise, a
     line is Specwright-managed when it starts with
-    `MANDATORY: Invoke the 'specwright-`, `Project-level planning (strategy`
-    or `Specwright settings (`. Remove every managed line (older wordings and
-    duplicates alike), then append each downloaded context line once. Remove
-    any line naming `openspec-git-branch`, `openspec-git-commit` or
+    `MANDATORY: Invoke the 'specwright-`, `MANDATORY: Before archiving a change`,
+    `Project-level planning (strategy` or `Specwright settings (`. Remove
+    every managed line (older wordings and duplicates alike), then append
+    each downloaded context line once. Remove any line naming `openspec-git-branch`, `openspec-git-commit` or
     `openspec-git-merge`. Leave every other line alone, including the
     project's own lines that mention Specwright.
 - After the merge (or the copy), run `update.sh` `note-config`: it records the
@@ -537,7 +537,11 @@ No trigger → **LIGHT** (triage, context, decisions). Any trigger → **FULL**:
 | `APPROVE` | Tasks may be written |
 | `APPROVE_WITH_CHANGES` | Apply the listed changes; tasks wait for `CHANGES_APPLIED: yes` |
 | `REVISE` | Fix and re-review; two REVISE rounds in a row escalate to the user |
-| `USER_OVERRIDE` | After escalation, the user decided to proceed; their words and the open findings are recorded |
+| `USER_OVERRIDE` | Only after two REVISE rounds were escalated and the user decided to proceed; their words and the open findings are recorded |
+| `DEFERRED` | The user declared a FULL-tier change a parking change that is never applied; `Deferred to:` names where its parts get reviewed. Tasks may be written; apply refuses it |
+| `WAIVED` | The user explicitly decided to apply with no design review; their quoted words and `No design review ran.` are recorded. The pre-ship review still runs |
+
+The agent never offers `DEFERRED` or `WAIVED`. A project that recorded a deferral as `USER_OVERRIDE` may rewrite it as `DEFERRED`.
 
 A verdict covers only what was reviewed: editing proposal, specs or design afterwards voids it.
 </details>
