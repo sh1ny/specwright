@@ -33,8 +33,9 @@
 #                       commits when the newest add was reverted), dirty_tree (a resume on another branch with a dirty tree,
 #                       or a synced main spec or member archive directory deleted from the working tree; `files` names
 #                       them), staged_changes, target_exists (<P>/changes/<name>/ already exists), duplicate_member (two
-#                       archive directories restore to one <P>/changes/<name>/), backup_exists (the backup directory
-#                       exists), bad_ref, not_a_repo.
+#                       archive directories restore to one <P>/changes/<name>/), member_missing (a later commit deleted a
+#                       member's archive directory; `paths` names them), backup_exists (the backup directory exists),
+#                       bad_ref, not_a_repo.
 # Exit: 0 done, 1 stop (the JSON has "ok": false, "error" and "message"), 2 usage.
 # Needs bash, git and Python 3.8+.
 set -euo pipefail
@@ -294,19 +295,21 @@ def cmd_undo(d, a):
         dnames = []
         for path in added:
             if path.startswith(abase):
-                dn = path[len(abase):].split("/", 1)[0]
-                if dn and dn not in dnames:
+                rest = path[len(abase):]
+                dn = rest.split("/", 1)[0]
+                if dn and "/" in rest and dn not in dnames:  # a plain file under archive/ is no member
                     dnames.append(dn)
         if archived in dnames:
             dnames.remove(archived)
         cbase = join(P, "changes") + "/"
         moved = {p[len(cbase):].split("/", 1)[0] for p in deleted if p.startswith(cbase) and not p.startswith(abase)}
+        gone = [join(P, "changes", "archive", dn) for dn in dnames if not has(T, join(P, "changes", "archive", dn))]
+        if gone:  # restoring the synced specs would drop those members' requirements with nothing to rerun
+            raise Stop("member_missing", "Archive directories of this archive were deleted on " + branch + " after it: "
+                       + ", ".join(gone) + ". Restore them (or undo the archive by hand), then plan again.", paths=gone)
         for dn in [archived] + dnames:
             mdir = join(P, "changes", "archive", dn)
             nm = change if dn == archived else dn if dn in moved else DATE_RX.sub("", dn)  # a dated name is archived as it is
-            if not has(T, mdir):
-                warnings.append(f"{mdir} is not on {branch}; it is not part of this undo.")
-                continue
             rv = blob(T, join(mdir, "review.md")) or b""
             members.append({"name": nm, "archived_name": dn, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))), "dir": mdir})
         unique_members([(m["archived_name"], m["name"]) for m in members])

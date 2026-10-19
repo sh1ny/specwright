@@ -483,11 +483,11 @@ class TestUndoPlan(Base):
         self.assertEqual(fx.read(self.work, SPEC_A), fx.base_spec("a"))
         self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
 
-    def dated_pair(self, commit_it):
+    def dated_pair(self, commit_it, marker=False):
         self.on_branch()
         fx.make_change(self.work, "add-x", "DEFERRED", {"a": "X thing"})
         fx.make_change(self.work, "2026-01-01-hotfix", "APPROVE", {"b": "Hot thing"})
-        fx.archive(self.work, ["add-x", "2026-01-01-hotfix"], commit_it=commit_it)
+        fx.archive(self.work, ["add-x", "2026-01-01-hotfix"], commit_it=commit_it, marker=marker)
         self.assertTrue((self.work / P / "changes" / "archive" / "2026-01-01-hotfix").is_dir())
 
     def assert_dated_restored(self, out):
@@ -504,6 +504,13 @@ class TestUndoPlan(Base):
 
     def test_bulk_member_with_dated_name_uncommitted(self):
         self.dated_pair(commit_it=False)
+        self.assert_dated_restored(self.run_all())
+
+    def test_bulk_member_with_dated_name_and_marker(self):
+        # PR #108 round 3, Kody: the fixture writes the marker into the dated member's own archive directory.
+        self.dated_pair(commit_it=False, marker=True)
+        self.assertEqual(sorted(p.name for p in (self.work / P / "changes" / "archive").iterdir()),
+                         ["2026-01-01-hotfix", f"{fx.DATE}-add-x"])
         self.assert_dated_restored(self.run_all())
 
     def test_two_archives_of_one_member_refused(self):
@@ -555,6 +562,30 @@ class TestUndoPlan(Base):
         self.assertFalse((self.work / SPEC_B).exists())
         self.assertTrue(any(SPEC_A in w for w in doc["warnings"]), doc["warnings"])
         self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    # ---- PR #108 review round 3 ------------------------------------------------------------------------------
+    def test_stray_file_in_archive_root_is_no_member(self):
+        # Kody: a plain file the archive commit added directly under changes/archive/ is not an archive directory.
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x")
+        fx.write(self.work, f"{P}/changes/archive/.DS_Store", "junk\n")
+        self.git("add", "-A", "--", P)
+        self.git("commit", "-q", "-m", "chore(add-x): archive change")
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertEqual([m["name"] for m in doc["members"]], ["add-x"])
+        self.assertTrue((self.work / cd("add-x") / "review.md").is_file())
+        self.assertTrue((self.work / P / "changes" / "archive" / ".DS_Store").is_file())
+
+    def test_bulk_member_deleted_later_refused(self):
+        # Codex P2: undoing the rest would restore every synced spec and drop the deleted member's requirements.
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.git("rm", "-r", "-q", ad("add-y"))
+        fx.git(self.work, "commit", "-q", "-m", "chore: drop add-y's archive")
+        before = fx.state(self.work)
+        self.assertStops(fx.run_plan(self.work, "add-x"), "member_missing", ad("add-y"))
+        self.assertEqual(fx.state(self.work), before)
 
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):

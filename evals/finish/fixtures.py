@@ -133,7 +133,7 @@ def archive_one(repo, name, prefix="openspec", date=DATE, marker=False):
             if p.parent != specs:
                 sync_delta(repo, p.parent.relative_to(specs).as_posix(), p.read_text(encoding="utf-8"), prefix)
     if marker:
-        write(repo, f"{prefix}/changes/archive/{date}-{name}/specwright-change.yaml", "code_changes: none\n")
+        write(repo, f"{prefix}/changes/archive/{dst.name}/specwright-change.yaml", "code_changes: none\n")
 
 
 def archive(repo, names, prefix="openspec", date=DATE, marker=False, commit_it=False):
