@@ -1892,6 +1892,15 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertIn("for an uncommitted archive only", s0, "the restore groups are not scoped to an uncommitted archive")
         self.assertRegex(s0, r"(?is)committed archive.{0,120}(only|solely|alone).{0,40}revert|revert.{0,60}(only|solely|alone)", "a committed archive is not undone by the revert alone")
 
+    def test_finish_undo_moves_change_directory_back(self):
+        # Restoring the committed directory and deleting the archive copy drops the user's uncommitted artifact edits (PR #104 review).
+        flat = re.sub(r"\s+", " ", read(FINISH))
+        s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
+        self.assertRegex(s0, r"(?is)move the archive copy back.{0,60}<P>/changes/<name>/.{0,40}committed or not", "step 0 does not move the archive copy back in every case")
+        self.assertRegex(s0, r"(?is)uncommitted edits to the change's artifacts", "step 0 does not say why the archive copy is kept")
+        self.assertNotIn("then delete the archive copy", s0, "step 0 still deletes the archive copy")
+        self.assertNotIn("git restore -- <P>/changes/<name>/", s0, "step 0 still restores the change directory from git")
+
     def test_finish_step0_undoes_bulk_archive_as_a_whole(self):
         # Restoring a shared main spec also drops another change's sync, so a bulk archive is undone whole (PR #104 review).
         flat = re.sub(r"\s+", " ", read(FINISH))
@@ -1913,9 +1922,7 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertIn("git restore -- <file>", s0, "step 0 does not give the main-spec restore")
         self.assertRegex(s0, r"(?is)uncommitted edits", "step 0 does not warn about the user's uncommitted edits")
         self.assertRegex(s0, r"(?is)(created|untracked).{0,200}delete", "step 0 does not list created main specs to delete")
-        self.assertIn("git restore -- <P>/changes/<name>/", s0, "step 0 does not give the change directory restore")
-        self.assertRegex(s0, r"(?is)otherwise.{0,60}move.{0,60}back", "step 0 does not give the move-back fallback")
-        self.assertRegex(s0, r"(?is)git restore -- <P>/changes/<name>/.{0,200}delete.{0,40}<P>/changes/archive/<archived-name>/", "after git restore, step 0 does not say to delete the archive copy")
+        self.assertRegex(s0, r"(?is)change directory.{0,80}move the archive copy back", "step 0 does not give the change directory's move-back")
         row = next((r for r in text.splitlines() if r.startswith("| archive paths uncommitted, no A")), "")
         self.assertRegex(row, r"(?i)steps 0-3|starts? at step 0", "the Resume table's first row does not reach step 0")
 
