@@ -42,9 +42,10 @@
 | releases → A bumped version is greater than main's before it merges | Branch did not bump | evals/release/test_release.py | TestCheckMain.test_no_bump_passes | green |
 | releases → A bumped version is greater than main's before it merges | Main was merged into the branch after the duplicate landed | evals/release/test_release.py | TestCheckMain.test_duplicate_after_main_merged_in_refused | green |
 | releases → A bumped version is greater than main's before it merges | Main has no version yet | evals/release/test_release.py | TestCheckMain.test_main_without_version_passes | green |
-| releases → A bumped version is greater than main's before it merges | Merge base repeats the version | evals/release/test_release.py | TestCheckMain.test_unreadable_base_dedupe_is_no_bump | green |
-| releases → A bumped version is greater than main's before it merges | Bump after a repair of an unreadable version | evals/release/test_release.py | TestCheckMain.test_repair_then_bump_refused_when_behind | green |
-| releases → A bumped version is greater than main's before it merges | One commit repairs and bumps | evals/release/test_release.py | TestCheckMain.test_repair_and_bump_in_one_commit_refused | green |
+| releases → An unreadable version is not absent | Merge base repeats the version | evals/release/test_release.py | TestCheckMain.test_unreadable_base_dedupe_is_no_bump | green |
+| releases → An unreadable version is not absent | Bump after a repair of an unreadable version | evals/release/test_release.py | TestCheckMain.test_repair_then_bump_refused_when_behind | green |
+| releases → An unreadable version is not absent | One commit repairs and bumps | evals/release/test_release.py | TestCheckMain.test_repair_and_bump_in_one_commit_refused | green |
+| releases → An unreadable commit changes the version only when its parent is not among its versions | Bump reverted through an unreadable version | evals/release/test_release.py | TestCheckMain.test_bump_reverted_through_unreadable_passes | red |
 
 ## 1. Undo plan script (#106)
 
@@ -77,6 +78,7 @@
 
 - [x] 3.1 Write the failing `TestCheckMain` tests: `test_unreadable_base_dedupe_is_no_bump`, `test_repair_then_bump_refused_when_behind`, `test_repair_and_bump_in_one_commit_refused`. Verify: the first fails with `version_not_ahead_of_main` on the current `release.sh`, and the others fail or pass for the reason the test names.
 - [x] 3.2 Implement design D5 in `skills/specwright-release/scripts/release.sh`. `primary_at` returns `None` for absent and an `Unreadable` value with its matched versions otherwise. `check_ahead_of` and `own_bump` follow D5. A commit whose version is outside its unreadable parent's set but not greater than every semver in it is no bump, the same as a readable lowering today (re-check note 3). Update the `check` usage text in the header. Verify: `python -m unittest discover evals/release` passes, including the unchanged `TestCheckMain` rows. Flip the rows green.
+- [ ] 3.3 Unreadable commit rule (review round 2, M1): write the failing `TestCheckMain.test_bump_reverted_through_unreadable_passes` (bump 0.4.2 to 0.5.0, a hand revert to `0.4.2` twice, a commit that removes the duplicate, `origin/main` at 0.5.0: exit 0, version 0.4.2), confirm it fails with `version_not_ahead_of_main`, then change the `isinstance(mine, Unreadable)` branch of `own_bump` in `release.sh`: no change when the parent's version is among the versions the commit matched or the parent is also unreadable, else a bump only when every version it matched is greater than the parent's. Verify: the new test passes, and so do `test_unreadable_base_dedupe_is_no_bump`, `test_repair_then_bump_refused_when_behind`, `test_repair_and_bump_in_one_commit_refused` and the rest of `python -m unittest discover evals/release`. Flip the row green.
 
 ## 4. Integration and release
 
