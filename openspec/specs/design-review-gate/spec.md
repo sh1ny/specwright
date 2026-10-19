@@ -7,7 +7,7 @@ Defines which `review.md` verdicts let a Specwright change write tasks, apply an
 ## Requirements
 
 ### Requirement: The tasks precheck accepts only recorded passing dispositions
-Tasks SHALL be written only when `review.md` has a whole line equal to `VERDICT: APPROVE`, `VERDICT: SKIPPED_LIGHT`, `VERDICT: USER_OVERRIDE`, `VERDICT: DEFERRED` or `VERDICT: WAIVED`, or `VERDICT: APPROVE_WITH_CHANGES` together with a whole line `CHANGES_APPLIED: yes`. A `DEFERRED` or `WAIVED` verdict SHALL pass only with the record its requirement names. Otherwise the precheck SHALL stop.
+Tasks SHALL be written only when `review.md` has a whole line equal to `VERDICT: APPROVE`, `VERDICT: SKIPPED_LIGHT` or `VERDICT: USER_OVERRIDE`, or `VERDICT: APPROVE_WITH_CHANGES` together with a whole line `CHANGES_APPLIED: yes`, or `VERDICT: DEFERRED` or `VERDICT: WAIVED` together with a whole line `CHANGES_APPLIED: n/a`. A `DEFERRED` or `WAIVED` verdict SHALL pass only with the record its requirement names. Otherwise the precheck SHALL stop.
 
 #### Scenario: Deferred parking change writes tasks
 - **WHEN** a FULL-tier parking change's `review.md` holds `VERDICT: DEFERRED`, `CHANGES_APPLIED: n/a` and a `Deferred to:` line naming the changes that take its parts over
