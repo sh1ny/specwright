@@ -778,5 +778,101 @@ class Shim(FakeGhCase):
         self.assertTrue((dest / "gh-log.jsonl").exists())
 
 
+class HostileNetwork(FakeGhCase):
+    def test_hang_writes_pid_and_sleeps(self):
+        pid = self.tmp / "pid"
+        self.seed({**self.st(), "hang": [{"match": "api user", "pid_file": str(pid)}]})
+        e = {**os.environ, "FAKE_GH_STATE": str(self.state)}
+        p = subprocess.Popen([sys.executable, str(GH), "api", "user"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=e)
+        try:
+            import time
+            for _ in range(100):
+                if pid.exists() and pid.read_text():
+                    break
+                time.sleep(0.1)
+            self.assertEqual(pid.read_text(), str(p.pid))
+            time.sleep(0.5)
+            self.assertIsNone(p.poll())
+        finally:
+            p.kill()
+            p.communicate()
+
+    def test_hang_plain_regex_uses_env_pid_file(self):
+        pid = self.tmp / "envpid"
+        self.seed({**self.st(), "hang": ["api user"]})
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess.run([sys.executable, str(GH), "api", "user"], capture_output=True, timeout=2,
+                           env={**os.environ, "FAKE_GH_STATE": str(self.state), "FAKE_GH_PID_FILE": str(pid)})
+        self.assertTrue(pid.read_text().isdigit())
+        self.assertEqual(self.gh("auth", "token").stdout.strip(), "tok-k")  # a non-matching call answers
+
+    def test_delay_then_answers(self):
+        import time
+        self.seed({**self.st(), "delay": [{"match": "api user", "seconds": 1}]})
+        t0 = time.time()
+        r = self.gh("api", "user")
+        self.assertGreaterEqual(time.time() - t0, 1)
+        self.assertEqual(json.loads(r.stdout), {"login": "KintsugiBot"})
+
+    def test_flood_prints_that_many_bytes_of_json_pages(self):
+        self.seed({**self.st(), "flood": [{"match": "issues", "bytes": 5000}]})
+        r = self.gh("api", "--paginate", "repos/o/n/issues")
+        self.assertEqual(len(r.stdout.encode()), 5000)
+        first = r.stdout.splitlines()[0]
+        self.assertIsInstance(json.loads(first), list)
+
+
+class MarkdownEndpoint(FakeGhCase):
+    def fixture(self, entries):
+        p = self.tmp / "md.json"
+        p.write_text(json.dumps(entries), encoding="utf-8")
+        return {"FAKE_GH_MARKDOWN": str(p)}
+
+    def render(self, env, **body):
+        f = self.tmp / "in.json"
+        f.write_text(json.dumps(body), encoding="utf-8")
+        return self.gh("api", "-X", "POST", "markdown", "--input", str(f), env=env, check=False)
+
+    def test_key_is_sha256_of_mode_newline_text(self):
+        import hashlib
+        self.assertEqual(fake_gh.markdown_key("gfm", "Fixes #1"),
+                         hashlib.sha256("gfm\nFixes #1".encode("utf-8")).hexdigest())
+
+    def test_serves_recorded_html_ignoring_context(self):
+        key = fake_gh.markdown_key("gfm", "Fixes #1")
+        env = self.fixture({key: {"mode": "gfm", "context": "a/b", "html": "<p>Fixes #1</p>"}})
+        r = self.render(env, text="Fixes #1", mode="gfm", context="other/repo")
+        self.assertEqual((r.returncode, r.stdout), (0, "<p>Fixes #1</p>"))
+
+    def test_missing_rendering_exits_1(self):
+        r = self.render(self.fixture({}), text="x", mode="gfm", context="a/b")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no recorded rendering", r.stderr)
+
+    def test_mode_is_part_of_the_key(self):
+        key = fake_gh.markdown_key("gfm", "x")
+        env = self.fixture({key: {"html": "h"}})
+        self.assertEqual(self.render(env, text="x", mode="markdown").returncode, 1)
+
+
+class IssueList(FakeGhCase):
+    def test_issues_with_bodies_and_pull_request_markers_through_jq(self):
+        if not JQ:
+            self.skipTest("no jq")
+        st = self.st()
+        st["repos"] = {"o/n": {"issue_list": [
+            {"number": 1, "state": "open", "body": "x specwright:pr-item a"},
+            {"number": 2, "state": "closed", "body": "specwright:pr-item b"},
+            {"number": 3, "state": "open", "body": "specwright:pr-item c", "pull_request": {"url": "u"}},
+            {"number": 4, "state": "open", "body": None}]}}
+        self.seed(st)
+        expr = '.[] | select(.pull_request == null and ((.body // "") | contains("specwright:pr-item "))) | {number, body}'
+        out = self.gh("api", "--paginate", "repos/o/n/issues?state=all&per_page=100", "--jq", expr).stdout
+        nums = [json.loads(l)["number"] for l in out.splitlines() if l.strip()]
+        self.assertEqual(nums, [1, 2])
+        open_only = json.loads(self.gh("api", "repos/o/n/issues").stdout)
+        self.assertEqual([i["number"] for i in open_only], [1, 3, 4])
+
+
 if __name__ == "__main__":
     unittest.main()

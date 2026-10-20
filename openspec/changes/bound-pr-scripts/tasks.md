@@ -51,7 +51,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 ## 2. Fakes for hangs, floods and rendering
 
-- [ ] 2.1 Extend `evals/fakes/gh.py`:
+- [x] 2.1 Extend `evals/fakes/gh.py`:
   - `"hang": [regex | {match, pid_file}]`: sleep forever after writing its PID;
   - `"delay": [{match, seconds}]`;
   - `"flood": [{match, bytes}]`: print that many bytes of valid-looking JSON array pages;
