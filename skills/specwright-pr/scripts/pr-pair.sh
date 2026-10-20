@@ -91,8 +91,24 @@ import socket
 import subprocess
 import sys
 import tempfile
+import importlib.util
 from pathlib import Path
 from urllib.parse import quote
+
+
+class _Bounded:
+    """The bounded runner, loaded by path on first use: -I keeps this script's directory off sys.path."""
+    mod = None
+
+    def __getattr__(self, name):
+        if _Bounded.mod is None:
+            spec = importlib.util.spec_from_file_location("bounded", os.path.join(os.environ["PR_PAIR_DIR"], "bounded.py"))
+            _Bounded.mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_Bounded.mod)
+        return getattr(_Bounded.mod, name)
+
+
+bounded = _Bounded()
 
 ENV = {k: v for k, v in os.environ.items() if k != "GH_REPO"}
 BASH = os.environ.get("PR_PAIR_BASH") or shutil.which("bash")
@@ -136,6 +152,19 @@ def run(cmd, cwd=None, env=None):
 
 def git(d, *args, env=None):
     return run(["git", *args], cwd=d, env=env)
+
+
+def net(cmd, name, env=None, cwd=None, paged=False, secret=False, limit_ok=False):
+    """Run one network command under the runner's deadline and byte bound. A limit stops the command and its processes and
+    raises Stop(<limit>, code 3, unknown) naming `name`; `limit_ok` returns a failed (exit 1) result instead, for a caller
+    that reads the state back before it decides (merge)."""
+    r = bounded.run_bounded(cmd, env=env or ENV, cwd=cwd, paged=paged, secret=secret)
+    if r.limit:
+        msg = f"GitHub state unknown: {r.limit}: {name}"
+        if limit_ok:
+            return subprocess.CompletedProcess(cmd, 1, "", msg)
+        raise Stop(r.limit, msg, code=3, unknown=True)
+    return subprocess.CompletedProcess(cmd, r.rc, r.stdout, r.stderr)
 
 
 FENCE_VAR = re.compile(r"GH_TOKEN|GIT_SSH_COMMAND|GIT_TERMINAL_PROMPT|GCM_INTERACTIVE|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG_COUNT"
@@ -185,15 +214,16 @@ def git_net(d, *args):
     if d not in IDENT:  # the fetch URL alone decides: a GitHub fetch is fenced, anything else is plain git
         fetch = fetch_repo(d)
         IDENT[d] = fetch.lower() if fetch else None
+    name = f"git {args[0]}" if args else "git"
     if IDENT[d] is None:
-        return git(d, *args, env=unfenced_env())
+        return net(["git", *args], name, cwd=d, env=unfenced_env())
     login = REPO_LOGIN.get(IDENT[d])
     if not login:
         if started_in(d):
-            return git(d, *args)
+            return net(["git", *args], name, cwd=d)
         login = ambient_login()
     token_for(login)  # no credential / wrong identity stops here, before any git network command
-    r = run([BASH, f"{os.environ['PR_PAIR_DIR']}/as.sh", login, "git", *args], cwd=d)
+    r = net([BASH, f"{os.environ['PR_PAIR_DIR']}/as.sh", login, "git", *args], name, cwd=d)
     if r.returncode == 3 and r.stderr.lstrip().startswith("as.sh:"):
         raise Refused("fence_refused", f"as.sh refused the read in {d}: {r.stderr.strip()}", code=3, repo_dir=norm(d))
     return r
@@ -202,19 +232,17 @@ def git_net(d, *args):
 REPO_LOGIN, TOKENS = {}, {}  # repo slug (lower) -> login that reads it; login -> its verified token
 
 
-def gh(*args, repo=None):
+def gh(*args, repo=None, limit_ok=False):
     # through bash so a `gh` that is a shell script (or a shim) resolves like it does for the caller
     # `repo` names whose login to use when the arguments carry no repo (a GraphQL node id)
+    # a paginated read gets the longer deadline; `limit_ok`: a limit is a failed result, not a stop (merge reads back)
     cmd = [BASH, "-c", 'exec gh "$@"', "gh", *args] if BASH else ["gh", *args]
     login = REPO_LOGIN.get((repo or repo_of(args) or "").lower())
+    name, paged = f"gh {args[0]}" if args else "gh", "--paginate" in args
     if not login:
-        return run(cmd)
-    try:
-        return subprocess.run(cmd, env={**{k: v for k, v in ENV.items() if k not in HOST_VARS}, "GH_TOKEN": token_for(login)},
-                              capture_output=True, text=True,
-                              encoding="utf-8", errors="replace")
-    except OSError as e:
-        return subprocess.CompletedProcess(cmd, 127, "", str(e))
+        return net(cmd, name, paged=paged, limit_ok=limit_ok)
+    env = {**{k: v for k, v in ENV.items() if k not in HOST_VARS}, "GH_TOKEN": token_for(login)}
+    return net(cmd, name, env=env, paged=paged, limit_ok=limit_ok)
 
 
 def repo_of(args):
@@ -232,13 +260,11 @@ def token_for(login):
     if login not in TOKENS:
         bare = {k: v for k, v in ENV.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", *HOST_VARS)}
         base = [BASH, "-c", 'exec gh "$@"', "gh"] if BASH else ["gh"]
-        r = subprocess.run(base + ["auth", "token", "--hostname", "github.com", "--user", login], env=bare,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = net(base + ["auth", "token", "--hostname", "github.com", "--user", login], "gh auth", env=bare, secret=True)
         tok = r.stdout.strip() if r.returncode == 0 else ""
         if not tok:
             raise Stop("no_credential", f"no gh credential for '{login}' (planning_store.login); run gh auth login", code=3, login=login)
-        v = subprocess.run(base + ["api", "--hostname", "github.com", "user", "--jq", ".login"], env={**bare, "GH_TOKEN": tok},
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        v = net(base + ["api", "--hostname", "github.com", "user", "--jq", ".login"], "gh api", env={**bare, "GH_TOKEN": tok})
         if v.stdout.strip() != login:
             raise Stop("identity_mismatch", f"the token for '{login}' resolves to '{v.stdout.strip()}'; refusing", code=3, login=login)
         TOKENS[login] = tok
@@ -1733,8 +1759,9 @@ def has_reaction(repo, kind, target, reaction, viewer):
         content = "%2B1" if reaction == "+1" else "-1"
         return any(((r.get("user") or {}).get("login") or "").lower() == who and r.get("content") == reaction
                    for r in gh_list(f"repos/{repo}/pulls/comments/{target}/reactions?content={content}&per_page=100"))
-    query, cursor = REACTION_GQL % ("THUMBS_UP" if reaction == "+1" else "THUMBS_DOWN"), None
+    query, cursor, pages = REACTION_GQL % ("THUMBS_UP" if reaction == "+1" else "THUMBS_DOWN"), None, 0
     while True:
+        pages += 1
         r = gh("api", "graphql", "-f", f"query={query}", "-f", f"id={target}", *(["-f", f"cursor={cursor}"] if cursor else []), repo=repo)
         if r.returncode != 0:
             unknown((r.stderr or r.stdout).strip() or f"gh exited {r.returncode}")
@@ -1748,6 +1775,10 @@ def has_reaction(repo, kind, target, reaction, viewer):
             unknown(f"unreadable reactions of {target}")
         if not more or not cursor:
             return False
+        if pages >= bounded.MAX_PAGES:  # never "absent" from a loop that was cut short
+            raise Stop(bounded.RESPONSE_TOO_LARGE,
+                       f"GitHub state unknown: {bounded.RESPONSE_TOO_LARGE}: gh api graphql (reactions of {target}, over {pages} pages)",
+                       code=3, unknown=True)
 
 
 def pass_plan(argv):
@@ -2082,7 +2113,8 @@ def cmd_merge(argv):
     if not re.fullmatch(r"[0-9a-fA-F]{7,40}", head):
         usage(f"--head must be a commit id of 7 to 40 hex digits, got {head!r}")
     n = int(n)
-    r = gh("api", "-X", "PUT", f"repos/{repo}/pulls/{n}/merge", "-f", f"merge_method={method}", "-f", f"sha={head}")
+    r = gh("api", "-X", "PUT", f"repos/{repo}/pulls/{n}/merge", "-f", f"merge_method={method}", "-f", f"sha={head}",
+           limit_ok=True)  # a limit leaves the merge undecided: the read-back below decides
     m = re.search(r"\(HTTP (\d{3})\)", r.stderr or "")
     status = int(m.group(1)) if m else None
     message = ""

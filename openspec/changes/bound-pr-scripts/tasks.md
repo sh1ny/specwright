@@ -11,12 +11,12 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | pr-script-runtime → Network commands have a deadline | GitHub answers in time | evals/pr-pair/test_pr_pair.py | ClosingCheck.test_closing_check_match (unchanged, re-run under the runner) | green |
-| pr-script-runtime → Network commands have a deadline | Hung gh call in pr-pair.sh | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_hung_gh_deadline_exceeded | red |
+| pr-script-runtime → Network commands have a deadline | Hung gh call in pr-pair.sh | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_hung_gh_deadline_exceeded | green |
 | pr-script-runtime → Network commands have a deadline | Hung gh call in a bash PR script | evals/pr-pair/test_pr_reply.py | Bounded.test_reply_hung_gh_deadline_exceeded_no_temp_file | green |
 | pr-script-runtime → Network commands have a deadline | Hung credential lookup in as.sh | evals/pr-pair/test_as_sh.py | Bounded.test_token_lookup_hung_exits_3_named | green |
-| pr-script-runtime → GitHub responses are bounded | Large but bounded list | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_large_list_read_whole | red |
-| pr-script-runtime → GitHub responses are bounded | Oversized paginated read | evals/pr-pair/test_pr_pair.py | Bounded.test_paginated_read_too_large | red |
-| pr-script-runtime → GitHub responses are bounded | Reaction loop past its page cap | evals/pr-pair/test_pr_pair.py | Bounded.test_reaction_loop_page_cap | red |
+| pr-script-runtime → GitHub responses are bounded | Large but bounded list | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_large_list_read_whole | green |
+| pr-script-runtime → GitHub responses are bounded | Oversized paginated read | evals/pr-pair/test_pr_pair.py | Bounded.test_paginated_read_too_large | green |
+| pr-script-runtime → GitHub responses are bounded | Reaction loop past its page cap | evals/pr-pair/test_pr_pair.py | Bounded.test_reaction_loop_page_cap | green |
 | pr-watch → The watch timeout is elapsed time | Slow polls count toward the timeout | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_slow_polls_count_toward_timeout | green |
 | pr-watch → The watch timeout is elapsed time | Poll hangs during the watch | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_hung_polls_exit_1_within_bound | green |
 | pr-watch → The watch timeout is elapsed time | Takeover after a hung poll | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_takeover_during_hung_poll_exits_4 | green |
@@ -86,7 +86,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 ## 4. pr-pair.sh under the runner
 
 - [x] 4.1 Write failing tests in `evals/pr-pair/test_pr_pair.py` class `Bounded`, per the test map rows for pr-pair.sh. Add one for `cmd_merge` (a hung PUT with a merged read-back reports `merged`, and with an open read-back reports unknown). Verify: they fail.
-- [ ] 4.2 Load `bounded.py` by path (`importlib.util.spec_from_file_location`, `PR_PAIR_DIR`) and route the network calls through it per design D3:
+- [x] 4.2 Load `bounded.py` by path (`importlib.util.spec_from_file_location`, `PR_PAIR_DIR`) and route the network calls through it per design D3:
   - `gh` (paged when `--paginate` is in the args), `git_net`, `token_for` (its `gh auth token` in secret mode at `pr-pair.sh:235`; its `gh api user` at `:240` file-backed) and `ambient_login`;
   - limits raise `deadline_exceeded`/`response_too_large` with code 3, `unknown: true`;
   - `cmd_merge`'s PUT passes `limit_ok=True`;
