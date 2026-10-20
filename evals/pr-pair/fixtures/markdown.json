@@ -1,0 +1,182 @@
+{
+ "08d68f0cb59664baa4ac4918968b2715bfbfb2de88f1de66225fd10f0fcc9cd8": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Intro  Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5775086298\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/31\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/31/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/31\">#31</a>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a></p>"
+ },
+ "185eaf0ef41e1a796d54290ca33d4f4caecb617a966ca8fb3531621912ba7da4": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768358342\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/24\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/24/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/24\">#24</a>, <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a>, <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5779225306\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/43\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/43/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/43\">#43</a></p>"
+ },
+ "2a848ad4de41f9e0324ff889ecde531264117bef272bd9c71fab61754a652f52": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes other/repo#5<br>\nFixes <a href=\"https://github.com/acme/code/issues/8\">https://github.com/acme/code/issues/8</a><br>\nResolves <a href=\"https://github.com/other/repo/issues/9\">https://github.com/other/repo/issues/9</a><br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4694802155\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/1\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/1/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/1\">#1</a></p>"
+ },
+ "2dc48d3216d429a3a82996baea7cbfbe3822f1ea6c75975fddcbb58745b241c2": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a><br>\nFixes acme/plans#3<br>\nFixes Other/Tool#5</p>"
+ },
+ "2ee90a2fa2b3a2c778df121b8a68918e3aadfc2369794f9b7451b7600a595fab": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<blockquote>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #30\n</code></pre>\n</blockquote>\n<blockquote>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #31\n</code></pre>\n</blockquote>\n<ul dir=\"auto\">\n<li>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #32\n</code></pre>\n</li>\n</ul>\n<blockquote>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n</blockquote>\n<ul dir=\"auto\">\n<li>Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a></li>\n</ul>"
+ },
+ "2eee3c97a083c100bb8cd6b60cc8418e616fdaa9319acd5f801aabc981ea8d66": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">see <code class=\"notranslate\">&lt;!--</code> here<br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n<p dir=\"auto\">Text <code class=\"notranslate\">&lt;!-- still code</code> and <br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a></p>"
+ },
+ "300a38e319ad8719b9df9c57c931497d80852d66b32a6220c852ac2894ed994d": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4694802155\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/1\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/1/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/1\">#1</a><br>\nsee ```Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415221\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/3\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/3/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/3\">#3</a> `` here</p>"
+ },
+ "37aa5a5bd36a49dc86796d63c4ae0e8c88946b1b39c9507062aa38fc1fabf187": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<ul dir=\"auto\">\n<li>\n<p dir=\"auto\">Notes</p>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n</li>\n</ul>"
+ },
+ "39ac221002464655292c8c8d840b8f28554dc78d45581de8e6edc1de030763a4": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>"
+ },
+ "49ecf7f622b0fa3403750f3a60741450cbf597c2d9211b31a827bd17f8c57e30": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<pre class=\"notranslate\"><code class=\"notranslate\">&gt; ```\nFixes #12\n</code></pre>"
+ },
+ "523508995378cbc3e12879157c8193c17bbb18591c4aab7452b27853ef4a7373": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a><br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768358342\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/24\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/24/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/24\">#24</a></p>"
+ },
+ "55195f10b39fce0b0fc3db2c3698deba3756040e237008239c193f6808693025": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes other/repo#5</p>"
+ },
+ "65c0299261aa4b04353ef040b7af07a87950fed8a37c209e885dd7591ff0f959": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4694802155\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/1\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/1/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/1\">#1</a><br>\nsee <code class=\"notranslate\">Fixes #2 ` Fixes #4</code> and Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415221\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/3\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/3/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/3\">#3</a></p>"
+ },
+ "756a38bf192b2a7017043ccf8e563737647245c60000d9d841e6eeacb7582640": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes, <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5774806562\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/30\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/30/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/30\">#30</a><br>\nFixes <code class=\"notranslate\">x</code>; <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5775086298\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/31\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/31/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/31\">#31</a><br>\nFixes <code class=\"notranslate\">#21</code> and <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5775086496\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/32\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/32/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/32\">#32</a><br>\nFixes: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a>, <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768118874\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/23\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/23/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/23\">#23</a></p>"
+ },
+ "8634dcb7557b90b245ba6cf26bd62bf8110c2f2d6ffe9fa016176b2d02bae4e0": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #30\n``` not a closer\nFixes #31\n</code></pre>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a></p>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #32\n~~~ short\nFixes #33\n</code></pre>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5775087102\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/34\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/34/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/34\">#34</a></p>"
+ },
+ "89fbbef3d555abddd2a834daa6ad83a4212b7252a76a0aaa9f45451ff5123099": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<ul dir=\"auto\">\n<li>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #52\n</code></pre>\n</li>\n</ul>\n<ol dir=\"auto\">\n<li>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #53\n</code></pre>\n</li>\n</ol>\n<ul dir=\"auto\">\n<li>Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></li>\n</ul>"
+ },
+ "8dfa3bc73158efeffaf977640de31c2464db279f4cb210163eab347a44bb89bc": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #30\n</code></pre>\n<h2 dir=\"auto\">Notes</h2>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #31\n</code></pre>\n<p dir=\"auto\">see <code class=\"notranslate\">code Fixes #32</code> here</p>\n"
+ },
+ "8fd622f5e7f76d7923bedd0b4f3d557f3b97205f7a8fc7c03d81100d45d40b5c": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<ol dir=\"auto\">\n<li>Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768358342\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/24\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/24/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/24\">#24</a>, <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a>, <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5779225306\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/43\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/43/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/43\">#43</a></li>\n</ol>\n<ol start=\"2\" dir=\"auto\">\n<li>Closes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752122822\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/7\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/7/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/7\">#7</a></li>\n</ol>"
+ },
+ "97f5431e8a780804bfba92c3cd9f5301ba1b4eb6d13d86267ee515039541d158": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<pre class=\"notranslate\"><code class=\"notranslate\">- ```\nFixes #30\n</code></pre>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n<ul dir=\"auto\">\n<li>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #31\n</code></pre>\n</li>\n</ul>\n<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a></p>"
+ },
+ "9fc2be1053d9ebd8f7b92eb1ddd869613583cf6f8d1f65fc00a2278cd93ffe5e": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a><br>\nFixes acme/plans#3</p>"
+ },
+ "a43ef560a43ef86386df7478797c3ef1b1d43d2d45d1c7906e5dc5e2623e254e": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes other/tool#5</p>"
+ },
+ "a48872c4d3f010537a9ee8742a9851f60da8a47794e1033a45dc21c829e48c11": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4694802155\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/1\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/1/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/1\">#1</a></p>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #2\n</code></pre>\n<pre class=\"notranslate\"><code class=\"notranslate\">Fixes #3\n</code></pre>\n<p dir=\"auto\">and <code class=\"notranslate\">Fixes #4</code> inline<br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752122411\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/6\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/6/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/6\">#6</a> and <code class=\"notranslate\">#5</code></p>"
+ },
+ "a4d05643c96049287563e8d73b426fd812b7aa2c1d494b5768499d77af138ce1": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a><br>\nFixes other/tool#5</p>"
+ },
+ "aac0b0b3746c1ec1f27d6ce7d834a6bdf48e010e3ec5765f69c90590f8b7bee2": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a>; Related: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5781766942\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/52\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/52/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/52\">#52</a></p>"
+ },
+ "aedfd9b07227a7b37f2f8ca7a5a534f1d079dfb7eed68878cf3da8ae308fc4a0": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a><br>\n<a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768090897\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/22\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/22/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/22\">#22</a> is unrelated</p>"
+ },
+ "ce6e080e032ecdde99c77cfbfa346778d1515c8e094d6a8951d2919f7cfe27ec": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Close <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4694802155\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/1\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/1/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/1\">#1</a><br>\nCLOSES: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5750950493\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/2\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/2/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/2\">#2</a><br>\nclosed <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415221\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/3\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/3/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/3\">#3</a><br>\nfix <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415558\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/4\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/4/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/4\">#4</a><br>\nFixed <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415858\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/5\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/5/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/5\">#5</a><br>\nresolve <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752122411\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/6\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/6/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/6\">#6</a><br>\nResolves <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752122822\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/7\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/7/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/7\">#7</a><br>\nresolved: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752414407\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/8\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/sh1ny/specwright/pull/8/hovercard\" href=\"https://github.com/sh1ny/specwright/pull/8\">#8</a><br>\nPrefix <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752417714\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/9\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/9/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/9\">#9</a><br>\nunfixed <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752675402\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/10\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/10/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/10\">#10</a></p>"
+ },
+ "d1fcc1b0c4f332a3655215656fb816f8d0e6e81607f069ae8511095e549a44f2": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>\n<p dir=\"auto\">Related: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5781766942\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/52\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/52/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/52\">#52</a></p>"
+ },
+ "d3efef863cfd60d533c15df685fd649b85a1df4092cc90b58fea16b1a74a25aa": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fi<code class=\"notranslate\">x</code>xes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5774806562\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/30\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/30/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/30\">#30</a><br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>"
+ },
+ "d95b7e8b3e75329921a03ee99628c52a34004c4f3c774ce6f96b48a4327367fb": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415858\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/5\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/5/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/5\">#5</a><br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415858\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/5\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/5/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/5\">#5</a></p>"
+ },
+ "ddcecbf08803445ea6dc9935485ec8584c0158550303f4f3cb2d6902217a4993": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a href=\"https://github.com/acme/widget/issues/21\">https://github.com/acme/widget/issues/21</a></p>"
+ },
+ "df72ae0a4f9cea35670a4ed74b7376fbba28c27872a498f4c911ca74a794b429": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5768358342\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/24\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/24/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/24\">#24</a><br>\nFixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5770247596\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/25\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/25/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/25\">#25</a></p>"
+ },
+ "e018f3f38c643045eb93408944d91f9228ae13576ce1d454f61109cb5aa73fdd": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">This also fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415858\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/5\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/5/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/5\">#5</a> but see <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752122411\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/6\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/6/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/6\">#6</a></p>"
+ },
+ "e087fff52ade3f31f8318259e61b31e550b8d1fd5b6f4a67787d766f2670f94c": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes the crash; Related: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5781766942\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/52\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/52/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/52\">#52</a></p>"
+ },
+ "e4197dbc77c78db5f6df5cca1d15871ff58cce368f37df78719fa683bb993722": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a><br>\nRelated: <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5781766942\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/52\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/52/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/52\">#52</a><br>\nSee <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5781767697\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/53\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/53/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/53\">#53</a> and other/repo#54</p>"
+ },
+ "fbfe253edc31c71735c534c1bbb4a0b42afe8eab2d85f9b5fb9f2b760f2cf4e8": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<ul dir=\"auto\">\n<li>Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5751415858\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/5\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/5/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/5\">#5</a> and <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5752122411\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/6\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/6/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/6\">#6</a>, other/repo#7</li>\n</ul>"
+ },
+ "fe14504613ab0dece7330a59d41a4c68eaa1dadb6fe4a8662356ac146662ad9c": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Fi<code class=\"notranslate\">x</code>xes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5781766942\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/52\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/52/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/52\">#52</a></p>"
+ }
+}
