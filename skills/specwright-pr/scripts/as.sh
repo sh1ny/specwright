@@ -66,7 +66,7 @@ fi
 # environment says (an empty GH_HOST counts as set, so unset it too).
 unset GH_TOKEN GITHUB_TOKEN GH_HOST GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
 
-# Every gh call here runs through bounded.py (a deadline and a stdout byte bound; see its header): a stuck
+# Every gh call here runs through bounded.py (a deadline and a byte bound on stdout and stderr; see its header): a stuck
 # network ends as exit 3 naming the limit, never a hang. SW_SECRET=1 keeps what the lookups print (the token)
 # off disk. Python 3.8+ runs it. Only these lookups are bounded: the fenced command at the end is not.
 py=

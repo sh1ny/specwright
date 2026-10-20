@@ -12,6 +12,7 @@ Environment (U = the CLI name in capitals):
   FAKE_U_FLOOD_STDOUT  a review call writes this many bytes to stdout, then keeps running until killed
   FAKE_U_FLOOD_STDERR  the same on stderr
   FAKE_U_FLOOD_ANSWER  codex only: the same into the `-o` last-message file
+  FAKE_U_FLOOD_EXIT    set: after the flood, answer normally and exit instead of running until killed
   FAKE_OMP_ROLES       file with the JSON `omp config get modelRoles --json` prints (default: roles default and slow)
   FAKE_OMP_MODELS      file with the JSON `omp models find <id> --json` prints (default {"models": []})
   FAKE_OMP_SESSION     file whose content a review call writes to <--session-dir>/session.jsonl
@@ -101,7 +102,7 @@ def main(argv):
                             flood(f, n)
             else:
                 flood(sys.stdout.buffer if k == "STDOUT" else sys.stderr.buffer, n)
-        while True:  # keep running until killed
+        while not env(f"FAKE_{u}_FLOOD_EXIT"):  # keep running until killed
             time.sleep(0.2)
     src = env(f"FAKE_{u}_STDOUT")
     text = Path(src).read_text(encoding="utf-8") if src else ""

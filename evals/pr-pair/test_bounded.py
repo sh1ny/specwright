@@ -57,6 +57,7 @@ def py(code, *args):
 HANG = "import os,sys,time\nopen(sys.argv[1],'w').write(str(os.getpid()))\ntime.sleep(3600)\n"
 SPEW = ("import os,sys\nopen(sys.argv[1],'w').write(str(os.getpid()))\n"
         "while True:\n    sys.stdout.write('x'*1000); sys.stdout.flush()\n")
+SPEW_ERR = SPEW.replace("sys.stdout", "sys.stderr")
 
 
 class Base(unittest.TestCase):
@@ -91,6 +92,17 @@ class RunBounded(Base):
         r = self.b.run_bounded(py(SPEW, str(self.pidf)), 30, 5000, self.env, None)
         self.assertEqual(r.limit, "response_too_large")
         self.assertTrue(wait_gone(self.pid(), 10))
+
+    def test_stderr_over_the_bound_reports_response_too_large_and_stops_the_child(self):
+        t0 = time.time()
+        r = self.b.run_bounded(py(SPEW_ERR, str(self.pidf)), 30, 5000, self.env, None)
+        self.assertEqual(r.limit, "response_too_large")
+        self.assertLess(time.time() - t0, 15, "stderr ran on to the deadline")
+        self.assertTrue(wait_gone(self.pid(), 10))
+
+    def test_stderr_over_the_bound_after_a_quick_exit_is_response_too_large(self):
+        r = self.b.run_bounded(py("import sys\nsys.stderr.write('x'*5000)"), 30, 100, self.env, None)
+        self.assertEqual(r.limit, "response_too_large")
 
     def test_normal_exit_passes_rc_stdout_and_stderr_through(self):
         r = self.b.run_bounded(py("import sys\nprint('out')\nprint('err', file=sys.stderr)\nsys.exit(3)"), 30, 1 << 20, self.env, None)
@@ -163,6 +175,21 @@ class SecretMode(Base):
         self.assertEqual(r.limit, "deadline_exceeded")
         self.assertLess(time.time() - t0, 2 + 5)
         self.assertEqual(list(self.scratch.iterdir()), [])
+        self.assertTrue(wait_gone(self.pid(), 10))
+
+    def test_secret_flood_stops_at_the_bound_before_the_deadline(self):
+        t0 = time.time()
+        r = self.b.run_bounded(py(SPEW, str(self.pidf)), 30, 5000, self.env, None, secret=True)
+        self.assertEqual(r.limit, "response_too_large")
+        self.assertLess(time.time() - t0, 15, "the flood was buffered until the deadline")
+        self.assertTrue(wait_gone(self.pid(), 10))
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_secret_stderr_flood_stops_at_the_bound(self):
+        t0 = time.time()
+        r = self.b.run_bounded(py(SPEW_ERR, str(self.pidf)), 30, 5000, self.env, None, secret=True)
+        self.assertEqual(r.limit, "response_too_large")
+        self.assertLess(time.time() - t0, 15)
         self.assertTrue(wait_gone(self.pid(), 10))
 
     def test_oversized_secret_output_is_response_too_large(self):

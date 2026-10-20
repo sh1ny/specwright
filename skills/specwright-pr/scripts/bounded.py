@@ -1,4 +1,4 @@
-"""Run one command under a deadline and a stdout byte bound. Stdlib only, Python 3.8+.
+"""Run one command under a deadline and a byte bound on its stdout and its stderr. Stdlib only, Python 3.8+.
 
 The pr scripts run every network command (gh, git fetch/push/ls-remote) through here, so a stuck network or a huge
 response ends as a named limit instead of a hang or an out-of-memory.
@@ -6,7 +6,7 @@ response ends as a named limit instead of a hang or an out-of-memory.
 Limits (defaults live here only; the environment lowers them for tests):
   120 s            per command                         SPECWRIGHT_NET_DEADLINE
   300 s            per paginated read (paged=True)     SPECWRIGHT_NET_PAGED_DEADLINE
-  32 MiB           of stdout per command               SPECWRIGHT_NET_MAX_BYTES
+  32 MiB           of stdout, and of stderr, per command  SPECWRIGHT_NET_MAX_BYTES
   50 pages         in a cursor loop a script drives    MAX_PAGES (constant)
   SPECWRIGHT_NET_DEADLINE_AT (epoch seconds) caps each deadline to the time left until then.
 
@@ -24,8 +24,8 @@ each followed by a NUL, then an end marker; a prelude in front of the script rea
 reaches disk. A missing marker (a runner that died mid-write, a bash older than 4.4) exits 126 without running the script.
 
 Normal mode sends stdout and stderr to files in a fresh temp dir (removed at the end), so a huge output costs disk, not memory.
-Secret mode (--secret, secret=True) is for commands that print a credential: nothing reaches disk, the output is captured
-through pipes, and a lookup never waits past its deadline plus 5 s. The process tree is stopped by PID only, never by name.
+Secret mode (--secret, secret=True) is for commands that print a credential: nothing reaches disk, the output is read from
+pipes as the command writes it, so the byte bound holds while it runs, and a lookup never waits past its deadline plus 5 s. The process tree is stopped by PID only, never by name.
 """
 import os
 import shutil
@@ -104,7 +104,7 @@ def _transport(cmd):
 
 def _spawn(cmd, data, **kw):
     """Popen, plus a daemon thread that writes `data` to the child's stdin and closes it. A closed pipe ends the write quietly;
-    killing the child unblocks it. Returns the process with p.stdin None, so communicate() never writes stdin itself."""
+    killing the child unblocks it. Returns the process with p.stdin None: only the writer thread owns stdin."""
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL if data is None else subprocess.PIPE, bufsize=0, **kw)
     if data is not None:
         stream, p.stdin = p.stdin, None
@@ -144,7 +144,7 @@ def _file_backed(cmd, data, deadline, max_bytes, env, cwd):
                     break
                 if time.time() >= end:
                     limit = DEADLINE_EXCEEDED
-                elif os.path.getsize(out_path) > max_bytes:
+                elif os.path.getsize(out_path) > max_bytes or os.path.getsize(err_path) > max_bytes:
                     limit = RESPONSE_TOO_LARGE
                 if limit:
                     kill_tree(p.pid)
@@ -155,12 +155,12 @@ def _file_backed(cmd, data, deadline, max_bytes, env, cwd):
                     break
                 time.sleep(POLL)
         size = os.path.getsize(out_path)
-        if limit is None and size > max_bytes:
+        if limit is None and (size > max_bytes or os.path.getsize(err_path) > max_bytes):  # a burst just before exit
             limit = RESPONSE_TOO_LARGE
         with open(out_path, "rb") as f:
             out = f.read(max_bytes + 1 if limit else size)
         with open(err_path, "rb") as f:
-            err = f.read()
+            err = f.read(max_bytes + 1)
         return (None if limit else rc), out, err, limit
     finally:
         if p is not None and p.poll() is None:
@@ -173,27 +173,58 @@ def _secret(cmd, data, deadline, max_bytes, env, cwd):
         p = _spawn(cmd, data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, **_popen_kw())
     except OSError as e:
         return 127, b"", str(e).encode("utf-8", "replace"), None
-    try:
+    bufs, over = (bytearray(), bytearray()), threading.Event()
+
+    def drain(stream, buf):  # reads as the command writes, so the bound holds in memory while it runs
         try:
-            out, err = p.communicate(timeout=deadline)
-        except subprocess.TimeoutExpired:
+            fd = stream.fileno()
+            while True:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    return
+                buf += chunk
+                if len(buf) > max_bytes:
+                    over.set()
+                    return
+        except (OSError, ValueError):
+            pass
+
+    readers = [threading.Thread(target=drain, args=(s, b), daemon=True) for s, b in zip((p.stdout, p.stderr), bufs)]
+    for t in readers:
+        t.start()
+    try:
+        end, limit = time.time() + deadline, None
+        while True:
+            if over.is_set():
+                limit = RESPONSE_TOO_LARGE
+                break
+            if p.poll() is not None and not any(t.is_alive() for t in readers):
+                break
+            left = end - time.time()
+            if left <= 0:
+                limit = DEADLINE_EXCEEDED
+                break
+            over.wait(min(0.02, left))
+        if limit:
             kill_tree(p.pid)
+            stop = time.time() + 5  # collect what the killed tree left; a survivor holding a pipe is let go after 5 s
             try:
-                p.communicate(timeout=5)
-            except subprocess.TimeoutExpired:  # a survivor still holds a pipe: let go of our ends and stop waiting
-                for s in (p.stdout, p.stderr):
-                    try:
-                        if s:
-                            s.close()
-                    except (OSError, ValueError):
-                        pass
-            return None, b"", b"", DEADLINE_EXCEEDED
-        if len(out) > max_bytes:
-            return None, b"", b"", RESPONSE_TOO_LARGE
-        return p.returncode, out, err, None
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            for t in readers:
+                t.join(max(0, stop - time.time()))
+            return None, b"", b"", limit
+        return p.returncode, bytes(bufs[0]), bytes(bufs[1]), None
     finally:
         if p.poll() is None:
             kill_tree(p.pid)
+        for s, t in zip((p.stdout, p.stderr), readers):
+            if s and not t.is_alive():  # a reader still blocked on a survivor's pipe keeps its end
+                try:
+                    s.close()
+                except (OSError, ValueError):
+                    pass
 
 
 def _run(cmd, deadline, max_bytes, env, cwd, paged, secret):

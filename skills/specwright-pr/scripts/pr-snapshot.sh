@@ -47,7 +47,7 @@
 # Wrap with as.sh to pin the GitHub identity.
 set -euo pipefail
 
-# Every gh call runs through bounded.py (a deadline and a stdout byte bound; see its header), so a stuck network or a
+# Every gh call runs through bounded.py (a deadline and a byte bound on stdout and stderr; see its header), so a stuck network or a
 # huge response ends as a named limit instead of a hang. Python 3.8+ runs it. The wrapper starts gh through bash, so the
 # same call works where gh is a shell shim.
 py=

@@ -352,19 +352,27 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                 out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
                 deadline = time.monotonic() + timeout
                 rc, timed_out, over = None, False, None
+
+                def oversize():
+                    for stream, path in (("stdout", out_path), ("stderr", err_path)):
+                        if stream in limits and os.path.getsize(path) > limits[stream]:
+                            return stream
+                    if watch:
+                        try:
+                            if os.path.getsize(watch[0]) > watch[1]:
+                                return "answer"
+                        except OSError:
+                            pass  # not written yet
+                    return None
+
                 while True:
                     rc = p.poll()
                     if rc is not None:
+                        over = oversize()  # a burst written between two checks, just before the exit
+                        if over:
+                            rc = None
                         break
-                    for stream, path in (("stdout", out_path), ("stderr", err_path)):
-                        if over is None and stream in limits and os.path.getsize(path) > limits[stream]:
-                            over = stream
-                    if watch and over is None:
-                        try:
-                            if os.path.getsize(watch[0]) > watch[1]:
-                                over = "answer"
-                        except OSError:
-                            pass  # not written yet
+                    over = oversize()
                     if over is None and time.monotonic() >= deadline:
                         timed_out = True
                     if over or timed_out:

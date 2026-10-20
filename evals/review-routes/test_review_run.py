@@ -866,6 +866,19 @@ class OutputBound(Base):
         self.assert_stopped(out, "stderr", started)
         self.assertEqual(review.read_bytes(), before)
 
+    def test_codex_stderr_burst_then_exit_is_still_stopped(self):
+        self.install("codex")
+        self.flood_env("codex", stderr=9 * self.MIB)
+        self.extra_env["FAKE_CODEX_FLOOD_EXIT"] = "1"
+        self.stdout_file("codex", "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        review = self.tmp / "review.md"
+        review.write_bytes(b"# Earlier review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        started = time.time()
+        out = self.design("codex", expect=3)
+        self.assert_stopped(out, "stderr", started)
+        self.assertEqual(review.read_bytes(), before)
+
     def test_codex_answer_file_flood_stopped(self):
         self.install("codex")
         self.flood_env("codex", answer=3 * self.MIB)

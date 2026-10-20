@@ -36,12 +36,12 @@ The proposal (proposal.md) lists the problems. Current code:
 ### D1: One shared bounded runner, file-backed, in Python
 
 - **Choice:** `skills/specwright-pr/scripts/bounded.py` (stdlib only) runs one command.
-  - **Process and output.** It starts the command with `Popen`, sending stdout and stderr to files in a fresh temp dir; the child is its own session on POSIX. It polls every 0.1 s. It stops the process tree when the deadline passes or stdout passes the byte bound, using `review-run.sh`'s `kill_tree` logic: taskkill `/T /F` by PID on Windows, `killpg` on POSIX, never by name. The temp dir is removed in `finally`.
+  - **Process and output.** It starts the command with `Popen`, sending stdout and stderr to files in a fresh temp dir; the child is its own session on POSIX. It polls every 0.1 s. It stops the process tree when the deadline passes or stdout or stderr passes the byte bound, using `review-run.sh`'s `kill_tree` logic: taskkill `/T /F` by PID on Windows, `killpg` on POSIX, never by name. The temp dir is removed in `finally`.
   - **Importable function.** `run_bounded(cmd, deadline, max_bytes, env, cwd) -> Result(rc, stdout, stderr, limit)`, where `limit` is `None`, `"deadline_exceeded"` or `"response_too_large"`. `pr-pair.sh` loads it by path from `PR_PAIR_DIR` with `importlib.util.spec_from_file_location`, because `-I` drops the script dir from `sys.path`.
   - **CLI.** `python bounded.py [--paged] [--secret] -- cmd...`, used by the bash scripts. It copies the command's stdout and stderr through after the command ends and exits with its rc. On a limit it prints `bounded: <limit>: <cmd[0]> <cmd[1]>` on stderr and exits 124 (deadline) or 125 (too large).
   - **Secret mode.** A credential lookup (`gh auth token`) must never reach a file. With `secret=True` (CLI `--secret`), the runner captures through pipes with `communicate(timeout=deadline)`.
     - On the deadline it calls `kill_tree`, then `communicate(timeout=5)` once more to collect what the killed tree left. If a process that survived the kill still holds a pipe open, it closes its own ends of the pipes, stops waiting and reports `deadline_exceeded`. A token lookup never waits past its deadline plus 5 s.
-    - The byte bound is checked on the result, which is at most a token. Nothing is written to disk.
+    - Reader threads drain both pipes into memory as the command writes and stop the tree once either passes the byte bound, so a flooding lookup ends as `response_too_large` before its deadline. Nothing is written to disk.
     - Only commands that print a token use this mode:
       - `gh auth token` in `token_for` (`pr-pair.sh:235`);
       - `gh auth token` in as.sh's fenced path (`as.sh:82`) and in its `--resolve` path (`as.sh:79`). The latter currently discards the token to `/dev/null`; through the runner it would otherwise reach a file.
@@ -72,7 +72,7 @@ The proposal (proposal.md) lists the problems. Current code:
 - **Choice:** the defaults live in `bounded.py` only:
   - 120 s per command;
   - 300 s for a paginated read (`--paged`, or `paged=True` from `gh_list` and any `--paginate` call);
-  - 32 MiB of stdout per command;
+  - 32 MiB each of stdout and stderr per command;
   - 50 pages in a cursor loop a script drives itself (`has_reaction`).
 
   Evals lower them through `SPECWRIGHT_NET_DEADLINE`, `SPECWRIGHT_NET_PAGED_DEADLINE` and `SPECWRIGHT_NET_MAX_BYTES`, which are named only in `bounded.py`'s header. `SPECWRIGHT_NET_DEADLINE_AT` (epoch seconds) caps each deadline to the time left; the watch uses it for its per-poll deadline (D5).
@@ -262,7 +262,7 @@ D2 and D6 own the numbers; this table applies them.
 
 | Queue / buffer / cache / transfer | Bound | At the bound | Timeout | At 10x / 100x |
 |---|---|---|---|---|
-| stdout of one network command | 32 MiB | kill, `response_too_large` | 120 s (300 s paged) | discover/list pages are ~100 items × ~5 KB, so 10x is fine. At 100x a list hits the bound and is a named stop, not an OOM |
+| stdout, and stderr, of one network command | 32 MiB each | kill, `response_too_large` | 120 s (300 s paged) | discover/list pages are ~100 items × ~5 KB, so 10x is fine. At 100x a list hits the bound and is a named stop, not an OOM |
 | `has_reaction` cursor loop | 50 pages (5,000 reactions) | `response_too_large` | 120 s per page | as above |
 | `item-issues` output | 32 MiB of marked issues only (gh `--jq` filter) | exit 3, lookup not done | 300 s | 1k issues ≈ 10 pages, about 5 s. 100k issues ≈ 1,000 pages, which can pass 300 s: a named stop and the pass files nothing |
 | gh's own memory per call | one page (`per_page=100`, `first:100`) | gh's own limit | — | unchanged by this change |
