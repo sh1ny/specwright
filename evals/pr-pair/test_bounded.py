@@ -162,6 +162,22 @@ class RunBounded(Base):
         self.assertFalse(alive, "the deadline waited on the wall clock")
         self.assertEqual(box["r"].limit, "deadline_exceeded")
 
+    def test_a_finished_command_with_a_child_holding_its_pipe_returns_its_status(self):
+        # the command exits 0 but leaves a child that inherited stdout: after a short grace the tree is stopped and the
+        # command's own status and output come back, not deadline_exceeded at the deadline (review round 6)
+        kid = self.tmp / "kid.pid"
+        code = ("import subprocess,sys\n"
+                "k = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                "open(sys.argv[1], 'w').write(str(k.pid))\n"
+                "print('done'); sys.stdout.flush()\n")
+        self.addCleanup(lambda: kid.exists() and self.b.kill_tree(int(kid.read_text())))
+        t0 = time.time()
+        r = self.b.run_bounded(py(code, str(kid)), 30, 1 << 20, self.env, None)
+        self.assertLess(time.time() - t0, 20, "waited for the child instead of the command")
+        self.assertEqual((r.rc, r.limit, r.stdout.strip()), (0, None, "done"))
+        if os.name != "nt":  # Windows cannot walk the tree of an exited parent
+            self.assertTrue(wait_gone(int(kid.read_text()), 5), "the child survived")
+
     def test_spawn_failure_is_rc_127(self):
         r = self.b.run_bounded([str(self.tmp / "no-such-binary")], 5, 1000, self.env, None)
         self.assertEqual((r.rc, r.limit), (127, None))

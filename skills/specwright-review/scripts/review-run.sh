@@ -406,7 +406,8 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                         exited = time.monotonic()
                     if exited is not None and (not any(t.is_alive() for t in readers) or time.monotonic() - exited >= 2):
                         held = any(t.is_alive() for t in readers)
-                        over = None if held else answer_over()  # an answer written just before the exit
+                        # a stream bound passed since the loop's check, or an answer written just before the exit
+                        over = passed[0] if passed else None if held else answer_over()
                         rc = None if over or held else p.returncode
                         break
                     if time.monotonic() >= deadline:

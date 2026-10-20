@@ -22,7 +22,7 @@ Every `gh` or `git` network command run by `pr-pair.sh`, `pr-snapshot.sh` or `pr
 - **THEN** as.sh exits 3 within the deadline plus 10 seconds, names `deadline_exceeded` on stderr, and does not run the fenced command
 
 ### Requirement: GitHub responses are bounded
-The PR scripts (in `as.sh`, its own lookups only) SHALL read at most 32 MiB from any one `gh` or `git` network command, paginated reads included, and at most 50 pages in any cursor loop they drive themselves. Passing either bound SHALL stop the command and be reported as `response_too_large`, naming the command. It SHALL NOT yield a partial result.
+`pr-pair.sh`, `pr-snapshot.sh` and `pr-reply.sh` SHALL read at most 32 MiB from any one `gh` or `git` network command they run, paginated reads included, and `as.sh` at most 32 MiB from any credential or identity lookup it makes; the PR scripts SHALL read at most 50 pages in any cursor loop they drive themselves. Passing either bound SHALL stop the command and be reported as `response_too_large`, naming the command. It SHALL NOT yield a partial result.
 
 #### Scenario: Large but bounded list
 - **WHEN** `pr-pair.sh discover` reads a paginated list whose pages total 2 MiB

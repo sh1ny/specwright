@@ -26,7 +26,8 @@ reaches disk. A missing marker (a runner that died mid-write, a bash older than 
 Output is read from pipes as the command writes it and kept in memory, never on disk: a stream stops being read once it passes
 the byte bound, so neither memory nor disk can grow past it between two checks, and the tree is stopped at once. Secret mode
 (--secret, secret=True), for commands that print a credential, runs the same way. After a limit a survivor holding a pipe is
-let go after 5 s. The process tree is stopped by PID only, never by name.
+let go after 5 s. A command that exits while a process it started still holds a pipe gets 2 s for its readers, then that
+tree is stopped and the command's own status and output are returned. The process tree is stopped by PID only, never by name.
 """
 import os
 import signal
@@ -40,6 +41,7 @@ DEADLINE = 120
 PAGED_DEADLINE = 300
 MAX_BYTES = 32 * 1024 * 1024
 MAX_PAGES = 50
+GRACE = 2  # seconds the readers get to reach EOF after the command exits
 
 DEADLINE_EXCEEDED = "deadline_exceeded"
 RESPONSE_TOO_LARGE = "response_too_large"
@@ -150,18 +152,27 @@ def _piped(cmd, data, deadline, max_bytes, env, cwd):
     for t in readers:
         t.start()
     try:
-        end, limit = time.monotonic() + deadline, None  # monotonic: a stepped system clock cannot stretch or cut a deadline
+        end, limit, exited = time.monotonic() + deadline, None, None  # monotonic: a stepped clock cannot move a deadline
         while True:
             if over.is_set():
                 limit = RESPONSE_TOO_LARGE
                 break
-            if p.poll() is not None and not any(t.is_alive() for t in readers):
-                break
+            if exited is None and p.poll() is not None:
+                exited = time.monotonic()
+            if exited is not None and (not any(t.is_alive() for t in readers) or time.monotonic() - exited >= GRACE):
+                break  # a finished command is never reported as a deadline
             left = end - time.monotonic()
             if left <= 0:
-                limit = DEADLINE_EXCEEDED
+                if exited is None:
+                    limit = DEADLINE_EXCEEDED
                 break
             over.wait(min(0.02, left))
+        if limit is None and any(t.is_alive() for t in readers):
+            kill_tree(p.pid)  # a process the command started still holds a pipe: stop it; the command's own result stands
+            for t in readers:
+                t.join(1)
+        if limit is None and over.is_set():  # a bound passed between the loop's checks, just before the exit
+            limit = RESPONSE_TOO_LARGE
         if limit:
             kill_tree(p.pid)
             stop = time.monotonic() + 5  # collect what the killed tree left; a survivor holding a pipe is let go after 5 s
