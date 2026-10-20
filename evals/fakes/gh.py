@@ -7,8 +7,9 @@ State is JSON at $FAKE_GH_STATE:
                             "default_branch": "main"}},
    "fail": ["regex" | {"match": "regex", "exit": 1, "stderr": "msg"}]}
 Any call whose argv (joined by spaces) matches a `fail` pattern exits non-zero.
-Every call appends one JSON line {argv, cwd, gh_repo, env} to $FAKE_GH_LOG; env holds GH_TOKEN, GITHUB_TOKEN, GH_HOST,
-GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN as the call saw them (null when unset, "" when set empty).
+Every call appends one JSON line {argv, cwd, gh_repo, env, deadline_at} to $FAKE_GH_LOG; env holds GH_TOKEN, GITHUB_TOKEN,
+GH_HOST, GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN as the call saw them (null when unset, "" when set empty);
+deadline_at is SPECWRIGHT_NET_DEADLINE_AT.
 `api user` answers by GH_TOKEN when set, else by the state's active `user`; `auth switch [-u login]` (or switch_user(st, login))
 changes that active user, so a test can switch accounts between calls like another process would.
 Hostile-network injection (bound-pr-scripts), matched against the joined argv like `fail`, checked after it:
@@ -171,7 +172,8 @@ def log(argv):
     if p:
         with open(p, "a", encoding="utf-8", newline="\n") as f:
             env = {k: os.environ.get(k) for k in ENV_LOGGED}
-            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "gh_repo": os.environ.get("GH_REPO"), "env": env}) + "\n")
+            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "gh_repo": os.environ.get("GH_REPO"), "env": env,
+                                "deadline_at": os.environ.get("SPECWRIGHT_NET_DEADLINE_AT")}) + "\n")
 
 
 def inject_failure(st, argv):

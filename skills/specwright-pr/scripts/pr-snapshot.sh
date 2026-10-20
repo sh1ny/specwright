@@ -502,8 +502,10 @@ if [ "$wait" = 1 ]; then
   # so a hung poll ends at that deadline and the timeout below is still reported on time. It is unset right after, so
   # --logs and anything else get the normal per-command deadline. Sets $next.
   poll() {
-    local rc=0
-    export SPECWRIGHT_NET_DEADLINE_AT=$(( $(date +%s) + ${SPECWRIGHT_NET_DEADLINE:-120} ))
+    local rc=0 d=${SPECWRIGHT_NET_DEADLINE:-120}
+    case $d in ''|*[!0-9]*) d=120 ;; esac  # like bounded.py, the environment can lower the 120 s but never raise it
+    d=$((10#$d)); [ "$d" -le 120 ] || d=120
+    export SPECWRIGHT_NET_DEADLINE_AT=$(( $(date +%s) + d ))
     { prepare_cfg && next=$(snapshot); } || rc=$?
     unset SPECWRIGHT_NET_DEADLINE_AT
     return $rc

@@ -200,9 +200,11 @@ class RunBounded(Base):
 
     @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the caller past the deadline")
     def test_an_exit_first_seen_after_the_deadline_is_deadline_exceeded(self):
-        # the caller is frozen from the start until 4 s into a 2 s deadline, and the command prints and exits at 3 s: it
-        # was still running when the deadline passed, so its result is not returned (review round 8)
+        # the caller is frozen from 0.5 s (well after it set its deadline base) until 4.5 s into a 2 s deadline, and the
+        # command prints and exits at 3.5 s: it was still running when the deadline passed, so its result is not returned
+        # (review rounds 8 and 9)
         code = ("import os,signal,subprocess,sys,time\n"
+                "time.sleep(0.5)\n"
                 "p = os.getppid()\n"
                 "subprocess.Popen(['sh', '-c', 'sleep 4; kill -CONT %d' % p], stdin=subprocess.DEVNULL,\n"
                 "                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)\n"

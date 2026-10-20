@@ -564,6 +564,17 @@ class WatchElapsed(SnapCase):
     def graphql_calls(self):
         return len([c for c in self.gh_calls() if c[:2] == ["api", "graphql"]])
 
+    def test_an_inherited_deadline_cannot_stretch_a_poll(self):
+        # the deadline over one whole poll is capped at 120 s like each command's: SPECWRIGHT_NET_DEADLINE=999999 does not
+        # move it (review round 9)
+        start = time.time()
+        rc, out, err, took = self.watch("--timeout", 1, "--interval", 1, env={"SPECWRIGHT_NET_DEADLINE": "999999"})
+        self.assertEqual(rc, 0, err)
+        ats = [json.loads(l)["deadline_at"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
+        ats = [int(a) for a in ats if a]
+        self.assertTrue(ats, "a poll ran under a deadline")
+        self.assertLessEqual(max(ats), int(start + took) + 120 + 1)
+
     def test_slow_polls_count_toward_timeout(self):
         # spec: --timeout 60 --interval 20, polls of 15 s -> the timeout after at most 85 s, polled at most 4 times.
         # Scaled: --timeout 10 --interval 1, polls of 13 s or more (one call delayed 6 s). Counting polls would take 10 polls,

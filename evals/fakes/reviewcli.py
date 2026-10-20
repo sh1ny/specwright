@@ -15,8 +15,8 @@ Environment (U = the CLI name in capitals):
   FAKE_U_FLOOD_EXIT    set: after the flood, answer normally and exit instead of running until killed
   FAKE_U_LINGER        a review call starts a child that inherits stdout and stderr and sleeps this many seconds,
                        then answers normally and exits; FAKE_U_LINGER_PID_FILE gets the child's PID
-  FAKE_U_FREEZE_PARENT POSIX only: a review call stops its parent (review-run.sh's capture loop) with SIGSTOP and has a
-                       detached helper resume it this many seconds later
+  FAKE_U_FREEZE_PARENT POSIX only: 0.5 s in, a review call stops its parent (review-run.sh's capture loop) with SIGSTOP
+                       and has a detached helper resume it this many seconds later
   FAKE_U_SPY          after each stdout/stderr flood returns, write here the size of the largest file under
                        <tempdir>/specwright-run-*/ (review-run.sh's capture files)
   FAKE_OMP_ROLES       file with the JSON `omp config get modelRoles --json` prints (default: roles default and slow)
@@ -94,6 +94,7 @@ def main(argv):
     if freeze:  # POSIX only: a detached helper that holds none of our pipes resumes the parent later
         import signal
         import subprocess
+        time.sleep(0.5)  # let the parent set its deadline first
         ppid = os.getppid()
         subprocess.Popen(["sh", "-c", f"sleep {float(freeze)}; kill -CONT {ppid}"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

@@ -963,8 +963,9 @@ class OutputBound(Base):
 
     @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the capture loop past the deadline")
     def test_an_exit_first_seen_after_the_deadline_is_a_timeout(self):
-        # the capture loop is frozen from the start until 4 s into a 2 s timeout, and the reviewer answers and exits at
-        # 3 s: it was still running when review.timeout passed, so the run is a timeout, not its result (review round 8)
+        # the capture loop is frozen from 0.5 s (after it set its deadline) until 4.5 s into a 2 s timeout, and the reviewer
+        # answers and exits at 3.5 s: it was still running when review.timeout passed, so the run is a timeout, not its
+        # result (review rounds 8 and 9)
         self.install("codex", "claude")
         self.claude_result()
         self.set_settings("review:\n  timeout: 2s\n")
