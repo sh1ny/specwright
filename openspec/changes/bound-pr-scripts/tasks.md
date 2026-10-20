@@ -143,7 +143,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 ## 9. Release and integration
 
-- [ ] 9.1 Run `release.sh bump --to 0.7.2` and verify with `release.sh check --main origin/main`.
+- [x] 9.1 Run `release.sh bump --to 0.7.2` and verify with `release.sh check --main origin/main`.
 - [ ] 9.2 Run the milestone eval suites `evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update` and `evals/release` (`python -m unittest discover <dir>` each), and `openspec schema validate specwright` and `openspec validate bound-pr-scripts --strict`. Verify: all pass, and every test map row is green.
 
 ## Workflow follow-up
