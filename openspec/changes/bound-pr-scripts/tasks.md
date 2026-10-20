@@ -17,10 +17,10 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 | pr-script-runtime → GitHub responses are bounded | Large but bounded list | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_large_list_read_whole | red |
 | pr-script-runtime → GitHub responses are bounded | Oversized paginated read | evals/pr-pair/test_pr_pair.py | Bounded.test_paginated_read_too_large | red |
 | pr-script-runtime → GitHub responses are bounded | Reaction loop past its page cap | evals/pr-pair/test_pr_pair.py | Bounded.test_reaction_loop_page_cap | red |
-| pr-watch → The watch timeout is elapsed time | Slow polls count toward the timeout | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_slow_polls_count_toward_timeout | red |
-| pr-watch → The watch timeout is elapsed time | Poll hangs during the watch | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_hung_polls_exit_1_within_bound | red |
-| pr-watch → The watch timeout is elapsed time | Takeover after a hung poll | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_takeover_during_hung_poll_exits_4 | red |
-| pr-watch → The watch timeout is elapsed time | First snapshot hangs | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_first_snapshot_hung_exits_1 | red |
+| pr-watch → The watch timeout is elapsed time | Slow polls count toward the timeout | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_slow_polls_count_toward_timeout | green |
+| pr-watch → The watch timeout is elapsed time | Poll hangs during the watch | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_hung_polls_exit_1_within_bound | green |
+| pr-watch → The watch timeout is elapsed time | Takeover after a hung poll | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_takeover_during_hung_poll_exits_4 | green |
+| pr-watch → The watch timeout is elapsed time | First snapshot hangs | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_first_snapshot_hung_exits_1 | green |
 | feedback-passes → PR-item issues are found in one read per pass | Several findings, some already tracked | evals/pr-pair/test_pr_pair.py | ItemIssues.test_one_read_finds_tracked_item | red |
 | feedback-passes → PR-item issues are found in one read per pass | Store-backed pass with items in both repositories | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | ItemIssues.test_reads_only_its_repo_as_its_login; SkillText.test_after_limit_issues_one_lookup_per_repo | red |
 | feedback-passes → PR-item issues are found in one read per pass | Pull requests carrying the marker | evals/pr-pair/test_pr_pair.py | ItemIssues.test_pull_request_with_marker_ignored | red |
@@ -100,7 +100,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 - [x] 5.2 Add the shared header block (design D1) to `as.sh`, `pr-reply.sh` and `pr-snapshot.sh`: Python discovery (exit 2 `no_python`), `SW_DIR`, `SW_BASH`, and the `gh()` function. The hook must pass `--secret` as well as `--paged` (review S7: `${SW_SECRET:+--secret}`, or a direct `bounded.py --secret` call), so as.sh's two `gh auth token` calls never reach a file. Verify: a test asserts no file appears under a fresh `TEMP` during an as.sh token lookup.
 - [x] 5.3 Restructure as.sh's five lookups (design D3). The review's S6 corrects the line numbers: `--help` at `:69`; `--resolve`'s `api user` at `:75` and `gh auth token` at `:77`; the fenced `gh auth token` at `:82`; `api user` at `:86`. Each checks for 124/125 before its existing message. Verify: the `test_as_sh.py` `Bounded` tests pass and the existing as.sh tests stay green.
 - [x] 5.4 Route `pr-reply.sh`'s `gh` calls through the runner. Verify: its `Bounded` test passes (exit non-zero, `deadline_exceeded` on stderr, no temp file) and the existing reply tests stay green.
-- [ ] 5.5 Rewrite the `pr-snapshot.sh --wait` loop per design D5:
+- [x] 5.5 Rewrite the `pr-snapshot.sh --wait` loop per design D5:
   - `start=$SECONDS` before the first snapshot;
   - per-poll `SPECWRIGHT_NET_DEADLINE_AT`, the first snapshot included, unset after each poll;
   - a failed first snapshot is `ok=0` with no base, and a later good poll becomes the base;
