@@ -404,14 +404,16 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                         break
                     if exited is None and p.poll() is not None:
                         exited = time.monotonic()
+                    # an exit seen before the deadline gets the grace, never the deadline; one first seen at or after it
+                    # was still running when review.timeout passed
+                    if (exited is None or exited >= deadline) and time.monotonic() >= deadline:
+                        timed_out = True
+                        break
                     if exited is not None and (not any(t.is_alive() for t in readers) or time.monotonic() - exited >= 2):
                         held = any(t.is_alive() for t in readers)
                         # a stream bound passed since the loop's check, or an answer written just before the exit
                         over = passed[0] if passed else None if held else answer_over()
                         rc = None if over or held else p.returncode
-                        break
-                    if exited is None and time.monotonic() >= deadline:  # once it exited, the grace decides, never the deadline
-                        timed_out = True
                         break
                     wake.wait(max(0.01, min(POLL, (deadline if exited is None else exited + 2) - time.monotonic())))
                     wake.clear()

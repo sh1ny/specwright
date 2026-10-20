@@ -3,7 +3,7 @@
 The pr scripts run every network command (gh, git fetch/push/ls-remote) through here, so a stuck network or a huge
 response ends as a named limit instead of a hang or an out-of-memory.
 
-Limits (defaults live here only; the environment lowers them for tests):
+Limits (defaults live here only; the environment can lower them, for tests, but never raise them):
   120 s            per command                         SPECWRIGHT_NET_DEADLINE
   300 s            per paginated read (paged=True)     SPECWRIGHT_NET_PAGED_DEADLINE
   32 MiB           of stdout, and of stderr, per command  SPECWRIGHT_NET_MAX_BYTES
@@ -72,13 +72,13 @@ def _number(env, name, default, cast=float):
 
 
 def resolve(deadline, max_bytes, env, paged):
-    """The deadline in seconds and the byte bound: arguments first, then the environment, then the defaults. A deadline is
-    capped to the time left until SPECWRIGHT_NET_DEADLINE_AT."""
+    """The deadline in seconds and the byte bound: arguments first, then the environment, then the defaults. The environment
+    only lowers a default, never raises it. A deadline is capped to the time left until SPECWRIGHT_NET_DEADLINE_AT."""
     if deadline is None:
-        deadline = _number(env, "SPECWRIGHT_NET_PAGED_DEADLINE" if paged else "SPECWRIGHT_NET_DEADLINE",
-                           PAGED_DEADLINE if paged else DEADLINE)
+        default = PAGED_DEADLINE if paged else DEADLINE
+        deadline = min(_number(env, "SPECWRIGHT_NET_PAGED_DEADLINE" if paged else "SPECWRIGHT_NET_DEADLINE", default), default)
     if max_bytes is None:
-        max_bytes = _number(env, "SPECWRIGHT_NET_MAX_BYTES", MAX_BYTES, int)
+        max_bytes = min(_number(env, "SPECWRIGHT_NET_MAX_BYTES", MAX_BYTES, int), MAX_BYTES)
     at = _number(env, "SPECWRIGHT_NET_DEADLINE_AT", None)
     if at is not None:
         deadline = min(deadline, max(0.0, at - time.time()))
@@ -159,12 +159,13 @@ def _piped(cmd, data, deadline, max_bytes, env, cwd):
                 break
             if exited is None and p.poll() is not None:
                 exited = time.monotonic()
+            if (exited is None or exited >= end) and time.monotonic() >= end:
+                limit = DEADLINE_EXCEEDED  # still running when the deadline passed, even if its exit is seen only now
+                break
             if exited is not None and (not any(t.is_alive() for t in readers) or time.monotonic() - exited >= GRACE):
-                break  # a finished command is never reported as a deadline
+                break  # an exit seen before the deadline is never reported as a deadline
             left = end - time.monotonic()
             if left <= 0:
-                if exited is None:
-                    limit = DEADLINE_EXCEEDED
                 break
             over.wait(min(0.02, left))
         if limit is None and any(t.is_alive() for t in readers):

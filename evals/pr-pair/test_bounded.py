@@ -150,6 +150,17 @@ class RunBounded(Base):
             self.assertEqual(r.limit, "deadline_exceeded")
             self.assertLess(time.time() - t0, 15)
 
+    def test_the_environment_can_only_lower_the_limits(self):
+        # an inherited larger value never raises a production bound; a lower one still applies (review round 8)
+        b = self.b
+        high = {"SPECWRIGHT_NET_DEADLINE": "999999", "SPECWRIGHT_NET_PAGED_DEADLINE": "999999",
+                "SPECWRIGHT_NET_MAX_BYTES": str(1 << 40)}
+        self.assertEqual(b.resolve(None, None, high, False), (b.DEADLINE, b.MAX_BYTES))
+        self.assertEqual(b.resolve(None, None, high, True), (b.PAGED_DEADLINE, b.MAX_BYTES))
+        low = {"SPECWRIGHT_NET_DEADLINE": "3", "SPECWRIGHT_NET_PAGED_DEADLINE": "4", "SPECWRIGHT_NET_MAX_BYTES": "5000"}
+        self.assertEqual(b.resolve(None, None, low, False), (3, 5000))
+        self.assertEqual(b.resolve(None, None, low, True), (4, 5000))
+
     def test_constants(self):
         self.assertEqual(self.b.MAX_PAGES, 50)
 
@@ -186,6 +197,19 @@ class RunBounded(Base):
         self.assertEqual((r.rc, r.limit, r.stdout.strip()), (0, None, "done"))
         if os.name != "nt":  # Windows cannot walk the tree of an exited parent
             self.assertTrue(wait_gone(int(kid.read_text()), 5), "the child survived")
+
+    @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the caller past the deadline")
+    def test_an_exit_first_seen_after_the_deadline_is_deadline_exceeded(self):
+        # the caller is frozen from the start until 4 s into a 2 s deadline, and the command prints and exits at 3 s: it
+        # was still running when the deadline passed, so its result is not returned (review round 8)
+        code = ("import os,signal,subprocess,sys,time\n"
+                "p = os.getppid()\n"
+                "subprocess.Popen(['sh', '-c', 'sleep 4; kill -CONT %d' % p], stdin=subprocess.DEVNULL,\n"
+                "                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)\n"
+                "os.kill(p, signal.SIGSTOP)\n"
+                "time.sleep(3); print('done')\n")
+        r = self.b.run_bounded(py(code), 2, 1 << 20, self.env, None)
+        self.assertEqual((r.rc, r.limit), (None, "deadline_exceeded"))
 
     def test_spawn_failure_is_rc_127(self):
         r = self.b.run_bounded([str(self.tmp / "no-such-binary")], 5, 1000, self.env, None)

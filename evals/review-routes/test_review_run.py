@@ -961,6 +961,18 @@ class OutputBound(Base):
         self.assertEqual(out["status"], "failed", out)
         self.assertIn("kept its output open", out["message"])
 
+    @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the capture loop past the deadline")
+    def test_an_exit_first_seen_after_the_deadline_is_a_timeout(self):
+        # the capture loop is frozen from the start until 4 s into a 2 s timeout, and the reviewer answers and exits at
+        # 3 s: it was still running when review.timeout passed, so the run is a timeout, not its result (review round 8)
+        self.install("codex", "claude")
+        self.claude_result()
+        self.set_settings("review:\n  timeout: 2s\n")
+        self.extra_env.update({"FAKE_CLAUDE_DELAY": "3", "FAKE_CLAUDE_FREEZE_PARENT": "4"})
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["status"], "timeout", out)
+        self.assertFalse((self.tmp / "findings.json").exists())
+
     def test_codex_answer_file_flood_stopped(self):
         self.install("codex")
         self.flood_env("codex", answer=3 * self.MIB)
