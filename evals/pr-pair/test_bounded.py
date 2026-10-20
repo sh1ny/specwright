@@ -144,6 +144,24 @@ class RunBounded(Base):
     def test_constants(self):
         self.assertEqual(self.b.MAX_PAGES, 50)
 
+    def test_a_stopped_wall_clock_cannot_extend_the_deadline(self):
+        # deadlines are relative intervals on a monotonic clock, so a stepped system clock cannot defeat them (review round 4)
+        frozen = time.time()
+        box = {}
+        with mock.patch.object(self.b.time, "time", return_value=frozen):
+            import threading
+            t = threading.Thread(target=lambda: box.update(r=self.b.run_bounded(py(HANG, str(self.pidf)), 2, 1 << 20, self.env, None)),
+                                 daemon=True)
+            t.start()
+            t.join(20)
+        alive = t.is_alive()
+        if alive:
+            pid = self.pid()
+            self.b.kill_tree(pid)
+            t.join(10)
+        self.assertFalse(alive, "the deadline waited on the wall clock")
+        self.assertEqual(box["r"].limit, "deadline_exceeded")
+
     def test_spawn_failure_is_rc_127(self):
         r = self.b.run_bounded([str(self.tmp / "no-such-binary")], 5, 1000, self.env, None)
         self.assertEqual((r.rc, r.limit), (127, None))

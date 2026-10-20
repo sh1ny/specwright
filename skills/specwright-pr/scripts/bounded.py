@@ -150,27 +150,27 @@ def _piped(cmd, data, deadline, max_bytes, env, cwd):
     for t in readers:
         t.start()
     try:
-        end, limit = time.time() + deadline, None
+        end, limit = time.monotonic() + deadline, None  # monotonic: a stepped system clock cannot stretch or cut a deadline
         while True:
             if over.is_set():
                 limit = RESPONSE_TOO_LARGE
                 break
             if p.poll() is not None and not any(t.is_alive() for t in readers):
                 break
-            left = end - time.time()
+            left = end - time.monotonic()
             if left <= 0:
                 limit = DEADLINE_EXCEEDED
                 break
             over.wait(min(0.02, left))
         if limit:
             kill_tree(p.pid)
-            stop = time.time() + 5  # collect what the killed tree left; a survivor holding a pipe is let go after 5 s
+            stop = time.monotonic() + 5  # collect what the killed tree left; a survivor holding a pipe is let go after 5 s
             try:
                 p.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 pass
             for t in readers:
-                t.join(max(0, stop - time.time()))
+                t.join(max(0, stop - time.monotonic()))
             return None, b"", b"", limit
         return p.returncode, bytes(bufs[0]), bytes(bufs[1]), None
     finally:
