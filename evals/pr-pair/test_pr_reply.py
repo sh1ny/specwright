@@ -7,6 +7,8 @@ Run: python -m unittest discover evals/pr-pair -p test_pr_reply.py
 """
 import os
 import stat
+import subprocess
+import time
 import unittest
 
 import snapfix
@@ -283,6 +285,58 @@ class ReplyTempFiles(ReplyCase):
         self.assertEqual(len(self.thread_state()["comments"]), 2, "the reply was posted before the stop")
         self.assertEqual(self.leftovers(), [])
 
+
+
+def stop_pid_file(pid_file):
+    """Stop a hung fake gh by the PID it wrote (never by name); a no-op when it is gone."""
+    try:
+        with open(pid_file, encoding="utf-8") as f:
+            pid = int(f.read())
+    except (OSError, ValueError):
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+class Bounded(ReplyCase):
+    """bound-pr-scripts D1: every gh call of pr-reply.sh runs under a deadline, and the script still cleans up."""
+
+    DEADLINE = 2
+
+    def test_reply_hung_gh_deadline_exceeded_no_temp_file(self):
+        tid, c = self.add_thread("rev", "please fix")
+        pidf = self.tmp / "hang.pid"
+        self.addCleanup(stop_pid_file, pidf)
+        self.mutate(lambda st: st.update({"hang": [{"match": "replies", "pid_file": str(pidf)}]}))  # the reply POST
+        temp = self.tmp / "fresh-temp"
+        temp.mkdir()
+        body = self.tmp / "body.md"
+        body.write_text("done", encoding="utf-8", newline=chr(10))
+        env = self.env(SPECWRIGHT_NET_DEADLINE=str(self.DEADLINE), TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
+        out, err = self.tmp / "r.out", self.tmp / "r.err"
+        t = time.time()
+        with open(out, "wb") as fo, open(err, "wb") as fe:  # files, so an unbounded hung gh cannot hold a pipe open
+            p = subprocess.Popen(["bash", str(snapfix.REPLY), str(self.PR), "thread", tid, str(c["databaseId"]),
+                                  fixtures.posix(body), "--repo", self.SLUG], stdout=fo, stderr=fe, env=env, cwd=self.tmp)
+            try:
+                rc = p.wait(timeout=45)
+            except subprocess.TimeoutExpired:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True) if os.name == "nt" else p.kill()
+                p.wait()
+                rc = -9
+        took = time.time() - t
+        stderr = err.read_text(errors="replace")
+        self.assertNotIn(rc, (0, -9), stderr)
+        self.assertIn("deadline_exceeded", stderr)
+        self.assertIn("gh api", stderr, "the limit line names the command")
+        self.assertLess(took, self.DEADLINE + 10)
+        self.assertEqual(self.thread_state()["comments"][1:], [], "nothing was posted")
+        self.assertEqual(list(temp.iterdir()), [], "the body temp file is removed")
 
 
 if __name__ == "__main__":

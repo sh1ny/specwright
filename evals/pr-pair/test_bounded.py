@@ -187,6 +187,14 @@ class Cli(Base):
         self.assertIn(f"bounded: deadline_exceeded: {cmd[0]} {cmd[1]}", r.stderr)
         self.assertTrue(wait_gone(self.pid(), 10))
 
+    def test_limit_line_names_the_command_inside_bash_c(self):
+        # the pr scripts run `bash -c 'exec gh "$@"' gh api ...`: the line names gh api, not bash -c
+        sh = shutil.which("bash") or shutil.which("sh")
+        cmd = [sh, "-c", "sleep 3600", "gh", "api"]
+        r = self.run_cli("--", *cmd, env={"SPECWRIGHT_NET_DEADLINE": "1"})
+        self.assertEqual(r.returncode, 124)
+        self.assertIn("bounded: deadline_exceeded: gh api" + chr(10), r.stderr)
+
     def test_too_large_exits_125_with_the_limit_line(self):
         cmd = py(SPEW, str(self.pidf))
         r = self.run_cli("--", *cmd, env={"SPECWRIGHT_NET_MAX_BYTES": "5000"})

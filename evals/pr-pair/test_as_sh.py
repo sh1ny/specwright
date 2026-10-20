@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -28,6 +29,23 @@ ROOT = HERE.parents[1]
 AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
+
+
+
+def fixtures_kill(pid_file):
+    """Stop a hung fake gh a test started, by the PID it wrote. Never by name."""
+    try:
+        pid = int(Path(pid_file).read_text())
+    except (OSError, ValueError):
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
 
 LEAK = "X-Store-Secret: leaked-store-header"
 SECRET = "ghp_SECRETtoken123"
@@ -414,6 +432,95 @@ class AsShUrls(AsShCase):
     def test_outside_a_work_tree_the_command_runs(self):
         r = self.as_sh(self.tmp, "sh1ny", "gh", "api", "user", "--jq", ".login")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "sh1ny"), r.stderr)
+
+
+class Bounded(AsShCase):
+    """bound-pr-scripts D1/D3: as.sh's own gh lookups run under a deadline; the fenced command does not."""
+
+    DEADLINE = 2
+    BOUND = DEADLINE + 10  # the spec: the deadline plus 10 s for process start and kill
+
+    def marker_cmd(self):
+        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]
+
+    def hang(self, match):
+        pidf = self.tmp / "hang.pid"
+        self.addCleanup(fixtures_kill, pidf)
+        st = json.loads((self.tmp / "gh-state.json").read_text(encoding="utf-8"))
+        st["hang"] = [{"match": match, "pid_file": str(pidf)}]
+        self.state(**st)
+
+    def timed(self, *args, env=None):
+        """as.sh from the code repo; (CompletedProcess, seconds). Output goes to files, so a hung fake gh that outlives the
+        run (the red step) cannot hold a pipe open; the run is stopped at 45 s."""
+        e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE), **(env or {})}
+        out, err = self.tmp / "as.out", self.tmp / "as.err"
+        t = time.time()
+        with open(out, "wb") as fo, open(err, "wb") as fe:
+            p = subprocess.Popen(["bash", str(AS_SH), *args], cwd=self.code, stdout=fo, stderr=fe, env=e)
+            try:
+                rc = p.wait(timeout=45)
+            except subprocess.TimeoutExpired:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True) if os.name == "nt" else p.kill()
+                p.wait()
+                rc = -9
+        took = time.time() - t
+        return subprocess.CompletedProcess(args, rc, out.read_text(errors="replace"), err.read_text(errors="replace")), took
+
+    def test_token_lookup_hung_exits_3_named(self):
+        self.hang(r"auth token --hostname")
+        r, took = self.timed("KintsugiBot", *self.marker_cmd())
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("deadline_exceeded", r.stderr)
+        self.assertIn("as.sh:", r.stderr)
+        self.assertLess(took, self.BOUND)
+        self.assertFalse((self.tmp / "ran").exists(), "the fenced command must not run")
+
+    def test_resolve_token_lookup_hung_exits_3_named(self):
+        self.hang(r"auth token --hostname")  # `api user` answers; the credential check never does
+        r, took = self.timed("--resolve")
+        self.assertEqual((r.returncode, r.stdout), (3, ""), r.stderr)
+        self.assertIn("deadline_exceeded", r.stderr)
+        self.assertLess(took, self.BOUND)
+
+    def test_resolve_login_lookup_hung_exits_3_named(self):
+        self.hang(r"api --hostname github.com user")
+        r, took = self.timed("--resolve")
+        self.assertEqual((r.returncode, r.stdout), (3, ""), r.stderr)
+        self.assertIn("deadline_exceeded", r.stderr)
+        self.assertLess(took, self.BOUND)
+
+    def test_identity_check_hung_exits_3_named(self):
+        self.hang(r"api --hostname github.com user")
+        r, took = self.timed("KintsugiBot", *self.marker_cmd())
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("deadline_exceeded", r.stderr)
+        self.assertLess(took, self.BOUND)
+        self.assertFalse((self.tmp / "ran").exists())
+
+    def test_help_probe_hung_exits_3_named(self):
+        self.hang(r"auth token --help")
+        r, took = self.timed("KintsugiBot", *self.marker_cmd())
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("deadline_exceeded", r.stderr)
+        self.assertLess(took, self.BOUND)
+        self.assertFalse((self.tmp / "ran").exists())
+
+    def test_token_lookup_leaves_no_file_in_temp(self):
+        # secret mode: the token never reaches a file, so a fresh TEMP stays empty during the lookups
+        temp = self.tmp / "fresh-temp"
+        temp.mkdir()
+        probe = f"ls -A '{temp.as_posix()}' > '{(self.tmp / 'temp-listing').as_posix()}'"
+        env = {"TEMP": str(temp), "TMP": str(temp), "TMPDIR": str(temp)}
+        r, _ = self.timed("KintsugiBot", "bash", "-c", probe, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.tmp / "temp-listing").read_text(), "", "a lookup left a file under TEMP while it ran")
+        self.assertEqual(list(temp.iterdir()), [])
+
+    def test_fenced_command_is_not_bounded(self):
+        r, took = self.timed("KintsugiBot", "bash", "-c", "sleep 4; echo done", env={"SPECWRIGHT_NET_DEADLINE": "1"})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "done"), r.stderr)
+        self.assertGreaterEqual(took, 4)
 
 
 if __name__ == "__main__":
