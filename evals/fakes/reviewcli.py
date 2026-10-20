@@ -8,6 +8,10 @@ Environment (U = the CLI name in capitals):
   FAKE_U_STDOUT        file whose content a review call prints (codex: also written to the `-o` file)
   FAKE_U_DELAY         seconds a review call sleeps before answering
   FAKE_U_PID_FILE      a review call writes its PID here first
+  FAKE_U_STDERR_BYTES  a review call writes this many bytes to stderr, then carries on normally
+  FAKE_U_FLOOD_STDOUT  a review call writes this many bytes to stdout, then keeps running until killed
+  FAKE_U_FLOOD_STDERR  the same on stderr
+  FAKE_U_FLOOD_ANSWER  codex only: the same into the `-o` last-message file
   FAKE_OMP_ROLES       file with the JSON `omp config get modelRoles --json` prints (default: roles default and slow)
   FAKE_OMP_MODELS      file with the JSON `omp models find <id> --json` prints (default {"models": []})
   FAKE_OMP_SESSION     file whose content a review call writes to <--session-dir>/session.jsonl
@@ -18,6 +22,17 @@ import os
 import sys
 import time
 from pathlib import Path
+
+
+def flood(stream, n):
+    """Write n bytes of newline-terminated lines to a binary stream and flush."""
+    line = b"x" * 1023 + b"\n"
+    left = n
+    while left > 0:
+        chunk = line * min(64, -(-left // len(line)))
+        stream.write(chunk)
+        left -= len(chunk)
+    stream.flush()
 
 
 def main(argv):
@@ -71,6 +86,23 @@ def main(argv):
     delay = float(env(f"FAKE_{u}_DELAY", "0"))
     if delay:
         time.sleep(delay)
+    n = int(env(f"FAKE_{u}_STDERR_BYTES", "0"))
+    if n:
+        flood(sys.stderr.buffer, n)
+    floods = [(int(env(f"FAKE_{u}_FLOOD_{k}", "0")), k) for k in ("STDOUT", "STDERR", "ANSWER")]
+    if any(n for n, _ in floods):
+        for n, k in floods:
+            if not n:
+                continue
+            if k == "ANSWER":
+                for i, a in enumerate(args):
+                    if a == "-o" and i + 1 < len(args):
+                        with open(args[i + 1], "wb") as f:
+                            flood(f, n)
+            else:
+                flood(sys.stdout.buffer if k == "STDOUT" else sys.stderr.buffer, n)
+        while True:  # keep running until killed
+            time.sleep(0.2)
     src = env(f"FAKE_{u}_STDOUT")
     text = Path(src).read_text(encoding="utf-8") if src else ""
     if name == "omp" and sess is not None:

@@ -59,7 +59,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
   - issue-list support with bodies and `pull_request` markers for `item-issues`.
 
   Add tests in `evals/pr-pair/test_fake_gh.py`. Verify: `python -m unittest evals.pr-pair.test_fake_gh` (or `discover evals/pr-pair -p test_fake_gh.py`) passes.
-- [ ] 2.2 Extend `evals/fakes/reviewcli.py` with `FAKE_<CLI>_FLOOD_STDOUT`, `_FLOOD_STDERR` and `_FLOOD_ANSWER` (bytes to write, then keep running until killed, writing `_PID_FILE`). Verify: a direct run writes past the requested size and its PID file names a live process until killed.
+- [x] 2.2 Extend `evals/fakes/reviewcli.py` with `FAKE_<CLI>_FLOOD_STDOUT`, `_FLOOD_STDERR` and `_FLOOD_ANSWER` (bytes to write, then keep running until killed, writing `_PID_FILE`). Verify: a direct run writes past the requested size and its PID file names a live process until killed.
 
 ## 3. Bounded runner
 
