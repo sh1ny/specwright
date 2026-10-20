@@ -18,6 +18,11 @@ Use as a CLI:      python bounded.py [--paged] [--secret] -- cmd...
   `bounded: <limit>: <cmd[0]> <cmd[1]>` on stderr
   (for `sh -c script name args...`, the wrapped command: `name args[0]`) and exits 124 (deadline) or 125 (too large).
 
+Windows argument transport: a native command line cuts an argument with spaces at 8186 characters when bash.exe parses it, so
+for `bash -c script $0 args...` the arguments after $0 are not put on the command line. They go to the child's stdin as UTF-8,
+each followed by a NUL, then an end marker; a prelude in front of the script reads them back into "$@" and empties stdin. Nothing
+reaches disk. A missing marker (a runner that died mid-write, a bash older than 4.4) exits 126 without running the script.
+
 Normal mode sends stdout and stderr to files in a fresh temp dir (removed at the end), so a huge output costs disk, not memory.
 Secret mode (--secret, secret=True) is for commands that print a credential: nothing reaches disk, the output is captured
 through pipes, and a lookup never waits past its deadline plus 5 s. The process tree is stopped by PID only, never by name.
@@ -28,6 +33,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import namedtuple
 
@@ -79,18 +85,56 @@ def resolve(deadline, max_bytes, env, paged):
     return deadline, max_bytes
 
 
+ARGV_END = "__SW_ARGV_END__"
+ARGV_PRELUDE = (
+    'mapfile -d "" -t __sw_argv; '
+    '[ ${#__sw_argv[@]} -gt 0 ] && [ "${__sw_argv[${#__sw_argv[@]}-1]}" = %s ] || '
+    '{ echo "bounded: argument transport failed" >&2; exit 126; }; '
+    'unset "__sw_argv[${#__sw_argv[@]}-1]"; set -- "${__sw_argv[@]}"; unset __sw_argv; exec </dev/null' % ARGV_END)
+
+
+def _transport(cmd):
+    """(cmd, stdin bytes or None). On Windows a `bash -c script $0 args...` keeps its script and $0 on the command line and
+    sends the arguments after $0 on stdin."""
+    if os.name != "nt" or len(cmd) < 4 or cmd[1] != "-c" or os.path.basename(cmd[0]).lower().split(".")[0] != "bash":
+        return cmd, None
+    data = b"".join(a.encode("utf-8") + b"\0" for a in cmd[4:]) + ARGV_END.encode("ascii") + b"\0"
+    return [cmd[0], "-c", ARGV_PRELUDE + "; " + cmd[2], cmd[3]], data
+
+
+def _spawn(cmd, data, **kw):
+    """Popen, plus a daemon thread that writes `data` to the child's stdin and closes it. A closed pipe ends the write quietly;
+    killing the child unblocks it. Returns the process with p.stdin None, so communicate() never writes stdin itself."""
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL if data is None else subprocess.PIPE, bufsize=0, **kw)
+    if data is not None:
+        stream, p.stdin = p.stdin, None
+
+        def write():
+            try:
+                stream.write(data)
+            except (OSError, ValueError):
+                pass
+            finally:
+                try:
+                    stream.close()
+                except (OSError, ValueError):
+                    pass
+        threading.Thread(target=write, daemon=True).start()
+    return p
+
+
 def _popen_kw():
     return {} if os.name == "nt" else {"start_new_session": True}
 
 
-def _file_backed(cmd, deadline, max_bytes, env, cwd):
+def _file_backed(cmd, data, deadline, max_bytes, env, cwd):
     work = tempfile.mkdtemp(prefix="specwright-net-")
     p = None
     try:
         out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
         with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
             try:
-                p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fo, stderr=fe, cwd=cwd, env=env, **_popen_kw())
+                p = _spawn(cmd, data, stdout=fo, stderr=fe, cwd=cwd, env=env, **_popen_kw())
             except OSError as e:
                 return 127, b"", str(e).encode("utf-8", "replace"), None
             end, limit, rc = time.time() + deadline, None, None
@@ -124,10 +168,9 @@ def _file_backed(cmd, deadline, max_bytes, env, cwd):
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _secret(cmd, deadline, max_bytes, env, cwd):
+def _secret(cmd, data, deadline, max_bytes, env, cwd):
     try:
-        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env,
-                             **_popen_kw())
+        p = _spawn(cmd, data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, **_popen_kw())
     except OSError as e:
         return 127, b"", str(e).encode("utf-8", "replace"), None
     try:
@@ -155,7 +198,8 @@ def _secret(cmd, deadline, max_bytes, env, cwd):
 
 def _run(cmd, deadline, max_bytes, env, cwd, paged, secret):
     deadline, max_bytes = resolve(deadline, max_bytes, env, paged)
-    return (_secret if secret else _file_backed)(list(cmd), deadline, max_bytes, env, cwd)
+    cmd, data = _transport(list(cmd))
+    return (_secret if secret else _file_backed)(cmd, data, deadline, max_bytes, env, cwd)
 
 
 def run_bounded(cmd, deadline=None, max_bytes=None, env=None, cwd=None, paged=False, secret=False):

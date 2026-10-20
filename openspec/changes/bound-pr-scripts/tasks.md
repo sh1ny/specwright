@@ -75,7 +75,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
   Verify: it fails because `bounded.py` is missing.
 - [x] 3.2 Implement `skills/specwright-pr/scripts/bounded.py` per design D1/D2: file-backed mode, secret mode with the post-kill `communicate(timeout=5)`, `kill_tree` by PID only, the 0.1 s poll, the defaults and env overrides in its header, and the CLI. Verify: `test_bounded.py` passes.
 
-- [ ] 3.3 Implement D1's Windows argument transport (apply-time drift, review round 2). Write the failing `test_bounded.py` cases first:
+- [x] 3.3 Implement D1's Windows argument transport (apply-time drift, review round 2). Write the failing `test_bounded.py` cases first:
   - a round trip through `"$BASH" -c` of a 9,000-character argument with spaces, a newline, quotes, doubled backslashes, non-ASCII text (`…`, 👍) and an empty argument;
   - a missing end marker exits 126 with `bounded: argument transport failed` and does not run the command;
   - a child that closes stdin early prints no traceback;

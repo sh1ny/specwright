@@ -257,5 +257,72 @@ class ShimOnWindows(Base):
         self.assertTrue(wait_gone(self.pid(), 10), "the fake gh outlived the deadline")
 
 
+def windows_bash():
+    bash = os.environ.get("BASH") or shutil.which("bash")
+    if not bash:
+        return None
+    if shutil.which("cygpath"):
+        bash = subprocess.run(["cygpath", "-w", bash], capture_output=True, text=True).stdout.strip() or bash
+    return bash
+
+
+@unittest.skipUnless(os.name == "nt", "the argument transport is Windows only")
+class ArgumentTransport(Base):
+    """D1: on Windows the arguments after $0 travel on the child's stdin, not on the command line."""
+
+    def setUp(self):
+        super().setUp()
+        self.bash = windows_bash()
+        if not self.bash:
+            self.skipTest("no bash")
+        self.mod = load_bounded()
+
+    def test_round_trip_through_bash_c(self):
+        args = ["a " * 4500, "line one\nline two", "say \"hi\" and 'there'", "back\\\\slash \\\\ end",
+                "ellipsis … thumbs \U0001F44D", ""]
+        self.assertGreaterEqual(len(args[0]), 9000)
+        script = 'printf "%s\\0" "$#" "$0" "$@"; [ -z "$(cat)" ] || printf STDIN-NOT-EMPTY'
+        for secret in (False, True):
+            with self.subTest(secret=secret):
+                r = self.mod.run_bounded([self.bash, "-c", script, "zero", *args], env=self.env, secret=secret)
+                self.assertEqual(r.rc, 0, r.stderr)
+                self.assertEqual(r.limit, None)
+                self.assertEqual(r.stdout.split("\0")[:-1], [str(len(args)), "zero", *args])
+
+    def test_no_arguments_after_zero(self):
+        r = self.mod.run_bounded([self.bash, "-c", 'printf "%s|%s" "$#" "$0"', "zero"], env=self.env)
+        self.assertEqual((r.rc, r.stdout), (0, "0|zero"))
+
+    def test_a_missing_end_marker_exits_126_and_does_not_run_the_command(self):
+        ran = self.tmp / "ran"
+        script = self.mod.ARGV_PRELUDE + "; echo ran > " + ran.as_posix()
+        for data in (b"a\0b\0", b""):
+            with self.subTest(data=data):
+                r = subprocess.run([self.bash, "-c", script, "zero"], input=data, capture_output=True)
+                self.assertEqual(r.returncode, 126, r.stderr)
+                self.assertIn(b"bounded: argument transport failed", r.stderr)
+                self.assertFalse(ran.exists())
+
+    def test_a_child_that_never_reads_prints_no_traceback(self):
+        code = ("import sys; sys.path.insert(0, %r); import bounded\n"
+                "r = bounded.run_bounded([%r, '-c', 'exit 0', 'zero', 'x' * 20000000], deadline=1, secret=%%s)\n"
+                "print(r.limit)\n") % (str(BOUNDED.parent), self.bash)
+        for secret in (False, True):
+            with self.subTest(secret=secret):
+                r = subprocess.run([sys.executable, "-c", code % secret], capture_output=True, text=True, env=self.env, timeout=60)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_cli_limit_line_names_the_original_command(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        (bindir / "gh").write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8", newline="\n")
+        env = {**self.env, "PATH": f"{bindir}{os.pathsep}{self.env.get('PATH', '')}", "SPECWRIGHT_NET_DEADLINE": "1"}
+        r = subprocess.run([sys.executable, "-I", str(BOUNDED), "--", self.bash, "-c", 'exec gh "$@"', "gh", "api", "user"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 124, r.stderr)
+        self.assertIn("bounded: deadline_exceeded: gh api", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

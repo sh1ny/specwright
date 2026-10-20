@@ -225,7 +225,7 @@ def still_open($h; $r): .id as $id | (.lastEditedAt // .createdAt // .submittedA
       elif $rev <= ($h[$id] // "") then true
       else (reacted | not) end
     else unhandled($h; $r) and (reacted | not) end;
-def norm: rtrimstr("[bot]");  # no doubled backslash: bash.exe halves it in an argument (bounded.py runs gh through it)
+def norm: sub("\\[bot\\]$"; "");
 .data.viewer.login as $me
 | .data.repository.pullRequest as $p
 # $handled: source id -> time of your latest reply carrying its marker. An item
@@ -329,7 +329,7 @@ def norm: rtrimstr("[bot]");  # no doubled backslash: bash.exe halves it in an a
      | [ $all[] | select((.author.login // "" | norm) == $r.login) ] as $by
      | (if $r.login == "chatgpt-codex-connector" then
           # every result, findings or not, says "**Reviewed commit:** `<sha>`"
-          [ $by[] | (.body // "") | scan("Reviewed commit:[*][*] `([0-9a-f]{7,40})`") | .[0]
+          [ $by[] | (.body // "") | scan("Reviewed commit:\\*\\* `([0-9a-f]{7,40})`") | .[0]
             | select(. as $s | $head | startswith($s)) ] | length > 0
         elif $r.login == "kody-ai" then
           # its check run is created on the commit it reviews
@@ -457,12 +457,9 @@ prepare_cfg() {
     now: (\"$date\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime)};"
 }
 query_pr() {  # <rtimes def>
-  # The filter (~14 KB) travels in the environment, not as an argument: on Windows, bounded.py starts bash with a native
-  # command line, and an argument with spaces is cut at 8186 characters there. Same call and limits as gh() above.
-  SW_JQ="$CFG
+  gh api graphql -f query="$QUERY" -f owner="$owner" -f name="$name" -F pr="$pr" --jq "$CFG
 $1
-$SHAPE" "$py" -I "$SW_DIR/bounded.py" ${SW_PAGED:+--paged} -- "$SW_BASH" -c 'exec gh "$@" --jq "$SW_JQ"' \
-    gh api graphql -f query="$QUERY" -f owner="$owner" -f name="$name" -F pr="$pr"
+$SHAPE"
 }
 # One query (~1 point); more only when an item you reacted to was edited
 # since: its reaction times, 100 ids per query (1-2 points each), then the PR

@@ -80,11 +80,12 @@ SW_BASH=${BASH:-bash}
 if command -v cygpath >/dev/null 2>&1; then SW_DIR=$(cygpath -m "$SW_DIR"); SW_BASH=$(cygpath -w "$SW_BASH"); fi
 SW_SECRET=1
 gh() { "$py" -I "$SW_DIR/bounded.py" ${SW_PAGED:+--paged} ${SW_SECRET:+--secret} -- "$SW_BASH" -c 'exec gh "$@"' gh "$@"; }
-# a lookup that hit a limit (bounded.py exits 124 deadline, 125 too large) stops here, before the message for "no credential"
+# a lookup that hit a limit (bounded.py exits 124 deadline, 125 too large, 126 argument transport failed) stops here, before the message for "no credential"
 limit_stop() {  # <status> <command>
   case $1 in
     124) echo "as.sh: deadline_exceeded: $2" >&2; exit 3 ;;
     125) echo "as.sh: response_too_large: $2" >&2; exit 3 ;;
+    126) echo "as.sh: argument transport failed: $2" >&2; exit 3 ;;
   esac
 }
 
