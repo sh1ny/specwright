@@ -42,6 +42,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 - Schema or template changes: `openspec schema validate specwright` after re-installing.
 - Reviewer routes (`review-run.sh`): run `python -m unittest discover evals/review-routes`; it uses fake CLIs from `evals/fakes/` and hides any real `codex`, `claude` or `omp` on `PATH`. A change to a route's command line needs a new trial against the real CLIs, recorded in `evals/review-routes/trial.md`.
 - Release script (`release.sh`): run `python -m unittest discover evals/release`.
+- Finish script (`finish.sh`, the deferred-archive undo plan): run `python -m unittest discover evals/finish`; each test builds a temp git repo, applies the printed `script` and `after_rerun` with `bash`, and asserts on the tree, index and refs.
 - Update script (`scripts/update.sh`, the install prompt's Step 4): run `python -m unittest discover evals/update`; it works on scratch repos and shims `mv`, `cp` and `rm` to interrupt every step.
 - PR scripts: exercise the changed path against a real PR, and keep them to bash, git, `gh` and the Python 3.8+ standard library. Run `python -m unittest discover evals/pr-pair`. `test_pass_write_on_python38` runs a pass write on Python 3.8: install one with `uv python install 3.8` (or point `SPECWRIGHT_PY38` at a 3.8 interpreter); without one the test is skipped and names the missing interpreter.
 

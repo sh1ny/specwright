@@ -7,8 +7,13 @@
 #   check [--main <ref>]              read the version files in the working tree: exactly one match per file, one shared
 #                                     version -> version + the files read. With --main, then refuse (exit 1,
 #                                     version_not_ahead_of_main) a branch that bumped to a version not greater than <ref>'s. It
-#                                     bumped when its version differs from the merge base's with <ref>, or a non-merge commit in
-#                                     <ref>..HEAD changed the primary file; no readable version at <ref> passes
+#                                     bumped when its version differs from the merge base's with <ref>, or the newest non-merge
+#                                     commit in <ref>..HEAD that changed the primary file's version raised it; no readable version
+#                                     at <ref> passes. A primary file that exists but does not read exactly one version is
+#                                     unreadable, not absent: an unreadable merge base or parent counts as a bump only when the
+#                                     version is not among the versions it matched (and, for a commit, is greater than all of them);
+#                                     a commit whose own version is unreadable changed it only when its parent's version is not
+#                                     among those it matched, and raised it only when all of them are greater
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
@@ -584,51 +589,95 @@ def sv(v):
 
 
 # ---- subcommands ------------------------------------------------------------------------------------------------
+class Unreadable:
+    """A primary file that exists but does not read exactly one version (or the files disagree). It proves nothing on its
+    own, but a version outside `versions` (what the file did match, possibly nothing) is still a change (D5)."""
+    def __init__(self, versions):
+        self.versions = versions
+
+
 def primary_at(st, entries, commit):
-    """The one version the primary file reads at `commit`, or None when a file matches other than once or the files
-    disagree."""
+    """The one version the primary file reads at `commit`; None when the file is absent there; an Unreadable carrying the
+    versions it matched when a file matches other than once or the files disagree."""
     path, _, c = entries[0]
     tree = CommitTree(st.root, commit)
     blobs = tree.read_all(tree.files(path))
-    vals = set()
+    if not blobs:
+        return None
+    vals, once = set(), True
     for b in blobs.values():  # exactly one match per file, as read_versions requires; the files must then agree
         ms = find_versions(c, decode(b))
-        if len(ms) != 1:
-            return None
-        vals.add(ms[0].group(1))
-    return next(iter(vals)) if len(vals) == 1 else None
+        once = once and len(ms) == 1
+        vals.update(m.group(1) for m in ms)
+    return next(iter(vals)) if once and len(vals) == 1 else Unreadable(vals)
 
 
-def own_bump(st, entries, commits):
-    """D3: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
-    the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump."""
+def judged_parent(st, entries, commit, ref):
+    """D5: the version `commit` is judged against: its parent's, or, while that is unreadable and not on `ref`, the version
+    of the nearest first-parent ancestor that is readable or on `ref` (PR #108 review, round 5)."""
+    at = f"{commit}^"
+    parent = primary_at(st, entries, at) if ref_exists(st.root, at) else None
+    while isinstance(parent, Unreadable):
+        sha = text_of(git(st.root, "rev-parse", at))
+        if git(st.root, "merge-base", "--is-ancestor", sha, ref).returncode == 0 or not ref_exists(st.root, f"{sha}^"):
+            break
+        at = f"{sha}^"
+        parent = primary_at(st, entries, at)
+    return parent
+
+
+def own_bump(st, entries, commits, ref):
+    """D3/D5: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
+    the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump. Each commit is
+    judged against judged_parent: an unreadable parent on the branch is looked past, so a bump made through an unreadable
+    version counts and a stray line added and then removed does not. A commit whose own version is unreadable is no change
+    when that version is among those it matched (or it is unreadable too), else a bump only when it matched at least one
+    version and every one is greater. One judged against an unreadable version (on `ref`) is no change when its version is
+    the greatest semver among those matched, no bump when it is a lower one of them, else a bump when greater than every
+    semver among them (or none)."""
     for c in commits:
         mine = primary_at(st, entries, c)
-        parent = primary_at(st, entries, f"{c}^") if ref_exists(st.root, f"{c}^") else None
+        parent = judged_parent(st, entries, c, ref)
+        if isinstance(mine, Unreadable):
+            if isinstance(parent, Unreadable) or (parent is not None and parent in mine.versions):
+                continue
+            if not mine.versions:
+                return False
+            if parent is None or not sv(parent):
+                return True
+            return all(sv(v) and sv(v) > sv(parent) for v in mine.versions)
         if mine == parent:
             continue
         if mine is None:
             return False
+        if isinstance(parent, Unreadable):
+            seen = [sv(v) for v in parent.versions if sv(v)]
+            if mine in parent.versions:
+                if sv(mine) and seen and sv(mine) < max(seen):
+                    return False  # it kept a lower one of its parent's versions: the higher one, a bump, is dropped
+                continue  # it kept the highest of its parent's versions, which is on ref: no change
+            return not seen or not sv(mine) or all(sv(mine) > s for s in seen)
         return parent is None or not (sv(mine) and sv(parent)) or sv(mine) > sv(parent)
     return False
 
 
 def check_ahead_of(st, entries, ref, version):
-    """D3: a branch that bumped must be greater than `ref`'s version."""
+    """D3/D5: a branch that bumped must be greater than `ref`'s version. An unreadable version at `ref` passes, as an absent
+    one does; an unreadable merge base counts as bumped only when the branch's version is not among those it matched."""
     if not ref_exists(st.root, ref):
         raise Stop("no_main", f"main ref '{ref}' does not exist")
     theirs = primary_at(st, entries, ref)
-    if theirs is None:
+    if theirs is None or isinstance(theirs, Unreadable):
         return
     base = git(st.root, "merge-base", "HEAD", ref)
     base_version = primary_at(st, entries, text_of(base)) if base.returncode == 0 and text_of(base) else None
-    bumped = base_version != version
+    bumped = version not in base_version.versions if isinstance(base_version, Unreadable) else base_version != version
     if not bumped:
         r = git(st.root, "log", "--no-merges", "--topo-order", "--format=%H", f"{ref}..HEAD", "--",
                 f":(glob){entries[0][0]}" if has_glob(entries[0][0]) else f":(literal){entries[0][0]}")
         if r.returncode != 0:
             raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
-        bumped = own_bump(st, entries, text_of(r).split())
+        bumped = own_bump(st, entries, text_of(r).split(), ref)
     if bumped and not (sv(version) and sv(theirs) and sv(version) > sv(theirs)):
         raise Stop("version_not_ahead_of_main", f"this branch bumped to {version}, which is not greater than {ref}'s {theirs}: "
                    f"another change reached {ref} first. Rerun bump --to with a version greater than {theirs}",

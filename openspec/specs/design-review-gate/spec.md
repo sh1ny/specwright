@@ -41,15 +41,15 @@ A `Deferred to:`, `User decision:` or `No design review ran.` line SHALL count t
 
 #### Scenario: Archive ran anyway
 - **WHEN** a deferred change was moved to `changes/archive/` and finish starts
-- **THEN** finish makes no archive commit, no merge and no push, runs no restore itself, and lists for the user the modified main specs (restored with `git restore`, with a warning that this discards their own uncommitted edits in those files), the created main specs (to delete) and how to restore the change directory
+- **THEN** finish makes no archive commit, no merge and no push, runs no restore itself, and shows the commands printed by `finish.sh undo-archive-plan`
 
 #### Scenario: Deferred archive already committed
 - **WHEN** finish resumes where a deferred change's archive is already committed on the branch but not yet on main
-- **THEN** finish runs the deferred check before any merge, ship or push, stops, and lists `git revert` of the archive commit as the undo, never a reset
+- **THEN** finish runs the deferred check before any merge, ship or push, stops, and shows the plan's undo, which is one new commit on the branch, never a reset or a force-push
 
 #### Scenario: Bulk archive that included a deferred change
 - **WHEN** a bulk archive moved a deferred change together with an ordinary change whose delta updated the same main spec
-- **THEN** finish stops and tells the user to undo the whole bulk archive and run it again without the deferred change, never to restore only the deferred change's files
+- **THEN** finish stops, and the plan undoes the whole bulk archive and says to run it again without the deferred change, never restoring only the deferred change's files
 
 #### Scenario: Deferral with no target
 - **WHEN** `review.md` holds `VERDICT: DEFERRED` but no `Deferred to:` line, or one that names nothing
