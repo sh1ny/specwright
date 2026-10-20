@@ -63,7 +63,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 ## 3. Bounded runner
 
-- [ ] 3.1 Write the failing `evals/pr-pair/test_bounded.py`. It covers:
+- [x] 3.1 Write the failing `evals/pr-pair/test_bounded.py`. It covers:
   - deadline → `deadline_exceeded`; the child's PID (from a PID file) is gone within deadline + 10 s;
   - stdout over the bound → `response_too_large`, child gone;
   - normal exit passes rc, stdout and stderr through;
