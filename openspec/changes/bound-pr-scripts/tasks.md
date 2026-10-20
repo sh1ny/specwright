@@ -75,6 +75,14 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
   Verify: it fails because `bounded.py` is missing.
 - [x] 3.2 Implement `skills/specwright-pr/scripts/bounded.py` per design D1/D2: file-backed mode, secret mode with the post-kill `communicate(timeout=5)`, `kill_tree` by PID only, the 0.1 s poll, the defaults and env overrides in its header, and the CLI. Verify: `test_bounded.py` passes.
 
+- [ ] 3.3 Implement D1's Windows argument transport (apply-time drift, review round 2). Write the failing `test_bounded.py` cases first:
+  - a round trip through `"$BASH" -c` of a 9,000-character argument with spaces, a newline, quotes, doubled backslashes, non-ASCII text (`…`, 👍) and an empty argument;
+  - a missing end marker exits 126 with `bounded: argument transport failed` and does not run the command;
+  - a child that closes stdin early prints no traceback;
+  - the cases run on Windows only and are skipped elsewhere.
+
+  Then implement it in `bounded.py` inside the run functions: UTF-8 bytes on a binary pipe, the end marker, the daemon writer thread in both modes. In secret mode, `communicate` must not write stdin as well (review round 2 S4: set `p.stdin = None` after handing it to the writer, or read with the runner's own threads). Map exit 126 in as.sh's `limit_stop` to `as.sh: argument transport failed: <command>`, exit 3 (S5). Remove the `SW_JQ` workaround from `pr-snapshot.sh`'s `query_pr` so it uses the shared `gh()`, and fix the `norm` comment that says bash.exe halves backslashes. Verify: `test_bounded.py` and `test_pr_snapshot.py` pass.
+
 ## 4. pr-pair.sh under the runner
 
 - [ ] 4.1 Write failing tests in `evals/pr-pair/test_pr_pair.py` class `Bounded`, per the test map rows for pr-pair.sh. Add one for `cmd_merge` (a hung PUT with a merged read-back reports `merged`, and with an open read-back reports unknown). Verify: they fail.
