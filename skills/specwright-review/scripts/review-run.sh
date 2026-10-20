@@ -525,6 +525,8 @@ def omp_resolve(exe, model):
     missing = f'Model "{model}" not found'
     if model.startswith("@"):
         r = capture([exe, "config", "get", "modelRoles", "--json"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
+        if r.over:
+            return f"probe failed: omp config get modelRoles wrote too much to {r.over}"
         data = parse_json(r.out)
         if r.timed_out or r.rc != 0 or not isinstance(data, dict):
             return f"probe failed: omp config get modelRoles exited {r.rc}"
@@ -537,6 +539,8 @@ def omp_resolve(exe, model):
     if "/" not in sel:
         return missing
     r = capture([exe, "models", "find", sel.split("/", 1)[1], "--json"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
+    if r.over:
+        return f"probe failed: omp models find wrote too much to {r.over}"
     data = parse_json(r.out)
     if r.timed_out or r.rc != 0 or data is None:
         return f"probe failed: omp models find exited {r.rc}"

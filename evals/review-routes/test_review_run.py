@@ -294,6 +294,17 @@ class SelectTests(Base):
         self.assertEqual(out["route"], "subagent")
         self.assertIn('Model "nosuchprov/nosuch" not found', self.by_route(out)["omp"])
 
+    def test_omp_probe_burst_names_the_stream(self):
+        # a resolve probe that prints past its 1 MiB bound and exits at once names the stream, not "exited None"
+        self.install("omp")
+        pad = "x" * (1536 * 1024)
+        self.extra_env["FAKE_OMP_ROLES"] = str(self.put("roles.json", json.dumps({"value": {"slow": {}}, "pad": pad})))
+        self.extra_env["FAKE_OMP_MODELS"] = str(self.put("models.json", json.dumps({"models": [], "pad": pad})))
+        for model, probe in (("@slow", "omp config get modelRoles"), ("openai-codex/gpt-6.1-sol", "omp models find")):
+            self.set_settings(f"review:\n  order: [omp]\n  models:\n    omp: \"{model}\"\n")
+            reason = self.by_route(self.select("claude"))["omp"]
+            self.assertEqual(reason, f"probe failed: {probe} wrote too much to stdout")
+
 
 class RunTests(Base):
     def test_claude_add_dir_for_store(self):
