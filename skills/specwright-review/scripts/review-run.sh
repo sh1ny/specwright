@@ -410,10 +410,10 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                         over = passed[0] if passed else None if held else answer_over()
                         rc = None if over or held else p.returncode
                         break
-                    if time.monotonic() >= deadline:
+                    if exited is None and time.monotonic() >= deadline:  # once it exited, the grace decides, never the deadline
                         timed_out = True
                         break
-                    wake.wait(max(0.01, min(POLL, deadline - time.monotonic())))
+                    wake.wait(max(0.01, min(POLL, (deadline if exited is None else exited + 2) - time.monotonic())))
                     wake.clear()
                 if over or timed_out or held:
                     if p.poll() is None or any(t.is_alive() for t in readers):

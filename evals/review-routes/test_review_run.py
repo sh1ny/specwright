@@ -939,6 +939,19 @@ class OutputBound(Base):
                 time.sleep(0.2)
             self.assertFalse(pid_alive(pid), "the child survived")
 
+    def test_a_reviewer_that_exits_before_the_deadline_is_never_a_timeout(self):
+        # it exits about 3 s into a 5 s timeout and its child holds the pipe through the deadline: the 2 s exit grace
+        # decides (here: the held pipe), not review.timeout (review round 7)
+        self.install("codex", "claude")
+        self.claude_result()
+        self.set_settings("review:\n  timeout: 5s\n")
+        kid_file = self.tmp / "kid.pid"
+        self.extra_env.update({"FAKE_CLAUDE_DELAY": "3", "FAKE_CLAUDE_LINGER": "40", "FAKE_CLAUDE_LINGER_PID_FILE": str(kid_file)})
+        self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["status"], "failed", out)
+        self.assertIn("kept its output open", out["message"])
+
     def test_codex_answer_file_flood_stopped(self):
         self.install("codex")
         self.flood_env("codex", answer=3 * self.MIB)
