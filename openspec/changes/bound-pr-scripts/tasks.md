@@ -12,7 +12,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 |---|---|---|---|---|
 | pr-script-runtime → Network commands have a deadline | GitHub answers in time | evals/pr-pair/test_pr_pair.py | ClosingCheck.test_closing_check_match (unchanged, re-run under the runner) | green |
 | pr-script-runtime → Network commands have a deadline | Hung gh call in pr-pair.sh | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_hung_gh_deadline_exceeded | red |
-| pr-script-runtime → Network commands have a deadline | Hung gh call in a bash PR script | evals/pr-pair/test_pr_reply.py | Bounded.test_reply_hung_gh_deadline_exceeded_no_temp_file | red |
+| pr-script-runtime → Network commands have a deadline | Hung gh call in a bash PR script | evals/pr-pair/test_pr_reply.py | Bounded.test_reply_hung_gh_deadline_exceeded_no_temp_file | green |
 | pr-script-runtime → Network commands have a deadline | Hung credential lookup in as.sh | evals/pr-pair/test_as_sh.py | Bounded.test_token_lookup_hung_exits_3_named | green |
 | pr-script-runtime → GitHub responses are bounded | Large but bounded list | evals/pr-pair/test_pr_pair.py | Bounded.test_discover_large_list_read_whole | red |
 | pr-script-runtime → GitHub responses are bounded | Oversized paginated read | evals/pr-pair/test_pr_pair.py | Bounded.test_paginated_read_too_large | red |
@@ -99,7 +99,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 - [x] 5.1 Write failing tests: `test_as_sh.py` `Bounded` (hung `gh auth token` in the fenced path and in `--resolve`, each exit 3 naming `deadline_exceeded`, fenced command not run), `test_pr_reply.py` `Bounded`, and `test_pr_snapshot.py` `WatchElapsed` (four rows). Move the existing tests that relied on "timeout counts polls" (`test_pr_snapshot.py:365`) to `--timeout 3 --interval 1` elapsed bounds. Verify: the new tests fail; the moved tests still describe their original intent.
 - [x] 5.2 Add the shared header block (design D1) to `as.sh`, `pr-reply.sh` and `pr-snapshot.sh`: Python discovery (exit 2 `no_python`), `SW_DIR`, `SW_BASH`, and the `gh()` function. The hook must pass `--secret` as well as `--paged` (review S7: `${SW_SECRET:+--secret}`, or a direct `bounded.py --secret` call), so as.sh's two `gh auth token` calls never reach a file. Verify: a test asserts no file appears under a fresh `TEMP` during an as.sh token lookup.
 - [x] 5.3 Restructure as.sh's five lookups (design D3). The review's S6 corrects the line numbers: `--help` at `:69`; `--resolve`'s `api user` at `:75` and `gh auth token` at `:77`; the fenced `gh auth token` at `:82`; `api user` at `:86`. Each checks for 124/125 before its existing message. Verify: the `test_as_sh.py` `Bounded` tests pass and the existing as.sh tests stay green.
-- [ ] 5.4 Route `pr-reply.sh`'s `gh` calls through the runner. Verify: its `Bounded` test passes (exit non-zero, `deadline_exceeded` on stderr, no temp file) and the existing reply tests stay green.
+- [x] 5.4 Route `pr-reply.sh`'s `gh` calls through the runner. Verify: its `Bounded` test passes (exit non-zero, `deadline_exceeded` on stderr, no temp file) and the existing reply tests stay green.
 - [ ] 5.5 Rewrite the `pr-snapshot.sh --wait` loop per design D5:
   - `start=$SECONDS` before the first snapshot;
   - per-poll `SPECWRIGHT_NET_DEADLINE_AT`, the first snapshot included, unset after each poll;
