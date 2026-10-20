@@ -139,7 +139,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
   - remove `without_code` and its helpers.
 
   Verify: the `ClosingRendered` tests and every existing `ClosingCheck`/`ClosedCheck` test pass; flip the rows green.
-- [ ] 8.4 Update `skills/specwright-pr/references/description.md` and any skill text that describes how closing lines are found (code, comments) so it says they are read from GitHub's rendering. Verify: `grep -rn "without_code\|CommonMark" skills/` finds nothing stale, and `evals/pr-pair/test_skill_text.py` passes.
+- [x] 8.4 Update `skills/specwright-pr/references/description.md` and any skill text that describes how closing lines are found (code, comments) so it says they are read from GitHub's rendering. Verify: `grep -rn "without_code\|CommonMark" skills/` finds nothing stale, and `evals/pr-pair/test_skill_text.py` passes.
 
 ## 9. Release and integration
 
