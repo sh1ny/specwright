@@ -70,6 +70,17 @@ def pid_alive(pid):
     return True
 
 
+def kill_pid(pid):
+    """Stop one process this test started, by PID."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
 class Base(unittest.TestCase):
     maxDiff = None
 
@@ -906,6 +917,27 @@ class OutputBound(Base):
         if spy.exists():  # the flood returned: what the capture holds on disk is within the 8 MiB bound
             self.assertLessEqual(int(spy.read_text()), 8 * self.MIB + 1)
         self.assertEqual(list(scratch.glob("specwright-run-*")), [])
+
+    def test_a_child_that_keeps_the_pipes_open_fails_the_run(self):
+        # the CLI exits 0, but a process it started still holds stdout: the output may be partial, so the run fails and
+        # the tree is stopped instead of validating it (review round 5)
+        self.install("codex", "claude")
+        self.claude_result()
+        kid_file = self.tmp / "kid.pid"
+        self.extra_env.update({"FAKE_CLAUDE_LINGER": "40", "FAKE_CLAUDE_LINGER_PID_FILE": str(kid_file)})
+        self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
+        started = time.time()
+        out = self.preship("claude", expect=3)
+        self.assertLess(time.time() - started, 30, "the run waited for the child")
+        self.assertEqual(out["status"], "failed", out)
+        self.assertIn("kept its output open", out["message"])
+        self.assertFalse((self.tmp / "findings.json").exists())
+        if os.name != "nt":  # Windows cannot walk the tree of an exited parent; the run still fails
+            pid = int(kid_file.read_text(encoding="utf-8"))
+            deadline = time.time() + 5
+            while pid_alive(pid) and time.time() < deadline:
+                time.sleep(0.2)
+            self.assertFalse(pid_alive(pid), "the child survived")
 
     def test_codex_answer_file_flood_stopped(self):
         self.install("codex")

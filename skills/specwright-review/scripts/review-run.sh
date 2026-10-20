@@ -78,6 +78,7 @@ MAX_STREAM_OUT = 64 * 1024 * 1024  # stdout of codex and omp: event streams, the
 MAX_PROBE_STREAM = 1024 * 1024  # each stream of a probe
 PROBE_LIMITS = {"stdout": MAX_PROBE_STREAM, "stderr": MAX_PROBE_STREAM}
 POLL = 0.25  # seconds between checks of a running reviewer
+HELD = "exited, but a process it started kept its output open"
 ENV = dict(os.environ)
 
 
@@ -327,9 +328,10 @@ def kill_tree(pid):
 
 
 class Captured:
-    def __init__(self, rc, out, out_size, err, timed_out, error=None, scanned=None, over=None):
+    def __init__(self, rc, out, out_size, err, timed_out, error=None, scanned=None, over=None, held=False):
         self.rc, self.out, self.out_size, self.err, self.timed_out, self.error = rc, out, out_size, err, timed_out, error
         self.scanned = scanned
+        self.held = held  # the CLI exited but a process it started kept a pipe open past the grace: the output may be partial
         self.over = over  # "stdout", "stderr" or "answer" when that stream passed its bound and the process tree was stopped
 
 
@@ -340,7 +342,8 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
     called with the stdout file's path after a normal exit and its result is returned as `.scanned`. `limits` is
     {"stdout": bytes, "stderr": bytes}; `watch` is (path, bytes) for a file the CLI writes itself (codex's last message),
     checked every POLL seconds. Past a bound the tree is stopped, `.over` names it. After the CLI exits its readers get
-    2 s to finish, so a straggler that inherited a pipe cannot hold the run open."""
+    2 s to finish; a process it started that still holds a pipe then is stopped with the tree and the run fails (`.held`),
+    since its output may be partial."""
     limits = limits or {}
     work = tempfile.mkdtemp(prefix="specwright-run-")
     out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
@@ -384,7 +387,7 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                 for t in readers:
                     t.start()
                 deadline = time.monotonic() + timeout
-                rc, timed_out, over, exited = None, False, None, None
+                rc, timed_out, over, exited, held = None, False, None, None, False
 
                 def answer_over():
                     if watch:
@@ -402,15 +405,16 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                     if exited is None and p.poll() is not None:
                         exited = time.monotonic()
                     if exited is not None and (not any(t.is_alive() for t in readers) or time.monotonic() - exited >= 2):
-                        over = answer_over()  # an answer written just before the exit
-                        rc = None if over else p.returncode
+                        held = any(t.is_alive() for t in readers)
+                        over = None if held else answer_over()  # an answer written just before the exit
+                        rc = None if over or held else p.returncode
                         break
                     if time.monotonic() >= deadline:
                         timed_out = True
                         break
                     wake.wait(max(0.01, min(POLL, deadline - time.monotonic())))
                     wake.clear()
-                if over or timed_out:
+                if over or timed_out or held:
                     if p.poll() is None or any(t.is_alive() for t in readers):
                         kill_tree(p.pid)
                     try:
@@ -431,13 +435,13 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                         except (OSError, ValueError):
                             pass
         size = kept["stdout"]
-        scanned = scan(out_path) if scan and not timed_out and not over and rc == 0 else None
+        scanned = scan(out_path) if scan and not timed_out and not over and not held and rc == 0 else None
         with open(out_path, "rb") as f:
             out = f.read(MAX_OUTPUT + 1)
         with open(err_path, "rb") as f:
             f.seek(max(0, os.path.getsize(err_path) - 2000))
             err = f.read().decode("utf-8", "replace")
-        return Captured(rc, out, size, err, timed_out, scanned=scanned, over=over)
+        return Captured(rc, out, size, err, timed_out, scanned=scanned, over=over, held=held)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -554,6 +558,8 @@ def probe(route):
     r = capture([exe, "--version"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
     if r.over:
         return None, None, f"probe failed: --version wrote too much to {r.over}"
+    if r.held:
+        return None, None, f"probe failed: --version {HELD}"
     if r.timed_out:
         return None, None, f"probe failed: --version took longer than {PROBE_TIMEOUT}s"
     if r.rc != 0:
@@ -570,6 +576,8 @@ def omp_resolve(exe, model):
         r = capture([exe, "config", "get", "modelRoles", "--json"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
         if r.over:
             return f"probe failed: omp config get modelRoles wrote too much to {r.over}"
+        if r.held:
+            return f"probe failed: omp config get modelRoles {HELD}"
         data = parse_json(r.out)
         if r.timed_out or r.rc != 0 or not isinstance(data, dict):
             return f"probe failed: omp config get modelRoles exited {r.rc}"
@@ -584,6 +592,8 @@ def omp_resolve(exe, model):
     r = capture([exe, "models", "find", sel.split("/", 1)[1], "--json"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
     if r.over:
         return f"probe failed: omp models find wrote too much to {r.over}"
+    if r.held:
+        return f"probe failed: omp models find {HELD}"
     data = parse_json(r.out)
     if r.timed_out or r.rc != 0 or data is None:
         return f"probe failed: omp models find exited {r.rc}"
@@ -1097,6 +1107,8 @@ def cmd_run(argv):
 
         if res.over:
             stop("invalid", "invalid_output", f"output too large: {res.over}; {route}'s process tree was stopped")
+        if res.held:
+            stop("failed", "reviewer_failed", f"{route} {HELD}; its process tree was stopped")
         if res.timed_out:
             stop("timeout", "timeout", f"{route} was still running after review.timeout ({cfg.timeout}s); its process tree was stopped")
         if res.rc != 0:

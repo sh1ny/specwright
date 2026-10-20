@@ -13,6 +13,8 @@ Environment (U = the CLI name in capitals):
   FAKE_U_FLOOD_STDERR  the same on stderr
   FAKE_U_FLOOD_ANSWER  codex only: the same into the `-o` last-message file
   FAKE_U_FLOOD_EXIT    set: after the flood, answer normally and exit instead of running until killed
+  FAKE_U_LINGER        a review call starts a child that inherits stdout and stderr and sleeps this many seconds,
+                       then answers normally and exits; FAKE_U_LINGER_PID_FILE gets the child's PID
   FAKE_U_SPY           after each stdout/stderr flood returns, write here the size of the largest file under
                        <tempdir>/specwright-run-*/ (review-run.sh's capture files)
   FAKE_OMP_ROLES       file with the JSON `omp config get modelRoles --json` prints (default: roles default and slow)
@@ -92,6 +94,11 @@ def main(argv):
     n = int(env(f"FAKE_{u}_STDERR_BYTES", "0"))
     if n:
         flood(sys.stderr.buffer, n)
+    if env(f"FAKE_{u}_LINGER"):
+        import subprocess
+        kid = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({float(env(f'FAKE_{u}_LINGER'))})"])
+        if env(f"FAKE_{u}_LINGER_PID_FILE"):
+            Path(env(f"FAKE_{u}_LINGER_PID_FILE")).write_text(str(kid.pid))
     floods = [(int(env(f"FAKE_{u}_FLOOD_{k}", "0")), k) for k in ("STDOUT", "STDERR", "ANSWER")]
     if any(n for n, _ in floods):
         for n, k in floods:
