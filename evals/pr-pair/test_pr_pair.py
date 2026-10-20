@@ -3390,5 +3390,100 @@ class DeleteRemote(Base):
         self.assertIn(BRANCH, self.branches())
 
 
+class Bounded(PassBase):
+    """Network commands run under a deadline and a byte bound (bound-pr-scripts D3); a limit is a named stop."""
+
+    def pid_alive(self, pid):
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
+            return f'"{pid}"' in out
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def wait_gone(self, pid, seconds=10):
+        import time
+        end = time.time() + seconds
+        while time.time() < end and self.pid_alive(pid):
+            time.sleep(0.2)
+        return not self.pid_alive(pid)
+
+    def replied_code_fix(self, finding):
+        """A code fix committed, pushed and re-requested; the reply is posted (so only the reaction can be missing)."""
+        self.write_record([finding])
+        self.fix_code()
+        self.push_all()
+        self.pushed_at(CODE, BRANCH, self.tip(self.code), "2026-10-08T12:00:00Z")
+        self.add_comment(CODE, 5, "@codex review", "KintsugiBot", 2002, created_at="2026-10-08T12:00:03Z")
+
+    def inject(self, **over):
+        st = self.gh()
+        st.update(over)
+        self.save_gh(st)
+
+    def test_discover_hung_gh_deadline_exceeded(self):
+        import time
+        pid_file = self.tmp / "hung.pid"
+        self.inject(hang=[{"match": r"api .*pulls", "pid_file": str(pid_file)}])
+        t0 = time.time()
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH, expect=3,
+                    env={"SPECWRIGHT_NET_PAGED_DEADLINE": "2", "SPECWRIGHT_NET_DEADLINE": "2"})
+        self.assertLess(time.time() - t0, 2 + 10)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["error"], "deadline_exceeded")
+        self.assertTrue(r["unknown"])
+        self.assertIn("gh api", r["message"])
+        self.assertTrue(pid_file.exists(), "the hung gh call was reached")
+        self.assertTrue(self.wait_gone(int(pid_file.read_text())), "no gh process the script started is still running")
+
+    def test_discover_large_list_read_whole(self):
+        pulls = [self.pull(CODE, n, body="x" * 14000) for n in range(1, 151)]  # ~2 MiB over two pages
+        self.seed_pulls(CODE, pulls)
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH)
+        self.assertTrue(r["ok"])
+        self.assertEqual(len(r["prs"]), 150)
+        self.assertNotIn("error", r)
+
+    def test_paginated_read_too_large(self):
+        self.inject(flood=[{"match": r"api .*pulls", "bytes": 20000}])
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH, expect=3, env={"SPECWRIGHT_NET_MAX_BYTES": "5000"})
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["error"], "response_too_large")
+        self.assertTrue(r["unknown"])
+        self.assertIn("gh api", r["message"])
+        self.assertNotIn("prs", r)
+
+    def test_reaction_loop_page_cap(self):
+        self.replied_code_fix(self.finding("F1", dest="code", kind="comment", item="IC_node1", resolve=False,
+                                           edits=[{"file": "greet.py", "contains": ["strip()"]}]))
+        st = self.gh()
+        for i in range(60):  # one reaction per page: past the 50-page cap, and never the viewer's
+            fake_gh.add_node_reaction(st, CODE, "IC_node1", f"someone{i}", "THUMBS_UP")
+        st["graphql_page_size"] = 1
+        self.save_gh(st)
+        p = self.plan(code=snap(comments=[]), expect=3)
+        self.assertEqual((p["ok"], p["error"]), (False, "response_too_large"))
+        self.assertTrue(p["unknown"])
+        self.assertTrue(self.record_path().exists())
+
+    def merge_hung(self, merged):
+        self.add_pull(CODE, 7, state="closed" if merged else "open", merged="2026-10-08T11:00:00Z" if merged else None)
+        self.inject(hang=[{"match": r"-X PUT", "pid_file": str(self.tmp / "put.pid")}])
+        return self.pp("merge", "--repo", CODE, "--pr", 7, "--method", "merge", "--head", f"{7:040x}",
+                       env={"GH_TOKEN": "tok-k", "SPECWRIGHT_NET_DEADLINE": "2"}, expect=0 if merged else 3)
+
+    def test_merge_hung_put_with_merged_readback_is_merged(self):
+        r = self.merge_hung(True)
+        self.assertEqual((r["ok"], r["status"]), (True, "merged"))
+        self.assertTrue(self.wait_gone(int((self.tmp / "put.pid").read_text())))
+
+    def test_merge_hung_put_with_open_readback_is_unknown(self):
+        r = self.merge_hung(False)
+        self.assertEqual((r["ok"], r["status"], r["unknown"]), (False, "unknown", True))
+        self.assertTrue(self.wait_gone(int((self.tmp / "put.pid").read_text())))
+
+
 if __name__ == "__main__":
     unittest.main()

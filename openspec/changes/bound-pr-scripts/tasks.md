@@ -85,7 +85,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 ## 4. pr-pair.sh under the runner
 
-- [ ] 4.1 Write failing tests in `evals/pr-pair/test_pr_pair.py` class `Bounded`, per the test map rows for pr-pair.sh. Add one for `cmd_merge` (a hung PUT with a merged read-back reports `merged`, and with an open read-back reports unknown). Verify: they fail.
+- [x] 4.1 Write failing tests in `evals/pr-pair/test_pr_pair.py` class `Bounded`, per the test map rows for pr-pair.sh. Add one for `cmd_merge` (a hung PUT with a merged read-back reports `merged`, and with an open read-back reports unknown). Verify: they fail.
 - [ ] 4.2 Load `bounded.py` by path (`importlib.util.spec_from_file_location`, `PR_PAIR_DIR`) and route the network calls through it per design D3:
   - `gh` (paged when `--paginate` is in the args), `git_net`, `token_for` (its `gh auth token` in secret mode at `pr-pair.sh:235`; its `gh api user` at `:240` file-backed) and `ambient_login`;
   - limits raise `deadline_exceeded`/`response_too_large` with code 3, `unknown: true`;
