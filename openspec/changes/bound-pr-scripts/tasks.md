@@ -21,9 +21,9 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 | pr-watch → The watch timeout is elapsed time | Poll hangs during the watch | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_hung_polls_exit_1_within_bound | green |
 | pr-watch → The watch timeout is elapsed time | Takeover after a hung poll | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_takeover_during_hung_poll_exits_4 | green |
 | pr-watch → The watch timeout is elapsed time | First snapshot hangs | evals/pr-pair/test_pr_snapshot.py | WatchElapsed.test_first_snapshot_hung_exits_1 | green |
-| feedback-passes → PR-item issues are found in one read per pass | Several findings, some already tracked | evals/pr-pair/test_pr_pair.py | ItemIssues.test_one_read_finds_tracked_item | red |
+| feedback-passes → PR-item issues are found in one read per pass | Several findings, some already tracked | evals/pr-pair/test_pr_pair.py | ItemIssues.test_one_read_finds_tracked_item | green |
 | feedback-passes → PR-item issues are found in one read per pass | Store-backed pass with items in both repositories | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | ItemIssues.test_reads_only_its_repo_as_its_login; SkillText.test_after_limit_issues_one_lookup_per_repo | red |
-| feedback-passes → PR-item issues are found in one read per pass | Pull requests carrying the marker | evals/pr-pair/test_pr_pair.py | ItemIssues.test_pull_request_with_marker_ignored | red |
+| feedback-passes → PR-item issues are found in one read per pass | Pull requests carrying the marker | evals/pr-pair/test_pr_pair.py | ItemIssues.test_pull_request_with_marker_ignored | green |
 | feedback-passes → PR-item issues are found in one read per pass | Issue list cannot be read | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | ItemIssues.test_read_failure_exits_3_named; SkillText.test_after_limit_issues_files_nothing_on_lookup_failure | red |
 | review-routes → Reviewer output is bounded while the CLI runs | Output within the bounds | evals/review-routes/test_review_run.py | OutputBound.test_omp_stream_within_bounds_passes | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Runaway stdout | evals/review-routes/test_review_run.py | OutputBound.test_claude_stdout_flood_stopped_nothing_written | green |
@@ -113,7 +113,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 ## 6. One issue read per pass
 
 - [x] 6.1 Write failing `ItemIssues` tests in `test_pr_pair.py`, and the two `SkillText` tests in `evals/pr-pair/test_skill_text.py`, per the test map. Verify: they fail.
-- [ ] 6.2 Implement `pr-pair.sh item-issues --repo o/n --item <id>...` per design D4: one paged read with the `--jq` filter, whole-line marker match, lowest number wins, output `{"ok":true,"found":{...},"missing":[...]}`, exit 3 naming the error. Verify: the `ItemIssues` tests pass.
+- [x] 6.2 Implement `pr-pair.sh item-issues --repo o/n --item <id>...` per design D4: one paged read with the `--jq` filter, whole-line marker match, lowest number wins, output `{"ok":true,"found":{...},"missing":[...]}`, exit 3 naming the error. Verify: the `ItemIssues` tests pass.
 - [ ] 6.3 Rewrite the `after_limit: issues` step in `skills/specwright-pr/SKILL.md` (`:119-123`). It calls `item-issues` once per repository per pass, as that repository's login (`[as]` run login in the code checkout, store login in the store checkout), passing only that PR's items. On exit 3 it files nothing and reports the lookup not done with the error name. Verify: the `SkillText` tests pass; flip the rows green.
 
 ## 7. Reviewer output bounded while it runs

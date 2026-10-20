@@ -2187,11 +2187,40 @@ def cmd_delete_remote(argv):
     raise Stop("kept", message, status="kept", http_status=status, **base)
 
 
+ITEM_JQ = '.[] | select(.pull_request == null and ((.body // "") | contains("specwright:pr-item "))) | {number, body}'
+
+
+def cmd_item_issues(argv):
+    """The existing PR-item issues of one repository in one paged read; gh's --jq keeps only marked issues. An item is matched
+    by a whole `specwright:pr-item <id>` line, the lowest issue number winning. A failed or limited read exits 3, never a guess."""
+    a, _ = parse_args(argv, {"--repo": "repo", "--item": "+items"})
+    need(a, "repo", "items")
+    repo, items = a["repo"], a["items"]
+    r = gh("api", "--paginate", f"repos/{repo}/issues?state=all&per_page=100", "--jq", ITEM_JQ, repo=repo)
+    if r.returncode != 0:
+        unknown((r.stderr or r.stdout).strip() or f"gh exited {r.returncode}")
+    lines = {}  # marker line -> lowest issue number
+    for raw in r.stdout.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            issue = json.loads(raw)
+            number, body = issue["number"], issue.get("body") or ""
+        except (ValueError, KeyError, TypeError, AttributeError):
+            unknown("unreadable response")
+        for line in body.splitlines():
+            line = line.strip()
+            if line.startswith("specwright:pr-item "):
+                lines[line] = min(number, lines.get(line, number))
+    found = {i: lines[f"specwright:pr-item {i}"] for i in items if f"specwright:pr-item {i}" in lines}
+    return {"ok": True, "found": found, "missing": [i for i in items if i not in found]}
+
+
 COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
             "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,
-            "delete-remote": cmd_delete_remote}
+            "delete-remote": cmd_delete_remote, "item-issues": cmd_item_issues}
 
 args = sys.argv[1:]
 try:
