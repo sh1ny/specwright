@@ -112,7 +112,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 ## 6. One issue read per pass
 
-- [ ] 6.1 Write failing `ItemIssues` tests in `test_pr_pair.py`, and the two `SkillText` tests in `evals/pr-pair/test_skill_text.py`, per the test map. Verify: they fail.
+- [x] 6.1 Write failing `ItemIssues` tests in `test_pr_pair.py`, and the two `SkillText` tests in `evals/pr-pair/test_skill_text.py`, per the test map. Verify: they fail.
 - [ ] 6.2 Implement `pr-pair.sh item-issues --repo o/n --item <id>...` per design D4: one paged read with the `--jq` filter, whole-line marker match, lowest number wins, output `{"ok":true,"found":{...},"missing":[...]}`, exit 3 naming the error. Verify: the `ItemIssues` tests pass.
 - [ ] 6.3 Rewrite the `after_limit: issues` step in `skills/specwright-pr/SKILL.md` (`:119-123`). It calls `item-issues` once per repository per pass, as that repository's login (`[as]` run login in the code checkout, store login in the store checkout), passing only that PR's items. On exit 3 it files nothing and reports the lookup not done with the error name. Verify: the `SkillText` tests pass; flip the rows green.
 

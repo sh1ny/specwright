@@ -3390,6 +3390,83 @@ class DeleteRemote(Base):
         self.assertIn(BRANCH, self.branches())
 
 
+class ItemIssues(Base):
+    """item-issues: the existing PR-item issues of one repository in one paged read (bound-pr-scripts D4)."""
+
+    TOKEN = {"GH_TOKEN": "tok-k"}
+
+    def seed(self, slug, issues):
+        st = self.gh()
+        st.setdefault("repos", {}).setdefault(slug, {})["issue_list"] = issues
+        self.save_gh(st)
+
+    def item_issues(self, repo, *items, expect=0, env=None):
+        args = ["item-issues", "--repo", repo]
+        for i in items:
+            args += ["--item", i]
+        return self.pp(*args, env={**self.TOKEN, **(env or {})}, expect=expect)
+
+    def issue_reads(self, slug):
+        return [c for c in self.gh_calls() if any(f"repos/{slug}/issues" in x for x in c["argv"])]
+
+    def test_one_read_finds_tracked_item(self):
+        self.seed(CODE, [{"number": 9, "state": "closed", "body": "text\n\nspecwright:pr-item PRRT_2"},
+                         {"number": 4, "state": "open", "body": "unrelated"},
+                         {"number": 12, "state": "open", "body": "dup\nspecwright:pr-item PRRT_2"},
+                         {"number": 13, "state": "open", "body": "specwright:pr-item PRRT_20"}])
+        r = self.item_issues(CODE, "PRRT_1", "PRRT_2", "PRRT_3")
+        self.assertEqual((r["ok"], r["found"], r["missing"]), (True, {"PRRT_2": 9}, ["PRRT_1", "PRRT_3"]))
+        reads = self.issue_reads(CODE)
+        self.assertEqual(len(reads), 1, "one read whatever the number of items")
+        self.assertIn("--paginate", reads[0]["argv"])
+        self.assertTrue(any("state=all" in x and "per_page=100" in x for x in reads[0]["argv"]))
+        self.assertIn("--jq", reads[0]["argv"])
+
+    def test_reads_only_its_repo_as_its_login(self):
+        self.seed(CODE, [{"number": 3, "state": "open", "body": "specwright:pr-item A"}])
+        self.seed(STORE, [{"number": 5, "state": "open", "body": "specwright:pr-item B"}])
+        r = self.item_issues(CODE, "A", "B")
+        self.assertEqual((r["found"], r["missing"]), ({"A": 3}, ["B"]), "an item is matched only in its own repository")
+        self.assertEqual(self.issue_reads(STORE), [])
+        r = self.item_issues(STORE, "B", env={"GH_TOKEN": "tok-s"})
+        self.assertEqual(r["found"], {"B": 5})
+        reads = self.issue_reads(STORE)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(reads[0]["env"]["GH_TOKEN"], "tok-s")
+        self.assertEqual(len(self.issue_reads(CODE)), 1)
+
+    def test_pull_request_with_marker_ignored(self):
+        self.seed(CODE, [{"number": 7, "state": "open", "body": "specwright:pr-item A", "pull_request": {"url": "u"}}])
+        r = self.item_issues(CODE, "A")
+        self.assertEqual((r["found"], r["missing"]), ({}, ["A"]))
+
+    def test_marker_must_be_a_whole_line(self):
+        self.seed(CODE, [{"number": 7, "state": "open", "body": "see specwright:pr-item A in text"},
+                         {"number": 8, "state": "open", "body": "x\r\nspecwright:pr-item A\r\n"}])
+        self.assertEqual(self.item_issues(CODE, "A")["found"], {"A": 8})
+
+    def test_read_failure_exits_3_named(self):
+        st = self.gh()
+        st["fail"] = [{"match": r"issues\?", "exit": 1, "stderr": "boom"}]
+        self.save_gh(st)
+        r = self.item_issues(CODE, "A", expect=3)
+        self.assertEqual((r["ok"], r["error"], r["unknown"]), (False, "lookup_failed", True))
+        self.assertNotIn("found", r)
+
+    def test_read_past_size_bound_exits_3_named(self):
+        self.seed(CODE, [{"number": 1, "state": "open", "body": "specwright:pr-item A"}])
+        st = self.gh()
+        st["flood"] = [{"match": r"api .*issues", "bytes": 20000}]
+        self.save_gh(st)
+        r = self.item_issues(CODE, "A", expect=3, env={"SPECWRIGHT_NET_MAX_BYTES": "5000"})
+        self.assertEqual((r["ok"], r["error"]), (False, "response_too_large"))
+
+    def test_usage_makes_no_request(self):
+        self.item_issues(CODE, expect=2)
+        self.pp("item-issues", "--item", "A", env=self.TOKEN, expect=2)
+        self.assertEqual(self.gh_calls(), [])
+
+
 class Bounded(PassBase):
     """Network commands run under a deadline and a byte bound (bound-pr-scripts D3); a limit is a named stop."""
 
