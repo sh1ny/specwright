@@ -73,7 +73,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
   - a `#!/bin/sh` `gh` started through `"$BASH" -c 'exec gh "$@"'` runs on Windows.
 
   Verify: it fails because `bounded.py` is missing.
-- [ ] 3.2 Implement `skills/specwright-pr/scripts/bounded.py` per design D1/D2: file-backed mode, secret mode with the post-kill `communicate(timeout=5)`, `kill_tree` by PID only, the 0.1 s poll, the defaults and env overrides in its header, and the CLI. Verify: `test_bounded.py` passes.
+- [x] 3.2 Implement `skills/specwright-pr/scripts/bounded.py` per design D1/D2: file-backed mode, secret mode with the post-kill `communicate(timeout=5)`, `kill_tree` by PID only, the 0.1 s poll, the defaults and env overrides in its header, and the CLI. Verify: `test_bounded.py` passes.
 
 ## 4. pr-pair.sh under the runner
 
