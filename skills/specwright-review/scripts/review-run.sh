@@ -62,6 +62,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ACCEPTED = ("codex", "claude", "omp")
@@ -71,6 +72,11 @@ MAX_OUTPUT = 2 * 1024 * 1024
 MAX_EVENT_LINE = 16 * 1024 * 1024  # one OMP event line (agent_end carries every message of the session)
 MAX_FINDINGS = 100
 PROBE_TIMEOUT = 10
+MAX_STREAM_ERR = 8 * 1024 * 1024  # stderr of a reviewer run
+MAX_STREAM_OUT = 64 * 1024 * 1024  # stdout of codex and omp: event streams, their answer is bounded separately
+MAX_PROBE_STREAM = 1024 * 1024  # each stream of a probe
+PROBE_LIMITS = {"stdout": MAX_PROBE_STREAM, "stderr": MAX_PROBE_STREAM}
+POLL = 0.25  # seconds between checks of a running reviewer
 ENV = dict(os.environ)
 
 
@@ -320,15 +326,19 @@ def kill_tree(pid):
 
 
 class Captured:
-    def __init__(self, rc, out, out_size, err, timed_out, error=None, scanned=None):
+    def __init__(self, rc, out, out_size, err, timed_out, error=None, scanned=None, over=None):
         self.rc, self.out, self.out_size, self.err, self.timed_out, self.error = rc, out, out_size, err, timed_out, error
         self.scanned = scanned
+        self.over = over  # "stdout", "stderr" or "answer" when that stream passed its bound and the process tree was stopped
 
 
-def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None):
+def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, watch=None):
     """Run `cmd` with a deadline. Output goes to files, so a huge output costs disk, not memory, and a killed process
     tree cannot leave a pipe open. Returns the first MAX_OUTPUT+1 bytes of stdout and the size. `scan`, when given, is
-    called with the stdout file's path after a normal exit and its result is returned as `.scanned`."""
+    called with the stdout file's path after a normal exit and its result is returned as `.scanned`. Every POLL seconds
+    the deadline and the output sizes are checked: `limits` is {"stdout": bytes, "stderr": bytes}, `watch` is
+    (path, bytes) for a file the CLI writes (codex's last message). Past a bound the tree is stopped, `.over` names it."""
+    limits = limits or {}
     work = tempfile.mkdtemp(prefix="specwright-run-")
     try:
         with open(os.path.join(work, "out"), "wb") as fo, open(os.path.join(work, "err"), "wb") as fe:
@@ -339,26 +349,44 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None):
                     p = subprocess.Popen(cmd, stdin=fi if fi else subprocess.DEVNULL, stdout=fo, stderr=fe, cwd=cwd, env=ENV, **kw)
                 except OSError as e:
                     return Captured(127, b"", 0, str(e), False, error=str(e))
-                try:
-                    rc, timed_out = p.wait(timeout=timeout), False
-                except subprocess.TimeoutExpired:
-                    kill_tree(p.pid)
-                    try:
-                        p.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        pass
-                    rc, timed_out = None, True
+                out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
+                deadline = time.monotonic() + timeout
+                rc, timed_out, over = None, False, None
+                while True:
+                    rc = p.poll()
+                    if rc is not None:
+                        break
+                    for stream, path in (("stdout", out_path), ("stderr", err_path)):
+                        if over is None and stream in limits and os.path.getsize(path) > limits[stream]:
+                            over = stream
+                    if watch and over is None:
+                        try:
+                            if os.path.getsize(watch[0]) > watch[1]:
+                                over = "answer"
+                        except OSError:
+                            pass  # not written yet
+                    if over is None and time.monotonic() >= deadline:
+                        timed_out = True
+                    if over or timed_out:
+                        kill_tree(p.pid)
+                        try:
+                            p.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            pass
+                        rc = None
+                        break
+                    time.sleep(max(0.01, min(POLL, deadline - time.monotonic())))
             finally:
                 if fi:
                     fi.close()
         size = os.path.getsize(os.path.join(work, "out"))
-        scanned = scan(os.path.join(work, "out")) if scan and not timed_out and rc == 0 else None
+        scanned = scan(os.path.join(work, "out")) if scan and not timed_out and not over and rc == 0 else None
         with open(os.path.join(work, "out"), "rb") as f:
             out = f.read(MAX_OUTPUT + 1)
         with open(os.path.join(work, "err"), "rb") as f:
             f.seek(max(0, os.path.getsize(os.path.join(work, "err")) - 2000))
             err = f.read().decode("utf-8", "replace")
-        return Captured(rc, out, size, err, timed_out, scanned=scanned)
+        return Captured(rc, out, size, err, timed_out, scanned=scanned, over=over)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -472,7 +500,9 @@ def probe(route):
     exe = shutil.which(route)
     if not exe:
         return None, None, "not installed"
-    r = capture([exe, "--version"], PROBE_TIMEOUT)
+    r = capture([exe, "--version"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
+    if r.over:
+        return None, None, f"probe failed: --version wrote too much to {r.over}"
     if r.timed_out:
         return None, None, f"probe failed: --version took longer than {PROBE_TIMEOUT}s"
     if r.rc != 0:
@@ -486,7 +516,7 @@ def omp_resolve(exe, model):
     """None when OMP resolves `model` without a model call; else the reason it is unavailable."""
     missing = f'Model "{model}" not found'
     if model.startswith("@"):
-        r = capture([exe, "config", "get", "modelRoles", "--json"], PROBE_TIMEOUT)
+        r = capture([exe, "config", "get", "modelRoles", "--json"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
         data = parse_json(r.out)
         if r.timed_out or r.rc != 0 or not isinstance(data, dict):
             return f"probe failed: omp config get modelRoles exited {r.rc}"
@@ -498,7 +528,7 @@ def omp_resolve(exe, model):
         sel = head  # a trailing :<level> is a reasoning level, not part of the selector
     if "/" not in sel:
         return missing
-    r = capture([exe, "models", "find", sel.split("/", 1)[1], "--json"], PROBE_TIMEOUT)
+    r = capture([exe, "models", "find", sel.split("/", 1)[1], "--json"], PROBE_TIMEOUT, limits=PROBE_LIMITS)
     data = parse_json(r.out)
     if r.timed_out or r.rc != 0 or data is None:
         return f"probe failed: omp models find exited {r.rc}"
@@ -999,7 +1029,9 @@ def cmd_run(argv):
 
         _exe, version, _reason = probe(route)
         started = now()
-        res = capture(cmd, cfg.timeout, stdin_path=stdin_path, cwd=cwd, scan=omp_scan if route == "omp" else None)
+        limits = {"stderr": MAX_STREAM_ERR, "stdout": MAX_OUTPUT if route == "claude" else MAX_STREAM_OUT}
+        res = capture(cmd, cfg.timeout, stdin_path=stdin_path, cwd=cwd, scan=omp_scan if route == "omp" else None, limits=limits,
+                      watch=(last_file, MAX_OUTPUT) if route == "codex" else None)
         actual = ("unknown", "unknown")
         if route == "omp":
             actual = omp_session_actual(session_dir)
@@ -1008,6 +1040,8 @@ def cmd_run(argv):
         def stop(status, error, message, **extra):
             fail(status, error, message, route, make_receipt(route, skipped, cfg, version, started, actual, sandbox), **keep, **extra)
 
+        if res.over:
+            stop("invalid", "invalid_output", f"output too large: {res.over}; {route}'s process tree was stopped")
         if res.timed_out:
             stop("timeout", "timeout", f"{route} was still running after review.timeout ({cfg.timeout}s); its process tree was stopped")
         if res.rc != 0:

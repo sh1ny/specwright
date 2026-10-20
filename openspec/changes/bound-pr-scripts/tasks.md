@@ -25,10 +25,10 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 | feedback-passes → PR-item issues are found in one read per pass | Store-backed pass with items in both repositories | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | ItemIssues.test_reads_only_its_repo_as_its_login; SkillText.test_after_limit_issues_one_lookup_per_repo | red |
 | feedback-passes → PR-item issues are found in one read per pass | Pull requests carrying the marker | evals/pr-pair/test_pr_pair.py | ItemIssues.test_pull_request_with_marker_ignored | red |
 | feedback-passes → PR-item issues are found in one read per pass | Issue list cannot be read | evals/pr-pair/test_pr_pair.py + evals/pr-pair/test_skill_text.py | ItemIssues.test_read_failure_exits_3_named; SkillText.test_after_limit_issues_files_nothing_on_lookup_failure | red |
-| review-routes → Reviewer output is bounded while the CLI runs | Output within the bounds | evals/review-routes/test_review_run.py | OutputBound.test_omp_stream_within_bounds_passes | red |
-| review-routes → Reviewer output is bounded while the CLI runs | Runaway stdout | evals/review-routes/test_review_run.py | OutputBound.test_claude_stdout_flood_stopped_nothing_written | red |
-| review-routes → Reviewer output is bounded while the CLI runs | Runaway stderr | evals/review-routes/test_review_run.py | OutputBound.test_codex_stderr_flood_stopped_review_unchanged | red |
-| review-routes → Reviewer output is bounded while the CLI runs | Codex answer file over the bound | evals/review-routes/test_review_run.py | OutputBound.test_codex_answer_file_flood_stopped | red |
+| review-routes → Reviewer output is bounded while the CLI runs | Output within the bounds | evals/review-routes/test_review_run.py | OutputBound.test_omp_stream_within_bounds_passes | green |
+| review-routes → Reviewer output is bounded while the CLI runs | Runaway stdout | evals/review-routes/test_review_run.py | OutputBound.test_claude_stdout_flood_stopped_nothing_written | green |
+| review-routes → Reviewer output is bounded while the CLI runs | Runaway stderr | evals/review-routes/test_review_run.py | OutputBound.test_codex_stderr_flood_stopped_review_unchanged | green |
+| review-routes → Reviewer output is bounded while the CLI runs | Codex answer file over the bound | evals/review-routes/test_review_run.py | OutputBound.test_codex_answer_file_flood_stopped | green |
 | pr-descriptions → Closing references are read from GitHub's rendering | Continued list paragraph | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_continued_list_paragraph_counts | red |
 | pr-descriptions → Closing references are read from GitHub's rendering | Quote-marked fence line inside a fence | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_quote_marked_fence_line_stays_code | red |
 | pr-descriptions → Closing references are read from GitHub's rendering | Code span inside a word, rendered | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_inside_word_no_join | red |
@@ -111,7 +111,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 ## 7. Reviewer output bounded while it runs
 
 - [x] 7.1 Write the failing `OutputBound` tests in `evals/review-routes/test_review_run.py` per the test map. Each flood test asserts the reviewer PID is gone within 5 s of the bound, `status: invalid`, `output too large` naming the stream, and no `--out` or pre-ship record written (and `review.md` byte-identical for the design kind). Verify: they fail.
-- [ ] 7.2 Rewrite `capture` in `skills/specwright-review/scripts/review-run.sh` per design D6:
+- [x] 7.2 Rewrite `capture` in `skills/specwright-review/scripts/review-run.sh` per design D6:
   - a 0.25 s loop over elapsed time, stdout/stderr sizes and the optional `watch` file;
   - `over` in `Captured`;
   - per-route bounds from `cmd_run`; probes at 1 MiB;
