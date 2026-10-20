@@ -29,13 +29,13 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 | review-routes → Reviewer output is bounded while the CLI runs | Runaway stdout | evals/review-routes/test_review_run.py | OutputBound.test_claude_stdout_flood_stopped_nothing_written | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Runaway stderr | evals/review-routes/test_review_run.py | OutputBound.test_codex_stderr_flood_stopped_review_unchanged | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Codex answer file over the bound | evals/review-routes/test_review_run.py | OutputBound.test_codex_answer_file_flood_stopped | green |
-| pr-descriptions → Closing references are read from GitHub's rendering | Continued list paragraph | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_continued_list_paragraph_counts | red |
-| pr-descriptions → Closing references are read from GitHub's rendering | Quote-marked fence line inside a fence | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_quote_marked_fence_line_stays_code | red |
-| pr-descriptions → Closing references are read from GitHub's rendering | Code span inside a word, rendered | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_inside_word_no_join | red |
-| pr-descriptions → Closing references are read from GitHub's rendering | Reference on the next source line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_soft_break_ends_closing_list | red |
-| pr-descriptions → Closing references are read from GitHub's rendering | Issue URL on a closing line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_issue_url_counts | red |
-| pr-descriptions → Closing references are read from GitHub's rendering | Reference to another repository | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_other_repo_reported_outside | red |
-| pr-descriptions → Closing references are read from GitHub's rendering | Rendering fails | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_render_failure_unknown_both_checks | red |
+| pr-descriptions → Closing references are read from GitHub's rendering | Continued list paragraph | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_continued_list_paragraph_counts | green |
+| pr-descriptions → Closing references are read from GitHub's rendering | Quote-marked fence line inside a fence | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_quote_marked_fence_line_stays_code | green |
+| pr-descriptions → Closing references are read from GitHub's rendering | Code span inside a word, rendered | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_inside_word_no_join | green |
+| pr-descriptions → Closing references are read from GitHub's rendering | Reference on the next source line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_soft_break_ends_closing_list | green |
+| pr-descriptions → Closing references are read from GitHub's rendering | Issue URL on a closing line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_issue_url_counts | green |
+| pr-descriptions → Closing references are read from GitHub's rendering | Reference to another repository | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_other_repo_reported_outside | green |
+| pr-descriptions → Closing references are read from GitHub's rendering | Rendering fails | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_render_failure_unknown_both_checks | green |
 
 ## 1. ADR 0012 and architecture
 
@@ -131,7 +131,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 - [x] 8.1 Write `evals/pr-pair/record_markdown.py`. It collects every PR body the closing tests use (the existing `ClosingCheck`/`ClosedCheck` cases and the new `ClosingRendered` cases), renders each through the real `POST /markdown` (`mode: gfm`, `context: sh1ny/specwright`) via `as.sh KintsugiBot`, and writes `evals/pr-pair/fixtures/markdown.json` keyed per design D8. Run it once and commit the fixture. Record in this task line whether `gfm` mode returned soft breaks as `\n` or `<br>` (the design's open question). Verify: the fixture has one entry per body. Result: `gfm` mode returned soft breaks as `<br>\n` (a `<br>` followed by a newline), not a bare `\n`, so the parser's block list ends the line on `br` and the newline-in-text rule is a second guard; 36 bodies recorded in `evals/pr-pair/fixtures/markdown.json`, one entry per body.
 - [x] 8.2 Add a test that every body the closing tests send has a recording, and write the failing `ClosingRendered` tests per the test map. Verify: the coverage test passes; the `ClosingRendered` tests fail against the hand parser.
-- [ ] 8.3 Implement the rendered read per design D7:
+- [x] 8.3 Implement the rendered read per design D7:
   - render with the request in a temp file removed on every exit, as the PR repository's login;
   - an `HTMLParser` with code replaced by a space, the full block list, and newline-in-text as a line end;
   - `intended_issues` over the rendered lines;

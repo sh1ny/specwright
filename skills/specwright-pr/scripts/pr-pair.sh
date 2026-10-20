@@ -23,9 +23,9 @@
 #   ensure-pr --repo o/n --branch b --base main --title t --body-file f
 #                                     find the open PR or create it; stops on a wrong base; never edits a description
 #   closing-check --repo o/n --pr N   the issues the description's closing lines name vs what GitHub will close
-#                                     status match | mismatch | not_default_base (one GraphQL read; a failure = unknown, exit 3)
+#                                     status match | mismatch | not_default_base (one GraphQL read, then GitHub's rendering of the description read as lines; a failure = unknown, exit 3)
 #   closed-check --repo o/n --pr N --repos o/n[,o/n] [--login o/n=L ...]
-#                                     at cleanup: which issues the merged PR's closing lines name are still open
+#                                     at cleanup: which issues the merged PR's closing lines name are still open (lines read from GitHub's rendering)
 #                                     status merged | not_merged | not_default_base; open, reopened, closed, outside (a failed read = unknown, exit 3)
 #                                     --login: the login that reads o/n when it is not the one the call runs as
 #   link --repo o/n --pr N --kind store|code --peer-url URL [--login L]
@@ -92,6 +92,7 @@ import subprocess
 import sys
 import tempfile
 import importlib.util
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
 
@@ -823,179 +824,67 @@ ISSUE_REF = (r"https?://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)\b|(?<![\w/.-]
              r"|(?<![\w/&])#(\d+)\b")
 
 
-def backtick_span(text, i):
-    """The backtick run at text[i:] and the end of the code span it opens: (run_end, close_end), close_end None when no later run
-    of the same length closes it (the run is then literal text)."""
-    n, j = len(text), i
-    while j < n and text[j] == "`":
-        j += 1
-    k = j
-    while k < n:
-        if text[k] != "`":
-            k += 1
-            continue
-        m = k
-        while m < n and text[m] == "`":
-            m += 1
-        if m - k == j - i:
-            return j, m
-        k = m
-    return j, None
+BLOCK_TAGS = frozenset(("p", "pre", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "div", "table", "tr", "td",
+                        "th", "dl", "dt", "dd", "details", "summary", "hr", "br"))
+CODE_TAGS = frozenset(("pre", "code"))
 
 
-def strip_code_spans(line):
-    """CommonMark inline code: a span opens at a backtick run and closes at the next run of the same length; a run with no such
-    closer is literal text, and so are the backticks of a run that is longer or shorter than the opener. A removed span leaves a
-    space, so the text around it never joins into a new word."""
-    out, i, n = [], 0, len(line)
-    while i < n:
-        if line[i] != "`":
-            out.append(line[i])
-            i += 1
-            continue
-        j, close = backtick_span(line, i)
-        if close is None:
-            out.append(line[i:j])
-            i = j
-        else:
-            out.append(" ")
-            i = close
-    return "".join(out)
+class RenderedLines(HTMLParser):
+    """GitHub's HTML rendering of a description as lines of prose: text inside `pre` and `code` is dropped and replaced by one
+    space (so the text around ``Fi`x`xes`` never joins into a keyword), comments are dropped, a block element ends a line at its
+    start and its end, a newline in text ends a line (a soft break never joins two source lines into one closing list), entities
+    are decoded, and link text stays as shown (`#N`, `owner/repo#N` or the URL, which ISSUE_REF reads)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.lines, self.code = [""], 0
+
+    def newline(self):
+        if self.lines[-1]:
+            self.lines.append("")
+
+    def handle_starttag(self, tag, attrs):
+        if tag in BLOCK_TAGS:
+            self.newline()
+        if tag in CODE_TAGS:
+            if not self.code:
+                self.lines[-1] += " "
+            self.code += 1
+
+    def handle_endtag(self, tag):
+        if tag in CODE_TAGS and self.code:
+            self.code -= 1
+        if tag in BLOCK_TAGS:
+            self.newline()
+
+    def handle_data(self, data):
+        if self.code:
+            return
+        first, *rest = data.split("\n")
+        self.lines[-1] += first
+        for part in rest:
+            self.newline()
+            self.lines[-1] += part
 
 
-def inline_comments(text):
-    """(start, end) of each HTML comment in `text`, scanning left to right where the first construct wins: a `<!--` inside a code
-    span is code, and a backtick inside a comment is comment text. An unclosed comment runs to the end of `text`."""
-    found, i, n = [], 0, len(text)
-    while i < n:
-        if text[i] == "`":
-            j, close = backtick_span(text, i)
-            i = j if close is None else close
-        elif text.startswith("<!--", i):
-            end = text.find("-->", i + 4)
-            end = n if end < 0 else end + 3
-            found.append((i, end))
-            i = end
-        else:
-            i += 1
-    return found
-
-
-def indent_columns(line):
-    """Leading white space of a line in columns, a tab advancing to the next multiple of four."""
-    col = 0
-    for ch in line:
-        if ch == " ":
-            col += 1
-        elif ch == "\t":
-            col += 4 - col % 4
-        else:
-            break
-    return col
-
-
-def container_content(line):
-    """The line after its blockquote markers (each `>` with up to three spaces before it and one optional space after it) and list
-    markers (`-`, `+`, `*`, `1.` or `1)` with up to three spaces before it and the one space or tab after it), where CommonMark
-    applies the block rules: `>     x` is indented code inside a quote, and `- ~~~` opens a fence inside a list item."""
-    return line[re.match(r"(?: {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)))*", line).end():]
-
-
-def quote_content(line):
-    """The line after its blockquote markers only. Inside an open fence a list marker is content, so the closer is matched here:
-    `- ```` inside a fence is code, not its end."""
-    return line[re.match(r"(?: {0,3}>[ \t]?)*", line).end():]
-
-
-LIST_CODE = re.compile(r" {0,3}(?:[-+*]|\d{1,9}[.)]) {5,}\S")  # a list item whose first block is indented code
-
-
-def without_code(body):
-    """The description's lines with what GitHub does not read as text removed: fenced blocks (closed only by a fence line of the
-    same character, at least as long, with nothing but white space after it), indented code (every line indented four or more
-    columns, unless the line before it is a paragraph line; a list item whose marker is followed by five spaces), HTML comments
-    (also across lines) and inline code spans, which may continue across the lines of one paragraph (a blank line ends it). Within
-    a paragraph the leftmost construct wins, so a `<!--` inside a code span is code; a line that starts with `<!--` is an HTML
-    block, not a paragraph, and takes the rest of its closing line, while the text after an inline comment's `-->` is read. The
-    block rules read each line after its blockquote and list markers."""
-    out, para = [], []
-    fence, in_comment = None, False
-    comment_block = False  # the open comment started its own line (an HTML block), so it takes the rest of its closing line
-    prev_para = False  # the previous line was a paragraph line, so an indented line continues it
-    lines = body.replace("\r\n", "\n").split("\n")
-
-    def flush():
-        if para:
-            out.extend(strip_code_spans("\n".join(para)).split("\n"))
-            del para[:]
-
-    def strip_comments(line, comment_line, rest):
-        """`line` without its HTML comments; a comment that does not end on the line leaves in_comment set."""
-        nonlocal in_comment, comment_block
-        head = "\n".join(para) + "\n" if para and not comment_line else ""
-        tail = []
-        for nxt in rest:  # the rest of the paragraph decides whether a backtick before a `<!--` closes a span
-            if not nxt.strip():
-                break
-            tail.append(nxt)
-        base, kept, at = len(head), [], 0
-        for start, end in inline_comments(head + "\n".join([line] + tail)):
-            if start < base:
-                continue
-            if start >= base + len(line):
-                break
-            kept.append(line[at:start - base])
-            if end > base + len(line):
-                in_comment, comment_block, at = True, comment_line, len(line)
-                break
-            at = end - base
-        kept.append(line[at:])
-        return "".join(kept)
-
-    for idx, raw in enumerate(lines):
-        line, comment_line = raw, in_comment and comment_block
-        if in_comment:
-            end = line.find("-->")
-            if end < 0:
-                prev_para = prev_para and not comment_block  # an inline comment's lines stay in their paragraph
-                continue
-            line, in_comment = line[end + 3:], False
-        else:
-            m = re.match(r"\s{0,3}(`{3,}|~{3,})", container_content(line))
-            if fence:
-                closer = re.match(r"\s{0,3}(`{3,}|~{3,})\s*$", quote_content(line))
-                if closer and closer.group(1)[0] == fence[0] and len(closer.group(1)) >= len(fence):
-                    fence = None
-                continue
-            if m:
-                flush()
-                fence, prev_para = m.group(1), False
-                continue
-            inner = container_content(line)
-            if indent_columns(inner) < 4 and inner.lstrip().startswith("<!--"):
-                comment_line = True
-        if "<!--" in line:
-            line = strip_comments(line, comment_line, lines[idx + 1:])
-        inner = container_content(raw)
-        if not inner.strip():
-            flush()
-            prev_para = False
-            continue
-        if (indent_columns(inner) >= 4 and not prev_para and not comment_line) or LIST_CODE.match(inner):
-            flush()
-            continue
-        stripped = inner.lstrip()
-        if (comment_line or re.match(r"#{1,6}(?:\s|$)", stripped) or re.match(r"([-*_])(?:\s*\1){2,}\s*$", stripped)
-                or not line.strip()):
-            flush()  # a heading, thematic break or comment line is no paragraph line and ends the paragraph
-            prev_para = False
-            if line.strip() and not comment_line:
-                out.append(strip_code_spans(line))
-            continue
-        prev_para = True
-        para.append(line)
-    flush()
-    return out
+def rendered_lines(body, repo):
+    """The lines of `body` as GitHub renders it (GFM, with `repo` as context), read through `repo`'s login. The request goes in a
+    temp file (a PR body can be longer than a Windows command line) that is removed on every exit. A failed or limited render is
+    unknown (exit 3)."""
+    if not body.strip():
+        return []
+    req = temp_file(json.dumps({"text": body, "mode": "gfm", "context": repo}))
+    try:
+        r = gh("api", "-X", "POST", "markdown", "--input", req, repo=repo)
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(req)
+    if r.returncode != 0:
+        unknown((r.stderr or r.stdout).strip() or f"gh exited {r.returncode} rendering the description")
+    parser = RenderedLines()
+    parser.feed(r.stdout)
+    parser.close()
+    return parser.lines
 
 
 def issue_key(m, repo):
@@ -1012,13 +901,13 @@ FIRST_GAP = re.compile(r"\s*")  # the keyword's own optional colon is part of CL
 
 
 def intended_issues(body, repo):
-    """Issues a description's closing lines name: every ref directly after a closing keyword, and the closing list of a line that
-    starts with one: the ref after that keyword (only white space between; a `,`, `;`, `and` or a removed code span there means no
+    """Issues a description's closing lines name, read from GitHub's rendering of it (`rendered_lines`, so code is never read): every ref directly after a closing keyword, and the closing list of a line that
+    starts with one: the ref after that keyword (only white space between; a `,`, `;`, `and` or a code span there means no
     list) and each next ref separated from the one before by only `,`, `;`, `and`,
     white space or another closing keyword. Any other text ends the list; a line whose first ref does not directly follow the
     keyword has none."""
     found = []
-    for line in without_code(body):
+    for line in rendered_lines(body, repo):
         refs = [(m.start(), m.end(), issue_key(m, repo)) for m in re.finditer(ISSUE_REF, line)]
         lead = re.match(r"(?:[\s>*+-]|\d{1,9}[.)](?=\s))*" + CLOSE_KW, line, re.I)
         if lead:
