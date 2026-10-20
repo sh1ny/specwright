@@ -130,7 +130,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 ## 8. Closing references from GitHub's rendering
 
 - [x] 8.1 Write `evals/pr-pair/record_markdown.py`. It collects every PR body the closing tests use (the existing `ClosingCheck`/`ClosedCheck` cases and the new `ClosingRendered` cases), renders each through the real `POST /markdown` (`mode: gfm`, `context: sh1ny/specwright`) via `as.sh KintsugiBot`, and writes `evals/pr-pair/fixtures/markdown.json` keyed per design D8. Run it once and commit the fixture. Record in this task line whether `gfm` mode returned soft breaks as `\n` or `<br>` (the design's open question). Verify: the fixture has one entry per body. Result: `gfm` mode returned soft breaks as `<br>\n` (a `<br>` followed by a newline), not a bare `\n`, so the parser's block list ends the line on `br` and the newline-in-text rule is a second guard; 36 bodies recorded in `evals/pr-pair/fixtures/markdown.json`, one entry per body.
-- [ ] 8.2 Add a test that every body the closing tests send has a recording, and write the failing `ClosingRendered` tests per the test map. Verify: the coverage test passes; the `ClosingRendered` tests fail against the hand parser.
+- [x] 8.2 Add a test that every body the closing tests send has a recording, and write the failing `ClosingRendered` tests per the test map. Verify: the coverage test passes; the `ClosingRendered` tests fail against the hand parser.
 - [ ] 8.3 Implement the rendered read per design D7:
   - render with the request in a temp file removed on every exit, as the PR repository's login;
   - an `HTMLParser` with code replaced by a space, the full block list, and newline-in-text as a line end;

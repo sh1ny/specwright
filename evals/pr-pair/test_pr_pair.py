@@ -2923,7 +2923,8 @@ class ClosedCheck(Base):
         self.assertEqual((r["open"], r["closed"], r["reopened"], r["outside"]), ([f"{CODE}#24"], [f"{CODE}#21"], [], []))
         self.assertEqual(len(self.reads("pullRequest(number")), 1, "one GraphQL read of the PR")
         self.assertEqual(len(self.reads("issue(number")), 2, "one read per intended issue")
-        writes = [c for c in self.gh_calls() if c["argv"][:2] in (["issue", "close"], ["issue", "comment"]) or "-X" in c["argv"]]
+        writes = [c for c in self.gh_calls() if c["argv"][:2] in (["issue", "close"], ["issue", "comment"])
+                  or ("-X" in c["argv"] and "markdown" not in c["argv"])]  # the markdown POST renders; it writes nothing
         self.assertEqual(writes, [], "the check never writes")
 
     def test_closed_check_all_closed(self):
@@ -3082,7 +3083,7 @@ class ClosedCheck(Base):
 
     def test_closed_check_list_marker_in_a_fence_is_code(self):
         # inside an open fence a list-marked fence line is content, never the closer; a tab after a marker counts like a space
-        body = "```\n- ```\nFixes #30\n```\nFixes #21\n\n-\t~~~\nFixes #31\n~~~\n\nFixes #22\n"
+        body = "```\n- ```\nFixes #30\n```\nFixes #21\n\n-\t~~~\n    Fixes #31\n    ~~~\n\nFixes #22\n"
         self.seed(body, issues={(CODE, n): ("OPEN", []) for n in (21, 22)})
         r = self.check()
         self.assertEqual(r["intended"], [f"{CODE}#21", f"{CODE}#22"])
@@ -3098,19 +3099,79 @@ class ClosedCheck(Base):
         self.assertEqual((r["open"], r["reopened"]), ([f"{CODE}#24"], [f"{CODE}#25"]))
 
     def test_closed_check_reads_text_after_an_inline_comment(self):
-        # an inline comment that opens after paragraph text ends at `-->`, and the text after it is rendered; an HTML block that
-        # starts its own line takes the rest of its closing line with it
+        # a comment ends at `-->` and the text after it is rendered: GitHub shows ` Fixes #31` after an HTML block comment too
+        # (recorded rendering), while the comment's own text is dropped
         body = "Intro <!-- hidden\nFixes #30 --> Fixes #21\n\n<!-- block\n--> Fixes #31\n\nFixes #22\n"
-        self.seed(body, issues={(CODE, n): ("OPEN", []) for n in (21, 22)})
+        self.seed(body, issues={(CODE, n): ("OPEN", []) for n in (21, 22, 31)})
         r = self.check()
-        self.assertEqual(r["intended"], [f"{CODE}#21", f"{CODE}#22"])
-        for n in (30, 31):
-            self.assertEqual(self.reads(f"number={n}"), [], f"#{n} is hidden")
+        self.assertEqual(r["intended"], [f"{CODE}#21", f"{CODE}#31", f"{CODE}#22"])
+        self.assertEqual(self.reads("number=30"), [], "#30 is in a comment")
 
     def test_closed_check_requires_repo_pr_and_repos(self):
         self.pp("closed-check", "--repo", CODE, "--pr", 7, expect=2)
         self.pp("closed-check", "--repo", CODE, "--repos", CODE, expect=2)
         self.pp("closed-check", "--pr", 7, "--repos", CODE, expect=2)
+
+
+class ClosingRendered(Base):
+    """The closing lines are read from GitHub's own rendering of the description, never from a hand parse of its source (D7)."""
+
+    WIDGET = "acme/widget"
+
+    def seed(self, body, repo=CODE, merged=None):
+        self.add_pull(repo, 7, body=body, state="closed" if merged else "open", merged=merged)
+
+    def intended(self, body, repo=CODE):
+        self.seed(body, repo)
+        return self.pp("closing-check", "--repo", repo, "--pr", 7)["intended"]
+
+    def test_continued_list_paragraph_counts(self):
+        # four columns after a blank line continue the list item as a paragraph, not as indented code
+        self.assertEqual(self.intended("- Notes\n\n    Fixes #21\n"), [f"{CODE}#21"])
+
+    def test_quote_marked_fence_line_stays_code(self):
+        # a quote-marked fence line inside a fence opened outside a quote is content, so `Fixes #12` is still code
+        self.assertEqual(self.intended("```\n> ```\nFixes #12\n```\n"), [])
+
+    def test_code_span_inside_word_no_join(self):
+        self.assertEqual(self.intended("Fi`x`xes #52\n"), [])
+
+    def test_soft_break_ends_closing_list(self):
+        self.assertEqual(self.intended("Fixes #21\n#22 is unrelated\n"), [f"{CODE}#21"])
+
+    def test_issue_url_counts(self):
+        self.assertEqual(self.intended("Fixes https://github.com/acme/widget/issues/21\n", self.WIDGET), [f"{self.WIDGET}#21"])
+
+    def test_other_repo_reported_outside(self):
+        self.seed("Fixes other/tool#5\n", self.WIDGET, merged="2026-10-08T10:00:00Z")
+        st = self.gh()
+        st["fail"] = [{"match": "name=tool", "exit": 1, "stderr": "boom"}]  # any read of the outside repo would fail
+        self.save_gh(st)
+        r = self.pp("closed-check", "--repo", self.WIDGET, "--pr", 7, "--repos", self.WIDGET)
+        self.assertEqual((r["intended"], r["outside"]), (["other/tool#5"], ["other/tool#5"]))
+
+    def test_render_failure_unknown_both_checks(self):
+        self.seed("Fixes #21\n", merged="2026-10-08T10:00:00Z")
+        st = self.gh()
+        st["fail"] = [{"match": "markdown", "exit": 1, "stderr": "boom"}]
+        self.save_gh(st)
+        for args in (("closing-check", "--repo", CODE, "--pr", 7), ("closed-check", "--repo", CODE, "--pr", 7, "--repos", CODE)):
+            r = self.pp(*args, expect=3)
+            self.assertEqual((r["ok"], r["error"], r["unknown"]), (False, "lookup_failed", True), args[0])
+
+
+class ClosingRecordings(unittest.TestCase):
+    """Every body the closing tests send has a recorded GitHub rendering (evals/pr-pair/record_markdown.py)."""
+
+    def test_every_closing_body_has_a_recording(self):
+        sys.path.insert(0, str(HERE))
+        import closing_bodies
+        recorded = json.loads(closing_bodies.FIXTURE.read_text(encoding="utf-8"))
+        bodies = closing_bodies.collect_bodies()
+        self.assertTrue(bodies)
+        missing = [b for b in bodies if fake_gh.markdown_key(closing_bodies.MODE, b) not in recorded]
+        self.assertEqual(missing, [], "run `python evals/pr-pair/record_markdown.py` to record these bodies")
+        self.assertEqual(len(recorded), len(bodies), "one entry per body: rerun the recorder to drop stale entries")
 
 
 class Merge(Base):
