@@ -40,7 +40,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 ## 1. ADR 0012 and architecture
 
 - [x] 1.1 Write `docs/adr/0012-pr-scripts-and-reviewer-runs-are-bounded.md` (MADR-short, `Status: accepted`, today's date) with the decision text of design.md's ADRs section, including the known exceptions (`release.sh`, `finish.sh`, `update.sh`). Verify: the file exists with Status, Date, Context, Decision, Consequences.
-- [ ] 1.2 File one GitHub issue for the known exceptions, "Bound network commands in release.sh, finish.sh and update.sh", as KintsugiBot, fenced. Reference it from ADR 0012. Verify: the issue URL is in the ADR.
+- [x] 1.2 File one GitHub issue for the known exceptions, "Bound network commands in release.sh, finish.sh and update.sh", as KintsugiBot, fenced. Reference it from ADR 0012. Verify: the issue URL is in the ADR.
 - [ ] 1.3 Update `openspec/architecture.md`, per design.md's ADRs section:
   - the in-force index row for 0012;
   - the "Network commands" and "Review run" Resource-bounds rows;
