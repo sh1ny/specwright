@@ -110,7 +110,7 @@ They assert the same bound relations as the specs. "Deadline plus 10 s" becomes 
 
 ## 7. Reviewer output bounded while it runs
 
-- [ ] 7.1 Write the failing `OutputBound` tests in `evals/review-routes/test_review_run.py` per the test map. Each flood test asserts the reviewer PID is gone within 5 s of the bound, `status: invalid`, `output too large` naming the stream, and no `--out` or pre-ship record written (and `review.md` byte-identical for the design kind). Verify: they fail.
+- [x] 7.1 Write the failing `OutputBound` tests in `evals/review-routes/test_review_run.py` per the test map. Each flood test asserts the reviewer PID is gone within 5 s of the bound, `status: invalid`, `output too large` naming the stream, and no `--out` or pre-ship record written (and `review.md` byte-identical for the design kind). Verify: they fail.
 - [ ] 7.2 Rewrite `capture` in `skills/specwright-review/scripts/review-run.sh` per design D6:
   - a 0.25 s loop over elapsed time, stdout/stderr sizes and the optional `watch` file;
   - `over` in `Captured`;

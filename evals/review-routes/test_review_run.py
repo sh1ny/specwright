@@ -791,6 +791,91 @@ class RunTests(Base):
         self.preship("subagent", expect=2)
 
 
+class OutputBound(Base):
+    """A reviewer's output is bounded while it runs (bound-pr-scripts, D6)."""
+    MIB = 1024 * 1024
+    omp_stream = RunTests.omp_stream
+
+    def flood_env(self, cli, **sizes):
+        self.set_settings("review:\n  timeout: 30s\n")
+        self.pid_file = self.tmp / f"{cli}.pid"
+        self.extra_env[f"FAKE_{cli.upper()}_PID_FILE"] = str(self.pid_file)
+        for k, v in sizes.items():
+            self.extra_env[f"FAKE_{cli.upper()}_FLOOD_{k.upper()}"] = str(v)
+
+    def assert_stopped(self, out, stream, started):
+        self.assertEqual(out["status"], "invalid", out)
+        self.assertIn("output too large", out["message"])
+        self.assertIn(stream, out["message"])
+        self.assertLess(time.time() - started, 60, "the run waited for the deadline instead of the bound")
+        pid = int(self.pid_file.read_text(encoding="utf-8"))
+        deadline = time.time() + 5
+        while pid_alive(pid) and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertFalse(pid_alive(pid), "the reviewer process survived the bound")
+
+    def test_fake_flood_writes_past_size_and_stays_alive_until_killed(self):
+        out, err, pid_file = self.tmp / "o", self.tmp / "e", self.tmp / "p"
+        env = {**self.env(), "FAKE_CLAUDE_FLOOD_STDOUT": str(3 * self.MIB), "FAKE_CLAUDE_FLOOD_STDERR": str(self.MIB),
+               "FAKE_CLAUDE_PID_FILE": str(pid_file)}
+        with open(out, "wb") as fo, open(err, "wb") as fe:
+            p = subprocess.Popen([sys.executable, str(FAKE), "claude", "-p"], stdin=subprocess.DEVNULL, stdout=fo, stderr=fe, env=env)
+            try:
+                deadline = time.time() + 20
+                while (out.stat().st_size < 3 * self.MIB or err.stat().st_size < self.MIB) and time.time() < deadline:
+                    time.sleep(0.1)
+                self.assertGreaterEqual(out.stat().st_size, 3 * self.MIB)
+                self.assertGreaterEqual(err.stat().st_size, self.MIB)
+                time.sleep(0.5)
+                self.assertIsNone(p.poll(), "the flooding fake exited on its own")
+                pid = int(pid_file.read_text(encoding="utf-8"))
+                self.assertEqual(pid, p.pid)
+                self.assertTrue(pid_alive(pid))
+            finally:
+                p.kill()
+                p.wait()
+        self.assertFalse(pid_alive(pid))
+
+    def test_omp_stream_within_bounds_passes(self):
+        self.install("omp")
+        answer = "# Review\n\n" + ("A finding about the design. " * 700)[:19000] + "\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
+        self.omp_stream(answer, tool_text="t" * (1536 * 1024), filler_lines=1536)  # about 3 MiB on stdout
+        self.extra_env["FAKE_OMP_STDERR_BYTES"] = "100000"
+        out = self.design("omp")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), answer)
+
+    def test_claude_stdout_flood_stopped_nothing_written(self):
+        self.install("codex", "claude")
+        self.flood_env("claude", stdout=3 * self.MIB)
+        started = time.time()
+        out = self.preship("claude", expect=3)
+        self.assert_stopped(out, "stdout", started)
+        self.assertFalse((self.tmp / "findings.json").exists())
+        self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+        self.assertEqual(self.runs("codex"), [])
+
+    def test_codex_stderr_flood_stopped_review_unchanged(self):
+        self.install("codex")
+        self.flood_env("codex", stderr=9 * self.MIB)
+        review = self.tmp / "review.md"
+        review.write_bytes(b"# Earlier review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        started = time.time()
+        out = self.design("codex", expect=3)
+        self.assert_stopped(out, "stderr", started)
+        self.assertEqual(review.read_bytes(), before)
+
+    def test_codex_answer_file_flood_stopped(self):
+        self.install("codex")
+        self.flood_env("codex", answer=3 * self.MIB)
+        started = time.time()
+        out = self.preship("codex", expect=3)
+        self.assert_stopped(out, "answer", started)
+        self.assertFalse((self.tmp / "findings.json").exists())
+        self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+
+
 SPEC_TEXT = "### Requirement: X\n\nThe system SHALL do X.\n"
 ARCHIVE_SUBJECT = f"chore({CHANGE}): archive change"
 ARTIFACT_NAMES = ("proposal.md", "design.md", "tasks.md", "specs")
