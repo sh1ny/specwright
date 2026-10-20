@@ -37,7 +37,16 @@ def pid_alive(pid):
         os.kill(pid, 0)
     except OSError:
         return False
-    return True
+    return not zombie(pid)
+
+
+def zombie(pid):
+    """A killed process an unreaping PID 1 has not collected yet still answers kill(pid, 0); it is stopped all the same."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+        return r.stdout.strip().startswith("Z")
 
 
 def wait_gone(pid, seconds):
