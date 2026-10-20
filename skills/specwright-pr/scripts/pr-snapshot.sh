@@ -423,18 +423,27 @@ resolve_first_seen() {
   if printf '%s' "$d" | grep -Eq "$DATE_RE"; then seen_date=$d seen_src=first_seen; fi
   return 0
 }
+# bounded.py exits 124 (deadline_exceeded) or 125 (response_too_large). A lookup
+# below that hits one fails the snapshot, in every mode, with the limit named on
+# stderr; it never takes the lookup's fallback (no clock, no push time). Returns 0
+# when <rc> is a limit.
+limit_hit() {  # <rc> <command>
+  case $1 in 124) echo "bounded: deadline_exceeded: $2" >&2 ;; 125) echo "bounded: response_too_large: $2" >&2 ;; *) return 1 ;; esac
+}
 # A snapshot without --reviewer only records its sighting of the head (so a
 # later reviewer check counts from it), and never fails over it: any error
-# there returns 0 and leaves cfg unset.
+# there but a named limit returns 0 and leaves cfg unset.
 prepare_cfg() {
-  local info oid branch hrepo date pushed cutoff fail=1
+  local info raw oid branch hrepo date pushed cutoff fail=1 rc
   [ -n "$reviewers" ] || fail=0
   info=$(gh api graphql -f owner="$owner" -f name="$name" -F pr="$pr" -f query='
     query($owner:String!,$name:String!,$pr:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$pr){
       headRefOid headRefName headRepository { nameWithOwner } } } }' \
-    --jq '.data.repository.pullRequest | [.headRefOid, .headRefName, (.headRepository.nameWithOwner // "-")] | join(" ")') || return $fail
+    --jq '.data.repository.pullRequest | [.headRefOid, .headRefName, (.headRepository.nameWithOwner // "-")] | join(" ")') \
+    || { rc=$?; case $rc in 124|125) return 1 ;; esac; return $fail; }  # bounded.py named the limit
   read -r oid branch hrepo <<<"$info"
-  date=$(gh api -i rate_limit 2>/dev/null | tr -d '\r' | sed -n 's/^[Dd]ate: //p' | head -n 1) || date=
+  raw=$(gh api -i rate_limit 2>/dev/null) || { rc=$?; limit_hit $rc "gh api rate_limit" && return 1; raw=; }
+  date=$(printf '%s\n' "$raw" | tr -d '\r' | sed -n 's/^[Dd]ate: //p' | head -n 1) || date=
   printf '%s' "$oid" | grep -Eq '^[0-9a-f]{40}$' || return $fail
   printf '%s' "$date" | grep -Eq "$DATE_RE" || return $fail
   [ "$oid" = "$pushed_oid" ] || { pushed_oid=$oid pushed_at= first_seen=$date seen_src= seen_date=; }
@@ -442,7 +451,8 @@ prepare_cfg() {
   # look the push up until found; it can reach the log after the first poll
   if [ -z "$pushed_at" ] && [ "$hrepo" != - ]; then
     pushed_at=$(gh api "repos/$hrepo/activity?ref=refs/heads/$branch&per_page=100" \
-      --jq "[.[] | select(.after == \"$oid\")][0].timestamp // empty" 2>/dev/null) || pushed_at=
+      --jq "[.[] | select(.after == \"$oid\")][0].timestamp // empty" 2>/dev/null) \
+      || { rc=$?; limit_hit $rc "gh api repos/$hrepo/activity" && return 1; pushed_at=; }
     printf '%s' "$pushed_at" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' || pushed_at=
   fi
   if [ -n "$pushed_at" ]; then
@@ -530,8 +540,11 @@ fi
 
 if [ "$logs" = 1 ]; then
   ids=$(printf '%s' "$snap" | grep -o '"fail_run_ids":\[[0-9,]*\]' | grep -o '[0-9][0-9]*' || true)
+  limited=
   for id in $ids; do
     printf '\n===== failed log: run %s =====\n' "$id"
-    gh run view "$id" -R "$repo" --log-failed 2>&1 | tail -n 80 || true
+    rc=0; gh run view "$id" -R "$repo" --log-failed 2>&1 | tail -n 80 || rc=${PIPESTATUS[0]}
+    if limit_hit "$rc" "gh run view $id"; then limited=1; fi
   done
+  [ -z "$limited" ] || exit 1  # the snapshot is printed; a cut-off log is still a named failure
 fi

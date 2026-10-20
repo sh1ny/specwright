@@ -890,6 +890,23 @@ class OutputBound(Base):
         self.assert_stopped(out, "stderr", started)
         self.assertEqual(review.read_bytes(), before)
 
+    def test_reviewer_output_on_disk_never_passes_its_bound(self):
+        # the bound holds as the bytes arrive, not at the next check of a file that already grew (review round 3)
+        self.install("codex")
+        self.flood_env("codex", stderr=40 * self.MIB)
+        scratch = self.tmp / "tmpdir"
+        scratch.mkdir()
+        for k in ("TMPDIR", "TEMP", "TMP"):
+            self.extra_env[k] = str(scratch)
+        spy = self.tmp / "spy.txt"
+        self.extra_env["FAKE_CODEX_SPY"] = str(spy)
+        started = time.time()
+        out = self.design("codex", expect=3)
+        self.assert_stopped(out, "stderr", started)
+        if spy.exists():  # the flood returned: what the capture holds on disk is within the 8 MiB bound
+            self.assertLessEqual(int(spy.read_text()), 8 * self.MIB + 1)
+        self.assertEqual(list(scratch.glob("specwright-run-*")), [])
+
     def test_codex_answer_file_flood_stopped(self):
         self.install("codex")
         self.flood_env("codex", answer=3 * self.MIB)

@@ -163,6 +163,16 @@ class SecretMode(Base):
         self.assertEqual((r.rc, r.limit, r.stdout.strip()), (0, None, "tok-secret"))
         self.assertEqual(list(self.scratch.iterdir()), [])
 
+    def test_normal_mode_writes_no_output_file_while_the_command_runs(self):
+        # the bound holds as the bytes arrive, so no output file can grow past it between two checks (review round 3)
+        look = "import os,sys; print(sorted(os.listdir(sys.argv[1])))"
+        with mock.patch.object(tempfile, "tempdir", str(self.scratch)):
+            r = self.b.run_bounded(py(look, str(self.scratch)), 30, 1 << 20, self.env, None)
+        self.assertEqual((r.rc, r.limit, r.stdout.strip()), (0, None, "[]"))
+        r = subprocess.run([sys.executable, "-I", str(BOUNDED), "--", *py(look, str(self.scratch))],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "[]"))
+
     def test_cli_secret_writes_no_file_under_a_fresh_tmpdir(self):
         r = subprocess.run([sys.executable, "-I", str(BOUNDED), "--secret", "--", *py("print('tok-secret')")],
                            capture_output=True, text=True, env=self.env)

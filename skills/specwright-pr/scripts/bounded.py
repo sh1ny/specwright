@@ -23,16 +23,15 @@ for `bash -c script $0 args...` the arguments after $0 are not put on the comman
 each followed by a NUL, then an end marker; a prelude in front of the script reads them back into "$@" and empties stdin. Nothing
 reaches disk. A missing marker (a runner that died mid-write, a bash older than 4.4) exits 126 without running the script.
 
-Normal mode sends stdout and stderr to files in a fresh temp dir (removed at the end), so a huge output costs disk, not memory.
-Secret mode (--secret, secret=True) is for commands that print a credential: nothing reaches disk, the output is read from
-pipes as the command writes it, so the byte bound holds while it runs, and a lookup never waits past its deadline plus 5 s. The process tree is stopped by PID only, never by name.
+Output is read from pipes as the command writes it and kept in memory, never on disk: a stream stops being read once it passes
+the byte bound, so neither memory nor disk can grow past it between two checks, and the tree is stopped at once. Secret mode
+(--secret, secret=True), for commands that print a credential, runs the same way. After a limit a survivor holding a pipe is
+let go after 5 s. The process tree is stopped by PID only, never by name.
 """
 import os
-import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from collections import namedtuple
@@ -41,7 +40,6 @@ DEADLINE = 120
 PAGED_DEADLINE = 300
 MAX_BYTES = 32 * 1024 * 1024
 MAX_PAGES = 50
-POLL = 0.1
 
 DEADLINE_EXCEEDED = "deadline_exceeded"
 RESPONSE_TOO_LARGE = "response_too_large"
@@ -127,48 +125,7 @@ def _popen_kw():
     return {} if os.name == "nt" else {"start_new_session": True}
 
 
-def _file_backed(cmd, data, deadline, max_bytes, env, cwd):
-    work = tempfile.mkdtemp(prefix="specwright-net-")
-    p = None
-    try:
-        out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
-        with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
-            try:
-                p = _spawn(cmd, data, stdout=fo, stderr=fe, cwd=cwd, env=env, **_popen_kw())
-            except OSError as e:
-                return 127, b"", str(e).encode("utf-8", "replace"), None
-            end, limit, rc = time.time() + deadline, None, None
-            while True:
-                rc = p.poll()  # exit is checked first: a finished command is never reported as a limit
-                if rc is not None:
-                    break
-                if time.time() >= end:
-                    limit = DEADLINE_EXCEEDED
-                elif os.path.getsize(out_path) > max_bytes or os.path.getsize(err_path) > max_bytes:
-                    limit = RESPONSE_TOO_LARGE
-                if limit:
-                    kill_tree(p.pid)
-                    try:
-                        p.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        pass
-                    break
-                time.sleep(POLL)
-        size = os.path.getsize(out_path)
-        if limit is None and (size > max_bytes or os.path.getsize(err_path) > max_bytes):  # a burst just before exit
-            limit = RESPONSE_TOO_LARGE
-        with open(out_path, "rb") as f:
-            out = f.read(max_bytes + 1 if limit else size)
-        with open(err_path, "rb") as f:
-            err = f.read(max_bytes + 1)
-        return (None if limit else rc), out, err, limit
-    finally:
-        if p is not None and p.poll() is None:
-            kill_tree(p.pid)
-        shutil.rmtree(work, ignore_errors=True)
-
-
-def _secret(cmd, data, deadline, max_bytes, env, cwd):
+def _piped(cmd, data, deadline, max_bytes, env, cwd):
     try:
         p = _spawn(cmd, data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, **_popen_kw())
     except OSError as e:
@@ -230,7 +187,7 @@ def _secret(cmd, data, deadline, max_bytes, env, cwd):
 def _run(cmd, deadline, max_bytes, env, cwd, paged, secret):
     deadline, max_bytes = resolve(deadline, max_bytes, env, paged)
     cmd, data = _transport(list(cmd))
-    return (_secret if secret else _file_backed)(cmd, data, deadline, max_bytes, env, cwd)
+    return _piped(cmd, data, deadline, max_bytes, env, cwd)  # secret mode reads the same way; the flag stays for callers
 
 
 def run_bounded(cmd, deadline=None, max_bytes=None, env=None, cwd=None, paged=False, secret=False):

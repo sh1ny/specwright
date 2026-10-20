@@ -62,7 +62,7 @@ Every temp file a PR script creates SHALL be removed when the script exits, whet
 - **THEN** the same step tells the agent to remove that file after the command that reads it
 
 ### Requirement: Network commands have a deadline
-Every `gh` or `git` network command run by `pr-pair.sh`, `pr-snapshot.sh`, `pr-reply.sh` or `as.sh` SHALL run under a deadline: 120 seconds, or 300 seconds for a paginated read. When the deadline passes, the command and every process it started SHALL be stopped, and the script SHALL report `deadline_exceeded`, naming the command. It SHALL NOT wait for the command.
+Every `gh` or `git` network command run by `pr-pair.sh`, `pr-snapshot.sh` or `pr-reply.sh`, and every credential or identity lookup `as.sh` makes before it runs the command it fences, SHALL run under a deadline: 120 seconds, or 300 seconds for a paginated read. When the deadline passes, the command and every process it started SHALL be stopped, and the script SHALL report `deadline_exceeded`, naming the command. It SHALL NOT wait for the command.
 
 #### Scenario: GitHub answers in time
 - **WHEN** `pr-pair.sh closing-check` runs and every `gh` call answers within its deadline
@@ -81,7 +81,7 @@ Every `gh` or `git` network command run by `pr-pair.sh`, `pr-snapshot.sh`, `pr-r
 - **THEN** as.sh exits 3 within the deadline plus 10 seconds, names `deadline_exceeded` on stderr, and does not run the fenced command
 
 ### Requirement: GitHub responses are bounded
-The PR scripts SHALL read at most 32 MiB from any one `gh` or `git` network command, paginated reads included, and at most 50 pages in any cursor loop they drive themselves. Passing either bound SHALL stop the command and be reported as `response_too_large`, naming the command. It SHALL NOT yield a partial result.
+The PR scripts (in `as.sh`, its own lookups only) SHALL read at most 32 MiB from any one `gh` or `git` network command, paginated reads included, and at most 50 pages in any cursor loop they drive themselves. Passing either bound SHALL stop the command and be reported as `response_too_large`, naming the command. It SHALL NOT yield a partial result.
 
 #### Scenario: Large but bounded list
 - **WHEN** `pr-pair.sh discover` reads a paginated list whose pages total 2 MiB

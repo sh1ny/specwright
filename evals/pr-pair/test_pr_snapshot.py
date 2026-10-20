@@ -644,6 +644,39 @@ class WatchElapsed(SnapCase):
         self.assertLess(took, 90, "woke at once, not at the timeout")
 
 
+class LookupLimits(SnapCase):
+    """A named limit on the clock or push-time lookup fails the snapshot; it never takes that lookup's fallback (review
+    round 3: an activity timeout must not turn the push cutoff into first_seen)."""
+
+    def setUp(self):
+        super().setUp()
+        self.pidf = self.tmp / "hang.pid"
+        self.addCleanup(stop_pid_file, self.pidf)
+        self.set_head(B, f"{D}09:00:00Z")
+        self.add_activity(B, f"{D}11:00:00Z")
+        self.set_clock(f"{D}12:00:00Z")
+
+    def hung(self, match, *args):
+        self.mutate(lambda st: st.update({"hang": [{"match": match, "pid_file": str(self.pidf)}]}))
+        return self.snapshot_run(*args, env={"SPECWRIGHT_NET_DEADLINE": "4"})
+
+    def assert_failed(self, r, command):
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn(f"deadline_exceeded: {command}", r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+        heads = self.state_dir / "heads"
+        self.assertEqual([p for p in heads.rglob("*") if p.is_file()] if heads.exists() else [], [], "no first_seen record")
+
+    def test_activity_lookup_limit_fails_the_snapshot(self):
+        self.assert_failed(self.hung("activity", "--reviewer", f"{MIRA}:required:3600"), "gh api")
+
+    def test_clock_lookup_limit_fails_the_snapshot(self):
+        self.assert_failed(self.hung("rate_limit", "--reviewer", f"{MIRA}:required:3600"), "gh api")
+
+    def test_clock_lookup_limit_fails_a_snapshot_without_reviewers(self):
+        self.assert_failed(self.hung("rate_limit"), "gh api")
+
+
 class ClippedBodies(SnapCase):
     """A body the snapshot shortened says so (`clipped`), and --full reads it whole."""
 

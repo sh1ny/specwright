@@ -62,6 +62,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -333,30 +334,59 @@ class Captured:
 
 
 def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, watch=None):
-    """Run `cmd` with a deadline. Output goes to files, so a huge output costs disk, not memory, and a killed process
-    tree cannot leave a pipe open. Returns the first MAX_OUTPUT+1 bytes of stdout and the size. `scan`, when given, is
-    called with the stdout file's path after a normal exit and its result is returned as `.scanned`. Every POLL seconds
-    the deadline and the output sizes are checked: `limits` is {"stdout": bytes, "stderr": bytes}, `watch` is
-    (path, bytes) for a file the CLI writes (codex's last message). Past a bound the tree is stopped, `.over` names it."""
+    """Run `cmd` with a deadline. Reader threads copy stdout and stderr from pipes into files as the CLI writes them, so a
+    huge output costs disk, not memory, and a stream with a bound stops being copied once it passes it: no file grows past
+    its bound between two checks. Returns the first MAX_OUTPUT+1 bytes of stdout and the size kept. `scan`, when given, is
+    called with the stdout file's path after a normal exit and its result is returned as `.scanned`. `limits` is
+    {"stdout": bytes, "stderr": bytes}; `watch` is (path, bytes) for a file the CLI writes itself (codex's last message),
+    checked every POLL seconds. Past a bound the tree is stopped, `.over` names it. After the CLI exits its readers get
+    2 s to finish, so a straggler that inherited a pipe cannot hold the run open."""
     limits = limits or {}
     work = tempfile.mkdtemp(prefix="specwright-run-")
+    out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
     try:
-        with open(os.path.join(work, "out"), "wb") as fo, open(os.path.join(work, "err"), "wb") as fe:
+        with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
             fi = open(stdin_path, "rb") if stdin_path else None
+            p, readers = None, []
             try:
                 kw = {} if os.name == "nt" else {"start_new_session": True}
                 try:
-                    p = subprocess.Popen(cmd, stdin=fi if fi else subprocess.DEVNULL, stdout=fo, stderr=fe, cwd=cwd, env=ENV, **kw)
+                    p = subprocess.Popen(cmd, stdin=fi if fi else subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, cwd=cwd, env=ENV, **kw)
                 except OSError as e:
                     return Captured(127, b"", 0, str(e), False, error=str(e))
-                out_path, err_path = os.path.join(work, "out"), os.path.join(work, "err")
-                deadline = time.monotonic() + timeout
-                rc, timed_out, over = None, False, None
+                passed, kept = [], {"stdout": 0, "stderr": 0}
+                wake = threading.Event()
 
-                def oversize():
-                    for stream, path in (("stdout", out_path), ("stderr", err_path)):
-                        if stream in limits and os.path.getsize(path) > limits[stream]:
-                            return stream
+                def copy(stream, name, f):  # stops at the bound, so the file holds at most bound + 1 bytes
+                    limit = limits.get(name)
+                    try:
+                        fd = stream.fileno()
+                        while True:
+                            chunk = os.read(fd, 65536)
+                            if not chunk:
+                                return
+                            if limit is not None and kept[name] + len(chunk) > limit:
+                                f.write(chunk[:limit + 1 - kept[name]])
+                                kept[name] = limit + 1
+                                passed.append(name)
+                                wake.set()
+                                return
+                            f.write(chunk)
+                            kept[name] += len(chunk)
+                    except (OSError, ValueError):
+                        pass
+                    finally:
+                        wake.set()
+
+                readers = [threading.Thread(target=copy, args=a, daemon=True)
+                           for a in ((p.stdout, "stdout", fo), (p.stderr, "stderr", fe))]
+                for t in readers:
+                    t.start()
+                deadline = time.monotonic() + timeout
+                rc, timed_out, over, exited = None, False, None, None
+
+                def answer_over():
                     if watch:
                         try:
                             if os.path.getsize(watch[0]) > watch[1]:
@@ -366,33 +396,46 @@ def capture(cmd, timeout, stdin_path=None, cwd=None, scan=None, limits=None, wat
                     return None
 
                 while True:
-                    rc = p.poll()
-                    if rc is not None:
-                        over = oversize()  # a burst written between two checks, just before the exit
-                        if over:
-                            rc = None
+                    over = passed[0] if passed else answer_over()
+                    if over:
                         break
-                    over = oversize()
-                    if over is None and time.monotonic() >= deadline:
+                    if exited is None and p.poll() is not None:
+                        exited = time.monotonic()
+                    if exited is not None and (not any(t.is_alive() for t in readers) or time.monotonic() - exited >= 2):
+                        over = answer_over()  # an answer written just before the exit
+                        rc = None if over else p.returncode
+                        break
+                    if time.monotonic() >= deadline:
                         timed_out = True
-                    if over or timed_out:
-                        kill_tree(p.pid)
-                        try:
-                            p.wait(timeout=10)
-                        except subprocess.TimeoutExpired:
-                            pass
-                        rc = None
                         break
-                    time.sleep(max(0.01, min(POLL, deadline - time.monotonic())))
+                    wake.wait(max(0.01, min(POLL, deadline - time.monotonic())))
+                    wake.clear()
+                if over or timed_out:
+                    if p.poll() is None or any(t.is_alive() for t in readers):
+                        kill_tree(p.pid)
+                    try:
+                        p.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    stop = time.monotonic() + 5  # a survivor holding a pipe is let go after 5 s
+                    for t in readers:
+                        t.join(max(0, stop - time.monotonic()))
+                    rc = None
             finally:
                 if fi:
                     fi.close()
-        size = os.path.getsize(os.path.join(work, "out"))
-        scanned = scan(os.path.join(work, "out")) if scan and not timed_out and not over and rc == 0 else None
-        with open(os.path.join(work, "out"), "rb") as f:
+                for stream, t in zip((p.stdout, p.stderr) if p else (), readers):
+                    if not t.is_alive():  # a reader still blocked on a survivor's pipe keeps its end
+                        try:
+                            stream.close()
+                        except (OSError, ValueError):
+                            pass
+        size = kept["stdout"]
+        scanned = scan(out_path) if scan and not timed_out and not over and rc == 0 else None
+        with open(out_path, "rb") as f:
             out = f.read(MAX_OUTPUT + 1)
-        with open(os.path.join(work, "err"), "rb") as f:
-            f.seek(max(0, os.path.getsize(os.path.join(work, "err")) - 2000))
+        with open(err_path, "rb") as f:
+            f.seek(max(0, os.path.getsize(err_path) - 2000))
             err = f.read().decode("utf-8", "replace")
         return Captured(rc, out, size, err, timed_out, scanned=scanned, over=over)
     finally:
