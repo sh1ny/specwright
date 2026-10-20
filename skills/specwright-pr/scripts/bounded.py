@@ -15,7 +15,8 @@ Use as a library:  run_bounded(cmd, deadline, max_bytes, env, cwd, paged=False, 
   values above. stdout and stderr are text (UTF-8, undecodable bytes replaced).
 Use as a CLI:      python bounded.py [--paged] [--secret] -- cmd...
   Copies the command's stdout and stderr through after it ends and exits with its status. On a limit it prints
-  `bounded: <limit>: <cmd[0]> <cmd[1]>` on stderr and exits 124 (deadline) or 125 (too large).
+  `bounded: <limit>: <cmd[0]> <cmd[1]>` on stderr
+  (for `sh -c script name args...`, the wrapped command: `name args[0]`) and exits 124 (deadline) or 125 (too large).
 
 Normal mode sends stdout and stderr to files in a fresh temp dir (removed at the end), so a huge output costs disk, not memory.
 Secret mode (--secret, secret=True) is for commands that print a credential: nothing reaches disk, the output is captured
@@ -172,7 +173,9 @@ def main(argv):
         return 2
     rc, out, err, limit = _run(cmd, None, None, None, None, "--paged" in flags, "--secret" in flags)
     if limit:
-        sys.stderr.write("bounded: %s: %s\n" % (limit, " ".join(cmd[:2])))
+        shell = os.path.basename(cmd[0]).lower().split(".")[0] in ("sh", "bash")
+        named = cmd[3:5] if shell and len(cmd) > 3 and cmd[1] == "-c" else cmd[:2]  # sh -c 'exec gh "$@"' gh api: name gh api
+        sys.stderr.write("bounded: %s: %s\n" % (limit, " ".join(named)))
         return 124 if limit == DEADLINE_EXCEEDED else 125
     sys.stdout.buffer.write(out)
     sys.stdout.buffer.flush()
