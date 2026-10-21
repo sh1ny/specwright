@@ -702,6 +702,8 @@ def cmd_graphql_evidence(st, q, fields):
         for kind, top in ops:
             if kind != "mutation":
                 raise Fail(f"GraphQL: {kind} operations are not supported")
+            if not top:  # fields only through a fragment spread, which the fake does not expand: an error, not an empty success
+                raise Fail("GraphQL: the mutation selects no field the fake supports (fragment spreads on Mutation are not expanded)")
             for name in top:
                 if name not in MUTATIONS:
                     raise Fail(f"GraphQL: Field '{name}' doesn't exist on type 'Mutation'")

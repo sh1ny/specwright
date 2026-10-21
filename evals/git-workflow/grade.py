@@ -181,9 +181,13 @@ def roadmap_offer(rep):
     """The roadmap modes (next, close) the report offers. Only a sentence that asks (asks_about), or a paragraph block with a
     question (as in offers), and names the roadmap counts. In it a mode counts when it is bound to the command: `specwright-roadmap
     close`, `roadmap: close` (up to three non-word characters between), or a backticked `close`; a mode coordinated with a bound
-    one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count."""
+    one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and in a
+    block only the asking sentences and the list items count: a sentence that explains why a mode does not apply offers nothing."""
     rep = rep.lower()
-    units = [s for s in sentences(rep) if asks_about(s, "roadmap")] + [b for b in re.split(r"\n\s*\n", rep) if "roadmap" in b and "?" in b]
+    units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
+    for b in re.split(r"\n\s*\n", rep):
+        if "?" in b:  # a question over its option list: the items are offered
+            units += [ln for ln in b.splitlines() if "roadmap" in ln and re.match(r"\s*(?:[-*+]|\d+[.)])\s", ln)]
     found = set()
     for u in units:
         for rx in BOUND:

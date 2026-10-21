@@ -198,6 +198,12 @@ class RoadmapOffer(unittest.TestCase):
         self.assertEqual(grade.roadmap_offer("Shall I go on?\n\n- specwright-roadmap close"), set())  # the question is in another block
         self.assertEqual(grade.roadmap_offer("- **specwright-roadmap**: `close`?"), {"close"})
 
+    def test_explaining_sentence_offers_nothing(self):
+        rep = "Merged #7. M2 has no planned change left, so specwright-roadmap next does not apply. Run specwright-roadmap close for M2?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        rep = "Merged #7; specwright-roadmap next does not apply. What now?\n- run specwright-roadmap close for M2"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+
     def test_named_but_not_offered_fails(self):
         rep = "There is no roadmap step to run next; close the PR tab when done"
         self.assertEqual(grade.roadmap_offer(rep), set())

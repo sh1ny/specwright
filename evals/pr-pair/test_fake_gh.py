@@ -727,6 +727,15 @@ class GraphqlWriteDispatch(PrEvidence):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.state.read_bytes(), before)
 
+    def test_mutation_through_a_fragment_spread_fails_unchanged(self):
+        # the fake cannot expand `...F` on Mutation: an error, never an empty success that applied nothing
+        before = self.state.read_bytes()
+        doc = "fragment F on Mutation { resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } } mutation($threadId:ID!){ ...F }"
+        r = self.gql(doc, ("threadId", self.t["id"]), check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("GraphQL:", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
 
 # the class reuses PrEvidence's seeded PR but must not rerun its tests
 for _name in [n for n in dir(PrEvidence) if n.startswith("test_") and n not in GraphqlWriteDispatch.__dict__]:
