@@ -204,6 +204,14 @@ class RoadmapOffer(unittest.TestCase):
         rep = "Merged #7; specwright-roadmap next does not apply. What now?\n- run specwright-roadmap close for M2"
         self.assertEqual(grade.roadmap_offer(rep), {"close"})
 
+    def test_stated_mode_with_question_after_it_is_offered(self):
+        rep = "Next step: `specwright-roadmap close` for M2 (run login: eval-bot). Shall I run it?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        rep = "Merged #7.\n\nNext: specwright-roadmap next for M3. Want me to run it?"
+        self.assertEqual(grade.roadmap_offer(rep), {"next"})
+        rep = "Next: specwright-roadmap close.\n\nAnything else?"  # the question is in another block
+        self.assertEqual(grade.roadmap_offer(rep), set())
+
     def test_named_but_not_offered_fails(self):
         rep = "There is no roadmap step to run next; close the PR tab when done"
         self.assertEqual(grade.roadmap_offer(rep), set())
@@ -405,7 +413,8 @@ class GitAllowlist(unittest.TestCase):
     def test_unknown_subcommand_is_a_write(self):
         self.writes("replace", "notes add", "reflog expire --all", "reflog delete HEAD@{0}", "reflog write refs/heads/x 0 1 msg", "reflog drop --all",
                     "reflog frobnicate", "frobnicate", "gc", "maintenance run",
-                    "gc --prune=now", "config user.name x", "remote add o url", "stash push", "worktree add ../w", "")
+                    "gc --prune=now", "config user.name x", "remote add o url", "remote -v add o url", "remote --verbose set-url o url",
+                    "remote -v remove o", "remote -v prune o", "remote -v update", "stash push", "worktree add ../w", "")
 
     def test_fetch_into_local_branch_is_a_write(self):
         self.writes("fetch origin main:main", "fetch origin +refs/heads/x:refs/remotes/origin/x", "fetch origin feat/x:refs/heads/main",
@@ -418,7 +427,7 @@ class GitAllowlist(unittest.TestCase):
                    "reflog exists refs/heads/main", "reflog HEAD", "reflog refs/heads/main", "reflog main@{1}",
                    "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
                    "symbolic-ref HEAD", "gc --auto --no-quiet --detach", "maintenance run --auto --no-quiet",
-                   "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "stash list",
+                   "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "remote", "remote -v show o", "remote -v get-url o", "stash list",
                    "worktree list", "tag", "ls-remote origin")
 
     @unittest.skipUnless(shutil.which("git"), "needs git")

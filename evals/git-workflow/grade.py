@@ -182,12 +182,12 @@ def roadmap_offer(rep):
     question (as in offers), and names the roadmap counts. In it a mode counts when it is bound to the command: `specwright-roadmap
     close`, `roadmap: close` (up to three non-word characters between), or a backticked `close`; a mode coordinated with a bound
     one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and in a
-    block only the asking sentences and the list items count: a sentence that explains why a mode does not apply offers nothing."""
+    block a sentence or list item that rules a mode out (not, n't, never, no longer) offers nothing: it explains why it does not apply."""
     rep = rep.lower()
     units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
     for b in re.split(r"\n\s*\n", rep):
-        if "?" in b:  # a question over its option list: the items are offered
-            units += [ln for ln in b.splitlines() if "roadmap" in ln and re.match(r"\s*(?:[-*+]|\d+[.)])\s", ln)]
+        if "?" in b:  # a question over the stated step or its option list: what they name is offered
+            units += [s for s in sentences(b) if "roadmap" in s and not re.search(r"\b(?:not|never|no longer)\b|n't\b", s)]
     found = set()
     for u in units:
         for rx in BOUND:
@@ -433,7 +433,8 @@ def git_read_only(c):
     if sub == "config":
         return any(a.startswith("--get") or a in ("--list", "-l") for a in rest) or pos[:1] in (["get"], ["list"])
     if sub == "remote":
-        return rest[:1] in ([], ["-v"], ["--verbose"], ["get-url"], ["show"])
+        sub_args = [a for a in rest if a not in ("-v", "--verbose")]  # -v may precede the subcommand: `remote -v add` adds
+        return sub_args[:1] in ([], ["get-url"], ["show"])
     if sub == "stash":
         return rest[:1] in (["list"], ["show"])
     if sub == "worktree":
