@@ -136,6 +136,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling modules, however gh.py is loaded
+import gqlops  # noqa: E402  reads the operations of a GraphQL document
+
 HOST = "https://github.com"
 ENV_LOGGED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 
@@ -657,28 +660,50 @@ def snapshot_data(st, slug, repo, p, viewer):
     return {"data": {"viewer": {"login": viewer}, "repository": {"pullRequest": pr}}}
 
 
+def _resolve_thread(st, fields):
+    viewer = whoami(st)
+    found = find_item(st, fields.get("threadId", ""))
+    if not found or found[2] != "thread" or not _readable(st, found[0], viewer):
+        raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{fields.get('threadId', '')}'. (resolveReviewThread)")
+    found[3]["isResolved"] = True
+    found[3]["resolvedBy"], found[3]["resolvedAt"] = viewer, now(st)
+    return {"resolveReviewThread": {"thread": {"id": found[3]["id"], "isResolved": True}}}
+
+
+def _add_reaction(st, fields):
+    viewer = whoami(st)
+    sid, content = fields.get("subjectId", ""), fields.get("content", "")
+    found = find_item(st, sid)
+    if not found or not _readable(st, found[0], viewer):
+        raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{sid}'. (addReaction)")
+    if content not in ("THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"):
+        raise Fail(f"GraphQL: Variable $content of type ReactionContent! was provided invalid value ({content})")
+    react_once(st, found[0], sid, viewer, content)
+    if found[2] == "review_comment":  # REST reads the same reaction
+        rest_react_once(st, found[0], found[3]["databaseId"], viewer, REST_CONTENT[content])
+    return {"addReaction": {"reaction": {"content": content}}}
+
+
+MUTATIONS = {"resolveReviewThread": _resolve_thread, "addReaction": _add_reaction}
+
+
 def cmd_graphql_evidence(st, q, fields):
-    """The PR-evidence queries and mutations; None when `q` is not one of them."""
-    if "resolveReviewThread" in q:
-        viewer = whoami(st)
-        found = find_item(st, fields.get("threadId", ""))
-        if not found or found[2] != "thread" or not _readable(st, found[0], viewer):
-            raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{fields.get('threadId', '')}'. (resolveReviewThread)")
-        found[3]["isResolved"] = True
-        found[3]["resolvedBy"], found[3]["resolvedAt"] = viewer, now(st)
-        return {"data": {"resolveReviewThread": {"thread": {"id": found[3]["id"], "isResolved": True}}}}
-    if "addReaction" in q:
-        viewer = whoami(st)
-        sid, content = fields.get("subjectId", ""), fields.get("content", "")
-        found = find_item(st, sid)
-        if not found or not _readable(st, found[0], viewer):
-            raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{sid}'. (addReaction)")
-        if content not in ("THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"):
-            raise Fail(f"GraphQL: Variable $content of type ReactionContent! was provided invalid value ({content})")
-        react_once(st, found[0], sid, viewer, content)
-        if found[2] == "review_comment":  # REST reads the same reaction
-            rest_react_once(st, found[0], found[3]["databaseId"], viewer, REST_CONTENT[content])
-        return {"data": {"addReaction": {"reaction": {"content": content}}}}
+    """The PR-evidence queries and mutations; None when `q` is not one of them.
+    A write is a mutation operation's top-level field, dispatched by exact name, as the grader classifies it; text in a comment
+    or string never writes. A failing field leaves the state unsaved (main saves only when no Fail is raised)."""
+    ops = gqlops.operations(q)
+    if ops is None:
+        raise Fail("GraphQL: Parse error: the query document cannot be read")
+    if any(kind != "query" for kind, _ in ops):
+        data = {}
+        for kind, top in ops:
+            if kind != "mutation":
+                raise Fail(f"GraphQL: {kind} operations are not supported")
+            for name in top:
+                if name not in MUTATIONS:
+                    raise Fail(f"GraphQL: Field '{name}' doesn't exist on type 'Mutation'")
+                data.update(MUTATIONS[name](st, fields))
+        return {"data": data}
     if "reviewThreads(" in q:
         slug, repo, p, viewer = read_pull(st, fields)
         return snapshot_data(st, slug, repo, p, viewer)

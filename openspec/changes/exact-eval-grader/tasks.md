@@ -7,9 +7,9 @@
 | eval-grading → GraphQL calls are classified by their operations | Mutation after a fragment | evals/git-workflow/test_grade.py | GraphqlOperations.test_mutation_after_fragment_is_a_write | green |
 | eval-grading → GraphQL calls are classified by their operations | Read that mentions a mutation field | evals/git-workflow/test_grade.py | GraphqlOperations.test_comment_or_string_mention_is_a_read | green |
 | eval-grading → GraphQL calls are classified by their operations | Unparseable document | evals/git-workflow/test_grade.py | GraphqlOperations.test_unparseable_or_opaque_is_a_write | green |
-| eval-grading → The fake gh and the grader agree on GraphQL writes | Real mutation applies | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_real_mutation_applies_and_grades_as_write | red |
-| eval-grading → The fake gh and the grader agree on GraphQL writes | Comment or string mention changes nothing | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_mention_in_read_changes_nothing | red |
-| eval-grading → The fake gh and the grader agree on GraphQL writes | Mutation with an unknown field | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_unknown_mutation_field_fails_unchanged | red |
+| eval-grading → The fake gh and the grader agree on GraphQL writes | Real mutation applies | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_real_mutation_applies_and_grades_as_write | green |
+| eval-grading → The fake gh and the grader agree on GraphQL writes | Comment or string mention changes nothing | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_mention_in_read_changes_nothing | green |
+| eval-grading → The fake gh and the grader agree on GraphQL writes | Mutation with an unknown field | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_unknown_mutation_field_fails_unchanged | green |
 | eval-grading → Git writes are everything off a read-only allowlist | Plumbing and dash targets are writes | evals/git-workflow/test_grade.py | GitAllowlist.test_plumbing_and_dash_targets_are_writes | green |
 | eval-grading → Git writes are everything off a read-only allowlist | Unknown subcommand is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_unknown_subcommand_is_a_write | green |
 | eval-grading → Git writes are everything off a read-only allowlist | Fetch into a local branch is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_fetch_into_local_branch_is_a_write | green |
@@ -38,7 +38,7 @@
   - A mutation that selects a known and an unknown field together leaves `gh-state.json` byte-identical. This pins the invariant that `main` saves state only when no `Fail` is raised (`gh.py`, design D3 and review S6).
 
   Verify they fail for the right reason: today's substring dispatch.
-- [ ] 2.2 Change `cmd_graphql_evidence` (`gh.py:661`) per design D3: parse with `gqlops.operations`, dispatch mutation top-level fields by exact name, raise a GraphQL error for unknown fields and unparseable documents, and keep read dispatch unchanged for query-only documents. Verify rows 4-6 pass and `python -m unittest discover evals/pr-pair` is green. Flip rows 4-6 green.
+- [x] 2.2 Change `cmd_graphql_evidence` (`gh.py:661`) per design D3: parse with `gqlops.operations`, dispatch mutation top-level fields by exact name, raise a GraphQL error for unknown fields and unparseable documents, and keep read dispatch unchanged for query-only documents. Verify rows 4-6 pass and `python -m unittest discover evals/pr-pair` is green. Flip rows 4-6 green.
 
 ## 3. Git writes by a read-only allowlist
 
