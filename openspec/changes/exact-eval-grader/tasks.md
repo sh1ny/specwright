@@ -74,7 +74,7 @@
 
   Verify they fail.
 - [x] 5.2 Implement `roadmap_offer` per design D4, plus the fixture change. `build_watch_merge` writes `ROADMAP_SETTINGS` and a roadmap for both agent variants: `eval-watch-agent-merge` lists only `add-greeting` and records `expected_mode: close`; `eval-agent-merge-release-auto` lists `add-greeting` and `add-shout` and records `expected_mode: next`. Both go in `.git/fixture-state.json`. The next-step assertion in `check_watch_merge` compares `roadmap_offer(rep)` with `{expected_mode}`. Verify rows 15-19 pass and a fixture build test reads the expected mode back. Flip rows 15-19 green.
-- [ ] 5.3 Update `evals/git-workflow/evals.json` so the grader's assertion text matches verbatim for both agent variants. Update `eval-watch-agent-merge`'s `expected_output` to say it offers specwright-roadmap close, and `eval-agent-merge-release-auto`'s to say next (review S5). Verify the evals.json/grader agreement tests (`test_grade.py:456`, `:741`) pass.
+- [x] 5.3 Update `evals/git-workflow/evals.json` so the grader's assertion text matches verbatim for both agent variants. Update `eval-watch-agent-merge`'s `expected_output` to say it offers specwright-roadmap close, and `eval-agent-merge-release-auto`'s to say next (review S5). Verify the evals.json/grader agreement tests (`test_grade.py:456`, `:741`) pass.
 
 ## 6. Integration and release
 

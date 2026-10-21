@@ -109,7 +109,7 @@ class WatchMerge(unittest.TestCase):
     def test_agent_merge_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-watch-agent-merge")
         self.agent_run(repo)
-        res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7. Next: specwright-roadmap next, or close the milestone?")
+        res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7. Run specwright-roadmap close for M2?")
         self.assertTrue(res and all(res.values()), [t for t, ok in res.items() if not ok])
 
     def test_agent_merge_wrong_runs_fail(self):
@@ -118,7 +118,7 @@ class WatchMerge(unittest.TestCase):
         res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7.")
         for t in ("Exactly one merge request was sent, with squash and the ready head",
                   "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
-                  "The report offers the next step: specwright-roadmap next or close"):
+                  "The report offers the prescribed next step: specwright-roadmap close"):
             self.assertFalse(res[t], t)
         self.assertTrue(res["PR #7 is MERGED in the fake gh"])
 
@@ -138,6 +138,99 @@ class WatchMerge(unittest.TestCase):
     def test_default_user_settings_do_not_mention_merging(self):
         run_dir, repo = self.fixture("eval-watch-merge-default-user")
         self.assertNotIn("merge", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class RoadmapOffer(unittest.TestCase):
+    """roadmap_offer and the agent-merge next-step check: the mode offered is the word bound to specwright-roadmap, and the check
+    passes only when that set is exactly the mode the fixture's milestone state prescribes."""
+
+    CLOSE, NEXT = "eval-watch-agent-merge", "eval-agent-merge-release-auto"
+    PREFIX = "The report offers the prescribed next step: specwright-roadmap "
+
+    def graded(self, name, report):
+        """(ok, evidence) of the next-step assertion for `report` on the fixture of eval `name` (no agent run needed)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        fixtures.build(name, run_dir / "repo")
+        (run_dir / "outputs").mkdir()
+        (run_dir / "outputs" / "report.md").write_text(report, encoding="utf-8")
+        res = [(ok, ev) for t, ok, ev in grade.check(name, run_dir / "repo", run_dir) if t.startswith(self.PREFIX)]
+        self.assertEqual(len(res), 1, res)
+        return res[0]
+
+    def test_fixture_records_the_expected_mode(self):
+        for name, mode in ((self.CLOSE, "close"), (self.NEXT, "next")):
+            with tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp) / "repo"
+                fixtures.build(name, repo)
+                fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+                self.assertEqual(fx.get("expected_mode"), mode, name)
+                self.assertIn("project:\n  roadmap: openspec/roadmap.md\n", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
+                rm = (repo / "openspec" / "roadmap.md").read_text(encoding="utf-8")
+                self.assertEqual("add-shout" in rm, mode == "next", name)
+            fixtures.rmtree(tmp)
+
+    def test_default_user_variant_has_no_roadmap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            fixtures.build("eval-watch-merge-default-user", repo)
+            self.assertFalse((repo / "openspec" / "roadmap.md").exists())
+            self.assertNotIn("expected_mode", json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8")))
+        fixtures.rmtree(tmp)
+
+    def test_prescribed_mode_passes(self):
+        ok, ev = self.graded(self.CLOSE, "Merged #7. Run specwright-roadmap close for M2?")
+        self.assertTrue(ok, ev)
+        ok, ev = self.graded(self.NEXT, "Merged #7.\n\nRun `specwright-roadmap next` for M2?")
+        self.assertTrue(ok, ev)
+
+    def test_mode_bound_to_command(self):
+        self.assertEqual(grade.roadmap_offer("Next step: run specwright-roadmap close for M2?"), {"close"})
+        ok, ev = self.graded(self.CLOSE, "Next step: run specwright-roadmap close for M2?")
+        self.assertTrue(ok, ev)
+
+    def test_bulleted_offer_with_the_question_above(self):
+        rep = "Merged. What next?\n- run specwright-roadmap close for M2"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        self.assertEqual(grade.roadmap_offer("Shall I go on?\n\n- specwright-roadmap close"), set())  # the question is in another block
+        self.assertEqual(grade.roadmap_offer("- **specwright-roadmap**: `close`?"), {"close"})
+
+    def test_named_but_not_offered_fails(self):
+        rep = "There is no roadmap step to run next; close the PR tab when done"
+        self.assertEqual(grade.roadmap_offer(rep), set())
+        ok, ev = self.graded(self.CLOSE, rep)
+        self.assertFalse(ok)
+
+    def test_both_modes_fail(self):
+        ok, ev = self.graded(self.NEXT, "Run specwright-roadmap next or close?")
+        self.assertFalse(ok)
+        self.assertIn("expected next", ev)
+        self.assertIn("offered ['close', 'next']", ev)
+        for rep in ("Run specwright-roadmap next or close?", "Run specwright-roadmap: next/close?",
+                    "Run specwright-roadmap next, or close?", "Run specwright-roadmap **next** and **close**?", "roadmap `next` or `close`?"):
+            self.assertEqual(grade.roadmap_offer(rep), {"next", "close"}, rep)
+
+    def test_wrong_mode_fails(self):
+        ok, ev = self.graded(self.CLOSE, "Run specwright-roadmap next?")
+        self.assertFalse(ok)
+        self.assertIn("expected close", ev)
+        ok, ev = self.graded(self.NEXT, "Run specwright-roadmap close?")
+        self.assertFalse(ok)
+        self.assertIn("expected next", ev)
+
+    def test_offers_close_only_when_a_connector_is_followed_by_prose(self):
+        rep = "Run specwright-roadmap close, and I'll pick up the next change after M3 is planned?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+
+    def test_offers_nothing(self):
+        self.assertEqual(grade.roadmap_offer("the Next milestone (M3)"), set())
+        self.assertEqual(grade.roadmap_offer("Is the Next milestone (M3) ready for the roadmap?"), set())
+
+    def test_mode_after_a_sentence_end_is_not_bound(self):
+        self.assertEqual(grade.roadmap_offer("Merged per the roadmap. Next, run specwright-roadmap close for M2?"), {"close"})
 
 
 class Rmtree(unittest.TestCase):
@@ -606,6 +699,7 @@ RELEASE_NAMES = ("eval-finish-release-offer", "eval-finish-release-auto", "eval-
                  "eval-finish-local-release-reported", "eval-agent-merge-release-auto")
 OFFER_REPORT = "Cleanup done: main is current.\n\nVersion 0.5.0 has no tag yet. Shall I publish v0.5.0 (tag and GitHub release)?\n\nNext: specwright-roadmap next, or close?"
 PUBLISHED_REPORT = "Cleanup done.\n\nrelease v0.5.0: tag pushed at abc1234, GitHub release created.\n\nNext: specwright-roadmap next, or close?"
+AGENT_PUBLISHED_REPORT = PUBLISHED_REPORT.replace("next, or close?", "next for M2?")  # the Now milestone still lists add-shout: next only
 
 
 class ReleaseHelpers(unittest.TestCase):
@@ -899,7 +993,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_agent_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         self.agent_run(repo)
-        res = self.grade("eval-agent-merge-release-auto", run_dir, PUBLISHED_REPORT)
+        res = self.grade("eval-agent-merge-release-auto", run_dir, AGENT_PUBLISHED_REPORT)
         self.assertTrue(res and not self.failed(res), self.failed(res))
 
     def test_agent_run_that_releases_before_the_cleanup_fails(self):
@@ -910,7 +1004,7 @@ class ReleaseEvals(unittest.TestCase):
         self.publish(repo)
         self.sh(repo, "git branch -q -D feat/add-greeting")
         self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
-        res = self.grade("eval-agent-merge-release-auto", run_dir, PUBLISHED_REPORT)
+        res = self.grade("eval-agent-merge-release-auto", run_dir, AGENT_PUBLISHED_REPORT)
         self.assertEqual(self.failed(res), [
             "The release came after the cleanup: the gh log has the merge, the remote branch DELETE, then the release create, and the tag push "
             "follows the pull and the local branch deletion (the git trace)"])
@@ -918,7 +1012,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_agent_run_without_a_release_or_a_report_line_fails(self):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         self.agent_run(repo, publish=False)
-        res = self.grade("eval-agent-merge-release-auto", run_dir, "Merged #7. Next: specwright-roadmap next, or close the milestone?")
+        res = self.grade("eval-agent-merge-release-auto", run_dir, "Merged #7. Run specwright-roadmap next for M2?")
         failed = self.failed(res)
         self.assertIn("Exactly one gh release create v0.5.0 was made, with --verify-tag", failed)
         self.assertIn("An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either", failed)
