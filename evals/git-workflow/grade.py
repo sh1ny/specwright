@@ -15,6 +15,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fakes"))
+import gqlops  # noqa: E402  reads the operations of a GraphQL document
+
 INITIAL = "chore: initial project"
 STORE_MAIN = ["chore: register store", "chore: initial store"]  # newest first, as a fixture store leaves its main
 STORE_PR_BODY = "Plans for add-greeting."  # the open store PR #3 of eval-store-ship-code-push-rejected-store-pr-open
@@ -400,7 +403,9 @@ def changing_gh(calls):
             qs = gql_queries(a)
             # a query read from a file or --input cannot be classified from argv: count it as a possible write
             opaque = any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
-            if opaque or any(re.match(r"\s*(?:#[^\n]*\n\s*)*mutation\b", q) for q in qs):
+            # so does one that does not parse, holds no operation, or holds a mutation or subscription among its top-level definitions
+            parsed = [gqlops.operations(q) for q in qs]
+            if opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed):
                 out.append(joined)
         elif a[:1] == ["api"]:
             # the method comes from its own argv token: `-X GET`, `--method GET`, `-XGET`, `--method=GET`; never from inside a path

@@ -4,9 +4,9 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| eval-grading → GraphQL calls are classified by their operations | Mutation after a fragment | evals/git-workflow/test_grade.py | GraphqlOperations.test_mutation_after_fragment_is_a_write | red |
-| eval-grading → GraphQL calls are classified by their operations | Read that mentions a mutation field | evals/git-workflow/test_grade.py | GraphqlOperations.test_comment_or_string_mention_is_a_read | red |
-| eval-grading → GraphQL calls are classified by their operations | Unparseable document | evals/git-workflow/test_grade.py | GraphqlOperations.test_unparseable_or_opaque_is_a_write | red |
+| eval-grading → GraphQL calls are classified by their operations | Mutation after a fragment | evals/git-workflow/test_grade.py | GraphqlOperations.test_mutation_after_fragment_is_a_write | green |
+| eval-grading → GraphQL calls are classified by their operations | Read that mentions a mutation field | evals/git-workflow/test_grade.py | GraphqlOperations.test_comment_or_string_mention_is_a_read | green |
+| eval-grading → GraphQL calls are classified by their operations | Unparseable document | evals/git-workflow/test_grade.py | GraphqlOperations.test_unparseable_or_opaque_is_a_write | green |
 | eval-grading → The fake gh and the grader agree on GraphQL writes | Real mutation applies | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_real_mutation_applies_and_grades_as_write | red |
 | eval-grading → The fake gh and the grader agree on GraphQL writes | Comment or string mention changes nothing | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_mention_in_read_changes_nothing | red |
 | eval-grading → The fake gh and the grader agree on GraphQL writes | Mutation with an unknown field | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_unknown_mutation_field_fails_unchanged | red |
@@ -27,7 +27,7 @@
 ## 1. Shared GraphQL operation classifier
 
 - [x] 1.1 Write the failing `GraphqlOperations` tests in `evals/git-workflow/test_grade.py` (map rows 1-3): a mutation after a fragment is a write; a `query` whose `#` comment, `"..."` string or `"""..."""` block string holds `mutation { addReaction` or `resolveReviewThread` is a read; unbalanced braces, an unterminated string, `@q.graphql` and `--input` are writes. Add direct `gqlops.operations` cases: anonymous `{`, named operations with variables and directives, aliases (`a: addReaction(...)` gives `addReaction`), several operations in one document. Verify they fail because `gqlops` does not exist yet.
-- [ ] 1.2 Add `evals/fakes/gqlops.py`, stdlib only and Python 3.8-compatible, with `operations(doc)` per design D1. In `grade.py`, put `evals/fakes` on `sys.path` as `fixtures.py:34` does, and classify `api graphql` calls in `changing_gh` through `operations()` in place of the first-token regex (`grade.py:403`). Verify rows 1-3 pass, the existing `ChangingCommands` GraphQL tests stay green, and flip rows 1-3 green.
+- [x] 1.2 Add `evals/fakes/gqlops.py`, stdlib only and Python 3.8-compatible, with `operations(doc)` per design D1. In `grade.py`, put `evals/fakes` on `sys.path` as `fixtures.py:34` does, and classify `api graphql` calls in `changing_gh` through `operations()` in place of the first-token regex (`grade.py:403`). Verify rows 1-3 pass, the existing `ChangingCommands` GraphQL tests stay green, and flip rows 1-3 green.
 
 ## 2. Fake gh routes GraphQL writes through the parsed operations
 
