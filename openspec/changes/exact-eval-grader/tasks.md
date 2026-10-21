@@ -66,7 +66,7 @@
 
 ## 5. The agent-merge eval grades a real next-step offer
 
-- [ ] 5.1 Write the failing `RoadmapOffer` tests (map rows 15-19) against `roadmap_offer` and the grader's next-step check. Cases:
+- [x] 5.1 Write the failing `RoadmapOffer` tests (map rows 15-19) against `roadmap_offer` and the grader's next-step check. Cases:
   - passes: "Run specwright-roadmap close for M2?" when close is expected; "Next step: run specwright-roadmap close for M2?"; a bulleted offer whose question sits on the line above;
   - fails: "There is no roadmap step to run next; close the PR tab when done"; "Run specwright-roadmap next or close?" when next is expected, with evidence naming expected next and offered {next, close}; "Run specwright-roadmap next?" when close is expected;
   - offers close only: "Run specwright-roadmap close, and I'll pick up the next change after M3 is planned?", where only whitespace or markup may sit between a connector and a coordinated mode (review S9);
