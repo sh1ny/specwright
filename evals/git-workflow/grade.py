@@ -410,9 +410,10 @@ def git_read_only(c):
         return True
     if sub in ("gc", "maintenance"):
         return "--auto" in rest and (sub == "gc" or rest[:1] == ["run"])
-    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1), or forces with +
+    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1), forces with +, or takes
+        # or prunes every tag (--tags/-t writes refs/tags/*, --prune-tags/-P deletes local tags)
         refspecs = [a for a in c[1:] if not a.startswith("-")][1:]
-        return not any(a.startswith("+") for a in rest) and "tag" not in refspecs and all(
+        return not any(a.startswith("+") or a in ("--tags", "-t", "--prune-tags", "-P") for a in rest) and "tag" not in refspecs and all(
             ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in refspecs)
     if sub == "reflog":
         # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)

@@ -403,10 +403,11 @@ class GitAllowlist(unittest.TestCase):
 
     def test_fetch_into_local_branch_is_a_write(self):
         self.writes("fetch origin main:main", "fetch origin +refs/heads/x:refs/remotes/origin/x", "fetch origin feat/x:refs/heads/main",
-                    "fetch origin tag v1")
+                    "fetch origin tag v1",
+                    "fetch --tags origin", "fetch -q origin main --tags", "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin")
 
     def test_reads_stay_reads(self):
-        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "diff-tree",
+        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "diff-tree",
                    "reflog", "reflog -n 5", "reflog --oneline", "reflog show main", "reflog show", "reflog list",
                    "reflog exists refs/heads/main", "reflog HEAD", "reflog refs/heads/main", "reflog main@{1}",
                    "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
@@ -767,7 +768,7 @@ class ReleaseEvals(unittest.TestCase):
         return [t for t, ok in res.items() if not ok]
 
     def cleanup(self, repo):
-        self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
 
     def publish(self, repo):
         return json.loads(self.sh(repo, f"bash {AS_SH} eval-bot bash {RELEASE_SH} --dir . publish --version 0.5.0 --main origin/main"))
@@ -827,7 +828,7 @@ class ReleaseEvals(unittest.TestCase):
 
     def test_offer_run_without_a_refresh_fails(self):
         run_dir, repo = self.fixture("eval-finish-release-offer")
-        self.sh(repo, "git fetch -q origin main --tags")
+        self.sh(repo, "git fetch -q --no-tags origin main")
         res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
         self.assertEqual(self.failed(res), ["The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)"])
 
@@ -975,7 +976,7 @@ class ReleaseEvals(unittest.TestCase):
     def agent_run(self, repo, publish=True):
         tip = grade.git(repo, "rev-parse", "HEAD")
         self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method=squash -f sha={tip}")
-        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
         self.sh(repo, "git branch -q -D feat/add-greeting")
         self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
         if publish:
@@ -1002,7 +1003,7 @@ class ReleaseEvals(unittest.TestCase):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         tip = grade.git(repo, "rev-parse", "HEAD")
         self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method=squash -f sha={tip}")
-        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
         self.publish(repo)
         self.sh(repo, "git branch -q -D feat/add-greeting")
         self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
