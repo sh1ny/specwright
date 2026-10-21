@@ -456,8 +456,9 @@ def changing_git(cmds):
 
 
 def gql_queries(a):
-    """The query texts a `gh api graphql` call passes: `query=...` on its own (after -f/-F) or attached (-fquery=, --field=query=)."""
-    return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
+    """The query texts a `gh api graphql` call passes: `query=...` on its own (after -f/-F) or attached (-fquery=, -f=query=,
+    --field=query=)."""
+    return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]=?|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
 
 
 GH_READ = {"pr": {"view", "list", "checks", "diff", "status"}, "issue": {"view", "list", "status"}, "repo": {"view"},
@@ -492,10 +493,11 @@ def rest_read_only(a):
 
 
 def graphql_read_only(a):
-    """True if the `gh api graphql` call `a` holds only queries; a query read from a file or --input, one that does not parse, holds no
-    operation, or holds a mutation or subscription among its top-level definitions is not."""
+    """True if the `gh api graphql` call `a` holds only queries; a call with no query in a spelling gql_queries reads, a query read
+    from a file or --input, one that does not parse, holds no operation, or holds a mutation or subscription among its top-level
+    definitions is not."""
     qs = gql_queries(a)
-    opaque = any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
+    opaque = not qs or any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
     parsed = [gqlops.operations(q) for q in qs]
     return not (opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed))
 

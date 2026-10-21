@@ -335,6 +335,13 @@ class GhAllowlist(unittest.TestCase):
         self.writes("issue lock 3", "issue delete 3", "issue unlock 3", "issue pin 3", "issue unpin 3", "issue transfer 3 o/other",
                     "pr lock 7", "pr unlock 7", "pr revert 7", "pr update-branch 7")
 
+    def test_graphql_without_a_readable_query_is_a_write(self):
+        mut = "mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"
+        for argv in (["api", "graphql", "-f=query=" + mut], ["api", "graphql", "-F=query=" + mut],  # the equals-attached spellings
+                     ["api", "graphql"], ["api", "graphql", "-f", "q=" + mut]):  # no query gh would send as one: never a read
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [" ".join(argv)], argv)
+        self.reads(["api", "graphql", "-f=query={ viewer { login } }"], ["api", "graphql", "-F=query=query { viewer { login } }"])
+
     def test_graphql_mutation_without_method_in_pr_mutations(self):
         mut = "mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"
         read = "query { viewer { login } }"
