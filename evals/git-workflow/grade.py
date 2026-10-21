@@ -172,6 +172,33 @@ def offers(rep, topic):
     return asks_about(rep, topic) or any(re.search(topic, b) and "?" in b for b in re.split(r"\n\s*\n", rep))
 
 
+MARK = r"[\s*`_]*"  # whitespace or markup: all that may sit between a connector and a coordinated mode
+COORD = re.compile(MARK + r"(?:,[\s*`_]*(?:or|and)\b|\b(?:or|and)\b|[/,])" + MARK + r"(next|close)\b")
+BOUND = (re.compile(r"roadmap[^\w.!?\n]{0,3}?(next|close)\b"), re.compile(r"`(next|close)`"))  # never across a sentence end
+
+
+def roadmap_offer(rep):
+    """The roadmap modes (next, close) the report offers. Only a sentence that asks (asks_about), or a paragraph block with a
+    question (as in offers), and names the roadmap counts. In it a mode counts when it is bound to the command: `specwright-roadmap
+    close`, `roadmap: close` (up to three non-word characters between), or a backticked `close`; a mode coordinated with a bound
+    one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count."""
+    rep = rep.lower()
+    units = [s for s in sentences(rep) if asks_about(s, "roadmap")] + [b for b in re.split(r"\n\s*\n", rep) if "roadmap" in b and "?" in b]
+    found = set()
+    for u in units:
+        for rx in BOUND:
+            for m in rx.finditer(u):
+                found.add(m.group(1))
+                pos = m.end()
+                while True:
+                    c = COORD.match(u, pos)
+                    if not c:
+                        break
+                    found.add(c.group(1))
+                    pos = c.end()
+    return found
+
+
 def report(run):
     p = run / "outputs" / "report.md"
     return p.read_text(encoding="utf-8").lower() if p.exists() else ""
@@ -567,8 +594,9 @@ def check_watch_merge(name, repo, branch, branches, status, rep):
         if name == "eval-agent-merge-release-auto":  # the one gh release create v0.5.0 this run expects
             other = without_one(other, rf"release create {re.escape(RELEASE_TAG)}(\s|$)")
         R.append(("No other gh call created or changed anything (no gh pr merge, auto-merge or comment)", not other, f"other changing gh calls={other}"))
-        hit = re.search(r"roadmap", rep) and re.search(r"\b(next|close)\b", rep)
-        R.append(("The report offers the next step: specwright-roadmap next or close", bool(hit), f"excerpt={rep[-240:]!r}"))
+        want, got = fx["expected_mode"], roadmap_offer(rep)
+        R.append((f"The report offers the prescribed next step: specwright-roadmap {want}", got == {want},
+                  f"expected {want}, offered {sorted(got)}, excerpt={rep[-240:]!r}"))
         if name == "eval-agent-merge-release-auto":
             R.extend(check_release_published(repo, fx["squash"], st, calls, git_trace(repo) or [], rep, "squash merge commit", after_cleanup=True))
     else:

@@ -18,11 +18,11 @@
 | eval-grading → gh writes are everything off a read-only allowlist | GraphQL mutation without a method flag | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_mutation_without_method_in_pr_mutations | green |
 | eval-grading → gh writes are everything off a read-only allowlist | Unknown gh subcommand is a write | evals/git-workflow/test_grade.py | GhAllowlist.test_unknown_subcommand_is_a_write | green |
 | eval-grading → gh writes are everything off a read-only allowlist | Reads stay reads | evals/git-workflow/test_grade.py | GhAllowlist.test_reads_stay_reads | green |
-| eval-grading → An offered next step is graded by what the report proposes | The prescribed mode is offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_prescribed_mode_passes | red |
-| eval-grading → An offered next step is graded by what the report proposes | Mode bound to the roadmap command | evals/git-workflow/test_grade.py | RoadmapOffer.test_mode_bound_to_command | red |
-| eval-grading → An offered next step is graded by what the report proposes | Named but not offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_named_but_not_offered_fails | red |
-| eval-grading → An offered next step is graded by what the report proposes | Both modes offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_both_modes_fail | red |
-| eval-grading → An offered next step is graded by what the report proposes | The wrong mode | evals/git-workflow/test_grade.py | RoadmapOffer.test_wrong_mode_fails | red |
+| eval-grading → An offered next step is graded by what the report proposes | The prescribed mode is offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_prescribed_mode_passes | green |
+| eval-grading → An offered next step is graded by what the report proposes | Mode bound to the roadmap command | evals/git-workflow/test_grade.py | RoadmapOffer.test_mode_bound_to_command | green |
+| eval-grading → An offered next step is graded by what the report proposes | Named but not offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_named_but_not_offered_fails | green |
+| eval-grading → An offered next step is graded by what the report proposes | Both modes offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_both_modes_fail | green |
+| eval-grading → An offered next step is graded by what the report proposes | The wrong mode | evals/git-workflow/test_grade.py | RoadmapOffer.test_wrong_mode_fails | green |
 
 ## 1. Shared GraphQL operation classifier
 
@@ -73,7 +73,7 @@
   - offers nothing: "the Next milestone (M3)".
 
   Verify they fail.
-- [ ] 5.2 Implement `roadmap_offer` per design D4, plus the fixture change. `build_watch_merge` writes `ROADMAP_SETTINGS` and a roadmap for both agent variants: `eval-watch-agent-merge` lists only `add-greeting` and records `expected_mode: close`; `eval-agent-merge-release-auto` lists `add-greeting` and `add-shout` and records `expected_mode: next`. Both go in `.git/fixture-state.json`. The next-step assertion in `check_watch_merge` compares `roadmap_offer(rep)` with `{expected_mode}`. Verify rows 15-19 pass and a fixture build test reads the expected mode back. Flip rows 15-19 green.
+- [x] 5.2 Implement `roadmap_offer` per design D4, plus the fixture change. `build_watch_merge` writes `ROADMAP_SETTINGS` and a roadmap for both agent variants: `eval-watch-agent-merge` lists only `add-greeting` and records `expected_mode: close`; `eval-agent-merge-release-auto` lists `add-greeting` and `add-shout` and records `expected_mode: next`. Both go in `.git/fixture-state.json`. The next-step assertion in `check_watch_merge` compares `roadmap_offer(rep)` with `{expected_mode}`. Verify rows 15-19 pass and a fixture build test reads the expected mode back. Flip rows 15-19 green.
 - [ ] 5.3 Update `evals/git-workflow/evals.json` so the grader's assertion text matches verbatim for both agent variants. Update `eval-watch-agent-merge`'s `expected_output` to say it offers specwright-roadmap close, and `eval-agent-merge-release-auto`'s to say next (review S5). Verify the evals.json/grader agreement tests (`test_grade.py:456`, `:741`) pass.
 
 ## 6. Integration and release
