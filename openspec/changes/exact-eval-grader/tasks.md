@@ -10,10 +10,10 @@
 | eval-grading → The fake gh and the grader agree on GraphQL writes | Real mutation applies | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_real_mutation_applies_and_grades_as_write | red |
 | eval-grading → The fake gh and the grader agree on GraphQL writes | Comment or string mention changes nothing | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_mention_in_read_changes_nothing | red |
 | eval-grading → The fake gh and the grader agree on GraphQL writes | Mutation with an unknown field | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_unknown_mutation_field_fails_unchanged | red |
-| eval-grading → Git writes are everything off a read-only allowlist | Plumbing and dash targets are writes | evals/git-workflow/test_grade.py | GitAllowlist.test_plumbing_and_dash_targets_are_writes | red |
-| eval-grading → Git writes are everything off a read-only allowlist | Unknown subcommand is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_unknown_subcommand_is_a_write | red |
-| eval-grading → Git writes are everything off a read-only allowlist | Fetch into a local branch is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_fetch_into_local_branch_is_a_write | red |
-| eval-grading → Git writes are everything off a read-only allowlist | Reads stay reads | evals/git-workflow/test_grade.py | GitAllowlist.test_reads_stay_reads | red |
+| eval-grading → Git writes are everything off a read-only allowlist | Plumbing and dash targets are writes | evals/git-workflow/test_grade.py | GitAllowlist.test_plumbing_and_dash_targets_are_writes | green |
+| eval-grading → Git writes are everything off a read-only allowlist | Unknown subcommand is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_unknown_subcommand_is_a_write | green |
+| eval-grading → Git writes are everything off a read-only allowlist | Fetch into a local branch is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_fetch_into_local_branch_is_a_write | green |
+| eval-grading → Git writes are everything off a read-only allowlist | Reads stay reads | evals/git-workflow/test_grade.py | GitAllowlist.test_reads_stay_reads | green |
 | eval-grading → gh writes are everything off a read-only allowlist | Listed issue and pr writes | evals/git-workflow/test_grade.py | GhAllowlist.test_listed_issue_and_pr_writes | red |
 | eval-grading → gh writes are everything off a read-only allowlist | GraphQL mutation without a method flag | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_mutation_without_method_in_pr_mutations | red |
 | eval-grading → gh writes are everything off a read-only allowlist | Unknown gh subcommand is a write | evals/git-workflow/test_grade.py | GhAllowlist.test_unknown_subcommand_is_a_write | red |
@@ -53,7 +53,7 @@
   - reads: `status --porcelain`, `log --oneline`, `branch --show-current`, `rev-parse HEAD`, `fetch origin`, `diff-tree`, `reflog`, `reflog -n 5` (review S7), `config --name-only --get-regexp x`, `config get x` and `config list` (newer git's subcommand forms, review S7), `grep`, `blame`, `symbolic-ref HEAD`, `gc --auto --no-quiet --detach`.
 
   Verify the write cases fail today.
-- [ ] 3.3 Replace `changing_git` (`grade.py:367`) with the read-only table of design D2 (`git_read_only`), normalising `--opt=value` before flag lookups. Keep `refresh_exceptions` and `tag_writes` behaviour. Verify rows 7-10, 3.1 and the existing `ChangingCommands`/`FinishResumeMerged` tests pass. Flip rows 7-10 green.
+- [x] 3.3 Replace `changing_git` (`grade.py:367`) with the read-only table of design D2 (`git_read_only`), normalising `--opt=value` before flag lookups. Keep `refresh_exceptions` and `tag_writes` behaviour. Verify rows 7-10, 3.1 and the existing `ChangingCommands`/`FinishResumeMerged` tests pass. Flip rows 7-10 green.
 
 ## 4. gh writes by a read-only allowlist, one classifier
 

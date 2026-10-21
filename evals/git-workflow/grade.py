@@ -359,30 +359,60 @@ BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--point
 BRANCH_VALUE = {"--format", "--sort"}  # options whose separate argument is a value, not a branch name (neither forces list mode)
 BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
                 "--unset-upstream", "--edit-description", "-t", "--track"}
-ALWAYS_WRITE = {"commit", "merge", "rebase", "cherry-pick", "reset", "revert", "push", "tag", "am", "stash", "pull"}
-CHECKOUT_WRITE = {"-b", "-B", "-c", "-C", "--orphan", "--detach", "-d"}
+# Read-only git (design D2): everything else, including subcommands this table does not know, is a change.
+READ_ALWAYS = {"status", "log", "show", "diff", "diff-tree", "diff-index", "diff-files", "rev-parse", "rev-list", "ls-tree", "ls-files",
+               "ls-remote", "cat-file", "merge-base", "for-each-ref", "show-ref", "describe", "name-rev", "grep", "blame", "shortlog",
+               "cherry", "check-ignore", "check-ref-format", "count-objects", "var", "version", "help",
+               # children git starts itself for fetch, pull, push and ls-remote; the parent command is judged, not these
+               "upload-pack", "receive-pack", "pack-objects", "index-pack", "unpack-objects", "fetch-pack"}
 
 
 def branch_deletes(cmds):
     return [c for c in cmds if c[:1] == ["branch"] and {"-d", "-D", "--delete"} & set(c[1:])]
 
 
+def git_read_only(c):
+    """True if the traced git command `c` (argv after `git`) only reads: its subcommand and arguments are on the read-only table.
+    `--opt=value` is split into `--opt value` first, so attached values match like separate ones."""
+    if not c:
+        return False
+    sub = c[0]
+    rest = [p for a in c[1:] for p in (a.split("=", 1) if a.startswith("--") and "=" in a else [a])]
+    pos = [a for a in rest if not a.startswith("-")]
+    if sub in READ_ALWAYS:
+        return True
+    if sub in ("gc", "maintenance"):
+        return "--auto" in rest and (sub == "gc" or rest[:1] == ["run"])
+    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1), or forces with +
+        refspecs = [a for a in c[1:] if not a.startswith("-")][1:]
+        return not any(a.startswith("+") for a in rest) and "tag" not in refspecs and all(
+            ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in refspecs)
+    if sub == "reflog":
+        return pos[:1] not in (["expire"], ["delete"])
+    if sub == "branch":
+        positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in BRANCH_VALUE)]
+        return not (BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & set(rest)))
+    if sub in ("checkout", "switch"):
+        return not rest
+    if sub == "tag":
+        return not tag_writes([c])
+    if sub == "config":
+        return any(a.startswith("--get") or a in ("--list", "-l") for a in rest) or pos[:1] in (["get"], ["list"])
+    if sub == "remote":
+        return rest[:1] in ([], ["-v"], ["--verbose"], ["get-url"], ["show"])
+    if sub == "stash":
+        return rest[:1] in (["list"], ["show"])
+    if sub == "worktree":
+        return rest[:1] == ["list"]
+    if sub == "symbolic-ref":
+        return len(pos) == 1 and not {"-d", "--delete"} & set(rest)
+    return False
+
+
 def changing_git(cmds):
-    """The git commands that commit, merge, pull, push or change a branch; `git branch` counts only when it writes, and `git checkout`/`switch`
-    whenever it names a target (`checkout main`, `switch main`, `checkout -- <path>`) or creates or detaches a branch."""
-    bad = []
-    for c in cmds:
-        sub, rest = (c[0] if c else ""), c[1:]
-        if sub in ALWAYS_WRITE:
-            bad.append(c)
-        elif sub == "branch":
-            positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in BRANCH_VALUE)]
-            flags = {a.split("=", 1)[0] for a in rest if a.startswith("-")}
-            if BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & flags):
-                bad.append(c)
-        elif sub in ("checkout", "switch") and (CHECKOUT_WRITE & set(rest) or any(not a.startswith("-") or a == "--" for a in rest)):
-            bad.append(c)
-    return bad
+    """The git commands that are not on the read-only table (`git_read_only`): commits, merges, pulls, pushes, ref and branch changes,
+    `checkout`/`switch` with any argument, a fetch into a local branch, and any subcommand the table does not know."""
+    return [c for c in cmds if not git_read_only(c)]
 
 
 def gql_queries(a):
