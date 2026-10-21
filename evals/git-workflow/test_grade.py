@@ -206,6 +206,54 @@ class ChangingCommands(unittest.TestCase):
             self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
 
 
+class GraphqlOperations(unittest.TestCase):
+    """`gh api graphql` calls are classified by the operations in the document, not by its first token."""
+
+    def setUp(self):
+        import gqlops  # the fakes dir is on sys.path through fixtures
+        self.ops = gqlops.operations
+
+    def changing(self, *argv):
+        return grade.changing_gh([{"argv": ["api", "graphql", *argv]}])
+
+    def test_mutation_after_fragment_is_a_write(self):
+        q = 'fragment R on Reaction { content } mutation { addReaction(input:{subjectId:"X",content:THUMBS_UP}) { reaction { ...R } } }'
+        self.assertEqual(len(self.changing("-f", "query=" + q)), 1)
+        self.assertEqual(self.ops(q), [("mutation", ["addReaction"])])
+
+    def test_comment_or_string_mention_is_a_read(self):
+        for q in ("query { viewer { login } } # resolveReviewThread",
+                  'query { search(query: "mutation { addReaction") { issueCount } }',
+                  'query { search(query: "say \\"mutation { addReaction\\" ") { issueCount } }',
+                  'query { search(query: """mutation { addReaction""") { issueCount } }',
+                  "query { viewer { login } } # mutation { addReaction"):
+            self.assertEqual(self.changing("-f", "query=" + q), [], q)
+            self.assertEqual([k for k, _ in self.ops(q)], ["query"], q)
+
+    def test_unparseable_or_opaque_is_a_write(self):
+        for argv in (["-f", "query=query { viewer { login }"], ["-f", "query=query { viewer { login } } }"],
+                     ["-f", 'query=query { search(query: "x) { issueCount } }'], ["-F", "query=@q.graphql"],
+                     ["--input", "q.json"], ["-f", "query=bogus { a }"], ["-f", "query=fragment F on User { login }"]):
+            self.assertEqual(len(self.changing(*argv)), 1, argv)
+        self.assertIsNone(self.ops("query { a "))
+        self.assertIsNone(self.ops('query { a(x: "u) }'))
+        self.assertIsNone(self.ops('query { a(x: """u) }'))
+        self.assertIsNone(self.ops("query { a } }"))
+        self.assertIsNone(self.ops("bogus { a }"))
+
+    def test_operations_shapes(self):
+        self.assertEqual(self.ops("{ viewer { login } }"), [("query", ["viewer"])])
+        self.assertEqual(self.ops("query Q($n: Int = 3, $o: String!) @dir(a: {b: 1}) { repository(owner: $o) { id } rateLimit { cost } }"),
+                         [("query", ["repository", "rateLimit"])])
+        self.assertEqual(self.ops('mutation M { a: addReaction(input: {subjectId: "X"}) { reaction { content } } b: resolveReviewThread(input: {threadId: "T"}) { thread { id } } }'),
+                         [("mutation", ["addReaction", "resolveReviewThread"])])
+        self.assertEqual(self.ops("query A { x } mutation B { y } subscription C { z }"),
+                         [("query", ["x"]), ("mutation", ["y"]), ("subscription", ["z"])])
+        self.assertEqual(self.ops("query { viewer { ...F } ...G ... on Query { rateLimit { cost } } }"), [("query", ["viewer"])])
+        self.assertEqual(self.ops("fragment F on User { login }"), [])
+        self.assertEqual(self.ops("# only a comment\n"), [])
+
+
 @unittest.skipUnless(shutil.which("bash"), "needs bash")
 class FinishResumeMerged(unittest.TestCase):
     """The merged-PR resume fixtures: origin is a local bare repo reached by pull and fetch only, the guarded refresh (checkout main,

@@ -26,7 +26,7 @@
 
 ## 1. Shared GraphQL operation classifier
 
-- [ ] 1.1 Write the failing `GraphqlOperations` tests in `evals/git-workflow/test_grade.py` (map rows 1-3): a mutation after a fragment is a write; a `query` whose `#` comment, `"..."` string or `"""..."""` block string holds `mutation { addReaction` or `resolveReviewThread` is a read; unbalanced braces, an unterminated string, `@q.graphql` and `--input` are writes. Add direct `gqlops.operations` cases: anonymous `{`, named operations with variables and directives, aliases (`a: addReaction(...)` gives `addReaction`), several operations in one document. Verify they fail because `gqlops` does not exist yet.
+- [x] 1.1 Write the failing `GraphqlOperations` tests in `evals/git-workflow/test_grade.py` (map rows 1-3): a mutation after a fragment is a write; a `query` whose `#` comment, `"..."` string or `"""..."""` block string holds `mutation { addReaction` or `resolveReviewThread` is a read; unbalanced braces, an unterminated string, `@q.graphql` and `--input` are writes. Add direct `gqlops.operations` cases: anonymous `{`, named operations with variables and directives, aliases (`a: addReaction(...)` gives `addReaction`), several operations in one document. Verify they fail because `gqlops` does not exist yet.
 - [ ] 1.2 Add `evals/fakes/gqlops.py`, stdlib only and Python 3.8-compatible, with `operations(doc)` per design D1. In `grade.py`, put `evals/fakes` on `sys.path` as `fixtures.py:34` does, and classify `api graphql` calls in `changing_gh` through `operations()` in place of the first-token regex (`grade.py:403`). Verify rows 1-3 pass, the existing `ChangingCommands` GraphQL tests stay green, and flip rows 1-3 green.
 
 ## 2. Fake gh routes GraphQL writes through the parsed operations
