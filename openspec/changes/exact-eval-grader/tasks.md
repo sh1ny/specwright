@@ -79,7 +79,7 @@
 ## 6. Integration and release
 
 - [x] 6.1 Run every suite the M4 exit criteria name: `python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update` and `evals/release`. Verify all are green, and that `openspec validate exact-eval-grader --strict` passes.
-- [ ] 6.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.7.3`, which updates `VERSION`, the README badge and `metadata.version` in `skills/*/SKILL.md`. Verify with `bash skills/specwright-release/scripts/release.sh check`.
+- [x] 6.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.7.3`, which updates `VERSION`, the README badge and `metadata.version` in `skills/*/SKILL.md`. Verify with `bash skills/specwright-release/scripts/release.sh check`.
 
 ## Workflow follow-up
 
