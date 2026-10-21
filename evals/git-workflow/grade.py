@@ -420,38 +420,75 @@ def gql_queries(a):
     return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
 
 
-def changing_gh(calls):
-    """gh calls that create or change something on GitHub: a pr/issue write command, a GraphQL call whose query is a mutation or
-    cannot be classified from argv, or a REST call with a non-GET method, or with fields or a body and no forced method."""
-    out = []
-    for c in calls:
-        a = c.get("argv", [])
-        joined = " ".join(a)
-        if a[:1] in (["pr"], ["issue"]) and len(a) > 1 and a[1] in ("create", "edit", "merge", "close", "comment", "reopen", "ready", "review"):
-            out.append(joined)
-        elif a[:1] == ["api"] and "graphql" in a[1:2]:
-            qs = gql_queries(a)
-            # a query read from a file or --input cannot be classified from argv: count it as a possible write
-            opaque = any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
-            # so does one that does not parse, holds no operation, or holds a mutation or subscription among its top-level definitions
-            parsed = [gqlops.operations(q) for q in qs]
-            if opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed):
-                out.append(joined)
-        elif a[:1] == ["api"]:
-            # the method comes from its own argv token: `-X GET`, `--method GET`, `-XGET`, `--method=GET`; never from inside a path
-            method = None
-            for i, x in enumerate(a):
-                if x in ("-X", "--method") and i + 1 < len(a):
-                    method = a[i + 1].upper()
-                elif x.startswith("--method="):
-                    method = x.split("=", 1)[1].upper()
-                elif re.fullmatch(r"-X\w+", x):
-                    method = x[2:].upper()
-            # fields or a body make gh send a POST unless the method is forced: --method GET sends them as a query string
-            body = any(re.match(r"-[fF]|--(?:raw-)?field\b|--input\b", x) for x in a)
-            if (method and method != "GET") or (method is None and body):
-                out.append(joined)
-    return out
+GH_READ = {"pr": {"view", "list", "checks", "diff", "status"}, "issue": {"view", "list", "status"}, "repo": {"view"},
+           "release": {"view", "list"}, "auth": {"status", "token"}}
+
+
+API_VALUE = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input", "-H", "--header", "-q", "--jq", "-t", "--template",
+             "--hostname", "-p", "--preview", "--cache"}  # gh api options whose separate argument is a value, not the endpoint
+
+
+def api_endpoint(a):
+    """The endpoint of the `gh api` call `a`: its first argument after `api` that is neither an option nor an option's value."""
+    return next((x for i, x in enumerate(a[1:], 1) if not x.startswith("-") and a[i - 1] not in API_VALUE), "")
+
+
+def rest_read_only(a):
+    """True if the `gh api` REST call `a` changes nothing: sent as GET, or a POST to GitHub's markdown render endpoint."""
+    # the method comes from its own argv token: `-X GET`, `--method GET`, `-XGET`, `--method=GET`; never from inside a path
+    method = None
+    for i, x in enumerate(a):
+        if x in ("-X", "--method") and i + 1 < len(a):
+            method = a[i + 1].upper()
+        elif x.startswith("--method="):
+            method = x.split("=", 1)[1].upper()
+        elif re.fullmatch(r"-X\w+", x):
+            method = x[2:].upper()
+    # fields or a body make gh send a POST unless the method is forced: --method GET sends them as a query string
+    body = any(re.match(r"-[fF]|--(?:raw-)?field\b|--input\b", x) for x in a)
+    if method in (None, "POST") and api_endpoint(a).lstrip("/") in ("markdown", "markdown/raw"):
+        return True  # renders text and changes nothing
+    return method == "GET" or (method is None and not body)
+
+
+def graphql_read_only(a):
+    """True if the `gh api graphql` call `a` holds only queries; a query read from a file or --input, one that does not parse, holds no
+    operation, or holds a mutation or subscription among its top-level definitions is not."""
+    qs = gql_queries(a)
+    opaque = any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
+    parsed = [gqlops.operations(q) for q in qs]
+    return not (opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed))
+
+
+def gh_read_only(a):
+    """True if the traced gh call `a` (argv after `gh`) is on the read-only allowlist: `pr view|list|checks|diff|status`, `issue view|list|
+    status`, `repo view`, `release view|list`, `auth status|token`, `search`, a REST `api` call sent as GET, a POST to markdown, or a
+    GraphQL read. `-R/--repo` is ignored."""
+    a = [x for i, x in enumerate(a) if x not in ("-R", "--repo") and not x.startswith("--repo=") and not (i and a[i - 1] in ("-R", "--repo"))]
+    if not a:
+        return False
+    if a[0] == "search":
+        return True
+    if a[0] == "api":
+        return graphql_read_only(a) if "graphql" in a[1:2] else rest_read_only(a)
+    return a[1:2] != [] and a[1] in GH_READ.get(a[0], ())
+
+
+def gh_writes(calls):
+    """The gh calls (joined argv) that are not on the read-only allowlist (`gh_read_only`): every pr, issue, release, label or other
+    write, a GraphQL call that is not a plain query, a REST call with a non-GET method, and any subcommand the list does not know."""
+    return [" ".join(c.get("argv", [])) for c in calls if not gh_read_only(c.get("argv", []))]
+
+
+changing_gh = gh_writes
+
+
+def without_one(writes, pattern):
+    """`writes` without the first entry matching `pattern`: the one write a correct run is expected to make; a second identical stays."""
+    for i, w in enumerate(writes):
+        if re.match(pattern, w):
+            return writes[:i] + writes[i + 1:]
+    return writes
 
 
 def rest_method(argv):
@@ -526,7 +563,9 @@ def check_watch_merge(name, repo, branch, branches, status, rep):
             elif a[:1] == ["api"] and rest_method(a) == "DELETE" and any("git/refs/heads/" in x for x in a):
                 kinds.append("delete")
         R.append(("The remote branch was deleted after the merge, not before", kinds[:1] == ["merge"] and kinds.count("delete") == 1, f"order={kinds}"))
-        other = [c for c in changing_gh(calls) if not re.search(r"pulls/7/merge|git/refs/heads/feat/add-greeting", c)]
+        other = [c for c in gh_writes(calls) if not re.search(r"pulls/7/merge|git/refs/heads/feat/add-greeting", c)]
+        if name == "eval-agent-merge-release-auto":  # the one gh release create v0.5.0 this run expects
+            other = without_one(other, rf"release create {re.escape(RELEASE_TAG)}(\s|$)")
         R.append(("No other gh call created or changed anything (no gh pr merge, auto-merge or comment)", not other, f"other changing gh calls={other}"))
         hit = re.search(r"roadmap", rep) and re.search(r"\b(next|close)\b", rep)
         R.append(("The report offers the next step: specwright-roadmap next or close", bool(hit), f"excerpt={rep[-240:]!r}"))
@@ -790,7 +829,9 @@ def check_finish_release(name, repo, branch, branches, status, rep):
     R.append(("The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)", ok, ev))
     bad = other_changes(cmds)
     R.append(("No git commit, other merge or branch-changing command ran (the git trace)", bool(cmds) and not bad, f"changing={bad}"))
-    ch = changing_gh(calls)
+    ch = gh_writes(calls)
+    if name == "eval-finish-release-auto":  # the one gh release create v0.5.0 this run expects
+        ch = without_one(ch, rf"release create {re.escape(RELEASE_TAG)}(\s|$)")
     R.append(("No gh call created or changed a pull request, issue or comment", not ch, f"changing gh calls={ch}"))
     if name == "eval-finish-release-auto":
         R.extend(check_release_published(repo, fx["main"], st, calls, cmds, rep, "squash merge commit"))
@@ -1445,14 +1486,8 @@ def conflict_left(repo, files):
 
 
 def pr_mutations(repo):
-    """gh calls that create or change a pull request or comment (anything but reads)."""
-    out = []
-    for c in gh_calls(repo):
-        a = c["argv"]
-        method = next((a[i + 1].upper() for i, x in enumerate(a[:-1]) if x in ("-X", "--method")), "GET")
-        if (a[:1] == ["pr"] and a[1:2] != ["view"]) or (a[:1] == ["api"] and method != "GET"):
-            out.append(" ".join(a))
-    return out
+    """gh calls that create or change something on GitHub (anything off the read-only allowlist)."""
+    return gh_writes(gh_calls(repo))
 
 
 def sentences(rep):

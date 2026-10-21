@@ -14,10 +14,10 @@
 | eval-grading → Git writes are everything off a read-only allowlist | Unknown subcommand is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_unknown_subcommand_is_a_write | green |
 | eval-grading → Git writes are everything off a read-only allowlist | Fetch into a local branch is a write | evals/git-workflow/test_grade.py | GitAllowlist.test_fetch_into_local_branch_is_a_write | green |
 | eval-grading → Git writes are everything off a read-only allowlist | Reads stay reads | evals/git-workflow/test_grade.py | GitAllowlist.test_reads_stay_reads | green |
-| eval-grading → gh writes are everything off a read-only allowlist | Listed issue and pr writes | evals/git-workflow/test_grade.py | GhAllowlist.test_listed_issue_and_pr_writes | red |
-| eval-grading → gh writes are everything off a read-only allowlist | GraphQL mutation without a method flag | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_mutation_without_method_in_pr_mutations | red |
-| eval-grading → gh writes are everything off a read-only allowlist | Unknown gh subcommand is a write | evals/git-workflow/test_grade.py | GhAllowlist.test_unknown_subcommand_is_a_write | red |
-| eval-grading → gh writes are everything off a read-only allowlist | Reads stay reads | evals/git-workflow/test_grade.py | GhAllowlist.test_reads_stay_reads | red |
+| eval-grading → gh writes are everything off a read-only allowlist | Listed issue and pr writes | evals/git-workflow/test_grade.py | GhAllowlist.test_listed_issue_and_pr_writes | green |
+| eval-grading → gh writes are everything off a read-only allowlist | GraphQL mutation without a method flag | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_mutation_without_method_in_pr_mutations | green |
+| eval-grading → gh writes are everything off a read-only allowlist | Unknown gh subcommand is a write | evals/git-workflow/test_grade.py | GhAllowlist.test_unknown_subcommand_is_a_write | green |
+| eval-grading → gh writes are everything off a read-only allowlist | Reads stay reads | evals/git-workflow/test_grade.py | GhAllowlist.test_reads_stay_reads | green |
 | eval-grading → An offered next step is graded by what the report proposes | The prescribed mode is offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_prescribed_mode_passes | red |
 | eval-grading → An offered next step is graded by what the report proposes | Mode bound to the roadmap command | evals/git-workflow/test_grade.py | RoadmapOffer.test_mode_bound_to_command | red |
 | eval-grading → An offered next step is graded by what the report proposes | Named but not offered | evals/git-workflow/test_grade.py | RoadmapOffer.test_named_but_not_offered_fails | red |
@@ -62,7 +62,7 @@
   - reads: `pr view`, `pr checks|list|diff|status`, `issue view`, `auth token`, `release view`, `api repos/o/n/pulls/7`, `api --method GET search/issues -f q=x`, and `api -X POST markdown --input req.json` and `markdown/raw`.
 
   Also add `ExpectedWrites.test_release_auto_gh_log`. A correct release-auto `gh` log (the merge PUT, the ref DELETE and one `release create v0.5.0`) passes the "no other gh call changed anything" checks of `check_watch_merge` and `check_finish_release`. The same log with a second `release create` or with a `release delete` fails them. Verify the new cases fail today.
-- [ ] 4.2 Implement `gh_writes(calls)` per design D2. Make `changing_gh` an alias of it and `pr_mutations(repo)` return `gh_writes(gh_calls(repo))`. Make `check_watch_merge` (`grade.py:494`) and `check_finish_release` (`grade.py:758`) subtract exactly the one expected `release create <tag>` in the release-auto evals. Verify rows 11-14 and 4.1 pass, and that the existing store-ship, finish-resume and agent-merge grader tests in `test_grade.py` stay green. Flip rows 11-14 green.
+- [x] 4.2 Implement `gh_writes(calls)` per design D2. Make `changing_gh` an alias of it and `pr_mutations(repo)` return `gh_writes(gh_calls(repo))`. Make `check_watch_merge` (`grade.py:494`) and `check_finish_release` (`grade.py:758`) subtract exactly the one expected `release create <tag>` in the release-auto evals. Verify rows 11-14 and 4.1 pass, and that the existing store-ship, finish-resume and agent-merge grader tests in `test_grade.py` stay green. Flip rows 11-14 green.
 
 ## 5. The agent-merge eval grades a real next-step offer
 
