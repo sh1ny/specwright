@@ -175,19 +175,21 @@ def offers(rep, topic):
 MARK = r"[\s*`_]*"  # whitespace or markup: all that may sit between a connector and a coordinated mode
 COORD = re.compile(MARK + r"(?:,[\s*`_]*(?:or|and)\b|\b(?:or|and)\b|[/,])" + MARK + r"(next|close)\b")
 BOUND = (re.compile(r"roadmap[^\w.!?\n]{0,3}?(next|close)\b"), re.compile(r"`(next|close)`"))  # never across a sentence end
+RULED_OUT = re.compile(r"\b(?:not|never|no longer)\b|n't\b")  # a sentence that says a mode does not apply
 
 
 def roadmap_offer(rep):
     """The roadmap modes (next, close) the report offers. Only a sentence that asks (asks_about), or a paragraph block with a
     question (as in offers), and names the roadmap counts. In it a mode counts when it is bound to the command: `specwright-roadmap
     close`, `roadmap: close` (up to three non-word characters between), or a backticked `close`; a mode coordinated with a bound
-    one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and in a
-    block a sentence or list item that rules a mode out (not, n't, never, no longer) offers nothing: it explains why it does not apply."""
+    one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and a
+    sentence or list item that rules a mode out (not, n't, never, no longer) offers nothing, even one that asks: it explains why the mode
+    does not apply."""
     rep = rep.lower()
-    units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
+    units = [s for s in sentences(rep) if asks_about(s, "roadmap") and not RULED_OUT.search(s)]
     for b in re.split(r"\n\s*\n", rep):
         if "?" in b:  # a question over the stated step or its option list: what they name is offered
-            units += [s for s in sentences(b) if "roadmap" in s and not re.search(r"\b(?:not|never|no longer)\b|n't\b", s)]
+            units += [s for s in sentences(b) if "roadmap" in s and not RULED_OUT.search(s)]
     found = set()
     for u in units:
         for rx in BOUND:
@@ -414,10 +416,13 @@ def git_read_only(c):
         return True
     if sub in ("gc", "maintenance"):
         return "--auto" in rest and (sub == "gc" or rest[:1] == ["run"])
-    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1), forces with +, or takes
-        # or prunes every tag (--tags/-t writes refs/tags/*, --prune-tags/-P deletes local tags)
+    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1), forces with + or
+        # -f/--force (overwrites a local ref), or takes or prunes every tag (--tags/-t writes refs/tags/*, --prune-tags/-P deletes local
+        # tags); a bundle of short options (-qf) counts by its letters
         refspecs = [a for a in c[1:] if not a.startswith("-")][1:]
-        return not any(a.startswith("+") or a in ("--tags", "-t", "--prune-tags", "-P") for a in rest) and "tag" not in refspecs and all(
+        bundled = "".join(a[1:] for a in rest if re.fullmatch(r"-[A-Za-z]{2,}", a))
+        return not any(a.startswith("+") or a in ("--tags", "-t", "--prune-tags", "-P", "--force", "-f") for a in rest) and not set(
+            bundled) & set("ftP") and "tag" not in refspecs and all(
             ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in refspecs)
     if sub == "reflog":
         # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)

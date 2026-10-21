@@ -204,6 +204,10 @@ class RoadmapOffer(unittest.TestCase):
         rep = "Merged #7; specwright-roadmap next does not apply. What now?\n- run specwright-roadmap close for M2"
         self.assertEqual(grade.roadmap_offer(rep), {"close"})
 
+    def test_negated_question_offers_nothing(self):
+        self.assertEqual(grade.roadmap_offer("I will not run specwright-roadmap next; should I stop?"), set())
+        self.assertEqual(grade.roadmap_offer("specwright-roadmap next doesn't apply. Run specwright-roadmap close for M2?"), {"close"})
+
     def test_stated_mode_with_question_after_it_is_offered(self):
         rep = "Next step: `specwright-roadmap close` for M2 (run login: eval-bot). Shall I run it?"
         self.assertEqual(grade.roadmap_offer(rep), {"close"})
@@ -419,7 +423,8 @@ class GitAllowlist(unittest.TestCase):
     def test_fetch_into_local_branch_is_a_write(self):
         self.writes("fetch origin main:main", "fetch origin +refs/heads/x:refs/remotes/origin/x", "fetch origin feat/x:refs/heads/main",
                     "fetch origin tag v1",
-                    "fetch --tags origin", "fetch -q origin main --tags", "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin")
+                    "fetch --tags origin", "fetch -q origin main --tags",
+                    "fetch --force origin main:refs/remotes/origin/main", "fetch -f origin main:refs/remotes/origin/main", "fetch -qf origin", "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin")
 
     def test_reads_stay_reads(self):
         self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "diff-tree",
