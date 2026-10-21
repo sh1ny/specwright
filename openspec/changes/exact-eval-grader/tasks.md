@@ -42,7 +42,7 @@
 
 ## 3. Git writes by a read-only allowlist
 
-- [ ] 3.1 Add a real-trace test, `GitAllowlist.test_real_traces_of_reads_are_reads`, that needs `git` and runs in a temp dir. Using `GIT_TRACE` against a local bare repo, run fetch, `pull --ff-only`, `ls-remote`, status, `git -C <dir> status`, a commit, and `git push` of a branch and of a tag. Parse the traces with `git_trace`. Assert:
+- [x] 3.1 Add a real-trace test, `GitAllowlist.test_real_traces_of_reads_are_reads`, that needs `git` and runs in a temp dir. Using `GIT_TRACE` against a local bare repo, run fetch, `pull --ff-only`, `ls-remote`, status, `git -C <dir> status`, a commit, and `git push` of a branch and of a tag. Parse the traces with `git_trace`. Assert:
   - every child built-in each command starts (`upload-pack`, `receive-pack`, `pack-objects`, `index-pack`, `unpack-objects`, `fetch-pack`, `gc --auto`, `maintenance run --auto …`) is read;
   - the global options `-C`/`-c` do not appear in the traced argv, or are stripped (design Flow & State Gaps, review S3);
   - `refresh_exceptions` and `other_changes` return `[]` for a correct guarded refresh plus a tag push.
