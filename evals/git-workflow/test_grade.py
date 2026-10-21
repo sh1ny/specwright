@@ -206,6 +206,102 @@ class ChangingCommands(unittest.TestCase):
             self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
 
 
+class GitAllowlist(unittest.TestCase):
+    """changing_git counts every traced git command as a change unless it is on the read-only allowlist (design D2)."""
+
+    def writes(self, *cmds):
+        for line in cmds:
+            c = line.split()
+            self.assertEqual(grade.changing_git([c]), [c], line)
+
+    def reads(self, *cmds):
+        for line in cmds:
+            c = line.split()
+            self.assertEqual(grade.changing_git([c]), [], line)
+
+    def test_plumbing_and_dash_targets_are_writes(self):
+        self.writes("update-ref refs/heads/main abc123", "symbolic-ref HEAD refs/heads/x", "symbolic-ref -d HEAD",
+                    "symbolic-ref --delete HEAD", "checkout -", "switch -",
+                    "branch --set-upstream-to=origin/main", "branch --track=direct x")
+
+    def test_unknown_subcommand_is_a_write(self):
+        self.writes("replace", "notes add", "reflog expire --all", "reflog delete HEAD@{0}", "frobnicate", "gc", "maintenance run",
+                    "gc --prune=now", "config user.name x", "remote add o url", "stash push", "worktree add ../w", "")
+
+    def test_fetch_into_local_branch_is_a_write(self):
+        self.writes("fetch origin main:main", "fetch origin +refs/heads/x:refs/remotes/origin/x", "fetch origin feat/x:refs/heads/main",
+                    "fetch origin tag v1")
+
+    def test_reads_stay_reads(self):
+        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "diff-tree",
+                   "reflog", "reflog -n 5", "reflog --oneline", "reflog main", "reflog show", "reflog list",
+                   "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
+                   "symbolic-ref HEAD", "gc --auto --no-quiet --detach", "maintenance run --auto --no-quiet",
+                   "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "stash list",
+                   "worktree list", "tag", "ls-remote origin")
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_real_traces_of_reads_are_reads(self):
+        """Run real git against a local bare repo with GIT_TRACE and check what it traces. Built-ins git 2.55.0 traced as
+        children (fetch, pull, push, commit): fetch --update-head-ok, upload-pack, receive-pack, pack-objects, unpack-objects,
+        rev-list, for-each-ref, merge --ff-only FETCH_HEAD (pull's own), maintenance run --auto (--quiet or --no-quiet) --detach.
+        No gc --auto, index-pack or fetch-pack appeared (the allowlist still covers them). The global options -C and -c are
+        consumed before the built-in line, so the first traced command is the subcommand itself."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: fixtures.rmtree(tmp))
+        root = Path(tmp)
+        log = root / "git-trace.log"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com",
+                   GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+
+        def git(cwd, *args, trace=False):
+            e = dict(env, GIT_TRACE=str(log)) if trace else env
+            if trace and log.exists():
+                log.unlink()
+            subprocess.run(["git", *args], cwd=str(cwd), env=e, check=True, capture_output=True, text=True)
+            return (grade.git_trace(root) or []) if trace else None
+
+        bare, work, other = root / "origin.git", root / "work", root / "other"
+        git(root, "init", "-q", "--bare", "-b", "main", str(bare))
+        git(root, "clone", "-q", str(bare), str(work))
+        git(work, "checkout", "-q", "-b", "main")
+        git(work, "commit", "-q", "--allow-empty", "-m", "one")
+        git(work, "push", "-q", "origin", "main")
+        git(root, "clone", "-q", str(bare), str(other))
+        git(other, "commit", "-q", "--allow-empty", "-m", "two")
+        git(other, "push", "-q", "origin", "main")
+
+        seen = {}
+        def traced(label, cwd, *args):
+            cmds = git(cwd, *args, trace=True)
+            self.assertTrue(cmds, label)
+            seen[label] = cmds
+            return cmds
+
+        guarded = [traced("status", work, "status", "--porcelain")[0]]
+        # a -C or -c option is consumed before the built-in line, so the first traced command is the subcommand itself
+        self.assertEqual(traced("-C status", root, "-C", str(work), "status")[0], ["status"])
+        self.assertEqual(traced("-c status", work, "-c", "core.quotepath=false", "status")[0], ["status"])
+        for label, cmds in seen.items():
+            self.assertFalse([a for c in cmds for a in c[:1] if a in ("-C", "-c")], label)
+        traced("ls-remote", work, "ls-remote", "origin")
+        traced("fetch", work, "fetch", "origin")
+        guarded += traced("checkout main", work, "checkout", "main")[:1]
+        guarded += traced("pull", work, "-c", "pull.rebase=false", "-c", "advice.detachedHead=false", "pull", "--ff-only")
+        self.assertIn(["merge", "--ff-only", "FETCH_HEAD"], guarded, "pull runs its merge as a traced child: " + repr(seen["pull"]))
+        self.assertEqual(grade.refresh_exceptions(guarded), [])
+        git(work, "commit", "-q", "--allow-empty", "-m", "three")
+        for label, args in (("commit", ("commit", "-q", "--allow-empty", "-m", "four")), ("push branch", ("push", "-q", "origin", "main:feat")),
+                            ("tag", ("tag", "-a", "v1", "-m", "release")), ("push tag", ("push", "-q", "origin", "v1"))):
+            cmds = traced(label, work, *args)
+            self.assertEqual(grade.changing_git(cmds[1:]), [], f"{label}: children of {cmds[0]} must be reads: {cmds[1:]}")
+        self.assertEqual(grade.other_changes(guarded + seen["tag"] + seen["push tag"]), [])
+        # every child git started on its own, across all the commands, is a read
+        children = [c for label, cmds in seen.items() for c in cmds[1:]]
+        self.assertEqual(grade.changing_git([c for c in children if c[:1] != ["merge"]]), [], children)
+
+
 class GraphqlOperations(unittest.TestCase):
     """`gh api graphql` calls are classified by the operations in the document, not by its first token."""
 

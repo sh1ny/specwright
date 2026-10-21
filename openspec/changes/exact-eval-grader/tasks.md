@@ -48,7 +48,7 @@
   - `refresh_exceptions` and `other_changes` return `[]` for a correct guarded refresh plus a tag push.
 
   Record which built-ins this git version actually traces in the test's docstring.
-- [ ] 3.2 Write the failing `GitAllowlist` tests (map rows 7-10):
+- [x] 3.2 Write the failing `GitAllowlist` tests (map rows 7-10):
   - writes: `update-ref`, `symbolic-ref HEAD refs/heads/x`, `symbolic-ref -d HEAD` (review S1), `checkout -`, `switch -`, `replace`, `notes add`, `fetch origin main:main`, `fetch origin +refs/heads/x:refs/remotes/origin/x`, `reflog expire`, `branch --set-upstream-to=origin/main` and `branch --track=direct x` (review S2);
   - reads: `status --porcelain`, `log --oneline`, `branch --show-current`, `rev-parse HEAD`, `fetch origin`, `diff-tree`, `reflog`, `reflog -n 5` (review S7), `config --name-only --get-regexp x`, `config get x` and `config list` (newer git's subcommand forms, review S7), `grep`, `blame`, `symbolic-ref HEAD`, `gc --auto --no-quiet --detach`.
 
