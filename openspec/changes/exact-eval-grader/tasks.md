@@ -57,7 +57,7 @@
 
 ## 4. gh writes by a read-only allowlist, one classifier
 
-- [ ] 4.1 Write the failing `GhAllowlist` tests (map rows 11-14):
+- [x] 4.1 Write the failing `GhAllowlist` tests (map rows 11-14):
   - writes: `issue lock|delete|unlock|pin|unpin|transfer`, `pr lock|unlock|revert|update-branch`, `label create`, `auth switch`, and an `api graphql` mutation with no `-X`, which must also be listed by `pr_mutations` through a temp repo's `gh-log.jsonl`;
   - reads: `pr view`, `pr checks|list|diff|status`, `issue view`, `auth token`, `release view`, `api repos/o/n/pulls/7`, `api --method GET search/issues -f q=x`, and `api -X POST markdown --input req.json` and `markdown/raw`.
 

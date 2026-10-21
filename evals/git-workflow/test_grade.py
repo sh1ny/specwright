@@ -206,6 +206,85 @@ class ChangingCommands(unittest.TestCase):
             self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
 
 
+class GhAllowlist(unittest.TestCase):
+    """gh_writes counts every gh call as a write unless it is on the read-only allowlist (design D2)."""
+
+    def writes(self, *lines):
+        for line in lines:
+            argv = line.split()
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [line], line)
+            self.assertEqual(grade.changing_gh([{"argv": argv}]), [line], line)
+
+    def reads(self, *argvs):
+        for argv in argvs:
+            argv = argv.split() if isinstance(argv, str) else argv
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [], argv)
+
+    def test_listed_issue_and_pr_writes(self):
+        self.writes("issue lock 3", "issue delete 3", "issue unlock 3", "issue pin 3", "issue unpin 3", "issue transfer 3 o/other",
+                    "pr lock 7", "pr unlock 7", "pr revert 7", "pr update-branch 7")
+
+    def test_graphql_mutation_without_method_in_pr_mutations(self):
+        mut = "mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"
+        read = "query { viewer { login } }"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            log = [{"argv": ["api", "graphql", "-f", "query=" + mut]}, {"argv": ["api", "graphql", "-f", "query=" + read]},
+                   {"argv": ["pr", "view", "7"]}]
+            (repo / "gh-log.jsonl").write_text("".join(json.dumps(c) + "\n" for c in log), encoding="utf-8")
+            self.assertEqual(grade.pr_mutations(repo), ["api graphql -f query=" + mut])
+            self.assertEqual(grade.pr_mutations(repo), grade.gh_writes(grade.gh_calls(repo)))
+
+    def test_unknown_subcommand_is_a_write(self):
+        self.writes("label create x", "auth switch", "release create v1", "release delete v1", "repo delete o/n", "gist create f", "frobnicate")
+        self.assertEqual(grade.gh_writes([{"argv": []}]), [""], "an empty call is not known to be a read")
+
+    def test_reads_stay_reads(self):
+        self.reads("pr view 7 --json state", "pr checks 7", "pr list", "pr diff 7", "pr status", "issue view 3", "issue list", "issue status",
+                   "repo view", "release view v1", "release list", "auth status", "auth token", "search issues x",
+                   "api repos/o/n/pulls/7", "pr view 7 -R o/n", "pr view 7 --repo=o/n",
+                   ["api", "--method", "GET", "search/issues", "-f", "q=x"],
+                   ["api", "-X", "POST", "markdown", "--input", "req.json"], ["api", "-X", "POST", "markdown/raw", "--input", "req.md"],
+                   ["api", "graphql", "-f", "query={ viewer { login } }"])
+        self.writes("api -X PATCH markdown", "api -X POST repos/o/n/issues/7/comments", "api graphql --input q.json",
+                    "api -X POST repos/o/n/issues --input markdown", "api -X POST repos/o/n/labels -f name=x markdown/raw")
+
+
+class ExpectedWrites(unittest.TestCase):
+    """An eval whose correct run writes subtracts exactly the writes it expects: the release-auto evals expect one release create."""
+
+    def fixture(self, name, log):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        repo = run_dir / "repo"
+        fixtures.build(name, repo)
+        (run_dir / "outputs").mkdir()
+        (run_dir / "outputs" / "report.md").write_text("", encoding="utf-8")
+        with (repo / "gh-log.jsonl").open("a", encoding="utf-8") as f:
+            for argv in log:
+                f.write(json.dumps({"argv": argv}) + "\n")
+        return {t: ok for t, ok, _ in grade.check(name, repo, run_dir)}
+
+    MERGE = ["api", "-X", "PUT", "repos/acme/greeter/pulls/7/merge", "-f", "merge_method=squash", "-f", "sha=abc"]
+    DELETE = ["api", "-X", "DELETE", "repos/acme/greeter/git/refs/heads/feat/add-greeting"]
+    CREATE = ["release", "create", "v0.5.0", "--repo", "acme/greeter", "--verify-tag", "--title", "v0.5.0", "-n", "notes"]
+    WATCH = "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)"
+    FINISH = "No gh call created or changed a pull request, issue or comment"
+
+    @unittest.skipUnless(shutil.which("bash"), "needs bash")
+    def test_release_auto_gh_log(self):
+        cases = (("eval-agent-merge-release-auto", self.WATCH, [self.MERGE, self.DELETE]),
+                 ("eval-finish-release-auto", self.FINISH, []))
+        for name, check, base in cases:
+            self.assertTrue(self.fixture(name, base + [self.CREATE])[check], f"{name}: the one expected release create must pass")
+            self.assertFalse(self.fixture(name, base + [self.CREATE, self.CREATE])[check], f"{name}: a second release create must fail")
+            self.assertFalse(self.fixture(name, base + [self.CREATE, ["release", "delete", "v0.5.0", "--yes"]])[check],
+                             f"{name}: a release delete must fail")
+            self.assertFalse(self.fixture(name, base + [self.CREATE, ["issue", "lock", "3"]])[check], f"{name}: an issue lock must fail")
+
+
 class GitAllowlist(unittest.TestCase):
     """changing_git counts every traced git command as a change unless it is on the read-only allowlist (design D2)."""
 
