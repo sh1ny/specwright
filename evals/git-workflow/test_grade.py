@@ -397,7 +397,8 @@ class GitAllowlist(unittest.TestCase):
                     "branch --set-upstream-to=origin/main", "branch --track=direct x")
 
     def test_unknown_subcommand_is_a_write(self):
-        self.writes("replace", "notes add", "reflog expire --all", "reflog delete HEAD@{0}", "frobnicate", "gc", "maintenance run",
+        self.writes("replace", "notes add", "reflog expire --all", "reflog delete HEAD@{0}", "reflog write refs/heads/x 0 1 msg", "reflog drop --all",
+                    "reflog frobnicate", "frobnicate", "gc", "maintenance run",
                     "gc --prune=now", "config user.name x", "remote add o url", "stash push", "worktree add ../w", "")
 
     def test_fetch_into_local_branch_is_a_write(self):
@@ -406,7 +407,8 @@ class GitAllowlist(unittest.TestCase):
 
     def test_reads_stay_reads(self):
         self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "diff-tree",
-                   "reflog", "reflog -n 5", "reflog --oneline", "reflog main", "reflog show", "reflog list",
+                   "reflog", "reflog -n 5", "reflog --oneline", "reflog show main", "reflog show", "reflog list",
+                   "reflog exists refs/heads/main", "reflog HEAD", "reflog refs/heads/main", "reflog main@{1}",
                    "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
                    "symbolic-ref HEAD", "gc --auto --no-quiet --detach", "maintenance run --auto --no-quiet",
                    "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "stash list",

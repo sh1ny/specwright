@@ -415,7 +415,9 @@ def git_read_only(c):
         return not any(a.startswith("+") for a in rest) and "tag" not in refspecs and all(
             ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in refspecs)
     if sub == "reflog":
-        return pos[:1] not in (["expire"], ["delete"])
+        # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)
+        pos = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in ("-n", "--max-count", "--format", "--pretty", "--date"))]
+        return not pos or pos[0] in ("show", "list", "exists") or pos[0] == "HEAD" or "/" in pos[0] or "@{" in pos[0]
     if sub == "branch":
         positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in BRANCH_VALUE)]
         return not (BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & set(rest)))

@@ -56,7 +56,7 @@ add_node_reaction, set_closing_refs, set_default_branch, which take and mutate t
   repos[slug]["issues"] = {"<n>": {"state": "OPEN" | "CLOSED", "timeline": ["CLOSED", "REOPENED", ...]}}  (set_issue)
   st["graphql_page_size"] = N  (optional; caps the reactions page size below the query's `first`)
 
-Accepted calls (anything else under `api graphql` exits 2):
+Accepted calls (any other query-only document under `api graphql` exits 2; mutations are listed below):
   REST  `api [--paginate] repos/<o>/<n>/pulls/comments/<id>/reactions[?content=%2B1|-1&per_page=N]`
         -> JSON array of {user:{login}, content}; pages of 30 (per_page up to 100), like the other REST lists.
   GQL a `api graphql -f query='...' -f id=<node id> [-f cursor=<endCursor>]` where the query text contains
@@ -121,6 +121,9 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   CLI   pr comment <pr> --body-file F|-   a PR comment stamped with the clock and the viewer (listed by the snapshot).
   GQL mutations  `resolveReviewThread(input:{threadId:$threadId})` -> {"data":{"resolveReviewThread":{"thread":{id,isResolved}}}};
         `addReaction(input:{subjectId:$subjectId,content:$content})` -> {"data":{"addReaction":{"reaction":{"content"}}}}.
+        Applied only when a mutation operation selects the field at its top level (gqlops.operations, as the grader reads it);
+        a comment or string that names one writes nothing. An unparseable document, a subscription or an unknown mutation field
+        exits 1 with a GraphQL error and leaves the state unsaved.
   Each write records the clock's time and the viewer (reactions as "createdAt"/"login").
   A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
   A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
