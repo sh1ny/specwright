@@ -282,6 +282,46 @@ class SkillText(unittest.TestCase):
         self.assertRegex(fb, r"never remove a lock", "the lock rule is missing")
         self.assertRegex(fb[w:w + 700], r"owner", "the text after `pass write` never says to keep the owner id it returns")
 
+    def after_limit(self):
+        fb = self.section("feedback")
+        at = fb.index("**After the limit**")
+        return fb[at:]
+
+    def lookup_bullet(self):
+        text = self.after_limit()
+        calls = positions(sub("item-issues"), text)
+        self.assertTrue(calls, "After the limit never runs `pr-pair.sh item-issues`")
+        start = text.rfind("\n- ", 0, calls[0]) + 1
+        end = text.find("\n- ", calls[0])
+        return text[start:end if end != -1 else len(text)]
+
+    def test_after_limit_issues_one_lookup_per_repo(self):
+        text = self.after_limit()
+        b = self.lookup_bullet()
+        self.assertEqual(len(positions(sub("item-issues"), text)), 1, "the lookup is written once, not per item")
+        self.assertRegex(b, r"\[as\][^`]*pr-pair\.sh item-issues", "the lookup does not run under `[as]`")
+        self.assertRegex(b, r"--repo <owner>/<name>", "the lookup is not given the repository")
+        self.assertRegex(b, r"--item", "the lookup is not given the items")
+        self.assertRegex(b, r"(?i)once per repositor(y|ies)", "the text never says one lookup per repository")
+        self.assertRegex(b, r"(?i)repo-local[^.;]*(one call|once)", "repo-local is not one lookup")
+        self.assertRegex(b, r"(?i)at most twice|two[^.]*store-backed|store-backed[^.]*two", "store-backed is not at most two lookups")
+        self.assertRegex(b, r"(?i)only (that|the) PR's items|items (of|from) (that|its) (repository's )?PR", "each call is not limited to its PR's items")
+        self.assertRegex(b, r"(?i)store login", "the store's lookup does not run as the store login")
+        self.assertRegex(b, r"(?i)run login", "the code lookup does not run as the run login")
+        self.assertRegex(b, r"(?i)before (filing|creating)", "the lookup does not come before filing")
+        self.assertRegex(b, r"(?i)search", "the text drops the rationale against the search API")
+        self.assertNotIn("--paginate", text, "the skill still pages the issue list by hand")
+        create = text.index("gh issue create")
+        self.assertLess(text.index("item-issues"), create, "the lookup comes after `gh issue create`")
+
+    def test_after_limit_issues_files_nothing_on_lookup_failure(self):
+        b = self.lookup_bullet()
+        m = re.search(r"(?i)exit 3.*", b)
+        self.assertTrue(m, "the lookup bullet never handles exit 3")
+        self.assertRegex(m.group(0), r"(?i)files? nothing|no issue", "exit 3 does not stop filing")
+        self.assertRegex(m.group(0), r"(?i)not done", "exit 3 does not report the lookup as not done")
+        self.assertRegex(m.group(0), r"(?i)error name|`error`", "the report does not carry the error name")
+
 
 class RunLogin(unittest.TestCase):
     """The run login: resolved once at a user-started step, handed on, never re-resolved (default-identity-fencing)."""

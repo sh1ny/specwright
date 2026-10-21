@@ -7,10 +7,22 @@ State is JSON at $FAKE_GH_STATE:
                             "default_branch": "main"}},
    "fail": ["regex" | {"match": "regex", "exit": 1, "stderr": "msg"}]}
 Any call whose argv (joined by spaces) matches a `fail` pattern exits non-zero.
-Every call appends one JSON line {argv, cwd, gh_repo, env} to $FAKE_GH_LOG; env holds GH_TOKEN, GITHUB_TOKEN, GH_HOST,
-GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN as the call saw them (null when unset, "" when set empty).
+Every call appends one JSON line {argv, cwd, gh_repo, env, deadline_at} to $FAKE_GH_LOG; env holds GH_TOKEN, GITHUB_TOKEN,
+GH_HOST, GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN as the call saw them (null when unset, "" when set empty);
+deadline_at is SPECWRIGHT_NET_DEADLINE_AT.
 `api user` answers by GH_TOKEN when set, else by the state's active `user`; `auth switch [-u login]` (or switch_user(st, login))
 changes that active user, so a test can switch accounts between calls like another process would.
+Hostile-network injection (bound-pr-scripts), matched against the joined argv like `fail`, checked after it:
+  "hang":  ["regex" | {"match": "regex", "pid_file": "path"}]  write the PID (to pid_file, else $FAKE_GH_PID_FILE) and sleep forever
+  "delay": [{"match": "regex", "seconds": 2}]                   sleep, then answer normally
+  "flood": [{"match": "regex", "bytes": 1000000}]               print that many bytes of JSON array pages, then exit 0
+`api markdown --input <file>` (POST) serves a recorded GitHub rendering: the file holds {"text", "mode", "context"}; the answer is
+  the raw HTML stored in the fixture file $FAKE_GH_MARKDOWN (default evals/pr-pair/fixtures/markdown.json), whose entries are
+  {sha256-key: {"mode", "context", "html"}}. The key is markdown_key(mode, text) = sha256((mode + NEWLINE + text).encode("utf-8")).hexdigest(), NEWLINE = chr(10);
+  `context` is ignored and mode defaults to "markdown". A missing key exits 1 with `no recorded rendering`. The recorder
+  (evals/pr-pair/record_markdown.py) imports markdown_key from this module.
+Issue lists: per repo "issue_list": [{"number", "state", "body", "pull_request": {...}}] backs `api repos/<o>/<n>/issues?state=all&per_page=100`
+  (state filter default open, `all` for both; pages as for pulls; --jq as elsewhere), a pull_request key marking a PR.
 A call (other than --help) whose host is not github.com (--hostname, else a non-empty GH_HOST) fails: the fake knows only github.com.
 
 Merge and refs (add-agent-merge). Per repo: "branches": {"feat/x": "<sha>"} (branch heads), "protected_branches": [names]
@@ -113,12 +125,14 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
   A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
 """
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
 
@@ -158,7 +172,8 @@ def log(argv):
     if p:
         with open(p, "a", encoding="utf-8", newline="\n") as f:
             env = {k: os.environ.get(k) for k in ENV_LOGGED}
-            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "gh_repo": os.environ.get("GH_REPO"), "env": env}) + "\n")
+            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "gh_repo": os.environ.get("GH_REPO"), "env": env,
+                                "deadline_at": os.environ.get("SPECWRIGHT_NET_DEADLINE_AT")}) + "\n")
 
 
 def inject_failure(st, argv):
@@ -170,6 +185,44 @@ def inject_failure(st, argv):
                 st["fail"] = [x for x in st["fail"] if x != f]
                 save(st)
             raise Fail(f.get("stderr", "fake gh: injected failure"), f.get("exit", 1))
+
+
+def markdown_key(mode, text):
+    """The fixture key of a rendering: SHA-256 of mode + "\n" + text (UTF-8). The context is not part of it."""
+    return hashlib.sha256((mode + chr(10) + text).encode("utf-8")).hexdigest()
+
+
+MARKDOWN_FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pr-pair", "fixtures", "markdown.json")
+
+
+def hostile(st, argv):
+    """The hang, delay and flood injections: what a stuck or hostile network does to a call."""
+    line = " ".join(argv)
+    for h in st.get("hang", []):
+        h = {"match": h} if isinstance(h, str) else h
+        if re.search(h["match"], line):
+            pid_file = h.get("pid_file") or os.environ.get("FAKE_GH_PID_FILE")
+            if pid_file:
+                with open(pid_file, "w", encoding="utf-8") as f:
+                    f.write(str(os.getpid()))
+            while True:
+                time.sleep(3600)
+    for d in st.get("delay", []):
+        if re.search(d["match"], line):
+            time.sleep(float(d["seconds"]))
+    for fl in st.get("flood", []):
+        if re.search(fl["match"], line):
+            page = "[" + ",".join(['{"id":1,"body":"' + "x" * 80 + '"}'] * 10) + "]" + chr(10)
+            left = int(fl["bytes"])
+            try:
+                while left > 0:
+                    chunk = page if left >= len(page) else "x" * left
+                    sys.stdout.write(chunk)
+                    left -= len(chunk)
+                sys.stdout.flush()
+            except OSError:  # the reader stopped listening
+                pass
+            raise SystemExit(0)
 
 
 def parse(args, valued, flags=()):
@@ -737,6 +790,18 @@ def cmd_api(st, args):
         return emit({"login": whoami(st)}, expr)
     if path == "graphql":
         return emit(cmd_graphql(st, fields), expr)
+    if path == "markdown" and method == "POST":
+        text, mode = fields.get("text", ""), fields.get("mode") or "markdown"
+        fx = os.environ.get("FAKE_GH_MARKDOWN") or MARKDOWN_FIXTURE
+        try:
+            with open(fx, encoding="utf-8") as f:
+                rec = json.load(f).get(markdown_key(mode, text))
+        except (OSError, ValueError):
+            rec = None
+        if rec is None:
+            raise Fail("no recorded rendering", 1)
+        sys.stdout.write(rec if isinstance(rec, str) else rec["html"])
+        return
     if path == "rate_limit":
         body = {"resources": {"core": {"limit": 5000, "remaining": 4999}, "graphql": {"limit": 5000, "remaining": 4999}}}
         if "include" in o or "i" in o:
@@ -756,6 +821,10 @@ def cmd_api(st, args):
                  if (state == "all" or p["state"] == state)
                  and (not head or p["head"]["label"] == head)
                  and (not query.get("base") or p["base"]["ref"] == query["base"])]
+        return emit_pages(items, query, o, expr)
+    if rest == "issues" and method == "GET":
+        state = query.get("state", "open")
+        items = [i for i in repo.get("issue_list", []) if state == "all" or i.get("state", "open") == state]
         return emit_pages(items, query, o, expr)
     if rest == "activity" and method == "GET":
         items = [a for a in repo.get("activity", []) if not query.get("ref") or a.get("ref") == query["ref"]]
@@ -956,6 +1025,7 @@ def main(argv):
     st = load()
     try:
         inject_failure(st, argv)
+        hostile(st, argv)
         if host_of(argv) != "github.com" and "--help" not in argv:
             raise Fail(f"fake gh: host {host_of(argv)} is not supported (only github.com)", 1)
         cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo, "release": cmd_release}

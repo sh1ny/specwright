@@ -3,6 +3,7 @@
 Run: python -m unittest discover evals/pr-pair -p test_pr_snapshot.py
 """
 import json
+import os
 import stat
 import subprocess
 import time
@@ -362,7 +363,8 @@ class WatchOwnership(SnapCase):
     """pr-watch: the newest --wait owns a PR (a directory of numbered claims under <state>/watch/v2/<owner>/<name>/<pr>/).
 
     Watchers are real processes against the fake gh. A `sleep` shim on PATH sleeps 0.3 s whatever the interval, and
-    --timeout counts polls, so a run takes seconds. No signals: every watcher ends by itself (timeout or exit 4)."""
+    --timeout is elapsed time (bound-pr-scripts D5), so a run uses `--timeout 3 --interval 1` and takes seconds. No signals:
+    every watcher ends by itself (timeout or exit 4)."""
 
     def setUp(self):
         super().setUp()
@@ -385,7 +387,7 @@ class WatchOwnership(SnapCase):
             st["repos"][slug] = {"pulls": [p]}
         self.mutate(f)
 
-    def start(self, slug, pr, timeout=6):
+    def start(self, slug, pr, timeout=3):
         env = self.env()
         p = subprocess.Popen(["bash", str(snapfix.SNAPSHOT), str(pr), "--repo", slug, "--wait", "--interval", "1",
                               "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -415,7 +417,7 @@ class WatchOwnership(SnapCase):
     def test_watch_newer_watcher_takes_over(self):
         a = self.start(self.SLUG, 7, timeout=60)
         self.until(lambda: self.calls() > 0, "A's first snapshot")
-        b = self.start(self.SLUG, 7, timeout=5)
+        b = self.start(self.SLUG, 7, timeout=3)
         rc_a, _, err_a = self.finish(a)
         self.assertEqual(rc_a, 4, err_a)
         self.assertIn("took over", err_a)
@@ -424,7 +426,7 @@ class WatchOwnership(SnapCase):
         self.assertEqual(json.loads(out_b.strip().splitlines()[-1])["wake"], "timeout")
 
     def test_watch_exit_leaves_a_newer_claim(self):
-        a = self.start(self.SLUG, 7, timeout=4)
+        a = self.start(self.SLUG, 7, timeout=3)
         self.until(lambda: self.calls() > 0, "A's first snapshot")
         d = self.state_dir / "watch" / "v2" / "o" / "n" / "7"
         d.mkdir(parents=True, exist_ok=True)
@@ -474,7 +476,7 @@ class WatchOwnership(SnapCase):
         self.add_repo("acme/widget", 5)
         a = self.start("Acme/Widget", 5, timeout=60)
         self.until(lambda: self.calls() > 0, "A's first snapshot")
-        b = self.start("acme/widget", 5, timeout=4)
+        b = self.start("acme/widget", 5, timeout=3)
         rc_a, _, err_a = self.finish(a)
         self.assertEqual(rc_a, 4, err_a)
         self.assertEqual(self.finish(b)[0], 0)
@@ -485,6 +487,205 @@ class WatchOwnership(SnapCase):
         self.assertEqual(rc, 0, err)
         self.assertEqual(json.loads(out.strip().splitlines()[-1])["wake"], "timeout")
         self.assertIn("ownership is off", err)
+
+
+def stop_pid_file(pid_file):
+    """Stop a hung fake gh by the PID it wrote (never by name); a no-op when it is gone."""
+    try:
+        with open(pid_file, encoding="utf-8") as f:
+            pid = int(f.read())
+    except (OSError, ValueError):
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+class WatchElapsed(SnapCase):
+    """pr-watch: --timeout is elapsed time, and every poll, the first snapshot included, has one deadline.
+
+    The per-poll deadline reads SPECWRIGHT_NET_DEADLINE (default 120 s); these tests set it to a few seconds and assert the
+    spec's relations: the timeout is reported within the timeout plus one poll deadline plus 10 s. A `sleep` shim on PATH
+    really sleeps, and on its first call merges FAKE_SLEEP_PATCH into the fake's state, so a poll can start hanging, or a
+    failure can stop, after the first snapshot. Watchers write to files, so a hung fake gh that outlives a run cannot hold a
+    pipe open; each run is stopped at 60 s."""
+
+    # A poll is three gh calls, and each one starts bash, python and the fake gh: seconds on Windows, more under load. So
+    # DEADLINE (and the timeouts below) must clear a normal poll by a wide margin; the relations asserted are the spec's.
+    DEADLINE = 20
+    CLAIMS = "watch/v2/o/n/7"
+
+    def setUp(self):
+        super().setUp()
+        helper = self.tmp / "patchsleep.py"
+        helper.write_text(
+            "import json, os, sys, time\n"
+            "p = os.environ['FAKE_GH_STATE']\n"
+            "patch = json.loads(os.environ.get('FAKE_SLEEP_PATCH', '{}'))\n"
+            "if patch and not os.path.exists(p + '.patched'):\n"
+            "    st = json.load(open(p, encoding='utf-8'))\n"
+            "    st.update(patch)\n"
+            "    json.dump(st, open(p, 'w', encoding='utf-8', newline='\\n'), indent=2)\n"
+            "    open(p + '.patched', 'w').close()\n"
+            "time.sleep(float(sys.argv[1]))\n", encoding="utf-8")
+        sleep = self.tmp / "bin" / "sleep"
+        sleep.write_text(f'#!/bin/sh\nexec python "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
+        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        self.pidf = self.tmp / "hang.pid"
+        self.addCleanup(stop_pid_file, self.pidf)
+
+    def hang_entry(self, match):
+        return {"match": match, "pid_file": str(self.pidf)}
+
+    def watch(self, *args, env=None, patch=None, then=None):
+        """Run `pr-snapshot.sh PR --repo SLUG --wait args...`; (rc, stdout, stderr, seconds). `then(proc)` runs once the
+        watcher has started, before waiting for it."""
+        e = self.env(**{"SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE), "FAKE_SLEEP_PATCH": json.dumps(patch or {}), **(env or {})})
+        out, err = self.tmp / "w.out", self.tmp / "w.err"
+        t = time.time()
+        with open(out, "wb") as fo, open(err, "wb") as fe:
+            p = subprocess.Popen(["bash", str(snapfix.SNAPSHOT), str(self.PR), "--repo", self.SLUG, "--wait", *map(str, args)],
+                                 stdout=fo, stderr=fe, env=e, cwd=self.tmp)
+            try:
+                if then:
+                    then(p)
+                rc = p.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True) if os.name == "nt" else p.kill()
+                p.wait()
+                rc = -9
+        took = time.time() - t
+        return rc, out.read_text(encoding="utf-8", errors="replace"), err.read_text(encoding="utf-8", errors="replace"), took
+
+    def graphql_calls(self):
+        return len([c for c in self.gh_calls() if c[:2] == ["api", "graphql"]])
+
+    def test_an_inherited_deadline_cannot_stretch_a_poll(self):
+        # the deadline over one whole poll is capped at 120 s like each command's: SPECWRIGHT_NET_DEADLINE=999999 does not
+        # move it (review round 9)
+        start = time.time()
+        rc, out, err, took = self.watch("--timeout", 1, "--interval", 1, env={"SPECWRIGHT_NET_DEADLINE": "999999"})
+        self.assertEqual(rc, 0, err)
+        ats = [json.loads(l)["deadline_at"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
+        ats = [int(a) for a in ats if a]
+        self.assertTrue(ats, "a poll ran under a deadline")
+        self.assertLessEqual(max(ats), int(start + took) + 120 + 1)
+
+    def test_slow_polls_count_toward_timeout(self):
+        # spec: --timeout 60 --interval 20, polls of 15 s -> the timeout after at most 85 s, polled at most 4 times.
+        # Scaled: --timeout 10 --interval 1, polls of 13 s or more (one call delayed 6 s). Counting polls would take 10 polls,
+        # over 130 s; elapsed time is done after the first snapshot and one more poll at most.
+        self.mutate(lambda st: st.update({"delay": [{"match": "rate_limit", "seconds": 6}]}))
+        rc, out, err, took = self.watch("--timeout", 10, "--interval", 1, env={"SPECWRIGHT_NET_DEADLINE": "120"})
+        self.assertEqual(rc, 0, err)
+        doc = json.loads(out.strip().splitlines()[-1])
+        self.assertEqual(doc["wake"], "timeout")
+        self.assertGreaterEqual(doc["waited"], 10)
+        self.assertLess(took, 60, "elapsed time, not a count of polls")
+        polls = len([c for c in self.gh_calls() if "rate_limit" in c])
+        self.assertLessEqual(polls, 4, "polled no more than 4 times")
+
+    def test_hung_polls_exit_1_within_bound(self):
+        # spec: every gh call after the first snapshot never answers -> each poll stops at its deadline, exit 1
+        rc, out, err, took = self.watch("--timeout", 20, "--interval", 1, patch={"hang": [self.hang_entry("graphql")]})
+        self.assertEqual(rc, 1, err)
+        self.assertIn("deadline_exceeded", err)
+        self.assertIn("last poll failed", err)
+        self.assertEqual(out, "")
+        self.assertGreaterEqual(took, self.DEADLINE, "the poll hung until its deadline")
+        self.assertLess(took, 20 + self.DEADLINE + 10)
+
+    def test_takeover_during_hung_poll_exits_4(self):
+        for timeout in (20, 600):  # 20: stops before reporting a timeout; 600: stops before the next poll
+            with self.subTest(timeout=timeout):
+                self.setUp()
+                claims = self.state_dir / self.CLAIMS
+
+                def claim_when_hung(p):
+                    end = time.time() + 40
+                    while not self.pidf.exists() and time.time() < end:
+                        time.sleep(0.05)
+                    claims.mkdir(parents=True, exist_ok=True)
+                    (claims / "99999").write_text("", encoding="utf-8")  # a newer watcher's claim
+
+                rc, out, err, took = self.watch("--timeout", timeout, "--interval", 1,
+                                                patch={"hang": [self.hang_entry("graphql")]}, then=claim_when_hung)
+                self.assertEqual(rc, 4, err)
+                self.assertIn("took over", err)
+                self.assertEqual(out, "")
+                self.assertLess(took, 2 * self.DEADLINE + 15)
+                self.assertLessEqual(self.graphql_calls(), 4, "no poll after the hung one")
+
+    def test_first_snapshot_hung_exits_1(self):
+        # spec: --timeout 30, the first snapshot's gh calls never answer -> deadline_exceeded, exit 1 within 30 + 120 + 10
+        self.mutate(lambda st: st.update({"hang": [self.hang_entry("graphql")]}))
+        rc, out, err, took = self.watch("--timeout", 2, "--interval", 1)
+        self.assertEqual(rc, 1, err)
+        self.assertIn("deadline_exceeded", err)
+        self.assertIn("last poll failed", err)
+        self.assertEqual(out, "")
+        self.assertLess(took, 2 + self.DEADLINE + 10)
+
+    def test_failed_first_snapshot_then_good_poll_becomes_the_base(self):
+        # no base from a failed first snapshot; the first good poll is the base, so nothing counts as a change
+        self.mutate(lambda st: st.update({"fail": [{"match": "graphql", "exit": 1, "stderr": "boom"}]}))
+        rc, out, err, took = self.watch("--timeout", 15, "--interval", 1, patch={"fail": []},
+                                        env={"SPECWRIGHT_NET_DEADLINE": "60"})
+        self.assertEqual(rc, 0, err)
+        doc = json.loads(out.strip().splitlines()[-1])
+        self.assertEqual(doc["wake"], "timeout")
+        self.assertIn('"sig"', json.dumps(doc["snapshot"]), "a real snapshot, never an empty one")
+
+    def test_failed_first_snapshot_then_incomplete_base_wakes_at_once(self):
+        def many(st):
+            for i in range(101):
+                snapfix.fake_gh.add_thread(st, self.SLUG, self.PR, path="a.py", line=i + 1, thread_id=f"T{i}")
+            st["fail"] = [{"match": "graphql", "exit": 1, "stderr": "boom"}]
+        self.mutate(many)
+        rc, out, err, took = self.watch("--timeout", 600, "--interval", 1, patch={"fail": []},
+                                        env={"SPECWRIGHT_NET_DEADLINE": "60"})
+        self.assertEqual(rc, 0, err)
+        doc = json.loads(out.strip().splitlines()[-1])
+        self.assertEqual(doc["wake"], "incomplete")
+        self.assertFalse(doc["snapshot"]["complete"])
+        self.assertLess(took, 90, "woke at once, not at the timeout")
+
+
+class LookupLimits(SnapCase):
+    """A named limit on the clock or push-time lookup fails the snapshot; it never takes that lookup's fallback (review
+    round 3: an activity timeout must not turn the push cutoff into first_seen)."""
+
+    def setUp(self):
+        super().setUp()
+        self.pidf = self.tmp / "hang.pid"
+        self.addCleanup(stop_pid_file, self.pidf)
+        self.set_head(B, f"{D}09:00:00Z")
+        self.add_activity(B, f"{D}11:00:00Z")
+        self.set_clock(f"{D}12:00:00Z")
+
+    def hung(self, match, *args):
+        self.mutate(lambda st: st.update({"hang": [{"match": match, "pid_file": str(self.pidf)}]}))
+        return self.snapshot_run(*args, env={"SPECWRIGHT_NET_DEADLINE": "4"})
+
+    def assert_failed(self, r, command):
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn(f"deadline_exceeded: {command}", r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+        heads = self.state_dir / "heads"
+        self.assertEqual([p for p in heads.rglob("*") if p.is_file()] if heads.exists() else [], [], "no first_seen record")
+
+    def test_activity_lookup_limit_fails_the_snapshot(self):
+        self.assert_failed(self.hung("activity", "--reviewer", f"{MIRA}:required:3600"), "gh api")
+
+    def test_clock_lookup_limit_fails_the_snapshot(self):
+        self.assert_failed(self.hung("rate_limit", "--reviewer", f"{MIRA}:required:3600"), "gh api")
+
+    def test_clock_lookup_limit_fails_a_snapshot_without_reviewers(self):
+        self.assert_failed(self.hung("rate_limit"), "gh api")
 
 
 class ClippedBodies(SnapCase):

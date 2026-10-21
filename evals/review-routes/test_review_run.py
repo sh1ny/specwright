@@ -67,7 +67,27 @@ def pid_alive(pid):
         os.kill(pid, 0)
     except OSError:
         return False
-    return True
+    return not zombie(pid)
+
+
+def zombie(pid):
+    """A killed process an unreaping PID 1 has not collected yet still answers kill(pid, 0); it is stopped all the same."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+        return r.stdout.strip().startswith("Z")
+
+
+def kill_pid(pid):
+    """Stop one process this test started, by PID."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
 
 
 class Base(unittest.TestCase):
@@ -293,6 +313,17 @@ class SelectTests(Base):
         out = self.select("claude")
         self.assertEqual(out["route"], "subagent")
         self.assertIn('Model "nosuchprov/nosuch" not found', self.by_route(out)["omp"])
+
+    def test_omp_probe_burst_names_the_stream(self):
+        # a resolve probe that prints past its 1 MiB bound and exits at once names the stream, not "exited None"
+        self.install("omp")
+        pad = "x" * (1536 * 1024)
+        self.extra_env["FAKE_OMP_ROLES"] = str(self.put("roles.json", json.dumps({"value": {"slow": {}}, "pad": pad})))
+        self.extra_env["FAKE_OMP_MODELS"] = str(self.put("models.json", json.dumps({"models": [], "pad": pad})))
+        for model, probe in (("@slow", "omp config get modelRoles"), ("openai-codex/gpt-6.1-sol", "omp models find")):
+            self.set_settings(f"review:\n  order: [omp]\n  models:\n    omp: \"{model}\"\n")
+            reason = self.by_route(self.select("claude"))["omp"]
+            self.assertEqual(reason, f"probe failed: {probe} wrote too much to stdout")
 
 
 class RunTests(Base):
@@ -789,6 +820,168 @@ class RunTests(Base):
 
     def test_run_subagent_route_is_usage_error(self):
         self.preship("subagent", expect=2)
+
+
+class OutputBound(Base):
+    """A reviewer's output is bounded while it runs (bound-pr-scripts, D6)."""
+    MIB = 1024 * 1024
+    omp_stream = RunTests.omp_stream
+
+    def flood_env(self, cli, **sizes):
+        self.set_settings("review:\n  timeout: 30s\n")
+        self.pid_file = self.tmp / f"{cli}.pid"
+        self.extra_env[f"FAKE_{cli.upper()}_PID_FILE"] = str(self.pid_file)
+        for k, v in sizes.items():
+            self.extra_env[f"FAKE_{cli.upper()}_FLOOD_{k.upper()}"] = str(v)
+
+    def assert_stopped(self, out, stream, started):
+        self.assertEqual(out["status"], "invalid", out)
+        self.assertIn("output too large", out["message"])
+        self.assertIn(stream, out["message"])
+        self.assertLess(time.time() - started, 60, "the run waited for the deadline instead of the bound")
+        pid = int(self.pid_file.read_text(encoding="utf-8"))
+        deadline = time.time() + 5
+        while pid_alive(pid) and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertFalse(pid_alive(pid), "the reviewer process survived the bound")
+
+    def test_fake_flood_writes_past_size_and_stays_alive_until_killed(self):
+        out, err, pid_file = self.tmp / "o", self.tmp / "e", self.tmp / "p"
+        env = {**self.env(), "FAKE_CLAUDE_FLOOD_STDOUT": str(3 * self.MIB), "FAKE_CLAUDE_FLOOD_STDERR": str(self.MIB),
+               "FAKE_CLAUDE_PID_FILE": str(pid_file)}
+        with open(out, "wb") as fo, open(err, "wb") as fe:
+            p = subprocess.Popen([sys.executable, str(FAKE), "claude", "-p"], stdin=subprocess.DEVNULL, stdout=fo, stderr=fe, env=env)
+            try:
+                deadline = time.time() + 20
+                while (out.stat().st_size < 3 * self.MIB or err.stat().st_size < self.MIB) and time.time() < deadline:
+                    time.sleep(0.1)
+                self.assertGreaterEqual(out.stat().st_size, 3 * self.MIB)
+                self.assertGreaterEqual(err.stat().st_size, self.MIB)
+                time.sleep(0.5)
+                self.assertIsNone(p.poll(), "the flooding fake exited on its own")
+                pid = int(pid_file.read_text(encoding="utf-8"))
+                self.assertEqual(pid, p.pid)
+                self.assertTrue(pid_alive(pid))
+            finally:
+                p.kill()
+                p.wait()
+        self.assertFalse(pid_alive(pid))
+
+    def test_omp_stream_within_bounds_passes(self):
+        self.install("omp")
+        answer = "# Review\n\n" + ("A finding about the design. " * 700)[:19000] + "\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
+        self.omp_stream(answer, tool_text="t" * (1536 * 1024), filler_lines=1536)  # about 3 MiB on stdout
+        self.extra_env["FAKE_OMP_STDERR_BYTES"] = "100000"
+        out = self.design("omp")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), answer)
+
+    def test_claude_stdout_flood_stopped_nothing_written(self):
+        self.install("codex", "claude")
+        self.flood_env("claude", stdout=3 * self.MIB)
+        started = time.time()
+        out = self.preship("claude", expect=3)
+        self.assert_stopped(out, "stdout", started)
+        self.assertFalse((self.tmp / "findings.json").exists())
+        self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+        self.assertEqual(self.runs("codex"), [])
+
+    def test_codex_stderr_flood_stopped_review_unchanged(self):
+        self.install("codex")
+        self.flood_env("codex", stderr=9 * self.MIB)
+        review = self.tmp / "review.md"
+        review.write_bytes(b"# Earlier review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        started = time.time()
+        out = self.design("codex", expect=3)
+        self.assert_stopped(out, "stderr", started)
+        self.assertEqual(review.read_bytes(), before)
+
+    def test_codex_stderr_burst_then_exit_is_still_stopped(self):
+        self.install("codex")
+        self.flood_env("codex", stderr=9 * self.MIB)
+        self.extra_env["FAKE_CODEX_FLOOD_EXIT"] = "1"
+        self.stdout_file("codex", "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        review = self.tmp / "review.md"
+        review.write_bytes(b"# Earlier review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n")
+        before = review.read_bytes()
+        started = time.time()
+        out = self.design("codex", expect=3)
+        self.assert_stopped(out, "stderr", started)
+        self.assertEqual(review.read_bytes(), before)
+
+    def test_reviewer_output_on_disk_never_passes_its_bound(self):
+        # the bound holds as the bytes arrive, not at the next check of a file that already grew (review round 3)
+        self.install("codex")
+        self.flood_env("codex", stderr=40 * self.MIB)
+        scratch = self.tmp / "tmpdir"
+        scratch.mkdir()
+        for k in ("TMPDIR", "TEMP", "TMP"):
+            self.extra_env[k] = str(scratch)
+        spy = self.tmp / "spy.txt"
+        self.extra_env["FAKE_CODEX_SPY"] = str(spy)
+        started = time.time()
+        out = self.design("codex", expect=3)
+        self.assert_stopped(out, "stderr", started)
+        if spy.exists():  # the flood returned: what the capture holds on disk is within the 8 MiB bound
+            self.assertLessEqual(int(spy.read_text()), 8 * self.MIB + 1)
+        self.assertEqual(list(scratch.glob("specwright-run-*")), [])
+
+    def test_a_child_that_keeps_the_pipes_open_fails_the_run(self):
+        # the CLI exits 0, but a process it started still holds stdout: the output may be partial, so the run fails and
+        # the tree is stopped instead of validating it (review round 5)
+        self.install("codex", "claude")
+        self.claude_result()
+        kid_file = self.tmp / "kid.pid"
+        self.extra_env.update({"FAKE_CLAUDE_LINGER": "40", "FAKE_CLAUDE_LINGER_PID_FILE": str(kid_file)})
+        self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
+        started = time.time()
+        out = self.preship("claude", expect=3)
+        self.assertLess(time.time() - started, 30, "the run waited for the child")
+        self.assertEqual(out["status"], "failed", out)
+        self.assertIn("kept its output open", out["message"])
+        self.assertFalse((self.tmp / "findings.json").exists())
+        if os.name != "nt":  # Windows cannot walk the tree of an exited parent; the run still fails
+            pid = int(kid_file.read_text(encoding="utf-8"))
+            deadline = time.time() + 5
+            while pid_alive(pid) and time.time() < deadline:
+                time.sleep(0.2)
+            self.assertFalse(pid_alive(pid), "the child survived")
+
+    def test_a_reviewer_that_exits_before_the_deadline_is_never_a_timeout(self):
+        # it exits about 3 s into a 5 s timeout and its child holds the pipe through the deadline: the 2 s exit grace
+        # decides (here: the held pipe), not review.timeout (review round 7)
+        self.install("codex", "claude")
+        self.claude_result()
+        self.set_settings("review:\n  timeout: 5s\n")
+        kid_file = self.tmp / "kid.pid"
+        self.extra_env.update({"FAKE_CLAUDE_DELAY": "3", "FAKE_CLAUDE_LINGER": "40", "FAKE_CLAUDE_LINGER_PID_FILE": str(kid_file)})
+        self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["status"], "failed", out)
+        self.assertIn("kept its output open", out["message"])
+
+    @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the capture loop past the deadline")
+    def test_an_exit_first_seen_after_the_deadline_is_a_timeout(self):
+        # the capture loop is frozen from 0.5 s (after it set its deadline) until 4.5 s into a 2 s timeout, and the reviewer
+        # answers and exits at 3.5 s: it was still running when review.timeout passed, so the run is a timeout, not its
+        # result (review rounds 8 and 9)
+        self.install("codex", "claude")
+        self.claude_result()
+        self.set_settings("review:\n  timeout: 2s\n")
+        self.extra_env.update({"FAKE_CLAUDE_DELAY": "3", "FAKE_CLAUDE_FREEZE_PARENT": "4"})
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["status"], "timeout", out)
+        self.assertFalse((self.tmp / "findings.json").exists())
+
+    def test_codex_answer_file_flood_stopped(self):
+        self.install("codex")
+        self.flood_env("codex", answer=3 * self.MIB)
+        started = time.time()
+        out = self.preship("codex", expect=3)
+        self.assert_stopped(out, "answer", started)
+        self.assertFalse((self.tmp / "findings.json").exists())
+        self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
 
 
 SPEC_TEXT = "### Requirement: X\n\nThe system SHALL do X.\n"

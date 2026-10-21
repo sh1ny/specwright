@@ -2923,7 +2923,8 @@ class ClosedCheck(Base):
         self.assertEqual((r["open"], r["closed"], r["reopened"], r["outside"]), ([f"{CODE}#24"], [f"{CODE}#21"], [], []))
         self.assertEqual(len(self.reads("pullRequest(number")), 1, "one GraphQL read of the PR")
         self.assertEqual(len(self.reads("issue(number")), 2, "one read per intended issue")
-        writes = [c for c in self.gh_calls() if c["argv"][:2] in (["issue", "close"], ["issue", "comment"]) or "-X" in c["argv"]]
+        writes = [c for c in self.gh_calls() if c["argv"][:2] in (["issue", "close"], ["issue", "comment"])
+                  or ("-X" in c["argv"] and "markdown" not in c["argv"])]  # the markdown POST renders; it writes nothing
         self.assertEqual(writes, [], "the check never writes")
 
     def test_closed_check_all_closed(self):
@@ -3082,7 +3083,7 @@ class ClosedCheck(Base):
 
     def test_closed_check_list_marker_in_a_fence_is_code(self):
         # inside an open fence a list-marked fence line is content, never the closer; a tab after a marker counts like a space
-        body = "```\n- ```\nFixes #30\n```\nFixes #21\n\n-\t~~~\nFixes #31\n~~~\n\nFixes #22\n"
+        body = "```\n- ```\nFixes #30\n```\nFixes #21\n\n-\t~~~\n    Fixes #31\n    ~~~\n\nFixes #22\n"
         self.seed(body, issues={(CODE, n): ("OPEN", []) for n in (21, 22)})
         r = self.check()
         self.assertEqual(r["intended"], [f"{CODE}#21", f"{CODE}#22"])
@@ -3098,19 +3099,79 @@ class ClosedCheck(Base):
         self.assertEqual((r["open"], r["reopened"]), ([f"{CODE}#24"], [f"{CODE}#25"]))
 
     def test_closed_check_reads_text_after_an_inline_comment(self):
-        # an inline comment that opens after paragraph text ends at `-->`, and the text after it is rendered; an HTML block that
-        # starts its own line takes the rest of its closing line with it
+        # a comment ends at `-->` and the text after it is rendered: GitHub shows ` Fixes #31` after an HTML block comment too
+        # (recorded rendering), while the comment's own text is dropped
         body = "Intro <!-- hidden\nFixes #30 --> Fixes #21\n\n<!-- block\n--> Fixes #31\n\nFixes #22\n"
-        self.seed(body, issues={(CODE, n): ("OPEN", []) for n in (21, 22)})
+        self.seed(body, issues={(CODE, n): ("OPEN", []) for n in (21, 22, 31)})
         r = self.check()
-        self.assertEqual(r["intended"], [f"{CODE}#21", f"{CODE}#22"])
-        for n in (30, 31):
-            self.assertEqual(self.reads(f"number={n}"), [], f"#{n} is hidden")
+        self.assertEqual(r["intended"], [f"{CODE}#21", f"{CODE}#31", f"{CODE}#22"])
+        self.assertEqual(self.reads("number=30"), [], "#30 is in a comment")
 
     def test_closed_check_requires_repo_pr_and_repos(self):
         self.pp("closed-check", "--repo", CODE, "--pr", 7, expect=2)
         self.pp("closed-check", "--repo", CODE, "--repos", CODE, expect=2)
         self.pp("closed-check", "--pr", 7, "--repos", CODE, expect=2)
+
+
+class ClosingRendered(Base):
+    """The closing lines are read from GitHub's own rendering of the description, never from a hand parse of its source (D7)."""
+
+    WIDGET = "acme/widget"
+
+    def seed(self, body, repo=CODE, merged=None):
+        self.add_pull(repo, 7, body=body, state="closed" if merged else "open", merged=merged)
+
+    def intended(self, body, repo=CODE):
+        self.seed(body, repo)
+        return self.pp("closing-check", "--repo", repo, "--pr", 7)["intended"]
+
+    def test_continued_list_paragraph_counts(self):
+        # four columns after a blank line continue the list item as a paragraph, not as indented code
+        self.assertEqual(self.intended("- Notes\n\n    Fixes #21\n"), [f"{CODE}#21"])
+
+    def test_quote_marked_fence_line_stays_code(self):
+        # a quote-marked fence line inside a fence opened outside a quote is content, so `Fixes #12` is still code
+        self.assertEqual(self.intended("```\n> ```\nFixes #12\n```\n"), [])
+
+    def test_code_span_inside_word_no_join(self):
+        self.assertEqual(self.intended("Fi`x`xes #52\n"), [])
+
+    def test_soft_break_ends_closing_list(self):
+        self.assertEqual(self.intended("Fixes #21\n#22 is unrelated\n"), [f"{CODE}#21"])
+
+    def test_issue_url_counts(self):
+        self.assertEqual(self.intended("Fixes https://github.com/acme/widget/issues/21\n", self.WIDGET), [f"{self.WIDGET}#21"])
+
+    def test_other_repo_reported_outside(self):
+        self.seed("Fixes other/tool#5\n", self.WIDGET, merged="2026-10-08T10:00:00Z")
+        st = self.gh()
+        st["fail"] = [{"match": "name=tool", "exit": 1, "stderr": "boom"}]  # any read of the outside repo would fail
+        self.save_gh(st)
+        r = self.pp("closed-check", "--repo", self.WIDGET, "--pr", 7, "--repos", self.WIDGET)
+        self.assertEqual((r["intended"], r["outside"]), (["other/tool#5"], ["other/tool#5"]))
+
+    def test_render_failure_unknown_both_checks(self):
+        self.seed("Fixes #21\n", merged="2026-10-08T10:00:00Z")
+        st = self.gh()
+        st["fail"] = [{"match": "markdown", "exit": 1, "stderr": "boom"}]
+        self.save_gh(st)
+        for args in (("closing-check", "--repo", CODE, "--pr", 7), ("closed-check", "--repo", CODE, "--pr", 7, "--repos", CODE)):
+            r = self.pp(*args, expect=3)
+            self.assertEqual((r["ok"], r["error"], r["unknown"]), (False, "lookup_failed", True), args[0])
+
+
+class ClosingRecordings(unittest.TestCase):
+    """Every body the closing tests send has a recorded GitHub rendering (evals/pr-pair/record_markdown.py)."""
+
+    def test_every_closing_body_has_a_recording(self):
+        sys.path.insert(0, str(HERE))
+        import closing_bodies
+        recorded = json.loads(closing_bodies.FIXTURE.read_text(encoding="utf-8"))
+        bodies = closing_bodies.collect_bodies()
+        self.assertTrue(bodies)
+        missing = [b for b in bodies if fake_gh.markdown_key(closing_bodies.MODE, b) not in recorded]
+        self.assertEqual(missing, [], "run `python evals/pr-pair/record_markdown.py` to record these bodies")
+        self.assertEqual(len(recorded), len(bodies), "one entry per body: rerun the recorder to drop stale entries")
 
 
 class Merge(Base):
@@ -3388,6 +3449,178 @@ class DeleteRemote(Base):
             self.assertIn(word, r["message"])
         self.assertEqual(self.gh_calls(), [])
         self.assertIn(BRANCH, self.branches())
+
+
+class ItemIssues(Base):
+    """item-issues: the existing PR-item issues of one repository in one paged read (bound-pr-scripts D4)."""
+
+    TOKEN = {"GH_TOKEN": "tok-k"}
+
+    def seed(self, slug, issues):
+        st = self.gh()
+        st.setdefault("repos", {}).setdefault(slug, {})["issue_list"] = issues
+        self.save_gh(st)
+
+    def item_issues(self, repo, *items, expect=0, env=None):
+        args = ["item-issues", "--repo", repo]
+        for i in items:
+            args += ["--item", i]
+        return self.pp(*args, env={**self.TOKEN, **(env or {})}, expect=expect)
+
+    def issue_reads(self, slug):
+        return [c for c in self.gh_calls() if any(f"repos/{slug}/issues" in x for x in c["argv"])]
+
+    def test_one_read_finds_tracked_item(self):
+        self.seed(CODE, [{"number": 9, "state": "closed", "body": "text\n\nspecwright:pr-item PRRT_2"},
+                         {"number": 4, "state": "open", "body": "unrelated"},
+                         {"number": 12, "state": "open", "body": "dup\nspecwright:pr-item PRRT_2"},
+                         {"number": 13, "state": "open", "body": "specwright:pr-item PRRT_20"}])
+        r = self.item_issues(CODE, "PRRT_1", "PRRT_2", "PRRT_3")
+        self.assertEqual((r["ok"], r["found"], r["missing"]), (True, {"PRRT_2": 9}, ["PRRT_1", "PRRT_3"]))
+        reads = self.issue_reads(CODE)
+        self.assertEqual(len(reads), 1, "one read whatever the number of items")
+        self.assertIn("--paginate", reads[0]["argv"])
+        self.assertTrue(any("state=all" in x and "per_page=100" in x for x in reads[0]["argv"]))
+        self.assertIn("--jq", reads[0]["argv"])
+
+    def test_reads_only_its_repo_as_its_login(self):
+        self.seed(CODE, [{"number": 3, "state": "open", "body": "specwright:pr-item A"}])
+        self.seed(STORE, [{"number": 5, "state": "open", "body": "specwright:pr-item B"}])
+        r = self.item_issues(CODE, "A", "B")
+        self.assertEqual((r["found"], r["missing"]), ({"A": 3}, ["B"]), "an item is matched only in its own repository")
+        self.assertEqual(self.issue_reads(STORE), [])
+        r = self.item_issues(STORE, "B", env={"GH_TOKEN": "tok-s"})
+        self.assertEqual(r["found"], {"B": 5})
+        reads = self.issue_reads(STORE)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(reads[0]["env"]["GH_TOKEN"], "tok-s")
+        self.assertEqual(len(self.issue_reads(CODE)), 1)
+
+    def test_pull_request_with_marker_ignored(self):
+        self.seed(CODE, [{"number": 7, "state": "open", "body": "specwright:pr-item A", "pull_request": {"url": "u"}}])
+        r = self.item_issues(CODE, "A")
+        self.assertEqual((r["found"], r["missing"]), ({}, ["A"]))
+
+    def test_marker_must_be_a_whole_line(self):
+        self.seed(CODE, [{"number": 7, "state": "open", "body": "see specwright:pr-item A in text"},
+                         {"number": 8, "state": "open", "body": "x\r\nspecwright:pr-item A\r\n"}])
+        self.assertEqual(self.item_issues(CODE, "A")["found"], {"A": 8})
+
+    def test_read_failure_exits_3_named(self):
+        st = self.gh()
+        st["fail"] = [{"match": r"issues\?", "exit": 1, "stderr": "boom"}]
+        self.save_gh(st)
+        r = self.item_issues(CODE, "A", expect=3)
+        self.assertEqual((r["ok"], r["error"], r["unknown"]), (False, "lookup_failed", True))
+        self.assertNotIn("found", r)
+
+    def test_read_past_size_bound_exits_3_named(self):
+        self.seed(CODE, [{"number": 1, "state": "open", "body": "specwright:pr-item A"}])
+        st = self.gh()
+        st["flood"] = [{"match": r"api .*issues", "bytes": 20000}]
+        self.save_gh(st)
+        r = self.item_issues(CODE, "A", expect=3, env={"SPECWRIGHT_NET_MAX_BYTES": "5000"})
+        self.assertEqual((r["ok"], r["error"]), (False, "response_too_large"))
+
+    def test_usage_makes_no_request(self):
+        self.item_issues(CODE, expect=2)
+        self.pp("item-issues", "--item", "A", env=self.TOKEN, expect=2)
+        self.assertEqual(self.gh_calls(), [])
+
+
+class Bounded(PassBase):
+    """Network commands run under a deadline and a byte bound (bound-pr-scripts D3); a limit is a named stop."""
+
+    def pid_alive(self, pid):
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
+            return f'"{pid}"' in out
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def wait_gone(self, pid, seconds=10):
+        import time
+        end = time.time() + seconds
+        while time.time() < end and self.pid_alive(pid):
+            time.sleep(0.2)
+        return not self.pid_alive(pid)
+
+    def replied_code_fix(self, finding):
+        """A code fix committed, pushed and re-requested; the reply is posted (so only the reaction can be missing)."""
+        self.write_record([finding])
+        self.fix_code()
+        self.push_all()
+        self.pushed_at(CODE, BRANCH, self.tip(self.code), "2026-10-08T12:00:00Z")
+        self.add_comment(CODE, 5, "@codex review", "KintsugiBot", 2002, created_at="2026-10-08T12:00:03Z")
+
+    def inject(self, **over):
+        st = self.gh()
+        st.update(over)
+        self.save_gh(st)
+
+    def test_discover_hung_gh_deadline_exceeded(self):
+        import time
+        pid_file = self.tmp / "hung.pid"
+        self.inject(hang=[{"match": r"api .*pulls", "pid_file": str(pid_file)}])
+        t0 = time.time()
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH, expect=3,
+                    env={"SPECWRIGHT_NET_PAGED_DEADLINE": "2", "SPECWRIGHT_NET_DEADLINE": "2"})
+        self.assertLess(time.time() - t0, 2 + 10)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["error"], "deadline_exceeded")
+        self.assertTrue(r["unknown"])
+        self.assertIn("gh api", r["message"])
+        self.assertTrue(pid_file.exists(), "the hung gh call was reached")
+        self.assertTrue(self.wait_gone(int(pid_file.read_text())), "no gh process the script started is still running")
+
+    def test_discover_large_list_read_whole(self):
+        pulls = [self.pull(CODE, n, body="x" * 14000) for n in range(1, 151)]  # ~2 MiB over two pages
+        self.seed_pulls(CODE, pulls)
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH)
+        self.assertTrue(r["ok"])
+        self.assertEqual(len(r["prs"]), 150)
+        self.assertNotIn("error", r)
+
+    def test_paginated_read_too_large(self):
+        self.inject(flood=[{"match": r"api .*pulls", "bytes": 20000}])
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH, expect=3, env={"SPECWRIGHT_NET_MAX_BYTES": "5000"})
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["error"], "response_too_large")
+        self.assertTrue(r["unknown"])
+        self.assertIn("gh api", r["message"])
+        self.assertNotIn("prs", r)
+
+    def test_reaction_loop_page_cap(self):
+        self.replied_code_fix(self.finding("F1", dest="code", kind="comment", item="IC_node1", resolve=False,
+                                           edits=[{"file": "greet.py", "contains": ["strip()"]}]))
+        st = self.gh()
+        for i in range(60):  # one reaction per page: past the 50-page cap, and never the viewer's
+            fake_gh.add_node_reaction(st, CODE, "IC_node1", f"someone{i}", "THUMBS_UP")
+        st["graphql_page_size"] = 1
+        self.save_gh(st)
+        p = self.plan(code=snap(comments=[]), expect=3)
+        self.assertEqual((p["ok"], p["error"]), (False, "response_too_large"))
+        self.assertTrue(p["unknown"])
+        self.assertTrue(self.record_path().exists())
+
+    def merge_hung(self, merged):
+        self.add_pull(CODE, 7, state="closed" if merged else "open", merged="2026-10-08T11:00:00Z" if merged else None)
+        self.inject(hang=[{"match": r"-X PUT", "pid_file": str(self.tmp / "put.pid")}])
+        return self.pp("merge", "--repo", CODE, "--pr", 7, "--method", "merge", "--head", f"{7:040x}",
+                       env={"GH_TOKEN": "tok-k", "SPECWRIGHT_NET_DEADLINE": "2"}, expect=0 if merged else 3)
+
+    def test_merge_hung_put_with_merged_readback_is_merged(self):
+        r = self.merge_hung(True)
+        self.assertEqual((r["ok"], r["status"]), (True, "merged"))
+        self.assertTrue(self.wait_gone(int((self.tmp / "put.pid").read_text())))
+
+    def test_merge_hung_put_with_open_readback_is_unknown(self):
+        r = self.merge_hung(False)
+        self.assertEqual((r["ok"], r["status"], r["unknown"]), (False, "unknown", True))
+        self.assertTrue(self.wait_gone(int((self.tmp / "put.pid").read_text())))
 
 
 if __name__ == "__main__":
