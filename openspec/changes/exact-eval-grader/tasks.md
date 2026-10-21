@@ -31,7 +31,7 @@
 
 ## 2. Fake gh routes GraphQL writes through the parsed operations
 
-- [ ] 2.1 Write the failing `GraphqlWriteDispatch` tests in `evals/pr-pair/test_fake_gh.py` (map rows 4-6). They run the fake as the existing tests do, with `RESOLVE`/`REACT` documents (`test_fake_gh.py:511`):
+- [x] 2.1 Write the failing `GraphqlWriteDispatch` tests in `evals/pr-pair/test_fake_gh.py` (map rows 4-6). They run the fake as the existing tests do, with `RESOLVE`/`REACT` documents (`test_fake_gh.py:511`):
   - A real mutation resolves the thread, and `grade.changing_gh` lists the same call.
   - A `query` that mentions `resolveReviewThread` or `addReaction` in a comment or string resolves nothing and adds no reaction.
   - A mutation selecting an unknown field exits non-zero with `Field '<name>' doesn't exist on type 'Mutation'`.
