@@ -736,6 +736,32 @@ class GraphqlWriteDispatch(PrEvidence):
         self.assertIn("GraphQL:", r.stderr)
         self.assertEqual(self.state.read_bytes(), before)
 
+    RESOLVE_OP = "mutation M($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id isResolved } } }"
+    REACT_OP = ("mutation R($subjectId:ID!,$content:ReactionContent!){ addReaction(input:{subjectId:$subjectId,content:$content})"
+                "{ reaction{ content } } }")
+
+    def test_operation_name_selects_the_operation(self):
+        # GitHub runs only the operation operationName names: a query beside it is not rejected, another mutation is not applied
+        r = self.gql("query Q { viewer { login } } " + self.RESOLVE_OP, ("threadId", self.t["id"]), ("operationName", "M"))
+        self.assertEqual(json.loads(r.stdout)["data"], {"resolveReviewThread": {"thread": {"id": self.t["id"], "isResolved": True}}})
+        self.assertTrue(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+        self.gql(self.RESOLVE_OP + " " + self.REACT_OP, ("threadId", "nope"), ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"),
+                 ("operationName", "R"))
+        self.assertEqual([x["content"] for x in self.st()["nodes"][self.ic["node_id"]]["reactions"]], ["THUMBS_UP"])
+
+    def test_several_operations_need_a_known_name(self):
+        before = self.state.read_bytes()
+        doc = self.RESOLVE_OP + " " + self.REACT_OP
+        fields = (("threadId", self.t["id"]), ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"))
+        r = self.gql(doc, *fields, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Must provide operation name if query contains multiple operations", r.stderr)
+        for name, d in (("X", doc), ("X", self.RESOLVE_OP)):
+            r = self.gql(d, *fields, ("operationName", name), check=False)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("Unknown operation named 'X'", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
 
 # the class reuses PrEvidence's seeded PR but must not rerun its tests
 for _name in [n for n in dir(PrEvidence) if n.startswith("test_") and n not in GraphqlWriteDispatch.__dict__]:

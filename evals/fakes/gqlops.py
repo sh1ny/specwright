@@ -1,6 +1,7 @@
 """Reads the operations of a GraphQL document, so a `gh api graphql` call can be classified as a read or a write.
 
-`operations(doc)` returns [(kind, top_fields), ...] for the document's query, mutation and subscription definitions, or None
+`operations(doc)` returns [(kind, top_fields), ...] for the document's query, mutation and subscription definitions, and
+`named_operations(doc)` the same with each operation's name ([(kind, name or None, top_fields), ...]), or None
 when the document cannot be read: unbalanced brackets, an unterminated string, or a top-level token that starts no definition.
 Comments and string contents never reach the parser; fragment definitions are skipped; an alias resolves to its field.
 Stdlib only, one pass, no recursion.
@@ -56,12 +57,18 @@ def tokens(doc):
 
 
 def operations(doc):
+    ops = named_operations(doc)
+    return None if ops is None else [(kind, fields) for kind, _, fields in ops]
+
+
+def named_operations(doc):
     toks = tokens(doc)
     if toks is None:
         return None
     ops, stack = [], []
     head = None    # the keyword of the definition whose header is being read ("fragment" or an operation kind)
     fields = None  # the depth-1 field names of the operation whose selection set is open
+    name = None    # the operation's name: the name right after its keyword
     prev = prev2 = ""
     for t in toks:
         if t in OPEN:
@@ -79,8 +86,8 @@ def operations(doc):
                 return None
             if not stack and t == "}":
                 if fields is not None:
-                    ops.append((kind, fields))
-                head = fields = None
+                    ops.append((kind, name, fields))
+                head = fields = name = None
         elif not stack:
             # between definitions or in a header: only a keyword, then names and directives up to the opening brace
             if head is None:
@@ -89,6 +96,8 @@ def operations(doc):
                 head = t
             elif t != "@" and not NAME.fullmatch(t):
                 return None
+            elif t != "@" and prev == head and head in KINDS and name is None:
+                name = t  # `query @d { ... }` has no name
         elif stack == ["{"] and fields is not None and NAME.fullmatch(t):
             if prev == ":":
                 fields[-1:] = [t]  # alias: the field is the name after the colon

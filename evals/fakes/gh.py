@@ -122,8 +122,9 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   GQL mutations  `resolveReviewThread(input:{threadId:$threadId})` -> {"data":{"resolveReviewThread":{"thread":{id,isResolved}}}};
         `addReaction(input:{subjectId:$subjectId,content:$content})` -> {"data":{"addReaction":{"reaction":{"content"}}}}.
         Applied only when a mutation operation selects the field at its top level (gqlops.operations, as the grader reads it);
-        a comment or string that names one writes nothing. An unparseable document, a subscription or an unknown mutation field
-        exits 1 with a GraphQL error and leaves the state unsaved.
+        a comment or string that names one writes nothing. Only the operation GitHub executes counts: the one `-f operationName=`
+        names, else the document's only one. An unparseable document, several operations without a name, an unknown operation
+        name, a subscription or an unknown mutation field exits 1 with a GraphQL error and leaves the state unsaved.
   Each write records the clock's time and the viewer (reactions as "createdAt"/"login").
   A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
   A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
@@ -691,12 +692,22 @@ MUTATIONS = {"resolveReviewThread": _resolve_thread, "addReaction": _add_reactio
 
 
 def cmd_graphql_evidence(st, q, fields):
-    """The PR-evidence queries and mutations; None when `q` is not one of them.
+    """The PR-evidence queries and mutations; None when `q` is not one of them. Only the operation GitHub would execute is
+    dispatched: the one `operationName` names, or the document's only operation (several without a name, or an unknown name, fail).
     A write is a mutation operation's top-level field, dispatched by exact name, as the grader classifies it; text in a comment
     or string never writes. A failing field leaves the state unsaved (main saves only when no Fail is raised)."""
-    ops = gqlops.operations(q)
+    ops = gqlops.named_operations(q)
     if ops is None:
         raise Fail("GraphQL: Parse error: the query document cannot be read")
+    # only the operation to execute counts, as on GitHub: the one operationName names, else the document's only operation
+    name = fields.get("operationName")
+    if name is not None:
+        ops = [op for op in ops if op[1] == name]
+        if not ops:
+            raise Fail(f"GraphQL: Unknown operation named '{name}'.")
+    elif len(ops) > 1:
+        raise Fail("GraphQL: Must provide operation name if query contains multiple operations.")
+    ops = [(kind, top) for kind, _, top in ops]
     if any(kind != "query" for kind, _ in ops):
         data = {}
         for kind, top in ops:

@@ -445,7 +445,8 @@ class GitAllowlist(unittest.TestCase):
                     "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin",
                     "fetch --refmap=refs/heads/*:refs/heads/copied-* origin refs/heads/main",  # the refmap maps into refs/heads/
                     "fetch --refmap refs/heads/*:refs/heads/copied-* origin refs/heads/main", "fetch --frobnicate origin",
-                    "fetch -qx origin", "fetch --depth 1 origin")  # an option off the read-only list is a write
+                    "fetch -qx origin", "fetch --depth 1 origin",  # an option off the read-only list is a write
+                    "fetch +refs/heads/main:refs/heads/main", "fetch -q +refs/heads/x:refs/remotes/origin/x")  # + in any slot
 
     def test_branch_option_off_the_list_is_a_write(self):
         self.writes("branch -uother", "branch -vuother", "branch -fx main", "branch --frobnicate", "branch --sort=x -u other",
@@ -531,10 +532,16 @@ class GraphqlOperations(unittest.TestCase):
 
     def setUp(self):
         import gqlops  # the fakes dir is on sys.path through fixtures
-        self.ops = gqlops.operations
+        self.ops, self.named = gqlops.operations, gqlops.named_operations
 
     def changing(self, *argv):
         return grade.changing_gh([{"argv": ["api", "graphql", *argv]}])
+
+    def test_named_operations_carry_the_name(self):
+        q = "query Q($n:Int) @d { a } mutation { b } fragment F on X { c } subscription query { d }"
+        self.assertEqual(self.named(q), [("query", "Q", ["a"]), ("mutation", None, ["b"]), ("subscription", "query", ["d"])])
+        self.assertEqual(self.named("query @d { a } mutation M @e { b }"), [("query", None, ["a"]), ("mutation", "M", ["b"])])
+        self.assertEqual(self.ops(q), [("query", ["a"]), ("mutation", ["b"]), ("subscription", ["d"])])
 
     def test_mutation_after_fragment_is_a_write(self):
         q = 'fragment R on Reaction { content } mutation { addReaction(input:{subjectId:"X",content:THUMBS_UP}) { reaction { ...R } } }'
@@ -556,6 +563,7 @@ class GraphqlOperations(unittest.TestCase):
                      ["--input", "q.json"], ["-f", "query=bogus { a }"], ["-f", "query=fragment F on User { login }"]):
             self.assertEqual(len(self.changing(*argv)), 1, argv)
         self.assertIsNone(self.ops("query { a "))
+        self.assertIsNone(self.named("query { a "))
         self.assertIsNone(self.ops('query { a(x: "u) }'))
         self.assertIsNone(self.ops('query { a(x: """u) }'))
         self.assertIsNone(self.ops("query { a } }"))

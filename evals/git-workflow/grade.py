@@ -460,8 +460,9 @@ def git_read_only(c):
         # the list does not know are writes), and no refspec writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or
         # forces with +
         ok, pos, _ = read_options(c[1:], FETCH_FLAGS)
-        return ok and "tag" not in pos[1:] and all(
-            not r.startswith("+") and (":" not in r or r.split(":", 1)[1].startswith("refs/remotes/")) for r in pos[1:])
+        # (a + argument counts in any slot, the first included, as the earlier rule did: fail closed)
+        return ok and not any(r.startswith("+") for r in pos) and "tag" not in pos[1:] and all(
+            ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in pos[1:])
     if sub == "reflog":
         # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)
         pos = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in ("-n", "--max-count", "--format", "--pretty", "--date"))]
