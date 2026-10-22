@@ -442,7 +442,17 @@ class GitAllowlist(unittest.TestCase):
                     "fetch --force origin main:refs/remotes/origin/main", "fetch -f origin main:refs/remotes/origin/main", "fetch -qf origin",
                     "fetch --set-upstream origin main", "fetch --set-up origin main",  # writes branch.<current>.remote and .merge
                     "fetch --forc origin main:refs/remotes/origin/main", "fetch --tag origin", "fetch --prune-t origin",  # git takes prefixes
-                    "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin")
+                    "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin",
+                    "fetch --refmap=refs/heads/*:refs/heads/copied-* origin refs/heads/main",  # the refmap maps into refs/heads/
+                    "fetch --refmap refs/heads/*:refs/heads/copied-* origin refs/heads/main", "fetch --frobnicate origin",
+                    "fetch -qx origin", "fetch --depth 1 origin")  # an option off the read-only list is a write
+
+    def test_branch_option_off_the_list_is_a_write(self):
+        self.writes("branch -uother", "branch -vuother", "branch -fx main", "branch --frobnicate", "branch --sort=x -u other",
+                    "branch -a --unset-upstream")
+        self.reads("branch -vv", "branch -a", "branch -avv", "branch -r", "branch --sort=-committerdate", "branch --sort -committerdate",
+                   "branch --no-color --list feat/*", "branch --contains HEAD", "branch --merged main -a", "branch --no-merged main",
+                   "branch --points-at HEAD", "branch --column=never", "branch --abbrev=7 -v", "branch -i --list X")
 
     def test_reads_stay_reads(self):
         self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "fetch --prune origin", "fetch --update-head-ok", "diff-tree",
@@ -451,7 +461,8 @@ class GitAllowlist(unittest.TestCase):
                    "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
                    "symbolic-ref HEAD", "gc --auto --no-quiet --detach", "maintenance run --auto --no-quiet",
                    "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "remote", "remote -v show o", "remote -v get-url o", "stash list",
-                   "worktree list", "tag", "ls-remote origin")
+                   "worktree list", "tag", "ls-remote origin", "fetch -q origin", "fetch --all --prune", "fetch -j 4 --all",
+                   "fetch --jobs=4 --all", "fetch --dry-run origin", "fetch -v --progress origin main")
 
     @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_real_traces_of_reads_are_reads(self):

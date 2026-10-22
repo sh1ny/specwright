@@ -399,12 +399,16 @@ def git_trace(repo):
     return cmds or None
 
 
-BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}
-BRANCH_VALUE = {"--format", "--sort"}  # options whose separate argument is a value, not a branch name (neither forces list mode)
-BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
-                "--unset-upstream", "--edit-description", "-t", "--track"}
+# git branch and git fetch options that only read; any other option (and any bundled short letter off the list) counts as a write
+BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}  # list mode: a positional is a pattern
+BRANCH_FLAGS = BRANCH_READ | {"--no-contains", "-a", "--all", "-r", "--remotes", "-v", "--verbose", "--color", "--no-color", "--column",
+                              "--no-column", "--abbrev", "--no-abbrev", "-i", "--ignore-case", "--omit-empty", "--format", "--sort"}
+FETCH_FLAGS = {"-q", "--quiet", "-v", "--verbose", "-n", "--no-tags", "-p", "--prune", "-u", "--update-head-ok", "--progress",
+               "--no-progress", "--dry-run", "--all", "--multiple", "--write-fetch-head", "--no-write-fetch-head", "--porcelain",
+               "--no-auto-gc", "--no-auto-maintenance", "-4", "--ipv4", "-6", "--ipv6", "--atomic", "-j", "--jobs", "-o",
+               "--server-option", "--negotiation-tip"}
+OPTION_VALUES = {"--format", "--sort", "-j", "--jobs", "-o", "--server-option", "--negotiation-tip"}  # the next argument is a value
 # Read-only git (design D2): everything else, including subcommands this table does not know, is a change.
-FETCH_WRITES = ("--force", "--tags", "--prune-tags", "--set-upstream")  # git fetch options that write a local ref or config
 READ_ALWAYS = {"status", "log", "show", "diff", "diff-tree", "diff-index", "diff-files", "rev-parse", "rev-list", "ls-tree", "ls-files",
                "ls-remote", "cat-file", "merge-base", "for-each-ref", "show-ref", "describe", "name-rev", "grep", "blame", "shortlog",
                "cherry", "check-ignore", "check-ref-format", "count-objects", "var", "version", "help",
@@ -416,9 +420,33 @@ def branch_deletes(cmds):
     return [c for c in cmds if c[:1] == ["branch"] and {"-d", "-D", "--delete"} & set(c[1:])]
 
 
+def read_options(args, flags):
+    """(every option in `args` is in `flags`, the positional arguments). A short bundle (-qv) counts letter by letter, and its value
+    letter (-j4) takes the rest of the bundle; a value option without an attached value (`--sort -committerdate`) takes the next
+    argument, even one that starts with -. A long option must be spelled in full: a prefix git would accept (--forc) is a write."""
+    ok, pos, names, i = True, [], set(), 0
+    while i < len(args):
+        a = args[i]
+        i += 1
+        if a == "--":
+            pos += args[i:]
+            break
+        if a == "-" or not a.startswith("-"):
+            pos.append(a)
+        elif a.startswith("--"):
+            name, eq, _ = a.partition("=")
+            names.add(name)
+            i += name in OPTION_VALUES and not eq
+        else:
+            for k, ch in enumerate(a[1:]):
+                names.add("-" + ch)
+                if "-" + ch in OPTION_VALUES:
+                    i += k == len(a) - 2
+                    break
+    return names <= flags, pos, names
+
+
 def git_read_only(c):
-    """True if the traced git command `c` (argv after `git`) only reads: its subcommand and arguments are on the read-only table.
-    `--opt=value` is split into `--opt value` first, so attached values match like separate ones."""
     if not c:
         return False
     sub = c[0]
@@ -428,23 +456,19 @@ def git_read_only(c):
         return True
     if sub in ("gc", "maintenance"):
         return "--auto" in rest and (sub == "gc" or rest[:1] == ["run"])
-    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or forces with +, or a
-        # FETCH_WRITES option (-f/--force overwrites a local ref, --tags/-t writes refs/tags/*, --prune-tags/-P deletes local tags,
-        # --set-upstream writes branch.<current>.remote and .merge); a bundle of short options (-qf) counts by its letters, and a
-        # long option by any prefix git accepts for it (--forc), except --prune, an option of its own that prunes only refs/remotes/
-        refspecs = [a for a in c[1:] if not a.startswith("-")][1:]
-        bundled = "".join(a[1:] for a in rest if re.fullmatch(r"-[A-Za-z]{2,}", a))
-        longs = [a.split("=", 1)[0] for a in rest if a.startswith("--") and len(a) > 2 and a != "--prune"]
-        return not any(a.startswith("+") or a in ("-t", "-P", "-f") for a in rest) and not set(bundled) & set("ftP") and not any(
-            w.startswith(o) for o in longs for w in FETCH_WRITES) and "tag" not in refspecs and all(
-            ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in refspecs)
+    if sub == "fetch":  # every option is on FETCH_FLAGS (so -f/--force, --tags, --prune-tags, --set-upstream, --refmap and any option
+        # the list does not know are writes), and no refspec writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or
+        # forces with +
+        ok, pos, _ = read_options(c[1:], FETCH_FLAGS)
+        return ok and "tag" not in pos[1:] and all(
+            not r.startswith("+") and (":" not in r or r.split(":", 1)[1].startswith("refs/remotes/")) for r in pos[1:])
     if sub == "reflog":
         # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)
         pos = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in ("-n", "--max-count", "--format", "--pretty", "--date"))]
         return not pos or pos[0] in ("show", "list", "exists") or pos[0] == "HEAD" or "/" in pos[0] or "@{" in pos[0]
     if sub == "branch":
-        positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in BRANCH_VALUE)]
-        return not (BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & set(rest)))
+        ok, pos, names = read_options(c[1:], BRANCH_FLAGS)  # -uother bundles -u with its value, so it is a write
+        return ok and not (pos and not BRANCH_READ & names)
     if sub in ("checkout", "switch"):
         return not rest
     if sub == "tag":
