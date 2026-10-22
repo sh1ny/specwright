@@ -109,7 +109,7 @@ class WatchMerge(unittest.TestCase):
     def test_agent_merge_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-watch-agent-merge")
         self.agent_run(repo)
-        res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7. Next: specwright-roadmap next, or close the milestone?")
+        res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7. Run specwright-roadmap close for M2?")
         self.assertTrue(res and all(res.values()), [t for t, ok in res.items() if not ok])
 
     def test_agent_merge_wrong_runs_fail(self):
@@ -118,7 +118,7 @@ class WatchMerge(unittest.TestCase):
         res = self.grade("eval-watch-agent-merge", run_dir, "Merged #7.")
         for t in ("Exactly one merge request was sent, with squash and the ready head",
                   "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
-                  "The report offers the next step: specwright-roadmap next or close"):
+                  "The report offers the prescribed next step: specwright-roadmap close"):
             self.assertFalse(res[t], t)
         self.assertTrue(res["PR #7 is MERGED in the fake gh"])
 
@@ -138,6 +138,125 @@ class WatchMerge(unittest.TestCase):
     def test_default_user_settings_do_not_mention_merging(self):
         run_dir, repo = self.fixture("eval-watch-merge-default-user")
         self.assertNotIn("merge", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class RoadmapOffer(unittest.TestCase):
+    """roadmap_offer and the agent-merge next-step check: the mode offered is the word bound to specwright-roadmap, and the check
+    passes only when that set is exactly the mode the fixture's milestone state prescribes."""
+
+    CLOSE, NEXT = "eval-watch-agent-merge", "eval-agent-merge-release-auto"
+    PREFIX = "The report offers the prescribed next step: specwright-roadmap "
+
+    def graded(self, name, report):
+        """(ok, evidence) of the next-step assertion for `report` on the fixture of eval `name` (no agent run needed)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        fixtures.build(name, run_dir / "repo")
+        (run_dir / "outputs").mkdir()
+        (run_dir / "outputs" / "report.md").write_text(report, encoding="utf-8")
+        res = [(ok, ev) for t, ok, ev in grade.check(name, run_dir / "repo", run_dir) if t.startswith(self.PREFIX)]
+        self.assertEqual(len(res), 1, res)
+        return res[0]
+
+    def test_fixture_records_the_expected_mode(self):
+        for name, mode in ((self.CLOSE, "close"), (self.NEXT, "next")):
+            with tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp) / "repo"
+                fixtures.build(name, repo)
+                fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+                self.assertEqual(fx.get("expected_mode"), mode, name)
+                self.assertIn("project:\n  roadmap: openspec/roadmap.md\n", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
+                rm = (repo / "openspec" / "roadmap.md").read_text(encoding="utf-8")
+                self.assertEqual("add-shout" in rm, mode == "next", name)
+            fixtures.rmtree(tmp)
+
+    def test_default_user_variant_has_no_roadmap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            fixtures.build("eval-watch-merge-default-user", repo)
+            self.assertFalse((repo / "openspec" / "roadmap.md").exists())
+            self.assertNotIn("expected_mode", json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8")))
+        fixtures.rmtree(tmp)
+
+    def test_prescribed_mode_passes(self):
+        ok, ev = self.graded(self.CLOSE, "Merged #7. Run specwright-roadmap close for M2?")
+        self.assertTrue(ok, ev)
+        ok, ev = self.graded(self.NEXT, "Merged #7.\n\nRun `specwright-roadmap next` for M2?")
+        self.assertTrue(ok, ev)
+
+    def test_mode_bound_to_command(self):
+        self.assertEqual(grade.roadmap_offer("Next step: run specwright-roadmap close for M2?"), {"close"})
+        ok, ev = self.graded(self.CLOSE, "Next step: run specwright-roadmap close for M2?")
+        self.assertTrue(ok, ev)
+
+    def test_bulleted_offer_with_the_question_above(self):
+        rep = "Merged. What next?\n- run specwright-roadmap close for M2"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        self.assertEqual(grade.roadmap_offer("Shall I go on?\n\n- specwright-roadmap close"), set())  # the question is in another block
+        self.assertEqual(grade.roadmap_offer("- **specwright-roadmap**: `close`?"), {"close"})
+
+    def test_explaining_sentence_offers_nothing(self):
+        rep = "Merged #7. M2 has no planned change left, so specwright-roadmap next does not apply. Run specwright-roadmap close for M2?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        rep = "Merged #7; specwright-roadmap next does not apply. What now?\n- run specwright-roadmap close for M2"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+
+    def test_negated_question_offers_nothing(self):
+        self.assertEqual(grade.roadmap_offer("I will not run specwright-roadmap next; should I stop?"), set())
+        self.assertEqual(grade.roadmap_offer("specwright-roadmap next doesn't apply. Run specwright-roadmap close for M2?"), {"close"})
+
+    def test_incidental_negation_keeps_the_offer(self):
+        # a negation in another clause of the sentence does not rule the mode out
+        self.assertEqual(grade.roadmap_offer("I didn't create anything; should I run specwright-roadmap close?"), {"close"})
+        self.assertEqual(grade.roadmap_offer("Nothing was not merged: run specwright-roadmap next for M3?"), {"next"})
+        self.assertEqual(grade.roadmap_offer("I didn't tag anything, so shall I run specwright-roadmap close?"), {"close"})
+        # the clause that names the mode rules it out
+        self.assertEqual(grade.roadmap_offer("Should I stop? I will not run specwright-roadmap next; the milestone is done?"), set())
+
+    def test_stated_mode_with_question_after_it_is_offered(self):
+        rep = "Next step: `specwright-roadmap close` for M2 (run login: eval-bot). Shall I run it?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        rep = "Merged #7.\n\nNext: specwright-roadmap next for M3. Want me to run it?"
+        self.assertEqual(grade.roadmap_offer(rep), {"next"})
+        rep = "Next: specwright-roadmap close.\n\nAnything else?"  # the question is in another block
+        self.assertEqual(grade.roadmap_offer(rep), set())
+
+    def test_named_but_not_offered_fails(self):
+        rep = "There is no roadmap step to run next; close the PR tab when done"
+        self.assertEqual(grade.roadmap_offer(rep), set())
+        ok, ev = self.graded(self.CLOSE, rep)
+        self.assertFalse(ok)
+
+    def test_both_modes_fail(self):
+        ok, ev = self.graded(self.NEXT, "Run specwright-roadmap next or close?")
+        self.assertFalse(ok)
+        self.assertIn("expected next", ev)
+        self.assertIn("offered ['close', 'next']", ev)
+        for rep in ("Run specwright-roadmap next or close?", "Run specwright-roadmap: next/close?",
+                    "Run specwright-roadmap next, or close?", "Run specwright-roadmap **next** and **close**?", "roadmap `next` or `close`?"):
+            self.assertEqual(grade.roadmap_offer(rep), {"next", "close"}, rep)
+
+    def test_wrong_mode_fails(self):
+        ok, ev = self.graded(self.CLOSE, "Run specwright-roadmap next?")
+        self.assertFalse(ok)
+        self.assertIn("expected close", ev)
+        ok, ev = self.graded(self.NEXT, "Run specwright-roadmap close?")
+        self.assertFalse(ok)
+        self.assertIn("expected next", ev)
+
+    def test_offers_close_only_when_a_connector_is_followed_by_prose(self):
+        rep = "Run specwright-roadmap close, and I'll pick up the next change after M3 is planned?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+
+    def test_offers_nothing(self):
+        self.assertEqual(grade.roadmap_offer("the Next milestone (M3)"), set())
+        self.assertEqual(grade.roadmap_offer("Is the Next milestone (M3) ready for the roadmap?"), set())
+
+    def test_mode_after_a_sentence_end_is_not_bound(self):
+        self.assertEqual(grade.roadmap_offer("Merged per the roadmap. Next, run specwright-roadmap close for M2?"), {"close"})
 
 
 class Rmtree(unittest.TestCase):
@@ -204,6 +323,263 @@ class ChangingCommands(unittest.TestCase):
                      ["api", "--method", "POST", "repos/o/n/issues/7/reactions", "-f", "content=+1"],
                      ["api", "repos/o/n/issues/7/comments", "--input", "b.json"]):
             self.assertEqual(len(grade.changing_gh([{"argv": argv}])), 1, argv)
+
+
+class GhAllowlist(unittest.TestCase):
+    """gh_writes counts every gh call as a write unless it is on the read-only allowlist (design D2)."""
+
+    def writes(self, *lines):
+        for line in lines:
+            argv = line.split()
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [line], line)
+            self.assertEqual(grade.changing_gh([{"argv": argv}]), [line], line)
+
+    def reads(self, *argvs):
+        for argv in argvs:
+            argv = argv.split() if isinstance(argv, str) else argv
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [], argv)
+
+    def test_listed_issue_and_pr_writes(self):
+        self.writes("issue lock 3", "issue delete 3", "issue unlock 3", "issue pin 3", "issue unpin 3", "issue transfer 3 o/other",
+                    "pr lock 7", "pr unlock 7", "pr revert 7", "pr update-branch 7")
+
+    def test_graphql_without_a_readable_query_is_a_write(self):
+        mut = "mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"
+        for argv in (["api", "graphql", "-f=query=" + mut], ["api", "graphql", "-F=query=" + mut],  # the equals-attached spellings
+                     ["api", "graphql"], ["api", "graphql", "-f", "q=" + mut]):  # no query gh would send as one: never a read
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [" ".join(argv)], argv)
+        self.reads(["api", "graphql", "-f=query={ viewer { login } }"], ["api", "graphql", "-F=query=query { viewer { login } }"])
+
+    def test_graphql_mutation_without_method_in_pr_mutations(self):
+        mut = "mutation { addReaction(input:{subjectId:\"X\",content:THUMBS_UP}){ reaction{ content } } }"
+        read = "query { viewer { login } }"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            log = [{"argv": ["api", "graphql", "-f", "query=" + mut]}, {"argv": ["api", "graphql", "-f", "query=" + read]},
+                   {"argv": ["pr", "view", "7"]}]
+            (repo / "gh-log.jsonl").write_text("".join(json.dumps(c) + "\n" for c in log), encoding="utf-8")
+            self.assertEqual(grade.pr_mutations(repo), ["api graphql -f query=" + mut])
+            self.assertEqual(grade.pr_mutations(repo), grade.gh_writes(grade.gh_calls(repo)))
+
+    def test_unknown_subcommand_is_a_write(self):
+        self.writes("label create x", "auth switch", "release create v1", "release delete v1", "repo delete o/n", "gist create f", "frobnicate")
+        self.assertEqual(grade.gh_writes([{"argv": []}]), [""], "an empty call is not known to be a read")
+
+    def test_reads_stay_reads(self):
+        self.reads("pr view 7 --json state", "pr checks 7", "pr list", "pr diff 7", "pr status", "issue view 3", "issue list", "issue status",
+                   "repo view", "release view v1", "release list", "auth status", "auth token", "search issues x",
+                   "api repos/o/n/pulls/7", "pr view 7 -R o/n", "pr view 7 --repo=o/n",
+                   ["api", "--method", "GET", "search/issues", "-f", "q=x"],
+                   ["api", "-X", "POST", "markdown", "--input", "req.json"], ["api", "-X", "POST", "markdown/raw", "--input", "req.md"],
+                   ["api", "graphql", "-f", "query={ viewer { login } }"])
+        self.writes("api -X PATCH markdown", "api -X POST repos/o/n/issues/7/comments", "api graphql --input q.json",
+                    "api -X POST repos/o/n/issues --input markdown", "api -X POST repos/o/n/labels -f name=x markdown/raw")
+
+
+class ExpectedWrites(unittest.TestCase):
+    """An eval whose correct run writes subtracts exactly the writes it expects: the release-auto evals expect one release create."""
+
+    def fixture(self, name, log):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        run_dir = Path(tmp.name) / "run"
+        repo = run_dir / "repo"
+        fixtures.build(name, repo)
+        (run_dir / "outputs").mkdir()
+        (run_dir / "outputs" / "report.md").write_text("", encoding="utf-8")
+        with (repo / "gh-log.jsonl").open("a", encoding="utf-8") as f:
+            for argv in log:
+                f.write(json.dumps({"argv": argv}) + "\n")
+        return {t: ok for t, ok, _ in grade.check(name, repo, run_dir)}
+
+    MERGE = ["api", "-X", "PUT", "repos/acme/greeter/pulls/7/merge", "-f", "merge_method=squash", "-f", "sha=abc"]
+    DELETE = ["api", "-X", "DELETE", "repos/acme/greeter/git/refs/heads/feat/add-greeting"]
+    CREATE = ["release", "create", "v0.5.0", "--repo", "acme/greeter", "--verify-tag", "--title", "v0.5.0", "-n", "notes"]
+    WATCH = "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)"
+    FINISH = "No gh call created or changed a pull request, issue or comment"
+
+    @unittest.skipUnless(shutil.which("bash"), "needs bash")
+    def test_release_auto_gh_log(self):
+        cases = (("eval-agent-merge-release-auto", self.WATCH, [self.MERGE, self.DELETE]),
+                 ("eval-finish-release-auto", self.FINISH, []))
+        for name, check, base in cases:
+            self.assertTrue(self.fixture(name, base + [self.CREATE])[check], f"{name}: the one expected release create must pass")
+            self.assertFalse(self.fixture(name, base + [self.CREATE, self.CREATE])[check], f"{name}: a second release create must fail")
+            self.assertFalse(self.fixture(name, base + [self.CREATE, ["release", "delete", "v0.5.0", "--yes"]])[check],
+                             f"{name}: a release delete must fail")
+            self.assertFalse(self.fixture(name, base + [self.CREATE, ["issue", "lock", "3"]])[check], f"{name}: an issue lock must fail")
+
+
+class GitAllowlist(unittest.TestCase):
+    """changing_git counts every traced git command as a change unless it is on the read-only allowlist (design D2)."""
+
+    def writes(self, *cmds):
+        for line in cmds:
+            c = line.split()
+            self.assertEqual(grade.changing_git([c]), [c], line)
+
+    def reads(self, *cmds):
+        for line in cmds:
+            c = line.split()
+            self.assertEqual(grade.changing_git([c]), [], line)
+
+    def test_plumbing_and_dash_targets_are_writes(self):
+        self.writes("update-ref refs/heads/main abc123", "symbolic-ref HEAD refs/heads/x", "symbolic-ref -d HEAD",
+                    "symbolic-ref --delete HEAD", "checkout -", "switch -",
+                    "branch --set-upstream-to=origin/main", "branch --track=direct x")
+
+    def test_unknown_subcommand_is_a_write(self):
+        self.writes("replace", "notes add", "reflog expire --all", "reflog delete HEAD@{0}", "reflog write refs/heads/x 0 1 msg", "reflog drop --all",
+                    "reflog frobnicate", "frobnicate", "gc", "maintenance run",
+                    "gc --prune=now", "config user.name x", "remote add o url", "remote -v add o url", "remote --verbose set-url o url",
+                    "remote -v remove o", "remote -v prune o", "remote -v update", "stash push", "worktree add ../w", "")
+
+    def test_fetch_into_local_branch_is_a_write(self):
+        self.writes("fetch origin main:main", "fetch origin +refs/heads/x:refs/remotes/origin/x", "fetch origin feat/x:refs/heads/main",
+                    "fetch origin tag v1",
+                    "fetch --tags origin", "fetch -q origin main --tags",
+                    "fetch --force origin main:refs/remotes/origin/main", "fetch -f origin main:refs/remotes/origin/main", "fetch -qf origin",
+                    "fetch --set-upstream origin main", "fetch --set-up origin main",  # writes branch.<current>.remote and .merge
+                    "fetch --forc origin main:refs/remotes/origin/main", "fetch --tag origin", "fetch --prune-t origin",  # git takes prefixes
+                    "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin",
+                    "fetch --refmap=refs/heads/*:refs/heads/copied-* origin refs/heads/main",  # the refmap maps into refs/heads/
+                    "fetch --refmap refs/heads/*:refs/heads/copied-* origin refs/heads/main", "fetch --frobnicate origin",
+                    "fetch -qx origin", "fetch --depth 1 origin",  # an option off the read-only list is a write
+                    "fetch +refs/heads/main:refs/heads/main", "fetch -q +refs/heads/x:refs/remotes/origin/x")  # + in any slot
+
+    def test_branch_option_off_the_list_is_a_write(self):
+        self.writes("branch -uother", "branch -vuother", "branch -fx main", "branch --frobnicate", "branch --sort=x -u other",
+                    "branch -a --unset-upstream")
+        self.reads("branch -vv", "branch -a", "branch -avv", "branch -r", "branch --sort=-committerdate", "branch --sort -committerdate",
+                   "branch --no-color --list feat/*", "branch --contains HEAD", "branch --merged main -a", "branch --no-merged main",
+                   "branch --points-at HEAD", "branch --column=never", "branch --abbrev=7 -v", "branch -i --list X")
+
+    def test_reads_stay_reads(self):
+        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "fetch --prune origin", "fetch --update-head-ok", "diff-tree",
+                   "reflog", "reflog -n 5", "reflog --oneline", "reflog show main", "reflog show", "reflog list",
+                   "reflog exists refs/heads/main", "reflog HEAD", "reflog refs/heads/main", "reflog main@{1}",
+                   "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
+                   "symbolic-ref HEAD", "gc --auto --no-quiet --detach", "maintenance run --auto --no-quiet",
+                   "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "remote", "remote -v show o", "remote -v get-url o", "stash list",
+                   "worktree list", "tag", "ls-remote origin", "fetch -q origin", "fetch --all --prune", "fetch -j 4 --all",
+                   "fetch --jobs=4 --all", "fetch --dry-run origin", "fetch -v --progress origin main")
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_real_traces_of_reads_are_reads(self):
+        """Run real git against a local bare repo with GIT_TRACE and check what it traces. Built-ins git 2.55.0 traced as
+        children (fetch, pull, push, commit): fetch --update-head-ok, upload-pack, receive-pack, pack-objects, unpack-objects,
+        rev-list, for-each-ref, merge --ff-only FETCH_HEAD (pull's own), maintenance run --auto (--quiet or --no-quiet) --detach.
+        No gc --auto, index-pack or fetch-pack appeared (the allowlist still covers them). The global options -C and -c are
+        consumed before the built-in line, so the first traced command is the subcommand itself."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: fixtures.rmtree(tmp))
+        root = Path(tmp)
+        log = root / "git-trace.log"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com",
+                   GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+
+        def git(cwd, *args, trace=False):
+            e = dict(env, GIT_TRACE=str(log)) if trace else env
+            if trace and log.exists():
+                log.unlink()
+            subprocess.run(["git", *args], cwd=str(cwd), env=e, check=True, capture_output=True, text=True)
+            return (grade.git_trace(root) or []) if trace else None
+
+        bare, work, other = root / "origin.git", root / "work", root / "other"
+        git(root, "init", "-q", "--bare", "-b", "main", str(bare))
+        git(root, "clone", "-q", str(bare), str(work))
+        git(work, "checkout", "-q", "-b", "main")
+        git(work, "commit", "-q", "--allow-empty", "-m", "one")
+        git(work, "push", "-q", "origin", "main")
+        git(root, "clone", "-q", str(bare), str(other))
+        git(other, "commit", "-q", "--allow-empty", "-m", "two")
+        git(other, "push", "-q", "origin", "main")
+
+        seen = {}
+        def traced(label, cwd, *args):
+            cmds = git(cwd, *args, trace=True)
+            self.assertTrue(cmds, label)
+            seen[label] = cmds
+            return cmds
+
+        guarded = [traced("status", work, "status", "--porcelain")[0]]
+        # a -C or -c option is consumed before the built-in line, so the first traced command is the subcommand itself
+        self.assertEqual(traced("-C status", root, "-C", str(work), "status")[0], ["status"])
+        self.assertEqual(traced("-c status", work, "-c", "core.quotepath=false", "status")[0], ["status"])
+        for label, cmds in seen.items():
+            self.assertFalse([a for c in cmds for a in c[:1] if a in ("-C", "-c")], label)
+        traced("ls-remote", work, "ls-remote", "origin")
+        traced("fetch", work, "fetch", "origin")
+        guarded += traced("checkout main", work, "checkout", "main")[:1]
+        guarded += traced("pull", work, "-c", "pull.rebase=false", "-c", "advice.detachedHead=false", "pull", "--ff-only")
+        self.assertIn(["merge", "--ff-only", "FETCH_HEAD"], guarded, "pull runs its merge as a traced child: " + repr(seen["pull"]))
+        self.assertEqual(grade.refresh_exceptions(guarded), [])
+        git(work, "commit", "-q", "--allow-empty", "-m", "three")
+        for label, args in (("commit", ("commit", "-q", "--allow-empty", "-m", "four")), ("push branch", ("push", "-q", "origin", "main:feat")),
+                            ("tag", ("tag", "-a", "v1", "-m", "release")), ("push tag", ("push", "-q", "origin", "v1"))):
+            cmds = traced(label, work, *args)
+            self.assertEqual(grade.changing_git(cmds[1:]), [], f"{label}: children of {cmds[0]} must be reads: {cmds[1:]}")
+        self.assertEqual(grade.other_changes(guarded + seen["tag"] + seen["push tag"]), [])
+        # every child git started on its own, across all the commands, is a read
+        children = [c for label, cmds in seen.items() for c in cmds[1:]]
+        self.assertEqual(grade.changing_git([c for c in children if c[:1] != ["merge"]]), [], children)
+
+
+class GraphqlOperations(unittest.TestCase):
+    """`gh api graphql` calls are classified by the operations in the document, not by its first token."""
+
+    def setUp(self):
+        import gqlops  # the fakes dir is on sys.path through fixtures
+        self.ops, self.named = gqlops.operations, gqlops.named_operations
+
+    def changing(self, *argv):
+        return grade.changing_gh([{"argv": ["api", "graphql", *argv]}])
+
+    def test_named_operations_carry_the_name(self):
+        q = "query Q($n:Int) @d { a } mutation { b } fragment F on X { c } subscription query { d }"
+        self.assertEqual(self.named(q), [("query", "Q", ["a"]), ("mutation", None, ["b"]), ("subscription", "query", ["d"])])
+        self.assertEqual(self.named("query @d { a } mutation M @e { b }"), [("query", None, ["a"]), ("mutation", "M", ["b"])])
+        self.assertEqual(self.ops(q), [("query", ["a"]), ("mutation", ["b"]), ("subscription", ["d"])])
+
+    def test_mutation_after_fragment_is_a_write(self):
+        q = 'fragment R on Reaction { content } mutation { addReaction(input:{subjectId:"X",content:THUMBS_UP}) { reaction { ...R } } }'
+        self.assertEqual(len(self.changing("-f", "query=" + q)), 1)
+        self.assertEqual(self.ops(q), [("mutation", ["addReaction"])])
+
+    def test_comment_or_string_mention_is_a_read(self):
+        for q in ("query { viewer { login } } # resolveReviewThread",
+                  'query { search(query: "mutation { addReaction") { issueCount } }',
+                  'query { search(query: "say \\"mutation { addReaction\\" ") { issueCount } }',
+                  'query { search(query: """mutation { addReaction""") { issueCount } }',
+                  "query { viewer { login } } # mutation { addReaction"):
+            self.assertEqual(self.changing("-f", "query=" + q), [], q)
+            self.assertEqual([k for k, _ in self.ops(q)], ["query"], q)
+
+    def test_unparseable_or_opaque_is_a_write(self):
+        for argv in (["-f", "query=query { viewer { login }"], ["-f", "query=query { viewer { login } } }"],
+                     ["-f", 'query=query { search(query: "x) { issueCount } }'], ["-F", "query=@q.graphql"],
+                     ["--input", "q.json"], ["-f", "query=bogus { a }"], ["-f", "query=fragment F on User { login }"]):
+            self.assertEqual(len(self.changing(*argv)), 1, argv)
+        self.assertIsNone(self.ops("query { a "))
+        self.assertIsNone(self.named("query { a "))
+        self.assertIsNone(self.ops('query { a(x: "u) }'))
+        self.assertIsNone(self.ops('query { a(x: """u) }'))
+        self.assertIsNone(self.ops("query { a } }"))
+        self.assertIsNone(self.ops("bogus { a }"))
+
+    def test_operations_shapes(self):
+        self.assertEqual(self.ops("{ viewer { login } }"), [("query", ["viewer"])])
+        self.assertEqual(self.ops("query Q($n: Int = 3, $o: String!) @dir(a: {b: 1}) { repository(owner: $o) { id } rateLimit { cost } }"),
+                         [("query", ["repository", "rateLimit"])])
+        self.assertEqual(self.ops('mutation M { a: addReaction(input: {subjectId: "X"}) { reaction { content } } b: resolveReviewThread(input: {threadId: "T"}) { thread { id } } }'),
+                         [("mutation", ["addReaction", "resolveReviewThread"])])
+        self.assertEqual(self.ops("query A { x } mutation B { y } subscription C { z }"),
+                         [("query", ["x"]), ("mutation", ["y"]), ("subscription", ["z"])])
+        self.assertEqual(self.ops("query { viewer { ...F } ...G ... on Query { rateLimit { cost } } }"), [("query", ["viewer"])])
+        self.assertEqual(self.ops("fragment F on User { login }"), [])
+        self.assertEqual(self.ops("# only a comment\n"), [])
 
 
 @unittest.skipUnless(shutil.which("bash"), "needs bash")
@@ -383,6 +759,7 @@ RELEASE_NAMES = ("eval-finish-release-offer", "eval-finish-release-auto", "eval-
                  "eval-finish-local-release-reported", "eval-agent-merge-release-auto")
 OFFER_REPORT = "Cleanup done: main is current.\n\nVersion 0.5.0 has no tag yet. Shall I publish v0.5.0 (tag and GitHub release)?\n\nNext: specwright-roadmap next, or close?"
 PUBLISHED_REPORT = "Cleanup done.\n\nrelease v0.5.0: tag pushed at abc1234, GitHub release created.\n\nNext: specwright-roadmap next, or close?"
+AGENT_PUBLISHED_REPORT = PUBLISHED_REPORT.replace("next, or close?", "next for M2?")  # the Now milestone still lists add-shout: next only
 
 
 class ReleaseHelpers(unittest.TestCase):
@@ -448,7 +825,7 @@ class ReleaseEvals(unittest.TestCase):
         return [t for t, ok in res.items() if not ok]
 
     def cleanup(self, repo):
-        self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
 
     def publish(self, repo):
         return json.loads(self.sh(repo, f"bash {AS_SH} eval-bot bash {RELEASE_SH} --dir . publish --version 0.5.0 --main origin/main"))
@@ -508,7 +885,7 @@ class ReleaseEvals(unittest.TestCase):
 
     def test_offer_run_without_a_refresh_fails(self):
         run_dir, repo = self.fixture("eval-finish-release-offer")
-        self.sh(repo, "git fetch -q origin main --tags")
+        self.sh(repo, "git fetch -q --no-tags origin main")
         res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
         self.assertEqual(self.failed(res), ["The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)"])
 
@@ -656,7 +1033,7 @@ class ReleaseEvals(unittest.TestCase):
     def agent_run(self, repo, publish=True):
         tip = grade.git(repo, "rev-parse", "HEAD")
         self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method=squash -f sha={tip}")
-        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
         self.sh(repo, "git branch -q -D feat/add-greeting")
         self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
         if publish:
@@ -676,18 +1053,18 @@ class ReleaseEvals(unittest.TestCase):
     def test_agent_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         self.agent_run(repo)
-        res = self.grade("eval-agent-merge-release-auto", run_dir, PUBLISHED_REPORT)
+        res = self.grade("eval-agent-merge-release-auto", run_dir, AGENT_PUBLISHED_REPORT)
         self.assertTrue(res and not self.failed(res), self.failed(res))
 
     def test_agent_run_that_releases_before_the_cleanup_fails(self):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         tip = grade.git(repo, "rev-parse", "HEAD")
         self.sh(repo, f"gh api -X PUT repos/acme/greeter/pulls/7/merge -f merge_method=squash -f sha={tip}")
-        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q origin main --tags")
+        self.sh(repo, "git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
         self.publish(repo)
         self.sh(repo, "git branch -q -D feat/add-greeting")
         self.sh(repo, "gh api -X DELETE repos/acme/greeter/git/refs/heads/feat/add-greeting")
-        res = self.grade("eval-agent-merge-release-auto", run_dir, PUBLISHED_REPORT)
+        res = self.grade("eval-agent-merge-release-auto", run_dir, AGENT_PUBLISHED_REPORT)
         self.assertEqual(self.failed(res), [
             "The release came after the cleanup: the gh log has the merge, the remote branch DELETE, then the release create, and the tag push "
             "follows the pull and the local branch deletion (the git trace)"])
@@ -695,7 +1072,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_agent_run_without_a_release_or_a_report_line_fails(self):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         self.agent_run(repo, publish=False)
-        res = self.grade("eval-agent-merge-release-auto", run_dir, "Merged #7. Next: specwright-roadmap next, or close the milestone?")
+        res = self.grade("eval-agent-merge-release-auto", run_dir, "Merged #7. Run specwright-roadmap next for M2?")
         failed = self.failed(res)
         self.assertIn("Exactly one gh release create v0.5.0 was made, with --verify-tag", failed)
         self.assertIn("An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either", failed)

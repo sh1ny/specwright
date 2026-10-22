@@ -15,6 +15,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fakes"))
+import gqlops  # noqa: E402  reads the operations of a GraphQL document
+
 INITIAL = "chore: initial project"
 STORE_MAIN = ["chore: register store", "chore: initial store"]  # newest first, as a fixture store leaves its main
 STORE_PR_BODY = "Plans for add-greeting."  # the open store PR #3 of eval-store-ship-code-push-rejected-store-pr-open
@@ -167,6 +170,50 @@ def offers(rep, topic):
     """asks_about, or one paragraph block (text between blank lines) names `topic` and has a question: an offer whose
     question and option list sit on adjacent lines, such as "Shall I create the branch?" over "- Yes: git checkout -b <topic>"."""
     return asks_about(rep, topic) or any(re.search(topic, b) and "?" in b for b in re.split(r"\n\s*\n", rep))
+
+
+MARK = r"[\s*`_]*"  # whitespace or markup: all that may sit between a connector and a coordinated mode
+COORD = re.compile(MARK + r"(?:,[\s*`_]*(?:or|and)\b|\b(?:or|and)\b|[/,])" + MARK + r"(next|close)\b")
+BOUND = (re.compile(r"roadmap[^\w.!?\n]{0,3}?(next|close)\b"), re.compile(r"`(next|close)`"))  # never across a sentence end
+RULED_OUT = re.compile(r"\b(?:not|never|no longer)\b|n't\b")  # a clause that says a mode does not apply
+CLAUSE_END = re.compile(r"[;:—]|,\s*(?:so|but|then)\b")  # what separates the clauses of one sentence
+
+
+def clause_at(u, pos):
+    """The clause of sentence `u` that holds position `pos`: the text between the clause separators (CLAUSE_END) around it."""
+    start = max((m.end() for m in CLAUSE_END.finditer(u, 0, pos)), default=0)
+    end = next((m.start() for m in CLAUSE_END.finditer(u, pos)), len(u))
+    return u[start:end]
+
+
+def roadmap_offer(rep):
+    """The roadmap modes (next, close) the report offers. Only a sentence that asks (asks_about), or a paragraph block with a
+    question (as in offers), and names the roadmap counts. In it a mode counts when it is bound to the command: `specwright-roadmap
+    close`, `roadmap: close` (up to three non-word characters between), or a backticked `close`; a mode coordinated with a bound
+    one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and a
+    mode whose clause rules it out (not, n't, never, no longer) is not offered, even in a sentence that asks: that clause explains
+    why it does not apply. A negation in another clause of the sentence (`I didn't tag anything; run specwright-roadmap close?`)
+    does not count."""
+    rep = rep.lower()
+    units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
+    for b in re.split(r"\n\s*\n", rep):
+        if "?" in b:  # a question over the stated step or its option list: what they name is offered
+            units += [s for s in sentences(b) if "roadmap" in s]
+    found = set()
+    for u in units:
+        for rx in BOUND:
+            for m in rx.finditer(u):
+                if RULED_OUT.search(clause_at(u, m.start())):
+                    continue
+                found.add(m.group(1))
+                pos = m.end()
+                while True:
+                    c = COORD.match(u, pos)
+                    if not c:
+                        break
+                    found.add(c.group(1))
+                    pos = c.end()
+    return found
 
 
 def report(run):
@@ -352,71 +399,177 @@ def git_trace(repo):
     return cmds or None
 
 
-BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}
-BRANCH_VALUE = {"--format", "--sort"}  # options whose separate argument is a value, not a branch name (neither forces list mode)
-BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
-                "--unset-upstream", "--edit-description", "-t", "--track"}
-ALWAYS_WRITE = {"commit", "merge", "rebase", "cherry-pick", "reset", "revert", "push", "tag", "am", "stash", "pull"}
-CHECKOUT_WRITE = {"-b", "-B", "-c", "-C", "--orphan", "--detach", "-d"}
+# git branch and git fetch options that only read; any other option (and any bundled short letter off the list) counts as a write
+BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}  # list mode: a positional is a pattern
+BRANCH_FLAGS = BRANCH_READ | {"--no-contains", "-a", "--all", "-r", "--remotes", "-v", "--verbose", "--color", "--no-color", "--column",
+                              "--no-column", "--abbrev", "--no-abbrev", "-i", "--ignore-case", "--omit-empty", "--format", "--sort"}
+FETCH_FLAGS = {"-q", "--quiet", "-v", "--verbose", "-n", "--no-tags", "-p", "--prune", "-u", "--update-head-ok", "--progress",
+               "--no-progress", "--dry-run", "--all", "--multiple", "--write-fetch-head", "--no-write-fetch-head", "--porcelain",
+               "--no-auto-gc", "--no-auto-maintenance", "-4", "--ipv4", "-6", "--ipv6", "--atomic", "-j", "--jobs", "-o",
+               "--server-option", "--negotiation-tip"}
+OPTION_VALUES = {"--format", "--sort", "-j", "--jobs", "-o", "--server-option", "--negotiation-tip"}  # the next argument is a value
+# Read-only git (design D2): everything else, including subcommands this table does not know, is a change.
+READ_ALWAYS = {"status", "log", "show", "diff", "diff-tree", "diff-index", "diff-files", "rev-parse", "rev-list", "ls-tree", "ls-files",
+               "ls-remote", "cat-file", "merge-base", "for-each-ref", "show-ref", "describe", "name-rev", "grep", "blame", "shortlog",
+               "cherry", "check-ignore", "check-ref-format", "count-objects", "var", "version", "help",
+               # children git starts itself for fetch, pull, push and ls-remote; the parent command is judged, not these
+               "upload-pack", "receive-pack", "pack-objects", "index-pack", "unpack-objects", "fetch-pack"}
 
 
 def branch_deletes(cmds):
     return [c for c in cmds if c[:1] == ["branch"] and {"-d", "-D", "--delete"} & set(c[1:])]
 
 
+def read_options(args, flags):
+    """(every option in `args` is in `flags`, the positional arguments). A short bundle (-qv) counts letter by letter, and its value
+    letter (-j4) takes the rest of the bundle; a value option without an attached value (`--sort -committerdate`) takes the next
+    argument, even one that starts with -. A long option must be spelled in full: a prefix git would accept (--forc) is a write."""
+    ok, pos, names, i = True, [], set(), 0
+    while i < len(args):
+        a = args[i]
+        i += 1
+        if a == "--":
+            pos += args[i:]
+            break
+        if a == "-" or not a.startswith("-"):
+            pos.append(a)
+        elif a.startswith("--"):
+            name, eq, _ = a.partition("=")
+            names.add(name)
+            i += name in OPTION_VALUES and not eq
+        else:
+            for k, ch in enumerate(a[1:]):
+                names.add("-" + ch)
+                if "-" + ch in OPTION_VALUES:
+                    i += k == len(a) - 2
+                    break
+    return names <= flags, pos, names
+
+
+def git_read_only(c):
+    if not c:
+        return False
+    sub = c[0]
+    rest = [p for a in c[1:] for p in (a.split("=", 1) if a.startswith("--") and "=" in a else [a])]
+    pos = [a for a in rest if not a.startswith("-")]
+    if sub in READ_ALWAYS:
+        return True
+    if sub in ("gc", "maintenance"):
+        return "--auto" in rest and (sub == "gc" or rest[:1] == ["run"])
+    if sub == "fetch":  # every option is on FETCH_FLAGS (so -f/--force, --tags, --prune-tags, --set-upstream, --refmap and any option
+        # the list does not know are writes), and no refspec writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or
+        # forces with +
+        ok, pos, _ = read_options(c[1:], FETCH_FLAGS)
+        # (a + argument counts in any slot, the first included, as the earlier rule did: fail closed)
+        return ok and not any(r.startswith("+") for r in pos) and "tag" not in pos[1:] and all(
+            ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in pos[1:])
+    if sub == "reflog":
+        # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)
+        pos = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in ("-n", "--max-count", "--format", "--pretty", "--date"))]
+        return not pos or pos[0] in ("show", "list", "exists") or pos[0] == "HEAD" or "/" in pos[0] or "@{" in pos[0]
+    if sub == "branch":
+        ok, pos, names = read_options(c[1:], BRANCH_FLAGS)  # -uother bundles -u with its value, so it is a write
+        return ok and not (pos and not BRANCH_READ & names)
+    if sub in ("checkout", "switch"):
+        return not rest
+    if sub == "tag":
+        return not tag_writes([c])
+    if sub == "config":
+        return any(a.startswith("--get") or a in ("--list", "-l") for a in rest) or pos[:1] in (["get"], ["list"])
+    if sub == "remote":
+        sub_args = [a for a in rest if a not in ("-v", "--verbose")]  # -v may precede the subcommand: `remote -v add` adds
+        return sub_args[:1] in ([], ["get-url"], ["show"])
+    if sub == "stash":
+        return rest[:1] in (["list"], ["show"])
+    if sub == "worktree":
+        return rest[:1] == ["list"]
+    if sub == "symbolic-ref":
+        return len(pos) == 1 and not {"-d", "--delete"} & set(rest)
+    return False
+
+
 def changing_git(cmds):
-    """The git commands that commit, merge, pull, push or change a branch; `git branch` counts only when it writes, and `git checkout`/`switch`
-    whenever it names a target (`checkout main`, `switch main`, `checkout -- <path>`) or creates or detaches a branch."""
-    bad = []
-    for c in cmds:
-        sub, rest = (c[0] if c else ""), c[1:]
-        if sub in ALWAYS_WRITE:
-            bad.append(c)
-        elif sub == "branch":
-            positional = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in BRANCH_VALUE)]
-            flags = {a.split("=", 1)[0] for a in rest if a.startswith("-")}
-            if BRANCH_WRITE & set(rest) or (positional and not BRANCH_READ & flags):
-                bad.append(c)
-        elif sub in ("checkout", "switch") and (CHECKOUT_WRITE & set(rest) or any(not a.startswith("-") or a == "--" for a in rest)):
-            bad.append(c)
-    return bad
+    """The git commands that are not on the read-only table (`git_read_only`): commits, merges, pulls, pushes, ref and branch changes,
+    `checkout`/`switch` with any argument, a fetch into a local branch, and any subcommand the table does not know."""
+    return [c for c in cmds if not git_read_only(c)]
 
 
 def gql_queries(a):
-    """The query texts a `gh api graphql` call passes: `query=...` on its own (after -f/-F) or attached (-fquery=, --field=query=)."""
-    return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
+    """The query texts a `gh api graphql` call passes: `query=...` on its own (after -f/-F) or attached (-fquery=, -f=query=,
+    --field=query=)."""
+    return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]=?|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
 
 
-def changing_gh(calls):
-    """gh calls that create or change something on GitHub: a pr/issue write command, a GraphQL call whose query is a mutation or
-    cannot be classified from argv, or a REST call with a non-GET method, or with fields or a body and no forced method."""
-    out = []
-    for c in calls:
-        a = c.get("argv", [])
-        joined = " ".join(a)
-        if a[:1] in (["pr"], ["issue"]) and len(a) > 1 and a[1] in ("create", "edit", "merge", "close", "comment", "reopen", "ready", "review"):
-            out.append(joined)
-        elif a[:1] == ["api"] and "graphql" in a[1:2]:
-            qs = gql_queries(a)
-            # a query read from a file or --input cannot be classified from argv: count it as a possible write
-            opaque = any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
-            if opaque or any(re.match(r"\s*(?:#[^\n]*\n\s*)*mutation\b", q) for q in qs):
-                out.append(joined)
-        elif a[:1] == ["api"]:
-            # the method comes from its own argv token: `-X GET`, `--method GET`, `-XGET`, `--method=GET`; never from inside a path
-            method = None
-            for i, x in enumerate(a):
-                if x in ("-X", "--method") and i + 1 < len(a):
-                    method = a[i + 1].upper()
-                elif x.startswith("--method="):
-                    method = x.split("=", 1)[1].upper()
-                elif re.fullmatch(r"-X\w+", x):
-                    method = x[2:].upper()
-            # fields or a body make gh send a POST unless the method is forced: --method GET sends them as a query string
-            body = any(re.match(r"-[fF]|--(?:raw-)?field\b|--input\b", x) for x in a)
-            if (method and method != "GET") or (method is None and body):
-                out.append(joined)
-    return out
+GH_READ = {"pr": {"view", "list", "checks", "diff", "status"}, "issue": {"view", "list", "status"}, "repo": {"view"},
+           "release": {"view", "list"}, "auth": {"status", "token"}}
+
+
+API_VALUE = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input", "-H", "--header", "-q", "--jq", "-t", "--template",
+             "--hostname", "-p", "--preview", "--cache"}  # gh api options whose separate argument is a value, not the endpoint
+
+
+def api_endpoint(a):
+    """The endpoint of the `gh api` call `a`: its first argument after `api` that is neither an option nor an option's value."""
+    return next((x for i, x in enumerate(a[1:], 1) if not x.startswith("-") and a[i - 1] not in API_VALUE), "")
+
+
+def rest_read_only(a):
+    """True if the `gh api` REST call `a` changes nothing: sent as GET, or a POST to GitHub's markdown render endpoint."""
+    # the method comes from its own argv token: `-X GET`, `--method GET`, `-XGET`, `--method=GET`; never from inside a path
+    method = None
+    for i, x in enumerate(a):
+        if x in ("-X", "--method") and i + 1 < len(a):
+            method = a[i + 1].upper()
+        elif x.startswith("--method="):
+            method = x.split("=", 1)[1].upper()
+        elif re.fullmatch(r"-X\w+", x):
+            method = x[2:].upper()
+    # fields or a body make gh send a POST unless the method is forced: --method GET sends them as a query string
+    body = any(re.match(r"-[fF]|--(?:raw-)?field\b|--input\b", x) for x in a)
+    if method in (None, "POST") and api_endpoint(a).lstrip("/") in ("markdown", "markdown/raw"):
+        return True  # renders text and changes nothing
+    return method == "GET" or (method is None and not body)
+
+
+def graphql_read_only(a):
+    """True if the `gh api graphql` call `a` holds only queries; a call with no query in a spelling gql_queries reads, a query read
+    from a file or --input, one that does not parse, holds no operation, or holds a mutation or subscription among its top-level
+    definitions is not."""
+    qs = gql_queries(a)
+    opaque = not qs or any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
+    parsed = [gqlops.operations(q) for q in qs]
+    return not (opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed))
+
+
+def gh_read_only(a):
+    """True if the traced gh call `a` (argv after `gh`) is on the read-only allowlist: `pr view|list|checks|diff|status`, `issue view|list|
+    status`, `repo view`, `release view|list`, `auth status|token`, `search`, a REST `api` call sent as GET, a POST to markdown, or a
+    GraphQL read. `-R/--repo` is ignored."""
+    a = [x for i, x in enumerate(a) if x not in ("-R", "--repo") and not x.startswith("--repo=") and not (i and a[i - 1] in ("-R", "--repo"))]
+    if not a:
+        return False
+    if a[0] == "search":
+        return True
+    if a[0] == "api":
+        return graphql_read_only(a) if "graphql" in a[1:2] else rest_read_only(a)
+    return a[1:2] != [] and a[1] in GH_READ.get(a[0], ())
+
+
+def gh_writes(calls):
+    """The gh calls (joined argv) that are not on the read-only allowlist (`gh_read_only`): every pr, issue, release, label or other
+    write, a GraphQL call that is not a plain query, a REST call with a non-GET method, and any subcommand the list does not know."""
+    return [" ".join(c.get("argv", [])) for c in calls if not gh_read_only(c.get("argv", []))]
+
+
+changing_gh = gh_writes
+
+
+def without_one(writes, pattern):
+    """`writes` without the first entry matching `pattern`: the one write a correct run is expected to make; a second identical stays."""
+    for i, w in enumerate(writes):
+        if re.match(pattern, w):
+            return writes[:i] + writes[i + 1:]
+    return writes
 
 
 def rest_method(argv):
@@ -491,10 +644,13 @@ def check_watch_merge(name, repo, branch, branches, status, rep):
             elif a[:1] == ["api"] and rest_method(a) == "DELETE" and any("git/refs/heads/" in x for x in a):
                 kinds.append("delete")
         R.append(("The remote branch was deleted after the merge, not before", kinds[:1] == ["merge"] and kinds.count("delete") == 1, f"order={kinds}"))
-        other = [c for c in changing_gh(calls) if not re.search(r"pulls/7/merge|git/refs/heads/feat/add-greeting", c)]
+        other = [c for c in gh_writes(calls) if not re.search(r"pulls/7/merge|git/refs/heads/feat/add-greeting", c)]
+        if name == "eval-agent-merge-release-auto":  # the one gh release create v0.5.0 this run expects
+            other = without_one(other, rf"release create {re.escape(RELEASE_TAG)}(\s|$)")
         R.append(("No other gh call created or changed anything (no gh pr merge, auto-merge or comment)", not other, f"other changing gh calls={other}"))
-        hit = re.search(r"roadmap", rep) and re.search(r"\b(next|close)\b", rep)
-        R.append(("The report offers the next step: specwright-roadmap next or close", bool(hit), f"excerpt={rep[-240:]!r}"))
+        want, got = fx["expected_mode"], roadmap_offer(rep)
+        R.append((f"The report offers the prescribed next step: specwright-roadmap {want}", got == {want},
+                  f"expected {want}, offered {sorted(got)}, excerpt={rep[-240:]!r}"))
         if name == "eval-agent-merge-release-auto":
             R.extend(check_release_published(repo, fx["squash"], st, calls, git_trace(repo) or [], rep, "squash merge commit", after_cleanup=True))
     else:
@@ -755,7 +911,9 @@ def check_finish_release(name, repo, branch, branches, status, rep):
     R.append(("The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)", ok, ev))
     bad = other_changes(cmds)
     R.append(("No git commit, other merge or branch-changing command ran (the git trace)", bool(cmds) and not bad, f"changing={bad}"))
-    ch = changing_gh(calls)
+    ch = gh_writes(calls)
+    if name == "eval-finish-release-auto":  # the one gh release create v0.5.0 this run expects
+        ch = without_one(ch, rf"release create {re.escape(RELEASE_TAG)}(\s|$)")
     R.append(("No gh call created or changed a pull request, issue or comment", not ch, f"changing gh calls={ch}"))
     if name == "eval-finish-release-auto":
         R.extend(check_release_published(repo, fx["main"], st, calls, cmds, rep, "squash merge commit"))
@@ -1410,14 +1568,8 @@ def conflict_left(repo, files):
 
 
 def pr_mutations(repo):
-    """gh calls that create or change a pull request or comment (anything but reads)."""
-    out = []
-    for c in gh_calls(repo):
-        a = c["argv"]
-        method = next((a[i + 1].upper() for i, x in enumerate(a[:-1]) if x in ("-X", "--method")), "GET")
-        if (a[:1] == ["pr"] and a[1:2] != ["view"]) or (a[:1] == ["api"] and method != "GET"):
-            out.append(" ".join(a))
-    return out
+    """gh calls that create or change something on GitHub (anything off the read-only allowlist)."""
+    return gh_writes(gh_calls(repo))
 
 
 def sentences(rep):
