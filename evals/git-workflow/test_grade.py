@@ -208,6 +208,14 @@ class RoadmapOffer(unittest.TestCase):
         self.assertEqual(grade.roadmap_offer("I will not run specwright-roadmap next; should I stop?"), set())
         self.assertEqual(grade.roadmap_offer("specwright-roadmap next doesn't apply. Run specwright-roadmap close for M2?"), {"close"})
 
+    def test_incidental_negation_keeps_the_offer(self):
+        # a negation in another clause of the sentence does not rule the mode out
+        self.assertEqual(grade.roadmap_offer("I didn't create anything; should I run specwright-roadmap close?"), {"close"})
+        self.assertEqual(grade.roadmap_offer("Nothing was not merged: run specwright-roadmap next for M3?"), {"next"})
+        self.assertEqual(grade.roadmap_offer("I didn't tag anything, so shall I run specwright-roadmap close?"), {"close"})
+        # the clause that names the mode rules it out
+        self.assertEqual(grade.roadmap_offer("Should I stop? I will not run specwright-roadmap next; the milestone is done?"), set())
+
     def test_stated_mode_with_question_after_it_is_offered(self):
         rep = "Next step: `specwright-roadmap close` for M2 (run login: eval-bot). Shall I run it?"
         self.assertEqual(grade.roadmap_offer(rep), {"close"})
@@ -431,10 +439,13 @@ class GitAllowlist(unittest.TestCase):
         self.writes("fetch origin main:main", "fetch origin +refs/heads/x:refs/remotes/origin/x", "fetch origin feat/x:refs/heads/main",
                     "fetch origin tag v1",
                     "fetch --tags origin", "fetch -q origin main --tags",
-                    "fetch --force origin main:refs/remotes/origin/main", "fetch -f origin main:refs/remotes/origin/main", "fetch -qf origin", "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin")
+                    "fetch --force origin main:refs/remotes/origin/main", "fetch -f origin main:refs/remotes/origin/main", "fetch -qf origin",
+                    "fetch --set-upstream origin main", "fetch --set-up origin main",  # writes branch.<current>.remote and .merge
+                    "fetch --forc origin main:refs/remotes/origin/main", "fetch --tag origin", "fetch --prune-t origin",  # git takes prefixes
+                    "fetch -t origin", "fetch --prune-tags origin", "fetch -P origin")
 
     def test_reads_stay_reads(self):
-        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "diff-tree",
+        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "fetch --prune origin", "fetch --update-head-ok", "diff-tree",
                    "reflog", "reflog -n 5", "reflog --oneline", "reflog show main", "reflog show", "reflog list",
                    "reflog exists refs/heads/main", "reflog HEAD", "reflog refs/heads/main", "reflog main@{1}",
                    "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",

@@ -175,7 +175,15 @@ def offers(rep, topic):
 MARK = r"[\s*`_]*"  # whitespace or markup: all that may sit between a connector and a coordinated mode
 COORD = re.compile(MARK + r"(?:,[\s*`_]*(?:or|and)\b|\b(?:or|and)\b|[/,])" + MARK + r"(next|close)\b")
 BOUND = (re.compile(r"roadmap[^\w.!?\n]{0,3}?(next|close)\b"), re.compile(r"`(next|close)`"))  # never across a sentence end
-RULED_OUT = re.compile(r"\b(?:not|never|no longer)\b|n't\b")  # a sentence that says a mode does not apply
+RULED_OUT = re.compile(r"\b(?:not|never|no longer)\b|n't\b")  # a clause that says a mode does not apply
+CLAUSE_END = re.compile(r"[;:—]|,\s*(?:so|but|then)\b")  # what separates the clauses of one sentence
+
+
+def clause_at(u, pos):
+    """The clause of sentence `u` that holds position `pos`: the text between the clause separators (CLAUSE_END) around it."""
+    start = max((m.end() for m in CLAUSE_END.finditer(u, 0, pos)), default=0)
+    end = next((m.start() for m in CLAUSE_END.finditer(u, pos)), len(u))
+    return u[start:end]
 
 
 def roadmap_offer(rep):
@@ -183,17 +191,20 @@ def roadmap_offer(rep):
     question (as in offers), and names the roadmap counts. In it a mode counts when it is bound to the command: `specwright-roadmap
     close`, `roadmap: close` (up to three non-word characters between), or a backticked `close`; a mode coordinated with a bound
     one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and a
-    sentence or list item that rules a mode out (not, n't, never, no longer) offers nothing, even one that asks: it explains why the mode
-    does not apply."""
+    mode whose clause rules it out (not, n't, never, no longer) is not offered, even in a sentence that asks: that clause explains
+    why it does not apply. A negation in another clause of the sentence (`I didn't tag anything; run specwright-roadmap close?`)
+    does not count."""
     rep = rep.lower()
-    units = [s for s in sentences(rep) if asks_about(s, "roadmap") and not RULED_OUT.search(s)]
+    units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
     for b in re.split(r"\n\s*\n", rep):
         if "?" in b:  # a question over the stated step or its option list: what they name is offered
-            units += [s for s in sentences(b) if "roadmap" in s and not RULED_OUT.search(s)]
+            units += [s for s in sentences(b) if "roadmap" in s]
     found = set()
     for u in units:
         for rx in BOUND:
             for m in rx.finditer(u):
+                if RULED_OUT.search(clause_at(u, m.start())):
+                    continue
                 found.add(m.group(1))
                 pos = m.end()
                 while True:
@@ -393,6 +404,7 @@ BRANCH_VALUE = {"--format", "--sort"}  # options whose separate argument is a va
 BRANCH_WRITE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u", "--set-upstream-to",
                 "--unset-upstream", "--edit-description", "-t", "--track"}
 # Read-only git (design D2): everything else, including subcommands this table does not know, is a change.
+FETCH_WRITES = ("--force", "--tags", "--prune-tags", "--set-upstream")  # git fetch options that write a local ref or config
 READ_ALWAYS = {"status", "log", "show", "diff", "diff-tree", "diff-index", "diff-files", "rev-parse", "rev-list", "ls-tree", "ls-files",
                "ls-remote", "cat-file", "merge-base", "for-each-ref", "show-ref", "describe", "name-rev", "grep", "blame", "shortlog",
                "cherry", "check-ignore", "check-ref-format", "count-objects", "var", "version", "help",
@@ -416,13 +428,15 @@ def git_read_only(c):
         return True
     if sub in ("gc", "maintenance"):
         return "--auto" in rest and (sub == "gc" or rest[:1] == ["run"])
-    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1), forces with + or
-        # -f/--force (overwrites a local ref), or takes or prunes every tag (--tags/-t writes refs/tags/*, --prune-tags/-P deletes local
-        # tags); a bundle of short options (-qf) counts by its letters
+    if sub == "fetch":  # a refspec that writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or forces with +, or a
+        # FETCH_WRITES option (-f/--force overwrites a local ref, --tags/-t writes refs/tags/*, --prune-tags/-P deletes local tags,
+        # --set-upstream writes branch.<current>.remote and .merge); a bundle of short options (-qf) counts by its letters, and a
+        # long option by any prefix git accepts for it (--forc), except --prune, an option of its own that prunes only refs/remotes/
         refspecs = [a for a in c[1:] if not a.startswith("-")][1:]
         bundled = "".join(a[1:] for a in rest if re.fullmatch(r"-[A-Za-z]{2,}", a))
-        return not any(a.startswith("+") or a in ("--tags", "-t", "--prune-tags", "-P", "--force", "-f") for a in rest) and not set(
-            bundled) & set("ftP") and "tag" not in refspecs and all(
+        longs = [a.split("=", 1)[0] for a in rest if a.startswith("--") and len(a) > 2 and a != "--prune"]
+        return not any(a.startswith("+") or a in ("-t", "-P", "-f") for a in rest) and not set(bundled) & set("ftP") and not any(
+            w.startswith(o) for o in longs for w in FETCH_WRITES) and "tag" not in refspecs and all(
             ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in refspecs)
     if sub == "reflog":
         # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)
