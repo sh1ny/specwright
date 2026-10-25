@@ -34,7 +34,7 @@
 
 ## 1. Roadmap criterion and ADR
 
-- [ ] 1.1 In `openspec/roadmap.md`, replace M4's cheap-tier exit criterion with the exact text in design D5, and update change 6's line (`add-cheap-tier`) to the light implementer, `--until attention` and the Haiku stress run. Verify with `grep -n 'until attention' openspec/roadmap.md` (both lines) and that no line still reads "watch and the LIGHT implementer run on Haiku".
+- [x] 1.1 In `openspec/roadmap.md`, replace M4's cheap-tier exit criterion with the exact text in design D5, and update change 6's line (`add-cheap-tier`) to the light implementer, `--until attention` and the Haiku stress run. Verify with `grep -n 'until attention' openspec/roadmap.md` (both lines) and that no line still reads "watch and the LIGHT implementer run on Haiku".
 - [ ] 1.2 Write `docs/adr/0013-cheap-tier-through-pinned-agents.md` (MADR-short, `Status: accepted`, today's date) per design D6: a cheaper model takes only bounded, re-verified work, through a pinned agent chosen by name; reviews, orchestration, watch and GitHub writes never move down; rejected: a per-dispatch model override. Add its row to `openspec/architecture.md`'s in-force index. Add `specwright-implementer-light` to the component table, `pr-pair.sh tier` and the wake filter to the `specwright-pr` row, and `tiers.py` to the Evals row. Verify with `grep -n 0013 openspec/architecture.md` and `openspec schema validate specwright`.
 
 ## 2. The setting and `pr-pair.sh tier`

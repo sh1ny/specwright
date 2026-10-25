@@ -13,7 +13,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 - `evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update` and `evals/release` pass. (agent)
 - An eval with a hung or oversized `gh` response shows each PR script stopping within its deadline or bound with a named error, and an eval shows a reviewer run stopped once its output passes the bound, with no partial review recorded. (agent)
 - The grader evals show GraphQL mutations and every listed git and `gh` write classified as writes (anything off the read-only allowlist counts as a write), and the agent-merge eval fails a reply that names the next step without offering it. (agent)
-- With the cheap tier configured, watch and the LIGHT implementer run on Haiku, and the stress-tier evals reach the same grade on it as on the default tier; with it unset nothing changes. (agent)
+- With `cheap_tier.enabled: true`, every task group of a LIGHT change goes to `specwright-implementer-light` on Haiku, shown by the dispatch trial in `evals/git-workflow/stress.md`. With it unset, dispatch is unchanged. Watch waits with `--until attention`. The stress-tier evals have been run on Haiku and on the default tier, and every difference `tiers.py` reports is fixed in the skill wording or recorded in `stress.md` as a model limit, with its evidence. (agent)
 - Each change ships as its own release: 0.6.1, 0.7.0, 0.7.1, 0.7.2, 0.7.3 and 0.8.0. (agent)
 
 **Changes** (in order; each about one PR):
@@ -22,7 +22,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 3. `fix-deferral-followups` (0.7.1) - gaps found while shipping the first two M4 changes: #106 the finish step 0 undo of a deferred archive becomes a plan-only script, tested against real repo states (later amendments re-applied, the newest add commit as the target, no uncommitted edit lost); #105 how a parked (DEFERRED) change counts at milestone close; #103 an unreadable merge-base version no longer counts as a release bump. Placed ahead of the cost tier because 0.7.0 already ships the undo text it replaces.
 4. `bound-pr-scripts` (0.7.2) - #40 bounded metadata processing and command deadlines in the PR scripts; #80 reviewer output bounded while the CLI runs; #64 the closing-reference parser reads GitHub's rendered Markdown.
 5. `exact-eval-grader` (0.7.3) - #74 GraphQL operations parsed instead of matched by first token; #76 git and `gh` writes classified by a read-only allowlist; #87 the agent-merge eval checks a real next-step offer, with a roadmap in its fixture.
-6. `add-cheap-tier` (0.8.0) - #22 Haiku as a cheap tier for bounded work (watch, LIGHT implementer, eval stress tier), evals first. Leans on the exact grader from change 5.
+6. `add-cheap-tier` (0.8.0) - #22 a cheap tier for bounded work: a `specwright-implementer-light` agent on Haiku for LIGHT changes when `cheap_tier.enabled` is set; watch waits with `--until attention`, a deterministic filter that skips wakes that are only check progress; and an eval stress tier run on Haiku as a wording test, compared by `tiers.py`. Leans on the exact grader from change 5.
 
 ## Next: M5 - Commits and VCS backends
 
