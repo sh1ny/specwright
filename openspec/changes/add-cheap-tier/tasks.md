@@ -41,7 +41,7 @@
 
 - [x] 2.1 Write the failing `TestTier` tests in `evals/pr-pair/test_pr_pair.py`: unset off; `false`/`no` off; `true`/`yes` on; `on` off with a note naming `on`; `cheap_tier: true` (not a map) off with the not-a-map note; the inline form `cheap_tier: { enabled: on }` off with a note (the parsed value when the text is not kept, design S10); `merge: agent` with `merge_method: fast` still exits 0 with the tier as set. Run `python -m unittest evals.pr-pair.test_pr_pair -k TestTier` (or the discover form) and confirm they fail because `tier` is an unknown subcommand.
 - [x] 2.2 Implement `pr-pair.sh tier --code <toplevel>` per design D2 (reuse `load_settings` and `setting_text`; validate nothing else; `{"ok": true, "cheap_tier": bool}` plus `note`). Add it to the script's usage header. Verify `TestTier` passes and flip its rows green.
-- [ ] 2.3 Add `cheap_tier: { enabled: false }` with a comment to `templates/openspec/specwright.yaml` and to this repo's `openspec/specwright.yaml` (stays `false`). Document the setting in the README settings block and the `pr-pair.sh` row of the scripts table. Verify with `python -m unittest discover evals/pr-pair` (template and settings tests) and `grep -n cheap_tier README.md templates/openspec/specwright.yaml`.
+- [x] 2.3 Add `cheap_tier: { enabled: false }` with a comment to `templates/openspec/specwright.yaml` and to this repo's `openspec/specwright.yaml` (stays `false`). Document the setting in the README settings block and the `pr-pair.sh` row of the scripts table. Verify with `python -m unittest discover evals/pr-pair` (template and settings tests) and `grep -n cheap_tier README.md templates/openspec/specwright.yaml`.
 
 ## 3. The light implementer and its dispatch
 
