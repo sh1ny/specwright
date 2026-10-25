@@ -499,7 +499,18 @@ apply:
     re-run the group's tests yourself, then tick tasks, flip test map rows
     and commit task by task (the commit rules say how to split a group). A
     DRIFT or BLOCKED report stops the group (see drift rule).
-    Small groups (one or two trivial edits) you may implement directly.
+    Once per apply run, read the cheap tier: `bash <specwright-pr>/scripts/pr-pair.sh
+    tier --code <code toplevel>` (`<specwright-pr>` is the specwright-pr
+    skill's folder). It prints `{"ok": true, "cheap_tier": <bool>}` and
+    maybe a `note`; repeat a note once. A failed call, or output with no
+    `cheap_tier` field, means the tier is off: say once that the setting
+    could not be read. With the tier on and `TIER: LIGHT` in the change's
+    `design.md`, dispatch every group to `specwright-implementer-light`
+    instead, small groups included, with no inline exception; the packet,
+    your verification and the commits stay the same. If that agent is not
+    available, use `specwright-implementer` and say so once. With the tier
+    off, or for a FULL change, keep `specwright-implementer` and this rule:
+    small groups (one or two trivial edits) you may implement directly.
 
     - Write each new or changed behavior's failing test first and confirm it
       fails for the right reason; then implement; then flip its test map row

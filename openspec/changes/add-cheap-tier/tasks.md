@@ -5,16 +5,16 @@
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | cost-tiers → The cheap tier is off unless enabled | Unset leaves dispatch unchanged | evals/pr-pair/test_pr_pair.py | TestTier.test_unset_is_off | green |
-| cost-tiers → The cheap tier is off unless enabled | Unset leaves dispatch unchanged (dispatch text) | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_tier_off_keeps_implementer | red |
+| cost-tiers → The cheap tier is off unless enabled | Unset leaves dispatch unchanged (dispatch text) | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_tier_off_keeps_implementer | green |
 | cost-tiers → The cheap tier is off unless enabled | An unrecognised value is off and reported | evals/pr-pair/test_pr_pair.py | TestTier.test_unrecognised_value_is_off_with_note | green |
 | cost-tiers → The cheap tier is off unless enabled | The section is not a map | evals/pr-pair/test_pr_pair.py | TestTier.test_non_map_section_is_off_with_note | green |
 | cost-tiers → The cheap tier is off unless enabled | Another setting is invalid | evals/pr-pair/test_pr_pair.py | TestTier.test_bad_merge_settings_do_not_affect_tier | green |
-| cost-tiers → The cheap tier is off unless enabled | The setting cannot be read | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_unreadable_tier_is_off | red |
-| cost-tiers → The light implementer is a pinned copy of the implementer | Light implementer matches the implementer | evals/git-workflow/test_instructions.py | TestCheapTier.test_light_implementer_matches_implementer | red |
-| cost-tiers → The light implementer is a pinned copy of the implementer | The instructions drift apart | evals/git-workflow/test_instructions.py | TestCheapTier.test_light_implementer_drift_names_both_files | red |
-| cost-tiers → A LIGHT change's groups go to the cheap implementer | LIGHT change with the tier on | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_light_tier_on_uses_light_implementer | red |
-| cost-tiers → A LIGHT change's groups go to the cheap implementer | FULL change with the tier on | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_full_keeps_implementer | red |
-| cost-tiers → A LIGHT change's groups go to the cheap implementer | Light implementer not installed | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_light_missing_falls_back | red |
+| cost-tiers → The cheap tier is off unless enabled | The setting cannot be read | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_unreadable_tier_is_off | green |
+| cost-tiers → The light implementer is a pinned copy of the implementer | Light implementer matches the implementer | evals/git-workflow/test_instructions.py | TestCheapTier.test_light_implementer_matches_implementer | green |
+| cost-tiers → The light implementer is a pinned copy of the implementer | The instructions drift apart | evals/git-workflow/test_instructions.py | TestCheapTier.test_light_implementer_drift_names_both_files | green |
+| cost-tiers → A LIGHT change's groups go to the cheap implementer | LIGHT change with the tier on | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_light_tier_on_uses_light_implementer | green |
+| cost-tiers → A LIGHT change's groups go to the cheap implementer | FULL change with the tier on | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_full_keeps_implementer | green |
+| cost-tiers → A LIGHT change's groups go to the cheap implementer | Light implementer not installed | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_light_missing_falls_back | green |
 | cost-tiers → Reviews and orchestration never move to the cheap tier | Design review with the tier on | evals/review-routes/test_skill_text.py | test_cheap_tier_never_reaches_review_routes | red |
 | cost-tiers → Reviews and orchestration never move to the cheap tier | A LIGHT change's pre-ship review | evals/review-routes/test_skill_text.py | test_preship_never_uses_light_implementer | red |
 | pr-watch → A wait can skip wakes that are only check progress | A check passes while others run | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_check_progress_is_filtered | red |
@@ -56,7 +56,7 @@
     - treats a failed or field-less `tier` call as off, with a note.
   
   Run them and confirm each fails because the files or text are missing.
-- [ ] 3.2 Create `agents/claude/specwright-implementer-light.md` and `agents/omp/specwright-implementer-light.md` (copies of the implementer bodies and `tools:` lines, with their own name, description and model). Edit the DELEGATION paragraph in `schemas/specwright/schema.yaml` as the tests expect. Verify `TestCheapTier` passes and `openspec schema validate specwright` exits 0. Flip the rows green.
+- [x] 3.2 Create `agents/claude/specwright-implementer-light.md` and `agents/omp/specwright-implementer-light.md` (copies of the implementer bodies and `tools:` lines, with their own name, description and model). Edit the DELEGATION paragraph in `schemas/specwright/schema.yaml` as the tests expect. Verify `TestCheapTier` passes and `openspec schema validate specwright` exits 0. Flip the rows green.
 - [ ] 3.3 Write failing `test_cheap_tier_never_reaches_review_routes` and `test_preship_never_uses_light_implementer` in `evals/review-routes/test_skill_text.py`. They check that `review-run.sh`, `skills/specwright-review/SKILL.md` and both `specwright-reviewer.md` files never mention `cheap_tier` or `specwright-implementer-light`, and that the reviewer models are unchanged (`inherit`, `pi/slow`). Confirm they fail only if a mention exists. If they pass at once because nothing mentions it, record that the test is a guard, and keep it. Verify with `python -m unittest discover evals/review-routes` and flip both rows green.
 - [ ] 3.4 Update the README agents table (the light implementer row with `haiku` / `pi/smol`, plus the OMP note from design D1), the Apply row and the delegated-agents check paragraph. Note in CONTRIBUTING that an implementer body edit is copied to its light twin in the same change. Verify with `grep -n implementer-light README.md CONTRIBUTING.md`.
 
