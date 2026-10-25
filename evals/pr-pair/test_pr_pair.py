@@ -3623,5 +3623,62 @@ class Bounded(PassBase):
         self.assertTrue(self.wait_gone(int((self.tmp / "put.pid").read_text())))
 
 
+class TestTier(Base):
+    """tier: the cheap-tier switch is true only for a parsed boolean true; nothing else in the settings matters (add-cheap-tier D2)."""
+
+    def setUp(self):
+        super().setUp()
+        self.code = self.make_repo("code", f"https://github.com/{CODE}.git")
+
+    def tier(self, text=None):
+        if text is not None:
+            self.write("code/openspec/specwright.yaml", text)
+        return self.pp("tier", "--code", self.code)
+
+    def test_unset_is_off(self):
+        for text in (None, "finish: pr\n", "cheap_tier:\n  other: 1\n", "cheap_tier:\n  enabled:\n"):
+            r = self.tier(text)
+            self.assertEqual((r["ok"], r["cheap_tier"]), (True, False), text)
+            self.assertNotIn("note", r, text)
+
+    def test_false_and_no_are_off(self):
+        for v in ("false", "no", "False", "NO"):
+            r = self.tier(f"cheap_tier:\n  enabled: {v}\n")
+            self.assertEqual((r["ok"], r["cheap_tier"]), (True, False), v)
+            self.assertNotIn("note", r, v)
+
+    def test_true_and_yes_are_on(self):
+        for v in ("true", "yes", "True"):
+            r = self.tier(f"cheap_tier:\n  enabled: {v}\n")
+            self.assertEqual((r["ok"], r["cheap_tier"]), (True, True), v)
+            self.assertNotIn("note", r, v)
+
+    def test_unrecognised_value_is_off_with_note(self):
+        r = self.tier("cheap_tier:\n  enabled: on\n")
+        self.assertEqual((r["ok"], r["cheap_tier"]), (True, False))
+        self.assertIn("cheap_tier.enabled: on is not true or false; treated as false", r["note"])
+        for v in ('"true"', "1"):
+            r = self.tier(f"cheap_tier:\n  enabled: {v}\n")
+            self.assertEqual(r["cheap_tier"], False, v)
+            self.assertIn(v, r["note"])
+
+    def test_non_map_section_is_off_with_note(self):
+        r = self.tier("cheap_tier: true\n")
+        self.assertEqual((r["ok"], r["cheap_tier"]), (True, False))
+        self.assertIn("cheap_tier must hold enabled: true|false; treated as false", r["note"])
+
+    def test_inline_form_unrecognised_value_is_off_with_note(self):
+        r = self.tier("cheap_tier: { enabled: on }\n")
+        self.assertEqual((r["ok"], r["cheap_tier"]), (True, False))
+        self.assertIn("on", r["note"])
+        self.assertIn("cheap_tier.enabled", r["note"])
+        self.assertEqual(self.tier("cheap_tier: { enabled: true }\n")["cheap_tier"], True)
+
+    def test_bad_merge_settings_do_not_affect_tier(self):
+        r = self.tier("pr:\n  merge: agent\n  merge_method: fast\ncheap_tier:\n  enabled: true\n")
+        self.assertEqual((r["ok"], r["cheap_tier"], r["_rc"]), (True, True, 0))
+        self.assertEqual(self.pp("context", "--code", self.code, expect=2)["error"], "bad_setting")
+
+
 if __name__ == "__main__":
     unittest.main()
