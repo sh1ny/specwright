@@ -8,6 +8,9 @@
 #   context --code <dir> [--store <dir>]
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
 #                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
+#   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
+#                                     is false, with a "note" when the value or the section is not true/false/a map). Reads no other
+#                                     setting, so a bad pr.merge_method cannot change it; exit 0 for any readable settings file
 #   merge --repo o/n --pr N --method merge|squash|rebase --head sha
 #                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
 #                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
@@ -725,6 +728,24 @@ def cmd_context(argv):
             except Stop:
                 c[k]["repo"] = None
     return {"ok": True, **c}
+
+
+def cmd_tier(argv):
+    a, _ = parse_args(argv, {"--code": "code"})
+    need(a, "code")
+    section = load_settings(a["code"]).get("cheap_tier")
+    out = {"ok": True, "cheap_tier": False}
+    if section is None:
+        return out
+    if not isinstance(section, dict):
+        out["note"] = "cheap_tier must hold enabled: true|false; treated as false"
+        return out
+    v = section.get("enabled")
+    if v is True:
+        out["cheap_tier"] = True
+    elif v is not False and v is not None:
+        out["note"] = f"cheap_tier.enabled: {setting_text(section, 'enabled')} is not true or false; treated as false"
+    return out
 
 
 def cmd_discover(argv):
@@ -2105,7 +2126,7 @@ def cmd_item_issues(argv):
     return {"ok": True, "found": found, "missing": [i for i in items if i not in found]}
 
 
-COMMANDS = {"identity": cmd_identity, "context": cmd_context, "discover": cmd_discover, "expected": cmd_expected,
+COMMANDS = {"identity": cmd_identity, "context": cmd_context, "tier": cmd_tier, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
             "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,
