@@ -45,7 +45,7 @@
 
 ## 3. The light implementer and its dispatch
 
-- [ ] 3.1 Write the failing `TestCheapTier` tests in `evals/git-workflow/test_instructions.py`:
+- [x] 3.1 Write the failing `TestCheapTier` tests in `evals/git-workflow/test_instructions.py`:
   - for each harness, `specwright-implementer-light.md` has the same body after the frontmatter and the same `tools:` line as `specwright-implementer.md`, and `model: haiku` (Claude Code) or `model: pi/smol` (OMP);
   - a drift helper fails and names both files when the bodies differ, tested on a temp copy;
   - the apply DELEGATION text in `schemas/specwright/schema.yaml`:
