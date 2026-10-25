@@ -979,7 +979,7 @@
         "specwright-roadmap"
       ],
       "prompt": "Watch the pull request for add-greeting (#7). CI and the required review finished earlier and nothing has changed since, so the first snapshot already shows it ready: do not wait for more activity. Carry on as watch says from there.",
-      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh, pr.merge agent with merge_method squash and a required reviewer that already reported on the head. The change is archived on feat/add-greeting and PR #7 is ready, so watch merges it: reads the settings, sends exactly one merge request with squash and the ready head, and sees the read-back say MERGED. Cleanup follows: checks out main and pulls it fast-forward (the squash commit arrives), deletes the local branch after branch-check, deletes the remote branch feat/add-greeting at the merged head, and offers specwright-roadmap next or close.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh, pr.merge agent with merge_method squash and a required reviewer that already reported on the head. The change is archived on feat/add-greeting and PR #7 is ready, so watch merges it: reads the settings, sends exactly one merge request with squash and the ready head, and sees the read-back say MERGED. Cleanup follows: checks out main and pulls it fast-forward (the squash commit arrives), deletes the local branch after branch-check, deletes the remote branch feat/add-greeting at the merged head, and offers specwright-roadmap close, because the roadmap's Now milestone lists only the merged change.",
       "assertions": [
         "Exactly one merge request was sent, with squash and the ready head",
         "PR #7 is MERGED in the fake gh",
@@ -988,7 +988,7 @@
         "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
         "The remote branch was deleted after the merge, not before",
         "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)",
-        "The report offers the next step: specwright-roadmap next or close",
+        "The report offers the prescribed next step: specwright-roadmap close",
         "No commit was amended"
       ]
     },
@@ -1170,7 +1170,7 @@
         "specwright-roadmap"
       ],
       "prompt": "Watch the pull request for add-greeting (#7). CI and the required review finished earlier and nothing has changed since, so the first snapshot already shows it ready: do not wait for more activity. Carry on as watch says from there.",
-      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh, pr.merge agent with merge_method squash and a required reviewer that already reported on the head; release.enabled true and release.auto true, a roadmap. The change is archived on feat/add-greeting and bumps VERSION from 0.4.0 to 0.5.0. Watch merges PR #7 with squash and the ready head and runs the cleanup (checkout main, pull --ff-only, delete the local branch, delete the remote branch). Only then does the release step read untagged (0.5.0) and publish without asking: annotated tag v0.5.0 on the squash commit pushed to origin as refs/tags/v0.5.0 only, one gh release create v0.5.0 --verify-tag with the tag's message as notes. The roadmap offer follows.",
+      "expected_output": "Repo-local, finish: pr as eval-bot, fake gh, pr.merge agent with merge_method squash and a required reviewer that already reported on the head; release.enabled true and release.auto true, a roadmap. The change is archived on feat/add-greeting and bumps VERSION from 0.4.0 to 0.5.0. Watch merges PR #7 with squash and the ready head and runs the cleanup (checkout main, pull --ff-only, delete the local branch, delete the remote branch). Only then does the release step read untagged (0.5.0) and publish without asking: annotated tag v0.5.0 on the squash commit pushed to origin as refs/tags/v0.5.0 only, one gh release create v0.5.0 --verify-tag with the tag's message as notes. The roadmap offer follows: specwright-roadmap next, because the Now milestone still lists add-shout.",
       "assertions": [
         "Exactly one merge request was sent, with squash and the ready head",
         "PR #7 is MERGED in the fake gh",
@@ -1179,7 +1179,7 @@
         "The remote branch was deleted: one ref DELETE for feat/add-greeting, and the fake gh no longer has it",
         "The remote branch was deleted after the merge, not before",
         "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)",
-        "The report offers the next step: specwright-roadmap next or close",
+        "The report offers the prescribed next step: specwright-roadmap next",
         "An annotated tag v0.5.0 on the squash merge commit exists locally and on origin, and it is the only tag in either",
         "Exactly one gh release create v0.5.0 was made, with --verify-tag",
         "The fake gh holds the release, and its body equals the tag's message",

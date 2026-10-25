@@ -1187,7 +1187,9 @@ def build_watch_merge(repo, agent, release=None):
     logged the merge of PR #7. The fake gh knows the branch feat/add-greeting at the tip, so the remote ref can be read and deleted.
     The run's helper files live in the repo directory, hidden through .git/info/exclude (eval.env, bin/, gh-state.json, gh-log.jsonl,
     git-trace.log, ob.git). .git/fixture-state.json records main's tip, the branch tip and its tree.
-    `release` (eval-agent-merge-release-auto): the `release:` settings block and the roadmap setting and file are added, main holds a
+    `agent` variants also get the roadmap setting and file: the Now milestone lists add-greeting alone (expected_mode close in
+    fixture-state.json), or with release also add-shout (expected_mode next).
+    `release` (eval-agent-merge-release-auto): the `release:` settings block is added, main holds a
     VERSION file reading 0.4.0, and the branch bumps it to 0.5.0 (commit `feat(add-greeting): bump version to 0.5.0`), so the squash
     commit on origin's main reads 0.5.0. The shim (release_shim, gated on the merge) also reads and writes the bare origin for
     `ls-remote` and `push`, so a tag push is observable in ob.git."""
@@ -1195,13 +1197,14 @@ def build_watch_merge(repo, agent, release=None):
     merging = "  merge: agent\n  merge_method: squash\n" if agent else ""
     write(repo, "openspec/specwright.yaml",
           f"finish: pr\ngithub:\n  login: eval-bot\npr:\n  poll_interval: 5s\n{merging}  reviewers:\n    {WATCH_REVIEWER}: {{ role: required }}\n"
-          + (release + ROADMAP_SETTINGS if release is not None else ""))
+          + ((release or "") + ROADMAP_SETTINGS if agent else ""))
     if release is not None:
         write(repo, "VERSION", "0.4.0\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "chore: pr settings")
-    if release is not None:
-        roadmap_file(repo, [("add-greeting", "greet and farewell"), ("add-shout", "shout")])
+    changes = [("add-greeting", "greet and farewell")] + ([("add-shout", "shout")] if release is not None else [])
+    if agent:
+        roadmap_file(repo, changes)
     finished(repo, repo)
     if release is not None:
         write(repo, "VERSION", f"{RELEASE_VERSION}\n")
@@ -1246,7 +1249,8 @@ def build_watch_merge(repo, agent, release=None):
     fake_gh.add_review(st, PR_SLUG, 7, WATCH_REVIEWER, f"**Reviewed commit:** `{tip}`\n\nNo issues found.", state="APPROVED", at="2026-10-10T09:30:00Z")
     write(dest, "gh-state.json", json.dumps(st, indent=2))
     write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n")
-    write(repo, ".git/fixture-state.json", json.dumps({"main": main, "tip": tip, "tree": tree, "squash": squash}, indent=2))
+    write(repo, ".git/fixture-state.json", json.dumps({"main": main, "tip": tip, "tree": tree, "squash": squash,
+                                                       **({"expected_mode": "next" if len(changes) > 1 else "close"} if agent else {})}, indent=2))
 
 
 def build_finish_local_release(repo):

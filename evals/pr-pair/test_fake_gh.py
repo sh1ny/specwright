@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 GH = HERE.parent / "fakes" / "gh.py"
 sys.path.insert(0, str(HERE.parent / "git-workflow"))
 import fixtures  # noqa: E402
+import grade  # noqa: E402  the grader's changing_gh classification
 
 _spec = importlib.util.spec_from_file_location("fake_gh", GH)
 fake_gh = importlib.util.module_from_spec(_spec)
@@ -686,6 +687,85 @@ class PrEvidence(FakeGhCase):
         for argv, code in ((("api", "-i", "rate_limit"), 7), (("api", "graphql", "-f", "query=" + self.SNAP_Q), 8),
                            (("api", "--method", "POST", "repos/o/n/pulls/7/comments/1/replies", "-f", "body=x"), 9)):
             self.assertEqual(self.gh(*argv, check=False).returncode, code)
+
+
+class GraphqlWriteDispatch(PrEvidence):
+    """The fake applies a GraphQL write only when a mutation selects it at the top level, as the grader's classification does."""
+
+    def calls(self):
+        return [json.loads(l) for l in self.logf.read_text(encoding="utf-8").splitlines()]
+
+    def test_real_mutation_applies_and_grades_as_write(self):
+        self.gql(self.RESOLVE, ("threadId", self.t["id"]))
+        self.assertTrue(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+        self.assertEqual(len(grade.changing_gh(self.calls())), 1)
+
+    def test_mention_in_read_changes_nothing(self):
+        before = self.st()
+        for q in ("query { viewer { login } } # resolveReviewThread addReaction",
+                  'query { repository(owner:"resolveReviewThread", name:"addReaction") { id } }'):
+            self.gql(q, ("threadId", self.t["id"]), ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"), check=False)
+            self.assertEqual(self.st(), before, q)
+        self.assertFalse(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+        self.assertEqual(grade.changing_gh(self.calls()), [])
+
+    def test_unknown_mutation_field_fails_unchanged(self):
+        before = self.state.read_bytes()
+        r = self.gql("mutation { deleteEverything(input:{}) { clientMutationId } }", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Field 'deleteEverything' doesn't exist on type 'Mutation'", r.stderr)
+        # a known and an unknown field together: the known one must not apply either
+        both = "mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } nope(input:{}){ id } }"
+        r = self.gql(both, ("threadId", self.t["id"]), check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Field 'nope' doesn't exist on type 'Mutation'", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
+    def test_unparseable_document_fails_unchanged(self):
+        before = self.state.read_bytes()
+        r = self.gql("mutation { resolveReviewThread(input:{threadId:", ("threadId", self.t["id"]), check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.state.read_bytes(), before)
+
+    def test_mutation_through_a_fragment_spread_fails_unchanged(self):
+        # the fake cannot expand `...F` on Mutation: an error, never an empty success that applied nothing
+        before = self.state.read_bytes()
+        doc = "fragment F on Mutation { resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } } mutation($threadId:ID!){ ...F }"
+        r = self.gql(doc, ("threadId", self.t["id"]), check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("GraphQL:", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
+    RESOLVE_OP = "mutation M($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id isResolved } } }"
+    REACT_OP = ("mutation R($subjectId:ID!,$content:ReactionContent!){ addReaction(input:{subjectId:$subjectId,content:$content})"
+                "{ reaction{ content } } }")
+
+    def test_operation_name_selects_the_operation(self):
+        # GitHub runs only the operation operationName names: a query beside it is not rejected, another mutation is not applied
+        r = self.gql("query Q { viewer { login } } " + self.RESOLVE_OP, ("threadId", self.t["id"]), ("operationName", "M"))
+        self.assertEqual(json.loads(r.stdout)["data"], {"resolveReviewThread": {"thread": {"id": self.t["id"], "isResolved": True}}})
+        self.assertTrue(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+        self.gql(self.RESOLVE_OP + " " + self.REACT_OP, ("threadId", "nope"), ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"),
+                 ("operationName", "R"))
+        self.assertEqual([x["content"] for x in self.st()["nodes"][self.ic["node_id"]]["reactions"]], ["THUMBS_UP"])
+
+    def test_several_operations_need_a_known_name(self):
+        before = self.state.read_bytes()
+        doc = self.RESOLVE_OP + " " + self.REACT_OP
+        fields = (("threadId", self.t["id"]), ("subjectId", self.ic["node_id"]), ("content", "THUMBS_UP"))
+        r = self.gql(doc, *fields, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Must provide operation name if query contains multiple operations", r.stderr)
+        for name, d in (("X", doc), ("X", self.RESOLVE_OP)):
+            r = self.gql(d, *fields, ("operationName", name), check=False)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("Unknown operation named 'X'", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+
+
+# the class reuses PrEvidence's seeded PR but must not rerun its tests
+for _name in [n for n in dir(PrEvidence) if n.startswith("test_") and n not in GraphqlWriteDispatch.__dict__]:
+    setattr(GraphqlWriteDispatch, _name, None)
 
 
 class Releases(FakeGhCase):

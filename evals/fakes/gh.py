@@ -56,7 +56,7 @@ add_node_reaction, set_closing_refs, set_default_branch, which take and mutate t
   repos[slug]["issues"] = {"<n>": {"state": "OPEN" | "CLOSED", "timeline": ["CLOSED", "REOPENED", ...]}}  (set_issue)
   st["graphql_page_size"] = N  (optional; caps the reactions page size below the query's `first`)
 
-Accepted calls (anything else under `api graphql` exits 2):
+Accepted calls (any other query-only document under `api graphql` exits 2; mutations are listed below):
   REST  `api [--paginate] repos/<o>/<n>/pulls/comments/<id>/reactions[?content=%2B1|-1&per_page=N]`
         -> JSON array of {user:{login}, content}; pages of 30 (per_page up to 100), like the other REST lists.
   GQL a `api graphql -f query='...' -f id=<node id> [-f cursor=<endCursor>]` where the query text contains
@@ -121,6 +121,10 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   CLI   pr comment <pr> --body-file F|-   a PR comment stamped with the clock and the viewer (listed by the snapshot).
   GQL mutations  `resolveReviewThread(input:{threadId:$threadId})` -> {"data":{"resolveReviewThread":{"thread":{id,isResolved}}}};
         `addReaction(input:{subjectId:$subjectId,content:$content})` -> {"data":{"addReaction":{"reaction":{"content"}}}}.
+        Applied only when a mutation operation selects the field at its top level (gqlops.operations, as the grader reads it);
+        a comment or string that names one writes nothing. Only the operation GitHub executes counts: the one `-f operationName=`
+        names, else the document's only one. An unparseable document, several operations without a name, an unknown operation
+        name, a subscription or an unknown mutation field exits 1 with a GraphQL error and leaves the state unsaved.
   Each write records the clock's time and the viewer (reactions as "createdAt"/"login").
   A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
   A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
@@ -135,6 +139,9 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling modules, however gh.py is loaded
+import gqlops  # noqa: E402  reads the operations of a GraphQL document
 
 HOST = "https://github.com"
 ENV_LOGGED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
@@ -657,28 +664,62 @@ def snapshot_data(st, slug, repo, p, viewer):
     return {"data": {"viewer": {"login": viewer}, "repository": {"pullRequest": pr}}}
 
 
+def _resolve_thread(st, fields):
+    viewer = whoami(st)
+    found = find_item(st, fields.get("threadId", ""))
+    if not found or found[2] != "thread" or not _readable(st, found[0], viewer):
+        raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{fields.get('threadId', '')}'. (resolveReviewThread)")
+    found[3]["isResolved"] = True
+    found[3]["resolvedBy"], found[3]["resolvedAt"] = viewer, now(st)
+    return {"resolveReviewThread": {"thread": {"id": found[3]["id"], "isResolved": True}}}
+
+
+def _add_reaction(st, fields):
+    viewer = whoami(st)
+    sid, content = fields.get("subjectId", ""), fields.get("content", "")
+    found = find_item(st, sid)
+    if not found or not _readable(st, found[0], viewer):
+        raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{sid}'. (addReaction)")
+    if content not in ("THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"):
+        raise Fail(f"GraphQL: Variable $content of type ReactionContent! was provided invalid value ({content})")
+    react_once(st, found[0], sid, viewer, content)
+    if found[2] == "review_comment":  # REST reads the same reaction
+        rest_react_once(st, found[0], found[3]["databaseId"], viewer, REST_CONTENT[content])
+    return {"addReaction": {"reaction": {"content": content}}}
+
+
+MUTATIONS = {"resolveReviewThread": _resolve_thread, "addReaction": _add_reaction}
+
+
 def cmd_graphql_evidence(st, q, fields):
-    """The PR-evidence queries and mutations; None when `q` is not one of them."""
-    if "resolveReviewThread" in q:
-        viewer = whoami(st)
-        found = find_item(st, fields.get("threadId", ""))
-        if not found or found[2] != "thread" or not _readable(st, found[0], viewer):
-            raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{fields.get('threadId', '')}'. (resolveReviewThread)")
-        found[3]["isResolved"] = True
-        found[3]["resolvedBy"], found[3]["resolvedAt"] = viewer, now(st)
-        return {"data": {"resolveReviewThread": {"thread": {"id": found[3]["id"], "isResolved": True}}}}
-    if "addReaction" in q:
-        viewer = whoami(st)
-        sid, content = fields.get("subjectId", ""), fields.get("content", "")
-        found = find_item(st, sid)
-        if not found or not _readable(st, found[0], viewer):
-            raise Fail(f"GraphQL: Could not resolve to a node with the global id of '{sid}'. (addReaction)")
-        if content not in ("THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"):
-            raise Fail(f"GraphQL: Variable $content of type ReactionContent! was provided invalid value ({content})")
-        react_once(st, found[0], sid, viewer, content)
-        if found[2] == "review_comment":  # REST reads the same reaction
-            rest_react_once(st, found[0], found[3]["databaseId"], viewer, REST_CONTENT[content])
-        return {"data": {"addReaction": {"reaction": {"content": content}}}}
+    """The PR-evidence queries and mutations; None when `q` is not one of them. Only the operation GitHub would execute is
+    dispatched: the one `operationName` names, or the document's only operation (several without a name, or an unknown name, fail).
+    A write is a mutation operation's top-level field, dispatched by exact name, as the grader classifies it; text in a comment
+    or string never writes. A failing field leaves the state unsaved (main saves only when no Fail is raised)."""
+    ops = gqlops.named_operations(q)
+    if ops is None:
+        raise Fail("GraphQL: Parse error: the query document cannot be read")
+    # only the operation to execute counts, as on GitHub: the one operationName names, else the document's only operation
+    name = fields.get("operationName")
+    if name is not None:
+        ops = [op for op in ops if op[1] == name]
+        if not ops:
+            raise Fail(f"GraphQL: Unknown operation named '{name}'.")
+    elif len(ops) > 1:
+        raise Fail("GraphQL: Must provide operation name if query contains multiple operations.")
+    ops = [(kind, top) for kind, _, top in ops]
+    if any(kind != "query" for kind, _ in ops):
+        data = {}
+        for kind, top in ops:
+            if kind != "mutation":
+                raise Fail(f"GraphQL: {kind} operations are not supported")
+            if not top:  # fields only through a fragment spread, which the fake does not expand: an error, not an empty success
+                raise Fail("GraphQL: the mutation selects no field the fake supports (fragment spreads on Mutation are not expanded)")
+            for name in top:
+                if name not in MUTATIONS:
+                    raise Fail(f"GraphQL: Field '{name}' doesn't exist on type 'Mutation'")
+                data.update(MUTATIONS[name](st, fields))
+        return {"data": data}
     if "reviewThreads(" in q:
         slug, repo, p, viewer = read_pull(st, fields)
         return snapshot_data(st, slug, repo, p, viewer)
