@@ -104,7 +104,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 ## 9. pr-pair closing lists (#115)
 
-- [ ] 9.1 Write `test_code_span_after_keyword_ends_list`, `test_code_span_after_midline_keyword_ends_list`, `test_code_span_after_list_ends_it` and `test_plain_closing_line` in `ClosingRendered` (string-literal bodies), and record their GitHub renderings with `python evals/pr-pair/record_markdown.py` (fenced as `KintsugiBot` through `as.sh`). Verify: `ClosingRecordings.test_every_closing_body_has_a_recording` passes, and the three red tests fail (31, 33 and 35 are intended).
+- [x] 9.1 Write `test_code_span_after_keyword_ends_list`, `test_code_span_after_midline_keyword_ends_list`, `test_code_span_after_list_ends_it` and `test_plain_closing_line` in `ClosingRendered` (string-literal bodies), and record their GitHub renderings with `python evals/pr-pair/record_markdown.py` (fenced as `KintsugiBot` through `as.sh`). Verify: `ClosingRecordings.test_every_closing_body_has_a_recording` passes, and the three red tests fail (31, 33 and 35 are intended).
 - [ ] 9.2 Make `RenderedLines` (`pr-pair.sh:853-889`) emit U+FFFC for a code or `pre` span instead of a space, and update its docstring and `intended_issues()`'s. Verify: the four tests and all `ClosingCheck`, `ClosedCheck`, `ClosingRendered` and `ClosingRecordings` tests pass; flip the rows green.
 
 ## 10. Integration and release

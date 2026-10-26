@@ -3139,6 +3139,19 @@ class ClosingRendered(Base):
     def test_soft_break_ends_closing_list(self):
         self.assertEqual(self.intended("Fixes #21\n#22 is unrelated\n"), [f"{CODE}#21"])
 
+    def test_code_span_after_keyword_ends_list(self):
+        # a code span between the keyword and the reference ends the list: #31 is not intended
+        self.assertEqual(self.intended("Fixes `later` #31\n"), [])
+
+    def test_code_span_after_midline_keyword_ends_list(self):
+        self.assertEqual(self.intended("Notes, then fixes `x` #33\n"), [])
+
+    def test_code_span_after_list_ends_it(self):
+        self.assertEqual(self.intended("Fixes #34 `see log` #35\n"), [f"{CODE}#34"])
+
+    def test_plain_closing_line(self):
+        self.assertEqual(self.intended("Fixes #36\n"), [f"{CODE}#36"])
+
     def test_issue_url_counts(self):
         self.assertEqual(self.intended("Fixes https://github.com/acme/widget/issues/21\n", self.WIDGET), [f"{self.WIDGET}#21"])
 
