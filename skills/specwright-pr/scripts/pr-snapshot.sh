@@ -6,7 +6,7 @@
 #
 # Usage: bash pr-snapshot.sh [PR-number|PR-url] [--repo owner/name] [--logs]
 #                            [--reviewer LOGIN:ROLE:SECONDS]...
-#                            [--wait [--timeout SECONDS] [--interval SECONDS]]
+#                            [--wait [--timeout SECONDS] [--interval SECONDS] [--until attention]]
 #        bash pr-snapshot.sh --full NODE_ID [--repo owner/name]
 #   (no PR)   the PR for the current branch
 #   --reviewer  report whether LOGIN (required|advisory, timeout in seconds)
@@ -36,6 +36,16 @@
 #             watcher's exit never ends a newer watcher's ownership. If the
 #             state directory cannot be created, it polls unowned and says so
 #             on stderr.
+#   --until attention  (with --wait only; "quiet" or any other mode exits 2 before any gh
+#             call) keep waiting while a poll differs from the first good snapshot only
+#             in checks or merge state, a check is still pending, no check fails that
+#             was not failing in that snapshot, and the merge state is not DIRTY. Any
+#             other difference wakes "changed". Skipped polls add no polls and no gh
+#             calls; the wake JSON counts them as "filtered" (always present with
+#             --wait, 0 without --until). A "timeout" wake still means nothing else
+#             changed, filtered polls included. The snapshot's "attn" is "sig" without
+#             the checks and merge state; "fail_names" are the failing checks' names,
+#             base64 each.
 # "head_cutoff": {source, at} says where reports start to count and each
 # reviewer's timeout starts: source push | first_seen | first_seen_unsaved (the
 # push is not in the activity log; see prepare_cfg).
@@ -61,7 +71,7 @@ SW_BASH=${BASH:-bash}
 if command -v cygpath >/dev/null 2>&1; then SW_DIR=$(cygpath -m "$SW_DIR"); SW_BASH=$(cygpath -w "$SW_BASH"); fi
 gh() { "$py" -I "$SW_DIR/bounded.py" ${SW_PAGED:+--paged} ${SW_SECRET:+--secret} -- "$SW_BASH" -c 'exec gh "$@"' gh "$@"; }
 
-pr= repo= full= logs=0 wait=0 timeout=1800 interval=300 reviewers=
+pr= repo= full= logs=0 wait=0 timeout=1800 interval=300 reviewers= until=
 while [ $# -gt 0 ]; do
   case $1 in
     --repo) repo=${2:?--repo needs owner/name}; shift 2 ;;
@@ -75,6 +85,7 @@ while [ $# -gt 0 ]; do
     --full) full=${2:?--full needs a node id}; shift 2 ;;
     --wait) wait=1; shift ;;
     --timeout) timeout=${2:?--timeout needs seconds}; shift 2 ;;
+    --until) until=${2:?--until needs a mode (attention)}; shift 2 ;;
     --interval)
       interval=${2:?--interval needs seconds}
       printf '%s' "$interval" | grep -Eq '^[1-9][0-9]*$'         || { echo "pr-snapshot: bad --interval '$2' (want whole seconds > 0)" >&2; exit 2; }
@@ -86,6 +97,10 @@ while [ $# -gt 0 ]; do
     *) echo "pr-snapshot: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+if [ -n "$until" ]; then
+  [ "$until" = attention ] || { echo "pr-snapshot: bad --until '$until' (want attention)" >&2; exit 2; }
+  [ "$wait" = 1 ] || { echo "pr-snapshot: --until needs --wait" >&2; exit 2; }
+fi
 if [ -n "$full" ]; then
   printf '%s' "$full" | grep -Eq '^[A-Za-z0-9_=-]+$' \
     || { echo "pr-snapshot: bad --full id '$full'" >&2; exit 2; }
@@ -378,6 +393,15 @@ def norm: sub("\\[bot\\]$"; "");
                | select(thumbs and .lastEditedAt != null and rtimes[.id] == null) | .id ],
     complete: ($truncated | length == 0), truncated: $truncated,
     # base64 keeps the signature free of quotes, so sig_of can cut it out safely
+    fail_names: [ $checks[] | select(.state == "fail") | .name | @base64 ],
+    # attn: sig without the checks and merge state (what --until attention compares)
+    attn: ([ $p.state, $p.headRefOid,
+            ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end) + (if .resolved then ":resolved" else "" end)) | join(",")),
+            ($comments | map(.id + ":" + .rev) | join(",")),
+            ($reviews | map(.id + ":" + .rev) | join(",")),
+            ($stale_verdicts | map(.author + ":" + .review_id) | join(",")),
+            ($reviewers | map(.login + ":" + .state) | join(",")),
+            ($truncated | sort | join(",")) ] | join("|") | @base64),
     sig: ([ $p.state, $p.headRefOid, $p.mergeStateStatus,
             ($checks | map(.name + "=" + .state) | sort | join(",")),
             ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end) + (if .resolved then ":resolved" else "" end)) | join(",")),
@@ -495,6 +519,20 @@ snapshot() {
   printf '%s\n' "$out"
 }
 sig_of() { printf '%s' "$1" | grep -o '"sig":"[^"]*"' || true; }
+attn_of() { printf '%s' "$1" | grep -o '"attn":"[^"]*"' || true; }
+fails_of() { printf '%s' "$1" | grep -o '"fail_names":\[[^]]*\]' | grep -oE '"[A-Za-z0-9+/=]+"' || true; }
+# --until attention: may the poll $1, which differs from the baseline $base, be skipped?
+only_progress() {
+  local f
+  [ "$(attn_of "$1")" = "$(attn_of "$base")" ] || return 1
+  case $1 in *'"merge_state":"DIRTY"'*) return 1 ;; esac
+  printf '%s' "$1" | grep -Eq '"pending":[1-9]' || return 1
+  while read -r f; do
+    [ -n "$f" ] || continue
+    fails_of "$base" | grep -qxF -- "$f" || return 1
+  done < <(fails_of "$1")
+  return 0
+}
 
 if [ "$wait" = 1 ]; then
   claim_watch
@@ -512,7 +550,7 @@ if [ "$wait" = 1 ]; then
   }
   take_over() { echo "pr-snapshot: a newer watcher took over PR $pr; this one stops" >&2; exit 4; }
   # --timeout is elapsed time from here, polls included.
-  start=$SECONDS base= base_sig= snap= wake=timeout ok=1
+  start=$SECONDS base= base_sig= snap= wake=timeout ok=1 filtered=0
   if poll; then base=$next snap=$next; else ok=0; fi  # a failed first snapshot has no base: the first good poll becomes it
   base_sig=$(sig_of "$base")
   # Activity beyond a cut-off page cannot be seen, so do not wait for it.
@@ -528,13 +566,14 @@ if [ "$wait" = 1 ]; then
     if [ -z "$base" ]; then
       base=$snap base_sig=$(sig_of "$snap")
       case $base in *'"complete":false'*) wake=incomplete ;; esac
-    elif [ "$(sig_of "$snap")" != "$base_sig" ]; then wake=changed
+    elif [ "$(sig_of "$snap")" != "$base_sig" ]; then
+      if [ "$until" = attention ] && only_progress "$snap"; then filtered=$((filtered + 1)); else wake=changed; fi
     fi
   done
   # a watcher taken over during a hung poll stops here, not with a timeout report
   [ "$wake" != timeout ] || still_owner || take_over
   [ "$ok" = 1 ] || { echo "pr-snapshot: the last poll failed; GitHub state unknown" >&2; exit 1; }
-  printf '{"wake":"%s","waited":%s,"snapshot":%s}\n' "$wake" "$((SECONDS - start))" "$snap"
+  printf '{"wake":"%s","waited":%s,"filtered":%s,"snapshot":%s}\n' "$wake" "$((SECONDS - start))" "$filtered" "$snap"
 else
   prepare_cfg; snap=$(snapshot)
   printf '%s\n' "$snap"

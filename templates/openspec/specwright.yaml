@@ -100,6 +100,13 @@ pr:
   # while it is still at the merged head and no open PR is based on it.
   delete_branch: true
 
+# Cheap tier. Off by default. true = apply sends every task
+# group of a TIER: LIGHT change to specwright-implementer-light, a pinned copy
+# of the implementer on the cheaper model (Claude Code: haiku, OMP: pi/smol).
+# FULL changes, reviews, watch and the orchestrator never change.
+cheap_tier:
+  enabled: false
+
 # Store-backed changes only (planning in an OpenSpec store, a separate git
 # repo): settings for the store side. Every other setting is shared with the
 # code repo, and each key below falls back to the code repo's value.

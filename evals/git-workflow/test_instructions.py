@@ -1974,5 +1974,100 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertNotRegex(b, r"(?i)APPROVE.{0,40}(skip|parked)", "the skip names a verdict other than DEFERRED")
 
 
+def apply_delegation():
+    """The apply DELEGATION paragraph of schema.yaml, whitespace-normalised."""
+    apply = schema_block("apply:")
+    deleg = apply[apply.find("DELEGATION"):]
+    return re.sub(r"\s+", " ", deleg[: deleg.find("\n\n")])
+
+
+def light_drift(light, base):
+    """Problems that make the light implementer differ from the implementer beyond name, description and model."""
+    lfm, lbody = frontmatter(read(light))
+    bfm, bbody = frontmatter(read(base))
+    problems = []
+    if lbody != bbody:
+        problems.append(f"{light.name} and {base.name} have different bodies")
+
+    def keep(fm):
+        return [ln for ln in fm.splitlines() if not re.match(r"(name|description|model):", ln)]
+
+    if keep(lfm) != keep(bfm):
+        problems.append(f"{light.name} and {base.name} differ in frontmatter beyond name, description and model "
+                        f"(tools, spawns)")
+    return problems
+
+
+class TestCheapTier(unittest.TestCase):
+    HARNESSES = (("claude", "model: haiku"), ("omp", "model: pi/smol"))
+
+    def pair(self, harness):
+        d = ROOT / "agents" / harness
+        return d / "specwright-implementer-light.md", d / "specwright-implementer.md"
+
+    def test_light_implementer_matches_implementer(self):
+        for harness, model in self.HARNESSES:
+            with self.subTest(harness):
+                light, base = self.pair(harness)
+                self.assertTrue(light.is_file(), f"{light} is missing")
+                self.assertEqual(light_drift(light, base), [], f"{harness}: the light implementer drifted")
+                fm, _ = frontmatter(read(light))
+                self.assertRegex(fm, r"(?m)^name: specwright-implementer-light$", f"{harness}: wrong name")
+                self.assertRegex(fm, r"(?m)^description:.*\bcheaper model\b.*\bLIGHT\b.*cheap_tier\.enabled", f"{harness}: description")
+                self.assertRegex(fm, r"(?m)^" + re.escape(model) + "$", f"{harness}: model is not pinned to {model}")
+                tools = lambda p: re.search(r"(?m)^tools:.*$", frontmatter(read(p))[0])
+                self.assertEqual(tools(light).group(0), tools(base).group(0), f"{harness}: tools line differs")
+        omp_light, omp_base = self.pair("omp")
+        self.assertRegex(frontmatter(read(omp_light))[0], r"(?m)^spawns: \[\]$", "the OMP light implementer lacks the same spawns")
+
+    def test_light_implementer_drift_names_both_files(self):
+        import shutil
+        import tempfile
+        light, base = self.pair("omp")
+        self.assertTrue(light.is_file(), f"{light} is missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            tl, tb = Path(tmp) / light.name, Path(tmp) / base.name
+            shutil.copy(light, tl)
+            shutil.copy(base, tb)
+            self.assertEqual(light_drift(tl, tb), [], "the copies already differ")
+            tb.write_text(read(tb).replace("exactly one task group", "exactly two task groups"), encoding="utf-8")
+            problems = light_drift(tl, tb)
+            self.assertTrue(problems, "an edited body is not reported as drift")
+            self.assertIn(light.name, problems[0])
+            self.assertIn(base.name, problems[0])
+
+    def test_delegation_light_tier_on_uses_light_implementer(self):
+        d = apply_delegation()
+        self.assertRegex(d, r"pr-pair\.sh tier --code <code toplevel>", "apply does not run `pr-pair.sh tier`")
+        self.assertRegex(d, r"<specwright-pr>/scripts/pr-pair\.sh", "the call is not made through the specwright-pr folder")
+        self.assertRegex(d, r"(?i)once per apply run", "the tier is not read once per apply run")
+        self.assertRegex(d, r"(?i)tier on.{0,80}`TIER: LIGHT`.{0,160}every group to `specwright-implementer-light`",
+                         "a LIGHT change's groups do not all go to the light implementer when the tier is on")
+        self.assertRegex(d, r"(?i)small groups included.{0,40}no inline exception", "a small group of a LIGHT change may be done inline")
+
+    def test_delegation_full_keeps_implementer(self):
+        d = apply_delegation()
+        self.assertRegex(d, r"(?i)\bfor a FULL change\b.{0,80}keep `specwright-implementer`", "a FULL change does not keep specwright-implementer")
+        self.assertRegex(d, r"(?i)small groups \(one or two trivial edits\) you may implement directly",
+                         "the small-group clause is gone")
+
+    def test_delegation_tier_off_keeps_implementer(self):
+        d = apply_delegation()
+        self.assertRegex(d, r"(?i)with the tier\s+off,? or for a FULL change, keep `specwright-implementer` and this rule",
+                         "the tier off does not keep specwright-implementer and the small-group clause")
+        self.assertRegex(d, r"(?i)repeat a note once", "apply does not repeat tier's note once")
+
+    def test_delegation_light_missing_falls_back(self):
+        d = apply_delegation()
+        self.assertRegex(d, r"(?i)`specwright-implementer-light`.{0,200}not available, use `specwright-implementer` and say so once",
+                         "a missing light implementer does not fall back to specwright-implementer with a note")
+
+    def test_delegation_unreadable_tier_is_off(self):
+        d = apply_delegation()
+        self.assertRegex(d, r"(?i)failed call, or output with no `cheap_tier` field, means the tier is off",
+                         "a failed or field-less tier call is not treated as off")
+        self.assertRegex(d, r"(?i)say once that the setting could not be read", "the unreadable setting is not reported once")
+
+
 if __name__ == "__main__":
     unittest.main()

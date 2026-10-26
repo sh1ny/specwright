@@ -34,11 +34,13 @@ Your agent follows the installed copies, not the source. A change that edits a s
 - **Commits:** `<type>(<scope>): <summary>`, at most 72 characters, where `<scope>` is the change name or the skill touched (`fix(specwright-pr): ...`). Stage files by name, never `git add -A`.
 - **Skills and schema text are instructions for agents.** Keep them terse and imperative: every step checkable, every stop condition explicit, no explanatory padding. Say what to do when a check fails, not just what to check.
 - **README follows behaviour.** A change to a skill's triggers, settings, modes or messages updates the matching README table or section in the same change.
+- **Implementer twins:** `agents/<harness>/specwright-implementer-light.md` is `specwright-implementer.md` word for word apart from `name`, `description` and `model`. Copy every implementer body or frontmatter edit to its light twin in the same change; `TestCheapTier` in `evals/git-workflow/test_instructions.py` fails and names both files when they drift.
 - **Settings:** a new `specwright.yaml` key goes into `templates/openspec/specwright.yaml` with a comment and a safe default, and into the README settings example.
 
 ## Testing
 
 - Git-skill changes: run the [`evals/git-workflow`](evals/git-workflow/) cases (see the README's Evals section) and add a case when the change adds a stop condition or branch-state rule.
+- Stress tier: when a change rewords the instructions a stress-marked eval exercises (`"stress"` in `evals.json`), re-run those evals through skill-creator with the executor on the default model (`base`) and on Haiku (`haiku`), grade them, and run `python evals/git-workflow/tiers.py <iteration-dir> --base base --cheap haiku`. Fix each wording gap a difference shows and re-run; record the run and any difference that is a model limit, with its evidence, in a dated section of `evals/git-workflow/stress.md`. It is a wording diagnostic, not a shipped configuration and not a CI gate. `evals/git-workflow/test_tiers.py` checks the marks and the comparison.
 - Schema or template changes: `openspec schema validate specwright` after re-installing.
 - Reviewer routes (`review-run.sh`): run `python -m unittest discover evals/review-routes`; it uses fake CLIs from `evals/fakes/` and hides any real `codex`, `claude` or `omp` on `PATH`. A change to a route's command line needs a new trial against the real CLIs, recorded in `evals/review-routes/trial.md`.
 - Release script (`release.sh`): run `python -m unittest discover evals/release`.

@@ -36,6 +36,7 @@
     {
       "id": 3,
       "name": "eval-apply-three-tasks",
+      "stress": "light-apply",
       "skills": [
         "specwright-commit"
       ],
@@ -973,6 +974,7 @@
     {
       "id": 55,
       "name": "eval-watch-agent-merge",
+      "stress": "watch",
       "skills": [
         "specwright-pr",
         "specwright-finish",
@@ -995,6 +997,7 @@
     {
       "id": 56,
       "name": "eval-watch-merge-default-user",
+      "stress": "watch",
       "skills": [
         "specwright-pr",
         "specwright-finish"
@@ -1163,6 +1166,7 @@
     {
       "id": 64,
       "name": "eval-agent-merge-release-auto",
+      "stress": "watch",
       "skills": [
         "specwright-pr",
         "specwright-finish",
@@ -1255,6 +1259,24 @@
         "Nothing was committed, branched, stashed or pushed in either repo, and no gh call was made",
         "The code repo has no openspec/specs, openspec/changes or openspec/schemas directory",
         "The code repo's openspec/config.yaml still points at the store (store: team-plans) and holds no Specwright context"
+      ]
+    },
+    {
+      "id": 69,
+      "name": "eval-implementer-light-packet",
+      "stress": "implementer",
+      "skills": [],
+      "prompt": "You are the implementer for one task group of the add-greeting OpenSpec change. Follow F:/Dev/specwright/agents/claude/specwright-implementer-light.md, which is your whole role. The change is already planned and committed on feat/add-greeting; the change directory is openspec/changes/add-greeting (planning root: this repository). Here is your packet.\n\nTask group: 1. Greeting functions (tasks 1.1 and 1.2).\nRequirements and scenarios: greeting -> Greeting (Named greeting: greet('Ada') returns 'Hello, Ada!'; Empty name: greet('') raises ValueError) and greeting -> Farewell (Named farewell: farewell('Ada') returns 'Goodbye, Ada!'; Empty farewell name: farewell('') raises ValueError).\nTest map rows (all in test_greet.py, state red): test_greet_named, test_greet_empty, test_farewell_named, test_farewell_empty.\nGoverning design decision: D1, raise ValueError on empty names (do not return a default greeting).\nFiles to touch: greet.py and test_greet.py only.\nProject skills that apply: none.\n\nWrite each failing test first, run it with `python -m unittest -q` and confirm it fails, then implement the minimum and run the group's tests again. Do not commit, do not tick tasks in tasks.md, do not change the test map states. Finish with the report shape the agent file prescribes, and include the exact commands you ran with their result summaries.",
+      "expected_output": "Writes the four test-map tests in test_greet.py and the minimum greet.py to pass them, test-first, touching nothing else: no commit, no ticked task in tasks.md, no changed test map state. The report is in the agent file's shape (STATUS: DONE), shows the failing run before the implementation and the passing run after it.",
+      "assertions": [
+        "Still on feat/add-greeting, main is unchanged and the branch holds only the planning commit",
+        "No commit was made and none amended",
+        "tasks.md has no ticked task and the test map states are unchanged",
+        "test_greet.py defines all four test-map tests and the test suite passes",
+        "Only greet.py and test_greet.py changed, and nothing is staged",
+        "The report states STATUS: DONE",
+        "The report gives red evidence: a failing run before the implementation",
+        "The report gives green evidence: a passing run of the group's tests"
       ]
     }
   ]

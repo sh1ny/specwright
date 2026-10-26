@@ -193,8 +193,8 @@ def roadmap_offer(rep):
     one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and a
     mode whose clause rules it out (not, n't, never, no longer) is not offered, even in a sentence that asks: that clause explains
     why it does not apply. A negation in another clause of the sentence (`I didn't tag anything; run specwright-roadmap close?`)
-    does not count."""
-    rep = rep.lower()
+    does not count. Emphasis markup (`**`, `__`, `*`, `_` around a word) is dropped first, so `specwright-roadmap` **close** binds."""
+    rep = re.sub(r"\*\*|__|(?<!\w)[*_]|[*_](?!\w)", "", rep.lower())
     units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
     for b in re.split(r"\n\s*\n", rep):
         if "?" in b:  # a question over the stated step or its option list: what they name is offered
@@ -223,6 +223,51 @@ def report(run):
 
 def main_unchanged(repo):
     return subjects(repo, "main") == [INITIAL]
+
+
+IMPL_TESTS = ("test_greet_named", "test_greet_empty", "test_farewell_named", "test_farewell_empty")
+IMPL_DONE = re.compile(r"^[\s\-*]*status:\s*\**done\**\s*$", re.M)  # a lone DONE, not the template's "DONE | DRIFT | BLOCKED"
+IMPL_NEGATED = re.compile(r"\bno\b|\bnot\b|n't|\bwithout\b")
+IMPL_RED = re.compile(r"\bfail(?:ed|s|ing|ure)?\b|\b(?:assertion|import|name|attribute)error\b|traceback")
+IMPL_RUN = re.compile(r"unittest|test_(?:greet|farewell)_(?:named|empty)")
+IMPL_GREEN = re.compile(r"\bran \d+ tests?\b.*\b(?:ok|pass(?:ed|es|ing)?)\b|unittest.*\b(?:pass(?:ed|es|ing)?|all green)\b")
+
+
+def evidence_lines(rep, pattern):
+    """Indexes of the report lines that show a concrete run (name a test or the unittest command) and match `pattern`, unnegated. A
+    negation inside a backticked span (quoted output such as `has no attribute 'greet'`) does not negate the line."""
+    return [i for i, l in enumerate(rep.splitlines())
+            if pattern.search(l) and IMPL_RUN.search(l) and not IMPL_NEGATED.search(re.sub(r"`[^`]*`", "", l))]
+
+
+def check_implementer_light(repo, branch, status, rep):
+    """eval-implementer-light-packet: the implementer got one task group (1) of add-greeting on a LIGHT change already planned and committed
+    on feat/add-greeting. It writes the group's tests and code in the working tree and reports; it never commits, ticks or stages."""
+    R = []
+    subs = subjects(repo, "main..HEAD")
+    R.append(("Still on feat/add-greeting, main is unchanged and the branch holds only the planning commit",
+              branch == "feat/add-greeting" and main_unchanged(repo) and subs == [PLAN_SUBJECT], f"branch={branch} main..HEAD={subs}"))
+    R.append(("No commit was made and none amended", count_all(repo) == 2 and not amends(repo),
+              f"commits={count_all(repo)} (want 2) amend entries={amends(repo)}"))
+    tp = repo / CHANGE / "tasks.md"
+    t = tp.read_text(encoding="utf-8") if tp.exists() else ""
+    R.append(("tasks.md has no ticked task and the test map states are unchanged",
+              bool(t) and "- [x]" not in t and t.count("| red |") == len(IMPL_TESTS) and "| green |" not in t,
+              f"ticked={t.count('- [x]')} red={t.count('| red |')} green={t.count('| green |')}"))
+    src = repo / "test_greet.py"
+    text = src.read_text(encoding="utf-8") if src.exists() else ""
+    missing = [n for n in IMPL_TESTS if not re.search(rf"^\s+def {n}\(", text, re.M)]
+    tr = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=repo, capture_output=True, text=True)
+    R.append(("test_greet.py defines all four test-map tests and the test suite passes", not missing and tr.returncode == 0,
+              f"missing tests={missing} unittest rc={tr.returncode} {(tr.stderr or tr.stdout).strip().splitlines()[-1:]}"))
+    R.append(("Only greet.py and test_greet.py changed, and nothing is staged",
+              sorted(status) == [" M greet.py", " M test_greet.py"], f"status={status}"))
+    R.append(("The report states STATUS: DONE", bool(IMPL_DONE.search(rep)), f"report excerpt={rep[:120]!r}"))
+    red, green = evidence_lines(rep, IMPL_RED), evidence_lines(rep, IMPL_GREEN)
+    R.append(("The report gives red evidence: a failing run before the implementation", bool(red), f"red lines={red}"))
+    R.append(("The report gives green evidence: a passing run of the group's tests",
+              bool(green) and (not red or min(red) < max(green)), f"green lines={green} red lines={red}"))
+    return R
 
 
 def check(name, repo, run):
@@ -363,6 +408,9 @@ def check(name, repo, run):
     elif name == "eval-roadmap-close-agreed-split":
         R.extend(check_roadmap_close_agreed_split(repo, branch, branches, status))
         R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
+
+    elif name == "eval-implementer-light-packet":
+        R.extend(check_implementer_light(repo, branch, status, rep))
 
     elif name == "eval-apply-on-main":
         R.append(("No commit was added to main", main_unchanged(repo), f"main log={subjects(repo, 'main')}"))

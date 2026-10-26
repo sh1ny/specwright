@@ -982,11 +982,13 @@ def release_settings(enabled=True, auto=False):
 RELEASE_SHIM = r'''#!/bin/bash
 # git shim for the release evals: real git for everything, except `pull`, `fetch`, `push` and `ls-remote` in the code repo, which read or
 # write the local bare repo (@BARE@) through a command-scoped url.<bare>.insteadOf, so origin's URL stays on github.com. With GATED=1
-# `pull` and `fetch` do so only once the fake gh logged a merge of PR #7 (before it they hit the unreachable proxy); `push` and
-# `ls-remote` are never gated. Every other network command hits the unreachable proxy.
+# `pull` and `fetch` do so only once the fake gh logged a merge of PR #7. Before it, `fetch` reads @PRE@ (origin as it was before the
+# merge, which watch's version check fetches) and `pull` hits the unreachable proxy; `push` and `ls-remote` are never gated. Every other
+# network command hits the unreachable proxy.
 REAL="@REAL@"
 CODE="@CODE@"
 BARE="@BARE@"
+PRE="@PRE@"
 LOG="@LOG@"
 URL="@URL@"
 GATED=@GATED@
@@ -1007,6 +1009,9 @@ lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 if [ "$(lc "$top")" = "$(lc "$CODE")" ]; then
   if [ "$sub" = push ] || [ "$sub" = ls-remote ] || [ "$GATED" = 0 ] || grep -q 'pulls/7/merge' "$LOG" 2>/dev/null; then
     exec "$REAL" -c "url.$BARE.insteadOf=$URL" "$@"
+  fi
+  if [ "$sub" = fetch ]; then
+    exec "$REAL" -c "url.$PRE.insteadOf=$URL" "$@"
   fi
 fi
 exec "$REAL" "$@"
@@ -1029,13 +1034,14 @@ exec "@BASH@" "$@"
 
 def release_shim(repo, gated):
     """bin/git and bin/bash for the release evals (RELEASE_SHIM, BASH_SHIM): <repo>/ob.git is the reachable origin. `gated` holds
-    git pull and fetch back until the fake gh logged the merge of PR #7. state/gitconfig-release is the rewrite config bin/bash hands
+    git pull and fetch back until the fake gh logged the merge of PR #7; before it, fetch reads <repo>/ob-pre.git (origin before the
+    merge; only a gated fixture creates it). state/gitconfig-release is the rewrite config bin/bash hands
     to release.sh: the fixture's proxy config plus url.<bare>.insteadOf."""
     url, bare = f"https://github.com/{PR_SLUG}.git", posix(repo / "ob.git")
     rewrite = repo / "state" / "gitconfig-release"
     write(repo, "state/gitconfig-release", (repo / "gitconfig").read_text(encoding="utf-8") + f'[url "{bare}"]\n\tinsteadOf = {url}\n')
     shim = RELEASE_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo)) \
-        .replace("@BARE@", bare).replace("@LOG@", posix(repo / "gh-log.jsonl")) \
+        .replace("@BARE@", bare).replace("@PRE@", posix(repo / "ob-pre.git")).replace("@LOG@", posix(repo / "gh-log.jsonl")) \
         .replace("@URL@", url).replace("@GATED@", "1" if gated else "0")
     write(repo, "bin/git", shim)
     write(repo, "bin/bash", BASH_SHIM.replace("@REWRITE@", posix(rewrite)).replace("@BASH@", msys(shutil.which("bash") or "bash")))
@@ -1234,6 +1240,9 @@ def build_watch_merge(repo, agent, release=None):
     unreachable_proxy(dest)
     env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
     if release is not None:
+        pre = repo / "ob-pre.git"  # origin before the merge: what watch's version check fetches
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", posix(pre)], check=True, capture_output=True, text=True)
+        git(repo, "push", "-q", posix(pre), "main:refs/heads/main")
         release_shim(repo, gated=True)
     else:
         write(dest, "bin/git", WATCH_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo))
@@ -1248,7 +1257,7 @@ def build_watch_merge(repo, agent, release=None):
     fake_gh.set_checks(st, PR_SLUG, 7, [{"__typename": "CheckRun", "name": "tests", "status": "COMPLETED", "conclusion": "SUCCESS"}])
     fake_gh.add_review(st, PR_SLUG, 7, WATCH_REVIEWER, f"**Reviewed commit:** `{tip}`\n\nNo issues found.", state="APPROVED", at="2026-10-10T09:30:00Z")
     write(dest, "gh-state.json", json.dumps(st, indent=2))
-    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n")
+    write(repo, ".git/info/exclude", "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n/ob-pre.git/\n")
     write(repo, ".git/fixture-state.json", json.dumps({"main": main, "tip": tip, "tree": tree, "squash": squash,
                                                        **({"expected_mode": "next" if len(changes) > 1 else "close"} if agent else {})}, indent=2))
 
@@ -1326,6 +1335,11 @@ def build(name, repo):
             git(repo, "checkout", "-q", "-b", "feat/add-greeting")
         change_artifacts(repo)  # left uncommitted: the planning commit is under test
         write(repo, "scratch-notes.txt", "personal notes - not part of the change\n")
+    elif name == "eval-implementer-light-packet":  # planned and committed on the branch; the implementer starts from the empty greet.py
+        git(repo, "checkout", "-q", "-b", "feat/add-greeting")
+        change_artifacts(repo)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "feat(add-greeting): add planning artifacts")
     elif name == "eval-finish-local":
         finished(repo, repo)
     elif name in ("eval-finish-resume-after-archive-commit", "eval-finish-resume-from-main"):

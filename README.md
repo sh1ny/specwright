@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.7.3-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.8.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -31,7 +31,7 @@ flowchart LR
 |---|---|---|
 | Start a change | [`specwright-branch`](skills/specwright-branch/SKILL.md) | Clean `main` check, then `<prefix>/<change-name>` branch |
 | proposal → specs → design → review → tasks | [`schemas/specwright`](schemas/specwright/schema.yaml) | Artifacts with architecture triage and a review gate |
-| Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) | One commit per task, orchestrator re-verifies delegated work |
+| Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) (or [`specwright-implementer-light`](agents/claude/specwright-implementer-light.md) for LIGHT changes with `cheap_tier.enabled`) | One commit per task, orchestrator re-verifies delegated work |
 | Pre-ship review | [`specwright-review`](skills/specwright-review/SKILL.md) | Cross-model review of the finished change; ship and the local merge wait for a pass |
 | PR | [`specwright-pr`](skills/specwright-pr/SKILL.md) | Ship, address feedback, watch CI (`finish: pr`) |
 | Archive | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive commit, then local `--no-ff` merge or push to the PR |
@@ -360,7 +360,7 @@ recorded a missing PR prerequisite, add the line
    - `/opsx:propose <idea>` or `/opsx:ff <name>` writes every artifact in one go;
    - `/opsx:new <name>` scaffolds it, then `/opsx:continue` writes one artifact per run.
 2. **Review gate:** the design triage picks LIGHT or FULL; FULL designs are reviewed in a fresh context (by a different model unless `review.cross_model: false`) before tasks can be written.
-3. **Apply** with `/opsx:apply` — task groups go to `specwright-implementer`, each verified task becomes its own commit.
+3. **Apply** with `/opsx:apply` — task groups go to `specwright-implementer` (`specwright-implementer-light` for a LIGHT change with `cheap_tier.enabled: true`), each verified task becomes its own commit.
    - **Pre-ship review:** once every task is committed, `specwright-review` has another model's CLI review the whole change (`review.order`, skipping the harness you run in; the `specwright-reviewer` agent when none is available). P0/P1 findings block: fix them (commits `address pre-ship review`; after two rounds it asks you) or waive them with your reason. `specwright-pr` ship and the local merge first check for a pass on the current head. Opt out with `review.preship: false`.
    - **BREAKING (0.2.0):** the pre-ship review is on by default, so apply ends with a review that can take up to `review.timeout` (20m). Set `review.preship: false` to keep the 0.1.x flow.
 4. **PR mode:** the PR opens when apply finishes; `specwright-pr` **watch** handles reviews and CI, and once it is green offers to archive on the branch. Then merge on GitHub, or let watch merge it with `pr.merge: agent`.
@@ -404,9 +404,10 @@ recorded a missing PR prerequisite, add the line
 | Agent | Claude Code | OMP | Role |
 |---|---|---|---|
 | `specwright-implementer` | [`sonnet`](agents/claude/specwright-implementer.md) | [`pi/smol`](agents/omp/specwright-implementer.md) | Implements one task group test-first from a packet; never commits |
+| `specwright-implementer-light` | [`haiku`](agents/claude/specwright-implementer-light.md) | [`pi/smol`](agents/omp/specwright-implementer-light.md) | The implementer word for word on a cheaper model; with `cheap_tier.enabled: true` it gets every group of a LIGHT change (ADR 0013). Never used for reviews, watch or FULL changes |
 | `specwright-reviewer` | [`inherit`](agents/claude/specwright-reviewer.md) | [`pi/slow`](agents/omp/specwright-reviewer.md) | Read-only reviewer for design and pre-ship reviews; used when no reviewer CLI is available or `review.cross_model: false` |
 
-Change the model in each file's `model:` line (Claude Code), or map the role aliases in `~/.omp/agent/config.yml` (OMP).
+Change the model in each file's `model:` line (Claude Code), or map the role aliases in `~/.omp/agent/config.yml` (OMP). On OMP both implementers use the `pi/smol` role, so the cheap tier changes nothing there unless you point the installed `specwright-implementer.md`'s `model:` line at a stronger role (remapping `pi/smol` would move both); update keeps that edit.
 
 ### Scripts
 
@@ -415,7 +416,8 @@ The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scr
 | Script | Does |
 |---|---|
 | [`as.sh`](skills/specwright-pr/scripts/as.sh) | Runs a command as one GitHub login: pins the token per process, verifies it, and feeds it to both `gh` and `git push` (HTTPS to github.com only; SSH, prompts and inherited `http.extraHeader` auth are disabled inside it; run git from inside the target repo, since extraHeaders are scrubbed for the current repository only). Safe against a concurrent `gh auth switch`. `as.sh --resolve` reads the active github.com account once (ignoring `GH_TOKEN`/`GITHUB_TOKEN`) and prints it as the run login. Inside, `GH_HOST` and the enterprise token variables are unset so `gh` targets github.com, and a github.com URL with userinfo (token, password or bare username) in a remote, push URL, `insteadOf` rule or argument is refused with exit 3, masked, before anything runs. |
-| [`pr-snapshot.sh`](skills/specwright-pr/scripts/pr-snapshot.sh) | One GraphQL call → the whole PR as JSON (checks, unresolved threads and resolved ones with an unanswered reviewer comment, unhandled or edited comments, stale `CHANGES_REQUESTED` verdicts, and a `complete` flag when a list was cut off). `--reviewer login:role:seconds` adds whether each reviewer has reported on the current head (`reported` / `waiting` / `timed_out`), counting reports from the head's push, or from when a snapshot first saw the head if the push is not in the activity log (`head_cutoff` says which). Bodies cut for length are marked `clipped: true`; `--full <id>` prints one item whole. `--wait` polls in-process and wakes once (at once if the snapshot is already incomplete); one watcher per PR: a newer `--wait` on the same PR takes over and the older one exits 4, and a watcher's exit never ends a newer one's ownership; `--logs` appends failed CI logs. |
+| [`pr-snapshot.sh`](skills/specwright-pr/scripts/pr-snapshot.sh) | One GraphQL call → the whole PR as JSON (checks, unresolved threads and resolved ones with an unanswered reviewer comment, unhandled or edited comments, stale `CHANGES_REQUESTED` verdicts, and a `complete` flag when a list was cut off). `--reviewer login:role:seconds` adds whether each reviewer has reported on the current head (`reported` / `waiting` / `timed_out`), counting reports from the head's push, or from when a snapshot first saw the head if the push is not in the activity log (`head_cutoff` says which). Bodies cut for length are marked `clipped: true`; `--full <id>` prints one item whole. `--wait` polls in-process and wakes once (at once if the snapshot is already incomplete); one watcher per PR: a newer `--wait` on the same PR takes over and the older one exits 4, and a watcher's exit never ends a newer one's ownership; `--wait --until attention` (what watch runs) keeps waiting while the only change is check progress (a check still pending, no new failing check, merge state not `DIRTY`) and reports the skipped polls as `filtered`; `--logs` appends failed CI logs. |
+| [`pr-pair.sh`](skills/specwright-pr/scripts/pr-pair.sh) | The deterministic half of ship, feedback, watch and cleanup for one PR or a code/store pair: settings (`context`), PR discovery and linking, fix-round counts, the agent merge with read-back, and the cleanup plan; one JSON document per subcommand. `tier --code <dir>` reads `cheap_tier.enabled` for apply: `{"ok": true, "cheap_tier": bool}`, true only for a boolean true, anything else false with a `note`, and no other setting can change it. |
 | [`review-run.sh`](skills/specwright-review/scripts/review-run.sh) | Picks the reviewer route (`select`), runs it with one fixed read-only command line per CLI and a deadline (`run`), validates the output against the findings schema and fails closed (exit 3, never the next route), and keeps one record per reviewed head in the state dir. `gate` derives pass / missing / blocked from the record and the user's waivers; `archive-only` tells watch that a new head only archives the change; `rounds` reads `Preship-Round:` trailers. |
 | [`pr-reply.sh`](skills/specwright-pr/scripts/pr-reply.sh) | Replies over REST, checks for a pending review, resolves the thread, optionally adds a 👍/👎 (`--react`), and marks the item handled on GitHub itself. `--rev` binds the reply to the revision that was judged: the item is read again first and nothing is posted if it changed (exit 5), and the marker counts only while the item keeps that revision. `react` answers a follow-up with a reaction only; `--waiting` marks a "waiting on owner" reply, which keeps the item listed; `resolve` retries only a failed resolution. A missing, unreadable or empty body file is refused before any GitHub call, and the temp file is removed on every exit. |
 
@@ -465,6 +467,9 @@ pr:
   merge: user                   # user = you merge on GitHub; agent = watch merges a ready PR (finish: pr, a required reviewer)
   merge_method: merge           # agent merge: merge | squash | rebase
   delete_branch: true           # agent mode: delete the merged remote branch, only at the merged head
+
+cheap_tier:
+  enabled: false                # true = apply sends every group of a TIER: LIGHT change to specwright-implementer-light (cheaper model); FULL changes, reviews, watch and the orchestrator never change
 
 release:                        # opt-in; refused with pr.merge_method: rebase
   enabled: false                # true = opt in
@@ -584,11 +589,13 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 [`evals/git-workflow/`](evals/git-workflow/) holds scripted evals for the git skills: [`fixtures.py`](evals/git-workflow/fixtures.py) builds scratch repos, [`evals.json`](evals/git-workflow/evals.json) lists the cases, and [`grade.py`](evals/git-workflow/grade.py) checks the resulting git state. Run with [skill-creator](https://github.com/anthropics/skills) (with-skill vs. baseline runs), then `python evals/git-workflow/grade.py <iteration-dir>`.
 
+**Stress tier.** Evals marked `"stress"` in `evals.json` (`watch`, `light-apply`, `implementer`) are a wording diagnostic: run them through skill-creator twice, with the executor on the default model (config `base`) and on Haiku (config `haiku`), grade with `python evals/git-workflow/grade.py <iteration-dir>`, then compare with `python evals/git-workflow/tiers.py <iteration-dir> --base base --cheap haiku`. It prints each stress eval's pass rate per configuration and names every difference (with the assertions that pass in one configuration only) and every missing grading; exit 0 only when nothing differs. Where Haiku misses a rule, the skill text is vague: fix the wording (never with model-specific text) and re-run. It is not a configuration Specwright ships (Haiku never runs the orchestrator) and not a CI gate. Results are recorded in [`evals/git-workflow/stress.md`](evals/git-workflow/stress.md).
+
 Store evals (`eval-store-*`) need two repos, so the fixture is a directory, not a repo: `code/` is the project, `store/` is its OpenSpec store. The fixture also writes `eval.env`. The agent under test must run `source <repo>/eval.env` first and work from `<repo>/code`. The file points the OpenSpec registry and config (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`) and Specwright's watch state (`SPECWRIGHT_STATE_DIR`) at the run directory, and puts a fake `gh` first on `PATH`. Your own registry and state are never touched. The fake `gh` ([`evals/fakes/gh.py`](evals/fakes/gh.py)) keeps its state in `gh-state.json` and logs every call to `gh-log.jsonl`; `grade.py` reads both repos and that log.
 
 Test the fake `gh` with `python -m unittest discover evals/pr-pair`, the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`, and `release.sh` (against scratch repos and the fake `gh`) with `python -m unittest discover evals/release`. Test `update.sh` (the staged swap, journal and recovery, against scratch repos) with `python -m unittest discover evals/update`.
 
-To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
+To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` (and `specwright-implementer-light`, if you use the cheap tier) with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
 
 ---
 
