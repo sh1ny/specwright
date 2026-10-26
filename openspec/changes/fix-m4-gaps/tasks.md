@@ -9,7 +9,7 @@
 | pr-script-runtime → A process a network command started is stopped on every platform | No job object on Windows | evals/pr-pair/test_bounded.py | test_no_job_object_falls_back_and_says_so | green |
 | pr-script-runtime → A process a network command started is stopped on every platform | Orphan holding the pipe on Windows | evals/pr-pair/test_bounded.py | test_a_finished_command_with_a_child_holding_its_pipe_returns_its_status (Windows skip at :198 removed) | green |
 | pr-script-runtime → A process a network command started is stopped on every platform | Hung command with a grandchild | evals/pr-pair/test_bounded.py | test_hung_command_grandchild_stopped | green (existing behaviour, pinned by a new test) |
-| pr-script-runtime → The deadline override is read one way | Fractional override lowers the poll | evals/pr-pair/test_pr_snapshot.py | test_poll_fractional_net_deadline_lowers_poll | red |
+| pr-script-runtime → The deadline override is read one way | Fractional override lowers the poll | evals/pr-pair/test_pr_snapshot.py | test_poll_fractional_net_deadline_lowers_poll | green |
 | pr-script-runtime → The deadline override is read one way | Invalid override | evals/pr-pair/test_pr_snapshot.py | test_poll_invalid_net_deadline_keeps_120 | green (existing behaviour, pinned by a new test) |
 | pr-script-runtime → The deadline override is read one way | Override above the default | evals/pr-pair/test_pr_snapshot.py | test_poll_net_deadline_above_120_capped | green (existing behaviour, pinned by a new test) |
 | review-routes → The size bound applies to the answer | Large OMP event stream with a small answer | evals/review-routes/test_review_run.py | test_omp_large_stream_small_answer_valid | green |
@@ -71,7 +71,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 ## 3. pr-snapshot poll deadline (#117)
 
 - [x] 3.1 Write `test_poll_fractional_net_deadline_lowers_poll`, `test_poll_invalid_net_deadline_keeps_120` and `test_poll_net_deadline_above_120_capped` in `evals/pr-pair/test_pr_snapshot.py`, reading `deadline_at` from the fake `gh` log. Verify: the fractional test fails (deadline_at is 120 s out), and the others pass.
-- [ ] 3.2 Make `poll()` in `skills/specwright-pr/scripts/pr-snapshot.sh` export `SPECWRIGHT_NET_DEADLINE_AT` from `bounded.py --deadline-at`, falling back to `$(date +%s) + 120` when the helper prints nothing; update the header comment at line 28. Verify: all three tests pass and `discover evals/pr-pair` passes; flip the rows green.
+- [x] 3.2 Make `poll()` in `skills/specwright-pr/scripts/pr-snapshot.sh` export `SPECWRIGHT_NET_DEADLINE_AT` from `bounded.py --deadline-at`, falling back to `$(date +%s) + 120` when the helper prints nothing; update the header comment at line 28. Verify: all three tests pass and `discover evals/pr-pair` passes; flip the rows green.
 
 ## 4. review-run.sh: shared process module and codex event stream (#113, #114, #116)
 

@@ -571,9 +571,43 @@ class WatchElapsed(SnapCase):
         rc, out, err, took = self.watch("--timeout", 1, "--interval", 1, env={"SPECWRIGHT_NET_DEADLINE": "999999"})
         self.assertEqual(rc, 0, err)
         ats = [json.loads(l)["deadline_at"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
-        ats = [int(a) for a in ats if a]
+        ats = [float(a) for a in ats if a]
         self.assertTrue(ats, "a poll ran under a deadline")
         self.assertLessEqual(max(ats), int(start + took) + 120 + 1)
+
+    def deadline_ats(self):
+        """The SPECWRIGHT_NET_DEADLINE_AT every fake gh call of the run received."""
+        ats = [json.loads(l)["deadline_at"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
+        return [float(a) for a in ats if a]
+
+    def test_poll_fractional_net_deadline_lowers_poll(self):
+        # spec "The deadline override is read one way": 1.5 lowers the poll's deadline, fractions included
+        self.mutate(lambda st: st.update({"hang": [self.hang_entry("graphql")]}))
+        start = time.time()
+        rc, out, err, took = self.watch("--timeout", 1, "--interval", 1, env={"SPECWRIGHT_NET_DEADLINE": "1.5"})
+        end = time.time()
+        self.assertEqual(rc, 1, err)
+        self.assertIn("deadline_exceeded", err)
+        self.assertLess(took, 1.5 + 10)
+        ats = self.deadline_ats()
+        self.assertTrue(ats, "a poll ran under a deadline")
+        self.assertLessEqual(max(ats), end + 1.5, "every command of the poll got a deadline at most 1.5 s from the poll's start")
+
+    def _default_deadline(self, value):
+        start = time.time()
+        rc, out, err, took = self.watch("--timeout", 1, "--interval", 1, env={"SPECWRIGHT_NET_DEADLINE": value})
+        end = time.time()
+        self.assertEqual(rc, 0, err)
+        ats = self.deadline_ats()
+        self.assertTrue(ats, "a poll ran under a deadline")
+        self.assertGreaterEqual(min(ats), start + 119, "the poll's deadline is 120 s")
+        self.assertLessEqual(max(ats), end + 121)
+
+    def test_poll_invalid_net_deadline_keeps_120(self):
+        self._default_deadline("soon")
+
+    def test_poll_net_deadline_above_120_capped(self):
+        self._default_deadline("500")
 
     def test_slow_polls_count_toward_timeout(self):
         # spec: --timeout 60 --interval 20, polls of 15 s -> the timeout after at most 85 s, polled at most 4 times.

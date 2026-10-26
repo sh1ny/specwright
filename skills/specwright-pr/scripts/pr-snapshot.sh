@@ -25,7 +25,7 @@
 #             (default 1800s, interval 300s) - elapsed time from the start, polls
 #             included, and never slept past; "waited" is the elapsed seconds. Each
 #             poll, the first snapshot included, has one 120 s deadline for all its gh
-#             calls (SPECWRIGHT_NET_DEADLINE lowers it), so the timeout is reported
+#             calls (SPECWRIGHT_NET_DEADLINE, a non-negative number of seconds, lowers it), so the timeout is reported
 #             within ~130 s of passing. "incomplete" at once if the first good
 #             snapshot is already cut off; exits 1 if the last poll failed (a failed
 #             first snapshot has no base: the first good poll becomes it).
@@ -540,10 +540,11 @@ if [ "$wait" = 1 ]; then
   # so a hung poll ends at that deadline and the timeout below is still reported on time. It is unset right after, so
   # --logs and anything else get the normal per-command deadline. Sets $next.
   poll() {
-    local rc=0 d=${SPECWRIGHT_NET_DEADLINE:-120}
-    case $d in ''|*[!0-9]*) d=120 ;; esac  # like bounded.py, the environment can lower the 120 s but never raise it
-    d=$((10#$d)); [ "$d" -le 120 ] || d=120
-    export SPECWRIGHT_NET_DEADLINE_AT=$(( $(date +%s) + d ))
+    local rc=0 at
+    # bounded.py reads SPECWRIGHT_NET_DEADLINE by its one rule (a non-negative decimal that lowers 120 s, never raises it)
+    at=$("$py" -I "$SW_DIR/bounded.py" --deadline-at 2>/dev/null) || at=
+    case $at in ''|*[!0-9.]*) at=$(( $(date +%s) + 120 )) ;; esac
+    export SPECWRIGHT_NET_DEADLINE_AT=$at
     { prepare_cfg && next=$(snapshot); } || rc=$?
     unset SPECWRIGHT_NET_DEADLINE_AT
     return $rc
