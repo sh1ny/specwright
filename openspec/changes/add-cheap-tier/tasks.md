@@ -98,7 +98,7 @@
 
 - [x] 6.1 Run the stress-marked evals through skill-creator in both configurations (`base`, `haiku`), grade them with `grade.py`, and run `tiers.py`. For each difference, decide whether it is a wording gap. If it is, fix the skill or agent text (never with model-specific wording) and re-run that eval in both configurations. Repeat until every remaining difference is either gone or shown, by a re-run after a wording attempt, to be a model limit. Verify by `tiers.py`'s final JSON being saved in the record of 6.3.
 - [x] 6.2 Run the dispatch trial: in a scratch project with Specwright installed from this branch and `cheap_tier.enabled: true`, start a new session and apply a small LIGHT change. Confirm from the harness transcript that every group went to `specwright-implementer-light` on a Haiku model, and that the orchestrator re-verified before each commit. Then run the same apply with the setting unset and confirm the groups went to `specwright-implementer`. Delete the scratch project afterwards. Verify by the transcript excerpts (agent name and model) in the record of 6.3.
-- [ ] 6.3 Write `evals/git-workflow/stress.md`, a dated section with:
+- [x] 6.3 Write `evals/git-workflow/stress.md`, a dated section with:
   - the models the transcripts showed;
   - per stress eval, the pass rates in both configurations;
   - `tiers.py`'s JSON;
