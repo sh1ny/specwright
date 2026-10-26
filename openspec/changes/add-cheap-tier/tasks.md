@@ -111,7 +111,7 @@
 
 ## 7. Release and integration
 
-- [ ] 7.1 Run every suite the M4 exit criteria list: `python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update`, `evals/release` and `evals/finish`. Also run `openspec schema validate specwright` and `openspec validate add-cheap-tier --strict`. Verify that all exit 0.
+- [x] 7.1 Run every suite the M4 exit criteria list: `python -m unittest discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update`, `evals/release` and `evals/finish`. Also run `openspec schema validate specwright` and `openspec validate add-cheap-tier --strict`. Verify that all exit 0.
 - [ ] 7.2 `bash skills/specwright-release/scripts/release.sh bump --to 0.8.0`; verify with `bash skills/specwright-release/scripts/release.sh check` exiting 0.
 
 ## Workflow follow-up
