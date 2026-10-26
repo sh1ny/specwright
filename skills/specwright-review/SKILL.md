@@ -34,7 +34,7 @@ Every review (design or pre-ship) picks its reviewer the same way:
 3. **`subagent`** → dispatch the `specwright-reviewer` agent with file paths, never your reasoning, then validate what it wrote with `record` (below). If no such agent is installed, stop and tell the user.
 4. **Background.** A review takes minutes, up to `review.timeout`. Start `run` in the background (Claude Code: `run_in_background`; other harnesses: their background or blocking exec) and wait for it to finish; do not poll it.
 5. **Exit 3 is a failed review** (`status: invalid`, `timeout`, or the reviewer crashed): nothing was reviewed. Never try the next route, never review the change yourself, and never treat it as a pass. Report the route, the status and the error, and offer to run it again. A failed pre-ship review stops ship and the local merge until a review passes.
-6. **Receipt.** Report the receipt from the output: the route, the skipped routes with their reasons, and the requested and actual model and level (`unknown` when the CLI does not say).
+6. **Receipt.** Report the receipt from the output: the route, the skipped routes with their reasons, and the requested and actual model and level (`unknown` when the CLI does not say). The receipt's `process_group` says how the reviewer's processes were held together (`job` on Windows, `session` on POSIX); `none` (with `process_group_reason`) means Windows could not make a job object, and a stopped reviewer's tree was then stopped from the reviewer's own process.
 
 ## Design reviews
 
