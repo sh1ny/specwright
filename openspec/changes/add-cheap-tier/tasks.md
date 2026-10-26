@@ -28,9 +28,9 @@
 | eval-grading → Stress-tier evals are marked by kind | Every kind is covered | evals/git-workflow/test_tiers.py | TestStressMarks.test_every_kind_marked | red |
 | eval-grading → Stress-tier evals are marked by kind | A kind loses its last mark | evals/git-workflow/test_tiers.py | TestStressMarks.test_missing_kind_named | red |
 | eval-grading → Stress-tier evals are marked by kind | An unknown kind | evals/git-workflow/test_tiers.py | TestStressMarks.test_unknown_kind_named | red |
-| eval-grading → The tier comparison names every difference | Same grades | evals/git-workflow/test_tiers.py | TestCompare.test_same_grades_exit_0 | red |
-| eval-grading → The tier comparison names every difference | The cheap configuration fails an assertion | evals/git-workflow/test_tiers.py | TestCompare.test_difference_named_with_assertion | red |
-| eval-grading → The tier comparison names every difference | A grading is missing or unreadable | evals/git-workflow/test_tiers.py | TestCompare.test_missing_or_unreadable_is_missing | red |
+| eval-grading → The tier comparison names every difference | Same grades | evals/git-workflow/test_tiers.py | TestCompare.test_same_grades_exit_0 | green |
+| eval-grading → The tier comparison names every difference | The cheap configuration fails an assertion | evals/git-workflow/test_tiers.py | TestCompare.test_difference_named_with_assertion | green |
+| eval-grading → The tier comparison names every difference | A grading is missing or unreadable | evals/git-workflow/test_tiers.py | TestCompare.test_missing_or_unreadable_is_missing | green |
 
 ## 1. Roadmap criterion and ADR
 
@@ -90,7 +90,7 @@
   - `TestCompare`, on temp iteration dirs: same grades exit 0; a cheap-only failure is named with both rates and the assertion text, exit 1; a missing or invalid `grading.json` is listed as missing, exit 1; unmarked evals are skipped.
   
   Confirm they fail because `tiers.py` and the marks do not exist.
-- [ ] 5.2 Implement `evals/git-workflow/tiers.py` (standard library only; `--base`, `--cheap`, `--evals` defaulting to the eval list next to it; one JSON document on stdout). Mark eval 3 `light-apply` and evals 55, 56 and 64 `watch` in `evals.json`. Verify `TestCompare` passes.
+- [x] 5.2 Implement `evals/git-workflow/tiers.py` (standard library only; `--base`, `--cheap`, `--evals` defaulting to the eval list next to it; one JSON document on stdout). Mark eval 3 `light-apply` and evals 55, 56 and 64 `watch` in `evals.json`. Verify `TestCompare` passes.
 - [ ] 5.3 Add `eval-implementer-light-packet` (kind `implementer`) to `evals.json`, using the add-greeting fixture. The prompt hands a packet for one task group and tells the agent to follow `agents/claude/specwright-implementer-light.md`. Add its `check` branch to `grade.py`: the group's tests exist and pass, no new commit, `tasks.md` unticked, the report gives the red and green evidence. Add a grader test in `evals/git-workflow/test_grade.py` against a scripted good run and a run that committed. Verify `python -m unittest discover evals/git-workflow` passes and flip the `TestStressMarks` rows green.
 - [ ] 5.4 Document the stress tier in the README Evals section and CONTRIBUTING. It is the stress-marked evals run through skill-creator with the executor on the default model (`base`) and on Haiku (`haiku`), then `python evals/git-workflow/grade.py <it>` and `python evals/git-workflow/tiers.py <it> --base base --cheap haiku`. It is a wording diagnostic, not a shipped configuration and not a CI gate. Verify with `grep -n tiers.py README.md CONTRIBUTING.md`.
 
