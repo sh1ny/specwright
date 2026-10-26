@@ -48,9 +48,9 @@
 | change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec synced by both members, deleted later | evals/finish/test_undo_plan.py | test_bulk_rerun_deletes_later_deleted_spec_again | green |
 | change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec recreated before the after-rerun script | evals/finish/test_undo_plan.py | test_after_rerun_stops_when_deleted_spec_recreated | green |
 | change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec synced only by the deferred member, deleted later | evals/finish/test_undo_plan.py | test_deleted_spec_only_in_deferred_member_left_deleted | green (existing behaviour, pinned by a new test) |
-| pr-descriptions → A code span after a closing keyword ends the closing list | Code span between keyword and reference | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_keyword_ends_list | red |
-| pr-descriptions → A code span after a closing keyword ends the closing list | Code span after a keyword in mid-line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_midline_keyword_ends_list | red |
-| pr-descriptions → A code span after a closing keyword ends the closing list | Code span after the list | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_list_ends_it | red |
+| pr-descriptions → A code span after a closing keyword ends the closing list | Code span between keyword and reference | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_keyword_ends_list | green |
+| pr-descriptions → A code span after a closing keyword ends the closing list | Code span after a keyword in mid-line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_midline_keyword_ends_list | green |
+| pr-descriptions → A code span after a closing keyword ends the closing list | Code span after the list | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_list_ends_it | green |
 | pr-descriptions → A code span after a closing keyword ends the closing list | Plain closing line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_plain_closing_line | green (existing behaviour, pinned by a new test) |
 
 Every test run below uses `python -m unittest` from the repo root: `discover evals/<suite>` for a whole suite, or `-k <name>` for one test.
@@ -105,7 +105,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 ## 9. pr-pair closing lists (#115)
 
 - [x] 9.1 Write `test_code_span_after_keyword_ends_list`, `test_code_span_after_midline_keyword_ends_list`, `test_code_span_after_list_ends_it` and `test_plain_closing_line` in `ClosingRendered` (string-literal bodies), and record their GitHub renderings with `python evals/pr-pair/record_markdown.py` (fenced as `KintsugiBot` through `as.sh`). Verify: `ClosingRecordings.test_every_closing_body_has_a_recording` passes, and the three red tests fail (31, 33 and 35 are intended).
-- [ ] 9.2 Make `RenderedLines` (`pr-pair.sh:853-889`) emit U+FFFC for a code or `pre` span instead of a space, and update its docstring and `intended_issues()`'s. Verify: the four tests and all `ClosingCheck`, `ClosedCheck`, `ClosingRendered` and `ClosingRecordings` tests pass; flip the rows green.
+- [x] 9.2 Make `RenderedLines` (`pr-pair.sh:853-889`) emit U+FFFC for a code or `pre` span instead of a space, and update its docstring and `intended_issues()`'s. Verify: the four tests and all `ClosingCheck`, `ClosedCheck`, `ClosingRendered` and `ClosingRecordings` tests pass; flip the rows green.
 
 ## 10. Integration and release
 
