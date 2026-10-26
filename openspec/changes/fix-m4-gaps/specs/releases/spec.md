@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: An unreadable commit changes the version only when its parent is not among its versions
-In the history walk of `release.sh check --main <ref>`, a commit whose parent is unreadable and on the branch SHALL be a change when it matched a version that parent did not match. Otherwise a commit whose own version is unreadable SHALL be no change when the version it is judged against is among the versions it matched, or is unreadable too. A change SHALL be a bump only when it matched at least one version and each is greater than the version it is judged against, or, when that one is unreadable, than each version it matched.
+In `check --main`'s history walk, a commit whose parent is unreadable and on the branch SHALL be a change when it matched a version the parent did not. Otherwise a commit whose own version is unreadable SHALL be no change when its base (the version it is judged against) is among those it matched, or is unreadable too. A change SHALL be a bump only when it matched a version and all it matched are greater than its base or, when the base is unreadable, than each version the base matched.
 
 #### Scenario: Bump reverted through an unreadable version
 - **WHEN** the branch bumps 0.4.2 to 0.5.0, a later commit sets `VERSION` back to `0.4.2` twice, a still later one removes the duplicate, and `origin/main` is at 0.5.0
