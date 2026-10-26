@@ -98,7 +98,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 ## 8. finish.sh: no network command, deletion carried through the rerun (#111, #110)
 
-- [ ] 8.1 Add `test_plan_runs_no_network_command` (origin URL pointing nowhere, a hanging fake `gh` on `PATH` that logs calls) and `test_finish_sh_has_no_network_command` (a static scan of `finish.sh` for `fetch`/`pull`/`push`/`ls-remote`/`gh ` calls, naming the line) to `evals/finish/test_undo_plan.py`. Verify: both pass; inject a temporary `git fetch` line into a copy of the script, confirm the scan fails naming that line, then remove the line.
+- [x] 8.1 Add `test_plan_runs_no_network_command` (origin URL pointing nowhere, a hanging fake `gh` on `PATH` that logs calls) and `test_finish_sh_has_no_network_command` (a static scan of `finish.sh` for `fetch`/`pull`/`push`/`ls-remote`/`gh ` calls, naming the line) to `evals/finish/test_undo_plan.py`. Verify: both pass; inject a temporary `git fetch` line into a copy of the script, confirm the scan fails naming that line, then remove the line.
 - [ ] 8.2 Write `test_bulk_rerun_deletes_later_deleted_spec_again`, `test_after_rerun_stops_when_deleted_spec_recreated` and `test_deleted_spec_only_in_deferred_member_left_deleted`. Verify: the first two fail (the spec is recreated; no guard), and the third passes.
 - [ ] 8.3 Implement design D8 in `undo-archive-plan`: keep `gone`, add the `test ! -e` guards before the first `openspec archive` and the `rm -f --` lines after the archives and merges for specs in a rerun member's delta, and reword the warning. Verify: the three tests and `discover evals/finish` pass; flip the rows green.
 
