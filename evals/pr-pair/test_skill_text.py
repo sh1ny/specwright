@@ -112,6 +112,20 @@ class SkillText(unittest.TestCase):
                         f"`cleanup-plan` is in {homes}, neither watch nor a cleanup section")
         self.assertLess(positions(sub("pair-state"))[0], plans[0], "`cleanup-plan` is described before `pair-state`")
 
+    def test_watch_waits_until_attention(self):
+        watch = self.section("watch")
+        step1 = watch[watch.index("1. Wait in the background"):watch.index("\n2. On wake")]
+        cmd = next((c for c in re.findall(r"`([^`]*pr-snapshot\.sh[^`]*)`", step1) if "--wait" in c), "")
+        self.assertTrue(cmd, "watch step 1 has no `pr-snapshot.sh ... --wait` command")
+        self.assertIn("--until attention", cmd, "the watch wait is not run with `--until attention`")
+        self.assertIn("filtered", step1, "step 1 does not name the `filtered` field of the wake")
+
+    def test_watch_timeout_counts_as_full_wait(self):
+        watch = self.section("watch")
+        ready = watch[watch.index("\n3. Ready"):]
+        self.assertRegex(ready, r"(?is)`timeout` wake[^.]*full wait[^.]*filtered",
+                         "the ready rule does not count a `timeout` wake as a full wait even with filtered polls")
+
     def refresh_bullet(self):
         watch = self.section("watch")
         at = watch.find("refresh:head")

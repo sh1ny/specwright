@@ -23,8 +23,8 @@
 | pr-watch → A wait can skip wakes that are only check progress | Feedback arrives during check progress | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_feedback_during_checks_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | A conflict appears | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_dirty_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | Unknown mode or no wait | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_bad_until_exits_2_without_gh | green |
-| pr-watch → Watch waits for attention | Watch's wait command | evals/pr-pair/test_skill_text.py | test_watch_waits_until_attention | red |
-| pr-watch → Watch waits for attention | Ready after a quiet wait with a check re-run | evals/pr-pair/test_pr_snapshot.py + evals/pr-pair/test_skill_text.py | TestUntilAttention.test_rerun_back_to_baseline_times_out + test_watch_timeout_counts_as_full_wait | red |
+| pr-watch → Watch waits for attention | Watch's wait command | evals/pr-pair/test_skill_text.py | test_watch_waits_until_attention | green |
+| pr-watch → Watch waits for attention | Ready after a quiet wait with a check re-run | evals/pr-pair/test_pr_snapshot.py + evals/pr-pair/test_skill_text.py | TestUntilAttention.test_rerun_back_to_baseline_times_out + test_watch_timeout_counts_as_full_wait | green |
 | eval-grading → Stress-tier evals are marked by kind | Every kind is covered | evals/git-workflow/test_tiers.py | TestStressMarks.test_every_kind_marked | red |
 | eval-grading → Stress-tier evals are marked by kind | A kind loses its last mark | evals/git-workflow/test_tiers.py | TestStressMarks.test_missing_kind_named | red |
 | eval-grading → Stress-tier evals are marked by kind | An unknown kind | evals/git-workflow/test_tiers.py | TestStressMarks.test_unknown_kind_named | red |
@@ -81,7 +81,7 @@
   - document it in the header comment.
   
   Verify `TestUntilAttention` and the whole `python -m unittest discover evals/pr-pair` pass. Flip the six filter rows green.
-- [ ] 4.3 Write failing `test_watch_waits_until_attention` and `test_watch_timeout_counts_as_full_wait` in `evals/pr-pair/test_skill_text.py`. Then edit `skills/specwright-pr/SKILL.md`: watch step 1's command gets `--until attention` and the `filtered` field, and step 3's ready rule says a `timeout` wake counts as a full wait with no new activity even with filtered polls. Also update the README's `pr-snapshot.sh` row. Verify both tests pass and flip the rows green.
+- [x] 4.3 Write failing `test_watch_waits_until_attention` and `test_watch_timeout_counts_as_full_wait` in `evals/pr-pair/test_skill_text.py`. Then edit `skills/specwright-pr/SKILL.md`: watch step 1's command gets `--until attention` and the `filtered` field, and step 3's ready rule says a `timeout` wake counts as a full wait with no new activity even with filtered polls. Also update the README's `pr-snapshot.sh` row. Verify both tests pass and flip the rows green.
 
 ## 5. The stress tier tooling
 
