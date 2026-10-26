@@ -65,6 +65,12 @@
 # regex with one capture group; the first entry is the primary file), release.tag (v{version}),
 # release.github_release (true), release.auto (false), pr.merge_method (rebase is refused with releases on).
 # Exit: 0 done, 1 stop (the JSON has "ok": false, "error" and "message"), 2 usage, 3 a git or gh network call failed.
+# Every network command (git ls-remote, fetch, push, every gh) runs under bounded.py (next to this script): 120 s (300 s for the
+# paginated closed-PR read) and 32 MiB per command. A bound stops the command's whole process tree and ends the run as exit 3,
+# "error": "deadline_exceeded" or "response_too_large", naming the command; nothing is retried. After a cut-off tag push publish
+# reads origin's tag back (done only when it is the local tag object at the release commit; another commit is tag_conflict,
+# another tag object tag_mismatch); after a cut-off `gh release create` it reads the release back (found = done). A failed
+# read-back is exit 3 with "state": "unknown".
 # Needs bash, git and Python 3.8+.
 set -euo pipefail
 
@@ -74,8 +80,13 @@ for c in python3 python; do
 done
 [ -n "$py" ] || { echo '{"ok":false,"error":"no_python","message":"release.sh needs python 3.8+"}'; exit 2; }
 
+RELEASE_DIR=$(cd "$(dirname "$0")" && pwd -P)
+if command -v cygpath >/dev/null 2>&1; then RELEASE_DIR=$(cygpath -m "$RELEASE_DIR"); fi
+export RELEASE_DIR
+
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import bisect
+import importlib.util
 import glob as globmod
 import json
 import os
@@ -107,6 +118,30 @@ def emit(obj, code=0):
     sys.exit(code)
 
 
+class _Bounded:
+    """The bounded runner (bounded.py next to this script), loaded by path on first use: -I keeps this script's directory off
+    sys.path."""
+    mod = None
+
+    def __getattr__(self, name):
+        if _Bounded.mod is None:
+            spec = importlib.util.spec_from_file_location("bounded", os.path.join(os.environ["RELEASE_DIR"], "bounded.py"))
+            _Bounded.mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_Bounded.mod)
+        return getattr(_Bounded.mod, name)
+
+
+bounded = _Bounded()
+
+
+class Cut(Exception):
+    """A network command stopped by a bound: .limit is deadline_exceeded or response_too_large, .call the command shown."""
+
+    def __init__(self, limit, call):
+        super().__init__(f"{limit}: {call}")
+        self.limit, self.call = limit, call
+
+
 def run(cmd, cwd=None, data=None, env=None):
     try:
         return subprocess.run(cmd, cwd=cwd, env=env or ENV, input=data, capture_output=True)
@@ -114,8 +149,30 @@ def run(cmd, cwd=None, data=None, env=None):
         return subprocess.CompletedProcess(cmd, 127, b"", str(e).encode())
 
 
+def net(cmd, shown, cwd=None, env=None, paged=False):
+    """A network command under the deadline and the byte bound (bounded.py). Returns a CompletedProcess with bytes; raises Cut
+    when a bound stopped it: never a partial answer. `shown` names the command in the message."""
+    try:
+        r = bounded.run_bounded(cmd, cwd=cwd, env=env or ENV, paged=paged)
+    except OSError as e:
+        return subprocess.CompletedProcess(cmd, 127, b"", str(e).encode())
+    if r.limit:
+        raise Cut(r.limit, shown)
+    return subprocess.CompletedProcess(cmd, r.rc, r.stdout.encode("utf-8"), r.stderr.encode("utf-8"))
+
+
+def cut_stop(c, what="a re-run of publish resumes", **extra):
+    """The Stop for a bound: error is the limit, exit 3, naming the command."""
+    return Stop(c.limit, f"{c.limit}: {c.call} was stopped by its bound; {what}", code=3, call=c.call, **extra)
+
+
 def git(d, *args, data=None):
     return run(["git", *args], cwd=d, data=data)
+
+
+def git_net(d, *args):
+    """A git command that reaches origin (ls-remote, fetch, push)."""
+    return net(["git", *args], "git " + " ".join(args[:2]), cwd=d)
 
 
 def text_of(r):
@@ -867,7 +924,7 @@ def published_tags(st):
         return local_tags(st)
     if getattr(st, "_published", None) is not None:
         return st._published
-    r = git(st.root, "ls-remote", "--tags", "--refs", "origin")
+    r = git_net(st.root, "ls-remote", "--tags", "--refs", "origin")
     if r.returncode != 0:
         shown = "git ls-remote --tags --refs origin"
         raise Stop("remote_tags_unreadable", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; no tag was written",
@@ -1082,11 +1139,12 @@ def code_slug(st):
     return slug
 
 
-def gh_run(st, *args):
-    """`gh <args>` in the code repo with GH_REPO unset (the repo is always named by the call). Through bash, so a shell-script
-    gh (a shim) runs on Windows too."""
+def gh_run(st, *args, paged=False):
+    """`gh <args>` in the code repo with GH_REPO unset (the repo is always named by the call), under the network bounds. Through
+    bash, so a shell-script gh (a shim) runs on Windows too. Raises Cut when a bound stopped it."""
     env = {k: v for k, v in ENV.items() if k != "GH_REPO"}
-    return run([BASH, "-c", 'exec gh "$@"', "gh", *args] if BASH else ["gh", *args], cwd=st.root, env=env)
+    return net([BASH, "-c", 'exec gh "$@"', "gh", *args] if BASH else ["gh", *args], "gh " + " ".join(args[:2]), cwd=st.root,
+               env=env, paged=paged)
 
 
 def merged_pulls(st, ref):
@@ -1094,7 +1152,7 @@ def merged_pulls(st, ref):
     slug = code_slug(st)
     branch = ref[len("origin/"):] if ref.startswith("origin/") else ref
     url = f"repos/{slug}/pulls?state=closed&base={branch}&per_page=100"
-    r = gh_run(st, "api", "--paginate", url)
+    r = gh_run(st, "api", "--paginate", url, paged=True)
     shown = f"gh api --paginate {url}"
     if r.returncode != 0:
         raise Stop("pr_discovery_failed", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}", code=3, call=shown)
@@ -1249,7 +1307,7 @@ def remote_tag(st, tag):
     when origin cannot be read."""
     if origin_url(st) is None:
         return None, None, None
-    r = git(st.root, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
+    r = git_net(st.root, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}")
     if r.returncode != 0:
         shown = f"git ls-remote --tags origin refs/tags/{tag}"
         raise Stop("remote_tags_unreadable", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; no tag was written",
@@ -1360,7 +1418,10 @@ def release_state(st, tag):
     slug = release_slug(st)
     if not slug:
         return "not_github", None
-    r = gh_run(st, "release", "view", tag, "--repo", slug)
+    try:
+        r = gh_run(st, "release", "view", tag, "--repo", slug)
+    except Cut as c:
+        raise cut_stop(c)
     if r.returncode == 0:
         return "existing", slug
     if "release not found" in err_of(r).lower():
@@ -1370,13 +1431,30 @@ def release_state(st, tag):
                code=3, call=shown)
 
 
+def release_read_back(st, tag, slug, c):
+    """D5: `gh release create` was stopped by a bound. Read the release back (one `gh release view`, never retried): found counts
+    as done; not found stops with the limit; a failed read-back leaves the state unknown."""
+    try:
+        state, _ = release_state(st, tag)
+    except (Stop, Cut):
+        raise Stop(c.limit, f"{c.limit}: {c.call} was stopped by its bound and reading the release back failed too: the state "
+                   f"of the GitHub release is unknown. The tag {tag} is on origin and a re-run reads the release again",
+                   code=3, call=c.call, state="unknown")
+    if state == "existing":
+        return "created", f"https://github.com/{slug}/releases/tag/{tag}"
+    raise cut_stop(c, f"the release was not created (read back). The tag {tag} is on origin and a re-run creates only the release")
+
+
 def github_release(st, tag):
     """D6 step 4. Returns (state, url): created | existing | disabled | not_github."""
     state, slug = release_state(st, tag)
     if state == "absent":
         shown = f"gh release create {tag} --repo {slug} --verify-tag"
-        r = with_file(tag_message(st, tag), lambda path: gh_run(st, "release", "create", tag, "--repo", slug, "--verify-tag",
-                                                               "--title", tag, "--notes-file", path))
+        try:
+            r = with_file(tag_message(st, tag), lambda path: gh_run(st, "release", "create", tag, "--repo", slug, "--verify-tag",
+                                                                   "--title", tag, "--notes-file", path))
+        except Cut as c:
+            return release_read_back(st, tag, slug, Cut(c.limit, f"gh release create {tag}"))
         if r.returncode == 0:
             out = text_of(r).splitlines()
             return "created", out[-1] if out else None
@@ -1385,6 +1463,42 @@ def github_release(st, tag):
         raise Stop("release_create_failed", f"{shown} failed: {err_of(r) or 'exit ' + str(r.returncode)}; the tag {tag} is on "
                    "origin, a re-run creates only the release", code=3, call=shown)
     return state, None
+
+
+def conflict_stop(tag, v, sha, at, where, written):
+    return Stop("tag_conflict", f"tag {tag} already points at {at} {where}, but the release commit for {v} is {sha}; "
+                f"{written}. Fix the tag by hand: publish never moves, deletes or forces a tag",
+                tag=tag, tag_commit=at, release_commit=sha, where=where)
+
+
+def mismatch_stop(tag, local_obj, remote_obj, written):
+    return Stop("tag_mismatch", f"tag {tag} is at the release commit both locally and on origin, but as different tag "
+                f"objects (local {local_obj[:12]}, origin {remote_obj[:12]}): a lost push race. The release body "
+                f"must be origin's tag message, and {written}. Delete the local tag by hand "
+                f"(git tag -d {tag}); a re-run then fetches origin's: publish never moves, deletes or forces a tag",
+                tag=tag, local_object=local_obj, remote_object=remote_obj)
+
+
+def push_read_back(st, tag, v, sha, c):
+    """D5: the tag push was stopped by a bound, so it may or may not have landed. Read origin's tag back (one ls-remote, never
+    retried): done only when it is the local tag object at the release commit; another commit is tag_conflict, the same commit
+    as another tag object is tag_mismatch; absent stops with the limit; an unreadable origin leaves the state unknown."""
+    try:
+        commit, _, obj = remote_tag(st, tag)
+    except (Stop, Cut):
+        raise Stop(c.limit, f"{c.limit}: {c.call} was stopped by its bound and reading origin's {tag} back failed too: the state "
+                   f"of the tag on origin is unknown; no GitHub release was created. The local tag {tag} stays, and a re-run "
+                   "reads origin again before it pushes", code=3, call=c.call, state="unknown")
+    if commit is None:
+        raise cut_stop(c, f"the tag {tag} is not on origin (read back), so nothing landed. The local tag stays and a re-run "
+                          "pushes it; no GitHub release was created")
+    if commit != sha:
+        raise conflict_stop(tag, v, sha, commit, "on origin", f"the push was stopped by {c.limit} and another clone's tag won; "
+                            "no GitHub release was created")
+    local_obj = text_of(git(st.root, "rev-parse", f"refs/tags/{tag}"))
+    if obj != local_obj:
+        raise mismatch_stop(tag, local_obj, obj, f"the push was stopped by {c.limit} and another clone's tag won; no GitHub "
+                            "release was created")
 
 
 def cmd_publish(st, a):
@@ -1404,9 +1518,7 @@ def cmd_publish(st, a):
     local, remote = doc["tag_local"], doc["tag_remote"]
     for where, at in (("locally", local), ("on origin", remote)):
         if at and at != sha:
-            raise Stop("tag_conflict", f"tag {tag} already points at {at} {where}, but the release commit for {v} is {sha}; "
-                       "nothing was written. Fix the tag by hand: publish never moves, deletes or forces a tag",
-                       tag=tag, tag_commit=at, release_commit=sha, where=where)
+            raise conflict_stop(tag, v, sha, at, where, "nothing was written")
     if doc["tag_lightweight"]:
         where = " and ".join(doc["tag_lightweight"])
         raise Stop("lightweight_tag", f"tag {tag} exists {where} as a lightweight tag at the release commit; a release is an "
@@ -1414,16 +1526,12 @@ def cmd_publish(st, a):
                    tag=tag, where=doc["tag_lightweight"])
     objs = doc["tag_object"]
     if local and remote and objs["local"] != objs["remote"]:
-        raise Stop("tag_mismatch", f"tag {tag} is at the release commit both locally and on origin, but as different tag "
-                   f"objects (local {objs['local'][:12]}, origin {objs['remote'][:12]}): a lost push race. The release body "
-                   "must be origin's tag message, and nothing was written. Delete the local tag by hand "
-                   f"(git tag -d {tag}); a re-run then fetches origin's: publish never moves, deletes or forces a tag",
-                   tag=tag, local_object=objs["local"], remote_object=objs["remote"])
+        raise mismatch_stop(tag, objs["local"], objs["remote"], "nothing was written")
     # D6: read each step's state, do only what is missing
     if local:
         tag_local = "existing"
     elif remote:
-        r = git(st.root, "fetch", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        r = git_net(st.root, "fetch", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
         if r.returncode != 0:
             raise Stop("tag_fetch_failed", f"git fetch origin refs/tags/{tag}:refs/tags/{tag} failed: {err_of(r)}; a re-run retries",
                        code=3, call=f"git fetch origin refs/tags/{tag}")
@@ -1439,7 +1547,11 @@ def cmd_publish(st, a):
     if remote:
         tag_remote = "existing"
     else:
-        r = git(st.root, "push", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        try:
+            r = git_net(st.root, "push", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        except Cut as c:
+            push_read_back(st, tag, v, sha, Cut(c.limit, f"git push origin refs/tags/{tag}"))  # returns only when it landed
+            r = subprocess.CompletedProcess([], 0, b"", b"")
         if r.returncode != 0:
             raise Stop("tag_push_failed", f"git push origin refs/tags/{tag}:refs/tags/{tag} failed: {err_of(r) or 'exit ' + str(r.returncode)}; "
                        f"the local tag {tag} exists and a re-run pushes it (or stops with tag_mismatch if another clone's {tag} "
@@ -1491,6 +1603,8 @@ try:
     main(sys.argv[1:])
 except Stop as e:
     emit(e.obj(), e.code)
+except Cut as e:  # a bound stopped a network command nobody handles by name
+    emit(cut_stop(e).obj(), 3)
 except SystemExit:
     raise
 except Exception as e:  # a bug must still answer with one JSON document

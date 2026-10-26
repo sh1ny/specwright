@@ -62,6 +62,8 @@ Show the error and tag nothing more. None is fixed by moving, deleting or forcin
 | 1 | an older version is untagged | publish it first (`untagged` lists it) |
 | 1 | `version_not_ahead_of_main`: the branch bumped to a version not greater than main's | rerun `bump --to` with a greater version, commit it, and ship or merge again |
 | 3 | network or fence failure | report it; a re-run of publish resumes |
+| 3 | `deadline_exceeded` or `response_too_large`: a `git` or `gh` network command ran past 120 s (300 s for the closed-PR read) or printed more than 32 MiB, and was stopped with everything it started | report the command the message names; nothing was retried, and a re-run of publish resumes. After a cut-off tag push or `gh release create` publish reads the result back: a tag on origin that is the local tag object at the release commit, or a release found, counts as done; otherwise the message says what is not done and that a re-run does it |
+| 3 | `state: unknown` with `deadline_exceeded` or `response_too_large`: a tag push or `gh release create` was cut off and reading it back failed too | report that the tag's (or release's) state on origin is unknown; check it by hand (`git ls-remote --tags origin`, `gh release view`) before a re-run |
 
 ## Backfill
 
