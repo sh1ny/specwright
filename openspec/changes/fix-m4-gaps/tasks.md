@@ -110,7 +110,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 ## 10. Integration and release
 
 - [x] 10.1 Check the codex event shape: run the real codex once with `codex exec --json` and a one-line prompt where the codex route works on this machine, and confirm that the last `item.completed` / `agent_message` text matches what `codex_scan` reads. If codex cannot run here (#118), compare against codex's `exec/src/exec_events.rs` instead and say which check was done in the PR description.
-- [ ] 10.2 Run every suite the M5 exit criterion names: `discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update`, `evals/release` and `evals/finish`. Verify: all pass on Windows, and the Test map has no `red` row left.
+- [x] 10.2 Run every suite the M5 exit criterion names: `discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update`, `evals/release` and `evals/finish`. Verify: all pass on Windows, and the Test map has no `red` row left.
 - [x] 10.3 `release.sh bump --to 0.8.1`. Verify: `release.sh check` reports 0.8.1, with `VERSION`, the README badge and every `skills/*/SKILL.md` version agreeing.
 - [ ] 10.4 `openspec validate fix-m4-gaps --strict` and `openspec schema validate specwright`. Verify: both pass.
 
