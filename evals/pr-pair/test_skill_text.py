@@ -586,6 +586,7 @@ class AgentMerge(unittest.TestCase):
 
     def test_cleanup_offers_one_roadmap_mode_after_an_agent_merge(self):
         self.assertRegex(self.cleanup(), r"(?is)specwright-roadmap[^.]*\*\*close\*\*[^.]*\*\*next\*\*", "no roadmap close/next offer after an agent merge")
+        self.assertRegex(self.cleanup(), r"(?is)next step\*\*.{0,300}?\bask the user as a question\b", "the roadmap offer is not phrased as a question to the user")
 
     def test_never_admin_auto_queue_or_other_method(self):
         never = self.never()

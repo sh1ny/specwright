@@ -193,8 +193,8 @@ def roadmap_offer(rep):
     one (or, and, / or a comma, then only whitespace or markup) is bound too. A bare next or close elsewhere does not count, and a
     mode whose clause rules it out (not, n't, never, no longer) is not offered, even in a sentence that asks: that clause explains
     why it does not apply. A negation in another clause of the sentence (`I didn't tag anything; run specwright-roadmap close?`)
-    does not count."""
-    rep = rep.lower()
+    does not count. Emphasis markup (`**`, `__`, `*`, `_` around a word) is dropped first, so `specwright-roadmap` **close** binds."""
+    rep = re.sub(r"\*\*|__|(?<!\w)[*_]|[*_](?!\w)", "", rep.lower())
     units = [s for s in sentences(rep) if asks_about(s, "roadmap")]
     for b in re.split(r"\n\s*\n", rep):
         if "?" in b:  # a question over the stated step or its option list: what they name is offered
@@ -234,8 +234,10 @@ IMPL_GREEN = re.compile(r"\bran \d+ tests?\b.*\b(?:ok|pass(?:ed|es|ing)?)\b|unit
 
 
 def evidence_lines(rep, pattern):
-    """Indexes of the report lines that show a concrete run (name a test or the unittest command) and match `pattern`, unnegated."""
-    return [i for i, l in enumerate(rep.splitlines()) if pattern.search(l) and IMPL_RUN.search(l) and not IMPL_NEGATED.search(l)]
+    """Indexes of the report lines that show a concrete run (name a test or the unittest command) and match `pattern`, unnegated. A
+    negation inside a backticked span (quoted output such as `has no attribute 'greet'`) does not negate the line."""
+    return [i for i, l in enumerate(rep.splitlines())
+            if pattern.search(l) and IMPL_RUN.search(l) and not IMPL_NEGATED.search(re.sub(r"`[^`]*`", "", l))]
 
 
 def check_implementer_light(repo, branch, status, rep):

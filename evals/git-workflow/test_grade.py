@@ -255,6 +255,11 @@ class RoadmapOffer(unittest.TestCase):
         self.assertEqual(grade.roadmap_offer("the Next milestone (M3)"), set())
         self.assertEqual(grade.roadmap_offer("Is the Next milestone (M3) ready for the roadmap?"), set())
 
+    def test_mode_in_emphasis_after_the_backticked_command_is_bound(self):
+        rep = "Next step: M2 is done. Shall I run `specwright-roadmap` **close** for M2 (run login: eval-bot)?"
+        self.assertEqual(grade.roadmap_offer(rep), {"close"})
+        self.assertEqual(grade.roadmap_offer("Shall I run __specwright-roadmap__ _next_ for M3?"), {"next"})
+
     def test_mode_after_a_sentence_end_is_not_bound(self):
         self.assertEqual(grade.roadmap_offer("Merged per the roadmap. Next, run specwright-roadmap close for M2?"), {"close"})
 
@@ -1050,6 +1055,19 @@ class ReleaseEvals(unittest.TestCase):
         before = subprocess.run(["bash", "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
         self.assertNotEqual(before.returncode, 0, "a pull before the merge must fail at the unreachable proxy")
 
+    def test_agent_fixture_serves_the_pre_merge_main_to_the_version_checks_fetch(self):
+        _, repo = self.fixture("eval-agent-merge-release-auto")
+        main = grade.git(repo, "rev-parse", "main")
+        r = subprocess.run(["bash", "-c", "source eval.env && git fetch -q --no-tags origin main"], cwd=repo, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), main, "a fetch before the merge must see main without the squash")
+        check = subprocess.run(["bash", str(Path(__file__).resolve().parents[2] / "skills" / "specwright-release" / "scripts" / "release.sh"), "check", "--main", "origin/main"],
+                               cwd=repo, capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.agent_run(repo, publish=False)
+        self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), grade.git(repo / "ob.git", "rev-parse", "main"),
+                         "a fetch after the merge must see the squash")
+
     def test_agent_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-agent-merge-release-auto")
         self.agent_run(repo)
@@ -1354,6 +1372,14 @@ class ImplementerLightPacket(unittest.TestCase):
         self.assertEqual(self.failed(self.fixture(no_red)), ["The report gives red evidence: a failing run before the implementation"])
         no_green = "- STATUS: DONE\n- Tests: test_greet_named -> red-confirmed\n  - `python -m unittest -q` failed before the implementation\n"
         self.assertEqual(self.failed(self.fixture(no_green)), ["The report gives green evidence: a passing run of the group's tests"])
+
+    def test_negation_inside_quoted_error_text_still_counts_as_red(self):
+        rep = ("- STATUS: DONE\n- Tests: test_greet_named -> red-confirmed, then passing\n"
+               "  1. `python -m unittest -q` -> FAILED (errors=2): `AttributeError: module 'greet' has no attribute 'greet'`\n"
+               "  2. `python -m unittest -q` -> Ran 4 tests, OK\n")
+        self.assertEqual(self.failed(self.fixture(rep)), [])
+        negated = "- STATUS: DONE\n  - `python -m unittest -q` did not fail\n  - `python -m unittest -q` Ran 4 tests, OK\n"
+        self.assertIn("The report gives red evidence: a failing run before the implementation", self.failed(self.fixture(negated)))
 
     def test_a_blocked_or_missing_status_fails(self):
         rest = self.GOOD.split("\n", 1)[1]
