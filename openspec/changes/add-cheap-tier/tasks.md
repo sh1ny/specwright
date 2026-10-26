@@ -62,7 +62,7 @@
 
 ## 4. The wake filter
 
-- [ ] 4.1 Write the failing `TestUntilAttention` tests in `evals/pr-pair/test_pr_snapshot.py` with the fake `gh` and short `--interval`/`--timeout`, one per pr-watch scenario:
+- [x] 4.1 Write the failing `TestUntilAttention` tests in `evals/pr-pair/test_pr_snapshot.py` with the fake `gh` and short `--interval`/`--timeout`, one per pr-watch scenario:
   - a check passes while two are still pending: filtered, then the timeout wake has `filtered >= 1`;
   - the last pending check passes: wakes `changed`;
   - a pending check fails with others pending: wakes `changed`;

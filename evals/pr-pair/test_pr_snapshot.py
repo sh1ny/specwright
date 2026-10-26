@@ -655,6 +655,113 @@ class WatchElapsed(SnapCase):
         self.assertLess(took, 90, "woke at once, not at the timeout")
 
 
+def run(name, state="COMPLETED", conclusion="SUCCESS"):
+    """A raw CheckRun node for the fake's statusCheckRollup (state IN_PROGRESS has no conclusion)."""
+    return {"__typename": "CheckRun", "name": name, "status": state,
+            "conclusion": None if state != "COMPLETED" else conclusion}
+
+
+PASS, PEND, FAIL = {}, {"state": "IN_PROGRESS"}, {"conclusion": "FAILURE"}
+
+
+def checks(**by_name):
+    """checks(a=PASS, b=PEND, c=FAIL) -> raw CheckRun nodes."""
+    return [run(n, **kw) for n, kw in by_name.items()]
+
+
+class TestUntilAttention(SnapCase):
+    """pr-watch: `--wait --until attention` skips wakes that are only check progress (design D3).
+
+    A `sleep` shim on PATH really sleeps 0.2 s, and on each call applies the next step of FAKE_STEPS to the fake's state
+    ({"checks": [...]} | {"fields": {...}} | {"comment": [author, body]}), so the state changes between polls. Once the steps
+    are spent the state stays as it is."""
+
+    def setUp(self):
+        super().setUp()
+        helper = self.tmp / "steps.py"
+        helper.write_text(
+            "import json, os, sys, time\n"
+            f"sys.path.insert(0, {str(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
+            "import gh\n"
+            "p = os.environ['FAKE_GH_STATE']\n"
+            "c = p + '.step'\n"
+            "n = int(open(c).read()) if os.path.exists(c) else 0\n"
+            "steps = json.loads(os.environ.get('FAKE_STEPS', '[]'))\n"
+            "if n < len(steps):\n"
+            "    st = json.load(open(p, encoding='utf-8'))\n"
+            "    s = steps[n]\n"
+            "    pull = st['repos']['o/n']['pulls'][0]\n"
+            "    if 'checks' in s:\n"
+            "        pull['checks'] = s['checks']\n"
+            "    if 'fields' in s:\n"
+            "        pull.setdefault('fields', {}).update(s['fields'])\n"
+            "    if 'comment' in s:\n"
+            "        gh.add_pr_comment(st, 'o/n', 7, s['comment'][0], s['comment'][1])\n"
+            "    json.dump(st, open(p, 'w', encoding='utf-8', newline='\\n'), indent=2)\n"
+            "open(c, 'w').write(str(n + 1))\n"
+            "time.sleep(0.2)\n", encoding="utf-8")
+        sleep = self.tmp / "bin" / "sleep"
+        sleep.write_text(f'#!/bin/sh\nexec python "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
+        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+
+    def wait(self, baseline, steps, *args, timeout=120):
+        """Run the watch with `--until attention`; the parsed wake line."""
+        self.set_checks(baseline)
+        r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", timeout, *args,
+                              env={"FAKE_STEPS": json.dumps(steps)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    def test_check_progress_is_filtered(self):
+        # one of three pending passes; two still pending: keep waiting, and the timeout wake counts the skipped poll
+        doc = self.wait(checks(a=PEND, b=PEND, c=PEND), [{"checks": checks(a=PASS, b=PEND, c=PEND)}], timeout=12)
+        self.assertEqual(doc["wake"], "timeout")
+        self.assertGreaterEqual(doc["filtered"], 1)
+
+    def test_last_check_done_wakes(self):
+        doc = self.wait(checks(a=PASS, b=PEND), [{"checks": checks(a=PASS, b=PASS)}])
+        self.assertEqual(doc["wake"], "changed")
+        self.assertEqual(doc["filtered"], 0)
+
+    def test_new_failure_wakes(self):
+        # a baseline-pending check fails while another is still pending
+        doc = self.wait(checks(a=PEND, b=PEND), [{"checks": checks(a=FAIL, b=PEND)}])
+        self.assertEqual(doc["wake"], "changed")
+
+    def test_feedback_during_checks_wakes(self):
+        doc = self.wait(checks(a=PEND, b=PEND), [{"comment": ["rev", "please change this"]}])
+        self.assertEqual(doc["wake"], "changed")
+        self.assertEqual(len(doc["snapshot"]["comments"]), 1)
+
+    def test_dirty_wakes(self):
+        doc = self.wait(checks(a=PEND, b=PEND), [{"fields": {"mergeStateStatus": "DIRTY"}}])
+        self.assertEqual(doc["wake"], "changed")
+        self.assertEqual(doc["snapshot"]["merge_state"], "DIRTY")
+
+    def test_rerun_back_to_baseline_times_out(self):
+        # every check passed; one is re-run (pending, filtered) and passes again: the snapshot equals the baseline
+        doc = self.wait(checks(a=PASS, b=PASS), [{"checks": checks(a=PEND, b=PASS)}, {"checks": checks(a=PASS, b=PASS)}],
+                        timeout=12)
+        self.assertEqual(doc["wake"], "timeout")
+        self.assertGreaterEqual(doc["filtered"], 1)
+
+    def test_without_until_a_check_passing_wakes(self):
+        self.set_checks(checks(a=PEND, b=PEND))
+        r = self.snapshot_run("--wait", "--interval", "1", "--timeout", 120,
+                              env={"FAKE_STEPS": json.dumps([{"checks": checks(a=PASS, b=PEND)}])})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout.strip().splitlines()[-1])["wake"], "changed")
+
+    def test_bad_until_exits_2_without_gh(self):
+        for args in (("--wait", "--until", "quiet"), ("--until", "attention")):
+            with self.subTest(args=args):
+                r = self.snapshot_run(*args)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("--until", r.stderr)
+                self.assertNotIn("unknown argument", r.stderr)
+                self.assertEqual(self.gh_calls(), [], "no gh call")
+
+
 class LookupLimits(SnapCase):
     """A named limit on the clock or push-time lookup fails the snapshot; it never takes that lookup's fallback (review
     round 3: an activity timeout must not turn the push cutoff into first_seen)."""
