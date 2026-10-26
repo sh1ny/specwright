@@ -881,6 +881,7 @@ exit "$?"
 : <<'PYSRC_EOF'
 #---PYSRC---
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -1349,15 +1350,26 @@ def highest_tag(o, major, minor):
     rc, out = git(o["download"], "remote", "get-url", "origin")
     if rc != 0 or not out.strip():
         return None, "the download has no origin to list tags from"
+    # bounded.py is loaded here only, from the download (ADR 0011), so a download without specwright-pr is affected only
+    # when a tag must be named; a limit or a missing bounded.py becomes the reason of the store_version refusal.
+    path = Path(o["download"]) / "skills" / "specwright-pr" / "scripts" / "bounded.py"
+    if not path.is_file():
+        return None, "bounded.py missing from the download"
     try:
-        r = subprocess.run(["git", "ls-remote", "--tags", "--refs", out.decode("utf-8", "replace").strip()], capture_output=True,
-                           timeout=60, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
-    except (OSError, subprocess.SubprocessError) as e:
+        spec = importlib.util.spec_from_file_location("bounded", path)
+        bounded = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bounded)
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        cmd = ["git", "ls-remote", "--tags", "--refs", out.decode("utf-8", "replace").strip()]
+        r = bounded.run_bounded(cmd, deadline=min(60, bounded.resolve(None, None, env, False)[0]), env=env)
+    except Exception as e:  # a broken bounded.py or a spawn failure is a reason, not a crash
         return None, f"git ls-remote failed: {e}"
-    if r.returncode != 0:
-        return None, "git ls-remote --tags failed: " + (r.stderr.decode("utf-8", "replace").strip().splitlines() or ["no output"])[0]
+    if r.limit:
+        return None, f"{r.limit}: git ls-remote --tags"
+    if r.rc != 0:
+        return None, "git ls-remote --tags failed: " + (r.stderr.strip().splitlines() or ["no output"])[0]
     best = None
-    for line in r.stdout.decode("utf-8", "replace").splitlines():
+    for line in r.stdout.splitlines():
         m = re.search(r"refs/tags/v(\d+)\.(\d+)\.(\d+)$", line.strip())
         if m and (int(m.group(1)), int(m.group(2))) == (major, minor):
             v = tuple(int(x) for x in m.groups())

@@ -41,8 +41,8 @@
 | releases → A cut-off tag push or release creation is decided by a read-back | Release creation cut off before it landed | evals/release/test_release.py | test_release_create_cut_off_not_found | green |
 | releases → A cut-off tag push or release creation is decided by a read-back | Read-back fails too | evals/release/test_release.py | test_push_cut_off_read_back_fails_state_unknown | green |
 | install-update → The release-tag lookup is bounded | Tags listed in time | evals/update/test_store.py | test_other_project_minor_refused_names_matching_tag | green |
-| install-update → The release-tag lookup is bounded | Hung tag lookup | evals/update/test_store.py | test_hung_tag_lookup_names_deadline_exceeded | red |
-| install-update → The release-tag lookup is bounded | Oversized tag list | evals/update/test_store.py | test_oversized_tag_list_names_response_too_large | red |
+| install-update → The release-tag lookup is bounded | Hung tag lookup | evals/update/test_store.py | test_hung_tag_lookup_names_deadline_exceeded | green |
+| install-update → The release-tag lookup is bounded | Oversized tag list | evals/update/test_store.py | test_oversized_tag_list_names_response_too_large | green |
 | change-finish → finish.sh runs no network command | Plan with an unreachable origin | evals/finish/test_undo_plan.py | test_plan_runs_no_network_command | green (existing behaviour, pinned by a new test) |
 | change-finish → finish.sh runs no network command | A network command added to finish.sh | evals/finish/test_undo_plan.py | test_finish_sh_has_no_network_command | green (static scan; proven red by a temporary injected line) |
 | change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec synced by both members, deleted later | evals/finish/test_undo_plan.py | test_bulk_rerun_deletes_later_deleted_spec_again | green |
@@ -94,7 +94,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 ## 7. update.sh bounded tag lookup (#111)
 
 - [x] 7.1 Write `test_hung_tag_lookup_names_deadline_exceeded` (a `git` shim or `insteadOf` URL that hangs, `SPECWRIGHT_NET_DEADLINE=2`) and `test_oversized_tag_list_names_response_too_large` (`SPECWRIGHT_NET_MAX_BYTES` lowered) in `evals/update/test_store.py`. Verify: both fail as expected.
-- [ ] 7.2 In `scripts/update.sh`'s `highest_tag`, load `<download>/skills/specwright-pr/scripts/bounded.py` lazily and run `ls-remote` with `run_bounded` at `min(60, resolve()'s deadline)`; a limit or a missing file becomes the reason in the `store_version` refusal. Verify: both tests and `discover evals/update` pass (mini-download evals included); flip the rows green.
+- [x] 7.2 In `scripts/update.sh`'s `highest_tag`, load `<download>/skills/specwright-pr/scripts/bounded.py` lazily and run `ls-remote` with `run_bounded` at `min(60, resolve()'s deadline)`; a limit or a missing file becomes the reason in the `store_version` refusal. Verify: both tests and `discover evals/update` pass (mini-download evals included); flip the rows green.
 
 ## 8. finish.sh: no network command, deletion carried through the rerun (#111, #110)
 

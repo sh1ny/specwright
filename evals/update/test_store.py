@@ -11,7 +11,10 @@ Run: python -m unittest discover evals/update -p "test_store.py"
 import hashlib
 import importlib.util
 import json
+import socket
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -198,6 +201,7 @@ class TestOwner(Base):
     def test_other_project_minor_refused_names_matching_tag(self):
         self.pair("0.5.0")
         dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.with_bounded(dl)
         fx.give_origin(dl, fx.make_tag_origin(self.tmp / "releases", ["v0.5.0", "v0.5.3", "v0.6.0"]))
         b_before, store_before = fx.snapshot(self.b.code), fx.snapshot(self.store)
         for sub in ("plan", "stage"):
@@ -211,6 +215,64 @@ class TestOwner(Base):
                 self.assertNotIn("v0.6.0", doc["message"])
                 self.assertEqual(fx.snapshot(self.b.code), b_before)
                 self.assertEqual(fx.snapshot(self.store), store_before)
+
+    @staticmethod
+    def with_bounded(dl):
+        """The tag lookup loads <download>/skills/specwright-pr/scripts/bounded.py; the mini download has no specwright-pr."""
+        bounded = dl / "skills" / "specwright-pr" / "scripts" / "bounded.py"
+        bounded.parent.mkdir(parents=True, exist_ok=True)
+        bounded.write_bytes((fx.ROOT / "skills" / "specwright-pr" / "scripts" / "bounded.py").read_bytes())
+
+    def tag_lookup(self, url, env_extra):
+        """plan as B (the other project) against a download whose origin is `url`; returns (exit code, doc, seconds).
+        The mini download carries no specwright-pr, so bounded.py is copied in, as the full download has it."""
+        self.pair("0.5.0")
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.with_bounded(dl)
+        fx.give_origin(dl, url)
+        self.b_before, self.store_before = fx.snapshot(self.b.code), fx.snapshot(self.store)
+        t0 = time.monotonic()
+        code, doc, out, err = fx.run_update(dl, [*self.b.args(), "plan"], env={**self.p.env, **env_extra})
+        self.assertIsNotNone(doc, f"no JSON (exit {code}).\nstdout: {out}\nstderr: {err}")
+        return code, doc, time.monotonic() - t0
+
+    def test_hung_tag_lookup_names_deadline_exceeded(self):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        held = []
+        stop = threading.Event()
+
+        def accept():  # accepts and never answers: git ls-remote waits for the daemon's reply
+            srv.settimeout(0.2)
+            while not stop.is_set():
+                try:
+                    held.append(srv.accept()[0])
+                except OSError:
+                    pass
+
+        t = threading.Thread(target=accept, daemon=True)
+        t.start()
+        self.addCleanup(lambda: (stop.set(), t.join(5), [c.close() for c in held], srv.close()))
+        code, doc, secs = self.tag_lookup(f"git://127.0.0.1:{srv.getsockname()[1]}/releases", {"SPECWRIGHT_NET_DEADLINE": "2"})
+        self.assertEqual(code, 1, doc)
+        self.assertEqual(doc["refusals"][0]["code"], "store_version")
+        for want in ("could not be named", "deadline_exceeded", "git ls-remote"):
+            self.assertIn(want, doc["message"])
+        self.assertLess(secs, 60 + 10)
+        self.assertEqual(fx.snapshot(self.b.code), self.b_before)
+        self.assertEqual(fx.snapshot(self.store), self.store_before)
+
+    def test_oversized_tag_list_names_response_too_large(self):
+        url = fx.make_tag_origin(self.tmp / "releases", ["v0.5.0", "v0.5.3", "v0.6.0", "v0.6.2", "v0.6.3"])
+        code, doc, secs = self.tag_lookup(url, {"SPECWRIGHT_NET_MAX_BYTES": "100"})
+        self.assertEqual(code, 1, doc)
+        self.assertEqual(doc["refusals"][0]["code"], "store_version")
+        for want in ("could not be named", "response_too_large", "git ls-remote"):
+            self.assertIn(want, doc["message"])
+        self.assertNotIn("release is v", doc["message"])  # no tag named from a partial list
+        self.assertEqual(fx.snapshot(self.b.code), self.b_before)
+        self.assertEqual(fx.snapshot(self.store), self.store_before)
 
     def test_other_project_swap_refused_when_store_moved_after_stage(self):
         self.pair("0.6.0")
