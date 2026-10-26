@@ -17,12 +17,12 @@
 | cost-tiers → A LIGHT change's groups go to the cheap implementer | Light implementer not installed | evals/git-workflow/test_instructions.py | TestCheapTier.test_delegation_light_missing_falls_back | green |
 | cost-tiers → Reviews and orchestration never move to the cheap tier | Design review with the tier on | evals/review-routes/test_skill_text.py | test_cheap_tier_never_reaches_review_routes | green |
 | cost-tiers → Reviews and orchestration never move to the cheap tier | A LIGHT change's pre-ship review | evals/review-routes/test_skill_text.py | test_preship_never_uses_light_implementer | green |
-| pr-watch → A wait can skip wakes that are only check progress | A check passes while others run | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_check_progress_is_filtered | red |
-| pr-watch → A wait can skip wakes that are only check progress | The last check finishes | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_last_check_done_wakes | red |
-| pr-watch → A wait can skip wakes that are only check progress | A check fails | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_new_failure_wakes | red |
-| pr-watch → A wait can skip wakes that are only check progress | Feedback arrives during check progress | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_feedback_during_checks_wakes | red |
-| pr-watch → A wait can skip wakes that are only check progress | A conflict appears | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_dirty_wakes | red |
-| pr-watch → A wait can skip wakes that are only check progress | Unknown mode or no wait | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_bad_until_exits_2_without_gh | red |
+| pr-watch → A wait can skip wakes that are only check progress | A check passes while others run | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_check_progress_is_filtered | green |
+| pr-watch → A wait can skip wakes that are only check progress | The last check finishes | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_last_check_done_wakes | green |
+| pr-watch → A wait can skip wakes that are only check progress | A check fails | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_new_failure_wakes | green |
+| pr-watch → A wait can skip wakes that are only check progress | Feedback arrives during check progress | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_feedback_during_checks_wakes | green |
+| pr-watch → A wait can skip wakes that are only check progress | A conflict appears | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_dirty_wakes | green |
+| pr-watch → A wait can skip wakes that are only check progress | Unknown mode or no wait | evals/pr-pair/test_pr_snapshot.py | TestUntilAttention.test_bad_until_exits_2_without_gh | green |
 | pr-watch → Watch waits for attention | Watch's wait command | evals/pr-pair/test_skill_text.py | test_watch_waits_until_attention | red |
 | pr-watch → Watch waits for attention | Ready after a quiet wait with a check re-run | evals/pr-pair/test_pr_snapshot.py + evals/pr-pair/test_skill_text.py | TestUntilAttention.test_rerun_back_to_baseline_times_out + test_watch_timeout_counts_as_full_wait | red |
 | eval-grading → Stress-tier evals are marked by kind | Every kind is covered | evals/git-workflow/test_tiers.py | TestStressMarks.test_every_kind_marked | red |
@@ -73,7 +73,7 @@
   - no `--until`: a check passing wakes `changed`, as today.
   
   Run them and confirm they fail on the unknown argument.
-- [ ] 4.2 Implement per design D3 in `skills/specwright-pr/scripts/pr-snapshot.sh`:
+- [x] 4.2 Implement per design D3 in `skills/specwright-pr/scripts/pr-snapshot.sh`:
   - add the `attn` field beside `sig`;
   - parse and validate `--until`;
   - apply the skip rule in the wait loop against the first good snapshot;
