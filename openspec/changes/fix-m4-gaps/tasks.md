@@ -45,8 +45,8 @@
 | install-update → The release-tag lookup is bounded | Oversized tag list | evals/update/test_store.py | test_oversized_tag_list_names_response_too_large | red |
 | change-finish → finish.sh runs no network command | Plan with an unreachable origin | evals/finish/test_undo_plan.py | test_plan_runs_no_network_command | green (existing behaviour, pinned by a new test) |
 | change-finish → finish.sh runs no network command | A network command added to finish.sh | evals/finish/test_undo_plan.py | test_finish_sh_has_no_network_command | green (static scan; proven red by a temporary injected line) |
-| change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec synced by both members, deleted later | evals/finish/test_undo_plan.py | test_bulk_rerun_deletes_later_deleted_spec_again | red |
-| change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec recreated before the after-rerun script | evals/finish/test_undo_plan.py | test_after_rerun_stops_when_deleted_spec_recreated | red |
+| change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec synced by both members, deleted later | evals/finish/test_undo_plan.py | test_bulk_rerun_deletes_later_deleted_spec_again | green |
+| change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec recreated before the after-rerun script | evals/finish/test_undo_plan.py | test_after_rerun_stops_when_deleted_spec_recreated | green |
 | change-finish → A spec deleted after a bulk archive stays deleted after the rerun | Spec synced only by the deferred member, deleted later | evals/finish/test_undo_plan.py | test_deleted_spec_only_in_deferred_member_left_deleted | green (existing behaviour, pinned by a new test) |
 | pr-descriptions → A code span after a closing keyword ends the closing list | Code span between keyword and reference | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_keyword_ends_list | red |
 | pr-descriptions → A code span after a closing keyword ends the closing list | Code span after a keyword in mid-line | evals/pr-pair/test_pr_pair.py | ClosingRendered.test_code_span_after_midline_keyword_ends_list | red |
@@ -100,7 +100,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 - [x] 8.1 Add `test_plan_runs_no_network_command` (origin URL pointing nowhere, a hanging fake `gh` on `PATH` that logs calls) and `test_finish_sh_has_no_network_command` (a static scan of `finish.sh` for `fetch`/`pull`/`push`/`ls-remote`/`gh ` calls, naming the line) to `evals/finish/test_undo_plan.py`. Verify: both pass; inject a temporary `git fetch` line into a copy of the script, confirm the scan fails naming that line, then remove the line.
 - [x] 8.2 Write `test_bulk_rerun_deletes_later_deleted_spec_again`, `test_after_rerun_stops_when_deleted_spec_recreated` and `test_deleted_spec_only_in_deferred_member_left_deleted`. Verify: the first two fail (the spec is recreated; no guard), and the third passes.
-- [ ] 8.3 Implement design D8 in `undo-archive-plan`: keep `gone`, add the `test ! -e` guards before the first `openspec archive` and the `rm -f --` lines after the archives and merges for specs in a rerun member's delta, and reword the warning. Verify: the three tests and `discover evals/finish` pass; flip the rows green.
+- [x] 8.3 Implement design D8 in `undo-archive-plan`: keep `gone`, add the `test ! -e` guards before the first `openspec archive` and the `rm -f --` lines after the archives and merges for specs in a rerun member's delta, and reword the warning. Verify: the three tests and `discover evals/finish` pass; flip the rows green.
 
 ## 9. pr-pair closing lists (#115)
 

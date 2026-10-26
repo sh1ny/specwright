@@ -191,7 +191,7 @@ def cmd_undo(d, a):
 
     warnings = []
     members = []          # dicts: name, archived_name, deferred, dir
-    main_mod, main_new = [], []
+    main_mod, main_new, gone_specs = [], [], []
 
     if uncommitted:
         mode, A, T, plan_branch = "uncommitted", None, head, cb
@@ -323,8 +323,7 @@ def cmd_undo(d, a):
             raise Stop("backup_exists", f"{backup_dir} exists; move or delete it, then plan again", path=backup_dir)
         main_mod = [f for f in mod if has(T, f)]
         main_new = [f for f in new if has(T, f)]
-        for f in [f for f in mod + new if not has(T, f)]:  # a later deletion is an amendment: keep it
-            warnings.append(f"{f} was deleted on {branch} after the archive; the undo leaves it deleted.")
+        gone_specs = [f for f in mod + new if not has(T, f)]  # a later deletion is an amendment: keep it
         marker_dirs = {m["name"]: join(m["dir"], "specwright-change.yaml") in added and has(T, join(m["dir"], "specwright-change.yaml")) for m in members}
         carried = []
         if branch == cb:
@@ -409,8 +408,8 @@ def cmd_undo(d, a):
     # ---- after_rerun -------------------------------------------------------------------------------------------
     after = None
     rerun = [m for m in members if not m["deferred"]]  # every bulk member but the deferred ones, the named one included
-    merge, left = [], list(amended) if mode == "committed" else []
-    if mode == "committed" and amended and rerun:
+    merge, left, redelete = [], list(amended) if mode == "committed" else [], []
+    if mode == "committed" and rerun:
         synced_by_rerun = set()
         for m in rerun:
             for p in nul_list(git(top, "ls-tree", "-r", "--name-only", "-z", T, "--", join(m["dir"], "specs"))):
@@ -419,19 +418,30 @@ def cmd_undo(d, a):
                     synced_by_rerun.add(join(P, rel))
         merge = [f for f in amended if f in synced_by_rerun]
         left = [f for f in amended if f not in synced_by_rerun]
+        redelete = [f for f in gone_specs if f in synced_by_rerun]  # the rerun archive would bring them back
     if rerun:
         names = ", ".join(m["name"] for m in rerun)
         al = ["set -euo pipefail", f"cd {sq(top)}"]
+        for f in redelete:  # stop before any archive when the user made a new spec of the same name
+            al.append(f"test ! -e {sq(f)} || {{ echo {sq(f + ' exists; the after-rerun script would delete it. Move it away, then run again.')} >&2; exit 1; }}")
         for m in rerun:
             al.append(f"openspec archive {sq(m['name'])} --yes")
         for f in merge:
             al.append(f"git merge-file -L rerun -L archived -L amended {sq(f)} {sq(backup_dir + '/base/' + f)} {sq(backup_dir + '/amended/' + f)}")
+        for f in redelete:
+            al.append(f"rm -f -- {sq(f)}")
         done = "Amendments merged." if merge else "Archived again by after_rerun."
         al.append(f"echo {sq(done + ' Now start finish for: ' + names)}")
         after = "\n".join(al) + "\n"
         warnings.append("Run after_rerun after script: it archives " + names + " again" +
                         (" and merges the saved amendments into " + ", ".join(merge) + ". On a conflict it stops with markers "
                          "in the file; both copies stay in " + backup_dir + "." if merge else "."))
+    for f in gone_specs:
+        if f in redelete:
+            warnings.append(f"{f} was deleted on {branch} after the archive; the undo leaves it deleted, and after_rerun deletes it again "
+                            f"after it archives {names}.")
+        else:
+            warnings.append(f"{f} was deleted on {branch} after the archive; the undo leaves it deleted.")
     if left:
         warnings.append("Amendments to " + ", ".join(left) + " were made on top of the deferred change's synced content, so they "
                         f"are saved in {backup_dir}/amended/ and never merged automatically; review them by hand.")
