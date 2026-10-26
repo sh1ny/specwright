@@ -88,7 +88,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 ## 6. release.sh unreadable revert (#109)
 
-- [ ] 6.1 Write `test_bump_reverted_between_two_unreadable_passes`, `test_unreadable_bump_reverted_by_readable_passes` and `test_unreadable_edit_keeping_versions_still_bumps` in `evals/release/test_release.py` (`TestCheckMain`). Verify: the first two fail with `version_not_ahead_of_main`, and the third passes.
+- [x] 6.1 Write `test_bump_reverted_between_two_unreadable_passes`, `test_unreadable_bump_reverted_by_readable_passes` and `test_unreadable_edit_keeping_versions_still_bumps` in `evals/release/test_release.py` (`TestCheckMain`). Verify: the first two fail with `version_not_ahead_of_main`, and the third passes.
 - [ ] 6.2 Implement design D9 in `own_bump`: an immediate parent that is unreadable and on the branch makes any newly matched version a change, judged against `judged_parent` (with the unreadable-`judged_parent` rule); update the docstring and `release.sh`'s header comment (lines 13-16). Verify: the three tests and every existing `TestCheckMain` test pass; flip the rows green.
 
 ## 7. update.sh bounded tag lookup (#111)
