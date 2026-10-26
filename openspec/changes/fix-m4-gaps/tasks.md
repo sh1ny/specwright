@@ -93,7 +93,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 ## 7. update.sh bounded tag lookup (#111)
 
-- [ ] 7.1 Write `test_hung_tag_lookup_names_deadline_exceeded` (a `git` shim or `insteadOf` URL that hangs, `SPECWRIGHT_NET_DEADLINE=2`) and `test_oversized_tag_list_names_response_too_large` (`SPECWRIGHT_NET_MAX_BYTES` lowered) in `evals/update/test_store.py`. Verify: both fail as expected.
+- [x] 7.1 Write `test_hung_tag_lookup_names_deadline_exceeded` (a `git` shim or `insteadOf` URL that hangs, `SPECWRIGHT_NET_DEADLINE=2`) and `test_oversized_tag_list_names_response_too_large` (`SPECWRIGHT_NET_MAX_BYTES` lowered) in `evals/update/test_store.py`. Verify: both fail as expected.
 - [ ] 7.2 In `scripts/update.sh`'s `highest_tag`, load `<download>/skills/specwright-pr/scripts/bounded.py` lazily and run `ls-remote` with `run_bounded` at `min(60, resolve()'s deadline)`; a limit or a missing file becomes the reason in the `store_version` refusal. Verify: both tests and `discover evals/update` pass (mini-download evals included); flip the rows green.
 
 ## 8. finish.sh: no network command, deletion carried through the rerun (#111, #110)
