@@ -193,6 +193,29 @@ class ReviewSkill(unittest.TestCase):
         self.assertRegex(self.text, r"ce-code-review")
         self.assertRegex(self.text, r"reviewer\.md")
 
+    # Guards (add-cheap-tier): reviews never move to the cheap tier. They pass while nothing mentions it.
+    REVIEW_FILES = (REVIEW,
+                    ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh",
+                    ROOT / "agents" / "claude" / "specwright-reviewer.md",
+                    ROOT / "agents" / "omp" / "specwright-reviewer.md")
+
+    def test_cheap_tier_never_reaches_review_routes(self):
+        for path in self.REVIEW_FILES:
+            text = read(path)
+            self.assertTrue(text, f"{path} is missing")
+            self.assertNotRegex(text, r"cheap_tier|specwright-implementer-light",
+                                f"{path.name} mentions the cheap tier; reviews never use it")
+        for harness, model in (("claude", "inherit"), ("omp", "pi/slow")):
+            reviewer = read(ROOT / "agents" / harness / "specwright-reviewer.md")
+            self.assertRegex(reviewer, r"(?m)^model: " + re.escape(model) + r"$",
+                             f"the {harness} reviewer model is no longer {model}")
+
+    def test_preship_never_uses_light_implementer(self):
+        step = self.section("pre-ship review")
+        self.assertNotRegex(step, r"specwright-implementer", "the pre-ship review dispatches an implementer")
+        self.assertNotRegex(self.text, r"specwright-implementer-light", "the review skill names the light implementer")
+        self.assertRegex(step, r"dispatch `specwright-reviewer` in pre-ship mode", "the pre-ship subagent route changed")
+
 
 SCHEMA = ROOT / "schemas" / "specwright" / "schema.yaml"
 ROADMAP = ROOT / "skills" / "specwright-roadmap" / "SKILL.md"
