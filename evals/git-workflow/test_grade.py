@@ -1272,5 +1272,94 @@ class InstallLatestTagPredatesScript(unittest.TestCase):
                          ["The Specwright source repo is unchanged: its only tag is still v0.5.0 and its tree is clean"])
 
 
+class ImplementerLightPacket(unittest.TestCase):
+    """eval-implementer-light-packet: a scripted good run grades green, and a run that committed, ticked, strayed or reported no evidence grades red."""
+    NAME = "eval-implementer-light-packet"
+    GOOD = ("- STATUS: DONE\n- Files changed: greet.py, test_greet.py\n"
+            "- Tests: test_greet_named, test_greet_empty, test_farewell_named, test_farewell_empty -> red-confirmed, then passing\n"
+            "  - red: `python -m unittest -q` failed with ImportError: cannot import name 'greet' before the implementation\n"
+            "  - green: `python -m unittest -q` Ran 4 tests, OK, after it\n- Skills: none named\n- Processes: none started\n- Notes: none\n")
+
+    def fixture(self, report=GOOD, implement=True):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        self.run_dir = Path(tmp.name) / "run"
+        repo = self.run_dir / "repo"
+        fixtures.build(self.NAME, repo)
+        (self.run_dir / "outputs").mkdir()
+        (self.run_dir / "outputs" / "report.md").write_text(report, encoding="utf-8")
+        if implement:
+            fixtures.task_code(repo, "1.2")  # greet.py and test_greet.py final; README.md back to its committed text
+        return repo
+
+    def failed(self, repo):
+        res = grade.check(self.NAME, repo, self.run_dir)
+        return [t for t, ok, _ in res if not ok]
+
+    def test_evals_json_lists_the_graders_assertions(self):
+        repo = self.fixture()
+        res = grade.check(self.NAME, repo, self.run_dir)
+        evals = {e["name"]: e for e in json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]}
+        self.assertEqual([t for t, _, _ in res], evals[self.NAME]["assertions"])
+        self.assertEqual(evals[self.NAME]["stress"], "implementer")
+
+    def test_fixture_starts_planned_with_nothing_implemented(self):
+        repo = self.fixture(implement=False)
+        self.assertEqual(grade.subjects(repo, "main..HEAD"), [grade.PLAN_SUBJECT])
+        self.assertEqual(grade.status_of(repo), [])
+        self.assertNotIn("test_greet_named", (repo / "test_greet.py").read_text(encoding="utf-8"))
+        self.assertIn("TIER: LIGHT", (repo / grade.CHANGE / "design.md").read_text(encoding="utf-8"))
+
+    def test_scripted_good_run_passes_every_check(self):
+        self.assertEqual(self.failed(self.fixture()), [])
+
+    def test_a_run_that_implemented_nothing_fails(self):
+        failed = self.failed(self.fixture(implement=False))
+        self.assertIn("test_greet.py defines all four test-map tests and the test suite passes", failed)
+
+    def test_a_run_that_committed_fails(self):
+        repo = self.fixture()
+        fixtures.git(repo, "add", "-A")
+        fixtures.git(repo, "commit", "-q", "-m", "feat(add-greeting): task 1.1 Add greet(name)")
+        failed = self.failed(repo)
+        for t in ("Still on feat/add-greeting, main is unchanged and the branch holds only the planning commit",
+                  "No commit was made and none amended"):
+            self.assertIn(t, failed)
+
+    def test_a_run_that_staged_fails(self):
+        repo = self.fixture()
+        fixtures.git(repo, "add", "-A")
+        self.assertEqual(self.failed(repo), ["Only greet.py and test_greet.py changed, and nothing is staged"])
+
+    def test_a_run_that_ticked_a_task_fails(self):
+        repo = self.fixture()
+        fixtures.write(repo, f"{grade.CHANGE}/tasks.md", (repo / grade.CHANGE / "tasks.md").read_text(encoding="utf-8").replace("- [ ] 1.1 ", "- [x] 1.1 "))
+        self.assertEqual(self.failed(repo), ["tasks.md has no ticked task and the test map states are unchanged",
+                                             "Only greet.py and test_greet.py changed, and nothing is staged"])
+
+    def test_a_run_that_changed_the_test_map_state_fails(self):
+        repo = self.fixture()
+        p = repo / grade.CHANGE / "tasks.md"
+        fixtures.write(repo, f"{grade.CHANGE}/tasks.md", p.read_text(encoding="utf-8").replace("| red |", "| green |", 1))
+        self.assertIn("tasks.md has no ticked task and the test map states are unchanged", self.failed(repo))
+
+    def test_a_run_that_touched_a_file_outside_the_group_fails(self):
+        repo = self.fixture()
+        fixtures.write(repo, "README.md", "# greeter\n\nrewritten\n")
+        self.assertEqual(self.failed(repo), ["Only greet.py and test_greet.py changed, and nothing is staged"])
+
+    def test_report_without_red_or_green_evidence_fails(self):
+        no_red = "- STATUS: DONE\n- Tests: test_greet_named -> passing\n  - `python -m unittest -q` Ran 4 tests, OK\n"
+        self.assertEqual(self.failed(self.fixture(no_red)), ["The report gives red evidence: a failing run before the implementation"])
+        no_green = "- STATUS: DONE\n- Tests: test_greet_named -> red-confirmed\n  - `python -m unittest -q` failed before the implementation\n"
+        self.assertEqual(self.failed(self.fixture(no_green)), ["The report gives green evidence: a passing run of the group's tests"])
+
+    def test_a_blocked_or_missing_status_fails(self):
+        rest = self.GOOD.split("\n", 1)[1]
+        for rep in ("- STATUS: BLOCKED\n" + rest, "no status line\n" + rest):
+            self.assertEqual(self.failed(self.fixture(rep)), ["The report states STATUS: DONE"], rep)
+
+
 if __name__ == "__main__":
     unittest.main()

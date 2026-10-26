@@ -1326,6 +1326,11 @@ def build(name, repo):
             git(repo, "checkout", "-q", "-b", "feat/add-greeting")
         change_artifacts(repo)  # left uncommitted: the planning commit is under test
         write(repo, "scratch-notes.txt", "personal notes - not part of the change\n")
+    elif name == "eval-implementer-light-packet":  # planned and committed on the branch; the implementer starts from the empty greet.py
+        git(repo, "checkout", "-q", "-b", "feat/add-greeting")
+        change_artifacts(repo)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "feat(add-greeting): add planning artifacts")
     elif name == "eval-finish-local":
         finished(repo, repo)
     elif name in ("eval-finish-resume-after-archive-commit", "eval-finish-resume-from-main"):
