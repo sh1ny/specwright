@@ -34,6 +34,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 - **Commits:** `<type>(<scope>): <summary>`, at most 72 characters, where `<scope>` is the change name or the skill touched (`fix(specwright-pr): ...`). Stage files by name, never `git add -A`.
 - **Skills and schema text are instructions for agents.** Keep them terse and imperative: every step checkable, every stop condition explicit, no explanatory padding. Say what to do when a check fails, not just what to check.
 - **README follows behaviour.** A change to a skill's triggers, settings, modes or messages updates the matching README table or section in the same change.
+- **Implementer twins:** `agents/<harness>/specwright-implementer-light.md` is `specwright-implementer.md` word for word apart from `name`, `description` and `model`. Copy every implementer body or frontmatter edit to its light twin in the same change; `TestCheapTier` in `evals/git-workflow/test_instructions.py` fails and names both files when they drift.
 - **Settings:** a new `specwright.yaml` key goes into `templates/openspec/specwright.yaml` with a comment and a safe default, and into the README settings example.
 
 ## Testing

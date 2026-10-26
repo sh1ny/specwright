@@ -31,7 +31,7 @@ flowchart LR
 |---|---|---|
 | Start a change | [`specwright-branch`](skills/specwright-branch/SKILL.md) | Clean `main` check, then `<prefix>/<change-name>` branch |
 | proposal → specs → design → review → tasks | [`schemas/specwright`](schemas/specwright/schema.yaml) | Artifacts with architecture triage and a review gate |
-| Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) | One commit per task, orchestrator re-verifies delegated work |
+| Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) (or [`specwright-implementer-light`](agents/claude/specwright-implementer-light.md) for LIGHT changes with `cheap_tier.enabled`) | One commit per task, orchestrator re-verifies delegated work |
 | Pre-ship review | [`specwright-review`](skills/specwright-review/SKILL.md) | Cross-model review of the finished change; ship and the local merge wait for a pass |
 | PR | [`specwright-pr`](skills/specwright-pr/SKILL.md) | Ship, address feedback, watch CI (`finish: pr`) |
 | Archive | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive commit, then local `--no-ff` merge or push to the PR |
@@ -360,7 +360,7 @@ recorded a missing PR prerequisite, add the line
    - `/opsx:propose <idea>` or `/opsx:ff <name>` writes every artifact in one go;
    - `/opsx:new <name>` scaffolds it, then `/opsx:continue` writes one artifact per run.
 2. **Review gate:** the design triage picks LIGHT or FULL; FULL designs are reviewed in a fresh context (by a different model unless `review.cross_model: false`) before tasks can be written.
-3. **Apply** with `/opsx:apply` — task groups go to `specwright-implementer`, each verified task becomes its own commit.
+3. **Apply** with `/opsx:apply` — task groups go to `specwright-implementer` (`specwright-implementer-light` for a LIGHT change with `cheap_tier.enabled: true`), each verified task becomes its own commit.
    - **Pre-ship review:** once every task is committed, `specwright-review` has another model's CLI review the whole change (`review.order`, skipping the harness you run in; the `specwright-reviewer` agent when none is available). P0/P1 findings block: fix them (commits `address pre-ship review`; after two rounds it asks you) or waive them with your reason. `specwright-pr` ship and the local merge first check for a pass on the current head. Opt out with `review.preship: false`.
    - **BREAKING (0.2.0):** the pre-ship review is on by default, so apply ends with a review that can take up to `review.timeout` (20m). Set `review.preship: false` to keep the 0.1.x flow.
 4. **PR mode:** the PR opens when apply finishes; `specwright-pr` **watch** handles reviews and CI, and once it is green offers to archive on the branch. Then merge on GitHub, or let watch merge it with `pr.merge: agent`.
@@ -404,9 +404,10 @@ recorded a missing PR prerequisite, add the line
 | Agent | Claude Code | OMP | Role |
 |---|---|---|---|
 | `specwright-implementer` | [`sonnet`](agents/claude/specwright-implementer.md) | [`pi/smol`](agents/omp/specwright-implementer.md) | Implements one task group test-first from a packet; never commits |
+| `specwright-implementer-light` | [`haiku`](agents/claude/specwright-implementer-light.md) | [`pi/smol`](agents/omp/specwright-implementer-light.md) | The implementer word for word on a cheaper model; with `cheap_tier.enabled: true` it gets every group of a LIGHT change (ADR 0013). Never used for reviews, watch or FULL changes |
 | `specwright-reviewer` | [`inherit`](agents/claude/specwright-reviewer.md) | [`pi/slow`](agents/omp/specwright-reviewer.md) | Read-only reviewer for design and pre-ship reviews; used when no reviewer CLI is available or `review.cross_model: false` |
 
-Change the model in each file's `model:` line (Claude Code), or map the role aliases in `~/.omp/agent/config.yml` (OMP).
+Change the model in each file's `model:` line (Claude Code), or map the role aliases in `~/.omp/agent/config.yml` (OMP). On OMP both implementers use the `pi/smol` role, so the cheap tier changes nothing there unless you point the installed `specwright-implementer.md`'s `model:` line at a stronger role (remapping `pi/smol` would move both); update keeps that edit.
 
 ### Scripts
 
@@ -592,7 +593,7 @@ Store evals (`eval-store-*`) need two repos, so the fixture is a directory, not 
 
 Test the fake `gh` with `python -m unittest discover evals/pr-pair`, the reviewer routes (against fake `codex`, `claude` and `omp` executables) with `python -m unittest discover evals/review-routes`, and `release.sh` (against scratch repos and the fake `gh`) with `python -m unittest discover evals/release`. Test `update.sh` (the staged swap, journal and recovery, against scratch repos) with `python -m unittest discover evals/update`.
 
-To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
+To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` (and `specwright-implementer-light`, if you use the cheap tier) with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
 
 ---
 
