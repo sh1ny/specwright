@@ -85,7 +85,7 @@
 
 ## 5. The stress tier tooling
 
-- [ ] 5.1 Write the failing `evals/git-workflow/test_tiers.py`.
+- [x] 5.1 Write the failing `evals/git-workflow/test_tiers.py`.
   - `TestStressMarks`: every kind (`watch`, `light-apply`, `implementer`) has a marked eval; a temp copy with the only `implementer` mark removed fails naming `implementer`; a temp copy with `"stress": true` fails naming the eval and value.
   - `TestCompare`, on temp iteration dirs: same grades exit 0; a cheap-only failure is named with both rates and the assertion text, exit 1; a missing or invalid `grading.json` is listed as missing, exit 1; unmarked evals are skipped.
   
