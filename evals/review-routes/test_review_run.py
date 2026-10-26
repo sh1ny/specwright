@@ -374,8 +374,8 @@ class RunTests(Base):
         self.assertEqual(a[:8], ["exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config",
                                  "--skip-git-repo-check", "--output-schema"])
         self.assertTrue(a[8].endswith(".json"))
-        self.assertEqual((a[9], a[11], a[12:]), ("-o", "--json", ["-"]))
-        self.assertEqual(len(a), 13)
+        self.assertEqual((a[9], a[10:]), ("--json", ["-"]))
+        self.assertEqual(len(a), 11)
         a = self.runs("claude")[0]["argv"]
         self.assertEqual(a[:7], ["-p", "--safe-mode", "--disable-slash-commands", "--tools", "Read,Grep,Glob", "--restricted",
                                  "--json-schema"])
@@ -640,6 +640,74 @@ class RunTests(Base):
         self.stdout_file("omp", "\n".join(json.dumps(e) for e in (first, {"type": "turn_end"}, last)) + "\n")
         self.design("omp")
         self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), VERDICT_OK)
+
+    # ---- the codex answer comes from its --json event stream (fix-m4-gaps, 4.2, D4) --------------------
+    def codex_events(self, *events):
+        """Make the codex fake print these event dicts (after its own thread.started) instead of one agent_message."""
+        self.extra_env["FAKE_CODEX_EVENTS"] = str(self.put("codex-events.jsonl", "".join(json.dumps(e) + "\n" for e in events)))
+
+    @staticmethod
+    def agent_message(text):
+        return {"type": "item.completed", "item": {"id": "item_x", "type": "agent_message", "text": text}}
+
+    def scratch_tmp(self):
+        """Point the run's temp directory at an empty one: what it leaves behind shows in it."""
+        scratch = self.tmp / "tmpdir"
+        scratch.mkdir()
+        for k in ("TMPDIR", "TEMP", "TMP"):
+            self.extra_env[k] = str(scratch)
+        return scratch
+
+    def test_codex_answer_from_last_agent_message(self):
+        self.install("codex")
+        answer = "# Review\n\n" + ("A finding about the design. " * 700)[:19000] + "\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
+        self.codex_events({"type": "turn.started"},
+                          self.agent_message("VERDICT: REVISE\nCHANGES_APPLIED: n/a\n"),
+                          {"type": "item.completed", "item": {"type": "command_execution", "command": "ls"}},
+                          self.agent_message(answer))
+        scratch = self.scratch_tmp()
+        out = self.design("codex")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual((self.tmp / "review.md").read_text(encoding="utf-8"), answer)
+        self.assertEqual(list(scratch.iterdir()), [], "the run left a file other than the review behind")
+
+    def test_codex_agent_message_over_bound_invalid(self):
+        self.install("codex")
+        self.stdout_file("codex", "VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n" + "y" * (2 * 1024 * 1024 + 10))
+        out = self.design("codex", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("output too large", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_codex_stream_without_agent_message_invalid(self):
+        self.install("codex")
+        self.codex_events({"type": "turn.started"},
+                          {"type": "item.completed", "item": {"type": "command_execution", "command": "ls"}},
+                          {"type": "item.started", "item": {"type": "agent_message", "text": VERDICT_OK}})
+        out = self.design("codex", expect=3)
+        self.assertEqual(out["status"], "invalid")
+        self.assertIn("agent_message", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    def test_codex_command_line_has_json_and_no_answer_file(self):
+        self.install("codex")
+        self.stdout_file("codex", VERDICT_OK)
+        self.design("codex")
+        self.stdout_file("codex", json.dumps(VALID))
+        self.preship("codex")
+        for call in self.runs("codex"):
+            argv = call["argv"]
+            self.assertIn("--json", argv)
+            self.assertNotIn("-o", argv)
+            self.assertNotIn("--output-last-message", argv)
+            self.assertFalse([a for a in argv if "last-message" in a], argv)
+
+    def test_receipt_names_the_process_group(self):
+        self.install("claude")
+        self.claude_result()
+        r = self.preship("claude")["receipt"]
+        self.assertEqual(r["process_group"], "job" if os.name == "nt" else "session")
+        self.assertNotIn("process_group_reason", r)
 
     # ---- design verdict values (fix-m3-gaps, 3.1) -----------------------------------------------------
     def test_design_blocked_verdict_invalid_keeps_review(self):
@@ -932,21 +1000,22 @@ class OutputBound(Base):
         # the tree is stopped instead of validating it (review round 5)
         self.install("codex", "claude")
         self.claude_result()
-        kid_file = self.tmp / "kid.pid"
-        self.extra_env.update({"FAKE_CLAUDE_LINGER": "40", "FAKE_CLAUDE_LINGER_PID_FILE": str(kid_file)})
+        kid_file, exit_file = self.tmp / "kid.pid", self.tmp / "exit-time"
+        # an exit time already past: the fake exits at once and records when
+        self.extra_env.update({"FAKE_CLAUDE_LINGER": "40", "FAKE_CLAUDE_LINGER_PID_FILE": str(kid_file),
+                               "FAKE_CLAUDE_EXIT_AT": "0", "FAKE_CLAUDE_EXIT_TIME_FILE": str(exit_file)})
         self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
-        started = time.time()
         out = self.preship("claude", expect=3)
-        self.assertLess(time.time() - started, 30, "the run waited for the child")
+        self.assertLess(time.time() - float(exit_file.read_text(encoding="utf-8")), 10,
+                        "the run did not fail within 10 s of the reviewer's exit")
         self.assertEqual(out["status"], "failed", out)
         self.assertIn("kept its output open", out["message"])
         self.assertFalse((self.tmp / "findings.json").exists())
-        if os.name != "nt":  # Windows cannot walk the tree of an exited parent; the run still fails
-            pid = int(kid_file.read_text(encoding="utf-8"))
-            deadline = time.time() + 5
-            while pid_alive(pid) and time.time() < deadline:
-                time.sleep(0.2)
-            self.assertFalse(pid_alive(pid), "the child survived")
+        pid = int(kid_file.read_text(encoding="utf-8"))
+        deadline = time.time() + 5
+        while pid_alive(pid) and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertFalse(pid_alive(pid), "the child survived")
 
     def test_a_reviewer_that_exits_before_the_deadline_is_never_a_timeout(self):
         # it exits about 3 s into a 5 s timeout and its child holds the pipe through the deadline: the 2 s exit grace
@@ -974,14 +1043,65 @@ class OutputBound(Base):
         self.assertEqual(out["status"], "timeout", out)
         self.assertFalse((self.tmp / "findings.json").exists())
 
-    def test_codex_answer_file_flood_stopped(self):
+    def test_codex_event_stream_flood_stopped(self):
         self.install("codex")
-        self.flood_env("codex", answer=3 * self.MIB)
+        self.flood_env("codex", stdout=65 * self.MIB)
         started = time.time()
         out = self.preship("codex", expect=3)
-        self.assert_stopped(out, "answer", started)
+        self.assert_stopped(out, "stdout", started)
         self.assertFalse((self.tmp / "findings.json").exists())
         self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
+
+    def test_exit_in_last_poll_interval_with_held_pipe_is_not_timeout(self):
+        # codex exits 1 s before the deadline of a 5 s timeout while the loop would only look again after 10 s, and a child
+        # holds stdout: the exit is seen when it happens, before the deadline, so the run is the held-pipe failure
+        self.install("codex")
+        self.stdout_file("codex", VERDICT_OK)
+        self.set_settings("review:\n  timeout: 5s\n")
+        kid_file, exit_file = self.tmp / "kid.pid", self.tmp / "exit-time"
+        self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
+        before = time.time()
+        self.extra_env.update({"SPECWRIGHT_TEST_POLL": "10", "FAKE_CODEX_LINGER": "40", "FAKE_CODEX_LINGER_PID_FILE": str(kid_file),
+                               "FAKE_CODEX_EXIT_AT": repr(before + 4), "FAKE_CODEX_EXIT_TIME_FILE": str(exit_file)})
+        out = self.design("codex", expect=3)
+        self.assertLess(float(exit_file.read_text(encoding="utf-8")), before + 5, "codex exited after the deadline")
+        self.assertEqual(out["status"], "failed", out)
+        self.assertIn("kept its output open", out["message"])
+        self.assertFalse((self.tmp / "review.md").exists())
+
+    @unittest.skipUnless(os.name == "nt", "the job object is a Windows mechanism")
+    def test_no_job_object_receipt_names_it(self):
+        self.install("codex")
+        self.stdout_file("codex", json.dumps(VALID))
+        self.set_settings("review:\n  timeout: 2s\n")
+        pid_file = self.tmp / "codex.pid"
+        self.extra_env.update({"SPECWRIGHT_TEST_NO_JOB": "1", "FAKE_CODEX_DELAY": "60", "FAKE_CODEX_PID_FILE": str(pid_file)})
+        out = self.preship("codex", expect=3)
+        self.assertEqual(out["status"], "timeout", out)
+        pid = int(pid_file.read_text(encoding="utf-8"))
+        deadline = time.time() + 10
+        while pid_alive(pid) and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertFalse(pid_alive(pid), "the reviewer process survived the deadline")
+        self.assertEqual(out["receipt"]["process_group"], "none")
+        self.assertIn("SPECWRIGHT_TEST_NO_JOB", out["receipt"]["process_group_reason"])
+
+    def test_timeout_stops_grandchild(self):
+        self.install("codex")
+        self.stdout_file("codex", VERDICT_OK)
+        self.set_settings("review:\n  timeout: 5s\n")
+        kid_file, grand_file = self.tmp / "kid.pid", self.tmp / "grandchild.pid"
+        for f in (kid_file, grand_file):
+            self.addCleanup(lambda f=f: f.exists() and kill_pid(int(f.read_text(encoding="utf-8"))))
+        self.extra_env.update({"FAKE_CODEX_DELAY": "60", "FAKE_CODEX_LINGER": "60", "FAKE_CODEX_LINGER_PID_FILE": str(kid_file),
+                               "FAKE_CODEX_LINGER_GRANDCHILD_PID_FILE": str(grand_file)})
+        out = self.design("codex", expect=3)
+        self.assertEqual(out["status"], "timeout", out)
+        pids = [int(f.read_text(encoding="utf-8")) for f in (kid_file, grand_file)]
+        deadline = time.time() + 10
+        while any(pid_alive(p) for p in pids) and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertEqual([p for p in pids if pid_alive(p)], [], "a child or grandchild survived the deadline")
 
 
 SPEC_TEXT = "### Requirement: X\n\nThe system SHALL do X.\n"
