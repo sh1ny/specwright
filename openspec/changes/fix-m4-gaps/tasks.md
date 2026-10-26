@@ -70,7 +70,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 ## 3. pr-snapshot poll deadline (#117)
 
-- [ ] 3.1 Write `test_poll_fractional_net_deadline_lowers_poll`, `test_poll_invalid_net_deadline_keeps_120` and `test_poll_net_deadline_above_120_capped` in `evals/pr-pair/test_pr_snapshot.py`, reading `deadline_at` from the fake `gh` log. Verify: the fractional test fails (deadline_at is 120 s out), and the others pass.
+- [x] 3.1 Write `test_poll_fractional_net_deadline_lowers_poll`, `test_poll_invalid_net_deadline_keeps_120` and `test_poll_net_deadline_above_120_capped` in `evals/pr-pair/test_pr_snapshot.py`, reading `deadline_at` from the fake `gh` log. Verify: the fractional test fails (deadline_at is 120 s out), and the others pass.
 - [ ] 3.2 Make `poll()` in `skills/specwright-pr/scripts/pr-snapshot.sh` export `SPECWRIGHT_NET_DEADLINE_AT` from `bounded.py --deadline-at`, falling back to `$(date +%s) + 120` when the helper prints nothing; update the header comment at line 28. Verify: all three tests pass and `discover evals/pr-pair` passes; flip the rows green.
 
 ## 4. review-run.sh: shared process module and codex event stream (#113, #114, #116)
