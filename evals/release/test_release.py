@@ -826,6 +826,45 @@ class TestCheckMain(Flow):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.4.2")
 
+    def at_main(self, version="0.5.0", main_version=None):
+        """origin/main and the merge base read `version`; feat/b starts there. With main_version, main then moves to it."""
+        self.repo(version=version)
+        base = self.sha()
+        if main_version:
+            fx.squash_merge(self.work, "a", main_version, 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+
+    def test_bump_reverted_between_two_unreadable_passes(self):
+        # D9: 0.6.0 twice, then 0.5.0 twice, then one 0.5.0: the middle commit reverted the bump through an unreadable version.
+        self.at_main()
+        fx.commit(self.work, "feat(b): VERSION twice", {"VERSION": "0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "feat(b): revert, VERSION twice", {"VERSION": "0.5.0\n0.5.0\n"})
+        fx.commit(self.work, "fix(b): drop the duplicate", {"VERSION": "0.5.0\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_unreadable_bump_reverted_by_readable_passes(self):
+        # D9: 0.6.0 twice (unreadable), then a readable 0.5.0: a change judged against 0.5.0, so no bump.
+        self.at_main()
+        fx.commit(self.work, "feat(b): VERSION twice", {"VERSION": "0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "feat(b): revert", {"VERSION": "0.5.0\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_unreadable_edit_keeping_versions_still_bumps(self):
+        # D9: an unreadable edit that keeps the matched versions is no change; the bump to 0.6.0 stands and main has 0.6.0.
+        self.at_main("0.5.0", "0.6.0")
+        fx.commit(self.work, "feat(b): VERSION twice", {"VERSION": "0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "feat(b): VERSION three times", {"VERSION": "0.6.0\n0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "fix(b): one line", {"VERSION": "0.6.0\n"})
+        fx.git(self.work, "merge", "-q", "--no-edit", "origin/main")
+        out = self.check()
+        self.assertStops(out, "0.6.0", "origin/main")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+
     def test_bump_reverted_by_lower_of_unreadable_set(self):
         # PR #108, Codex P2: from a merge base reading 0.4.2 and 0.5.0, the branch bumps to 0.6.0, lists 0.6.0 and 0.5.0,
         # then keeps 0.5.0: keeping the lower of its parent's versions drops the bump, so the older bump must not count.

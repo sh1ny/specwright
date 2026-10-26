@@ -29,8 +29,8 @@
 | review-routes → A process a reviewer started is stopped on every platform | Orphan holding the pipe on Windows | evals/review-routes/test_review_run.py | test_a_child_that_keeps_the_pipes_open_fails_the_run (Windows skip at :944 removed) | red |
 | review-routes → A process a reviewer started is stopped on every platform | Reviewer stopped at the deadline with a grandchild | evals/review-routes/test_review_run.py | test_timeout_stops_grandchild | green (existing behaviour, pinned by a new test) |
 | releases → An unreadable commit changes the version only when its parent is not among its versions | Bump reverted through an unreadable version | evals/release/test_release.py | test_bump_reverted_through_unreadable_passes | green |
-| releases → An unreadable commit changes the version only when its parent is not among its versions | Bump reverted between two unreadable versions | evals/release/test_release.py | test_bump_reverted_between_two_unreadable_passes | red |
-| releases → An unreadable commit changes the version only when its parent is not among its versions | Unreadable bump reverted by a readable commit | evals/release/test_release.py | test_unreadable_bump_reverted_by_readable_passes | red |
+| releases → An unreadable commit changes the version only when its parent is not among its versions | Bump reverted between two unreadable versions | evals/release/test_release.py | test_bump_reverted_between_two_unreadable_passes | green |
+| releases → An unreadable commit changes the version only when its parent is not among its versions | Unreadable bump reverted by a readable commit | evals/release/test_release.py | test_unreadable_bump_reverted_by_readable_passes | green |
 | releases → An unreadable commit changes the version only when its parent is not among its versions | Unreadable edit that keeps the matched versions | evals/release/test_release.py | test_unreadable_edit_keeping_versions_still_bumps | green (existing behaviour, pinned by a new test) |
 | releases → Publish's network commands are bounded | Remote tags answer in time | evals/release/test_release.py | test_untagged_within_deadline_names_no_limit | green (existing behaviour, pinned by a new test) |
 | releases → Publish's network commands are bounded | Hung tag lookup | evals/release/test_release.py | test_publish_hung_ls_remote_deadline_exceeded | red |
@@ -89,7 +89,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 ## 6. release.sh unreadable revert (#109)
 
 - [x] 6.1 Write `test_bump_reverted_between_two_unreadable_passes`, `test_unreadable_bump_reverted_by_readable_passes` and `test_unreadable_edit_keeping_versions_still_bumps` in `evals/release/test_release.py` (`TestCheckMain`). Verify: the first two fail with `version_not_ahead_of_main`, and the third passes.
-- [ ] 6.2 Implement design D9 in `own_bump`: an immediate parent that is unreadable and on the branch makes any newly matched version a change, judged against `judged_parent` (with the unreadable-`judged_parent` rule); update the docstring and `release.sh`'s header comment (lines 13-16). Verify: the three tests and every existing `TestCheckMain` test pass; flip the rows green.
+- [x] 6.2 Implement design D9 in `own_bump`: an immediate parent that is unreadable and on the branch makes any newly matched version a change, judged against `judged_parent` (with the unreadable-`judged_parent` rule); update the docstring and `release.sh`'s header comment (lines 13-16). Verify: the three tests and every existing `TestCheckMain` test pass; flip the rows green.
 
 ## 7. update.sh bounded tag lookup (#111)
 

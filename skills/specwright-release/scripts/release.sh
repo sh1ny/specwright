@@ -12,8 +12,10 @@
 #                                     at <ref> passes. A primary file that exists but does not read exactly one version is
 #                                     unreadable, not absent: an unreadable merge base or parent counts as a bump only when the
 #                                     version is not among the versions it matched (and, for a commit, is greater than all of them);
-#                                     a commit whose own version is unreadable changed it only when its parent's version is not
-#                                     among those it matched, and raised it only when all of them are greater
+#                                     a commit whose parent is unreadable and on the branch changed it when it matched a version
+#                                     the parent did not; otherwise a commit whose own version is unreadable changed it only when
+#                                     the version it is judged against is not among those it matched; a change raised it only
+#                                     when it matched a version and all of them are greater than that version
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
@@ -630,7 +632,10 @@ def own_bump(st, entries, commits, ref):
     """D3/D5: whether the newest of `commits` (newest first) that changed the primary version raised it. An edit that keeps
     the version (a manifest's dependencies) is skipped, and a bump reverted later on the branch is no bump. Each commit is
     judged against judged_parent: an unreadable parent on the branch is looked past, so a bump made through an unreadable
-    version counts and a stray line added and then removed does not. A commit whose own version is unreadable is no change
+    version counts and a stray line added and then removed does not. D9: a commit whose immediate parent is unreadable and on
+    the branch is a change when it matched a version that parent did not; it is a bump when each version it matched is
+    greater than the version it is judged against (than each semver of it, when that is unreadable too), else no bump, and
+    the walk stops. Any other commit: one whose own version is unreadable is no change
     when that version is among those it matched (or it is unreadable too), else a bump only when it matched at least one
     version and every one is greater. One judged against an unreadable version (on `ref`) is no change when its version is
     the greatest semver among those matched, no bump when it is a lower one of them, else a bump when greater than every
@@ -638,6 +643,14 @@ def own_bump(st, entries, commits, ref):
     for c in commits:
         mine = primary_at(st, entries, c)
         parent = judged_parent(st, entries, c, ref)
+        if ref_exists(st.root, f"{c}^"):
+            direct = primary_at(st, entries, f"{c}^")
+            if isinstance(direct, Unreadable) and git(st.root, "merge-base", "--is-ancestor", text_of(git(st.root, "rev-parse", f"{c}^")), ref).returncode != 0:
+                matched = mine.versions if isinstance(mine, Unreadable) else ({mine} if mine is not None else set())
+                if matched - direct.versions:  # D9: a version its unreadable parent on the branch did not match is a change
+                    seen = [sv(v) for v in parent.versions if sv(v)] if isinstance(parent, Unreadable) else (
+                        [sv(parent)] if parent is not None and sv(parent) else [])
+                    return all(sv(v) and all(sv(v) > s for s in seen) for v in matched)
         if isinstance(mine, Unreadable):
             if isinstance(parent, Unreadable) or (parent is not None and parent in mine.versions):
                 continue
