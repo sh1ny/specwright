@@ -5,16 +5,22 @@ Environment (U = the CLI name in capitals):
   FAKE_U_ARGV_LOG      append one JSON line per call: {argv, stdin, prompt_file_text (omp), session_dir_before (omp)}
   FAKE_U_VERSION_EXIT  exit code of `--version` (default 0; `--version` prints a version line)
   FAKE_U_EXIT          exit code of a review call (default 0)
-  FAKE_U_STDOUT        file whose content a review call prints (codex: also written to the `-o` file)
+  FAKE_U_STDOUT        file whose content a review call prints (codex: the text of one completed `agent_message` item, as
+                       `{"type":"item.completed","item":{"type":"agent_message","text":...}}`, then `turn.completed`)
+  FAKE_CODEX_EVENTS    codex only: file whose lines are printed as they are, in place of FAKE_CODEX_STDOUT's one event
+                       (several agent_message items, or a stream with none)
   FAKE_U_DELAY         seconds a review call sleeps before answering
   FAKE_U_PID_FILE      a review call writes its PID here first
   FAKE_U_STDERR_BYTES  a review call writes this many bytes to stderr, then carries on normally
-  FAKE_U_FLOOD_STDOUT  a review call writes this many bytes to stdout, then keeps running until killed
+  FAKE_U_FLOOD_STDOUT  a review call writes this many bytes of lines to stdout (codex: its event stream), then keeps running
+                       until killed
   FAKE_U_FLOOD_STDERR  the same on stderr
-  FAKE_U_FLOOD_ANSWER  codex only: the same into the `-o` last-message file
   FAKE_U_FLOOD_EXIT    set: after the flood, answer normally and exit instead of running until killed
+  FAKE_U_EXIT_AT       absolute time (epoch seconds): a review call waits until then to answer and exit;
+                       FAKE_U_EXIT_TIME_FILE gets the time.time() it exits at
   FAKE_U_LINGER        a review call starts a child that inherits stdout and stderr and sleeps this many seconds,
-                       then answers normally and exits; FAKE_U_LINGER_PID_FILE gets the child's PID
+                       then answers normally and exits; FAKE_U_LINGER_PID_FILE gets the child's PID, and
+                       FAKE_U_LINGER_GRANDCHILD_PID_FILE (when set) makes that child start a grandchild and gets its PID
   FAKE_U_FREEZE_PARENT POSIX only: 0.5 s in, a review call stops its parent (review-run.sh's capture loop) with SIGSTOP
                        and has a detached helper resume it this many seconds later
   FAKE_U_SPY          after each stdout/stderr flood returns, write here the size of the largest file under
@@ -99,34 +105,33 @@ def main(argv):
         subprocess.Popen(["sh", "-c", f"sleep {float(freeze)}; kill -CONT {ppid}"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         os.kill(ppid, signal.SIGSTOP)
+    if env(f"FAKE_{u}_LINGER"):
+        import subprocess
+        secs, grand = float(env(f"FAKE_{u}_LINGER")), env(f"FAKE_{u}_LINGER_GRANDCHILD_PID_FILE")
+        code = f"import time; time.sleep({secs})"
+        if grand:  # the child starts a grandchild of its own, so the tree is three deep
+            code = (f"import subprocess, sys, time; g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({secs})']); "
+                    f"open({grand!r}, 'w').write(str(g.pid)); time.sleep({secs})")
+        kid = subprocess.Popen([sys.executable, "-c", code])
+        if env(f"FAKE_{u}_LINGER_PID_FILE"):
+            Path(env(f"FAKE_{u}_LINGER_PID_FILE")).write_text(str(kid.pid))
     delay = float(env(f"FAKE_{u}_DELAY", "0"))
     if delay:
         time.sleep(delay)
     n = int(env(f"FAKE_{u}_STDERR_BYTES", "0"))
     if n:
         flood(sys.stderr.buffer, n)
-    if env(f"FAKE_{u}_LINGER"):
-        import subprocess
-        kid = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({float(env(f'FAKE_{u}_LINGER'))})"])
-        if env(f"FAKE_{u}_LINGER_PID_FILE"):
-            Path(env(f"FAKE_{u}_LINGER_PID_FILE")).write_text(str(kid.pid))
-    floods = [(int(env(f"FAKE_{u}_FLOOD_{k}", "0")), k) for k in ("STDOUT", "STDERR", "ANSWER")]
+    floods = [(int(env(f"FAKE_{u}_FLOOD_{k}", "0")), k) for k in ("STDOUT", "STDERR")]
     if any(n for n, _ in floods):
         for n, k in floods:
             if not n:
                 continue
-            if k == "ANSWER":
-                for i, a in enumerate(args):
-                    if a == "-o" and i + 1 < len(args):
-                        with open(args[i + 1], "wb") as f:
-                            flood(f, n)
-            else:
-                flood(sys.stdout.buffer if k == "STDOUT" else sys.stderr.buffer, n)
-                if env(f"FAKE_{u}_SPY"):
-                    import glob
-                    import tempfile
-                    files = glob.glob(os.path.join(tempfile.gettempdir(), "specwright-run-*", "*"))
-                    Path(env(f"FAKE_{u}_SPY")).write_text(str(max((os.path.getsize(f) for f in files), default=0)))
+            flood(sys.stdout.buffer if k == "STDOUT" else sys.stderr.buffer, n)
+            if env(f"FAKE_{u}_SPY"):
+                import glob
+                import tempfile
+                files = glob.glob(os.path.join(tempfile.gettempdir(), "specwright-run-*", "*"))
+                Path(env(f"FAKE_{u}_SPY")).write_text(str(max((os.path.getsize(f) for f in files), default=0)))
         while not env(f"FAKE_{u}_FLOOD_EXIT"):  # keep running until killed
             time.sleep(0.2)
     src = env(f"FAKE_{u}_STDOUT")
@@ -137,13 +142,24 @@ def main(argv):
         if session:
             (sess / "session.jsonl").write_text(Path(session).read_text(encoding="utf-8"), encoding="utf-8")
     if name == "codex":
-        for i, a in enumerate(args):
-            if a == "-o" and i + 1 < len(args):
-                Path(args[i + 1]).write_text(text, encoding="utf-8")
-        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}))
+        events = env("FAKE_CODEX_EVENTS")
+        out = sys.stdout.buffer
+        out.write(json.dumps({"type": "thread.started", "thread_id": "t1"}).encode("utf-8") + b"\n")
+        if events:
+            out.write(Path(events).read_bytes())
+        else:
+            item = {"id": "item_0", "type": "agent_message", "text": text}
+            out.write(json.dumps({"type": "item.completed", "item": item}, ensure_ascii=False).encode("utf-8") + b"\n")
+        out.write(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}).encode("utf-8") + b"\n")
     else:
         sys.stdout.buffer.write(text.encode("utf-8"))
-        sys.stdout.flush()
+    sys.stdout.flush()
+    exit_at = env(f"FAKE_{u}_EXIT_AT")
+    if exit_at:
+        while time.time() < float(exit_at):
+            time.sleep(0.01)
+        if env(f"FAKE_{u}_EXIT_TIME_FILE"):
+            Path(env(f"FAKE_{u}_EXIT_TIME_FILE")).write_text(repr(time.time()), encoding="utf-8")
     return int(env(f"FAKE_{u}_EXIT", "0"))
 
 
