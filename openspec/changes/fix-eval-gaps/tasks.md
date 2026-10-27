@@ -17,9 +17,9 @@
 | eval-grading → A fetch that stores refs is a write | No tags or no destination stays a read | evals/git-workflow/test_grade.py | GitAllowlist.test_fetch_with_no_tags_or_no_destination_is_a_read (guard) | green |
 | eval-grading → A fetch that stores refs is a write | Pull's own child fetch | evals/git-workflow/test_grade.py | GitAllowlist.test_pull_child_fetch_is_judged_with_the_pull (green now; would turn red under the new fetch rule without the child rule) | green |
 | eval-grading → A fetch that stores refs is a write | Update-head-ok without a pull | evals/git-workflow/test_grade.py | GitAllowlist.test_update_head_ok_without_a_pull_is_a_write || green |
-| eval-grading → GraphQL calls are found by their endpoint | Mutation sent as GET | evals/git-workflow/test_grade.py, evals/pr-pair/test_fake_gh.py | GhAllowlist.test_graphql_mutation_sent_as_get_is_a_write; GraphqlWriteDispatch.test_mutation_sent_as_get_applies | red |
-| eval-grading → GraphQL calls are found by their endpoint | Query with options before the endpoint | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_read_with_options_before_the_endpoint | red |
-| eval-grading → GraphQL calls are found by their endpoint | Unreadable document after an option | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_input_after_get_is_a_write | red |
+| eval-grading → GraphQL calls are found by their endpoint | Mutation sent as GET | evals/git-workflow/test_grade.py, evals/pr-pair/test_fake_gh.py | GhAllowlist.test_graphql_mutation_sent_as_get_is_a_write; GraphqlWriteDispatch.test_mutation_sent_as_get_applies | green |
+| eval-grading → GraphQL calls are found by their endpoint | Query with options before the endpoint | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_read_with_options_before_the_endpoint | green |
+| eval-grading → GraphQL calls are found by their endpoint | Unreadable document after an option | evals/git-workflow/test_grade.py | GhAllowlist.test_graphql_input_after_get_is_a_write | green |
 | eval-grading → Only the executed GraphQL operation is classified | Named query beside a mutation | evals/git-workflow/test_grade.py, evals/pr-pair/test_fake_gh.py | GraphqlOperations.test_operation_name_selects_a_query; GraphqlWriteDispatch.test_named_query_beside_a_mutation_changes_nothing | red |
 | eval-grading → Only the executed GraphQL operation is classified | Named mutation | evals/git-workflow/test_grade.py | GraphqlOperations.test_operation_name_selects_a_mutation (guard) | green |
 | eval-grading → Only the executed GraphQL operation is classified | Unknown operation name | evals/git-workflow/test_grade.py, evals/pr-pair/test_fake_gh.py | GraphqlOperations.test_unknown_operation_name_is_a_write; GraphqlWriteDispatch.test_several_operations_need_a_known_name (guard) | green |
@@ -49,7 +49,7 @@
 ## 3. GraphQL classification and the fake (#119, #124, #125)
 
 - [x] 3.1 Write the failing tests: `GhAllowlist.test_graphql_mutation_sent_as_get_is_a_write`, `test_graphql_read_with_options_before_the_endpoint` and `test_graphql_input_after_get_is_a_write`; `GraphqlOperations.test_operation_name_selects_a_query` (with the guards `test_operation_name_selects_a_mutation` and `test_unknown_operation_name_is_a_write`); in `test_fake_gh.py`, `GraphqlWriteDispatch.test_mutation_sent_as_get_applies`, `test_named_query_beside_a_mutation_changes_nothing` and `test_duplicate_operation_names_fail_unchanged`. Verify: each red row fails for the stated reason.
-- [ ] 3.2 Route `gh api` calls by `api_endpoint(a).lstrip("/") == "graphql"` in `gh_read_only` (D1). Verify: the #119 rows pass and `GhAllowlist`/`ChangingCommands` stay green. Flip them green.
+- [x] 3.2 Route `gh api` calls by `api_endpoint(a).lstrip("/") == "graphql"` in `gh_read_only` (D1). Verify: the #119 rows pass and `GhAllowlist`/`ChangingCommands` stay green. Flip them green.
 - [ ] 3.3 Read `operationName` in `graphql_read_only` and filter with `gqlops.named_operations` (D3). Verify: the #124 rows pass. Flip them green.
 - [ ] 3.4 Make the fake fail with `GraphQL: There are multiple operations named '<name>'.` when more than one operation matches, before any dispatch. Verify: `test_duplicate_operation_names_fail_unchanged` passes (state file unchanged) and `python -m unittest discover evals/pr-pair` passes. Flip it green.
 
