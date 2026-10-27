@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Notes list the changes merged since the previous release
-Notes for V SHALL list every change whose merge lands after the previous release commit and up to V's release commit: a change whose archived proposal has a valid `## Release Notes` section by that section's items, any other change by its change name, the first sentence of its archived proposal's Why, and its PR number when main's commit subject names one. The previous release commit SHALL be the release commit of the highest lower version whose tag exists locally or on origin, else the first-parent commit where the primary version file took the value before V.
+Notes for V SHALL list every change merged after the previous release commit, up to V's release commit: one with a valid `## Release Notes` section by its items, any other by its change name, its archived proposal's first Why sentence and its PR number when main's commit subject names one. The previous release commit SHALL be the release commit of the highest lower version whose tag exists locally or on origin, else the first-parent commit where the primary version file took the value before V.
 
 #### Scenario: One change in the range
 - **WHEN** publish runs for 0.4.2 and only `2026-10-15-pin-openspec-version` was archived between the 0.4.1 and 0.4.2 release commits, and its proposal has no `## Release Notes` section
