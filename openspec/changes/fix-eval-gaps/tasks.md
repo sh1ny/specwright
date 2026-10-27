@@ -30,11 +30,11 @@
 | eval-runner → The runner runs each test file as its own process | Unknown suite | evals/runner/test_run.py | RunnerTests.test_unknown_suite_exits_2 | green |
 | eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | RunnerTests.test_a_crashing_file_is_reported | green |
 | eval-runner → The runner runs each test file as its own process | A file times out | evals/runner/test_run.py | RunnerTests.test_a_timed_out_file_tree_is_stopped | green |
-| eval-runner → Faster suites keep every test | Counts after the change | n/a | Mechanical check (task 7.2): `python evals/run.py --ids` against `test-ids-base.txt`; a one-time comparison at ship time, since the base list exists only for this change | n/a |
+| eval-runner → Faster suites keep every test | Counts after the change | n/a | Mechanical check (task 7.2): `python evals/run.py --ids` against `test-ids-base.txt`; a one-time comparison at ship time, since the base list exists only for this change | done |
 | eval-runner → Faster suites keep every test | A shared fixture is not shared state | evals/runner/test_fixturecache.py | FixtureCacheTests.test_copies_are_independent | green |
-| eval-runner → Suite wall times are recorded | Before and after recorded | evals/runner/test_timings.py | TimingsRecord.test_every_suite_has_before_and_after_and_the_total_is_lower | red |
-| eval-runner → Suite wall times are recorded | A suite that did not get faster | evals/runner/test_timings.py | TimingsRecord.test_a_suite_not_faster_is_named_in_a_note | red |
-| eval-runner → Suite wall times are recorded | A test ID went missing | evals/runner/test_timings.py | TimingsRecord.test_record_states_every_base_id_is_present (with the 7.2 comparison) | red |
+| eval-runner → Suite wall times are recorded | Before and after recorded | evals/runner/test_timings.py | TimingsRecord.test_every_suite_has_before_and_after_and_the_total_is_lower | green |
+| eval-runner → Suite wall times are recorded | A suite that did not get faster | evals/runner/test_timings.py | TimingsRecord.test_a_suite_not_faster_is_named_in_a_note | green |
+| eval-runner → Suite wall times are recorded | A test ID went missing | evals/runner/test_timings.py | TimingsRecord.test_record_states_every_base_id_is_present (with the 7.2 comparison) | green |
 
 ## 1. Baseline test IDs
 
@@ -75,7 +75,7 @@
 ## 7. After measurement, record and release
 
 - [x] 7.1 Write `evals/runner/test_timings.py` (`TimingsRecord`: six suites, each with a before and an after time and both test counts; the after total lower than the before total; every suite whose after time is not lower named in a note; the record states that every base test ID is present). Verify: it fails because `evals/timings.md` does not exist.
-- [ ] 7.2 With no other load from this work on the machine, run each suite on its own with `python evals/run.py <suite>`. Compare `python evals/run.py --ids` with `test-ids-base.txt`: every base ID must be present (any missing ID blocks the change). Write `evals/timings.md` (D8): the before column is the #127 figures (cite the issue and 2026-10-26, with its test counts), the after column is these results with their test counts and the machine, OS, git and Python versions, plus the ID comparison. The `runner` suite (new in this change) has no before figure; a note says it is excluded from both totals. Verify: `TimingsRecord` passes. Flip the eval-runner timing rows green and mark the "Counts after the change" check done.
+- [x] 7.2 With no other load from this work on the machine, run each suite on its own with `python evals/run.py <suite>`. Compare `python evals/run.py --ids` with `test-ids-base.txt`: every base ID must be present (any missing ID blocks the change). Write `evals/timings.md` (D8): the before column is the #127 figures (cite the issue and 2026-10-26, with its test counts), the after column is these results with their test counts and the machine, OS, git and Python versions, plus the ID comparison. The `runner` suite (new in this change) has no before figure; a note says it is excluded from both totals. Verify: `TimingsRecord` passes. Flip the eval-runner timing rows green and mark the "Counts after the change" check done.
 - [ ] 7.3 Run all six suites plus `runner` (`python evals/run.py pr-pair update review-routes git-workflow release finish runner`) and `openspec validate fix-eval-gaps --strict`. Verify: exit 0 for both.
 - [ ] 7.4 `release.sh bump --to 0.9.1`, and rewrite the summary in the proposal's `## Release Notes` so it describes the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/fix-eval-gaps/proposal.md` pass.
 
