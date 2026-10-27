@@ -35,11 +35,11 @@ None.
 
 ## Release Notes
 
-Release notes now say what each release shipped: a summary, then the items each change added, changed, fixed or removed, with their issue or PR references.
+0.9.0 makes release notes say what a release shipped. Each proposal gains a `## Release Notes` section, and the tag message and GitHub release now open with the release summary, then list the items every change added, changed, fixed or removed, with their issue or PR references.
 
 ### Added
 - A `## Release Notes` section in every proposal of a project with releases on, written with the proposal, kept current during apply and checked against the diff in the pre-ship review (#130)
 - `release.sh notes --proposal <file>` checks one proposal's section and prints what the notes will hold (#130)
 
 ### Changed
-- `release.sh` builds the tag message and GitHub release body from the changes' sections, grouped under `Added`, `Changed`, `Fixed` and `Removed`, with the release summary first; changes without a section keep their Why line under `Changes` (#130)
+- `release.sh` builds the tag message and GitHub release body from the changes' sections, grouped under `Added`, `Changed`, `Fixed` and `Removed`, with the release summary first; changes without a section, or with one that does not parse, keep their Why line under `Changes`, and `status` and `publish` name an unparsed section in `warnings` (#130)
