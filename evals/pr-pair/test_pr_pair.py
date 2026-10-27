@@ -30,6 +30,9 @@ SCRIPT = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
 
+sys.path.append(str(ROOT / "evals"))
+import fixturecache  # noqa: E402  per-process cache: the repo with its first commit is built once and copied
+
 _spec = importlib.util.spec_from_file_location("fake_gh", ROOT / "evals" / "fakes" / "gh.py")
 fake_gh = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fake_gh)  # its state helpers (add_review_comment_reaction, add_node_reaction)
@@ -43,6 +46,19 @@ MARKER = f"{ARCHIVE}/specwright-change.yaml"
 OLD_TEXT, NEW_TEXT = "The system SHOULD greet", "The system SHALL greet"
 T0 = "2026-10-08T10:00:00Z"
 REV0 = f"11@{T0}"
+
+
+def _build_repo(name, dest):
+    """A repo on main with the one `chore: initial` commit and no remote: the stage make_repo caches (nothing in it names a path)."""
+    env = {k: v for k, v in os.environ.items() if k.startswith(("PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE"))}
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    dest.mkdir(parents=True)
+    for args in (("init", "-q", "-b", "main"), ("config", "user.name", "Eval Bot"), ("config", "user.email", "eval@example.invalid"),
+                 ("config", "commit.gpgsign", "false")):
+        subprocess.run(["git", *args], cwd=dest, check=True, capture_output=True, text=True, env=env)
+    (dest / "README.md").write_text(f"# {name}\n", encoding="utf-8", newline="\n")
+    for args in (("add", "-A"), ("commit", "-q", "-m", "chore: initial")):
+        subprocess.run(["git", *args], cwd=dest, check=True, capture_output=True, text=True, env=env)
 
 
 class Base(unittest.TestCase):
@@ -91,11 +107,7 @@ class Base(unittest.TestCase):
     # ---- git fixtures ------------------------------------------------------------------------------------
     def make_repo(self, name, remote):
         d = self.tmp / name
-        d.mkdir()
-        self.git(d, "init", "-q", "-b", "main")
-        for k, v in (("user.name", "Eval Bot"), ("user.email", "eval@example.invalid"), ("commit.gpgsign", "false")):
-            self.git(d, "config", k, v)
-        self.commit(d, {"README.md": f"# {name}\n"}, "chore: initial")
+        fixturecache.copy(("pr-pair.make_repo", name), lambda dest: _build_repo(name, dest), d)
         if remote:
             self.git(d, "remote", "add", "origin", remote)
         return d

@@ -14,6 +14,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
+
 DEFAULT_VERSION_FILES = {
     "VERSION": r"^(\d+\.\d+\.\d+)$",
     "README.md": r"badge/version-(\d+\.\d+\.\d+)-blue",
@@ -82,9 +87,20 @@ def make_repo(tmp, version="0.4.2", version_files="default", skills=DEFAULT_SKIL
     with_release_block False writes a specwright.yaml with no `release:` block. Returns the work tree path."""
     tmp = Path(tmp)
     work, origin = tmp / "work", tmp / "origin.git"
+    # the one commit is built once per process per argument set; the bare origin and the remote (an absolute path) come after the copy
+    key = ("release.make_repo", version, repr(version_files), tuple(skills), enabled, merge_method, extra_release, with_release_block, finish)
+    fixturecache.copy(key, lambda dest: _build_work(dest, version, version_files, skills, enabled, merge_method, extra_release,
+                                                    with_release_block, finish), work)
     origin.mkdir(parents=True)
     git(origin, "init", "-q", "--bare", "-b", "main")
-    work.mkdir()
+    git(work, "remote", "add", "origin", str(origin))
+    git(work, "push", "-q", "origin", "main")
+    return work
+
+
+def _build_work(work, version, version_files, skills, enabled, merge_method, extra_release, with_release_block, finish):
+    """The initial commit of make_repo's work tree, with no remote."""
+    work.mkdir(parents=True)
     git(work, "init", "-q", "-b", "main")
     for k, v in (("user.name", NAME), ("user.email", EMAIL), ("commit.gpgsign", "false"), ("core.autocrlf", "false")):
         git(work, "config", k, v)
@@ -97,9 +113,6 @@ def make_repo(tmp, version="0.4.2", version_files="default", skills=DEFAULT_SKIL
           settings_text(vf if with_release_block else None, enabled, merge_method, extra_release, finish=finish))
     git(work, "add", "-A")
     git(work, "commit", "-q", "-m", "initial")
-    git(work, "remote", "add", "origin", str(origin))
-    git(work, "push", "-q", "origin", "main")
-    return work
 
 
 def commit(repo, subject, files=None, body="", allow_empty=False):

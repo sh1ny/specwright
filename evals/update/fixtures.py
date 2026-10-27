@@ -25,6 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]  # the specwright repo
 SHIMS = Path(__file__).resolve().parent / "shims"
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 STORE_ID = "team-plans"
 PREFIXES = ("feat", "bugfix", "refactor", "docs", "chore")
@@ -62,11 +65,22 @@ def git(repo, *args, check=True):
     return r.stdout.strip()
 
 
-def init_repo(repo):
+def _build_init(repo):
     Path(repo).mkdir(parents=True, exist_ok=True)
     git(repo, "init", "-q", "-b", "main")
     for k, v in (("user.name", NAME), ("user.email", EMAIL), ("commit.gpgsign", "false"), ("core.autocrlf", "false")):
         git(repo, "config", k, v)
+
+
+def init_repo(repo):
+    """An empty configured repo on main at `repo`: a copy of one built once per process (its config holds no path).
+    `repo` may already exist as an empty directory."""
+    repo = Path(repo)
+    if repo.exists():
+        if any(repo.iterdir()):
+            return _build_init(repo)  # init in place, as before
+        repo.rmdir()
+    fixturecache.copy(("update.init_repo",), _build_init, repo)
 
 
 def commit_all(repo, message):
@@ -298,9 +312,15 @@ def write_store_record(store, version, owner, commit=True, text=None):
 def make_tag_origin(dest, tags):
     """A git repo at `dest` with one commit and a lightweight tag for each of `tags`; returns its posix path (a stand-in
     for the release repository whose tags `git ls-remote --tags` lists)."""
-    init_repo(dest)
-    write(dest, "README.md", "# releases\n")
-    commit_all(dest, "chore: initial")
+    def build(d):  # init and the one commit: a copy of one built once; the tags follow
+        _build_init(d)
+        write(d, "README.md", "# releases\n")
+        commit_all(d, "chore: initial")
+    dest = Path(dest)
+    if dest.exists():
+        build(dest)
+    else:
+        fixturecache.copy(("update.tag_origin",), build, dest)
     for t in tags:
         git(dest, "tag", t)
     return posix(dest)

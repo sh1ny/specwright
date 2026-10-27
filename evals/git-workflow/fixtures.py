@@ -33,6 +33,9 @@ def rmtree(path):
 ROOT = Path(__file__).resolve().parents[2]  # specwright repo
 sys.path.insert(0, str(ROOT / "evals" / "fakes"))
 import gh as fake_gh  # noqa: E402  the fake gh's state helpers
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import fixturecache  # noqa: E402  per-process cache: path-independent repo stages are built once and copied
 
 
 def git(repo, *args):
@@ -45,7 +48,7 @@ def write(repo, rel, text):
     p.write_text(text, encoding="utf-8", newline="\n")
 
 
-def init(repo):
+def _init(repo):
     repo.mkdir(parents=True)
     git(repo, "init", "-q", "-b", "main")
     git(repo, "config", "user.name", "Eval Bot")
@@ -53,8 +56,18 @@ def init(repo):
     git(repo, "config", "commit.gpgsign", "false")
 
 
+def init(repo):
+    """An empty configured repo on main at `repo` (a copy of one built once per process; the config holds no path)."""
+    fixturecache.copy(("git-workflow.init",), _init, repo)
+
+
 def base(repo):
-    init(repo)
+    """The schema-bearing project repo on main; a copy of one built once per process (nothing in it names a path)."""
+    fixturecache.copy(("git-workflow.base",), _base, repo)
+
+
+def _base(repo):
+    _init(repo)
     shutil.copytree(ROOT / "schemas" / "specwright", repo / "openspec" / "schemas" / "specwright")
     shutil.copy(ROOT / "templates" / "openspec" / "config.yaml", repo / "openspec" / "config.yaml")
     write(repo, "openspec/specwright.yaml", "finish: local\n")
@@ -122,8 +135,14 @@ def install_fake_openspec(dest, version):
 
 def code_repo(code, store_id="team-plans", pointer=True, settings="finish: local\n"):
     """The project repo: Specwright settings, an optional config.yaml pointing at the store
-    (otherwise the store is the global defaultStore) and the tiny project. No openspec specs/changes."""
-    init(code)
+    (otherwise the store is the global defaultStore) and the tiny project. No openspec specs/changes.
+    A copy of one built once per process per argument set (nothing in it names a path)."""
+    fixturecache.copy(("git-workflow.code_repo", store_id, pointer, settings),
+                      lambda dest: _code_repo(dest, store_id, pointer, settings), code)
+
+
+def _code_repo(code, store_id, pointer, settings):
+    _init(code)
     if settings is not None:
         write(code, "openspec/specwright.yaml", settings)
     if pointer:
@@ -144,6 +163,13 @@ def register(dest, root, store_id, pointer=True):
         openspec(dest, "config", "set", "defaultStore", store_id)
 
 
+def _initial_store(store):
+    _init(store)
+    store_content(store)
+    git(store, "add", "-A")
+    git(store, "commit", "-q", "-m", "chore: initial store")
+
+
 def store_base(dest, store_id="team-plans", pointer=True, registered=True, store_git=True, store_worktree=False,
                settings="finish: local\n"):
     """<dest>/code (the project; its openspec/config.yaml points at the store when `pointer`,
@@ -160,14 +186,15 @@ def store_base(dest, store_id="team-plans", pointer=True, registered=True, store
     if store_worktree:
         git(code, "worktree", "add", "-q", "--orphan", "-b", "plans", posix(store))
         git(store, "config", "commit.gpgsign", "false")
-    elif store_git:
-        init(store)
+    elif store_git:  # init, content and first commit: a copy of one built once (before register, so nothing names a path)
+        fixturecache.copy(("git-workflow.initial_store",), _initial_store, store)
     else:
         store.mkdir()
-    store_content(store)
-    if store_git:
-        git(store, "add", "-A")
-        git(store, "commit", "-q", "-m", "chore: initial store")
+    if store_worktree or not store_git:
+        store_content(store)
+        if store_git:
+            git(store, "add", "-A")
+            git(store, "commit", "-q", "-m", "chore: initial store")
     register(dest, store, store_id, pointer)
     if store_git:
         git(store, "add", "-A")  # registration wrote .openspec-store/store.yaml
@@ -864,19 +891,8 @@ INSTALL_CONFIG = "schema: spec-driven\n\n# Project context (optional)\n# Add onl
 INSTALL_OTHER_CONFIG = "schema: team-flow\n\ncontext: |\n  Team convention: write every spec in British English.\n"
 
 
-def install_base(dest, kind):
-    """Install evals: the code repo is a fresh project (no specwright.yaml, no skills) whose openspec/ holds only the
-    `store: team-plans` pointer; its planning root is a healthy, registered, empty OpenSpec root, as `openspec store setup`
-    leaves one (config.yaml naming spec-driven, specs/ and changes/archive/ with .gitkeep files).
-    "store": the root is <dest>/store.
-    "other-schema": the same, but the store's config.yaml names the project-local schema team-flow (in the store) and
-    a context line of the team's own.
-    "nested": the root is <dest>/store/planning, inside the store repo, whose top level has no openspec/.
-    Everything is committed and clean; the install must leave the store's files uncommitted."""
-    code, store = dest / "code", dest / "store"
-    code_repo(code, settings=None)
-    (dest / "bin").mkdir()
-    init(store)
+def _install_store(store, kind, dest):
+    _init(store)
     root = store / "planning" if kind == "nested" else store
     write(root, "openspec/config.yaml", INSTALL_CONFIG)
     write(root, "openspec/specs/.gitkeep", "")
@@ -889,6 +905,25 @@ def install_base(dest, kind):
         write(store, "README.md", "# team plans\n")
     git(store, "add", "-A")
     git(store, "commit", "-q", "-m", "chore: initial store")
+
+
+def install_base(dest, kind):
+    """Install evals: the code repo is a fresh project (no specwright.yaml, no skills) whose openspec/ holds only the
+    `store: team-plans` pointer; its planning root is a healthy, registered, empty OpenSpec root, as `openspec store setup`
+    leaves one (config.yaml naming spec-driven, specs/ and changes/archive/ with .gitkeep files).
+    "store": the root is <dest>/store.
+    "other-schema": the same, but the store's config.yaml names the project-local schema team-flow (in the store) and
+    a context line of the team's own.
+    "nested": the root is <dest>/store/planning, inside the store repo, whose top level has no openspec/.
+    Everything is committed and clean; the install must leave the store's files uncommitted."""
+    code, store = dest / "code", dest / "store"
+    code_repo(code, settings=None)
+    (dest / "bin").mkdir()
+    root = store / "planning" if kind == "nested" else store
+    if kind == "other-schema":  # runs the openspec CLI against this fixture's registry: built here, not cached
+        _install_store(store, kind, dest)
+    else:  # a copy of one built once per process (before register, so nothing in it names a path)
+        fixturecache.copy(("git-workflow.install_store", kind), lambda d: _install_store(d, kind, dest), store)
     register(dest, root, "team-plans")
     git(store, "add", "-A")  # registration wrote .openspec-store/store.yaml
     git(store, "commit", "-q", "-m", "chore: register store")

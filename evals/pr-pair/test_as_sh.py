@@ -30,6 +30,9 @@ AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
 
+sys.path.append(str(ROOT / "evals"))
+import fixturecache  # noqa: E402  per-process cache: the empty repo is built once and copied
+
 
 
 def fixtures_kill(pid_file):
@@ -97,12 +100,17 @@ class AsShCase(unittest.TestCase):
 
     def repo(self, name, header=False):
         d = self.tmp / name
-        d.mkdir()
-        self.git(d, "init", "-q", "-b", "main")
+        fixturecache.copy(("as-sh.repo",), self._init_repo, d)  # the remote URL names this test's server port: added after the copy
         self.git(d, "remote", "add", "origin", f"{self.base}o/{name}.git")
         if header:  # repository-local and URL-scoped: only the store has it
             self.git(d, "config", f"http.{self.base}.extraheader", LEAK)
         return d
+
+    @staticmethod
+    def _init_repo(dest):
+        dest.mkdir()
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}  # as every git call of these tests
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=dest, check=True, capture_output=True, text=True, env=env)
 
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO")}
