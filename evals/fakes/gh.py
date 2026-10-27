@@ -130,6 +130,7 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
 """
 import hashlib
+import io
 import json
 import os
 import re
@@ -1080,6 +1081,39 @@ def main(argv):
         return e.code
     save(st)
     return 0
+
+
+def run(argv, env, stdin="", cwd=None):
+    """Answer one call in this process, as `python gh.py <argv>` would: returns (code, stdout, stderr) as text.
+
+    `env` replaces os.environ (in place, so jq and git children inherit it), `cwd` is the working directory when given, and
+    stdin/stdout/stderr are in-memory streams. A SystemExit from main is the exit code. The cwd, the environment and the
+    streams are restored afterwards, however main ended; an unexpected exception propagates. Not for the `hang` injection
+    (it sleeps forever) or a PID file (the PID is this process's): use the process for those."""
+    old_cwd, old_env = os.getcwd(), dict(os.environ)
+    old_streams = sys.stdout, sys.stderr, sys.stdin
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        if cwd is not None:
+            os.chdir(cwd)
+        os.environ.clear()
+        os.environ.update(env)
+        sys.stdout, sys.stderr, sys.stdin = out, err, io.StringIO(stdin)
+        try:
+            code = main(list(argv))
+        except SystemExit as e:
+            code = e.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):  # sys.exit("msg") prints the message and exits 1
+            err.write(f"{code}\n")
+            code = 1
+    finally:
+        sys.stdout, sys.stderr, sys.stdin = old_streams
+        os.chdir(old_cwd)
+        os.environ.clear()
+        os.environ.update(old_env)
+    return code, out.getvalue(), err.getvalue()
 
 
 if __name__ == "__main__":

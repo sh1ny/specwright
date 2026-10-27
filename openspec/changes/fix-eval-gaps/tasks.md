@@ -63,7 +63,7 @@
 ## 5. In-process fake gh (#127)
 
 - [x] 5.1 Write tests in `test_fake_gh.py` for `run()`: it returns the same `(code, stdout, stderr)` as the process for a read, a write and a `Fail`; the logged `cwd` is the given `cwd`; `os.environ`, the cwd and `sys.std*` are restored after a normal return, a `Fail`, a `SystemExit` (`flood`) and an unexpected exception. Verify: they fail because `run` does not exist.
-- [ ] 5.2 Implement `run(argv, env, stdin="", cwd=None)` in `evals/fakes/gh.py` (D6) and switch `FakeGhCase.gh()` to it, with `process=True` for the `hang`, PID-file, signal and pipe-stdin tests and a few kept process-level tests (exit codes, UTF-8 stdout). Verify: `python -m unittest discover evals/pr-pair` passes, and the pr-pair test IDs are unchanged against `test-ids-base.txt`.
+- [x] 5.2 Implement `run(argv, env, stdin="", cwd=None)` in `evals/fakes/gh.py` (D6) and switch `FakeGhCase.gh()` to it, with `process=True` for the `hang`, PID-file, signal and pipe-stdin tests and a few kept process-level tests (exit codes, UTF-8 stdout). Verify: `python -m unittest discover evals/pr-pair` passes, and the pr-pair test IDs are unchanged against `test-ids-base.txt`.
 
 ## 6. Parallel runner (#127)
 
