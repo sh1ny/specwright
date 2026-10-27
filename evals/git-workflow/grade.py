@@ -565,6 +565,12 @@ def gql_queries(a):
     return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]=?|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
 
 
+def gql_operation_name(a):
+    """The `operationName` field a `gh api graphql` call passes (same spellings gql_queries reads), the last one; None if absent."""
+    names = [m.group(1) for x in a for m in [re.match(r"(?:-[fF]=?|--(?:raw-)?field=)?operationName=(.*)", x, re.S)] if m]
+    return names[-1] if names else None
+
+
 GH_READ = {"pr": {"view", "list", "checks", "diff", "status"}, "issue": {"view", "list", "status"}, "repo": {"view"},
            "release": {"view", "list"}, "auth": {"status", "token"}}
 
@@ -602,7 +608,13 @@ def graphql_read_only(a):
     definitions is not."""
     qs = gql_queries(a)
     opaque = not qs or any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
-    parsed = [gqlops.operations(q) for q in qs]
+    name = gql_operation_name(a)
+    parsed = []
+    for q in qs:
+        ops = gqlops.named_operations(q)
+        if ops is not None and name is not None:
+            ops = [op for op in ops if op[1] == name]  # only the operation GitHub executes; none named so = write (empty)
+        parsed.append(None if ops is None else [(k, f) for k, _, f in ops])
     return not (opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed))
 
 
@@ -616,7 +628,7 @@ def gh_read_only(a):
     if a[0] == "search":
         return True
     if a[0] == "api":
-        return graphql_read_only(a) if "graphql" in a[1:2] else rest_read_only(a)
+        return graphql_read_only(a) if api_endpoint(a).lstrip("/") == "graphql" else rest_read_only(a)
     return a[1:2] != [] and a[1] in GH_READ.get(a[0], ())
 
 
