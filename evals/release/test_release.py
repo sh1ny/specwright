@@ -26,6 +26,31 @@ _spec.loader.exec_module(fx)
 VERSION_FILES = ["VERSION", "README.md", "skills/specwright-pr/SKILL.md", "skills/specwright-debug/SKILL.md"]
 
 
+def section(summary, **groups):
+    """A `## Release Notes` section: a summary, then the non-empty groups (added, changed, fixed, removed) as list items."""
+    out = f"## Release Notes\n\n{summary}\n"
+    for h in ("Added", "Changed", "Fixed", "Removed"):
+        if groups.get(h.lower()):
+            out += f"\n### {h}\n\n" + "".join(f"- {i}\n" for i in groups[h.lower()])
+    return out
+
+
+def change_files(change, sec=None, tasks=None, date=fx.DATE, pad=0):
+    """The archived files of one change: a proposal with a Why (and the section `sec`), and a tasks.md when `tasks` is given."""
+    base = f"openspec/changes/archive/{date}-{change}/"
+    text = f"## Why\n\nWhy of {change}.\n\n## What Changes\n\n- {change}\n" + (f"\n{sec}" if sec else "")
+    if pad:
+        text += "\n## Appendix\n\n" + "filler line\n" * pad
+    files = {base + "proposal.md": text}
+    if tasks is not None:
+        files[base + "tasks.md"] = tasks
+    return files
+
+
+def bump_task(version):
+    return f"## 3. Release\n\n- [x] 3.1 Run `release.sh bump --to {version}` and commit\n"
+
+
 class Base(unittest.TestCase):
     maxDiff = None
 
@@ -424,7 +449,124 @@ class TestReleaseCommit(Flow):
         self.assertEqual(doc["main"], "origin/main")
 
 
+class Notes(Base):
+    """Helpers: run `release.sh notes --proposal <file>` on a temp file outside any repository."""
+
+    def notes_cmd(self, text, raw=None):
+        path = self.tmp / "proposal.md"
+        path.write_bytes(raw if raw is not None else text.encode("utf-8"))
+        return self.release("notes", "--proposal", str(path), cwd=self.tmp)
+
+    def invalid(self, text):
+        code, doc, raw = self.notes_cmd(text)
+        self.assertEqual(code, 1, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "release_notes_invalid"), raw)
+        return doc["errors"]
+
+    def valid(self, text):
+        code, doc, raw = self.notes_cmd(text)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+
+def texts(doc, heading):
+    return [i["text"] for i in doc["items"].get(heading, [])]
+
+
+class TestReleaseNotesParse(Notes):
+    def test_valid_section(self):
+        doc = self.valid("## Why\n\nx\n\n## Release Notes\n\nOne sentence.\n\n### Fixed\n\n- F1\n- F2\n\n### Added\n\n- A1\n")
+        self.assertEqual(doc["summary"], "One sentence.")
+        self.assertEqual(texts(doc, "fixed"), ["F1", "F2"])
+        self.assertEqual(texts(doc, "added"), ["A1"])
+        self.assertNotIn("changed", doc["items"])
+
+    def test_unknown_heading_invalid(self):
+        errors = self.invalid("## Release Notes\n\nS.\n\n### Security\n\n- x\n")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("Security", errors[0]["message"])
+        self.assertEqual(errors[0]["line"], 5)
+
+    def test_prose_under_heading_invalid(self):
+        errors = self.invalid("## Release Notes\n\nS.\n\n### Changed\n\nSome prose here.\n- ok\n")
+        self.assertEqual([e["line"] for e in errors], [7])
+
+    def test_missing_summary_or_items_invalid(self):
+        errors = self.invalid("## Release Notes\n\n### Added\n\n- a\n")
+        self.assertIn("summary", errors[0]["message"])
+        errors = self.invalid("## Release Notes\n\nA summary.\n")
+        self.assertIn("item", errors[0]["message"])
+
+    def test_item_over_500_invalid(self):
+        self.valid("## Release Notes\n\nS.\n\n### Added\n\n- " + "x" * 500 + "\n")
+        errors = self.invalid("## Release Notes\n\nS.\n\n### Added\n\n- ok\n- " + "x" * 501 + "\n")
+        self.assertEqual([e["line"] for e in errors], [8])
+
+    def test_template_comments_ignored(self):
+        doc = self.valid("## Release Notes\n\n<!-- guidance\nover two lines -->\nS.\n\n### Added\n\n<!-- items go here -->\n- A\n")
+        self.assertEqual(doc["summary"], "S.")
+        self.assertEqual(texts(doc, "added"), ["A"])
+
+    def test_comment_only_section_has_no_summary(self):
+        errors = self.invalid("## Release Notes\n\n<!-- only the template comment -->\n")
+        self.assertIn("summary", errors[0]["message"])
+
+    def test_indented_continuation_joined(self):
+        doc = self.valid("## Release Notes\n\nS.\n\n### Added\n\n- first part\n  second part\n+ plus item\n* star item\n")
+        self.assertEqual(texts(doc, "added"), ["first part second part", "plus item", "star item"])
+
+    def test_unindented_line_after_item_invalid(self):
+        errors = self.invalid("## Release Notes\n\nS.\n\n### Fixed\n\n- item\nstray line\n")
+        self.assertEqual([e["line"] for e in errors], [8])
+
+    def test_two_paragraph_summary_joined(self):
+        doc = self.valid("## Release Notes\n\nFirst sentence.\n\nSecond   sentence.\n\n### Added\n\n- A\n")
+        self.assertEqual(doc["summary"], "First sentence. Second sentence.")
+
+
+class TestNotesCommand(Notes):
+    def test_valid_section_exit_0(self):
+        # runs from a directory that is no git repository: no git call, and no opt-in needed
+        doc = self.valid("## Release Notes\n\nS.\n\n### Added\n\n- New --dry-run flag\n- Bounded push (#111)\n")
+        self.assertTrue(doc["ok"])
+        self.assertEqual(doc["summary"], "S.")
+        self.assertEqual(doc["items"]["added"], [{"text": "New --dry-run flag", "line": "- New --dry-run flag (#<pr>)"},
+                                                 {"text": "Bounded push (#111)", "line": "- Bounded push (#111)"}])
+
+    def test_two_errors_exit_1(self):
+        errors = self.invalid("## Release Notes\n\nS.\n\n### Security\n\n- a\n\n### Added\n\n- " + "x" * 501 + "\n")
+        self.assertEqual(len(errors), 2, errors)
+        self.assertIn("Security", errors[0]["message"])
+        self.assertEqual([e["line"] for e in errors], [5, 11])
+
+    def test_no_section_exit_1(self):
+        code, doc, raw = self.notes_cmd("## Why\n\nx\n")
+        self.assertEqual(code, 1, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "no_release_notes"))
+
+    def test_missing_file_exit_2(self):
+        missing = self.tmp / "nope" / "proposal.md"
+        code, doc, raw = self.release("notes", "--proposal", str(missing), cwd=self.tmp)
+        self.assertEqual(code, 2, raw)
+        self.assertIn(str(missing), doc["message"])
+
+    def test_file_over_64kb_invalid(self):
+        body = b"## Release Notes\n\nS.\n\n### Added\n\n- A\n" + b"x" * (70 * 1024)
+        code, doc, raw = self.notes_cmd("", raw=body)
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "release_notes_invalid")
+        self.assertIn("64 KB", json.dumps(doc["errors"]))
+
+
 class TestNotes(Flow):
+    def test_no_sections_gives_todays_notes_byte_for_byte(self):
+        self.repo(version="0.4.0")
+        self.tag("v0.4.0")
+        fx.squash_merge(self.work, "zeta", "0.4.1", 1, why="Zeta first.", date="2026-10-11")
+        fx.merge_commit(self.work, "alpha", "0.4.2", 2, why="Alpha second.", date="2026-10-09")
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["notes"], "Changes in v0.4.2:\n\n- zeta (#1): Zeta first.\n- alpha (#2): Alpha second.")
+
     def test_backfill_boundary_counts_origin_only_tags(self):
         # A fresh clone that never fetched tags: v0.1.0 and v0.4.0 are only on origin. Backfilling 0.3.0 starts its range
         # at the highest lower tag, 0.1.0, not at the 0.2.0 value just before it.
@@ -530,6 +672,139 @@ class TestNotes(Flow):
         self.assertIn("- c000\n", doc["notes"])
         self.assertNotIn("Reason 3", doc["notes"])
         self.assertTrue(doc["notes"].rstrip().endswith("…and 6 more"), doc["notes"][-80:])
+
+
+class TestSectionedNotes(Flow):
+    """Notes built from the `## Release Notes` sections of the archived proposals (specs/releases)."""
+
+    def merge(self, change, version, pr, sec=None, tasks=None, date=fx.DATE, extra=None):
+        files = change_files(change, sec, tasks, date)
+        files.update(extra or {})
+        return fx.squash_merge(self.work, change, version, pr, date=date, extra_files=files)
+
+    def start(self, version="0.4.0"):
+        self.repo(version=version)
+        self.tag(f"v{version}")
+
+    def test_one_change_with_section(self):
+        self.start("0.4.0")
+        self.merge("fix-m4-gaps", "0.4.1", 129, section("Closes the M4 gaps.", fixed=[f"Fix {i}" for i in range(1, 9)]))
+        doc = self.status("0.4.1")
+        self.assertEqual(doc["notes"], "Closes the M4 gaps.\n\nFixed:\n" + "\n".join(f"- Fix {i} (#129)" for i in range(1, 9)))
+        self.assertEqual(doc["warnings"], [])
+
+    def test_exact_layout_of_several_groups(self):
+        self.start("0.4.0")
+        self.merge("old-x", "0.4.1", 7)
+        self.merge("new-y", "0.4.2", 8, section("S.", fixed=["F (#5)"], added=["A"]))
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["notes"], "S.\n\nAdded:\n- A (#8)\n\nFixed:\n- F (#5)\n\nChanges:\n- old-x (#7): Why of old-x.")
+
+    def test_two_changes_items_in_change_order(self):
+        self.start("0.4.0")
+        self.merge("add-a", "0.4.1", 1, section("Summary a.", added=["A1", "A2"]))
+        self.merge("add-b", "0.4.2", 2, section("Summary b.", added=["B1"], removed=["R1"]))
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["notes"], "Summary b.\n\nAdded:\n- A1 (#1)\n- A2 (#1)\n- B1 (#2)\n\nRemoved:\n- R1 (#2)")
+
+    def test_mixed_section_and_why_line(self):
+        self.start("0.4.0")
+        self.merge("old-x", "0.4.1", 7)
+        self.merge("new-y", "0.4.2", 8, section("Y.", changed=["C"]))
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["notes"], "Y.\n\nChanged:\n- C (#8)\n\nChanges:\n- old-x (#7): Why of old-x.")
+        self.assertEqual([c["name"] for c in doc["changes"]], ["old-x", "new-y"])
+
+    def test_over_150_items_count_line(self):
+        self.start("0.4.0")
+        self.merge("old-x", "0.4.1", 7)
+        sec = section("S.", added=[f"a{i} (#1)" for i in range(100)], fixed=[f"f{i} (#1)" for i in range(50)],
+                      removed=[f"r{i} (#1)" for i in range(20)])
+        self.merge("big", "0.4.2", 8, sec)
+        notes = self.status("0.4.2")["notes"]
+        want = ("S.\n\nAdded:\n" + "\n".join(f"- a{i} (#1)" for i in range(100)) + "\n\nFixed:\n"
+                + "\n".join(f"- f{i} (#1)" for i in range(50)) + "\n…and 20 more items\n\nChanges:\n- old-x (#7): Why of old-x.")
+        self.assertEqual(notes, want)
+        self.assertNotIn("Removed:", notes)
+
+    def test_over_100_changes_keeps_bumping_summary(self):
+        self.start("0.4.0")
+        extra = {}
+        for i in range(119):
+            extra.update(fx.archive_files(f"c{i:03d}", f"Reason {i}."))
+        self.merge("z-bump", "0.4.1", 9, section("Bump summary.", fixed=["Z item (#2)"]), bump_task("0.4.1"), extra=extra)
+        doc = self.status("0.4.1")
+        self.assertEqual(len(doc["changes"]), 120)
+        notes = doc["notes"]
+        self.assertTrue(notes.startswith("Bump summary.\n\nFixed:\n- Z item (#2)\n\nChanges:\n- c000\n"), notes[:120])
+        self.assertIn("\n- c099\n", notes)
+        self.assertNotIn("c100", notes)
+        self.assertNotIn("Reason", notes)
+        self.assertTrue(notes.endswith("\n- c099\n…and 19 more"), notes[-60:])
+
+    def test_summary_from_bump_task_in_same_commit(self):
+        self.start("0.8.0")
+        extra = {**change_files("b-bump", section("Bump summary.", added=["B item"]), bump_task("0.9.0")),
+                 **change_files("c-other", section("Other summary.", added=["C item"]))}
+        fx.squash_merge(self.work, "a-first", "0.9.0", 5, extra_files=extra)
+        notes = self.status("0.9.0")["notes"]
+        self.assertTrue(notes.startswith("Bump summary.\n\nAdded:\n"), notes)
+        self.assertNotIn("Other summary.", notes)
+        self.assertIn("- B item (#5)\n- C item (#5)", notes)
+
+    def test_summary_from_last_section_without_bump_task(self):
+        # an unticked bump task and one for another version do not count; the last valid section wins
+        self.start("0.8.0")
+        self.merge("add-a", "0.8.5", 1, section("Summary a.", added=["A"]), "- [ ] 3.1 `release.sh bump --to 0.9.0`\n")
+        self.merge("add-b", "0.9.0", 2, section("Summary b.", added=["B"]), bump_task("0.8.5"))
+        self.assertTrue(self.status("0.9.0")["notes"].startswith("Summary b.\n"))
+
+    def test_summary_from_earlier_when_bumper_has_none(self):
+        self.start("0.8.0")
+        self.merge("add-a", "0.8.5", 1, section("Summary a.", added=["A"]))
+        self.merge("b-bump", "0.9.0", 2, None, bump_task("0.9.0"))
+        self.assertEqual(self.status("0.9.0")["notes"], "Summary a.\n\nAdded:\n- A (#1)\n\nChanges:\n- b-bump (#2): Why of b-bump.")
+
+    def item_notes(self, item, pr=140):
+        self.start("0.4.0")
+        self.merge("add-a", "0.4.1", pr, section("S.", added=[item]))
+        return self.status("0.4.1")["notes"]
+
+    def test_unreferenced_item_gets_pr(self):
+        self.assertEqual(self.item_notes("New --dry-run flag"), "S.\n\nAdded:\n- New --dry-run flag (#140)")
+
+    def test_referenced_item_unchanged(self):
+        self.assertEqual(self.item_notes("Bounded tag push (#111)"), "S.\n\nAdded:\n- Bounded tag push (#111)")
+
+    def test_other_repo_reference_unchanged(self):
+        self.assertEqual(self.item_notes("Thanks to acme/tool#12"), "S.\n\nAdded:\n- Thanks to acme/tool#12")
+
+    def test_code_span_reference_does_not_count(self):
+        self.assertEqual(self.item_notes("Parse `#123` comments"), "S.\n\nAdded:\n- Parse `#123` comments (#140)")
+
+    def test_no_pr_item_as_written(self):
+        self.start("0.4.0")
+        fx.git(self.work, "checkout", "-q", "-b", "feat/add-a")
+        fx.set_version(self.work, "0.4.1")
+        fx.commit(self.work, "feat(add-a): do add-a", change_files("add-a", section("S.", added=["New --dry-run flag"])))
+        fx.git(self.work, "checkout", "-q", "main")
+        fx.git(self.work, "merge", "-q", "--no-ff", "-m", "merge: add-a", "feat/add-a")
+        self.assertEqual(self.status("0.4.1")["notes"], "S.\n\nAdded:\n- New --dry-run flag")
+
+    def test_valid_sections_empty_warnings(self):
+        self.start("0.4.0")
+        self.merge("add-a", "0.4.1", 1, section("S.", added=["A"]))
+        self.assertEqual(self.status("0.4.1")["warnings"], [])
+
+    def test_proposal_over_64kb_falls_back_keeps_why(self):
+        self.repo(version="0.4.1")
+        files = change_files("add-x", section("S.", added=["A"]), pad=6000)
+        self.assertGreater(len(files["openspec/changes/archive/2026-10-10-add-x/proposal.md"]), 70 * 1024)
+        fx.squash_merge(self.work, "add-x", "0.4.2", 9, extra_files=files)
+        doc = self.status("0.4.2")
+        self.assertEqual(doc["notes"], "Changes in v0.4.2:\n\n- add-x (#9): Why of add-x.")
+        self.assertEqual([w["change"] for w in doc["warnings"]], ["add-x"])
+        self.assertIn("64 KB", doc["warnings"][0]["error"])
 
 
 class TestUntagged(Flow):
@@ -1099,6 +1374,24 @@ class TestStoreNotes(GhFlow):
 
 
 
+class TestSectionedStoreNotes(GhFlow):
+    def test_store_backed_sections(self):
+        self.repo(version="0.4.1")
+        self.connect()
+        store = fx.make_store(self.tmp, [])
+        for rel, text in change_files("add-x", section("Store summary.", added=["Store item"]), bump_task("0.4.2")).items():
+            fx.write(store, rel, text)
+        fx.git(store, "add", "-A")
+        fx.git(store, "commit", "-q", "-m", "archive add-x")
+        sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        TestStoreNotes.pull(self, 90, "add-x", sha)
+        self.save()
+        code, doc, raw = self.release("status", "--version", "0.4.2", "--store", str(store), env=self.env())
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["notes"], "Store summary.\n\nAdded:\n- Store item (#90)")
+        self.assertEqual(doc["warnings"], [])
+
+
 class PubFlow(GhFlow):
     """A code repo at 0.5.0 (release commit `self.rc`) whose origin is a GitHub-form URL over a local bare repo."""
 
@@ -1306,6 +1599,33 @@ class TestPublish(PubFlow):
         self.assertIn("git ls-remote", doc["message"])
         self.assertEqual(fx.git(self.work, "tag"), "")
         self.assertEqual(self.gh_calls(), [])
+
+
+class TestSectionedPublish(PubFlow):
+    def bad_release(self):
+        """v0.5.0 is published; 0.5.1 merges `bad-y` with an unknown `### Security` heading."""
+        self.seed_tag()
+        files = change_files("bad-y", section("Y.", added=["A"]).replace("### Added", "### Security"))
+        fx.squash_merge(self.work, "bad-y", "0.5.1", 8, extra_files=files)
+
+    def test_invalid_section_falls_back_with_warning(self):
+        self.bad_release()
+        code, doc, raw = self.publish("0.5.1")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["tag_local"], "created")
+        self.assertEqual(doc["notes"], "Changes in v0.5.1:\n\n- bad-y (#8): Why of bad-y.")
+        self.assertEqual([w["change"] for w in doc["warnings"]], ["bad-y"])
+        self.assertIn("Security", doc["warnings"][0]["error"])
+        self.assertEqual(self.contents("v0.5.1").strip(), doc["notes"])
+
+    def test_rerun_after_tag_reports_no_warnings(self):
+        self.bad_release()
+        self.assertEqual(self.publish("0.5.1")[0], 0)
+        code, doc, raw = self.publish("0.5.1")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["tag_local"], "existing")
+        self.assertEqual(doc["warnings"], [])
+        self.assertEqual(doc["notes"], "Changes in v0.5.1:\n\n- bad-y (#8): Why of bad-y.")
 
 
 class TestGithubRelease(PubFlow):

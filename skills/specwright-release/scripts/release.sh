@@ -24,8 +24,13 @@
 #                                     reads V (default: the local main; the skill passes origin/<main>). It must be a merge
 #                                     commit or a commit whose subject ends in (#<n>), and its version files must all read V.
 #                                     JSON: version, tag, release_commit, main, files, previous {commit, version, basis:
-#                                     tag|history|null}, range {from, to, commits}, changes [{name, why, pr}], notes (text for
-#                                     the tag annotation and the release body), tag_local (sha the local tag points at, or
+#                                     tag|history|null}, range {from, to, commits}, changes [{name, why, pr}], warnings [{change, error}] (a change whose
+#                                     `## Release Notes` section is invalid, or whose proposal is over 64 KB, falls back to its Why
+#                                     line; the first error), notes (text for the tag annotation and the release body: with a
+#                                     valid section in the range, the release summary, then Added:/Changed:/Fixed:/Removed: groups
+#                                     of the sections' items (150 at most) and Changes: for the changes without one; else
+#                                     `Changes in <tag>:` and one line per change; the summary is the bumping change's (its
+#                                     archived tasks.md ticks `release.sh bump --to V`), else the last valid section's), tag_local (sha the local tag points at, or
 #                                     null), tag_remote (the commit the tag points at on origin, from one read-only
 #                                     `git ls-remote --tags origin`, or null; also null with no origin remote; an unreadable
 #                                     origin is exit 3, remote_tags_unreadable), previous (from tags locally or on origin:
@@ -40,6 +45,11 @@
 #                                     proof is in that range: `merge: <name>` subject (finish: local) or a merged PR from the
 #                                     code repo's own <prefix>/<name> branch (one `gh api --paginate .../pulls` call; a failure
 #                                     is exit 3, pr_discovery_failed). --store-prefix defaults to openspec.
+#   notes --proposal <file>           parse one proposal's `## Release Notes` section: no repo, no git or network call, and no
+#                                     release.enabled needed. Exit 0: summary, items {added|changed|fixed|removed: [{text, line}]}
+#                                     (line = the notes line, an unreferenced item ending in the literal ` (#<pr>)`). Exit 1:
+#                                     release_notes_invalid (errors [{line, message}]; a file over 64 KB too) or no_release_notes.
+#                                     Exit 2: the file does not exist
 #   untagged [--main <ref>] [--local] versions in main's history of the primary file after the latest tagged one (with no tag:
 #                                     only the current version) that are not published, oldest first (published = tag on origin;
 #                                     --local, or no origin remote: a local tag, with no network call):
@@ -60,7 +70,8 @@
 #                                     release: exit 3 release_create_failed (the tag stays on origin; a re-run creates only the
 #                                     release). JSON: ok, version, tag, release_commit, tag_local created|existing|fetched,
 #                                     tag_remote pushed|existing, github_release created|existing|disabled|not_github,
-#                                     release_url (when created), notes, repo, tag_repo, store (with --store).
+#                                     release_url (when created), notes, warnings (as in status, only when this run created the
+#                                     tag; [] when the tag existed), repo, tag_repo, store (with --store).
 # Settings (openspec/specwright.yaml): release.enabled (default false), release.version_files (path or glob ->
 # regex with one capture group; the first entry is the primary file), release.tag (v{version}),
 # release.github_release (true), release.auto (false), pr.merge_method (rebase is refused with releases on).
@@ -1036,6 +1047,168 @@ def first_sentence(proposal):
     return s if len(s) <= MAX_WHY else s[:MAX_WHY - 1] + "…"
 
 
+MAX_SUMMARY = 600
+MAX_ITEM = 500
+MAX_ITEMS = 150
+MAX_PARSED = 1000
+HEADINGS = ("added", "changed", "fixed", "removed")
+NOTES_HEAD = re.compile(r"^##[ \t]+Release Notes[ \t]*$", re.I)
+SUB_HEAD = re.compile(r"^###(?!#)[ \t]*(.*?)[ \t]*$")
+ITEM_START = re.compile(r"^[-*+][ \t]+(.*)$")
+CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
+REFERENCE = re.compile(r"#\d+(?!\w)")
+
+
+def parse_release_notes(text):
+    """The `## Release Notes` section of a proposal: None when there is no such heading, else {"summary", "items": {heading:
+    [(text, line)]}, "errors": [(line, message)]}, valid when errors is empty. HTML comments go first (their newlines stay, so
+    lines still count the file's). The section runs to the next `##` heading or the end. The summary is the text before the first
+    `###`, whitespace collapsed, at most 600 characters. The headings are Added, Changed, Fixed and Removed (any case), each at
+    most once, followed only by items: a line starting `-`, `*` or `+` and a space, joined with the indented lines after it, at
+    most 500 characters collapsed. Every error is collected with its line."""
+    text = re.sub(r"<!--.*?-->", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    lines = [l.rstrip("\r") for l in text.split("\n")]
+    start = next((i for i, l in enumerate(lines) if NOTES_HEAD.match(l)), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"##(?!#)", lines[i])), len(lines))
+    errors, items, summary, seen = [], {}, [], set()
+    cur, item = None, None  # the heading being read (None under an invalid one), the open item [parts, line]
+
+    def close():
+        nonlocal item
+        if item is not None and cur is not None:
+            t = re.sub(r"\s+", " ", " ".join(item[0])).strip()
+            if not t:
+                errors.append((item[1], "empty list item"))
+            elif len(t) > MAX_ITEM:
+                errors.append((item[1], f"item is {len(t)} characters, over the {MAX_ITEM} limit"))
+            else:
+                items[cur].append((t, item[1]))
+        item = None
+
+    for i in range(start + 1, end):
+        line, n = lines[i], i + 1
+        h = SUB_HEAD.match(line)
+        if h:
+            close()
+            name = h.group(1)
+            if name.lower() not in HEADINGS:
+                errors.append((n, f"unknown heading '{name}' (use Added, Changed, Fixed or Removed)"))
+                cur = None
+            elif name.lower() in seen:
+                errors.append((n, f"heading '{name}' appears twice"))
+                cur = None
+            else:
+                cur = name.lower()
+                items[cur] = []
+            seen.add(name.lower())
+            continue
+        if not line.strip():
+            continue
+        if not seen:
+            summary.append(line.strip())
+            continue
+        if cur is None:
+            continue  # under an invalid heading: that heading's error covers it
+        m = ITEM_START.match(line)
+        if m:
+            close()
+            item = [[m.group(1)], n]
+        elif line[0] in " \t" and item is not None:
+            item[0].append(line.strip())
+        else:
+            close()
+            errors.append((n, f"line is neither a list item nor an indented continuation: {line.strip()[:60]}"))
+    close()
+    body_errors = len(errors)
+    summary = re.sub(r"\s+", " ", " ".join(summary)).strip()
+    if not summary:
+        errors.append((start + 1, "the summary is missing (text before the first ### heading)"))
+    elif len(summary) > MAX_SUMMARY:
+        errors.append((start + 1, f"summary is {len(summary)} characters, over the {MAX_SUMMARY} limit"))
+    if not any(items.values()) and not body_errors:
+        errors.append((start + 1, "no list item under Added, Changed, Fixed or Removed"))
+    errors.sort(key=lambda e: e[0])
+    return {"summary": summary, "items": {k: v for k, v in items.items() if v}, "errors": errors}
+
+
+def item_line(text, pr):
+    """The notes line of one item: ` (#<pr>)` appended when the item names no issue or PR outside a code span and `pr` is known."""
+    if pr is not None and not REFERENCE.search(CODE_SPAN.sub(" ", text)):
+        return f"- {text} (#{pr})"
+    return f"- {text}"
+
+
+def cmd_notes(a):
+    """`notes --proposal <file>`: parse one proposal's section. No git, no network, no opt-in (design D5)."""
+    path = a.get("proposal")
+    if not path:
+        usage("notes needs --proposal <file>")
+    if not os.path.isfile(path):
+        usage(f"--proposal file not found: {path}")
+    limit = f"{MAX_PROPOSAL // 1024} KB"
+    size = os.path.getsize(path)
+    if size > MAX_PROPOSAL:
+        raise Stop("release_notes_invalid", f"{path} is {size} bytes, over the {limit} limit",
+                   errors=[{"line": None, "message": f"the proposal is over the {limit} limit"}])
+    with open(path, "rb") as f:
+        parsed = parse_release_notes(f.read().decode("utf-8", "replace"))
+    if parsed is None:
+        raise Stop("no_release_notes", f"{path} has no '## Release Notes' section")
+    if parsed["errors"]:
+        errs = [{"line": n, "message": m} for n, m in parsed["errors"]]
+        raise Stop("release_notes_invalid", f"{path}: " + "; ".join(f"line {e['line']}: {e['message']}" for e in errs), errors=errs)
+    return {"ok": True, "summary": parsed["summary"],
+            "items": {h: [{"text": t, "line": item_line(t, "<pr>")} for t, _ in parsed["items"][h]] for h in HEADINGS if h in parsed["items"]}}
+
+
+def blob_sizes(root, specs):
+    """Byte sizes for `<commit>:<path>` specs through one `git cat-file --batch-check`; None for a missing object."""
+    if not specs:
+        return []
+    r = git(root, "cat-file", "--batch-check", data=("\n".join(specs) + "\n").encode("utf-8", "surrogateescape"))
+    if r.returncode != 0:
+        raise Stop("git_failed", f"git cat-file failed: {err_of(r)}", code=3)
+    out = []
+    for line in r.stdout.decode("utf-8", "replace").splitlines()[:len(specs)]:
+        head = line.split(" ")
+        out.append(None if head[-1] == "missing" or len(head) < 3 else int(head[2]))
+    return out
+
+
+def read_sections(root, commit, prefix, rows, version):
+    """{dirname: {"section", "warning", "bump"}} for the last MAX_PARSED archive directories of `rows`. One size pass over every
+    proposal.md and tasks.md, then one read of the blobs within MAX_PROPOSAL. A proposal over the bound is never read for its
+    section (a warning); a tasks.md over it counts as having no bump task. `section` is the parsed section when valid, `bump`
+    is True when tasks.md has a ticked `release.sh bump --to <version>` task."""
+    dirs = [d for d, _ in rows[-MAX_PARSED:]]
+    base = f"{commit}:{prefix}/changes/archive/"
+    specs = [f"{base}{d}/{f}" for d in dirs for f in ("proposal.md", "tasks.md")]
+    sizes = blob_sizes(root, specs)
+    want = [s for s, z in zip(specs, sizes) if z is not None and z <= MAX_PROPOSAL]
+    blobs = dict(zip(want, cat_batch(root, want)))
+    bump = re.compile(r"^[ \t]*[-*+][ \t]+\[[ \t]*x[ \t]*\][ \t]+.*release\.sh[ \t]+bump[ \t]+--to[ \t]+" + re.escape(version) + r"(?!\.?\d)",
+                      re.I | re.M)
+    out = {}
+    for i, d in enumerate(dirs):
+        (ps, ts), (psz, tsz) = specs[2 * i:2 * i + 2], sizes[2 * i:2 * i + 2]
+        row = {"section": None, "warning": None, "bump": False}
+        if psz is not None and psz > MAX_PROPOSAL:
+            row["warning"] = f"the proposal is {psz} bytes, over the {MAX_PROPOSAL // 1024} KB limit"
+        elif psz is not None and blobs.get(ps) is not None:
+            parsed = parse_release_notes(decode(blobs[ps]))
+            if parsed and parsed["errors"]:
+                n, msg = parsed["errors"][0]
+                row["warning"] = f"line {n}: {msg}"
+            elif parsed:
+                row["section"] = parsed
+        if tsz is not None and tsz <= MAX_PROPOSAL and blobs.get(ts) is not None:
+            row["bump"] = bool(bump.search(decode(blobs[ts])))
+        out[d] = row
+    return out
+
+
 def archive_dirs(root, commit, prefix):
     """Names of the archive directories under `<prefix>/changes/archive/` at `commit`."""
     base = f"{prefix}/changes/archive/"
@@ -1221,10 +1394,9 @@ def store_changes(st, a, prev, rel, rng):
     return [(d, pr) for _, d, pr in found], sref, prefix, info, top
 
 
-def build_notes(tag, changes):
-    if not changes:
-        return f"No change was archived in this release ({tag})."
-    lines = [f"Changes in {tag}:", ""]
+def change_lines(changes):
+    """`- <name> (#<pr>): <why>` per change; names only, then `…and <n> more`, past MAX_LISTED."""
+    lines = []
     for c in changes[:MAX_LISTED]:
         if len(changes) > MAX_LISTED:
             lines.append(f"- {c['name']}")
@@ -1232,7 +1404,30 @@ def build_notes(tag, changes):
             lines.append(f"- {c['name']}" + (f" (#{c['pr']})" if c["pr"] is not None else "") + (f": {c['why']}" if c["why"] else ""))
     if len(changes) > MAX_LISTED:
         lines.append(f"…and {len(changes) - MAX_LISTED} more")
-    return "\n".join(lines)
+    return lines
+
+
+def build_notes(tag, changes, sections=None, summary=None):
+    """`sections` is parallel to `changes`: a change's valid parsed section or None. With no valid section the text is
+    `Changes in <tag>:` and one line per change; else the summary, the Added/Changed/Fixed/Removed groups (at most MAX_ITEMS
+    items, then `…and <n> more items`) and `Changes:` for the changes without a section, one blank line between blocks."""
+    if not changes:
+        return f"No change was archived in this release ({tag})."
+    sections = sections or [None] * len(changes)
+    if not any(sections):
+        return "\n".join([f"Changes in {tag}:", "", *change_lines(changes)])
+    flat = [(h, item_line(t, c["pr"])) for h in HEADINGS for c, s in zip(changes, sections) if s for t, _ in s["items"].get(h, [])]
+    listed, blocks = flat[:MAX_ITEMS], [summary]
+    for h in HEADINGS:
+        group = [l for g, l in listed if g == h]
+        if group:
+            blocks.append("\n".join([f"{h.capitalize()}:", *group]))
+    if len(flat) > MAX_ITEMS:
+        blocks[-1] += f"\n…and {len(flat) - MAX_ITEMS} more items"
+    plain = [c for c, s in zip(changes, sections) if not s]
+    if plain:
+        blocks.append("\n".join(["Changes:", *change_lines(plain)]))
+    return "\n\n".join(blocks)
 
 
 def load_main(st, a):
@@ -1342,11 +1537,13 @@ def status_doc(st, a, loaded=None, release=True):
     else:
         rows, wcommit, prefix = local_changes(st, prev_sha, sha, rng)
         wroot = st.root
-    shown = rows[:MAX_LISTED]
-    why = whys(wroot, wcommit, prefix, [d for d, _ in shown])
+    secs = read_sections(wroot, wcommit, prefix, rows, v)
+    ok = [d for d, _ in rows if d in secs and secs[d]["section"]]
+    bumpers = [d for d in ok if secs[d]["bump"]]
+    summary_of = bumpers[0] if len(bumpers) == 1 else (ok[-1] if ok else None)
+    why = whys(wroot, wcommit, prefix, [d for d, _ in rows if d not in ok][:MAX_LISTED])  # Why lines of the listed no-section changes
     changes = [{"name": change_name(d), "why": why.get(d), "pr": pr} for d, pr in rows]
-    for c in changes[MAX_LISTED:]:
-        c["why"] = None
+    warnings = [{"change": change_name(d), "error": secs[d]["warning"]} for d, _ in rows if d in secs and secs[d]["warning"]]
     tag = tag_for(st, v)
     tl = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
     remote, remote_annotated, remote_obj = remote_tag(st, tag)
@@ -1359,7 +1556,9 @@ def status_doc(st, a, loaded=None, release=True):
     return {"ok": True, "version": v, "tag": tag, "release_commit": sha, "main": ref, "files": files,
             "previous": {"commit": prev_sha, "version": prev[0] if prev else None, "basis": prev[2] if prev else None},
             "range": {"from": prev_sha, "to": sha, "commits": len(rng)},
-            "changes": changes, "notes": build_notes(tag, changes),
+            "changes": changes, "warnings": warnings,
+            "notes": build_notes(tag, changes, [secs[d]["section"] if d in ok else None for d, _ in rows],
+                                 secs[summary_of]["section"]["summary"] if summary_of else None),
             "tag_local": text_of(tl) if tl.returncode == 0 else None, "tag_remote": remote, "tag_lightweight": lightweight,
             "tag_object": {"local": text_of(lo) if lo is not None and lo.returncode == 0 else None, "remote": remote_obj},
             **({"github_release": release_state(st, tag)[0]} if release else {}), "repo": st.root, "tag_repo": st.root, **({"store": info} if info else {})}
@@ -1561,6 +1760,7 @@ def cmd_publish(st, a):
     gh_state, url = github_release(st, tag)
     out = {"ok": True, "version": v, "tag": tag, "release_commit": sha, "tag_local": tag_local, "tag_remote": tag_remote,
            "github_release": gh_state, "notes": tag_message(st, tag).rstrip("\n"), "repo": st.root, "tag_repo": st.root}
+    out["warnings"] = doc["warnings"] if tag_local == "created" else []  # they describe notes derived now, not the tag's
     if url:
         out["release_url"] = url
     if "store" in doc:
@@ -1584,8 +1784,13 @@ def main(argv):
         if len(rest) < 2:
             usage("--dir needs a value")
         d, rest = rest[1], rest[2:]
+    if rest[:1] == ["notes"]:  # before the repo and the opt-in gate: one file, no git, no network (design D5)
+        a, pos = parse_args(rest[1:], {"--proposal": "proposal"})
+        if pos:
+            usage(f"unexpected argument {pos[0]}")
+        emit(cmd_notes(a))
     if not rest or rest[0] not in COMMANDS:
-        usage("usage: release.sh [--dir <repo>] check [--main ref] | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] [--local] | publish --version V")
+        usage("usage: release.sh [--dir <repo>] check [--main ref] | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] [--local] | publish --version V | notes --proposal <file>")
     fn, spec = COMMANDS[rest[0]]
     a, pos = parse_args(rest[1:], spec)
     if pos:

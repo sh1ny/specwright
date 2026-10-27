@@ -284,6 +284,84 @@ class TestSchemaText(unittest.TestCase):
         self.assertRegex(rule, r"release\.sh check")
         self.assertRegex(rule, r"(?is)(false|off|not enabled|disabled)[^.]*(no|not|without)[^.]*(bump )?task|no bump task")
 
+    def _instruction(self, artifact):
+        text = read(ROOT / "schemas" / "specwright" / "schema.yaml")
+        start = text.index(f"  - id: {artifact}")
+        nxt = text.find("\n  - id:", start + 5)
+        return re.sub(r"\s+", " ", text[start:nxt if nxt != -1 else len(text)])
+
+    def test_bump_task_rewrites_summary_and_checks_notes(self):
+        rule = self._instruction("tasks")
+        rule = rule[rule.index("release.enabled"):]
+        self.assertRegex(rule, r"(?i)summary")
+        self.assertRegex(rule, r"(?i)whole release")
+        self.assertIn("release.sh notes --proposal", rule)
+        apply = re.sub(r"\s+", " ", read(ROOT / "schemas" / "specwright" / "schema.yaml").split("\napply:")[1])
+        self.assertIn("## Release Notes", apply)
+        self.assertRegex(apply, r"(?i)own commit|same commit|task commit")
+        self.assertIn("notes --proposal", apply)
+
+    def test_proposal_instruction_asks_for_section_only_with_releases(self):
+        ins = self._instruction("proposal")
+        self.assertIn("## Release Notes", ins)
+        self.assertRegex(ins, r"release\.enabled")
+        self.assertRegex(ins, r"(?i)delete")
+        self.assertIn("600", ins)
+        self.assertIn("500", ins)
+        for h in ("Added", "Changed", "Fixed", "Removed"):
+            self.assertIn(f"### {h}", ins)
+        self.assertRegex(ins, r"(?i)empty")
+        self.assertIn("#123", ins)
+        tpl = read(ROOT / "schemas" / "specwright" / "templates" / "proposal.md")
+        self.assertIn("## Release Notes", tpl)
+        self.assertRegex(tpl, r"release\.enabled: true")
+        self.assertRegex(tpl, r"(?i)delete")
+
+    def test_voiding_rule_exempts_release_notes_section(self):
+        ins = self._instruction("review")
+        voiding = re.search(r"A verdict covers only the contents reviewed:.{0,400}", ins).group(0)
+        self.assertIn("Release Notes", voiding)
+        tpl = read(ROOT / "schemas" / "specwright" / "templates" / "review.md")
+        line = line_with(tpl, r"<!-- This verdict covers only", "review.md voiding comment")
+        self.assertIn("Release Notes", line)
+
+    def test_voiding_rule_still_voids_other_edits(self):
+        ins = self._instruction("review")
+        self.assertRegex(ins, r"editing proposal, specs or design for any other reason voids it")
+        self.assertRegex(ins, r"(?i)outside (that|the) section")
+        tpl = read(ROOT / "schemas" / "specwright" / "templates" / "review.md")
+        line = line_with(tpl, r"<!-- This verdict covers only", "review.md voiding comment")
+        self.assertRegex(line, r"Editing proposal, specs or design afterward")
+        self.assertRegex(line, r"(?i)confined")
+
+
+class TestBriefText(unittest.TestCase):
+    def setUp(self):
+        text = read(SKILLS / "specwright-review" / "references" / "brief.md")
+        self.assertTrue(text)
+        self.check = paragraph(text, r"^- \*\*Release Notes\*\*", "brief: the Release Notes check")
+
+    def test_false_item_is_p1_docs(self):
+        self.assertRegex(self.check, r"(?is)item[^.]*diff[^.]*not ship[^.]*P1[^.]*`docs`")
+
+    def test_missing_item_is_p2_docs(self):
+        self.assertRegex(self.check, r"(?is)user-visible[^.]*no item[^.]*P2[^.]*`docs`")
+
+    def test_missing_section_is_p1_with_releases_on(self):
+        self.assertRegex(self.check, r"release\.enabled")
+        self.assertIn("openspec/specwright.yaml", self.check)
+        self.assertRegex(self.check, r"(?is)missing[^.]*P1[^.]*`docs`")
+
+    def test_format_break_is_p1_and_brief_states_the_rules(self):
+        self.assertRegex(self.check, r"(?is)format[^.]*P1|P1[^.]*format")
+        self.assertIn("600", self.check)
+        self.assertIn("500", self.check)
+        for h in ("Added", "Changed", "Fixed", "Removed"):
+            self.assertIn(f"### {h}", self.check)
+
+    def test_check_scoped_to_release_enabled(self):
+        self.assertRegex(self.check, r"(?is)(releases? (are )?off|`release\.enabled` (is )?(false|not true)|otherwise)[^.]*(no finding|ignore)")
+
 
 if __name__ == "__main__":
     unittest.main()
