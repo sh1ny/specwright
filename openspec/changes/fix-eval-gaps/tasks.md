@@ -31,7 +31,7 @@
 | eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | RunnerTests.test_a_crashing_file_is_reported | green |
 | eval-runner → The runner runs each test file as its own process | A file times out | evals/runner/test_run.py | RunnerTests.test_a_timed_out_file_tree_is_stopped | green |
 | eval-runner → Faster suites keep every test | Counts after the change | n/a | Mechanical check (task 7.2): `python evals/run.py --ids` against `test-ids-base.txt`; a one-time comparison at ship time, since the base list exists only for this change | n/a |
-| eval-runner → Faster suites keep every test | A shared fixture is not shared state | evals/runner/test_fixturecache.py | FixtureCacheTests.test_copies_are_independent | red |
+| eval-runner → Faster suites keep every test | A shared fixture is not shared state | evals/runner/test_fixturecache.py | FixtureCacheTests.test_copies_are_independent | green |
 | eval-runner → Suite wall times are recorded | Before and after recorded | evals/runner/test_timings.py | TimingsRecord.test_every_suite_has_before_and_after_and_the_total_is_lower | red |
 | eval-runner → Suite wall times are recorded | A suite that did not get faster | evals/runner/test_timings.py | TimingsRecord.test_a_suite_not_faster_is_named_in_a_note | red |
 | eval-runner → Suite wall times are recorded | A test ID went missing | evals/runner/test_timings.py | TimingsRecord.test_record_states_every_base_id_is_present (with the 7.2 comparison) | red |
@@ -56,7 +56,7 @@
 ## 4. Fixture cache (#127)
 
 - [x] 4.1 Write `evals/runner/test_fixturecache.py`: `FixtureCacheTests.test_copies_are_independent` (two copies of one key, one commits, tags and deletes a branch; the other copy and the cached original are unchanged), a failing-build test (the key stays missing and the next call rebuilds), and an equivalence test (one shape built directly and through the cache gives the same `git log --format=%H %T`, file tree and clean `git status`). Verify: they fail because `evals/fixturecache.py` does not exist.
-- [ ] 4.2 Implement `evals/fixturecache.py` (D5: per-process root, `atexit` cleanup with a read-only-safe rmtree, key = builder name plus shape arguments, never the destination). Verify: the 4.1 tests pass. Flip the row green.
+- [x] 4.2 Implement `evals/fixturecache.py` (D5: per-process root, `atexit` cleanup with a read-only-safe rmtree, key = builder name plus shape arguments, never the destination). Verify: the 4.1 tests pass. Flip the row green.
 - [ ] 4.3 Before adopting the cache, find where each suite's time goes with `python -m unittest discover evals/<suite> --durations 20` (Python 3.12+), and record the slowest tests and their builders in the 4.3 commit message. Verify: the commit message lists them per suite.
 - [ ] 4.4 Use the cache in the builders the profile names, caching only path-independent stages (D5): git-workflow `base`/`project`, finish `make_repo`, release `make_repo` (remote added after the copy), update `init_repo` plus first commit, and the pr-pair repo setup in `test_as_sh.py`/`test_pr_pair.py`. Verify: each touched suite passes; `python evals/git-workflow/fixtures.py <name> <dest>` gives the same tree as before for two fixtures (compared by `git log --format=%T` and file list); the test IDs of each touched suite are unchanged against `test-ids-base.txt`.
 
