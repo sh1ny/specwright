@@ -706,6 +706,8 @@ def cmd_graphql_evidence(st, q, fields):
         ops = [op for op in ops if op[1] == name]
         if not ops:
             raise Fail(f"GraphQL: Unknown operation named '{name}'.")
+        if len(ops) > 1:  # GitHub rejects the document before executing any of them
+            raise Fail(f"GraphQL: There are multiple operations named '{name}'.")
     elif len(ops) > 1:
         raise Fail("GraphQL: Must provide operation name if query contains multiple operations.")
     ops = [(kind, top) for kind, _, top in ops]
