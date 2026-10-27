@@ -25,11 +25,11 @@
 | eval-grading → Only the executed GraphQL operation is classified | Unknown operation name | evals/git-workflow/test_grade.py, evals/pr-pair/test_fake_gh.py | GraphqlOperations.test_unknown_operation_name_is_a_write; GraphqlWriteDispatch.test_several_operations_need_a_known_name (guard) | green |
 | eval-grading → The fake gh rejects duplicate operation names | Two mutations with the same name | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_duplicate_operation_names_fail_unchanged | red |
 | eval-grading → The fake gh rejects duplicate operation names | One operation with the name | evals/pr-pair/test_fake_gh.py | GraphqlWriteDispatch.test_operation_name_selects_the_operation | green |
-| eval-runner → The runner runs each test file as its own process | All files pass | evals/runner/test_run.py | RunnerTests.test_all_files_pass | red |
-| eval-runner → The runner runs each test file as its own process | A file fails | evals/runner/test_run.py | RunnerTests.test_a_failing_file_is_reported_and_kept | red |
-| eval-runner → The runner runs each test file as its own process | Unknown suite | evals/runner/test_run.py | RunnerTests.test_unknown_suite_exits_2 | red |
-| eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | RunnerTests.test_a_crashing_file_is_reported | red |
-| eval-runner → The runner runs each test file as its own process | A file times out | evals/runner/test_run.py | RunnerTests.test_a_timed_out_file_tree_is_stopped | red |
+| eval-runner → The runner runs each test file as its own process | All files pass | evals/runner/test_run.py | RunnerTests.test_all_files_pass | green |
+| eval-runner → The runner runs each test file as its own process | A file fails | evals/runner/test_run.py | RunnerTests.test_a_failing_file_is_reported_and_kept | green |
+| eval-runner → The runner runs each test file as its own process | Unknown suite | evals/runner/test_run.py | RunnerTests.test_unknown_suite_exits_2 | green |
+| eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | RunnerTests.test_a_crashing_file_is_reported | green |
+| eval-runner → The runner runs each test file as its own process | A file times out | evals/runner/test_run.py | RunnerTests.test_a_timed_out_file_tree_is_stopped | green |
 | eval-runner → Faster suites keep every test | Counts after the change | n/a | Mechanical check (task 7.2): `python evals/run.py --ids` against `test-ids-base.txt`; a one-time comparison at ship time, since the base list exists only for this change | n/a |
 | eval-runner → Faster suites keep every test | A shared fixture is not shared state | evals/runner/test_fixturecache.py | FixtureCacheTests.test_copies_are_independent | red |
 | eval-runner → Suite wall times are recorded | Before and after recorded | evals/runner/test_timings.py | TimingsRecord.test_every_suite_has_before_and_after_and_the_total_is_lower | red |
@@ -68,7 +68,7 @@
 ## 6. Parallel runner (#127)
 
 - [x] 6.1 Write `evals/runner/test_run.py` against throwaway suites built in a temp dir (the runner takes a `--root` for the suites' parent): `test_all_files_pass`, `test_a_failing_file_is_reported_and_kept`, `test_unknown_suite_exits_2`, `test_a_crashing_file_is_reported` and `test_a_timed_out_file_tree_is_stopped` (a file that starts a child sleeper; after the timeout, neither process is alive, checked by PID). Verify: they fail because `evals/run.py` does not exist.
-- [ ] 6.2 Implement `evals/run.py` (D7: `bounded.spawn`, `bounded.kill(p)` on a timeout, `close_job(p)` after each file, logs on disk, failed logs kept and their paths printed, `SERIAL` run after the parallel batch, `--jobs`, `--timeout`, `--ids` to print test IDs, exit 0/1/2). Verify: the 6.1 tests pass. Flip the rows green.
+- [x] 6.2 Implement `evals/run.py` (D7: `bounded.spawn`, `bounded.kill(p)` on a timeout, `close_job(p)` after each file, logs on disk, failed logs kept and their paths printed, `SERIAL` run after the parallel batch, `--jobs`, `--timeout`, `--ids` to print test IDs, exit 0/1/2). Verify: the 6.1 tests pass. Flip the rows green.
 - [ ] 6.3 Run every suite through `python evals/run.py` twice. Any file that fails only in parallel moves to `SERIAL` (or is fixed when the cause is a shared path), with the reason in a comment next to `SERIAL`. Verify: two consecutive full runs exit 0.
 - [ ] 6.4 Document the runner: `README.md` (the test commands paragraph) and `CONTRIBUTING.md` (testing list) name `python evals/run.py [suite ...]` next to the per-suite `unittest discover` commands, which still work. The `openspec/architecture.md` Evals row names `evals/run.py`, `evals/fixturecache.py` and `evals/timings.md`. Verify: `python -m unittest discover evals/git-workflow -p test_instructions.py` and `-p test_specs_strict.py` pass, and `openspec schema validate specwright` passes.
 
