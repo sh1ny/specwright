@@ -10,38 +10,38 @@
 | releases → Notes list the changes merged since the previous release | Backfill in a clone without the tags | evals/release/test_release.py | TestNotes.test_backfill_boundary_counts_origin_only_tags | green (existing; re-run) |
 | releases → Notes list the changes merged since the previous release | Backfill with no earlier tag | evals/release/test_release.py | TestNotes.test_backfill_no_tag | green (existing; re-run) |
 | releases → Notes list the changes merged since the previous release | No change in the range has a section | evals/release/test_release.py | TestNotes.test_no_sections_gives_todays_notes_byte_for_byte | green (existing behaviour, pinned by a new test) |
-| releases → A Release Notes section has one format | Valid section | evals/release/test_release.py | TestReleaseNotesParse.test_valid_section | red |
-| releases → A Release Notes section has one format | Unknown heading | evals/release/test_release.py | TestReleaseNotesParse.test_unknown_heading_invalid | red |
-| releases → A Release Notes section has one format | Prose under a heading | evals/release/test_release.py | TestReleaseNotesParse.test_prose_under_heading_invalid | red |
-| releases → A Release Notes section has one format | No summary or no item | evals/release/test_release.py | TestReleaseNotesParse.test_missing_summary_or_items_invalid | red |
-| releases → A Release Notes section has one format | Item over the limit | evals/release/test_release.py | TestReleaseNotesParse.test_item_over_500_invalid | red |
-| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Template guidance comment left in | evals/release/test_release.py | TestReleaseNotesParse.test_template_comments_ignored | red |
-| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Only a comment | evals/release/test_release.py | TestReleaseNotesParse.test_comment_only_section_has_no_summary | red |
-| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Wrapped item | evals/release/test_release.py | TestReleaseNotesParse.test_indented_continuation_joined | red |
-| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Unindented line after an item | evals/release/test_release.py | TestReleaseNotesParse.test_unindented_line_after_item_invalid | red |
-| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Two-paragraph summary | evals/release/test_release.py | TestReleaseNotesParse.test_two_paragraph_summary_joined | red |
-| releases → One proposal's section can be checked before it merges | Valid section | evals/release/test_release.py | TestNotesCommand.test_valid_section_exit_0 | red |
-| releases → One proposal's section can be checked before it merges | Two errors | evals/release/test_release.py | TestNotesCommand.test_two_errors_exit_1 | red |
-| releases → One proposal's section can be checked before it merges | No section | evals/release/test_release.py | TestNotesCommand.test_no_section_exit_1 | red |
-| releases → One proposal's section can be checked before it merges | Missing file | evals/release/test_release.py | TestNotesCommand.test_missing_file_exit_2 | red |
-| releases → One proposal's section can be checked before it merges | File over the read bound | evals/release/test_release.py | TestNotesCommand.test_file_over_64kb_invalid | red |
-| releases → Notes open with the release summary and group the items | One change with a section | evals/release/test_release.py | TestSectionedNotes.test_one_change_with_section | red |
-| releases → Notes open with the release summary and group the items | Exact layout of several groups | evals/release/test_release.py | TestSectionedNotes.test_exact_layout_of_several_groups | red |
-| releases → Notes open with the release summary and group the items | Two changes with sections | evals/release/test_release.py | TestSectionedNotes.test_two_changes_items_in_change_order | red |
-| releases → Notes open with the release summary and group the items | A change with a section and an older one without | evals/release/test_release.py | TestSectionedNotes.test_mixed_section_and_why_line | red |
-| releases → Notes open with the release summary and group the items | Many items | evals/release/test_release.py | TestSectionedNotes.test_over_150_items_count_line | red |
-| releases → Notes open with the release summary and group the items | More than 100 changes in the range | evals/release/test_release.py | TestSectionedNotes.test_over_100_changes_keeps_bumping_summary | red |
-| releases → The release summary comes from the bumping change | Bumping change archived with another in the same commit | evals/release/test_release.py | TestSectionedNotes.test_summary_from_bump_task_in_same_commit | red |
-| releases → The release summary comes from the bumping change | No change has a bump task | evals/release/test_release.py | TestSectionedNotes.test_summary_from_last_section_without_bump_task | red |
-| releases → The release summary comes from the bumping change | Bumping change without a valid section | evals/release/test_release.py | TestSectionedNotes.test_summary_from_earlier_when_bumper_has_none | red |
-| releases → An item without a reference gets its change's PR | Item without a reference | evals/release/test_release.py | TestSectionedNotes.test_unreferenced_item_gets_pr | red |
-| releases → An item without a reference gets its change's PR | Item with its own reference | evals/release/test_release.py | TestSectionedNotes.test_referenced_item_unchanged | red |
-| releases → An item without a reference gets its change's PR | Reference only inside a code span | evals/release/test_release.py | TestSectionedNotes.test_code_span_reference_does_not_count | red |
-| releases → An item without a reference gets its change's PR | Local merge with no PR | evals/release/test_release.py | TestSectionedNotes.test_no_pr_item_as_written | red |
-| releases → An invalid section falls back to the Why line | Unknown heading in an archived proposal | evals/release/test_release.py | TestSectionedPublish.test_invalid_section_falls_back_with_warning | red |
-| releases → An invalid section falls back to the Why line | Valid sections | evals/release/test_release.py | TestSectionedNotes.test_valid_sections_empty_warnings | red |
-| releases → An invalid section falls back to the Why line | Proposal over the read bound | evals/release/test_release.py | TestSectionedNotes.test_proposal_over_64kb_falls_back_keeps_why | red |
-| releases → An invalid section falls back to the Why line | Publish re-run after the tag exists | evals/release/test_release.py | TestSectionedPublish.test_rerun_after_tag_reports_no_warnings | red |
+| releases → A Release Notes section has one format | Valid section | evals/release/test_release.py | TestReleaseNotesParse.test_valid_section | green |
+| releases → A Release Notes section has one format | Unknown heading | evals/release/test_release.py | TestReleaseNotesParse.test_unknown_heading_invalid | green |
+| releases → A Release Notes section has one format | Prose under a heading | evals/release/test_release.py | TestReleaseNotesParse.test_prose_under_heading_invalid | green |
+| releases → A Release Notes section has one format | No summary or no item | evals/release/test_release.py | TestReleaseNotesParse.test_missing_summary_or_items_invalid | green |
+| releases → A Release Notes section has one format | Item over the limit | evals/release/test_release.py | TestReleaseNotesParse.test_item_over_500_invalid | green |
+| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Template guidance comment left in | evals/release/test_release.py | TestReleaseNotesParse.test_template_comments_ignored | green |
+| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Only a comment | evals/release/test_release.py | TestReleaseNotesParse.test_comment_only_section_has_no_summary | green |
+| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Wrapped item | evals/release/test_release.py | TestReleaseNotesParse.test_indented_continuation_joined | green |
+| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Unindented line after an item | evals/release/test_release.py | TestReleaseNotesParse.test_unindented_line_after_item_invalid | green |
+| releases → A Release Notes section tolerates comments, blank lines and wrapped items | Two-paragraph summary | evals/release/test_release.py | TestReleaseNotesParse.test_two_paragraph_summary_joined | green |
+| releases → One proposal's section can be checked before it merges | Valid section | evals/release/test_release.py | TestNotesCommand.test_valid_section_exit_0 | green |
+| releases → One proposal's section can be checked before it merges | Two errors | evals/release/test_release.py | TestNotesCommand.test_two_errors_exit_1 | green |
+| releases → One proposal's section can be checked before it merges | No section | evals/release/test_release.py | TestNotesCommand.test_no_section_exit_1 | green |
+| releases → One proposal's section can be checked before it merges | Missing file | evals/release/test_release.py | TestNotesCommand.test_missing_file_exit_2 | green |
+| releases → One proposal's section can be checked before it merges | File over the read bound | evals/release/test_release.py | TestNotesCommand.test_file_over_64kb_invalid | green |
+| releases → Notes open with the release summary and group the items | One change with a section | evals/release/test_release.py | TestSectionedNotes.test_one_change_with_section | green |
+| releases → Notes open with the release summary and group the items | Exact layout of several groups | evals/release/test_release.py | TestSectionedNotes.test_exact_layout_of_several_groups | green |
+| releases → Notes open with the release summary and group the items | Two changes with sections | evals/release/test_release.py | TestSectionedNotes.test_two_changes_items_in_change_order | green |
+| releases → Notes open with the release summary and group the items | A change with a section and an older one without | evals/release/test_release.py | TestSectionedNotes.test_mixed_section_and_why_line | green |
+| releases → Notes open with the release summary and group the items | Many items | evals/release/test_release.py | TestSectionedNotes.test_over_150_items_count_line | green |
+| releases → Notes open with the release summary and group the items | More than 100 changes in the range | evals/release/test_release.py | TestSectionedNotes.test_over_100_changes_keeps_bumping_summary | green |
+| releases → The release summary comes from the bumping change | Bumping change archived with another in the same commit | evals/release/test_release.py | TestSectionedNotes.test_summary_from_bump_task_in_same_commit | green |
+| releases → The release summary comes from the bumping change | No change has a bump task | evals/release/test_release.py | TestSectionedNotes.test_summary_from_last_section_without_bump_task | green |
+| releases → The release summary comes from the bumping change | Bumping change without a valid section | evals/release/test_release.py | TestSectionedNotes.test_summary_from_earlier_when_bumper_has_none | green |
+| releases → An item without a reference gets its change's PR | Item without a reference | evals/release/test_release.py | TestSectionedNotes.test_unreferenced_item_gets_pr | green |
+| releases → An item without a reference gets its change's PR | Item with its own reference | evals/release/test_release.py | TestSectionedNotes.test_referenced_item_unchanged | green |
+| releases → An item without a reference gets its change's PR | Reference only inside a code span | evals/release/test_release.py | TestSectionedNotes.test_code_span_reference_does_not_count | green |
+| releases → An item without a reference gets its change's PR | Local merge with no PR | evals/release/test_release.py | TestSectionedNotes.test_no_pr_item_as_written | green |
+| releases → An invalid section falls back to the Why line | Unknown heading in an archived proposal | evals/release/test_release.py | TestSectionedPublish.test_invalid_section_falls_back_with_warning | green |
+| releases → An invalid section falls back to the Why line | Valid sections | evals/release/test_release.py | TestSectionedNotes.test_valid_sections_empty_warnings | green |
+| releases → An invalid section falls back to the Why line | Proposal over the read bound | evals/release/test_release.py | TestSectionedNotes.test_proposal_over_64kb_falls_back_keeps_why | green |
+| releases → An invalid section falls back to the Why line | Publish re-run after the tag exists | evals/release/test_release.py | TestSectionedPublish.test_rerun_after_tag_reports_no_warnings | green |
 | releases → The bump task writes the release summary | Bump task in a project with releases | evals/release/test_skill_text.py | TestSchemaText.test_bump_task_rewrites_summary_and_checks_notes | red |
 | releases → The bump task writes the release summary | Releases off | evals/release/test_skill_text.py | TestSchemaText.test_proposal_instruction_asks_for_section_only_with_releases | red |
 | preship-review → The pre-ship review checks the Release Notes section against the diff | Item the diff does not ship | evals/release/test_skill_text.py | TestBriefText.test_false_item_is_p1_docs | red |
