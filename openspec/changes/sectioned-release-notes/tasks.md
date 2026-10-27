@@ -85,7 +85,7 @@ Every test run below uses `python -m unittest` from the repo root: `discover eva
 
 ## 5. Integration and release
 
-- [ ] 5.1 Run every suite the M5 exit criterion names: `discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update`, `evals/release` and `evals/finish`. Verify: all pass on Windows, and the Test map has no `red` row left.
+- [x] 5.1 Run every suite the M5 exit criterion names: `discover evals/pr-pair`, `evals/git-workflow`, `evals/review-routes`, `evals/update`, `evals/release` and `evals/finish`. Verify: all pass on Windows, and the Test map has no `red` row left.
 - [ ] 5.2 Check this repo's real history: `release.sh status --version 0.8.1 --main origin/main` still gives v0.8.1's notes in today's shape (no archived change in its range has a section). Verify: the notes match the published v0.8.1 tag's message (`git tag -l --format='%(contents)' v0.8.1`).
 - [ ] 5.3 `release.sh bump --to 0.9.0`, and rewrite this proposal's `## Release Notes` summary to describe the 0.9.0 release as a whole. Verify: `release.sh check` reports 0.9.0, with `VERSION`, the README badge and every `skills/*/SKILL.md` version agreeing, and `release.sh notes --proposal openspec/changes/sectioned-release-notes/proposal.md` exits 0.
 - [ ] 5.4 `openspec validate sectioned-release-notes --strict` and `openspec schema validate specwright`. Verify: both pass.
