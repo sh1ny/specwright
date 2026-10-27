@@ -195,8 +195,60 @@ class RunBounded(Base):
         r = self.b.run_bounded(py(code, str(kid)), 30, 1 << 20, self.env, None)
         self.assertLess(time.time() - t0, 20, "waited for the child instead of the command")
         self.assertEqual((r.rc, r.limit, r.stdout.strip()), (0, None, "done"))
-        if os.name != "nt":  # Windows cannot walk the tree of an exited parent
-            self.assertTrue(wait_gone(int(kid.read_text()), 5), "the child survived")
+        self.assertTrue(wait_gone(int(kid.read_text()), 5), "the child survived")
+
+    def test_exit_before_deadline_with_held_pipe_keeps_result(self):
+        # #114: the command exits 1 s before the deadline while its child holds stdout; the loop's wait is raised to 5 s, so only
+        # an exit watcher (not a poll) sees the exit in time. The fake records its own exit time against the run's deadline.
+        kid, exit_at = self.tmp / "kid.pid", self.tmp / "exit.at"
+        code = ("import subprocess,sys,time\n"
+                "k = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3600)'])\n"
+                "open(sys.argv[1], 'w').write(str(k.pid))\n"
+                "print('done'); sys.stdout.flush()\n"
+                "time.sleep(max(0, float(sys.argv[3]) - time.time()))\n"
+                "open(sys.argv[2], 'w').write(repr(time.time()))\n")
+        self.addCleanup(lambda: kid.exists() and self.b.kill_tree(int(kid.read_text())))
+        env = {**self.env, "SPECWRIGHT_TEST_POLL": "5"}
+        t0 = time.time()
+        r = self.b.run_bounded(py(code, str(kid), str(exit_at), repr(t0 + 3 - 1)), 3, 1 << 20, env, None)
+        self.assertLess(float(exit_at.read_text()), t0 + 3, "the fake did not exit before the run's deadline")
+        self.assertEqual((r.rc, r.limit, r.stdout.strip()), (0, None, "done"))
+        self.assertTrue(wait_gone(int(kid.read_text()), 5), "the child survived")
+
+    def test_exit_after_deadline_is_deadline_exceeded(self):
+        r = self.b.run_bounded(py("import time\ntime.sleep(3)"), 1, 1 << 20, self.env, None)
+        self.assertEqual((r.rc, r.limit), (None, "deadline_exceeded"))
+
+    def test_hung_command_grandchild_stopped(self):
+        kid = self.tmp / "kid.pid"
+        code = ("import os,subprocess,sys,time\n"
+                "k = subprocess.Popen([sys.executable, '-c', %r, sys.argv[2]])\n"
+                "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+                "time.sleep(3600)\n") % HANG
+        grand = self.tmp / "grand.pid"
+        self.addCleanup(lambda: grand.exists() and self.b.kill_tree(int(grand.read_text())))
+        r = self.b.run_bounded(py(code, str(self.pidf), str(grand)), 1, 1 << 20, self.env, None)
+        self.assertEqual(r.limit, "deadline_exceeded")
+        gpid = None
+        for _ in range(50):
+            if grand.exists() and grand.read_text().strip():
+                gpid = int(grand.read_text())
+                break
+            time.sleep(0.1)
+        self.assertTrue(wait_gone(self.pid(), 10), "the child outlived the deadline")
+        if gpid:
+            self.assertTrue(wait_gone(gpid, 10), "the grandchild outlived the deadline")
+
+    @unittest.skipUnless(os.name == "nt", "job objects are Windows only")
+    def test_no_job_object_falls_back_and_says_so(self):
+        env = {**self.env, "SPECWRIGHT_TEST_NO_JOB": "1", "SPECWRIGHT_NET_DEADLINE": "1"}
+        cmd = py(HANG, str(self.pidf))
+        r = subprocess.run([sys.executable, "-I", str(BOUNDED), "--", *cmd], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 124, r.stderr)
+        lines = [ln for ln in r.stderr.splitlines() if "no job object" in ln]
+        self.assertEqual(len(lines), 1, r.stderr)
+        self.assertTrue(lines[0].startswith("bounded: no job object: ") and len(lines[0]) > len("bounded: no job object: "), lines[0])
+        self.assertTrue(wait_gone(self.pid(), 10), "the command survived")
 
     @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the caller past the deadline")
     def test_an_exit_first_seen_after_the_deadline_is_deadline_exceeded(self):
@@ -216,6 +268,25 @@ class RunBounded(Base):
     def test_spawn_failure_is_rc_127(self):
         r = self.b.run_bounded([str(self.tmp / "no-such-binary")], 5, 1000, self.env, None)
         self.assertEqual((r.rc, r.limit), (127, None))
+
+
+class DeadlineAt(Base):
+    def test_deadline_at_honours_fractional_override(self):
+        t0 = time.time()
+        r = subprocess.run([sys.executable, "-I", str(BOUNDED), "--deadline-at"], capture_output=True, text=True,
+                           env={**self.env, "SPECWRIGHT_NET_DEADLINE": "0.5"})
+        t1 = time.time()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        at = float(r.stdout.strip())
+        self.assertGreaterEqual(at, t0 + 0.5)
+        self.assertLessEqual(at, t1 + 0.5)
+
+    def test_bounded_copies_identical(self):
+        copies = sorted((ROOT / "skills").glob("*/scripts/bounded.py"))
+        self.assertGreaterEqual(len(copies), 3, copies)
+        want = BOUNDED.read_bytes()
+        for c in copies:
+            self.assertEqual(c.read_bytes(), want, f"{c} differs from the pr copy")
 
 
 class SecretMode(Base):

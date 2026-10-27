@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -826,6 +827,45 @@ class TestCheckMain(Flow):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.4.2")
 
+    def at_main(self, version="0.5.0", main_version=None):
+        """origin/main and the merge base read `version`; feat/b starts there. With main_version, main then moves to it."""
+        self.repo(version=version)
+        base = self.sha()
+        if main_version:
+            fx.squash_merge(self.work, "a", main_version, 1)
+        fx.push(self.work)
+        self.branch("feat/b", base)
+
+    def test_bump_reverted_between_two_unreadable_passes(self):
+        # D9: 0.6.0 twice, then 0.5.0 twice, then one 0.5.0: the middle commit reverted the bump through an unreadable version.
+        self.at_main()
+        fx.commit(self.work, "feat(b): VERSION twice", {"VERSION": "0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "feat(b): revert, VERSION twice", {"VERSION": "0.5.0\n0.5.0\n"})
+        fx.commit(self.work, "fix(b): drop the duplicate", {"VERSION": "0.5.0\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_unreadable_bump_reverted_by_readable_passes(self):
+        # D9: 0.6.0 twice (unreadable), then a readable 0.5.0: a change judged against 0.5.0, so no bump.
+        self.at_main()
+        fx.commit(self.work, "feat(b): VERSION twice", {"VERSION": "0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "feat(b): revert", {"VERSION": "0.5.0\n"})
+        code, doc, raw = self.check()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["version"], "0.5.0")
+
+    def test_unreadable_edit_keeping_versions_still_bumps(self):
+        # D9: an unreadable edit that keeps the matched versions is no change; the bump to 0.6.0 stands and main has 0.6.0.
+        self.at_main("0.5.0", "0.6.0")
+        fx.commit(self.work, "feat(b): VERSION twice", {"VERSION": "0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "feat(b): VERSION three times", {"VERSION": "0.6.0\n0.6.0\n0.6.0\n"})
+        fx.commit(self.work, "fix(b): one line", {"VERSION": "0.6.0\n"})
+        fx.git(self.work, "merge", "-q", "--no-edit", "origin/main")
+        out = self.check()
+        self.assertStops(out, "0.6.0", "origin/main")
+        self.assertEqual(out[1]["error"], "version_not_ahead_of_main")
+
     def test_bump_reverted_by_lower_of_unreadable_set(self):
         # PR #108, Codex P2: from a merge base reading 0.4.2 and 0.5.0, the branch bumps to 0.6.0, lists 0.6.0 and 0.5.0,
         # then keeps 0.5.0: keeping the lower of its parent's versions drops the bump, so the older bump must not count.
@@ -1369,6 +1409,150 @@ class TestGithubRelease(PubFlow):
         create = self.creates()[0]["argv"]
         self.assertEqual(create[create.index("--repo") + 1], CODE_SLUG)
         self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+
+
+class TestBoundedNetwork(PubFlow):
+    """Publish's network commands run under a deadline and a byte bound; a cut-off write is decided by a read-back."""
+
+    DEADLINE = 5  # for the tests where a hook or the fake gh must get its work done before the cut-off, on a loaded machine
+    LIMIT = 40  # seconds a red test may take before it fails instead of hanging the suite
+
+    def setUp(self):
+        super().setUp()
+        self.beat = self.tmp / "beat"
+        self.hang = self.tmp / "hang.sh"  # beats a counter for at most 30 s: a process that was not stopped keeps it moving
+        self.script(self.hang, f"i=0\nwhile [ $i -lt 100 ]; do echo $i > '{self.beat.as_posix()}'; sleep 0.3; i=$((i+1)); done\n")
+
+    # a pre-receive hook may not update refs inside git's quarantine environment; another clone's push did not run in it
+    UNQUARANTINE = "unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES\n"
+
+    def script(self, path, body):
+        path.write_text("#!/bin/sh\n" + body, encoding="utf-8", newline="\n")
+        path.chmod(0o755)
+
+    def hook(self, name, body):
+        self.script(self.bare / "hooks" / name, body)
+
+    def run_publish(self, *extra, env=None, deadline=None):
+        """publish under SPECWRIGHT_NET_DEADLINE (DEADLINE seconds) and a timeout of its own; returns (code, doc, raw, seconds)."""
+        self.save()
+        e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
+        t0 = time.time()
+        try:
+            r = subprocess.run(["bash", str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=e,
+                               capture_output=True, text=True, encoding="utf-8", timeout=self.LIMIT)
+        except subprocess.TimeoutExpired:
+            self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
+        try:
+            doc = json.loads(r.stdout)
+        except ValueError:
+            doc = None
+        return r.returncode, doc, r.stdout + r.stderr, time.time() - t0
+
+    def assertNothingRunning(self):
+        time.sleep(1.0)
+        first = self.beat.read_text() if self.beat.exists() else None
+        time.sleep(1.0)
+        self.assertEqual(first, self.beat.read_text() if self.beat.exists() else None, "a hung process was left running")
+
+    def other_object(self, commit):
+        """A tag object at `commit` that exists in origin's object store (under a non-tag ref) and not in the work tree."""
+        fx.git(self.work, "tag", "-a", "other-clone", "-m", "another clone notes", commit)
+        obj = self.obj("other-clone")
+        fx.git(self.work, "push", "-q", "origin", "refs/tags/other-clone:refs/holder/other")
+        fx.git(self.work, "tag", "-d", "other-clone")
+        return obj
+
+    def test_untagged_within_deadline_names_no_limit(self):
+        self.save()
+        r = subprocess.run(["bash", str(SCRIPT), "untagged"], cwd=self.work, capture_output=True, text=True, encoding="utf-8",
+                           env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])
+        self.assertNotIn("deadline_exceeded", r.stdout + r.stderr)
+        self.assertNotIn("response_too_large", r.stdout + r.stderr)
+
+    def test_publish_hung_ls_remote_deadline_exceeded(self):
+        fx.git(self.work, "config", "remote.origin.uploadpack", f"sh {self.hang.as_posix()}")
+        code, doc, raw, took = self.run_publish(deadline=1)
+        self.assertEqual(code, 3, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "deadline_exceeded"), raw)
+        self.assertIn("git ls-remote", doc["message"])
+        self.assertLess(took, 1 + 10)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+        self.assertNothingRunning()
+
+    def test_publish_oversized_pr_read_response_too_large(self):
+        store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
+        self.state["flood"] = [{"match": "api --paginate", "bytes": 300000}]
+        code, doc, raw, _ = self.run_publish("--store", str(store),
+                                             env={"SPECWRIGHT_NET_MAX_BYTES": "100000", "SPECWRIGHT_NET_DEADLINE": "30"})
+        self.assertEqual(code, 3, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "response_too_large"), raw)
+        self.assertIn("gh api", doc["message"])
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.creates(), [])
+
+    def test_push_cut_off_after_landing_counts_done(self):
+        self.hook("post-receive", f"sh '{self.hang.as_posix()}'\n")  # the ref is updated, then the push never ends
+        code, doc, raw, took = self.run_publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((doc["tag_local"], doc["tag_remote"], doc["github_release"]), ("created", "pushed", "created"))
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+        self.assertEqual(fx.git(self.bare, "rev-parse", self.TAG), self.obj())
+        self.assertEqual(len(self.creates()), 1)
+        self.assertNothingRunning()
+
+    def test_push_cut_off_other_tag_object_is_tag_mismatch(self):
+        other = self.other_object(self.rc)
+        self.hook("pre-receive", f"{self.UNQUARANTINE}git update-ref refs/tags/{self.TAG} {other}\nsh '{self.hang.as_posix()}'\n")
+        code, doc, raw, _ = self.run_publish()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "tag_mismatch"), raw)
+        self.assertIn(other[:12], doc["message"])
+        self.assertIn(self.obj()[:12], doc["message"])
+        self.assertEqual(self.gh_calls(), [])
+        self.assertNothingRunning()
+
+    def test_push_cut_off_other_commit_is_tag_conflict(self):
+        other = self.other_object(self.base)
+        self.hook("pre-receive", f"{self.UNQUARANTINE}git update-ref refs/tags/{self.TAG} {other}\nsh '{self.hang.as_posix()}'\n")
+        code, doc, raw, _ = self.run_publish()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "tag_conflict"), raw)
+        self.assertIn(self.base, doc["message"])
+        self.assertIn(self.rc, doc["message"])
+        self.assertEqual(self.gh_calls(), [])
+        self.assertNothingRunning()
+
+    def test_release_create_cut_off_not_found(self):
+        self.state["hang"] = [{"match": "release create", "pid_file": str(self.tmp / "gh.pid")}]
+        code, doc, raw, took = self.run_publish()
+        self.assertEqual(code, 3, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "deadline_exceeded"), raw)
+        self.assertIn("gh release create", doc["message"])
+        self.assertIn("on origin", doc["message"])
+        self.assertIn("re-run", doc["message"])
+        self.assertIn(self.TAG, fx.git(self.bare, "tag", "-l"))
+        self.assertTrue([c for c in self.gh_calls() if c["argv"][:2] == ["release", "view"]])  # the read-back
+        self.assertEqual(self.releases(), {})
+
+    def test_push_cut_off_read_back_fails_state_unknown(self):
+        fail = self.tmp / "fail.sh"
+        self.script(fail, "echo 'fatal: remote unreachable' >&2\nexit 1\n")
+        self.hook("post-receive", f"unset GIT_DIR\ngit -C '{self.work.as_posix()}' config remote.origin.uploadpack 'sh {fail.as_posix()}'\n"
+                  f"sh '{self.hang.as_posix()}'\n")
+        code, doc, raw, _ = self.run_publish()
+        self.assertEqual(code, 3, raw)
+        self.assertEqual((doc["ok"], doc["error"], doc.get("state")), (False, "deadline_exceeded", "unknown"), raw)
+        self.assertIn("unknown", doc["message"])
+        self.assertIn("git push", doc["message"])
+        self.assertEqual(self.gh_calls(), [])
+        self.assertNothingRunning()
 
 
 class TestThisRepo(Base):

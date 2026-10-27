@@ -848,11 +848,13 @@ ISSUE_REF = (r"https?://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)\b|(?<![\w/.-]
 BLOCK_TAGS = frozenset(("p", "pre", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "div", "table", "tr", "td",
                         "th", "dl", "dt", "dd", "details", "summary", "hr", "br"))
 CODE_TAGS = frozenset(("pre", "code"))
+CODE_MARK = "\ufffc"  # not whitespace, a word character or part of any closing-list gap
 
 
 class RenderedLines(HTMLParser):
     """GitHub's HTML rendering of a description as lines of prose: text inside `pre` and `code` is dropped and replaced by one
-    space (so the text around ``Fi`x`xes`` never joins into a keyword), comments are dropped, a block element ends a line at its
+    U+FFFC (so the text around ``Fi`x`xes`` never joins into a keyword, and no gap of a closing list accepts the marker, so a
+    code span ends the list), comments are dropped, a block element ends a line at its
     start and its end, a newline in text ends a line (a soft break never joins two source lines into one closing list), entities
     are decoded, and link text stays as shown (`#N`, `owner/repo#N` or the URL, which ISSUE_REF reads)."""
 
@@ -869,7 +871,7 @@ class RenderedLines(HTMLParser):
             self.newline()
         if tag in CODE_TAGS:
             if not self.code:
-                self.lines[-1] += " "
+                self.lines[-1] += CODE_MARK
             self.code += 1
 
     def handle_endtag(self, tag):
@@ -924,8 +926,8 @@ FIRST_GAP = re.compile(r"\s*")  # the keyword's own optional colon is part of CL
 def intended_issues(body, repo):
     """Issues a description's closing lines name, read from GitHub's rendering of it (`rendered_lines`, so code is never read): every ref directly after a closing keyword, and the closing list of a line that
     starts with one: the ref after that keyword (only white space between; a `,`, `;`, `and` or a code span there means no
-    list) and each next ref separated from the one before by only `,`, `;`, `and`,
-    white space or another closing keyword. Any other text ends the list; a line whose first ref does not directly follow the
+    list; a code span is the marker U+FFFC, which no gap accepts, wherever the keyword stands) and each next ref separated from
+    the one before by only `,`, `;`, `and`, white space or another closing keyword. Any other text, a code span included, ends the list; a line whose first ref does not directly follow the
     keyword has none."""
     found = []
     for line in rendered_lines(body, repo):

@@ -7,7 +7,12 @@ stdout per call; exit 0 = done, 1 = stop (the JSON has "error" and "message"), 2
 Run: python -m unittest discover evals/finish
 """
 import importlib.util
+import os
+import re
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -99,6 +104,53 @@ class TestFixturesSmoke(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((self.work / ad("add-y") / "review.md").is_file())
         self.assertIn("Y thing", fx.read(self.work, SPEC_A))
+
+NL = "\n"
+MINE = "# mine" + NL * 2 + "A new spec of my own." + NL
+
+NETWORK_RX = re.compile(r"(?<![\w-])(fetch|pull|push|ls-remote)(?![\w-])|(?<![\w./-])gh(?![\w-])")
+
+
+def network_lines(path):
+    """(line number, text) of every non-comment line of the script that names a git network command or gh."""
+    found = []
+    for n, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+        if not line.lstrip().startswith("#") and NETWORK_RX.search(line):
+            found.append((n, line.strip()))
+    return found
+
+
+class TestNoNetwork(Base):
+    def test_plan_runs_no_network_command(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.git("remote", "add", "origin", "https://unreachable.invalid/nowhere.git")
+        bindir = Path(tempfile.mkdtemp())
+        self.addCleanup(fx.rmtree, bindir)
+        log = bindir / "gh.log"
+        fake = bindir / "gh"
+        fake.write_text("#!/usr/bin/env bash" + NL + f'echo "$@" >> "{log.as_posix()}"' + NL + "sleep 600" + NL, encoding="utf-8", newline=NL)
+        fake.chmod(0o755)
+        env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""))
+        args = ["bash", str(fx.SCRIPT), "undo-archive-plan", "--change", "add-x", "--archived-name", f"{fx.DATE}-add-x",
+                "--prefix", P, "--main", "main"]
+        t0 = time.monotonic()
+        r = subprocess.run(args, cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=env, timeout=30)
+        self.assertLess(time.monotonic() - t0, 30)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIs(__import__("json").loads(r.stdout)["ok"], True)
+        self.assertFalse(log.exists(), "gh was called: " + (log.read_text() if log.exists() else ""))
+
+    def test_finish_sh_has_no_network_command(self):
+        hits = network_lines(fx.SCRIPT)
+        self.assertEqual(hits, [], "finish.sh runs a network command: " + "; ".join(f"line {n}: {t}" for n, t in hits))
+
+    def test_network_scan_names_an_injected_line(self):
+        copy = self.scripts / "finish_copy.sh"
+        lines = fx.SCRIPT.read_text(encoding="utf-8").splitlines()
+        lines.insert(40, "git(top, 'fetch', 'origin')")
+        copy.write_text(NL.join(lines) + NL, encoding="utf-8", newline=NL)
+        self.assertEqual(network_lines(copy), [(41, "git(top, 'fetch', 'origin')")])
 
 
 class TestUndoPlan(Base):
@@ -620,6 +672,48 @@ class TestUndoPlan(Base):
                 self.pair()
                 fx.archive(self.work, ["add-x", "add-y"], commit_it=commit_it)
                 self.assert_rerun_archive_only(self.run_all("add-y", archived=f"{fx.DATE}-add-y"))
+
+    # ---- fix-m4-gaps D8: the after-rerun script deletes again what the user deleted -------------------------
+    def retire_a(self):
+        self.git("rm", "-q", SPEC_A)
+        fx.git(self.work, "commit", "-q", "-m", "docs: retire capability a")
+
+    def test_bulk_rerun_deletes_later_deleted_spec_again(self):
+        self.pair()  # both members sync specs/a/spec.md
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.retire_a()
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertEqual(out.after.returncode, 0, out.after.stdout + out.after.stderr)
+        self.assertFalse((self.work / SPEC_A).exists())
+        self.assertTrue((self.work / ad("add-y") / "review.md").is_file())
+        self.assertTrue(any(SPEC_A in w and "after_rerun" in w and "again" in w for w in doc["warnings"]), doc["warnings"])
+        self.assertTrue(all("deletes it again" in w for w in doc["warnings"] if SPEC_A in w), doc["warnings"])
+
+    def test_after_rerun_stops_when_deleted_spec_recreated(self):
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.retire_a()
+        out = self.run_all(rerun=False)
+        self.ok(out)
+        fx.write(self.work, SPEC_A, MINE)
+        r = fx.run_bash(self.work, self.scripts, out.plan[1]["after_rerun"], "after_rerun")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(SPEC_A, r.stderr)
+        self.assertFalse((self.work / ad("add-y")).exists(), "an archive ran before the guard")
+        self.assertEqual(fx.read(self.work, SPEC_A), MINE)
+
+    def test_deleted_spec_only_in_deferred_member_left_deleted(self):
+        self.pair({"a": "X thing", "b": "B thing"}, {"a": "Y thing"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.git("rm", "-q", SPEC_B)
+        fx.git(self.work, "commit", "-q", "-m", "docs: retire capability b")
+        out = self.run_all()
+        doc = self.ok(out)
+        self.assertNotIn(SPEC_B, doc["after_rerun"])
+        self.assertTrue(any(SPEC_B in w and "leaves it deleted" in w for w in doc["warnings"]), doc["warnings"])
+        self.assertEqual(out.after.returncode, 0, out.after.stdout + out.after.stderr)
+        self.assertFalse((self.work / SPEC_B).exists())
 
     def test_usage_errors_exit_2(self):
         for args in (["undo-archive-plan"], ["undo-archive-plan", "--change", "x"], ["nope"], ["undo-archive-plan", "--bogus", "1"]):
