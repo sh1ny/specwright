@@ -874,6 +874,34 @@ class GraphqlWriteDispatch(PrEvidence):
             self.assertIn("Unknown operation named 'X'", r.stderr)
         self.assertEqual(self.state.read_bytes(), before)
 
+    def test_mutation_sent_as_get_applies(self):
+        # -X GET sends the fields as a query string, but the fake still runs the mutation: the grader must list the call too
+        mut = "mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }"
+        self.gh("api", "-X", "GET", "graphql", "-f", "query=" + mut, "-f", "threadId=" + self.t["id"])
+        self.assertTrue(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+        calls = self.calls()
+        self.assertEqual(len(grade.gh_writes(calls)), 1)
+        self.assertEqual(len(grade.changing_gh(calls)), 1)  # pr_mutations is gh_writes over the same log
+
+    NAMED_DOC = ('query Q { viewer { login } } mutation M { addReaction(input:{subjectId:"X",content:THUMBS_UP}) '
+                 '{ reaction { content } } }')
+
+    def test_named_query_beside_a_mutation_changes_nothing(self):
+        before = self.state.read_bytes()
+        self.gql(self.NAMED_DOC, ("operationName", "Q"), check=False)
+        self.assertEqual(self.state.read_bytes(), before)
+        self.assertEqual(grade.changing_gh(self.calls()), [])
+
+    def test_duplicate_operation_names_fail_unchanged(self):
+        before = self.state.read_bytes()
+        doc = ('mutation M { resolveReviewThread(input:{threadId:"%s"}) { thread { id } } } '
+               'mutation M { addReaction(input:{subjectId:"%s",content:THUMBS_UP}) { reaction { content } } }') % (self.t["id"], self.ic["node_id"])
+        r = self.gql(doc, ("operationName", "M"), check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("GraphQL: There are multiple operations named 'M'.", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+        self.assertFalse(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+
 
 # the class reuses PrEvidence's seeded PR but must not rerun its tests
 for _name in [n for n in dir(PrEvidence) if n.startswith("test_") and n not in GraphqlWriteDispatch.__dict__]:

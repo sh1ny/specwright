@@ -367,6 +367,24 @@ class GhAllowlist(unittest.TestCase):
             self.assertEqual(grade.pr_mutations(repo), ["api graphql -f query=" + mut])
             self.assertEqual(grade.pr_mutations(repo), grade.gh_writes(grade.gh_calls(repo)))
 
+    def test_graphql_mutation_sent_as_get_is_a_write(self):
+        mut = "mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }"
+        for argv in (["api", "-X", "GET", "graphql", "-f", "query=" + mut, "-f", "threadId=T"],
+                     ["api", "--method=GET", "/graphql", "-f", "query=" + mut, "-f", "threadId=T"]):
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [" ".join(argv)], argv)
+            self.assertEqual(grade.changing_gh([{"argv": argv}]), [" ".join(argv)], argv)
+            with tempfile.TemporaryDirectory() as tmp:  # the pr_mutations check reads the same log
+                repo = Path(tmp)
+                (repo / "gh-log.jsonl").write_text(json.dumps({"argv": argv}) + "\n", encoding="utf-8")
+                self.assertEqual(grade.pr_mutations(repo), [" ".join(argv)], argv)
+
+    def test_graphql_read_with_options_before_the_endpoint(self):
+        self.reads(["api", "--paginate", "graphql", "-f", "query={ viewer { login } }"],
+                   ["api", "--hostname", "github.com", "/graphql", "-f", "query=query { viewer { login } }"])
+
+    def test_graphql_input_after_get_is_a_write(self):
+        self.writes("api -X GET graphql --input q.json")
+
     def test_unknown_subcommand_is_a_write(self):
         self.writes("label create x", "auth switch", "release create v1", "release delete v1", "repo delete o/n", "gist create f", "frobnicate")
         self.assertEqual(grade.gh_writes([{"argv": []}]), [""], "an empty call is not known to be a read")
@@ -590,6 +608,23 @@ class GraphqlOperations(unittest.TestCase):
         self.assertEqual(self.named(q), [("query", "Q", ["a"]), ("mutation", None, ["b"]), ("subscription", "query", ["d"])])
         self.assertEqual(self.named("query @d { a } mutation M @e { b }"), [("query", None, ["a"]), ("mutation", "M", ["b"])])
         self.assertEqual(self.ops(q), [("query", ["a"]), ("mutation", ["b"]), ("subscription", ["d"])])
+
+    OP_DOC = ('query Q { viewer { login } } mutation M { addReaction(input:{subjectId:"X",content:THUMBS_UP}) '
+              '{ reaction { content } } }')
+
+    def test_operation_name_selects_a_query(self):
+        self.assertEqual(self.changing("-f", "query=" + self.OP_DOC, "-f", "operationName=Q"), [])
+        for spelling in (["-fquery=" + self.OP_DOC, "-foperationName=Q"], ["-F", "query=" + self.OP_DOC, "-F", "operationName=Q"],
+                         ["--field", "query=" + self.OP_DOC, "--raw-field=operationName=Q"],
+                         ["-f=query=" + self.OP_DOC, "-f=operationName=Q"]):
+            self.assertEqual(self.changing(*spelling), [], spelling)
+
+    def test_operation_name_selects_a_mutation(self):
+        self.assertEqual(len(self.changing("-f", "query=" + self.OP_DOC, "-f", "operationName=M")), 1)
+        self.assertEqual(len(self.changing("-f", "query=" + self.OP_DOC)), 1, "no operationName: every operation is classified")
+
+    def test_unknown_operation_name_is_a_write(self):
+        self.assertEqual(len(self.changing("-f", "query=" + self.OP_DOC, "-f", "operationName=Missing")), 1)
 
     def test_mutation_after_fragment_is_a_write(self):
         q = 'fragment R on Reaction { content } mutation { addReaction(input:{subjectId:"X",content:THUMBS_UP}) { reaction { ...R } } }'
