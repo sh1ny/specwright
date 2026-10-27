@@ -38,7 +38,7 @@
 
 ## 1. Baseline test IDs
 
-- [ ] 1.1 At the base commit (no `evals/` edit yet), list every suite's test IDs (pr-pair, update, review-routes, git-workflow, release, finish) with the `unittest` loader only, no test runs (`discover -s evals/<suite> -t evals/<suite>`, flattened, one id per line, prefixed by the suite), into `openspec/changes/fix-eval-gaps/test-ids-base.txt`. The before timing column is the #127 figures (design D8); no before run is made. Verify: the file has one block per suite, and each suite's count is at least its #127 count (pr-pair 559, update 95, review-routes 157, git-workflow 323, release 118, finish 41).
+- [x] 1.1 At the base commit (no `evals/` edit yet), list every suite's test IDs (pr-pair, update, review-routes, git-workflow, release, finish) with the `unittest` loader only, no test runs (`discover -s evals/<suite> -t evals/<suite>`, flattened, one id per line, prefixed by the suite), into `openspec/changes/fix-eval-gaps/test-ids-base.txt`. The before timing column is the #127 figures (design D8); no before run is made. Verify: the file has one block per suite, and each suite's count is at least its #127 count (pr-pair 559, update 95, review-routes 157, git-workflow 323, release 118, finish 41).
 
 ## 2. Git grader rules (#121, #122, #123)
 
