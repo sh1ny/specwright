@@ -8,11 +8,17 @@ file's whole process tree lives in a job object (Windows) or session (POSIX); a 
 Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
         python evals/run.py --ids [--root DIR] [suite ...]
         python evals/run.py --list-suites [--root DIR]
+        python evals/run.py --changed BASE [--jobs N] [--timeout S] [--root DIR]
   --jobs N     files run at once (default: the CPU count)
   --timeout S  seconds a file may run before its tree is stopped (default 7200)
   --root DIR   the directory whose subdirectories are the suites (default: the directory of this script)
   --ids        print every test id of the named suites as `suite:test.id`, run no test, exit 0
   --list-suites  print every suite as a JSON array, run no test, exit 0 (not combined with suite names or --ids)
+  --changed BASE  run only what <root>/suites.json maps the changed paths to: the paths that differ between the merge base of BASE
+                  and HEAD and the working tree (untracked files included). Prints each selected target with the paths that
+                  selected it first; a path the map does not cover is printed as `uncovered` and selects every suite; when
+                  nothing needs an eval it prints `no eval suite covers these changes` and exits 0. Not combined with suite
+                  names, --ids or --list-suites. Git runs in the repository that holds --root.
   No suite named means every suite. Files in SERIAL run one at a time, after the parallel batch.
 
 Output: one line per suite `suite: F files, T tests, S.Ss` (T from unittest's `Ran N tests` line; S from the suite's first file
@@ -20,7 +26,8 @@ start to its last file end, so with several suites named it includes their files
 prints `FAILED suite/file (exit code N)` or `FAILED suite/file (timeout after S s)`, the last 200 lines of its output (stderr
 included) and `full output: <path>`; that log is kept after the run, the logs of passed files are removed.
 
-Exit codes: 0 every file passed; 1 a file failed, crashed or timed out; 2 an unknown suite, bad arguments or an invalid suite map (nothing runs).
+Exit codes: 0 every file passed; 1 a file failed, crashed or timed out; 2 an unknown suite, bad arguments or an invalid suite map (nothing runs);
+with --changed also a suite-map target that does not exist, or a BASE git cannot resolve (unknown, or no merge base with HEAD).
 """
 import argparse
 import importlib.util
@@ -296,6 +303,78 @@ def list_ids(root, suites):
     return 0
 
 
+def git_out(top, *args):
+    """Run git in `top`; returns (stdout bytes, "") or (None, the error text)."""
+    try:
+        r = subprocess.run(["git", "-C", str(top)] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as e:
+        return None, str(e)
+    if r.returncode != 0:
+        return None, r.stderr.decode("utf-8", "replace").strip() or "git exited with code %d" % r.returncode
+    return r.stdout, ""
+
+
+def changed_paths(root, base):
+    """The paths that differ between the merge base of `base` and HEAD and the working tree (untracked files included), as
+    (prefix, paths): prefix is the root's place in the repository, paths are repo-relative with forward slashes. Exits 2 when git
+    cannot answer (an unknown base, no merge base, not a repository)."""
+    def fail(why):
+        sys.stderr.write("run.py: --changed %s: %s\n" % (base, why))
+        sys.exit(2)
+
+    out, err = git_out(root, "rev-parse", "--show-toplevel")
+    if out is None:
+        fail("cannot find the git repository of %s: %s" % (root, err))
+    top = Path(out.decode("utf-8", "replace").strip()).resolve()
+    try:
+        prefix = Path(root).resolve().relative_to(top).as_posix()
+    except ValueError:
+        fail("%s is not inside the git repository %s" % (root, top))
+    prefix = "" if prefix == "." else prefix
+    out, err = git_out(top, "merge-base", base, "HEAD")
+    if out is None or not out.strip():
+        fail("no merge base of %s and HEAD%s" % (base, ": " + err if err else ""))
+    mb = out.decode("utf-8", "replace").strip()
+    paths = []
+    for args in (("diff", "--name-only", "-z", "--no-renames", mb, "--"), ("ls-files", "-z", "--others", "--exclude-standard")):
+        out, err = git_out(top, *args)
+        if out is None:
+            fail("git %s failed: %s" % (args[0], err))
+        paths.extend(p for p in out.decode("utf-8", "replace").split("\0") if p)
+    return prefix, sorted(set(paths))
+
+
+def select_changed(root, base):
+    """Resolve `--changed base` into the (suite, file) pairs to run; None when no suite covers the changes. Prints what selected
+    them. Exits 2 on an invalid map, a missing target or a git failure, before anything runs."""
+    smap = load_map(root)
+    missing = missing_targets(smap, root)
+    if missing:
+        for m in missing:
+            sys.stderr.write("run.py: %s\n" % m)
+        sys.exit(2)
+    prefix, paths = changed_paths(root, base)
+    selected, uncovered, _ = classify(smap, root, prefix, paths)
+    if not selected and not uncovered:
+        print("no eval suite covers these changes")
+        return None
+    for target, why in selected.items():
+        print("%s: %s" % (target, ", ".join(why)))
+    for p in uncovered:
+        print("uncovered: %s (running every suite)" % p)
+    if uncovered:
+        targets = find_suites(Path(root))
+    else:
+        targets = dedupe_targets(list(selected))
+    files = []
+    for t in targets:
+        suite, _, fname = t.partition("/")
+        for f in ([fname] if fname else [x.name for x in sorted((Path(root) / suite).glob("test_*.py"))]):
+            if (suite, f) not in files:
+                files.append((suite, f))
+    return files
+
+
 def parse(argv):
     ap = argparse.ArgumentParser(prog="run.py", description="Run the eval suites in parallel, one process per test file.")
     ap.add_argument("suites", nargs="*", help="suites to run (default: every suite)")
@@ -304,7 +383,15 @@ def parse(argv):
     ap.add_argument("--root", default=str(HERE))
     ap.add_argument("--ids", action="store_true")
     ap.add_argument("--list-suites", action="store_true")
+    ap.add_argument("--changed", metavar="BASE")
     a = ap.parse_args(argv)
+    if a.changed is not None:
+        if a.suites:
+            ap.error("--changed and suite names cannot be combined")
+        if a.ids or a.list_suites:
+            ap.error("--changed cannot be combined with --ids or --list-suites")
+        if not a.changed or a.changed.startswith("-"):
+            ap.error("--changed needs a git ref, not %r" % a.changed)
     if a.jobs < 1:
         ap.error("--jobs must be at least 1")
     if a.timeout <= 0:
@@ -324,15 +411,20 @@ def main(argv):
     if a.list_suites:
         print(json.dumps(existing))
         return 0
-    unknown = [s for s in a.suites if s not in existing]
-    if unknown:
-        sys.stderr.write("run.py: unknown suite %s; the suites that exist: %s\n" % (", ".join(unknown), ", ".join(existing)))
-        return 2
-    suites = a.suites or existing
-    if a.ids:
-        return list_ids(root, suites)
-
-    files = [(s, f.name) for s in suites for f in sorted((root / s).glob("test_*.py"))]
+    if a.changed is not None:
+        files = select_changed(root, a.changed)
+        if files is None:
+            return 0
+        suites = list(dict.fromkeys(s for s, _ in files))
+    else:
+        unknown = [s for s in a.suites if s not in existing]
+        if unknown:
+            sys.stderr.write("run.py: unknown suite %s; the suites that exist: %s\n" % (", ".join(unknown), ", ".join(existing)))
+            return 2
+        suites = a.suites or existing
+        if a.ids:
+            return list_ids(root, suites)
+        files = [(s, f.name) for s in suites for f in sorted((root / s).glob("test_*.py"))]
     parallel = [x for x in files if "%s/%s" % x not in SERIAL]
     serial = [x for x in files if "%s/%s" % x in SERIAL]
     workdir = Path(tempfile.mkdtemp(prefix="evals-run-"))

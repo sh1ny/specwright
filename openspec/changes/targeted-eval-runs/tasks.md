@@ -4,19 +4,19 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| eval-runner → Changed paths select the suites | Renamed, deleted and untracked paths count | evals/runner/test_changed.py | `test_renamed_deleted_and_untracked_paths_count` | red |
-| eval-runner → Changed paths select the suites | A change to one skill script | evals/runner/test_changed.py | `test_one_mapped_path_runs_only_its_suite` | red |
-| eval-runner → Changed paths select the suites | A rule that targets one test file | evals/runner/test_changed.py | `test_a_file_target_runs_only_that_file` | red |
-| eval-runner → Changed paths select the suites | An uncommitted file counts | evals/runner/test_changed.py | `test_an_unstaged_change_counts` | red |
-| eval-runner → Changed paths select the suites | A path the map does not cover | evals/runner/test_changed.py | `test_an_uncovered_path_runs_every_suite` | red |
-| eval-runner → Changed paths select the suites | Only paths that need no eval | evals/runner/test_changed.py | `test_only_no_eval_paths_run_nothing_and_exit_0` | red |
-| eval-runner → Changed paths select the suites | A base that does not resolve | evals/runner/test_changed.py | `test_an_unknown_base_exits_2`, `test_a_base_with_no_merge_base_exits_2` | red |
-| eval-runner → Changed paths select the suites | Suites named together with --changed | evals/runner/test_changed.py | `test_changed_with_suite_names_exits_2` | red |
+| eval-runner → Changed paths select the suites | Renamed, deleted and untracked paths count | evals/runner/test_changed.py | `test_renamed_deleted_and_untracked_paths_count` | green |
+| eval-runner → Changed paths select the suites | A change to one skill script | evals/runner/test_changed.py | `test_one_mapped_path_runs_only_its_suite` | green |
+| eval-runner → Changed paths select the suites | A rule that targets one test file | evals/runner/test_changed.py | `test_a_file_target_runs_only_that_file` | green |
+| eval-runner → Changed paths select the suites | An uncommitted file counts | evals/runner/test_changed.py | `test_an_unstaged_change_counts` | green |
+| eval-runner → Changed paths select the suites | A path the map does not cover | evals/runner/test_changed.py | `test_an_uncovered_path_runs_every_suite` | green |
+| eval-runner → Changed paths select the suites | Only paths that need no eval | evals/runner/test_changed.py | `test_only_no_eval_paths_run_nothing_and_exit_0` | green |
+| eval-runner → Changed paths select the suites | A base that does not resolve | evals/runner/test_changed.py | `test_an_unknown_base_exits_2`, `test_a_base_with_no_merge_base_exits_2` | green |
+| eval-runner → Changed paths select the suites | Suites named together with --changed | evals/runner/test_changed.py | `test_changed_with_suite_names_exits_2` | green |
 | eval-runner → The suite map covers every tracked file | A complete map | evals/runner/test_suite_map.py | `test_every_tracked_file_is_covered_once` (live repo) | red |
 | eval-runner → The suite map covers every tracked file | A new file no pattern covers | evals/runner/test_suite_map.py | `test_an_uncovered_file_is_named` | green |
-| eval-runner → The suite map covers every tracked file | A pattern names a missing suite or file | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_missing_target_is_named`, `test_changed_exits_2_on_a_missing_target` | red |
-| eval-runner → The suite map covers every tracked file | A no-eval pattern overlaps a rule | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_no_eval_overlap_is_named`, `test_a_rule_wins_over_an_overlapping_no_eval` | red |
-| eval-runner → The suite map covers every tracked file | A path under a removed suite | evals/runner/test_changed.py | `test_a_path_under_a_removed_suite_runs_every_suite` | red |
+| eval-runner → The suite map covers every tracked file | A pattern names a missing suite or file | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_missing_target_is_named`, `test_changed_exits_2_on_a_missing_target` | green |
+| eval-runner → The suite map covers every tracked file | A no-eval pattern overlaps a rule | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_no_eval_overlap_is_named`, `test_a_rule_wins_over_an_overlapping_no_eval` | green |
+| eval-runner → The suite map covers every tracked file | A path under a removed suite | evals/runner/test_changed.py | `test_a_path_under_a_removed_suite_runs_every_suite` | green |
 | eval-runner → CI runs every suite on Linux for each pull request | All suites pass | evals/runner/test_workflow.py | `test_workflow_runs_each_listed_suite_on_linux` (structure); the PR's first green run is checked in Workflow follow-up | red |
 | eval-runner → CI runs every suite on Linux for each pull request | A suite fails | evals/runner/test_workflow.py | `test_one_failing_suite_does_not_cancel_the_others` (`fail-fast: false`, the run step's exit code is the job's) | red |
 | eval-runner → CI runs every suite on Linux for each pull request | A new suite appears | evals/runner/test_run.py, evals/runner/test_workflow.py | `test_list_suites_prints_every_suite_as_json`, `test_matrix_comes_from_list_suites` | red |
@@ -39,7 +39,7 @@
 ## 2. `--changed` selection
 
 - [x] 2.1 Write failing tests in `evals/runner/test_changed.py`. Each builds a scratch git repository holding an `evals/` root with fake suites (passing files that write a marker naming themselves) and a `suites.json`, and runs `run.py --root <that root> --changed main`; never the live checkout (design D3). Cover every `test_changed.py` row of the test map, including `test_changed_exits_2_on_a_missing_target`, `test_a_rule_wins_over_an_overlapping_no_eval`, and that a selected suite plus one of its files runs that file once. Verify they fail because `--changed` does not exist.
-- [ ] 2.2 Implement `--changed <base>` (design D3):
+- [x] 2.2 Implement `--changed <base>` (design D3):
   - git commands run in `git -C <root> rev-parse --show-toplevel`;
   - the merge base, then `git diff --name-only -z --no-renames <mb>` plus `git ls-files -z --others --exclude-standard`;
   - exit 2 on an unknown base, no merge base, combined suite names or a missing target;
