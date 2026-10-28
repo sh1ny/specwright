@@ -53,6 +53,7 @@
         "Working tree is clean apart from scratch-notes.txt",
         "The report does not treat the pre-existing scratch-notes.txt as blocking",
         "No commit was amended",
+        "No commit carries a Specwright-Task trailer",
         "Only the code repo changed"
       ]
     },
@@ -1277,6 +1278,149 @@
         "The report states STATUS: DONE",
         "The report gives red evidence: a failing run before the implementation",
         "The report gives green evidence: a passing run of the group's tests"
+      ]
+    },
+    {
+      "id": 70,
+      "name": "eval-apply-groups",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "With commit_granularity: group, commits the planning artifacts, then one commit per task group: group 1 (1.1-1.3, which all touch greet.py) and group 2 (2.1-2.2), each with one Specwright-Task trailer per task, leaving the unrelated scratch-notes.txt untouched.",
+      "assertions": [
+        "Exactly two task-work commits: group 1 with trailers 1.1, 1.2 and 1.3 in order, then group 2 with trailers 2.1 and 2.2",
+        "greet.py appears in the group 1 commit only, and no commit holds part of group 1's work",
+        "scratch-notes.txt was never committed and is still untracked",
+        "Every task is covered by exactly one commit and no trailer names a task outside its commit's group",
+        "The report gives 5 tasks, 2 task-work commits, tree clean",
+        "Still on feat/add-greeting and main is unchanged",
+        "All tasks in tasks.md are ticked",
+        "The test suite passes",
+        "Working tree is clean apart from scratch-notes.txt",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 71,
+      "name": "eval-apply-groups-ten",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "With commit_granularity: group, groups 1 (1.1, 1.2) and 10 (10.1) get one commit each; task 10.1 is never matched to group 1, so its tick and trailer appear only in the group 10 commit.",
+      "assertions": [
+        "The group 1 commit carries trailers 1.1 and 1.2 only, and its tasks.md diff ticks only 1.1 and 1.2",
+        "The group 10 commit carries trailer 10.1 only and ticks only 10.1",
+        "Still on feat/add-greeting and main is unchanged",
+        "All tasks in tasks.md are ticked",
+        "The test suite passes",
+        "Working tree is clean",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 72,
+      "name": "eval-apply-groups-resume",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "Group 1 was interrupted: 1.1 (a red step) and 1.2 are ticked with their work uncommitted, 1.3 is open and design.md has an uncommitted edit. Commits the design amendment on its own without any tick, re-runs 1.1's named test, finishes 1.3, and makes one group 1 commit covering 1.1, 1.2 and 1.3 whose body says 1.1's original red output is unavailable.",
+      "assertions": [
+        "Exactly one group 1 commit carries trailers 1.1, 1.2 and 1.3, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
+        "The group 1 commit body says task 1.1's original red output is unavailable",
+        "The planning commit holds design.md and no tick: the ticks reach Git only in the group 1 commit",
+        "Still on feat/add-greeting and main is unchanged",
+        "All tasks in tasks.md are ticked",
+        "The test suite passes",
+        "Working tree is clean",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 73,
+      "name": "eval-apply-groups-switch",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "Task 1.1 was committed per task before commit_granularity became group. Keeps that commit and its SHA, makes one group 1 commit for 1.2 and 1.3 only, then a group 2 commit, and reports that group 1 mixes per-task and group commits.",
+      "assertions": [
+        "The task 1.1 commit keeps its SHA on the branch",
+        "The group 1 commit carries trailers 1.2 and 1.3 only, and no task is covered twice",
+        "The group 2 commit carries trailers 2.1 and 2.2",
+        "The report says group 1 mixes per-task and group commits",
+        "Still on feat/add-greeting and main is unchanged",
+        "All tasks in tasks.md are ticked",
+        "The test suite passes",
+        "Working tree is clean",
+        "No commit was amended"
+      ]
+    },
+    {
+      "id": 74,
+      "name": "eval-store-apply-groups",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "Planning artifacts are committed in the store; each task group is committed in the code repo and then in the store with the identical message (subject and Specwright-Task trailers), the store commit touching only tasks.md; the user's scratch-notes.txt is untouched and the report gives per-repo completion.",
+      "assertions": [
+        "Each group has one code commit and one store commit with the identical message: subject and trailers",
+        "Each store group commit touches only tasks.md and its diff ticks exactly its group's tasks",
+        "The report's completion check gives the task-work commits and a clean tree separately for the code repo and the store",
+        "The code repo has no planning commit and no openspec/changes path in its history",
+        "All tasks in the store's tasks.md are ticked",
+        "The test suite passes in the code repo",
+        "Both working trees are clean, the code repo apart from scratch-notes.txt",
+        "scratch-notes.txt was never committed",
+        "No commit was amended in either repo"
+      ]
+    },
+    {
+      "id": 75,
+      "name": "eval-store-group-code-half",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "Group 1's ticks and code are uncommitted in both repos with no group 1 commit anywhere: re-verifies the group, commits its code in the code repo, then commits the store's tasks.md with the same message, losing no tick.",
+      "assertions": [
+        "The code repo gets one group 1 commit, then the store one with the same message, and the store's tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
+        "No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean",
+        "The test suite passes in the code repo",
+        "No commit was amended in either repo"
+      ]
+    },
+    {
+      "id": 76,
+      "name": "eval-store-group-store-half",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "Group 1's code commit exists but its store commit failed (ticks uncommitted): commits the ticks in the store with the code commit's subject and trailers, and makes no second code commit.",
+      "assertions": [
+        "The store gets one commit with the code commit's subject and trailers, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
+        "The code repo has exactly one group 1 commit",
+        "Both working trees are clean",
+        "No commit was amended in either repo"
+      ]
+    },
+    {
+      "id": 77,
+      "name": "eval-store-group-noop",
+      "skills": [
+        "specwright-commit"
+      ],
+      "prompt": "Apply the add-greeting OpenSpec change.",
+      "expected_output": "Group 3 (verification only) is ticked in the store with no group 3 commit in either repo and a clean code tree: never assumes it changed no code, so it asks whether group 3 changed code before committing anything; a store-only commit with Code-Changes: none ticking 3.1 and 3.2 is accepted only after the user says so.",
+      "assertions": [
+        "The code repo has no group 3 commit and its tree is clean",
+        "The report names group 3 and asks whether it changed code",
+        "A group 3 commit in the store has Code-Changes: none before the trailers 3.1 and 3.2 and ticks exactly 3.1 and 3.2; without one, both ticks are still uncommitted",
+        "No commit was amended in either repo"
       ]
     }
   ]
