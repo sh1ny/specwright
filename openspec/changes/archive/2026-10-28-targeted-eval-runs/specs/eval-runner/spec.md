@@ -8,8 +8,8 @@
 - **THEN** both sides of the rename, the deleted path and the untracked file each select the targets the map gives them
 
 #### Scenario: A change to one skill script
-- **WHEN** the only changed path is `skills/specwright-release/scripts/release.sh` and the map sends it to `release`
-- **THEN** the runner prints `release` with that path as the reason, runs only the `release` suite, and exits as that run does
+- **WHEN** the only changed path is `skills/specwright-release/scripts/release.sh`
+- **THEN** the runner prints each suite the map sends that path to, with that path as the reason (with the map in this change: `release`, `git-workflow`, `pr-pair` and `update`), runs exactly those suites and no other, and exits as that run does
 
 #### Scenario: A rule that targets one test file
 - **WHEN** the only changed path is `openspec/changes/<name>/tasks.md` and the map sends `openspec/**` to `git-workflow/test_specs_strict.py`
