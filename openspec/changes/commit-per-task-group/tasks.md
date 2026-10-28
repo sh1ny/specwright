@@ -56,7 +56,7 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 
 ## 1. ADR and architecture
 
-- [ ] 1.1 Write `docs/adr/0016-task-evidence-and-group-commits.md` (MADR-short, `Status: accepted`, today's date): task evidence is a subject starting `<type>(<change>): task X.Y ` or an exact `Specwright-Task:` trailer read by Git's parser; group commits at the boundary, one group pending at a time, never by rewriting history; rejected squash and subject ranges (design D1, D2). Add its row to the in-force index in `openspec/architecture.md`, add `task-cover.sh` to the `specwright-commit` component row, and add a Commits entry to the formats-parsed-by-later-runs list (`commit_granularity`, the trailer, the `group N` subject; changing them is a minor version). Verify `python evals/run.py --changed main` passes the map test and `grep -n 0016 openspec/architecture.md` shows the row.
+- [x] 1.1 Write `docs/adr/0016-task-evidence-and-group-commits.md` (MADR-short, `Status: accepted`, today's date): task evidence is a subject starting `<type>(<change>): task X.Y ` or an exact `Specwright-Task:` trailer read by Git's parser; group commits at the boundary, one group pending at a time, never by rewriting history; rejected squash and subject ranges (design D1, D2). Add its row to the in-force index in `openspec/architecture.md`, add `task-cover.sh` to the `specwright-commit` component row, and add a Commits entry to the formats-parsed-by-later-runs list (`commit_granularity`, the trailer, the `group N` subject; changing them is a minor version). Verify `python evals/run.py --changed main` passes the map test and `grep -n 0016 openspec/architecture.md` shows the row.
 
 ## 2. Task evidence script
 
