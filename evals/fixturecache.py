@@ -20,6 +20,7 @@ and removed at exit (read-only safe: git marks object files read-only on Windows
 raises removes its partial directory and re-raises, leaving the key missing so the next call rebuilds.
 A build runs with maintenance.auto=false (GIT_CONFIG_COUNT/KEY/VALUE, restored after): otherwise a commit starts
 `git maintenance run --auto --detach`, which can still hold objects/maintenance.lock in the cache while copy() reads it.
+A builder's git calls must inherit those variables: one that builds its env from a whitelist keeps every GIT_CONFIG_* key.
 Not safe across threads or processes by design: each process has its own cache.
 
 Only path-independent stages may be cached. A builder that writes absolute paths (remotes, config,
