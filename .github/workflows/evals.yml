@@ -29,7 +29,7 @@ jobs:
   suite:
     needs: list
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -64,4 +64,4 @@ jobs:
       - name: Run the suite
         env:
           SPECWRIGHT_PY38: ${{ steps.py38.outputs.python-path }}
-        run: python evals/run.py --timeout 2400 ${{ matrix.suite }}
+        run: python evals/run.py --timeout 1200 ${{ matrix.suite }}

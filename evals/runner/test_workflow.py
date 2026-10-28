@@ -51,8 +51,8 @@ class TestWorkflow(unittest.TestCase):
     def test_workflow_runs_each_listed_suite_on_linux(self):
         suite = job_block(read(), "suite")
         self.assertRegex(suite, r"runs-on: ubuntu-")
-        self.assertIn("python evals/run.py --timeout 2400 ${{ matrix.suite }}", suite)
-        self.assertIn("timeout-minutes: 120", suite)
+        self.assertIn("python evals/run.py --timeout 1200 ${{ matrix.suite }}", suite)
+        self.assertIn("timeout-minutes: 45", suite)
 
     def test_one_failing_suite_does_not_cancel_the_others(self):
         t = read()
