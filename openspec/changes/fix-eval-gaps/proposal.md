@@ -39,7 +39,7 @@ The M4 reviews left seven open eval gaps. Two of them are false passes, where a 
 
 ## Release Notes
 
-0.9.1 closes the eval gaps left by M4. The grader no longer passes a run that wrote through a GraphQL mutation sent as GET or through a tag-following fetch, a few reads stop failing as writes, and the eval suites run much faster on Windows.
+0.9.1 closes the eval gaps left by M4. The grader no longer passes a run that wrote through a GraphQL mutation sent as GET or through a tag-following fetch; a few git reads and a GraphQL query that `operationName` picks from beside a mutation stop counting as writes; and the fake `gh` rejects duplicate operation names as GitHub does. A new parallel runner cuts the six eval suites from about 8,260 s to about 5,000 s on Windows, with every test kept.
 
 ### Added
 - `evals/run.py` runs the eval suites with each test file as its own parallel process and prints each suite's wall time; `evals/timings.md` records the Windows times before and after (#127)
