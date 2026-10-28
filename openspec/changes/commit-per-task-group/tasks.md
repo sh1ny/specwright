@@ -60,7 +60,7 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 
 ## 2. Task evidence script
 
-- [ ] 2.1 Write failing tests in `evals/git-workflow/test_task_cover.py`, each on a scratch git repo with a `tasks.md`: every `test_task_cover.py` row of the test map, plus `tasks.md` over 1 MiB → exit 2 `tasks_too_large` and a range over 10 000 commits → exit 1 `range_too_large` (bound patched low by environment for the test). Verify they fail because `task-cover.sh` does not exist.
+- [x] 2.1 Write failing tests in `evals/git-workflow/test_task_cover.py`, each on a scratch git repo with a `tasks.md`: every `test_task_cover.py` row of the test map, plus `tasks.md` over 1 MiB → exit 2 `tasks_too_large` and a range over 10 000 commits → exit 1 `range_too_large` (bound patched low by environment for the test). Verify they fail because `task-cover.sh` does not exist.
 - [ ] 2.2 Implement `skills/specwright-commit/scripts/task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> --change <name>`: bash entry finding Python 3.8+ as `pr-pair.sh:68-72` does, one JSON document (`tasks` with id, group, ticked, commits {sha, form}; `groups` with heading; `pending_groups`; `uncovered`; `duplicates`; `cross_group`; `missing_headings`), exit 0/1/2/3, read-only git (`git log -z --format=%H%x00%s%x00%(trailers:key=Specwright-Task,valueonly,separator=%x2C)`), bounds from design Resource Bounds. Subject evidence only on the `<type>(<change>): task X.Y ` prefix. Verify the 2.1 tests pass and flip their rows green.
 
 ## 3. Group subjects
