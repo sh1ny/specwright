@@ -17,10 +17,10 @@
 | eval-runner → The suite map covers every tracked file | A pattern names a missing suite or file | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_missing_target_is_named`, `test_changed_exits_2_on_a_missing_target` | green |
 | eval-runner → The suite map covers every tracked file | A no-eval pattern overlaps a rule | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_no_eval_overlap_is_named`, `test_a_rule_wins_over_an_overlapping_no_eval` | green |
 | eval-runner → The suite map covers every tracked file | A path under a removed suite | evals/runner/test_changed.py | `test_a_path_under_a_removed_suite_runs_every_suite` | green |
-| eval-runner → CI runs every suite on Linux for each pull request | All suites pass | evals/runner/test_workflow.py | `test_workflow_runs_each_listed_suite_on_linux` (structure); the PR's first green run is checked in Workflow follow-up | red |
-| eval-runner → CI runs every suite on Linux for each pull request | A suite fails | evals/runner/test_workflow.py | `test_one_failing_suite_does_not_cancel_the_others` (`fail-fast: false`, the run step's exit code is the job's) | red |
-| eval-runner → CI runs every suite on Linux for each pull request | A new suite appears | evals/runner/test_run.py, evals/runner/test_workflow.py | `test_list_suites_prints_every_suite_as_json`, `test_matrix_comes_from_list_suites` | red |
-| eval-runner → CI runs every suite on Linux for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | `test_suite_jobs_need_the_list_job` | red |
+| eval-runner → CI runs every suite on Linux for each pull request | All suites pass | evals/runner/test_workflow.py | `test_workflow_runs_each_listed_suite_on_linux` (structure); the PR's first green run is checked in Workflow follow-up | green |
+| eval-runner → CI runs every suite on Linux for each pull request | A suite fails | evals/runner/test_workflow.py | `test_one_failing_suite_does_not_cancel_the_others` (`fail-fast: false`, the run step's exit code is the job's) | green |
+| eval-runner → CI runs every suite on Linux for each pull request | A new suite appears | evals/runner/test_run.py, evals/runner/test_workflow.py | `test_list_suites_prints_every_suite_as_json`, `test_matrix_comes_from_list_suites` | green |
+| eval-runner → CI runs every suite on Linux for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | `test_suite_jobs_need_the_list_job` | green |
 | eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | `test_agents_and_contributing_carry_the_rule` | red |
 | eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | `test_a_file_without_the_rule_is_named` | red |
 
@@ -72,7 +72,7 @@
   - `python evals/run.py --timeout 2400 ${{ matrix.suite }}`, and `timeout-minutes: 120` (design D4 Timeouts; the Resource Bounds row's "60 min" is a leftover, review S6).
 
   Verify they fail because the file does not exist.
-- [ ] 4.2 Write `.github/workflows/evals.yml` per design D4 (concurrency per PR with `cancel-in-progress`, ubuntu runner, git identity and `init.defaultBranch main`). Verify the 4.1 tests pass and flip their rows green.
+- [x] 4.2 Write `.github/workflows/evals.yml` per design D4 (concurrency per PR with `cancel-in-progress`, ubuntu runner, git identity and `init.defaultBranch main`). Verify the 4.1 tests pass and flip their rows green.
 
 ## 5. Agent and contributor instructions
 
