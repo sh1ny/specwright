@@ -26,7 +26,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 ## Making a change
 
 - Start every change through OpenSpec (`/opsx:propose`, `/opsx:new` or `/opsx:ff`); `specwright-branch` creates the `<prefix>/<change-name>` branch.
-- Apply with `/opsx:apply`; `specwright-commit` makes one commit per task. Open the PR, address review feedback and archive with `specwright-pr` and `specwright-finish`.
+- Apply with `/opsx:apply`; `specwright-commit` makes one commit per task, or one per task group with `commit_granularity: group` in `openspec/specwright.yaml`. Open the PR, address review feedback and archive with `specwright-pr` and `specwright-finish`.
 - Small mechanical fixes (typos, links, renames) may go straight to `main` with the maintainer's agreement.
 
 ## Conventions

@@ -10,7 +10,7 @@ A lightweight spec-driven development bundle for AI coding agents, built on [Ope
 - 🔍 **Pre-ship review.** Before the first PR or a local merge, a reviewer CLI other than the harness you run in (Codex, Claude Code or OMP, read-only and isolated) reviews the finished change. Blocking findings are fixed, or waived by you, before anything ships.
 - 🧪 **Test discipline.** Every requirement needs a failure scenario; every scenario maps to a named test that goes red → green during apply.
 - 📜 **Durable decisions.** Immutable, supersedable ADRs, indexed in the project's architecture file.
-- 🌿 **Git workflow.** A branch per change, one commit per task, and a finish step that merges locally or goes through a GitHub PR.
+- 🌿 **Git workflow.** A branch per change, one commit per task (or per task group with `commit_granularity: group`), and a finish step that merges locally or goes through a GitHub PR.
 - 🔁 **PR tooling.** Ship a PR with a useful description, resolve review feedback, watch CI and reviews in the background — with two small scripts instead of dozens of tool calls.
 - 💸 **Cheap delegation.** The main agent plans and verifies; a cheaper implementer model does the tasks from a focused packet.
 - 🗺️ **Project planning.** A big idea becomes a one-page strategy, an architecture baseline and a milestone roadmap; each milestone is a handful of OpenSpec changes.
@@ -31,7 +31,7 @@ flowchart LR
 |---|---|---|
 | Start a change | [`specwright-branch`](skills/specwright-branch/SKILL.md) | Clean `main` check, then `<prefix>/<change-name>` branch |
 | proposal → specs → design → review → tasks | [`schemas/specwright`](schemas/specwright/schema.yaml) | Artifacts with architecture triage and a review gate |
-| Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) (or [`specwright-implementer-light`](agents/claude/specwright-implementer-light.md) for LIGHT changes with `cheap_tier.enabled`) | One commit per task, orchestrator re-verifies delegated work |
+| Apply | [`specwright-commit`](skills/specwright-commit/SKILL.md) + [`specwright-implementer`](agents/claude/specwright-implementer.md) (or [`specwright-implementer-light`](agents/claude/specwright-implementer-light.md) for LIGHT changes with `cheap_tier.enabled`) | One commit per task (or per task group with `commit_granularity: group`), orchestrator re-verifies delegated work |
 | Pre-ship review | [`specwright-review`](skills/specwright-review/SKILL.md) | Cross-model review of the finished change; ship and the local merge wait for a pass |
 | PR | [`specwright-pr`](skills/specwright-pr/SKILL.md) | Ship, address feedback, watch CI (`finish: pr`) |
 | Archive | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive commit, then local `--no-ff` merge or push to the PR |
@@ -391,7 +391,7 @@ recorded a missing PR prerequisite, add the line
 | Skill | Activates on | Owns |
 |---|---|---|
 | [`specwright-branch`](skills/specwright-branch/SKILL.md) | New change (`/opsx:new`, `/opsx:propose`, `/opsx:ff`) | Clean-main gate, prefix, feature branch |
-| [`specwright-commit`](skills/specwright-commit/SKILL.md) | Apply (`/opsx:apply`) | Planning commit, one commit per task, end-of-apply check, PR handoff |
+| [`specwright-commit`](skills/specwright-commit/SKILL.md) | Apply (`/opsx:apply`) | Planning commit, one commit per task or task group, end-of-apply check, PR handoff |
 | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive (`/opsx:archive`) | Archive commit, local merge or PR push, post-merge cleanup (a branch is deleted only when main or the merged PR's head holds its commits) |
 | [`specwright-review`](skills/specwright-review/SKILL.md) | End of apply, ship and local merge (pre-ship); design reviews | Reviewer routes (`review-run.sh`: select, run, record, gate), pre-ship fix and waiver rules — see the [brief](skills/specwright-review/references/brief.md) and [findings schema](skills/specwright-review/references/findings.schema.json) |
 | [`specwright-pr`](skills/specwright-pr/SKILL.md) | "open a PR", "address review comments", "watch the PR" | `ship` / `feedback` / `watch` — see [description guide](skills/specwright-pr/references/description.md) and [feedback rubric](skills/specwright-pr/references/rubric.md) |
@@ -430,6 +430,7 @@ The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scr
 ```yaml
 finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
+# commit_granularity: task      # task (default) = one commit per task; group = one commit per task group, evidence in Specwright-Task trailers; any other value stops apply
 
 github:
   login: my-bot-account         # pushes, PRs, replies; empty = the active gh account, resolved once per run and fenced
@@ -567,6 +568,7 @@ A verdict covers only what was reviewed: editing proposal, specs or design after
 |---|---|
 | Apply start | `<type>(<change>): add planning artifacts` (`<type>` = branch prefix, `bugfix` → `fix`) |
 | Each task | `<type>(<change>): task X.Y <task text>` (≤ 72 chars) |
+| Each task group (`commit_granularity: group`) | `<type>(<change>): group N <group heading>` (≤ 72 chars), plus one `Specwright-Task: X.Y` trailer per covered task, in the final trailer block before `Co-authored-by` |
 | After archive | `<type>(<change>): archive change` |
 | Local merge | `merge: <change>` |
 
