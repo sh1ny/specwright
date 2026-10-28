@@ -21,6 +21,9 @@ from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
 DATE = "2026-10-19"
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
@@ -72,8 +75,14 @@ def delta_text(req):
 
 
 def make_repo(tmp, prefix="openspec", caps=("a",)):
-    """A work tree `tmp/work` on main, one commit: README.md, src/app.py and a baseline spec per cap."""
+    """A work tree `tmp/work` on main, one commit: README.md, src/app.py and a baseline spec per cap.
+    A copy of one built once per process for each (prefix, caps): the repo holds no path."""
     work = Path(tmp) / "work"
+    return fixturecache.copy(("finish.make_repo", prefix, tuple(caps)), lambda dest: _build_repo(dest, prefix, caps), work)
+
+
+def _build_repo(work, prefix, caps):
+    work = Path(work)
     work.mkdir(parents=True)
     git(work, "init", "-q", "-b", "main")
     for k, v in (("user.name", NAME), ("user.email", EMAIL), ("commit.gpgsign", "false"), ("core.autocrlf", "false")):

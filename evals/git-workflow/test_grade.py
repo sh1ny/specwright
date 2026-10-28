@@ -316,7 +316,8 @@ class ChangingCommands(unittest.TestCase):
     def test_git_pull_is_a_change(self):
         for c in (["pull"], ["pull", "--ff-only"], ["pull", "--rebase", "origin", "main"]):
             self.assertEqual(grade.changing_git([c]), [c], c)
-        self.assertEqual(grade.changing_git([["fetch", "origin"]]), [], "a fetch changes no branch")
+        self.assertEqual(grade.changing_git([["fetch", "origin"]]), [["fetch", "origin"]], "a default-refspec fetch follows tags into refs/tags/")
+        self.assertEqual(grade.changing_git([["fetch", "--no-tags", "origin"]]), [], "a fetch that stores no ref changes nothing")
 
     def test_explicit_get_with_fields_is_a_read(self):
         for argv in (["api", "--method", "GET", "search/issues", "-f", "q=repo:o/n"], ["api", "-X", "GET", "search/issues", "-f", "q=x"],
@@ -365,6 +366,24 @@ class GhAllowlist(unittest.TestCase):
             (repo / "gh-log.jsonl").write_text("".join(json.dumps(c) + "\n" for c in log), encoding="utf-8")
             self.assertEqual(grade.pr_mutations(repo), ["api graphql -f query=" + mut])
             self.assertEqual(grade.pr_mutations(repo), grade.gh_writes(grade.gh_calls(repo)))
+
+    def test_graphql_mutation_sent_as_get_is_a_write(self):
+        mut = "mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }"
+        for argv in (["api", "-X", "GET", "graphql", "-f", "query=" + mut, "-f", "threadId=T"],
+                     ["api", "--method=GET", "/graphql", "-f", "query=" + mut, "-f", "threadId=T"]):
+            self.assertEqual(grade.gh_writes([{"argv": argv}]), [" ".join(argv)], argv)
+            self.assertEqual(grade.changing_gh([{"argv": argv}]), [" ".join(argv)], argv)
+            with tempfile.TemporaryDirectory() as tmp:  # the pr_mutations check reads the same log
+                repo = Path(tmp)
+                (repo / "gh-log.jsonl").write_text(json.dumps({"argv": argv}) + "\n", encoding="utf-8")
+                self.assertEqual(grade.pr_mutations(repo), [" ".join(argv)], argv)
+
+    def test_graphql_read_with_options_before_the_endpoint(self):
+        self.reads(["api", "--paginate", "graphql", "-f", "query={ viewer { login } }"],
+                   ["api", "--hostname", "github.com", "/graphql", "-f", "query=query { viewer { login } }"])
+
+    def test_graphql_input_after_get_is_a_write(self):
+        self.writes("api -X GET graphql --input q.json")
 
     def test_unknown_subcommand_is_a_write(self):
         self.writes("label create x", "auth switch", "release create v1", "release delete v1", "repo delete o/n", "gist create f", "frobnicate")
@@ -461,14 +480,53 @@ class GitAllowlist(unittest.TestCase):
                    "branch --points-at HEAD", "branch --column=never", "branch --abbrev=7 -v", "branch -i --list X")
 
     def test_reads_stay_reads(self):
-        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin", "fetch --no-tags origin main", "fetch --prune origin", "fetch --update-head-ok", "diff-tree",
+        self.reads("status --porcelain", "log --oneline", "branch --show-current", "rev-parse HEAD", "fetch origin main", "fetch --no-tags origin", "diff-tree",
                    "reflog", "reflog -n 5", "reflog --oneline", "reflog show main", "reflog show", "reflog list",
                    "reflog exists refs/heads/main", "reflog HEAD", "reflog refs/heads/main", "reflog main@{1}",
                    "config --name-only --get-regexp x", "config get x", "config list", "config --list", "grep", "blame",
                    "symbolic-ref HEAD", "gc --auto --no-quiet --detach", "maintenance run --auto --no-quiet",
-                   "fetch origin refs/heads/x:refs/remotes/origin/x", "upload-pack", "pack-objects", "remote -v", "remote", "remote -v show o", "remote -v get-url o", "stash list",
-                   "worktree list", "tag", "ls-remote origin", "fetch -q origin", "fetch --all --prune", "fetch -j 4 --all",
-                   "fetch --jobs=4 --all", "fetch --dry-run origin", "fetch -v --progress origin main")
+                   "upload-pack", "pack-objects", "remote -v", "remote", "remote -v show o", "remote -v get-url o", "stash list",
+                   "worktree list", "tag", "ls-remote origin", "fetch --dry-run origin", "fetch -v --progress origin main")
+
+    def test_fetch_that_stores_refs_is_a_write(self):
+        self.writes("fetch origin", "fetch", "fetch --all", "fetch --multiple origin upstream", "fetch --prune origin",
+                    "fetch --update-head-ok", "fetch -q origin", "fetch --all --prune", "fetch -j 4 --all", "fetch --jobs=4 --all",
+                    "fetch origin refs/heads/x:refs/remotes/origin/x", "fetch --all origin main", "fetch --multiple origin main",
+                    "fetch origin main refs/heads/x:refs/remotes/origin/x")
+
+    def test_update_head_ok_without_a_pull_is_a_write(self):
+        self.writes("fetch --update-head-ok origin", "fetch -u origin")
+        c = [["status"], ["fetch", "--update-head-ok", "origin"]]
+        self.assertEqual(grade.changing_git(c), [c[1]])
+
+    def test_pull_child_fetch_is_judged_with_the_pull(self):
+        pull, fetch, merge = ["pull", "--ff-only"], ["fetch", "--update-head-ok"], ["merge", "--ff-only", "FETCH_HEAD"]
+        cmds = [pull, fetch, merge]
+        self.assertEqual(grade.changing_git(cmds), [pull, merge])
+        self.assertEqual(grade.refresh_exceptions(cmds), [])
+        self.assertEqual(grade.changing_git([pull, ["rev-list", "x"], ["upload-pack", "."], fetch, merge]), [pull, merge])
+        self.assertEqual(grade.changing_git([["pull"], ["commit", "-m", "x"], fetch]), [["pull"], ["commit", "-m", "x"], fetch])
+
+    def test_fetch_with_no_tags_or_no_destination_is_a_read(self):
+        self.reads("fetch --no-tags origin", "fetch -n --all", "fetch origin main", "fetch origin refs/tags/v1", "fetch --dry-run origin",
+                   "fetch -qn origin", "fetch -nq --multiple origin upstream", "fetch --dry-run --all", "fetch -q --no-tags origin main",
+                   "fetch --no-tags origin refs/heads/x:refs/remotes/origin/x")
+
+    def test_no_tags_does_not_excuse_a_branch_or_tag_write(self):
+        self.writes("fetch --no-tags origin main:main", "fetch -n origin tag v1", "fetch -n origin +refs/heads/x:refs/remotes/origin/x",
+                    "fetch --dry-run origin main:main")
+
+    def test_quiet_branch_listing_is_a_read(self):
+        self.reads("branch -q --list", "branch --quiet --list feat/*")
+
+    def test_quiet_flag_does_not_hide_a_branch_write(self):
+        self.writes("branch -q feat/x", "branch -q -D feat/x", "branch --quiet feat/x")
+
+    def test_tag_verification_is_a_read(self):
+        self.reads("tag -v v1.0.0", "tag --verify v1.0.0")
+
+    def test_verify_flag_does_not_hide_a_tag_write(self):
+        self.writes("tag -v -d v1.0.0", "tag -f -v v1.0.0", "tag -vd v1.0.0")
 
     @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_real_traces_of_reads_are_reads(self):
@@ -528,8 +586,11 @@ class GitAllowlist(unittest.TestCase):
             self.assertEqual(grade.changing_git(cmds[1:]), [], f"{label}: children of {cmds[0]} must be reads: {cmds[1:]}")
         self.assertEqual(grade.other_changes(guarded + seen["tag"] + seen["push tag"]), [])
         # every child git started on its own, across all the commands, is a read
-        children = [c for label, cmds in seen.items() for c in cmds[1:]]
-        self.assertEqual(grade.changing_git([c for c in children if c[:1] != ["merge"]]), [], children)
+        # (pull's own children, its fetch --update-head-ok and merge, are judged with the pull)
+        children = [c for label, cmds in seen.items() if label != "pull" for c in cmds[1:]]
+        self.assertEqual(grade.changing_git(children), [], children)
+        self.assertEqual([c[0] for c in grade.changing_git(seen["pull"])], ["pull", "merge"], seen["pull"])
+        self.assertEqual(grade.changing_git(seen["fetch"][:1]), [seen["fetch"][0]], "a plain fetch origin follows tags: a write")
 
 
 class GraphqlOperations(unittest.TestCase):
@@ -547,6 +608,23 @@ class GraphqlOperations(unittest.TestCase):
         self.assertEqual(self.named(q), [("query", "Q", ["a"]), ("mutation", None, ["b"]), ("subscription", "query", ["d"])])
         self.assertEqual(self.named("query @d { a } mutation M @e { b }"), [("query", None, ["a"]), ("mutation", "M", ["b"])])
         self.assertEqual(self.ops(q), [("query", ["a"]), ("mutation", ["b"]), ("subscription", ["d"])])
+
+    OP_DOC = ('query Q { viewer { login } } mutation M { addReaction(input:{subjectId:"X",content:THUMBS_UP}) '
+              '{ reaction { content } } }')
+
+    def test_operation_name_selects_a_query(self):
+        self.assertEqual(self.changing("-f", "query=" + self.OP_DOC, "-f", "operationName=Q"), [])
+        for spelling in (["-fquery=" + self.OP_DOC, "-foperationName=Q"], ["-F", "query=" + self.OP_DOC, "-F", "operationName=Q"],
+                         ["--field", "query=" + self.OP_DOC, "--raw-field=operationName=Q"],
+                         ["-f=query=" + self.OP_DOC, "-f=operationName=Q"]):
+            self.assertEqual(self.changing(*spelling), [], spelling)
+
+    def test_operation_name_selects_a_mutation(self):
+        self.assertEqual(len(self.changing("-f", "query=" + self.OP_DOC, "-f", "operationName=M")), 1)
+        self.assertEqual(len(self.changing("-f", "query=" + self.OP_DOC)), 1, "no operationName: every operation is classified")
+
+    def test_unknown_operation_name_is_a_write(self):
+        self.assertEqual(len(self.changing("-f", "query=" + self.OP_DOC, "-f", "operationName=Missing")), 1)
 
     def test_mutation_after_fragment_is_a_write(self):
         q = 'fragment R on Reaction { content } mutation { addReaction(input:{subjectId:"X",content:THUMBS_UP}) { reaction { ...R } } }'

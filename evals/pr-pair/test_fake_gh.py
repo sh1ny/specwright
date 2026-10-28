@@ -11,6 +11,7 @@ import tempfile
 import unittest
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 GH = HERE.parent / "fakes" / "gh.py"
@@ -38,13 +39,18 @@ class FakeGhCase(unittest.TestCase):
     def st(self):
         return json.loads(self.state.read_text(encoding="utf-8"))
 
-    def gh(self, *args, env=None, check=True):
+    def gh(self, *args, env=None, check=True, process=False, stdin=""):
+        """One fake-gh call, in this process (fake_gh.run) unless `process`: a real process for what needs one."""
         e = {**os.environ, "FAKE_GH_STATE": str(self.state), "FAKE_GH_LOG": str(self.logf)}
         e.pop("GH_TOKEN", None)
         e.pop("GITHUB_TOKEN", None)
         e.pop("GH_REPO", None)
         e.update(env or {})
-        r = subprocess.run([sys.executable, str(GH), *args], capture_output=True, text=True, env=e, cwd=self.tmp)
+        if process:
+            r = subprocess.run([sys.executable, str(GH), *args], capture_output=True, text=True, env=e, cwd=self.tmp, input=stdin or None)
+        else:
+            code, out, err = fake_gh.run(list(args), e, stdin, self.tmp)
+            r = SimpleNamespace(returncode=code, stdout=out, stderr=err)
         if check:
             self.assertEqual(r.returncode, 0, r.stderr)
         return r
@@ -53,6 +59,105 @@ class FakeGhCase(unittest.TestCase):
         return {"number": n, "html_url": f"https://github.com/o/n/pull/{n}", "state": state, "merged_at": merged,
                 "title": f"t{n}", "body": "", "head": {"ref": ref, "label": f"{owner}:{ref}", "repo": {"full_name": f"{owner}/n"}},
                 "base": {"ref": "main"}}
+
+
+class InProcessRun(FakeGhCase):
+    """fake_gh.run(argv, env, stdin, cwd) answers as the process does and leaves the caller's process state as it found it."""
+
+    def env(self, **extra):
+        e = {**os.environ, "FAKE_GH_STATE": str(self.state), "FAKE_GH_LOG": str(self.logf)}
+        for k in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO"):
+            e.pop(k, None)
+        e.update(extra)
+        return e
+
+    def process(self, *args, env=None):
+        r = subprocess.run([sys.executable, str(GH), *args], capture_output=True, text=True, env=env or self.env(), cwd=self.tmp)
+        return r.returncode, r.stdout, r.stderr
+
+    def in_process(self, *args, env=None, stdin="", cwd=None):
+        return tuple(fake_gh.run(list(args), env or self.env(), stdin, cwd or self.tmp))
+
+    def test_run_matches_the_process_for_a_read(self):
+        self.assertEqual(self.in_process("api", "user", "--jq", ".login"), self.process("api", "user", "--jq", ".login"))
+        self.assertEqual(self.in_process("api", "user", "--jq", ".login")[1].strip(), "KintsugiBot")
+
+    def test_run_matches_the_process_for_a_write(self):
+        args = ("pr", "create", "--repo", "o/n", "--head", "f", "--base", "main", "--title", "T", "--body", "B")
+        self.assertEqual(self.in_process(*args), (0, "https://github.com/o/n/pull/1\n", ""))
+        self.assertEqual(len(self.st()["repos"]["o/n"]["pulls"]), 1)
+        self.seed({"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok-k", "sh1ny": "tok-s"}})  # the process starts from the same state
+        self.assertEqual(self.process(*args), (0, "https://github.com/o/n/pull/1\n", ""))
+
+    def test_run_matches_the_process_for_a_fail(self):
+        st = self.st()
+        st["fail"] = [{"match": r"api repos/o/n/pulls", "exit": 4, "stderr": "boom"}]
+        self.seed(st)
+        got = self.in_process("api", "repos/o/n/pulls")
+        self.assertEqual(got, (4, "", "boom\n"))
+        self.assertEqual(got, self.process("api", "repos/o/n/pulls"))
+        bad = self.in_process("api", "-X", "PUT", "repos/o/n/pulls/9/merge")  # a Fail with a JSON body on stdout
+        self.assertEqual(bad, self.process("api", "-X", "PUT", "repos/o/n/pulls/9/merge"))
+        self.assertEqual(bad[0], 1)
+        self.assertIn("(HTTP 404)", bad[2])
+
+    def test_run_reads_stdin(self):
+        self.seed({**self.st(), "repos": {"o/n": {"pulls": [self.pull(1, "b")]}}})
+        code, out, err = self.in_process("pr", "comment", "1", "--repo", "o/n", "--body-file", "-", stdin="from stdin")
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(self.st()["repos"]["o/n"]["comments"]["1"][0]["body"], "from stdin")
+
+    def test_run_logs_the_given_cwd(self):
+        other = self.tmp / "elsewhere"
+        other.mkdir()
+        self.in_process("api", "user", cwd=other)
+        self.in_process("api", "user")
+        lines = [json.loads(l) for l in self.logf.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(Path(lines[0]["cwd"]).resolve(), other.resolve())
+        self.assertEqual(Path(lines[1]["cwd"]).resolve(), self.tmp.resolve())
+
+    def snapshot(self):
+        return dict(os.environ), os.getcwd(), sys.stdout, sys.stderr, sys.stdin
+
+    def assertRestored(self, before):
+        env, cwd, out, err, inp = before
+        self.assertEqual(dict(os.environ), env)
+        self.assertEqual(os.getcwd(), cwd)
+        self.assertIs(sys.stdout, out)
+        self.assertIs(sys.stderr, err)
+        self.assertIs(sys.stdin, inp)
+
+    def run_restoring(self, argv, **env):
+        before = self.snapshot()
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir(exist_ok=True)
+        try:
+            return fake_gh.run(argv, self.env(FAKE_GH_SENTINEL="set-by-run", **env), "", elsewhere)
+        finally:
+            self.assertRestored(before)
+            self.assertNotIn("FAKE_GH_SENTINEL", os.environ)
+
+    def test_state_is_restored_after_a_normal_return(self):
+        self.assertEqual(self.run_restoring(["api", "user"])[0], 0)
+
+    def test_state_is_restored_after_a_fail(self):
+        st = self.st()
+        st["fail"] = ["api user"]
+        self.seed(st)
+        self.assertEqual(self.run_restoring(["api", "user"])[0], 1)
+
+    def test_state_is_restored_after_a_system_exit(self):
+        self.seed({**self.st(), "flood": [{"match": "issues", "bytes": 300}]})  # the flood injection raises SystemExit(0)
+        code, out, err = self.run_restoring(["api", "repos/o/n/issues"])
+        self.assertEqual((code, len(out)), (0, 300))
+
+    def test_state_is_restored_after_an_unexpected_exception(self):
+        self.state.write_text("{not json", encoding="utf-8")
+        before = self.snapshot()
+        with self.assertRaises(ValueError):
+            fake_gh.run(["api", "user"], self.env(FAKE_GH_SENTINEL="x"), "", self.tmp)
+        self.assertRestored(before)
+        self.assertNotIn("FAKE_GH_SENTINEL", os.environ)
 
 
 class Pulls(FakeGhCase):
@@ -192,15 +297,22 @@ class LogAndFailures(FakeGhCase):
         st = self.st()
         st["fail"] = [{"match": r"api repos/o/n/pulls", "exit": 4, "stderr": "boom"}]
         self.seed(st)
-        r = self.gh("api", "repos/o/n/pulls?head=o:x", check=False)
+        r = self.gh("api", "repos/o/n/pulls?head=o:x", check=False, process=True)  # the exit code of a real process
         self.assertEqual((r.returncode, r.stderr.strip()), (4, "boom"))
         self.assertEqual(self.gh("api", "user").returncode, 0)
         self.assertEqual(len(self.logf.read_text(encoding="utf-8").splitlines()), 2)  # failed calls are logged too
 
     def test_unknown_command_exits_2(self):
-        r = self.gh("release", "list", check=False)
+        r = self.gh("release", "list", check=False, process=True)  # exit codes as a process reports them
         self.assertEqual(r.returncode, 2)
         self.assertIn("unsupported", r.stderr)
+        self.assertEqual(self.gh("release", "list", check=False).returncode, 2)
+
+    def test_process_stdout_is_utf8_with_lf_newlines(self):
+        self.gh("pr", "create", "--repo", "o/n", "--head", "f", "--base", "main", "--title", "T", "--body", "caf\u00e9 \u2713")
+        r = subprocess.run([sys.executable, str(GH), "api", "repos/o/n/pulls/1", "--jq", ".body"], capture_output=True, env={
+            **os.environ, "FAKE_GH_STATE": str(self.state)}, cwd=self.tmp)
+        self.assertEqual(r.stdout, "caf\u00e9 \u2713\n".encode("utf-8"))
 
 
 class MergeAndRefs(FakeGhCase):
@@ -572,14 +684,14 @@ class PrEvidence(FakeGhCase):
         self.assertEqual(self.snap(env={"GH_TOKEN": "tok-s"})["viewer"], {"login": "sh1ny"})
         out = self.gh("api", "graphql", "-f", "query=" + self.SNAP_Q, "-f", "owner=o", "-f", "name=n", "-F", "pr=7", "--jq",
                       '.data.viewer.login as $me | [.data.repository.pullRequest.reviewThreads.nodes[] | .id] | join(",") + "/" + $me',
-                      env={"FAKE_GH_JQ": JQ}).stdout.strip()
+                      env={"FAKE_GH_JQ": JQ}, process=True).stdout.strip()
         self.assertEqual(out, f"{self.t['id']}/KintsugiBot")
 
     @unittest.skipUnless(shutil.which("jq"), "needs jq")
     def test_jq_evaluator_is_selectable(self):
         args = ("api", "graphql", "-f", "query=" + self.SNAP_Q, "-f", "owner=o", "-f", "name=n", "-F", "pr=7", "--jq", ".data.viewer | .login")
-        self.assertEqual(self.gh(*args, env={"FAKE_GH_JQ": shutil.which("jq")}).stdout.strip(), "KintsugiBot")
-        r = self.gh(*args, env={"FAKE_GH_JQ": str(self.tmp / "no-such-evaluator")}, check=False)
+        self.assertEqual(self.gh(*args, env={"FAKE_GH_JQ": shutil.which("jq")}, process=True).stdout.strip(), "KintsugiBot")
+        r = self.gh(*args, env={"FAKE_GH_JQ": str(self.tmp / "no-such-evaluator")}, check=False, process=True)
         self.assertEqual(r.returncode, 1)
         self.assertIn("no-such-evaluator", r.stderr)
 
@@ -761,6 +873,34 @@ class GraphqlWriteDispatch(PrEvidence):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("Unknown operation named 'X'", r.stderr)
         self.assertEqual(self.state.read_bytes(), before)
+
+    def test_mutation_sent_as_get_applies(self):
+        # -X GET sends the fields as a query string, but the fake still runs the mutation: the grader must list the call too
+        mut = "mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }"
+        self.gh("api", "-X", "GET", "graphql", "-f", "query=" + mut, "-f", "threadId=" + self.t["id"])
+        self.assertTrue(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
+        calls = self.calls()
+        self.assertEqual(len(grade.gh_writes(calls)), 1)
+        self.assertEqual(len(grade.changing_gh(calls)), 1)  # pr_mutations is gh_writes over the same log
+
+    NAMED_DOC = ('query Q { viewer { login } } mutation M { addReaction(input:{subjectId:"X",content:THUMBS_UP}) '
+                 '{ reaction { content } } }')
+
+    def test_named_query_beside_a_mutation_changes_nothing(self):
+        before = self.state.read_bytes()
+        self.gql(self.NAMED_DOC, ("operationName", "Q"), check=False)
+        self.assertEqual(self.state.read_bytes(), before)
+        self.assertEqual(grade.changing_gh(self.calls()), [])
+
+    def test_duplicate_operation_names_fail_unchanged(self):
+        before = self.state.read_bytes()
+        doc = ('mutation M { resolveReviewThread(input:{threadId:"%s"}) { thread { id } } } '
+               'mutation M { addReaction(input:{subjectId:"%s",content:THUMBS_UP}) { reaction { content } } }') % (self.t["id"], self.ic["node_id"])
+        r = self.gql(doc, ("operationName", "M"), check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("GraphQL: There are multiple operations named 'M'.", r.stderr)
+        self.assertEqual(self.state.read_bytes(), before)
+        self.assertFalse(self.st()["repos"]["o/n"]["pulls"][0]["threads"][0]["isResolved"])
 
 
 # the class reuses PrEvidence's seeded PR but must not rerun its tests

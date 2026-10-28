@@ -449,7 +449,7 @@ def git_trace(repo):
 
 # git branch and git fetch options that only read; any other option (and any bundled short letter off the list) counts as a write
 BRANCH_READ = {"--list", "-l", "--contains", "--merged", "--no-merged", "--points-at", "--show-current"}  # list mode: a positional is a pattern
-BRANCH_FLAGS = BRANCH_READ | {"--no-contains", "-a", "--all", "-r", "--remotes", "-v", "--verbose", "--color", "--no-color", "--column",
+BRANCH_FLAGS = BRANCH_READ | {"--no-contains", "-a", "--all", "-r", "--remotes", "-v", "--verbose", "-q", "--quiet", "--color", "--no-color", "--column",
                               "--no-column", "--abbrev", "--no-abbrev", "-i", "--ignore-case", "--omit-empty", "--format", "--sort"}
 FETCH_FLAGS = {"-q", "--quiet", "-v", "--verbose", "-n", "--no-tags", "-p", "--prune", "-u", "--update-head-ok", "--progress",
                "--no-progress", "--dry-run", "--all", "--multiple", "--write-fetch-head", "--no-write-fetch-head", "--porcelain",
@@ -507,10 +507,15 @@ def git_read_only(c):
     if sub == "fetch":  # every option is on FETCH_FLAGS (so -f/--force, --tags, --prune-tags, --set-upstream, --refmap and any option
         # the list does not know are writes), and no refspec writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or
         # forces with +
-        ok, pos, _ = read_options(c[1:], FETCH_FLAGS)
+        ok, pos, names = read_options(c[1:], FETCH_FLAGS)
         # (a + argument counts in any slot, the first included, as the earlier rule did: fail closed)
-        return ok and not any(r.startswith("+") for r in pos) and "tag" not in pos[1:] and all(
-            ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in pos[1:])
+        if not (ok and not any(r.startswith("+") for r in pos) and "tag" not in pos[1:] and all(
+                ":" not in r or r.split(":", 1)[1].startswith("refs/remotes/") for r in pos[1:])):
+            return False
+        # git follows tags into refs/tags/ unless told not to, so the default refspec stores refs. Only -n/--no-tags (a short bundle
+        # counts: -qn) or --dry-run, or named refspecs with no destination (and no --all/--multiple, which fetch every remote), store none
+        return bool({"-n", "--no-tags", "--dry-run"} & names) or (
+            not {"--all", "--multiple"} & names and bool(pos[1:]) and all(":" not in r for r in pos[1:]))
     if sub == "reflog":
         # show, list or exists, or a ref plainly named (`HEAD`, `refs/...`, `main@{1}`); any other word may be a subcommand (write, drop)
         pos = [a for i, a in enumerate(rest) if not a.startswith("-") and not (i and rest[i - 1] in ("-n", "--max-count", "--format", "--pretty", "--date"))]
@@ -538,14 +543,32 @@ def git_read_only(c):
 
 def changing_git(cmds):
     """The git commands that are not on the read-only table (`git_read_only`): commits, merges, pulls, pushes, ref and branch changes,
-    `checkout`/`switch` with any argument, a fetch into a local branch, and any subcommand the table does not know."""
-    return [c for c in cmds if not git_read_only(c)]
+    `checkout`/`switch` with any argument, a fetch that stores a ref, and any subcommand the table does not know. The
+    `fetch --update-head-ok` that a `pull` runs as its own child is dropped: the pull is listed, so the child is judged with it."""
+    out, after_pull = [], False
+    for c in cmds:
+        if c[:1] == ["fetch"] and after_pull and {"-u", "--update-head-ok"} & set(c[1:]):
+            after_pull = False
+            continue
+        if c[:1] == ["pull"]:
+            after_pull = True
+        elif c[:1] and c[0] not in READ_ALWAYS:
+            after_pull = False
+        if not git_read_only(c):
+            out.append(c)
+    return out
 
 
 def gql_queries(a):
     """The query texts a `gh api graphql` call passes: `query=...` on its own (after -f/-F) or attached (-fquery=, -f=query=,
     --field=query=)."""
     return [m.group(1) for x in a for m in [re.match(r"(?:-[fF]=?|--(?:raw-)?field=)?query=(.*)", x, re.S)] if m]
+
+
+def gql_operation_name(a):
+    """The `operationName` field a `gh api graphql` call passes (same spellings gql_queries reads), the last one; None if absent."""
+    names = [m.group(1) for x in a for m in [re.match(r"(?:-[fF]=?|--(?:raw-)?field=)?operationName=(.*)", x, re.S)] if m]
+    return names[-1] if names else None
 
 
 GH_READ = {"pr": {"view", "list", "checks", "diff", "status"}, "issue": {"view", "list", "status"}, "repo": {"view"},
@@ -585,7 +608,13 @@ def graphql_read_only(a):
     definitions is not."""
     qs = gql_queries(a)
     opaque = not qs or any(x == "--input" or x.startswith("--input=") for x in a) or any(q.startswith("@") for q in qs)
-    parsed = [gqlops.operations(q) for q in qs]
+    name = gql_operation_name(a)
+    parsed = []
+    for q in qs:
+        ops = gqlops.named_operations(q)
+        if ops is not None and name is not None:
+            ops = [op for op in ops if op[1] == name]  # only the operation GitHub executes; none named so = write (empty)
+        parsed.append(None if ops is None else [(k, f) for k, _, f in ops])
     return not (opaque or any(not p or any(k != "query" for k, _ in p) for p in parsed))
 
 
@@ -599,7 +628,7 @@ def gh_read_only(a):
     if a[0] == "search":
         return True
     if a[0] == "api":
-        return graphql_read_only(a) if "graphql" in a[1:2] else rest_read_only(a)
+        return graphql_read_only(a) if api_endpoint(a).lstrip("/") == "graphql" else rest_read_only(a)
     return a[1:2] != [] and a[1] in GH_READ.get(a[0], ())
 
 
@@ -791,7 +820,7 @@ RELEASE_WORDS = r"publish\w*|releas\w*|\btag(?:s|ged|ging)?\b"
 RELEASE_ASK = (r"\?|whether|confirm|let me know|please (?:tell|say|advise)|say (?:the word|so|yes|go)|"
                r"if you (?:want|would like|'d like|wish)|when you(?:'re| are)? ready|on your go")
 TAG_WRITE_SHORT = set("asufdmFe")
-TAG_READ = {"-l", "--list", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at"}
+TAG_READ = {"-l", "--list", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "-v", "--verify"}
 
 
 def ref_lines(repo, *namespaces):
