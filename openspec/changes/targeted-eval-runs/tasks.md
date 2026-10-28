@@ -62,7 +62,7 @@
 
 ## 4. CI workflow
 
-- [ ] 4.1 Check the current major versions of `actions/checkout`, `actions/setup-python` and `actions/setup-node`, and Python 3.8 availability on the chosen Ubuntu image, against their docs (ctx7), and note them in the commit body. Write failing tests in `evals/runner/test_workflow.py`, using stdlib text checks on `.github/workflows/evals.yml`:
+- [x] 4.1 Check the current major versions of `actions/checkout`, `actions/setup-python` and `actions/setup-node`, and Python 3.8 availability on the chosen Ubuntu image, against their docs (ctx7), and note them in the commit body. Write failing tests in `evals/runner/test_workflow.py`, using stdlib text checks on `.github/workflows/evals.yml`:
   - the `pull_request` and `workflow_dispatch` triggers and `permissions: contents: read`;
   - a list job running `python evals/run.py --list-suites`;
   - suite jobs that `needs:` it, with a matrix from its output and `fail-fast: false`;
