@@ -41,6 +41,11 @@ DEFAULT_TIMEOUT = 7200
 SERIAL = {
     "pr-pair/test_bounded.py",  # asserts the deadline and byte bound of bounded.py, a few seconds each
     "review-routes/test_review_run.py",  # its timeout tests assert reviewer deadlines of 2-5 s and a stop within seconds
+    # The four below failed only under the parallel batch's load in the first full run (6.3) and pass alone.
+    "pr-pair/test_as_sh.py",  # Bounded: a 12 s bound on a hung token lookup and a fenced command that must finish unbounded
+    "pr-pair/test_pr_pair.py",  # Bounded: a hung merge PUT must write its pid file before the bound stops it
+    "pr-pair/test_pr_snapshot.py",  # TestUntilAttention: watch polls must land within a short --until window
+    "release/test_release.py",  # TestBoundedNetwork: a push or gh call cut off by a few-second bound must still land
 }
 
 
