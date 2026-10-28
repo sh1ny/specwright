@@ -91,7 +91,7 @@
   - each other failure is a Linux defect: fix it test-first, and re-run the failing suite in WSL until it passes.
 
   If a fix grows beyond test, fixture or fake adjustments (a real POSIX product defect), stop and ask the user whether to fix it here or file it.
-- [ ] 6.2 Check the timeouts against the 6.1 per-file times: no file may normally take more than half of `--timeout` (design Risks). Adjust `--timeout`/`timeout-minutes` and the 4.1 tests if needed. Verify `python -m unittest discover evals/runner` passes.
+- [x] 6.2 Check the timeouts against the 6.1 per-file times: no file may normally take more than half of `--timeout` (design Risks). Adjust `--timeout`/`timeout-minutes` and the 4.1 tests if needed. Verify `python -m unittest discover evals/runner` passes.
 
 ## 7. Release
 
