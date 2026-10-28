@@ -95,7 +95,7 @@
 
 ## 7. Release
 
-- [ ] 7.1 Run `release.sh bump --to 0.9.2` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/targeted-eval-runs/proposal.md`, both exit 0.
+- [x] 7.1 Run `release.sh bump --to 0.9.2` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/targeted-eval-runs/proposal.md`, both exit 0.
 
 ## Workflow follow-up
 

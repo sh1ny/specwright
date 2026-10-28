@@ -35,7 +35,7 @@ None.
 
 ## Release Notes
 
-0.9.2 sizes eval runs to the change. `python evals/run.py --changed main` runs only the suites the changed paths map to, and a GitHub Actions workflow runs every suite on Linux for each pull request, so full runs leave the developer's machine.
+0.9.2 sizes eval runs to the change and moves full runs to CI. `python evals/run.py --changed main` runs only the eval suites the changed paths map to, a GitHub Actions workflow runs every suite on Linux for each pull request, and the suites now pass on Linux. Installed projects see no change: only this repository's eval tooling and contributor instructions changed.
 
 ### Added
 - `python evals/run.py --changed <base>` runs only the eval suites that `evals/suites.json` maps the changed paths to. A path the map does not cover runs every suite.
@@ -43,3 +43,6 @@ None.
 
 ### Changed
 - `CONTRIBUTING.md` and the new `AGENTS.md` (imported by `CLAUDE.md`) say to run the changed suites during a change and every suite at a milestone close.
+
+### Fixed
+- The eval suites' fake `gh` and helper shims run the test's own Python interpreter, so the suites pass on a Linux host that has no `python` command.
