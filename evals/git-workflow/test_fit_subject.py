@@ -83,6 +83,27 @@ class FitSubject(unittest.TestCase):
         self.assertEqual(r.returncode, 1, (r.stdout, r.stderr))
         self.assertEqual(msg.read_bytes(), data, "the file changed although no subject fits")
 
+    def test_group_subject_cut_at_word(self):
+        full = "feat(add-greeting): group 2 Documentation of greet and farewell for the README and the user guide pages"
+        msg = self.message(full + "\n\nSpecwright-Task: 2.1\nSpecwright-Task: 2.2\n")
+        r = self.run_script(msg)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line1, _, tail = msg.read_bytes().decode("utf-8").partition("\n")
+        self.assertTrue(line1.startswith("feat(add-greeting): group 2 Documentation"), line1)
+        self.assert_fitted(full, line1)
+        self.assertEqual(tail, "\nSpecwright-Task: 2.1\nSpecwright-Task: 2.2\n", "the trailers changed")
+        self.assertEqual(r.stdout.decode("utf-8").strip(), line1)
+
+    def test_group_prefix_unfittable_exits_1(self):
+        full = "feat(" + "a-very-long-change-name-" * 2 + "for-subjects): group 1 Supercalifragilisticexpialidocious words"
+        self.assertGreater(len(full.split(" Super")[0] + " Supercalifragilisticexpialidocious"), LIMIT)
+        data = (full + "\n\nSpecwright-Task: 1.1\n").encode("utf-8")
+        msg = self.message(data)
+        r = self.run_script(msg)
+        self.assertEqual(r.returncode, 1, (r.stdout, r.stderr))
+        self.assertEqual(msg.read_bytes(), data, "the file changed although no subject fits")
+        self.assertIn(b"72", r.stderr)
+
     def test_missing_file_or_malformed_line_exits_2(self):
         r = self.run_script(self.tmp / "absent.txt")
         self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))

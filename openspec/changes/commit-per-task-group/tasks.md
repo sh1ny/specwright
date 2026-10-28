@@ -65,7 +65,7 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 
 ## 3. Group subjects
 
-- [ ] 3.1 Write failing tests `test_group_subject_cut_at_word` and `test_group_prefix_unfittable_exits_1` in `evals/git-workflow/test_fit_subject.py`. Verify they fail on today's exit 2.
+- [x] 3.1 Write failing tests `test_group_subject_cut_at_word` and `test_group_prefix_unfittable_exits_1` in `evals/git-workflow/test_fit_subject.py`. Verify they fail on today's exit 2.
 - [ ] 3.2 Extend `skills/specwright-commit/scripts/fit-subject.sh` to accept `<type>(<scope>): group N ` alongside the task prefix (header comment and exit 2 message updated). Verify all of `test_fit_subject.py` passes and flip the two rows green.
 
 ## 4. Commit rules, schema and docs
