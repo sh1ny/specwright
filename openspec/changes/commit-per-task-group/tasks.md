@@ -9,9 +9,9 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 | task-commits → Task subjects fit 72 characters | Long task text with backticks | evals/git-workflow/test_fit_subject.py | existing long-text tests | green |
 | task-commits → Task subjects fit 72 characters | Subject exactly at the limit | evals/git-workflow/test_fit_subject.py | existing exact-limit test | green |
 | task-commits → Task subjects fit 72 characters | Store-backed task pair | evals/git-workflow/test_grade.py | existing store per-task check (eval-store-apply) | green |
-| task-commits → Task subjects fit 72 characters | Long group heading | evals/git-workflow/test_fit_subject.py | `test_group_subject_cut_at_word` | red |
+| task-commits → Task subjects fit 72 characters | Long group heading | evals/git-workflow/test_fit_subject.py | `test_group_subject_cut_at_word` | green |
 | task-commits → Unfittable subject stops the commit | Prefix plus first word too long | evals/git-workflow/test_fit_subject.py | existing unfittable test | green |
-| task-commits → Unfittable subject stops the commit | Group prefix plus first word too long | evals/git-workflow/test_fit_subject.py | `test_group_prefix_unfittable_exits_1` | red |
+| task-commits → Unfittable subject stops the commit | Group prefix plus first word too long | evals/git-workflow/test_fit_subject.py | `test_group_prefix_unfittable_exits_1` | green |
 | task-commits → Commit granularity is a project setting | Setting unset | evals/git-workflow/test_grade.py, test_instructions.py | `test_task_mode_run_has_no_trailers`, `test_commit_reads_granularity_task_default` | red |
 | task-commits → Commit granularity is a project setting | Unknown value | evals/git-workflow/test_instructions.py | `test_commit_stops_on_unknown_granularity` | red |
 | task-commits → A group is committed once at its boundary | Two groups | evals/git-workflow/test_grade.py | `test_group_apply_two_commits_pass`, `test_group_apply_per_task_commits_fail` (eval-apply-groups) | red |
@@ -66,7 +66,7 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 ## 3. Group subjects
 
 - [x] 3.1 Write failing tests `test_group_subject_cut_at_word` and `test_group_prefix_unfittable_exits_1` in `evals/git-workflow/test_fit_subject.py`. Verify they fail on today's exit 2.
-- [ ] 3.2 Extend `skills/specwright-commit/scripts/fit-subject.sh` to accept `<type>(<scope>): group N ` alongside the task prefix (header comment and exit 2 message updated). Verify all of `test_fit_subject.py` passes and flip the two rows green.
+- [x] 3.2 Extend `skills/specwright-commit/scripts/fit-subject.sh` to accept `<type>(<scope>): group N ` alongside the task prefix (header comment and exit 2 message updated). Verify all of `test_fit_subject.py` passes and flip the two rows green.
 
 ## 4. Commit rules, schema and docs
 
