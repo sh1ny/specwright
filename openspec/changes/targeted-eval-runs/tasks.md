@@ -76,7 +76,7 @@
 
 ## 5. Agent and contributor instructions
 
-- [ ] 5.1 Write failing tests in `evals/runner/test_agent_instructions.py`:
+- [x] 5.1 Write failing tests in `evals/runner/test_agent_instructions.py`:
   - `AGENTS.md` and `CONTRIBUTING.md` each name `python evals/run.py --changed main`, the CI workflow and the milestone close;
   - `CLAUDE.md` holds the line `@AGENTS.md`;
   - a missing rule names the file.
