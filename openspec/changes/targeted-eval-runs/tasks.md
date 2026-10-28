@@ -12,7 +12,7 @@
 | eval-runner → Changed paths select the suites | Only paths that need no eval | evals/runner/test_changed.py | `test_only_no_eval_paths_run_nothing_and_exit_0` | green |
 | eval-runner → Changed paths select the suites | A base that does not resolve | evals/runner/test_changed.py | `test_an_unknown_base_exits_2`, `test_a_base_with_no_merge_base_exits_2` | green |
 | eval-runner → Changed paths select the suites | Suites named together with --changed | evals/runner/test_changed.py | `test_changed_with_suite_names_exits_2` | green |
-| eval-runner → The suite map covers every tracked file | A complete map | evals/runner/test_suite_map.py | `test_every_tracked_file_is_covered_once` (live repo) | red |
+| eval-runner → The suite map covers every tracked file | A complete map | evals/runner/test_suite_map.py | `test_every_tracked_file_is_covered_once` (live repo) | green |
 | eval-runner → The suite map covers every tracked file | A new file no pattern covers | evals/runner/test_suite_map.py | `test_an_uncovered_file_is_named` | green |
 | eval-runner → The suite map covers every tracked file | A pattern names a missing suite or file | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_missing_target_is_named`, `test_changed_exits_2_on_a_missing_target` | green |
 | eval-runner → The suite map covers every tracked file | A no-eval pattern overlaps a rule | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_no_eval_overlap_is_named`, `test_a_rule_wins_over_an_overlapping_no_eval` | green |
@@ -51,7 +51,7 @@
 
 ## 3. The real map
 
-- [ ] 3.1 Write `evals/suites.json` for this repository (design D2):
+- [x] 3.1 Write `evals/suites.json` for this repository (design D2):
   - derive each rule with `grep` across the suites for the repo paths they read (`skills/**`, `schemas/**`, `templates/**`, `scripts/**`, `agents/**`, `README.md`, `CONTRIBUTING.md`, `VERSION`, `OPENSPEC_VERSION`);
   - send `openspec/**` to `git-workflow/test_specs_strict.py`;
   - send `evals/git-workflow/fixtures.py` and any other cross-suite import to the importing suites too;

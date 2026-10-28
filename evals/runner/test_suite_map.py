@@ -6,6 +6,7 @@ Run: python -m unittest discover evals/runner
 """
 import importlib.util
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,6 +90,21 @@ class SuiteMapTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             self.run.load_map(self.root)
         self.assertEqual(cm.exception.code, 2)
+
+
+class LiveRepoMapTests(unittest.TestCase):
+    def test_every_tracked_file_is_covered_once(self):
+        # The real evals/suites.json against the real file list: tracked files plus untracked-but-not-ignored ones, so a file
+        # a change adds is checked before it is committed (git ls-files --others --exclude-standard skips ignored files).
+        run = load_runner()
+        evals = RUN.parent
+        repo = evals.parent
+        paths = set()
+        for extra in ([], ["--others", "--exclude-standard"]):
+            out = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", *extra], capture_output=True, check=True).stdout
+            paths.update(p.decode("utf-8") for p in out.split(b"\0") if p)
+        problems = run.check_map(run.load_map(evals), evals, PREFIX, sorted(paths))
+        self.assertEqual(problems, [], "the suite map has %d problem(s):\n%s" % (len(problems), "\n".join(problems)))
 
 
 if __name__ == "__main__":
