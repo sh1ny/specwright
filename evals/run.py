@@ -13,7 +13,8 @@ Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
   --ids        print every test id of the named suites as `suite:test.id`, run no test, exit 0
   No suite named means every suite. Files in SERIAL run one at a time, after the parallel batch.
 
-Output: one line per suite `suite: F files, T tests, S.Ss` (T from unittest's `Ran N tests` line). Each failed or timed-out file
+Output: one line per suite `suite: F files, T tests, S.Ss` (T from unittest's `Ran N tests` line; S from the suite's first file
+start to its last file end, so with several suites named it includes their files too: time a suite by naming it alone). Each failed or timed-out file
 prints `FAILED suite/file (exit code N)` or `FAILED suite/file (timeout after S s)`, the last 200 lines of its output (stderr
 included) and `full output: <path>`; that log is kept after the run, the logs of passed files are removed.
 
@@ -29,13 +30,14 @@ import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 TAIL_LINES = 200
 DEFAULT_TIMEOUT = 7200
+POLL = 0.5  # seconds between checks while a file runs, so an interrupt is seen at once (a plain Windows wait is not interruptible)
 
 # Files that run one at a time after the parallel batch: their tests assert deadlines of a few seconds, which CPU load could slip.
 SERIAL = {
@@ -72,12 +74,14 @@ def tests_run(path):
 
 
 class Run:
-    """The state of one run: the bounded module, the log directory, and the Popens that are running (for the finally)."""
+    """The state of one run: the bounded module, the log directory, the Popens that are running and whether the run is
+    stopping (an interrupt or an error: no file starts after it, and every running tree is stopped)."""
 
     def __init__(self, root, timeout, bounded, workdir):
         self.root, self.timeout, self.bounded, self.workdir = root, timeout, bounded, workdir
         self.lock = threading.Lock()
         self.running = set()
+        self.stopping = False
 
     def run_file(self, suite, fname):
         """Run one file; returns a dict with its status (rc, or timed_out), tests, start/end times and log path."""
@@ -86,18 +90,35 @@ class Run:
         cmd = [sys.executable, "-m", "unittest", "discover", "-s", str(sdir), "-t", str(sdir), "-p", fname]
         res = {"suite": suite, "file": fname, "log": log, "rc": None, "timed_out": False, "tests": 0}
         res["start"] = time.monotonic()
+        with self.lock:
+            if self.stopping:  # a queued file after an interrupt: never started
+                res.update(rc=130, end=res["start"])
+                return res
         with open(str(log), "wb") as out:
             p = None
             try:
                 p = self.bounded.spawn(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=str(REPO))
                 with self.lock:
                     self.running.add(p)
-                try:
-                    res["rc"] = p.wait(timeout=self.timeout)
-                except subprocess.TimeoutExpired:
-                    res["timed_out"] = True
+                    stopping = self.stopping
+                if stopping:  # stop_all ran between the check above and the spawn
                     self.bounded.kill(p)
-                    p.wait()
+                deadline = res["start"] + self.timeout
+                try:
+                    while res["rc"] is None:
+                        left = deadline - time.monotonic()
+                        if left <= 0:
+                            res["timed_out"] = True
+                            self.bounded.kill(p)
+                            p.wait()
+                            break
+                        try:
+                            res["rc"] = p.wait(timeout=min(POLL, left))
+                        except subprocess.TimeoutExpired:
+                            pass
+                except BaseException:  # an interrupt in the serial phase lands here: stop the tree before the finally drops it
+                    self.bounded.kill(p)
+                    raise
             except OSError as e:
                 out.write(("runner: cannot start the file: %s\n" % e).encode("utf-8", "replace"))
                 res["rc"] = 127
@@ -105,6 +126,7 @@ class Run:
                 if p is not None:
                     with self.lock:
                         self.running.discard(p)
+                    self.bounded.kill(p)  # a leftover the file started (a fake gh hang sleeper) dies with its job or session
                     self.bounded.close_job(p)
         res["end"] = time.monotonic()
         res["tests"] = tests_run(log)
@@ -112,6 +134,7 @@ class Run:
 
     def stop_all(self):
         with self.lock:
+            self.stopping = True
             procs = list(self.running)
         for p in procs:
             try:
@@ -188,8 +211,17 @@ def main(argv):
     run = Run(root, a.timeout, load_bounded(), workdir)
     results, keep = [], False
     try:
-        with ThreadPoolExecutor(max_workers=a.jobs) as pool:
-            results.extend(pool.map(lambda x: run.run_file(*x), parallel))
+        pool, pending = ThreadPoolExecutor(max_workers=a.jobs), set()
+        try:
+            futures = [pool.submit(run.run_file, *x) for x in parallel]
+            pending = set(futures)
+            while pending:  # short waits, so an interrupt reaches the finally below while files still run
+                pending = wait(pending, timeout=POLL, return_when=FIRST_COMPLETED)[1]
+            results.extend(f.result() for f in futures)
+        finally:
+            if pending:
+                run.stop_all()  # before the shutdown below waits for the workers: their trees stop, queued files never start
+            pool.shutdown(wait=True)
         for x in serial:
             results.append(run.run_file(*x))
         failed = [r for r in results if not passed(r)]
@@ -215,7 +247,7 @@ def main(argv):
             print("\n%d of %d files failed" % (len(failed), len(results)))
         return 1 if failed else 0
     finally:
-        run.stop_all()  # an interrupt or an error: no test tree outlives the runner
+        run.stop_all()  # an interrupt or an error: no test tree outlives the runner (a no-op after a clean run)
         if not keep:
             shutil.rmtree(str(workdir), ignore_errors=True)
 

@@ -4,11 +4,14 @@ Every test builds throwaway suites in a temp dir and runs the runner on them wit
 
 Run: python -m unittest discover evals/runner
 """
+import _thread
+import importlib.util
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -34,6 +37,35 @@ def pid_alive(pid):
         return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
     except (OSError, IndexError):
         return True
+
+
+def hang_file(pids, seconds):
+    """A test file that starts a sleeping child, records both PIDs in `pids`, and sleeps `seconds`."""
+    return ("import os, subprocess, sys, time, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_hang(self):\n"
+            f"        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({seconds})'])\n"
+            f"        open({str(pids)!r}, 'w').write('%d %d' % (os.getpid(), child.pid))\n"
+            f"        time.sleep({seconds})\n")
+
+
+def load_runner():
+    spec = importlib.util.spec_from_file_location("evals_run_under_test", str(RUN))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def wait_dead(pids, within=10):
+    """The PIDs still alive after `within` seconds; kills those so no sleeper outlives the test."""
+    deadline = time.time() + within
+    while any(pid_alive(p) for p in pids) and time.time() < deadline:
+        time.sleep(0.2)
+    alive = [p for p in pids if pid_alive(p)]
+    for p in alive:
+        subprocess.run(["taskkill", "/F", "/PID", str(p)] if sys.platform == "win32" else ["kill", "-9", str(p)],
+                       capture_output=True)
+    return alive
 
 
 class RunnerTests(unittest.TestCase):
@@ -134,6 +166,67 @@ class RunnerTests(unittest.TestCase):
         self.assertIsNotNone(m, r.stdout)
         self.assertTrue(Path(m.group(1)).is_file())
         self.assertRegex(r.stdout, r"(?m)^alpha: 2 files, 2 tests, ")  # the other file still ran
+
+    def interrupt_once(self, pids):
+        """Interrupt the main thread, as Ctrl-C does, once `pids` exists; gives up after 60 s."""
+        def fire():
+            deadline = time.time() + 60
+            while not pids.exists() and time.time() < deadline:
+                time.sleep(0.1)
+            time.sleep(0.5)
+            _thread.interrupt_main()
+        threading.Thread(target=fire, daemon=True).start()
+
+    def run_in_process(self, mod, *args):
+        """mod.main with --root; returns (whether KeyboardInterrupt came out, seconds taken)."""
+        start = time.monotonic()
+        try:
+            mod.main(["--root", str(self.root), *args])
+        except KeyboardInterrupt:
+            return True, time.monotonic() - start
+        return False, time.monotonic() - start
+
+    def test_an_interrupt_stops_running_files_and_starts_no_queued_one(self):
+        pids, marker = self.root / "pids.txt", self.root / "queued-started.txt"
+        queued = ("import unittest\nclass T(unittest.TestCase):\n    def test_q(self):\n"
+                  f"        open({str(marker)!r}, 'w').write('x')\n")
+        self.suite("alpha", {"test_a_hang.py": hang_file(pids, 40), "test_b_queued.py": queued})
+        self.interrupt_once(pids)
+        interrupted, took = self.run_in_process(load_runner(), "--jobs", "1", "alpha")
+        found = [int(x) for x in pids.read_text().split()] if pids.exists() else []
+        alive = wait_dead(found)
+        self.assertTrue(interrupted, "the interrupt did not reach the caller")
+        self.assertEqual(len(found), 2, "the hanging file never recorded its PIDs")
+        self.assertLess(took, 25, "the runner waited for the running file to end before stopping it")
+        self.assertEqual(alive, [], "a running file's tree outlived the interrupt")
+        time.sleep(1)
+        self.assertFalse(marker.exists(), "a queued file started after the interrupt")
+
+    def test_an_interrupt_in_the_serial_phase_stops_the_file(self):
+        pids = self.root / "pids.txt"
+        self.suite("alpha", {"test_hang.py": hang_file(pids, 40)})
+        mod = load_runner()
+        mod.SERIAL = {"alpha/test_hang.py"}
+        self.interrupt_once(pids)
+        interrupted, took = self.run_in_process(mod, "alpha")
+        found = [int(x) for x in pids.read_text().split()] if pids.exists() else []
+        alive = wait_dead(found)
+        self.assertTrue(interrupted, "the interrupt did not reach the caller")
+        self.assertEqual(len(found), 2, "the hanging file never recorded its PIDs")
+        self.assertLess(took, 25, "the runner waited for the serial file to end before stopping it")
+        self.assertEqual(alive, [], "the serial file's tree outlived the interrupt")
+
+    def test_a_leftover_of_a_passing_file_is_stopped(self):
+        pids = self.root / "pids.txt"
+        leftover = ("import subprocess, sys, unittest\nclass T(unittest.TestCase):\n    def test_leave(self):\n"
+                    "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                    f"        open({str(pids)!r}, 'w').write(str(child.pid))\n")
+        self.suite("alpha", {"test_leave.py": leftover})
+        r = self.run_runner("alpha")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        found = [int(x) for x in pids.read_text().split()] if pids.exists() else []
+        self.assertEqual(len(found), 1, "the file never recorded its child's PID")
+        self.assertEqual(wait_dead(found), [], "a process the passing file left behind outlived it")
 
     def test_ids_lists_every_test_id_without_running(self):
         self.suite("alpha", {"test_one.py": PASSING})
