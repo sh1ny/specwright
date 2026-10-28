@@ -26,7 +26,7 @@
 
 ## 1. Suite list and map model
 
-- [ ] 1.1 Write failing tests: `test_list_suites_prints_every_suite_as_json` in `evals/runner/test_run.py` (scratch `--root` with two suites and `fakes`), and the map validation tests in `evals/runner/test_suite_map.py` (`test_an_uncovered_file_is_named`, `test_a_missing_target_is_named`, `test_a_no_eval_overlap_is_named`) against a scratch map and file list. Verify each fails because `--list-suites` and the map checks do not exist yet.
+- [x] 1.1 Write failing tests: `test_list_suites_prints_every_suite_as_json` in `evals/runner/test_run.py` (scratch `--root` with two suites and `fakes`), and the map validation tests in `evals/runner/test_suite_map.py` (`test_an_uncovered_file_is_named`, `test_a_missing_target_is_named`, `test_a_no_eval_overlap_is_named`) against a scratch map and file list. Verify each fails because `--list-suites` and the map checks do not exist yet.
 - [ ] 1.2 Implement `--list-suites` (JSON array of `find_suites`, exit 0, no test run), and the map model in `evals/run.py`, stdlib only (design D2):
   - loading `<root>/suites.json`, exiting 2 on unreadable or invalid JSON with the file and the parse error named;
   - `**`/`*` pattern translation;
