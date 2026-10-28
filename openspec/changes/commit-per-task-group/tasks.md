@@ -21,11 +21,11 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 | task-commits → One group is pending at a time | Groups run in parallel | evals/git-workflow/test_instructions.py | `test_commit_one_group_pending_at_a_time` | red |
 | task-commits → One group is pending at a time | Group 1 commit fails | evals/git-workflow/test_instructions.py | `test_commit_one_group_pending_at_a_time` | red |
 | task-commits → Group membership is exact | Group 1 and group 10 | evals/git-workflow/test_task_cover.py, test_grade.py | `test_group_ten_is_not_group_one`, `test_group_ten_tick_in_group_one_fails` (eval-apply-groups-ten) | red |
-| task-commits → Group membership is exact | Missing heading | evals/git-workflow/test_task_cover.py | `test_group_without_heading_is_reported` | red |
-| task-commits → Task evidence is a subject or a trailer | Exact match | evals/git-workflow/test_task_cover.py | `test_trailer_match_is_exact` | red |
-| task-commits → Task evidence is a subject or a trailer | Task ID inside other text | evals/git-workflow/test_task_cover.py | `test_task_id_inside_text_is_not_evidence` | red |
-| task-commits → Task evidence is a subject or a trailer | Task covered twice | evals/git-workflow/test_task_cover.py | `test_task_covered_twice_names_both` | red |
-| task-commits → Task evidence is a subject or a trailer | Trailer outside its group | evals/git-workflow/test_task_cover.py | `test_cross_group_trailer_reported` | red |
+| task-commits → Group membership is exact | Missing heading | evals/git-workflow/test_task_cover.py | `test_group_without_heading_is_reported` | green |
+| task-commits → Task evidence is a subject or a trailer | Exact match | evals/git-workflow/test_task_cover.py | `test_trailer_match_is_exact` | green |
+| task-commits → Task evidence is a subject or a trailer | Task ID inside other text | evals/git-workflow/test_task_cover.py | `test_task_id_inside_text_is_not_evidence` | green |
+| task-commits → Task evidence is a subject or a trailer | Task covered twice | evals/git-workflow/test_task_cover.py | `test_task_covered_twice_names_both` | green |
+| task-commits → Task evidence is a subject or a trailer | Trailer outside its group | evals/git-workflow/test_task_cover.py | `test_cross_group_trailer_reported` | green |
 | task-commits → An interrupted group resumes without loss | Resume in a fresh session | evals/git-workflow/test_grade.py | `test_group_resume_one_commit_pass` (eval-apply-groups-resume) | red |
 | task-commits → An interrupted group resumes without loss | Group already partly committed | evals/git-workflow/test_task_cover.py, test_grade.py | `test_pending_excludes_covered_tasks`, `test_group_switch_mixed_pass` (eval-apply-groups-switch) | red |
 | task-commits → An interrupted group resumes without loss | Two groups pending | evals/git-workflow/test_task_cover.py, test_instructions.py | `test_two_pending_groups_reported`, `test_commit_two_pending_groups_ask` | red |
@@ -36,7 +36,7 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 | task-commits → Grouping never rewrites history | Switching to group mode mid-change | evals/git-workflow/test_grade.py | `test_group_switch_mixed_pass`, `test_group_switch_rewritten_task_commit_fails` (eval-apply-groups-switch) | red |
 | task-commits → Grouping never rewrites history | PR feedback after group commits | evals/git-workflow/test_instructions.py | `test_commit_never_regroups` | red |
 | task-commits → End-of-apply check uses task evidence | Group mode complete | evals/git-workflow/test_grade.py | `test_completion_accepts_task_work_wording` (eval-apply-groups report) | red |
-| task-commits → End-of-apply check uses task evidence | Lost coverage | evals/git-workflow/test_task_cover.py | `test_uncovered_ticked_task_reported` | red |
+| task-commits → End-of-apply check uses task evidence | Lost coverage | evals/git-workflow/test_task_cover.py | `test_uncovered_ticked_task_reported` | green |
 | planning-stores → Planning commits go to the store | Planning artifacts committed before the first task | evals/git-workflow/test_grade.py | existing eval-store-apply checks | green |
 | planning-stores → Planning commits go to the store | Task commit for a store-backed change | evals/git-workflow/test_grade.py | existing eval-store-apply checks | green |
 | planning-stores → Planning commits go to the store | Group commit for a store-backed change | evals/git-workflow/test_grade.py | `test_store_group_pair_pass`, `test_store_group_message_mismatch_fails` (eval-store-apply-groups) | red |
@@ -61,7 +61,7 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 ## 2. Task evidence script
 
 - [x] 2.1 Write failing tests in `evals/git-workflow/test_task_cover.py`, each on a scratch git repo with a `tasks.md`: every `test_task_cover.py` row of the test map, plus `tasks.md` over 1 MiB → exit 2 `tasks_too_large` and a range over 10 000 commits → exit 1 `range_too_large` (bound patched low by environment for the test). Verify they fail because `task-cover.sh` does not exist.
-- [ ] 2.2 Implement `skills/specwright-commit/scripts/task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> --change <name>`: bash entry finding Python 3.8+ as `pr-pair.sh:68-72` does, one JSON document (`tasks` with id, group, ticked, commits {sha, form}; `groups` with heading; `pending_groups`; `uncovered`; `duplicates`; `cross_group`; `missing_headings`), exit 0/1/2/3, read-only git (`git log -z --format=%H%x00%s%x00%(trailers:key=Specwright-Task,valueonly,separator=%x2C)`), bounds from design Resource Bounds. Subject evidence only on the `<type>(<change>): task X.Y ` prefix. Verify the 2.1 tests pass and flip their rows green.
+- [x] 2.2 Implement `skills/specwright-commit/scripts/task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> --change <name>`: bash entry finding Python 3.8+ as `pr-pair.sh:68-72` does, one JSON document (`tasks` with id, group, ticked, commits {sha, form}; `groups` with heading; `pending_groups`; `uncovered`; `duplicates`; `cross_group`; `missing_headings`), exit 0/1/2/3, read-only git (`git log -z --format=%H%x00%s%x00%(trailers:key=Specwright-Task,valueonly,separator=%x2C)`), bounds from design Resource Bounds. Subject evidence only on the `<type>(<change>): task X.Y ` prefix. Verify the 2.1 tests pass and flip their rows green.
 
 ## 3. Group subjects
 
