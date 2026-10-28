@@ -84,13 +84,13 @@ See proposal.md for the motivation. Current state the approach relies on:
     - `actions/setup-python`, 3.12 for the runner and 3.8 for `SPECWRIGHT_PY38`, so that test runs instead of skipping;
     - `actions/setup-node` and `npm i -g @fission-ai/openspec@$(cat OPENSPEC_VERSION)`;
     - git identity and `init.defaultBranch main` set globally;
-    - then `python evals/run.py --timeout 2400 <suite>`.
-  - **Timeouts:** the job limit follows `timeout-minutes > --timeout + the suite's normal wall time + margin`, so the runner, not GitHub, stops and names a hung file: `--timeout 2400` (40 minutes per file) with `timeout-minutes: 120`. pr-pair takes about 35 minutes on 24 logical CPUs (`evals/timings.md`) and its serial files run after the parallel batch (`evals/run.py:44-49`), so its normal time on a 4-CPU runner is not known yet; the D6 WSL run and the first CI run record per-file times, and both numbers are lowered or raised from them before the PR is ready.
+    - then `python evals/run.py --timeout 1200 <suite>`.
+  - **Timeouts:** the job limit follows `timeout-minutes > --timeout + the suite's normal wall time + margin`, so the runner, not GitHub, stops and names a hung file: `--timeout 1200` (20 minutes per file) with `timeout-minutes: 45`. The PR first ran with `--timeout 2400` and `timeout-minutes: 120`; its first CI run took 7 minutes for pr-pair, the slowest suite (411 s in the runner), so both were lowered from it. pr-pair takes about 35 minutes on 24 logical CPUs (`evals/timings.md`) and its serial files run after the parallel batch (`evals/run.py:44-49`), so its normal time on a 4-CPU runner is not known yet; the D6 WSL run and the first CI run record per-file times, and both numbers are lowered or raised from them before the PR is ready.
   - **Settings:**
     - `permissions: contents: read`;
     - triggers `pull_request` and `workflow_dispatch`;
     - `concurrency` per PR with `cancel-in-progress`;
-    - `timeout-minutes: 120` per job (see Timeouts);
+    - `timeout-minutes: 45` per job (see Timeouts);
     - `fail-fast: false`, so one failing suite does not cancel the rest.
 - **Rejected:** a static matrix plus a test that compares it with `find_suites`, because it is one more thing to keep in sync for no gain. Also rejected: a single job running all suites, because its wall time is the sum and one failure hides the others' results.
 - **Reversal cost:** low.
@@ -160,7 +160,7 @@ flowchart LR
 |---|---|---|---|---|
 | Changed path list | Tracked + untracked files (319 tracked today) | Not reachable in practice; each path is a short string | git's own | 3 190 / 31 900 paths: a few MB of memory, still a single regex pass per path |
 | Rules in `suites.json` | Tens of rules | n/a | n/a | Linear scan per path; 100x rules × 100x paths is ~10^7 regex matches, seconds |
-| CI jobs per PR | One per suite (7 today) plus the list job | GitHub's concurrent job limit queues extra jobs | 60 min per job | 70 suites would queue; acceptable, and far beyond any plan |
+| CI jobs per PR | One per suite (7 today) plus the list job | GitHub's concurrent job limit queues extra jobs | 45 min per job | 70 suites would queue; acceptable, and far beyond any plan |
 | Runner temp on CI | One temp dir per run, removed after a passing run | Runner disk (14 GB on ubuntu runners); a full suite run is far below | Job timeout | Not reached |
 
 ## Flow & State Gaps (FULL)
