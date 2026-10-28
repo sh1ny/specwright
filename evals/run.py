@@ -7,10 +7,12 @@ file's whole process tree lives in a job object (Windows) or session (POSIX); a 
 
 Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
         python evals/run.py --ids [--root DIR] [suite ...]
+        python evals/run.py --list-suites [--root DIR]
   --jobs N     files run at once (default: the CPU count)
   --timeout S  seconds a file may run before its tree is stopped (default 7200)
   --root DIR   the directory whose subdirectories are the suites (default: the directory of this script)
   --ids        print every test id of the named suites as `suite:test.id`, run no test, exit 0
+  --list-suites  print every suite as a JSON array, run no test, exit 0 (not combined with suite names or --ids)
   No suite named means every suite. Files in SERIAL run one at a time, after the parallel batch.
 
 Output: one line per suite `suite: F files, T tests, S.Ss` (T from unittest's `Ran N tests` line; S from the suite's first file
@@ -18,10 +20,11 @@ start to its last file end, so with several suites named it includes their files
 prints `FAILED suite/file (exit code N)` or `FAILED suite/file (timeout after S s)`, the last 200 lines of its output (stderr
 included) and `full output: <path>`; that log is kept after the run, the logs of passed files are removed.
 
-Exit codes: 0 every file passed; 1 a file failed, crashed or timed out; 2 an unknown suite or bad arguments (nothing runs).
+Exit codes: 0 every file passed; 1 a file failed, crashed or timed out; 2 an unknown suite, bad arguments or an invalid suite map (nothing runs).
 """
 import argparse
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -60,6 +63,125 @@ def load_bounded():
 
 def find_suites(root):
     return sorted(d.name for d in root.iterdir() if d.is_dir() and any(d.glob("test_*.py")))
+
+
+# The suite map (<root>/suites.json) says which suites a changed path selects:
+#   {"rules": [{"paths": ["skills/x/**"], "suites": ["release", "git-workflow/test_specs_strict.py"]}], "no_eval": ["docs/adr/**"]}
+# A path selects the union of the targets of every rule it matches (explicit and built-in). A target is a suite or one test file
+# `suite/test_*.py`. no_eval applies only to a path no rule matches. A path nothing covers is "uncovered" (the caller runs everything).
+SHARED_HARNESS = ("run.py", "fixturecache.py")  # relative to the evals directory; with fakes/** they select every suite
+
+
+def map_error(path, why):
+    sys.stderr.write("run.py: %s: %s\n" % (path, why))
+    sys.exit(2)
+
+
+def load_map(root):
+    """Read <root>/suites.json; exit 2 naming the file when it is unreadable, not JSON or not shaped as documented."""
+    path = Path(root) / "suites.json"
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError) as e:
+        map_error(path, "cannot read the suite map: %s" % e)
+
+    def strings(v):
+        return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+    if not isinstance(data, dict) or not isinstance(data.get("rules"), list) or not strings(data.get("no_eval")):
+        map_error(path, 'the suite map must be {"rules": [...], "no_eval": [...]}')
+    for rule in data["rules"]:
+        if not isinstance(rule, dict) or not strings(rule.get("paths")) or not strings(rule.get("suites")):
+            map_error(path, 'every rule must be {"paths": [...], "suites": [...]}: %s' % json.dumps(rule))
+    return data
+
+
+def pattern_regex(pattern):
+    """`**` matches any run of characters including `/`, `*` any run within one path segment, `?` one character of a segment."""
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def matches(patterns, path):
+    return next((p for p in patterns if pattern_regex(p).match(path)), None)
+
+
+def missing_targets(smap, root):
+    """One message per target of the map that is no suite of `root` and no test file of one."""
+    suites, out = find_suites(Path(root)), []
+    for rule in smap["rules"]:
+        for t in rule["suites"]:
+            suite, _, fname = t.partition("/")
+            if suite not in suites or (fname and not (fname.startswith("test_") and fname.endswith(".py")
+                                                       and (Path(root) / suite / fname).is_file())):
+                out.append("missing target: %s (named by a rule for %s)" % (t, ", ".join(rule["paths"])))
+    return out
+
+
+def classify(smap, root, prefix, paths):
+    """Sort repo-relative `paths` (forward slashes) by the map. `prefix` is the root's path in the repo ("evals"; "" when the
+    root is the repo top). Returns (selected, uncovered, no_eval): selected maps each target (a suite or `suite/test_x.py`) to
+    the paths that selected it; uncovered lists the paths nothing covers; no_eval the paths only the no_eval list covers."""
+    suites = find_suites(Path(root))
+    base = prefix.strip("/") + "/" if prefix.strip("/") else ""
+    selected, uncovered, no_eval = {}, [], []
+    for path in paths:
+        targets, rest = [], path[len(base):] if path.startswith(base) else None
+        if rest is not None:
+            head = rest.split("/")[0]
+            if "/" in rest and head in suites:
+                targets.append(head)
+            elif rest in SHARED_HARNESS or rest.startswith("fakes/"):
+                targets.extend(suites)
+                targets.append(None)  # covered even when no suite exists
+        for rule in smap["rules"]:
+            if matches(rule["paths"], path):
+                targets.extend(rule["suites"])
+        if targets:
+            for t in targets:
+                if t is not None and path not in selected.setdefault(t, []):
+                    selected[t].append(path)
+        elif matches(smap["no_eval"], path):
+            no_eval.append(path)
+        else:
+            uncovered.append(path)
+    return selected, uncovered, no_eval
+
+
+def check_map(smap, root, prefix, paths):
+    """The problems of the map for the file list `paths`, as messages: each uncovered file, each missing target, each file a
+    no_eval pattern shares with a rule. An empty list means the map is sound."""
+    problems = missing_targets(smap, root)
+    selected, uncovered, _ = classify(smap, root, prefix, paths)
+    problems.extend("uncovered file: %s (no rule or no_eval pattern matches it)" % p for p in uncovered)
+    selecting = set(p for ps in selected.values() for p in ps)
+    for p in paths:
+        pat = matches(smap["no_eval"], p)
+        if pat and p in selecting:
+            problems.append("no_eval overlap: %s matches the no_eval pattern %s and a rule" % (p, pat))
+    return problems
+
+
+def dedupe_targets(targets):
+    """Drop repeats, and a file target whose whole suite is also a target (the file runs once, as part of the suite)."""
+    out = []
+    for t in targets:
+        if t not in out and not ("/" in t and t.split("/")[0] in targets):
+            out.append(t)
+    return out
 
 
 def tail(path, lines=TAIL_LINES):
@@ -181,11 +303,14 @@ def parse(argv):
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     ap.add_argument("--root", default=str(HERE))
     ap.add_argument("--ids", action="store_true")
+    ap.add_argument("--list-suites", action="store_true")
     a = ap.parse_args(argv)
     if a.jobs < 1:
         ap.error("--jobs must be at least 1")
     if a.timeout <= 0:
         ap.error("--timeout must be positive")
+    if a.list_suites and (a.suites or a.ids):
+        ap.error("--list-suites is not combined with suite names or --ids")
     return a
 
 
@@ -196,6 +321,9 @@ def main(argv):
         sys.stderr.write("run.py: --root %s is not a directory\n" % root)
         return 2
     existing = find_suites(root)
+    if a.list_suites:
+        print(json.dumps(existing))
+        return 0
     unknown = [s for s in a.suites if s not in existing]
     if unknown:
         sys.stderr.write("run.py: unknown suite %s; the suites that exist: %s\n" % (", ".join(unknown), ", ".join(existing)))

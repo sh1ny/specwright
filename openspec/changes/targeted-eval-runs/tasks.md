@@ -13,7 +13,7 @@
 | eval-runner → Changed paths select the suites | A base that does not resolve | evals/runner/test_changed.py | `test_an_unknown_base_exits_2`, `test_a_base_with_no_merge_base_exits_2` | red |
 | eval-runner → Changed paths select the suites | Suites named together with --changed | evals/runner/test_changed.py | `test_changed_with_suite_names_exits_2` | red |
 | eval-runner → The suite map covers every tracked file | A complete map | evals/runner/test_suite_map.py | `test_every_tracked_file_is_covered_once` (live repo) | red |
-| eval-runner → The suite map covers every tracked file | A new file no pattern covers | evals/runner/test_suite_map.py | `test_an_uncovered_file_is_named` | red |
+| eval-runner → The suite map covers every tracked file | A new file no pattern covers | evals/runner/test_suite_map.py | `test_an_uncovered_file_is_named` | green |
 | eval-runner → The suite map covers every tracked file | A pattern names a missing suite or file | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_missing_target_is_named`, `test_changed_exits_2_on_a_missing_target` | red |
 | eval-runner → The suite map covers every tracked file | A no-eval pattern overlaps a rule | evals/runner/test_suite_map.py, evals/runner/test_changed.py | `test_a_no_eval_overlap_is_named`, `test_a_rule_wins_over_an_overlapping_no_eval` | red |
 | eval-runner → The suite map covers every tracked file | A path under a removed suite | evals/runner/test_changed.py | `test_a_path_under_a_removed_suite_runs_every_suite` | red |
@@ -27,7 +27,7 @@
 ## 1. Suite list and map model
 
 - [x] 1.1 Write failing tests: `test_list_suites_prints_every_suite_as_json` in `evals/runner/test_run.py` (scratch `--root` with two suites and `fakes`), and the map validation tests in `evals/runner/test_suite_map.py` (`test_an_uncovered_file_is_named`, `test_a_missing_target_is_named`, `test_a_no_eval_overlap_is_named`) against a scratch map and file list. Verify each fails because `--list-suites` and the map checks do not exist yet.
-- [ ] 1.2 Implement `--list-suites` (JSON array of `find_suites`, exit 0, no test run), and the map model in `evals/run.py`, stdlib only (design D2):
+- [x] 1.2 Implement `--list-suites` (JSON array of `find_suites`, exit 0, no test run), and the map model in `evals/run.py`, stdlib only (design D2):
   - loading `<root>/suites.json`, exiting 2 on unreadable or invalid JSON with the file and the parse error named;
   - `**`/`*` pattern translation;
   - union matching, with the built-in `evals/<suite>/` and shared-harness rules;
