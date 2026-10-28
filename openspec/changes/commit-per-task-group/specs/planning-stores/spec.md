@@ -24,7 +24,7 @@ For a store-backed change, `specwright-commit` SHALL commit planning artifacts a
 - **THEN** Specwright makes no commit in either repo and stops, naming the store's current branch
 
 ### Requirement: Task commit pairs are reconciled before new work
-Before ticking or committing another task or group, and before any planning commit, `specwright-commit` SHALL find every ticked task with no store evidence (a store commit whose subject starts with `<type>(<change-name>): task X.Y ` or whose `Specwright-Task` trailer is `X.Y`), other than the tasks this session ticked and is committing now. When those tasks have a code commit, it SHALL commit their `tasks.md` change in the store with that code commit's message. A store commit SHALL never include a tick its message does not name.
+Before ticking or committing a task or group, and before any planning commit, `specwright-commit` SHALL find every ticked task with no store evidence (a store commit with a subject starting `<type>(<change-name>): task X.Y ` or a `Specwright-Task: X.Y` trailer), except ticks this session made and is committing now. If they have a code commit, it SHALL commit their `tasks.md` change in the store with that commit's message. A store commit SHALL never include a tick its message does not name.
 
 #### Scenario: Normal code task
 - **WHEN** this session ticks task 1.2 after changing code files and commits it
