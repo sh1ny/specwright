@@ -38,7 +38,7 @@
 
 ## 2. `--changed` selection
 
-- [ ] 2.1 Write failing tests in `evals/runner/test_changed.py`. Each builds a scratch git repository holding an `evals/` root with fake suites (passing files that write a marker naming themselves) and a `suites.json`, and runs `run.py --root <that root> --changed main`; never the live checkout (design D3). Cover every `test_changed.py` row of the test map, including `test_changed_exits_2_on_a_missing_target`, `test_a_rule_wins_over_an_overlapping_no_eval`, and that a selected suite plus one of its files runs that file once. Verify they fail because `--changed` does not exist.
+- [x] 2.1 Write failing tests in `evals/runner/test_changed.py`. Each builds a scratch git repository holding an `evals/` root with fake suites (passing files that write a marker naming themselves) and a `suites.json`, and runs `run.py --root <that root> --changed main`; never the live checkout (design D3). Cover every `test_changed.py` row of the test map, including `test_changed_exits_2_on_a_missing_target`, `test_a_rule_wins_over_an_overlapping_no_eval`, and that a selected suite plus one of its files runs that file once. Verify they fail because `--changed` does not exist.
 - [ ] 2.2 Implement `--changed <base>` (design D3):
   - git commands run in `git -C <root> rev-parse --show-toplevel`;
   - the merge base, then `git diff --name-only -z --no-renames <mb>` plus `git ls-files -z --others --exclude-standard`;
