@@ -130,6 +130,28 @@ class FixtureCacheTests(unittest.TestCase):
         fixturecache.cached(("once", 2), build)
         self.assertEqual(len(calls), 2)
 
+    def test_build_starts_no_background_maintenance(self):
+        """A commit starts `git maintenance run --auto --detach`, which can hold objects/maintenance.lock in the cache
+        directory while copy() reads it (git 2.56 on the CI runner). Builds run with maintenance.auto=false."""
+        traces = []
+
+        def build(dest):
+            build_repo(dest)
+            r = subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "traced"], cwd=dest, capture_output=True,
+                               text=True, encoding="utf-8", env={**os.environ, **ENV, "GIT_TRACE": "1"})
+            traces.append(r.stderr)
+
+        before = {k: v for k, v in os.environ.items() if k.startswith("GIT_CONFIG_")}
+        fixturecache.cached(("no-maintenance", 1), build)
+        self.assertEqual(len(traces), 1)
+        self.assertIn("built-in: git commit", traces[0])
+        self.assertNotIn("maintenance", traces[0])
+        self.assertEqual({k: v for k, v in os.environ.items() if k.startswith("GIT_CONFIG_")}, before)
+
+        with self.assertRaises(ValueError):
+            fixturecache.cached(("no-maintenance", 2), lambda dest: (_ for _ in ()).throw(ValueError("boom")))
+        self.assertEqual({k: v for k, v in os.environ.items() if k.startswith("GIT_CONFIG_")}, before)
+
 
 if __name__ == "__main__":
     unittest.main()

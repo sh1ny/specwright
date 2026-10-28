@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -50,7 +51,8 @@ REV0 = f"11@{T0}"
 
 def _build_repo(name, dest):
     """A repo on main with the one `chore: initial` commit and no remote: the stage make_repo caches (nothing in it names a path)."""
-    env = {k: v for k, v in os.environ.items() if k.startswith(("PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE"))}
+    env = {k: v for k, v in os.environ.items() if k.startswith(("PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE",
+                                                                         "GIT_CONFIG_"))}  # fixturecache: maintenance.auto=false
     env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
     dest.mkdir(parents=True)
     for args in (("init", "-q", "-b", "main"), ("config", "user.name", "Eval Bot"), ("config", "user.email", "eval@example.invalid"),
@@ -59,6 +61,28 @@ def _build_repo(name, dest):
     (dest / "README.md").write_text(f"# {name}\n", encoding="utf-8", newline="\n")
     for args in (("add", "-A"), ("commit", "-q", "-m", "chore: initial")):
         subprocess.run(["git", *args], cwd=dest, check=True, capture_output=True, text=True, env=env)
+
+
+class CachedBuild(unittest.TestCase):
+    def test_build_repo_passes_on_the_cache_git_config(self):
+        """fixturecache turns off background maintenance through GIT_CONFIG_*; the whitelisted env must keep them."""
+        calls = []
+        real = subprocess.run
+
+        def spy(argv, *a, **kw):
+            calls.append((argv, kw.get("env")))
+            return real(argv, *a, **kw)
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(fixtures.rmtree, tmp)
+        with fixturecache._no_auto_maintenance(), unittest.mock.patch.object(subprocess, "run", spy):
+            _build_repo("demo", tmp / "repo")
+        gits = [env for argv, env in calls if argv[0] == "git"]
+        self.assertTrue(gits)
+        for env in gits:
+            n = int(env["GIT_CONFIG_COUNT"])
+            pairs = {(env[f"GIT_CONFIG_KEY_{i}"], env[f"GIT_CONFIG_VALUE_{i}"]) for i in range(n)}
+            self.assertIn(("maintenance.auto", "false"), pairs)
 
 
 class Base(unittest.TestCase):

@@ -1,0 +1,67 @@
+name: evals
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  list:
+    runs-on: ubuntu-24.04
+    outputs:
+      suites: ${{ steps.list.outputs.suites }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - id: list
+        run: |
+          suites=$(python evals/run.py --list-suites)
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+
+  suite:
+    needs: list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.list.outputs.suites) }}
+    name: ${{ matrix.suite }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create local main when missing
+        run: git show-ref --verify --quiet refs/heads/main || git branch main origin/main
+      - name: Python 3.8 for the evals that exercise it
+        id: py38
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.8'
+          update-environment: false
+      - name: Python 3.12 for the runner
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install the OpenSpec CLI at the pinned version
+        run: npm i -g @fission-ai/openspec@$(cat OPENSPEC_VERSION)
+      - name: Git identity and default branch
+        run: |
+          git config --global user.name "Specwright CI"
+          git config --global user.email "ci@users.noreply.github.com"
+          git config --global init.defaultBranch main
+      - name: Run the suite
+        env:
+          SPECWRIGHT_PY38: ${{ steps.py38.outputs.python-path }}
+        run: python evals/run.py --timeout 1200 ${{ matrix.suite }}

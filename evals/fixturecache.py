@@ -18,12 +18,16 @@ path. Keys need not be path-safe; each maps to a counter-named subdirectory.
 Lifetime: one cache root per process (tempfile.mkdtemp, prefix "sw-fixture-cache-"), created lazily
 and removed at exit (read-only safe: git marks object files read-only on Windows). A build that
 raises removes its partial directory and re-raises, leaving the key missing so the next call rebuilds.
+A build runs with maintenance.auto=false (GIT_CONFIG_COUNT/KEY/VALUE, restored after): otherwise a commit starts
+`git maintenance run --auto --detach`, which can still hold objects/maintenance.lock in the cache while copy() reads it.
+A builder's git calls must inherit those variables: one that builds its env from a whitelist keeps every GIT_CONFIG_* key.
 Not safe across threads or processes by design: each process has its own cache.
 
 Only path-independent stages may be cached. A builder that writes absolute paths (remotes, config,
 hooks, worktree links) must do that part after copy(), against the copy's own path.
 """
 import atexit
+import contextlib
 import itertools
 import os
 import shutil
@@ -55,12 +59,29 @@ def _cache_root():
     return _root
 
 
+@contextlib.contextmanager
+def _no_auto_maintenance():
+    """Add maintenance.auto=false to the GIT_CONFIG_* variables git reads, then restore them."""
+    keys = [k for k in os.environ if k.startswith("GIT_CONFIG_")]
+    saved = {k: os.environ[k] for k in keys}
+    n = int(os.environ.get("GIT_CONFIG_COUNT") or 0)
+    os.environ.update({"GIT_CONFIG_COUNT": str(n + 1), "GIT_CONFIG_KEY_%d" % n: "maintenance.auto",
+                       "GIT_CONFIG_VALUE_%d" % n: "false"})
+    try:
+        yield
+    finally:
+        for k in [k for k in os.environ if k.startswith("GIT_CONFIG_")]:
+            del os.environ[k]
+        os.environ.update(saved)
+
+
 def cached(key, build):
     if key in _entries:
         return _entries[key]
     path = _cache_root() / str(next(_counter))
     try:
-        build(path)
+        with _no_auto_maintenance():
+            build(path)
     except BaseException:
         if path.exists():
             _rmtree(path)

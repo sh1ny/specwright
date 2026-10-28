@@ -1,0 +1,28 @@
+{
+  "rules": [
+    {"paths": ["skills/**"], "suites": ["git-workflow", "update"]},
+    {"paths": ["skills/*/SKILL.md", "skills/specwright-release/**"], "suites": ["release"]},
+    {"paths": ["skills/specwright-finish/**"], "suites": ["finish"]},
+    {"paths": ["skills/specwright-pr/**", "skills/specwright-finish/SKILL.md", "skills/*/scripts/**"], "suites": ["pr-pair"]},
+    {"paths": ["skills/specwright-review/**", "skills/specwright-commit/**", "skills/specwright-pr/**", "skills/specwright-finish/**", "skills/specwright-roadmap/**"], "suites": ["review-routes"]},
+    {"paths": ["skills/specwright-pr/scripts/bounded.py"], "suites": ["runner"]},
+    {"paths": ["schemas/**"], "suites": ["git-workflow", "release", "review-routes", "update"]},
+    {"paths": ["templates/**"], "suites": ["git-workflow", "update"]},
+    {"paths": ["scripts/**"], "suites": ["update"]},
+    {"paths": ["agents/**"], "suites": ["git-workflow", "update"]},
+    {"paths": ["agents/*/specwright-reviewer.md"], "suites": ["review-routes"]},
+    {"paths": ["README.md"], "suites": ["git-workflow", "release"]},
+    {"paths": ["CONTRIBUTING.md"], "suites": ["git-workflow", "runner"]},
+    {"paths": ["VERSION"], "suites": ["release", "review-routes"]},
+    {"paths": ["OPENSPEC_VERSION", ".gitignore"], "suites": ["git-workflow"]},
+    {"paths": ["AGENTS.md", "CLAUDE.md", ".github/**"], "suites": ["runner"]},
+    {"paths": ["openspec/**"], "suites": ["git-workflow/test_specs_strict.py"]},
+    {"paths": ["evals/git-workflow/fixtures.py"], "suites": ["pr-pair"]},
+    {"paths": ["evals/git-workflow/grade.py"], "suites": ["pr-pair/test_fake_gh.py"]},
+    {"paths": ["evals/suites.json", "evals/timings.md"], "suites": ["runner"]}
+  ],
+  "no_eval": [
+    ".gitattributes",
+    "docs/**"
+  ]
+}

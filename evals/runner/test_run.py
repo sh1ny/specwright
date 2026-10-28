@@ -6,6 +6,7 @@ Run: python -m unittest discover evals/runner
 """
 import _thread
 import importlib.util
+import json
 import re
 import shutil
 import subprocess
@@ -98,6 +99,21 @@ class RunnerTests(unittest.TestCase):
         r = self.run_runner()  # no suite named: every suite, and `fakes` is not one
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("fakes", r.stdout)
+
+    def test_list_suites_prints_every_suite_as_json(self):
+        self.suite("beta", {"test_two.py": PASSING})
+        self.suite("alpha", {"test_one.py": FAILING})  # --list-suites runs no test
+        self.suite("fakes", {"gh.py": "raise SystemExit(9)\n"})
+        r = self.run_runner("--list-suites")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout), ["alpha", "beta"])
+        self.assertNotIn("Ran ", r.stdout + r.stderr)
+        self.suite("gamma", {"test_three.py": PASSING})  # a new directory with a test file shows up
+        self.assertEqual(json.loads(self.run_runner("--list-suites").stdout), ["alpha", "beta", "gamma"])
+        for extra in (["alpha"], ["--ids"]):  # a usage error: nothing is listed
+            r = self.run_runner("--list-suites", *extra)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual(r.stdout, "")
 
     def test_a_failing_file_is_reported_and_kept(self):
         self.suite("alpha", {"test_good.py": PASSING, "test_bad.py": FAILING})
