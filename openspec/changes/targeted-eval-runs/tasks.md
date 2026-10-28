@@ -21,8 +21,8 @@
 | eval-runner → CI runs every suite on Linux for each pull request | A suite fails | evals/runner/test_workflow.py | `test_one_failing_suite_does_not_cancel_the_others` (`fail-fast: false`, the run step's exit code is the job's) | green |
 | eval-runner → CI runs every suite on Linux for each pull request | A new suite appears | evals/runner/test_run.py, evals/runner/test_workflow.py | `test_list_suites_prints_every_suite_as_json`, `test_matrix_comes_from_list_suites` | green |
 | eval-runner → CI runs every suite on Linux for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | `test_suite_jobs_need_the_list_job` | green |
-| eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | `test_agents_and_contributing_carry_the_rule` | red |
-| eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | `test_a_file_without_the_rule_is_named` | red |
+| eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | `test_agents_and_contributing_carry_the_rule` | green |
+| eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | `test_a_file_without_the_rule_is_named` | green |
 
 ## 1. Suite list and map model
 
@@ -82,7 +82,7 @@
   - a missing rule names the file.
 
   Verify they fail because `AGENTS.md` and `CLAUDE.md` do not exist.
-- [ ] 5.2 Write `AGENTS.md` (this repository's agent rules: targeted runs during a change, CI for every suite on each PR, a full local run only at a milestone close, `evals/suites.json` kept covering new files) and `CLAUDE.md` (`@AGENTS.md`). Rewrite the eval section of `CONTRIBUTING.md` around `--changed`, the map and CI. Update `README.md` where it names eval commands, and the Evals row of `openspec/architecture.md`. Verify `python -m unittest discover evals/runner` passes, flip the 5.1 rows green, and run `python evals/run.py --changed main` (which now includes `git-workflow` for the README and CONTRIBUTING text tests) green.
+- [x] 5.2 Write `AGENTS.md` (this repository's agent rules: targeted runs during a change, CI for every suite on each PR, a full local run only at a milestone close, `evals/suites.json` kept covering new files) and `CLAUDE.md` (`@AGENTS.md`). Rewrite the eval section of `CONTRIBUTING.md` around `--changed`, the map and CI. Update `README.md` where it names eval commands, and the Evals row of `openspec/architecture.md`. Verify `python -m unittest discover evals/runner` passes, flip the 5.1 rows green, and run `python evals/run.py --changed main` (which now includes `git-workflow` for the README and CONTRIBUTING text tests) green.
 
 ## 6. Linux run
 
