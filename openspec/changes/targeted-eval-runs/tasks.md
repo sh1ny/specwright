@@ -86,7 +86,7 @@
 
 ## 6. Linux run
 
-- [ ] 6.1 In WSL, install nothing, run from a clone of this branch in `/dev/shm/<dir>` with `TMPDIR` under `/dev/shm` (design D6), run `python3 evals/run.py`, and record each suite's result and per-file times. Remove the clone afterwards. Sort the failures:
+- [x] 6.1 In WSL, install nothing, run from a clone of this branch in `/dev/shm/<dir>` with `TMPDIR` under `/dev/shm` (design D6), run `python3 evals/run.py`, and record each suite's result and per-file times. Remove the clone afterwards. Sort the failures:
   - those caused by a tool WSL lacks (OpenSpec CLI, Python 3.8) are listed for CI;
   - each other failure is a Linux defect: fix it test-first, and re-run the failing suite in WSL until it passes.
 

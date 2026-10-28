@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -1229,7 +1230,7 @@ class TestCheckMain(Flow):
         self.assertEqual(self.release("check", "--main", "origin/nope")[1]["error"], "no_main")
 
 
-GH_SCRIPT = '#!/bin/sh\nexec python "{}" "$@"\n'
+GH_SCRIPT = '#!/bin/sh\nexec "{}" "{}" "$@"\n'  # this interpreter runs the fake: a POSIX host may have no `python`
 CODE_SLUG = "acme/code"
 
 
@@ -1241,7 +1242,8 @@ class GhFlow(Flow):
         super().setUp()
         (self.tmp / "bin").mkdir()
         gh = self.tmp / "bin" / "gh"
-        gh.write_text(GH_SCRIPT.format((ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()), encoding="utf-8", newline="\n")
+        gh.write_text(GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
+                      encoding="utf-8", newline="\n")
         gh.chmod(0o755)
         self.state = {"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok"}, "repos": {CODE_SLUG: {"pulls": []}}}
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"

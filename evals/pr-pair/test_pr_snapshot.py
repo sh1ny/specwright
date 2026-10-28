@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import time
 import unittest
 
@@ -330,7 +331,7 @@ class WaitUnwritable(SnapCase):
             "        gh.add_pr_comment(st, 'o/n', 7, ev['author'], ev['body'], at=ev['at'])\n"
             "json.dump(st, open(p, 'w', encoding='utf-8', newline='\\n'), indent=2)\n", encoding="utf-8")
         sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec python "{snapfix.fixtures.posix(helper)}"\n', encoding="utf-8", newline="\n")
+        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
         self.state_dir.write_text("a file, not a directory")
         self.set_head(B, f"{D}09:00:00Z")
@@ -369,7 +370,8 @@ class WatchOwnership(SnapCase):
     def setUp(self):
         super().setUp()
         sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text('#!/bin/sh\nexec python -c "import time; time.sleep(0.3)"\n', encoding="utf-8", newline="\n")
+        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
+                         encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
         self.procs = []
         self.addCleanup(self._reap)
@@ -533,7 +535,7 @@ class WatchElapsed(SnapCase):
             "    open(p + '.patched', 'w').close()\n"
             "time.sleep(float(sys.argv[1]))\n", encoding="utf-8")
         sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec python "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
+        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
         self.pidf = self.tmp / "hang.pid"
         self.addCleanup(stop_pid_file, self.pidf)
@@ -735,7 +737,7 @@ class TestUntilAttention(SnapCase):
             "open(c, 'w').write(str(n + 1))\n"
             "time.sleep(0.2)\n", encoding="utf-8")
         sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec python "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
+        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
 
     def wait(self, baseline, steps, *args, timeout=120):

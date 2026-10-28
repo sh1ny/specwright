@@ -8,6 +8,7 @@ Run: python -m unittest discover evals/pr-pair -p test_pr_reply.py
 import os
 import stat
 import subprocess
+import sys
 import time
 import unittest
 
@@ -277,7 +278,7 @@ class ReplyTempFiles(ReplyCase):
             f"gh.add_review(st, {self.SLUG!r}, {self.PR}, 'me', 'draft', state='PENDING')\n"
             "json.dump(st, open(p, 'w', encoding='utf-8'))\n", encoding="utf-8")
         gh.write_text('#!/bin/sh\n"$(dirname "$0")/gh-real" "$@" || exit $?\n'
-                      f'case "$*" in *replies*) python "{fixtures.posix(helper)}" "$FAKE_GH_STATE";; esac\n',
+                      f'case "$*" in *replies*) "{fixtures.posix(sys.executable)}" "{fixtures.posix(helper)}" "$FAKE_GH_STATE";; esac\n',
                       encoding="utf-8", newline="\n")
         r = self.reply("thread", tid, c["databaseId"], "BODY", "--resolve", body="done")
         self.assertEqual(r.returncode, 2, r.stderr)

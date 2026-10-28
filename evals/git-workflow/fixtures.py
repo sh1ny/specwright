@@ -113,7 +113,7 @@ def env_file(dest, **extra):
 
 def install_fake_gh(dest):
     """Put the fake gh on the fixture's PATH; its state and call log live in <dest>."""
-    write(dest, "bin/gh", f'#!/bin/sh\nexec python "{posix(ROOT / "evals" / "fakes" / "gh.py")}" "$@"\n')
+    write(dest, "bin/gh", f'#!/bin/sh\nexec "{posix(sys.executable)}" "{posix(ROOT / "evals" / "fakes" / "gh.py")}" "$@"\n')
     (dest / "bin" / "gh").chmod(0o755)
     env_file(dest, FAKE_GH_STATE=posix(dest / "gh-state.json"), FAKE_GH_LOG=posix(dest / "gh-log.jsonl"))
 

@@ -420,7 +420,7 @@ class ShimOnWindows(Base):
         bindir.mkdir()
         gh = bindir / "gh"
         fake = FAKE_GH.as_posix()
-        gh.write_text(f'#!/bin/sh\nexec python "{fake}" "$@"\n', encoding="utf-8", newline="\n")
+        gh.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" "{fake}" "$@"\n', encoding="utf-8", newline="\n")
         gh.chmod(0o755)
         state = self.tmp / "state.json"
         state.write_text(json.dumps({"user": "u", "hang": [{"match": "api user", "pid_file": str(self.pidf)}]}), encoding="utf-8")
