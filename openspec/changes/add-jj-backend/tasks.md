@@ -17,30 +17,30 @@
 | vcs-backends → The backend is chosen per repo | Unset means Git | evals/vcs/test_settings.py | `test_unset_vcs_is_git` | green |
 | vcs-backends → The backend is chosen per repo | Store keeps its own backend | evals/vcs/test_settings.py | `test_store_vcs_not_inherited` | green |
 | vcs-backends → The backend is chosen per repo | Unknown value | evals/vcs/test_settings.py | `test_unknown_vcs_stops` | green |
-| vcs-backends → The jj backend is probed before the branch is read | Colocated jj repo | evals/vcs/test_probe.py | `test_probe_colocated_passes` | red |
-| vcs-backends → The jj backend is probed before the branch is read | jj not installed | evals/vcs/test_probe.py | `test_probe_tool_missing` | red |
-| vcs-backends → The jj backend is probed before the branch is read | jj too old | evals/vcs/test_probe.py | `test_probe_tool_too_old` (version stub on PATH) | red |
-| vcs-backends → The jj backend is probed before the branch is read | Not a jj repo | evals/vcs/test_probe.py | `test_probe_not_managed_runs_no_init` | red |
-| vcs-backends → The jj backend is probed before the branch is read | Secondary jj workspace | evals/vcs/test_probe.py | `test_probe_secondary_workspace_not_colocated` | red |
+| vcs-backends → The jj backend is probed before the branch is read | Colocated jj repo | evals/vcs/test_probe.py | `test_probe_colocated_passes` | green |
+| vcs-backends → The jj backend is probed before the branch is read | jj not installed | evals/vcs/test_probe.py | `test_probe_tool_missing` | green |
+| vcs-backends → The jj backend is probed before the branch is read | jj too old | evals/vcs/test_probe.py | `test_probe_tool_too_old` (version stub on PATH) | green |
+| vcs-backends → The jj backend is probed before the branch is read | Not a jj repo | evals/vcs/test_probe.py | `test_probe_not_managed_runs_no_init` | green |
+| vcs-backends → The jj backend is probed before the branch is read | Secondary jj workspace | evals/vcs/test_probe.py | `test_probe_secondary_workspace_not_colocated` | green |
 | vcs-backends → A jj repo on the Git backend is reported, not blocked | Leftover jj metadata | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_git_state_reports_jj_present`, `eval-branch-git-jj-note` (live gate note and Git-only trace) | red |
-| vcs-backends → A jj repo on the Git backend is reported, not blocked | Git repo on Git | evals/vcs/test_state.py | `test_git_state_no_jj_note_runs_no_jj` | red |
-| vcs-backends → The Git backend keeps today's commands | Git commit by name | evals/vcs/test_git_backend.py | `test_git_commit_commands_exact` | red |
-| vcs-backends → The Git backend keeps today's commands | Git push | evals/vcs/test_git_backend.py | `test_git_push_command_exact_no_deadline` | red |
-| vcs-backends → The Git backend keeps today's commands | Git commit with nothing to commit | evals/vcs/test_git_backend.py | `test_git_commit_nothing_fails_like_git` | red |
-| vcs-backends → The Git backend keeps today's commands | Supplementary: call-site fetch forms | evals/vcs/test_git_backend.py | `test_git_fetch_call_site_forms` (quiet, no-tags, plain; exact argv and real trace) | red |
-| vcs-backends → The Git backend keeps today's commands | Supplementary: call-site pull forms | evals/vcs/test_git_backend.py | `test_git_pull_call_site_forms` (cleanup and explicit roadmap remote/main) | red |
-| vcs-backends → The Git backend keeps today's commands | Supplementary: branch, merge and delete forms | evals/vcs/test_git_backend.py | `test_git_branch_merge_delete_forms` (checkout, merge message file, safe and guarded force delete) | red |
-| vcs-backends → The Git backend keeps today's commands | Supplementary: trace inheritance and operation parity | evals/vcs/test_git_backend.py | Existing call-site cases also compare raw Git with `vcs.sh` through the unedited `grade.git_trace` parser; no duplicate permanent cases | red |
+| vcs-backends → A jj repo on the Git backend is reported, not blocked | Git repo on Git | evals/vcs/test_state.py | `test_git_state_no_jj_note_runs_no_jj` | green |
+| vcs-backends → The Git backend keeps today's commands | Git commit by name | evals/vcs/test_git_backend.py | `test_git_commit_commands_exact` | green |
+| vcs-backends → The Git backend keeps today's commands | Git push | evals/vcs/test_git_backend.py | `test_git_push_command_exact_no_deadline` | green |
+| vcs-backends → The Git backend keeps today's commands | Git commit with nothing to commit | evals/vcs/test_git_backend.py | `test_git_commit_nothing_fails_like_git` | green |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: call-site fetch forms | evals/vcs/test_git_backend.py | `test_git_fetch_call_site_forms` (quiet, no-tags, plain; exact argv and real trace) | green |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: call-site pull forms | evals/vcs/test_git_backend.py | `test_git_pull_call_site_forms` (cleanup and explicit roadmap remote/main) | green |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: branch, merge and delete forms | evals/vcs/test_git_backend.py | `test_git_branch_merge_delete_forms` (checkout, merge message file, safe and guarded force delete) | green |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: trace inheritance and operation parity | evals/vcs/test_git_backend.py | Existing call-site cases also compare raw Git with `vcs.sh` through the unedited `grade.git_trace` parser; no duplicate permanent cases | green |
 | vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Git reads after a jj commit | evals/vcs/test_commit.py | `test_git_reads_see_bookmark_tip` | red |
 | vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Working copy left with other edits | evals/vcs/test_commit.py | `test_unrelated_edit_stays_in_wc` | red |
-| vcs-backends → On jj the current change branch is resolved from bookmarks | One bookmark | evals/vcs/test_state.py | `test_state_one_bookmark_beside_main` | red |
-| vcs-backends → On jj the current change branch is resolved from bookmarks | Two bookmarks at the parent | evals/vcs/test_state.py | `test_state_two_bookmarks_ambiguous` | red |
-| vcs-backends → On jj the current change branch is resolved from bookmarks | Neither main nor a bookmark | evals/vcs/test_state.py | `test_state_off_main_no_branch` | red |
+| vcs-backends → On jj the current change branch is resolved from bookmarks | One bookmark | evals/vcs/test_state.py | `test_state_one_bookmark_beside_main` | green |
+| vcs-backends → On jj the current change branch is resolved from bookmarks | Two bookmarks at the parent | evals/vcs/test_state.py | `test_state_two_bookmarks_ambiguous` | green |
+| vcs-backends → On jj the current change branch is resolved from bookmarks | Neither main nor a bookmark | evals/vcs/test_state.py | `test_state_off_main_no_branch` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Remote main ahead, main tracked | evals/vcs/test_fetch_pull.py | `test_fetch_main_tracked_moves_nothing` | red |
 | vcs-backends → Fetches for reading move no jj bookmark | Local main diverged before a read | evals/vcs/test_fetch_pull.py | `test_fetch_main_diverged_no_conflict` | red |
 | vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | red |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | red |
-| vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | red |
+| vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_state_dirty_lists_paths`, `eval-branch-jj-dirty-no-stash` (live stop and no stash write) | red |
 | vcs-backends → Moving the working copy on jj carries uncommitted edits | Switch with carry-over | evals/vcs/test_switch.py | `test_switch_carries_added_files` | red |
 | vcs-backends → Moving the working copy on jj carries uncommitted edits | Carry conflicts | evals/vcs/test_switch.py | `test_switch_carry_conflict_rolls_back` | red |
@@ -105,20 +105,20 @@
 
 ## 2. vcs.sh: probe, state and the Git backend
 
-- [ ] 2.1 Write failing tests:
+- [x] 2.1 Write failing tests:
   - `evals/vcs/test_probe.py`, the five probe rows. A `jj` stub printing `jj 0.45.1` covers too-old.
   - `evals/vcs/test_state.py`: One bookmark; Two bookmarks; Neither main nor a bookmark; Dirty working copy (`test_state_dirty_lists_paths`); jj present on Git; no jj note on Git.
   - `evals/vcs/test_paths.py`, on captured `\` output.
 
   Confirm each fails because `vcs.sh` is missing.
-- [ ] 2.2 Implement `skills/specwright-pr/scripts/vcs.sh` (bash with an embedded Python 3.8+ body, like `pr-pair.sh`):
+- [x] 2.2 Implement `skills/specwright-pr/scripts/vcs.sh` (bash with an embedded Python 3.8+ body, like `pr-pair.sh`):
   - **Contract:** one JSON document, exits 0/1/2/3, `--repo --role --code`.
   - **`probe`:** settings via `pr-pair.sh vcs`; jj version floor 0.46; `.jj/` and Git work tree at the same toplevel; `jj_present` on Git.
   - **`state [--scope]`:** the jj bookmark rule (one non-main local bookmark at `@-`; conflicted bookmark or multi-parent `@` → `ambiguous_branch`); on-main; clean; dirty paths normalised to `/`; `behind` (cap 50). Git: `branch --show-current` and `status --porcelain` as today.
 
   Verify the 2.1 tests pass and flip their rows green.
-- [ ] 2.3 Write `evals/vcs/test_git_backend.py` with the git shim asserting the exact operation argv and consumer-visible result for every form the skills use today. Cover named-path `git add -- <paths>` then `git commit -F <msgfile> -- <paths>` (including nothing to commit), `checkout -b`, switch, `merge --no-ff <branch> -F <msgfile>`, safe `branch -d`, guarded PR cleanup `branch -D`, and `push -u origin HEAD`. Cover all fetch forms (`-q origin <main>`, `--no-tags origin <main>`, `origin <main>`) and both pull forms (`--ff-only`, `--ff-only origin <main>`), selected by explicit backend options rather than normalization. See the tests fail, then implement the Git branches of `branch-create`, `switch`, `commit`, `merge`, `delete-branch`, `fetch-main`, `pull` and `push`. Network calls use `as.sh` only when origin's fetch URL is on github.com, with no new deadline. Verify the tests and `python evals/run.py --changed main`, then flip the script rows green.
-- [ ] 2.4 In the same real-operation cases from 2.3, run the raw Git baseline and `vcs.sh` with inherited `GIT_TRACE` and parse both using the unedited `grade.git_trace`. Verify the same operation/write argv and order, allowing the backend's required read-only probe/settings calls while preserving branch guards and rejecting every unexpected write. Do not add duplicate permanent cases for an already-covered path, weaken existing graders or claim an offline test proves a live-agent run. Flip the trace-parity row green.
+- [x] 2.3 Write `evals/vcs/test_git_backend.py` with the git shim asserting the exact operation argv and consumer-visible result for every form the skills use today. Cover named-path `git add -- <paths>` then `git commit -F <msgfile> -- <paths>` (including nothing to commit), `checkout -b`, switch, `merge --no-ff <branch> -F <msgfile>`, safe `branch -d`, guarded PR cleanup `branch -D`, and `push -u origin HEAD`. Cover all fetch forms (`-q origin <main>`, `--no-tags origin <main>`, `origin <main>`) and both pull forms (`--ff-only`, `--ff-only origin <main>`), selected by explicit backend options rather than normalization. See the tests fail, then implement the Git branches of `branch-create`, `switch`, `commit`, `merge`, `delete-branch`, `fetch-main`, `pull` and `push`. Network calls use `as.sh` only when origin's fetch URL is on github.com, with no new deadline. Verify the tests and `python evals/run.py --changed main`, then flip the script rows green.
+- [x] 2.4 In the same real-operation cases from 2.3, run the raw Git baseline and `vcs.sh` with inherited `GIT_TRACE` and parse both using the unedited `grade.git_trace`. Verify the same operation/write argv and order, allowing the backend's required read-only probe/settings calls while preserving branch guards and rejecting every unexpected write. Do not add duplicate permanent cases for an already-covered path, weaken existing graders or claim an offline test proves a live-agent run. Flip the trace-parity row green.
 
 ## 3. jj writes: branch, switch, commit, advance
 

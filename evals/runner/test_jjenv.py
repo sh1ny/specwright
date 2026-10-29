@@ -18,7 +18,7 @@ class TestJjMissing(unittest.TestCase):
             env["SPECWRIGHT_REQUIRE_JJ"] = required
         else:
             env.pop("SPECWRIGHT_REQUIRE_JJ", None)
-        return mock.patch.dict(os.environ, env, clear=False)
+        return mock.patch.dict(os.environ, env, clear=True)
 
     def test_jj_missing_skips_with_reason(self):
         with self.without_jj():
