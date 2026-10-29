@@ -14,9 +14,9 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| vcs-backends → The backend is chosen per repo | Unset means Git | evals/vcs/test_settings.py | `test_unset_vcs_is_git` | red |
-| vcs-backends → The backend is chosen per repo | Store keeps its own backend | evals/vcs/test_settings.py | `test_store_vcs_not_inherited` | red |
-| vcs-backends → The backend is chosen per repo | Unknown value | evals/vcs/test_settings.py | `test_unknown_vcs_stops` | red |
+| vcs-backends → The backend is chosen per repo | Unset means Git | evals/vcs/test_settings.py | `test_unset_vcs_is_git` | green |
+| vcs-backends → The backend is chosen per repo | Store keeps its own backend | evals/vcs/test_settings.py | `test_store_vcs_not_inherited` | green |
+| vcs-backends → The backend is chosen per repo | Unknown value | evals/vcs/test_settings.py | `test_unknown_vcs_stops` | green |
 | vcs-backends → The jj backend is probed before the branch is read | Colocated jj repo | evals/vcs/test_probe.py | `test_probe_colocated_passes` | red |
 | vcs-backends → The jj backend is probed before the branch is read | jj not installed | evals/vcs/test_probe.py | `test_probe_tool_missing` | red |
 | vcs-backends → The jj backend is probed before the branch is read | jj too old | evals/vcs/test_probe.py | `test_probe_tool_too_old` (version stub on PATH) | red |
@@ -83,14 +83,14 @@
 | github-identity → jj network commands are fenced like git | Repository option | evals/pr-pair/test_as_jj.py | `test_jj_repository_option_refused` | red |
 | github-identity → jj network commands are fenced like git | Config override | evals/pr-pair/test_as_jj.py | `test_jj_config_option_refused` | red |
 | github-identity → jj network commands are fenced like git | Other jj subcommand | evals/pr-pair/test_as_jj.py | `test_jj_other_subcommand_refused` | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | `test_workflow_installs_pinned_jj_and_requires_it` | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | `test_workflow_checks_jj_sha256_before_use` | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Local run without jj | evals/runner/test_jjenv.py | `test_jj_missing_skips_with_reason` | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Required but missing | evals/runner/test_jjenv.py | `test_jj_missing_required_fails` | red |
+| eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | `test_workflow_installs_pinned_jj_and_requires_it` | green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | `test_workflow_checks_jj_sha256_before_use` | green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Local run without jj | evals/runner/test_jjenv.py | `test_jj_missing_skips_with_reason` | green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Required but missing | evals/runner/test_jjenv.py | `test_jj_missing_required_fails` | green |
 
 ## 1. Decision, settings and eval scaffolding
 
-- [ ] 1.1 Write `docs/adr/0017-version-control-writes-go-through-one-backend-script.md` (MADR-short, `Status: accepted`, today's date) covering design D1-D13's binding decisions:
+- [x] 1.1 Write `docs/adr/0017-version-control-writes-go-through-one-backend-script.md` (MADR-short, `Status: accepted`, today's date) covering design D1-D13's binding decisions:
   - `vcs.sh` as the writer seam, and the per-repo setting with no inference;
   - colocated jj only, with Git reads;
   - bookmark at `@-`, and carried moves;
@@ -99,9 +99,9 @@
   - jj fenced through `as.sh` with no new deadline, outside ADR 0014's scope.
 
   Update `openspec/architecture.md`: add the ADR index row, a `vcs.sh` component row, `vcs`/`planning_store.vcs` under the formats parsed by later runs, and the `as.sh` jj fence in the GitHub identity paragraph. Verify with `grep -n 0017 openspec/architecture.md`.
-- [ ] 1.2 Add `evals/vcs/` with `jjenv.py` (find jj, `SPECWRIGHT_REQUIRE_JJ`, scratch colocated repos under a short temp root, tracked and untracked main, a bare remote) and `gitlog.py` (a `git` shim that logs Specwright's calls and classifies writes, with jj routed to the real git). Write `evals/runner/test_jjenv.py` first (rows: Local run without jj, Required but missing) and see it fail; then implement and see it pass. Flip both rows green.
-- [ ] 1.3 Add `JJ_VERSION` (0.46.0) and a pinned SHA-256 for the Linux x86_64 archive, a workflow step in `.github/workflows/evals.yml` that downloads, checks and puts jj on PATH and sets `SPECWRIGHT_REQUIRE_JJ=1`, and `evals/vcs/**`, `skills/specwright-pr/scripts/vcs.sh` → `vcs` rules in `evals/suites.json`. Write `evals/runner/test_ci_workflow.py` assertions first (rows: CI run, Checksum mismatch: checksum verified before the binary is used; a mismatch exits non-zero). Verify with `python evals/run.py runner` (map test included) and flip both rows green.
-- [ ] 1.4 Add `pr-pair.sh vcs --code <dir>`, which prints `{"ok":true,"code":…,"store":…}` or `unknown_vcs` (exit 1). Add `vcs` and `planning_store.vcs` to `templates/openspec/specwright.yaml` (commented, default git, store not inherited). Tests in `evals/vcs/test_settings.py` (rows: Unset means Git, Store keeps its own backend, Unknown value) go red, then green.
+- [x] 1.2 Add `evals/vcs/` with `jjenv.py` (find jj, `SPECWRIGHT_REQUIRE_JJ`, scratch colocated repos under a short temp root, tracked and untracked main, a bare remote) and `gitlog.py` (a `git` shim that logs Specwright's calls and classifies writes, with jj routed to the real git). Write `evals/runner/test_jjenv.py` first (rows: Local run without jj, Required but missing) and see it fail; then implement and see it pass. Flip both rows green.
+- [x] 1.3 Add `JJ_VERSION` (0.46.0) and a pinned SHA-256 for the Linux x86_64 archive, a workflow step in `.github/workflows/evals.yml` that downloads, checks and puts jj on PATH and sets `SPECWRIGHT_REQUIRE_JJ=1`, and `evals/vcs/**`, `skills/specwright-pr/scripts/vcs.sh` → `vcs` rules in `evals/suites.json`. Write `evals/runner/test_ci_workflow.py` assertions first (rows: CI run, Checksum mismatch: checksum verified before the binary is used; a mismatch exits non-zero). Verify with `python evals/run.py runner` (map test included) and flip both rows green.
+- [x] 1.4 Add `pr-pair.sh vcs --code <dir>`, which prints `{"ok":true,"code":…,"store":…}` or `unknown_vcs` (exit 1). Add `vcs` and `planning_store.vcs` to `templates/openspec/specwright.yaml` (commented, default git, store not inherited). Tests in `evals/vcs/test_settings.py` (rows: Unset means Git, Store keeps its own backend, Unknown value) go red, then green.
 
 ## 2. vcs.sh: probe, state and the Git backend
 

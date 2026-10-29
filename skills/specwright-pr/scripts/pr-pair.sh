@@ -8,6 +8,8 @@
 #   context --code <dir> [--store <dir>]
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
 #                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
+#   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj","store":"git|jj"};
+#                                     absent settings default independently to git; unknown values stop with unknown_vcs
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
 #                                     is false, with a "note" when the value or the section is not true/false/a map). Reads no other
 #                                     setting, so a bad pr.merge_method cannot change it; exit 0 for any readable settings file
@@ -746,6 +748,29 @@ def cmd_tier(argv):
     elif v is not False and v is not None:
         out["note"] = f"cheap_tier.enabled: {setting_text(section, 'enabled')} is not true or false; treated as false"
     return out
+def cmd_vcs(argv):
+    a, _ = parse_args(argv, {"--code": "code"})
+    need(a, "code")
+    raw = load_settings(a["code"])
+    planning_store = raw.get("planning_store")
+    if not isinstance(planning_store, dict):
+        planning_store = {}
+
+    def selected(section, name):
+        value = section.get("vcs")
+        if value is None:
+            return "git"
+        if value not in ("git", "jj"):
+            raise Stop("unknown_vcs", f"unknown {name} VCS {value!r}; accepted values: git, jj")
+        return value
+
+    return {
+        "ok": True,
+        "code": selected(raw, "code"),
+        "store": selected(planning_store, "planning_store"),
+    }
+
+
 
 
 def cmd_discover(argv):
@@ -2128,7 +2153,7 @@ def cmd_item_issues(argv):
     return {"ok": True, "found": found, "missing": [i for i in items if i not in found]}
 
 
-COMMANDS = {"identity": cmd_identity, "context": cmd_context, "tier": cmd_tier, "discover": cmd_discover, "expected": cmd_expected,
+COMMANDS = {"identity": cmd_identity, "context": cmd_context, "tier": cmd_tier, "vcs": cmd_vcs, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
             "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,

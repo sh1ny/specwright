@@ -19,7 +19,8 @@
     {"paths": ["openspec/**"], "suites": ["git-workflow/test_specs_strict.py"]},
     {"paths": ["evals/git-workflow/fixtures.py"], "suites": ["pr-pair"]},
     {"paths": ["evals/git-workflow/grade.py"], "suites": ["pr-pair/test_fake_gh.py"]},
-    {"paths": ["evals/suites.json", "evals/timings.md"], "suites": ["runner"]}
+    {"paths": ["evals/suites.json", "evals/timings.md", "evals/runner/**", "JJ_VERSION"], "suites": ["runner"]},
+    {"paths": ["evals/vcs/**", "skills/specwright-pr/scripts/vcs.sh"], "suites": ["vcs"]}
   ],
   "no_eval": [
     ".gitattributes",

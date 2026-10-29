@@ -76,6 +76,7 @@ This change is M5 (Commits and VCS backends), change 6, version 0.11.0. It serve
 Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `specwright.yaml`, and `planning_store.vcs` for a store. Every change write then goes through jj; Git stays the default.
 
 ### Added
-- `vcs: git | jj` and `planning_store.vcs` settings. On jj, branch, commit, local merge, push and cleanup work through bookmarks, and other edits in the working copy are never committed (#19).
+- Independent `vcs: git | jj` and `planning_store.vcs` settings, each defaulting to Git. On jj, branch, commit, local merge, push and cleanup work through bookmarks, and other edits in the working copy are never committed (#19).
 - With `vcs: jj`, a probe stops before any write when jj is missing or older than 0.46, or the repo is not a colocated jj repo (#19).
 - `jj git push` and `jj git fetch` run under the fenced GitHub login (#19).
+- Real-jj eval fixtures cover tracked and untracked main, with logged Git writes. CI installs jj 0.46.0 only after verifying its pinned SHA-256; local missing-jj runs skip explicitly, while CI requires the tool (#19).

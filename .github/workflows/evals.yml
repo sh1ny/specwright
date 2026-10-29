@@ -56,6 +56,24 @@ jobs:
           node-version: '22'
       - name: Install the OpenSpec CLI at the pinned version
         run: npm i -g @fission-ai/openspec@$(cat OPENSPEC_VERSION)
+      - name: Install pinned jj
+        run: |
+          version="${JJ_VERSION:-$(cat JJ_VERSION)}"
+          archive="jj-v${version}-x86_64-unknown-linux-musl.tar.gz"
+          url="https://github.com/jj-vcs/jj/releases/download/v${version}/${archive}"
+          expected="${JJ_SHA256:-fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08}"
+          mkdir -p "$RUNNER_TEMP/jj-download" "$RUNNER_TEMP/jj-bin"
+          curl --fail --location "$url" --output "$RUNNER_TEMP/jj-download/$archive"
+          echo "$expected  $RUNNER_TEMP/jj-download/$archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/jj-extract"
+          tar -xzf "$RUNNER_TEMP/jj-download/$archive" -C "$RUNNER_TEMP/jj-extract"
+          binary="$(find "$RUNNER_TEMP/jj-extract" -type f -name jj -print -quit)"
+          test -n "$binary"
+          install -m 0755 "$binary" "$RUNNER_TEMP/jj-bin/jj"
+          echo "$RUNNER_TEMP/jj-bin" >> "$GITHUB_PATH"
+          echo "SPECWRIGHT_REQUIRE_JJ=1" >> "$GITHUB_ENV"
+          export SPECWRIGHT_REQUIRE_JJ=1
+          "$RUNNER_TEMP/jj-bin/jj" --version
       - name: Git identity and default branch
         run: |
           git config --global user.name "Specwright CI"
