@@ -394,7 +394,9 @@ def check_apply_groups(name, repo, branch, status, rep):
         R.append(("The group 1 commit carries trailers 1.2 and 1.3 only, and no task is covered twice",
                   len(g1) == 1 and g1[0].tasks == ["1.2", "1.3"] and len(covered) == len(set(covered)), f"commits={shown} covered={covered}"))
         R.append(("The group 2 commit carries trailers 2.1 and 2.2", len(g2) == 1 and g2[0].tasks == GROUPS_TASKS[2], f"commits={shown}"))
-        hit = re.search(r"group 1\b[^.\n]*\bmix(?:es|ed|ing)?\b[^.\n]*\bper-task\b", rep)
+        # one line names group 1, the mix and the per-task commit, in any order
+        hit = next((re.match(r".*", l) for l in rep.splitlines() if re.search(r"group 1\b", l)
+                    and re.search(r"\bmix(?:es|ed|ing)?\b", l) and re.search(r"\bper-task\b", l)), None)
         R.append(("The report says group 1 mixes per-task and group commits", bool(hit) and "group commit" in rep, f"match={hit.group(0) if hit else None}"))
         R.extend(group_tail(repo, branch, status, ALL_GROUPS, False))
     return R
@@ -439,7 +441,7 @@ def check_store_groups(name, repo, code, store, rep):
                   same(1) and s[0].ct >= c[0].ct and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [want],
                   f"code={[x.subject for x in c]} store={[x.subject for x in s]} ticks={st_ticks(1)}"))
         R.append(("No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean",
-                  sorted(ticked_tasks(store)) == want and clean[0], f"ticked={ticked_tasks(store)} {clean[1]}"))
+                  set(want) <= set(ticked_tasks(store)) and clean[0], f"ticked={ticked_tasks(store)} {clean[1]}"))
         R.append(suite)
         R.append(no_amend)
     elif name == "eval-store-group-store-half":

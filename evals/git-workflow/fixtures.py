@@ -333,7 +333,8 @@ GROUP_TASKS = {  # kind -> [(group number, heading, [(task id, text)])]
             (10, "Documentation", [("10.1", "Document greet and farewell in README.md; verify README names both functions")])],
     "resume": [(1, "Greeting functions", [("1.1", "Write test_greet_named in test_greet.py and confirm it fails (red step)"),
                                           ("1.2", f"Implement `greet(name)` in greet.py so test_greet_named passes; {_V}"),
-                                          ("1.3", _T12)])],
+                                          ("1.3", f"Make `greet('')` raise ValueError with test_greet_empty, and add `farewell(name)` "
+                                                  f"with tests test_farewell_named and test_farewell_empty; {_V}")])],
     "noop": [(1, "Greeting functions", [("1.1", _T11), ("1.2", _T12)]),
              (2, "Documentation", [("2.1", "Document greet and farewell in README.md; verify README names both functions")]),
              (3, "Verification", [("3.1", f"Verify the full suite: run `python -m unittest -q` and confirm it passes {_ONLY}"),
@@ -423,7 +424,7 @@ def build_group(name, repo):
         write(repo, "test_greet.py", "import unittest\n\nfrom greet import greet\n\n\nclass GreetTests(unittest.TestCase):\n    def test_greet_named(self):\n        self.assertEqual(greet('Ada'), 'Hello, Ada!')\n\n\nif __name__ == '__main__':\n    unittest.main()\n")
         write(repo, "greet.py", '"""Greeting helpers."""\n\n\ndef greet(name):\n    return f"Hello, {name}!"\n')
         with (repo / CHANGE / "design.md").open("a", encoding="utf-8", newline="\n") as f:
-            f.write("\n### D2: Trim names\n\n- **Choice:** strip whitespace before checking for an empty name.\n- **Rejected:** none.\n- **Reversal cost:** low\n")
+            f.write("\n## Notes\n\n- Both functions live in `greet.py`, so the tasks of group 1 share that file. This note changes no decision.\n")
     elif name == "eval-apply-groups-switch":
         plan_commit(repo)
         task_code(repo, "1.1")

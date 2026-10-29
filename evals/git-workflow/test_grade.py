@@ -1675,6 +1675,19 @@ class GroupApplySwitch(GroupGraderCase):
         for t in (S_KEEP, S_G1, S_G2, S_MIX):
             self.assertIn(t, res)
 
+    def test_group_switch_mixed_wording_any_order(self):
+        # iteration 1's with-skill run worded it this way: the group, "mixed" and "per-task" on one line, in another order
+        repo = self.fixture(self.NAME, "- **Mixed group:** Group 1 has one per-task commit (1.1) and one group commit (1.2 and 1.3).\n")
+        fixtures.commit_group(repo, repo, "groups", 1, tasks=["1.2", "1.3"])
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_passes()
+
+    def test_group_switch_unreported_mix_fails(self):
+        repo = self.fixture(self.NAME, "Group 1 is committed. Group 2 is committed as a group commit.\n")
+        fixtures.commit_group(repo, repo, "groups", 1, tasks=["1.2", "1.3"])
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_fails(S_MIX)
+
     def test_group_switch_rewritten_task_commit_fails(self):
         repo = self.fixture(self.NAME, self.REPORT)
         fixtures.git(repo, "reset", "-q", "--soft", "HEAD~1")  # drops the task 1.1 commit: regrouped into one group 1 commit
@@ -1719,6 +1732,14 @@ class StoreGroupRecovery(GroupGraderCase):
         res = self.results()
         for t in (CH_PAIR, CH_KEPT):
             self.assertIn(t, res)
+
+    def test_store_group_code_half_then_group_two_pass(self):
+        # iteration 1's with-skill run resumed group 1, then applied group 2 as the prompt asks: no tick lost, more ticked
+        self.fixture("eval-store-group-code-half", "Verified 1.1 to 1.3 again, committed group 1 in the code repo, then in the store.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.commit_group(code, store, "groups", 1)
+        fixtures.commit_group(code, store, "groups", 2)
+        self.assert_passes()
 
     def test_store_group_code_half_lost_tick_fails(self):
         self.fixture("eval-store-group-code-half", "Committed group 1.\n")
