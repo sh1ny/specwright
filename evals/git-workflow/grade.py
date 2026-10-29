@@ -153,7 +153,7 @@ def completion_by_repo(rep):
                 ctx = "store"
             if ctx is None or (c and s_):
                 continue  # names both repos: cannot be attributed
-            if "task commit" in seg:
+            if re.search(r"task(?:-work)? commit", seg):
                 found[ctx].add("commits")
             if re.search(r"(?<!not )(?<!un)clean", seg):
                 found[ctx].add("clean")
@@ -267,6 +267,207 @@ def check_implementer_light(repo, branch, status, rep):
     R.append(("The report gives red evidence: a failing run before the implementation", bool(red), f"red lines={red}"))
     R.append(("The report gives green evidence: a passing run of the group's tests",
               bool(green) and (not red or min(red) < max(green)), f"green lines={green} red lines={red}"))
+    return R
+
+
+# ---- group mode (commit_granularity: group; change commit-per-task-group) ----
+# Evidence is read here from `git log` subjects and `git interpret-trailers --parse`, never from the script under
+# evaluation, so a grade does not depend on it.
+GROUP_RE = re.compile(r"^feat\(add-greeting\): group (\d+) ")
+TASK_RE = re.compile(r"^feat\(add-greeting\): task (\d+\.\d+) ")
+TASKS_MD = f"{CHANGE}/tasks.md"
+GROUPS_TASKS = {1: ["1.1", "1.2", "1.3"], 2: ["2.1", "2.2"]}  # fixtures.GROUP_TASKS "groups"
+NOOP_TASKS = {1: ["1.1", "1.2"], 2: ["2.1"], 3: ["3.1", "3.2"]}  # fixtures.GROUP_TASKS "noop"
+ALL_GROUPS = sum(GROUPS_TASKS.values(), [])
+CODE_ASK = r"no-op|changed (any )?code|change (any )?code|no code|code (change|commit)"
+
+
+class Commit:
+    def __init__(self, repo, sha):
+        self.sha = sha
+        self.msg = (git(repo, "log", "-1", "--format=%B", sha) or "").strip()
+        self.subject = self.msg.splitlines()[0] if self.msg else ""
+        self.ct = int(git(repo, "log", "-1", "--format=%ct", sha) or 0)
+        r = subprocess.run(["git", "interpret-trailers", "--parse"], input=self.msg.encode("utf-8"), capture_output=True)
+        pairs = [l.partition(":") for l in r.stdout.decode("utf-8", "replace").splitlines() if ":" in l]
+        self.trailers = [(k.strip().lower(), v.strip()) for k, _, v in pairs]
+        self.tasks = [v for k, v in self.trailers if k == "specwright-task"]
+
+    @property
+    def group(self):
+        m = GROUP_RE.match(self.subject)
+        return int(m.group(1)) if m else None
+
+    @property
+    def covers(self):
+        """The tasks this commit is evidence for: its Specwright-Task trailers, or the task its subject names."""
+        m = TASK_RE.match(self.subject)
+        return self.tasks or ([m.group(1)] if m else [])
+
+
+def commits_in(repo, rng="main..HEAD"):
+    """The commits of rng, oldest first."""
+    return [Commit(repo, h) for h in (git(repo, "log", "--reverse", "--format=%H", rng) or "").splitlines()]
+
+
+def group_commits(commits, n):
+    return [c for c in commits if c.group == n]
+
+
+def commit_ticks(repo, c):
+    return diff_ticks(repo, "show", "--format=", c.sha)
+
+
+def group_commit_ok(repo, c, tasks):
+    """c carries the trailers `tasks` in order and its diff ticks exactly those tasks."""
+    return c.tasks == tasks and commit_ticks(repo, c) == tasks
+
+
+def scratch_never_committed(repo):
+    ever = git(repo, "log", "--all", "--format=%h", "--", "scratch-notes.txt") or ""
+    return not ever, f"commits touching it={ever!r}"
+
+
+def group_tail(repo, branch, status, ticked, scratch):
+    """The checks every repo-local group run shares: branch, ticks, suite, clean tree, no amend."""
+    tr = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=repo, capture_output=True, text=True)
+    return [("Still on feat/add-greeting and main is unchanged",
+             branch == FEAT and main_unchanged(repo), f"branch={branch} main={subjects(repo, 'main')}"),
+            ("All tasks in tasks.md are ticked", sorted(ticked_tasks(repo)) == sorted(ticked), f"ticked={ticked_tasks(repo)}"),
+            ("The test suite passes", tr.returncode == 0, (tr.stderr or tr.stdout).strip().splitlines()[-1:] or ["no output"]),
+            ("Working tree is clean" + (" apart from scratch-notes.txt" if scratch else ""),
+             status == (["?? scratch-notes.txt"] if scratch else []), f"status={status}"),
+            ("No commit was amended", not amends(repo), f"amend entries={amends(repo)}")]
+
+
+def check_apply_groups(name, repo, branch, status, rep):
+    """eval-apply-groups, -ten, -resume, -switch: repo-local group mode."""
+    R = []
+    subs = commits_in(repo)
+    shown = [(c.subject, c.tasks) for c in subs]
+    if name == "eval-apply-groups":
+        work = [c for c in subs if c.subject != PLAN_SUBJECT]
+        R.append(("Exactly two task-work commits: group 1 with trailers 1.1, 1.2 and 1.3 in order, then group 2 with trailers 2.1 and 2.2",
+                  [c.group for c in work] == [1, 2] and [c.tasks for c in work] == [GROUPS_TASKS[1], GROUPS_TASKS[2]], f"commits={shown}"))
+        g1 = group_commits(subs, 1)
+        touching = [c.sha for c in subs if "greet.py" in files_of(repo, c.sha)]
+        part = [c for c in subs if set(c.tasks) & set(GROUPS_TASKS[1])]
+        R.append(("greet.py appears in the group 1 commit only, and no commit holds part of group 1's work",
+                  len(g1) == 1 and touching == [g1[0].sha] and part == g1, f"greet.py commits={touching} group 1={[c.sha for c in g1]} part={[c.sha for c in part]}"))
+        ok, ev = scratch_never_committed(repo)
+        R.append(("scratch-notes.txt was never committed and is still untracked", ok and "?? scratch-notes.txt" in status, f"{ev} status={status}"))
+        covered = sorted(t for c in work for t in c.covers)
+        stray = [(c.subject, t) for c in work if c.group for t in c.tasks if t.split(".")[0] != str(c.group)]
+        R.append(("Every task is covered by exactly one commit and no trailer names a task outside its commit's group",
+                  covered == sorted(ALL_GROUPS) and not stray, f"covered={covered} stray={stray}"))
+        R.append(("The report gives 5 tasks, 2 task-work commits, tree clean",
+                  bool(re.search(r"\b5 tasks\b", rep) and re.search(r"\b2 task-work commits\b", rep) and "tree clean" in rep), f"report excerpt={rep[-200:]!r}"))
+        R.extend(group_tail(repo, branch, status, ALL_GROUPS, True))
+    elif name == "eval-apply-groups-ten":
+        g1, g10 = group_commits(subs, 1), group_commits(subs, 10)
+        R.append(("The group 1 commit carries trailers 1.1 and 1.2 only, and its tasks.md diff ticks only 1.1 and 1.2",
+                  len(g1) == 1 and group_commit_ok(repo, g1[0], ["1.1", "1.2"]), f"commits={shown} ticks={[commit_ticks(repo, c) for c in g1]}"))
+        R.append(("The group 10 commit carries trailer 10.1 only and ticks only 10.1",
+                  len(g10) == 1 and group_commit_ok(repo, g10[0], ["10.1"]), f"commits={shown} ticks={[commit_ticks(repo, c) for c in g10]}"))
+        R.extend(group_tail(repo, branch, status, ["1.1", "1.2", "10.1"], False))
+    elif name == "eval-apply-groups-resume":
+        grouped = [c for c in subs if c.tasks]
+        want = GROUPS_TASKS[1]
+        R.append(("Exactly one group 1 commit carries trailers 1.1, 1.2 and 1.3, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
+                  len(grouped) == 1 and grouped[0].group == 1 and group_commit_ok(repo, grouped[0], want), f"commits={shown}"))
+        body = grouped[0].msg.lower() if grouped else ""
+        R.append(("The group 1 commit body says task 1.1's original red output is unavailable",
+                  bool(re.search(r"red output[^.\n]*(unavailable|not available)", body)), f"body={body[-240:]!r}"))
+        others = [c for c in subs if c not in grouped]
+        leaked = [(c.subject, commit_ticks(repo, c)) for c in others if commit_ticks(repo, c)]
+        designs = [c.subject for c in others if f"{CHANGE}/design.md" in files_of(repo, c.sha)]
+        R.append(("The planning commit holds design.md and no tick: the ticks reach Git only in the group 1 commit",
+                  not leaked and bool(designs) and len(grouped) == 1, f"ticks outside the group commit={leaked} design.md commits={designs}"))
+        R.extend(group_tail(repo, branch, status, want, False))
+    elif name == "eval-apply-groups-switch":
+        sha = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))["task_1_1"]
+        kept = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", sha, "HEAD"], capture_output=True).returncode == 0
+        R.append(("The task 1.1 commit keeps its SHA on the branch", kept, f"sha={sha} on the branch={kept}"))
+        work = [c for c in subs if c.subject != PLAN_SUBJECT]
+        g1, g2 = group_commits(subs, 1), group_commits(subs, 2)
+        covered = [t for c in work for t in c.covers]
+        R.append(("The group 1 commit carries trailers 1.2 and 1.3 only, and no task is covered twice",
+                  len(g1) == 1 and g1[0].tasks == ["1.2", "1.3"] and len(covered) == len(set(covered)), f"commits={shown} covered={covered}"))
+        R.append(("The group 2 commit carries trailers 2.1 and 2.2", len(g2) == 1 and g2[0].tasks == GROUPS_TASKS[2], f"commits={shown}"))
+        # one line names group 1, the mix and the per-task commit, in any order
+        hit = next((re.match(r".*", l) for l in rep.splitlines() if re.search(r"group 1\b", l)
+                    and re.search(r"\bmix(?:es|ed|ing)?\b", l) and re.search(r"\bper-task\b", l)), None)
+        R.append(("The report says group 1 mixes per-task and group commits", bool(hit) and "group commit" in rep, f"match={hit.group(0) if hit else None}"))
+        R.extend(group_tail(repo, branch, status, ALL_GROUPS, False))
+    return R
+
+
+def check_store_groups(name, repo, code, store, rep):
+    """eval-store-apply-groups and the eval-store-group-* recovery cases: a group is a code commit and a store commit."""
+    R = []
+    csubs, ssubs = commits_in(code), commits_in(store)
+    pair = lambda n: (group_commits(csubs, n), group_commits(ssubs, n))
+    same = lambda n: len(pair(n)[0]) == len(pair(n)[1]) == 1 and pair(n)[0][0].msg == pair(n)[1][0].msg
+    st_ticks = lambda n: [commit_ticks(store, c) for c in pair(n)[1]]
+    am = amends(code) + amends(store)
+    no_amend = ("No commit was amended in either repo", not am, f"amend entries={am}")
+    tr = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=code, capture_output=True, text=True)
+    suite = ("The test suite passes in the code repo", tr.returncode == 0, (tr.stderr or tr.stdout).strip().splitlines()[-1:] or ["no output"])
+    clean = (not status_of(code) and not status_of(store), f"code={status_of(code)} store={status_of(store)}")
+    if name == "eval-store-apply-groups":
+        R.append(("Each group has one code commit and one store commit with the identical message: subject and trailers",
+                  all(same(n) and pair(n)[0][0].tasks == GROUPS_TASKS[n] for n in GROUPS_TASKS),
+                  f"code={[(c.subject, c.tasks) for c in csubs]} store={[(c.subject, c.tasks) for c in ssubs]}"))
+        R.append(("Each store group commit touches only tasks.md and its diff ticks exactly its group's tasks",
+                  all(len(pair(n)[1]) == 1 and files_of(store, pair(n)[1][0].sha) == [TASKS_MD] and st_ticks(n) == [GROUPS_TASKS[n]] for n in GROUPS_TASKS),
+                  f"ticks={[st_ticks(n) for n in GROUPS_TASKS]}"))
+        by = completion_by_repo(rep)
+        R.append(("The report's completion check gives the task-work commits and a clean tree separately for the code repo and the store",
+                  all(by[r] == {"commits", "clean"} for r in by), f"by repo={by}"))
+        bad = [f for f in history_paths(code) if "openspec/changes" in f]
+        R.append(("The code repo has no planning commit and no openspec/changes path in its history",
+                  PLAN_SUBJECT not in subjects(code, "--all") and not bad, f"planning paths={bad[:5]}"))
+        R.append(("All tasks in the store's tasks.md are ticked", sorted(ticked_tasks(store)) == sorted(ALL_GROUPS), f"ticked={ticked_tasks(store)}"))
+        R.append(suite)
+        R.append(("Both working trees are clean, the code repo apart from scratch-notes.txt",
+                  status_of(code) == ["?? scratch-notes.txt"] and not status_of(store), f"code={status_of(code)} store={status_of(store)}"))
+        ok, ev = scratch_never_committed(code)
+        R.append(("scratch-notes.txt was never committed", ok, ev))
+        R.append(no_amend)
+    elif name == "eval-store-group-code-half":
+        c, s = pair(1)
+        want = GROUPS_TASKS[1]
+        R.append(("The code repo gets one group 1 commit, then the store one with the same message and the trailers 1.1, 1.2 and 1.3, and the store's tasks.md diff ticks exactly those tasks",
+                  same(1) and c[0].tasks == s[0].tasks == want and s[0].ct >= c[0].ct and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [want],
+                  f"code={[x.subject for x in c]} store={[x.subject for x in s]} ticks={st_ticks(1)}"))
+        R.append(("No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean",
+                  set(want) <= set(ticked_tasks(store)) and clean[0], f"ticked={ticked_tasks(store)} {clean[1]}"))
+        R.append(suite)
+        R.append(no_amend)
+    elif name == "eval-store-group-store-half":
+        c, s = pair(1)
+        R.append(("The store gets one commit with the code commit's subject and trailers, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
+                  len(s) == 1 and bool(c) and s[0].msg == c[0].msg and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [GROUPS_TASKS[1]],
+                  f"code={[x.subject for x in c]} store={[x.subject for x in s]} ticks={st_ticks(1)}"))
+        R.append(("The code repo has exactly one group 1 commit", len(c) == 1, f"code group 1 commits={[x.sha for x in c]}"))
+        R.append(("Both working trees are clean", *clean))
+        R.append(no_amend)
+    elif name == "eval-store-group-noop":
+        g3c, g3s = pair(3)
+        R.append(("The code repo has no group 3 commit and its tree is clean",
+                  not g3c and not status_of(code), f"group 3 commits={[x.subject for x in g3c]} status={status_of(code)}"))
+        R.append(("The report names group 3 and asks whether it changed code", "group 3" in rep and asks_about(rep, CODE_ASK), f"report excerpt={rep[-240:]!r}"))
+        if g3s:
+            keys = [k for k, _ in g3s[0].trailers]
+            none_first = "code-changes" in keys and "specwright-task" in keys and ("code-changes", "none") in g3s[0].trailers \
+                and keys.index("code-changes") < keys.index("specwright-task")
+            ok = len(g3s) == 1 and none_first and g3s[0].tasks == NOOP_TASKS[3] and files_of(store, g3s[0].sha) == [TASKS_MD] and st_ticks(3) == [NOOP_TASKS[3]]
+            ev = f"group 3 store commits={[(x.subject, x.trailers) for x in g3s]} ticks={st_ticks(3)}"
+        else:
+            ok = status_of(store) == [f" M {TASKS_MD}"] and diff_ticks(store, "diff") == NOOP_TASKS[3]
+            ev = f"no group 3 commit; store={status_of(store)} diff ticks={diff_ticks(store, 'diff')}"
+        R.append(("A group 3 commit in the store has Code-Changes: none before the trailers 3.1 and 3.2 and ticks exactly 3.1 and 3.2; without one, both ticks are still uncommitted", ok, ev))
+        R.append(no_amend)
     return R
 
 
@@ -412,6 +613,9 @@ def check(name, repo, run):
     elif name == "eval-implementer-light-packet":
         R.extend(check_implementer_light(repo, branch, status, rep))
 
+    elif name in ("eval-apply-groups", "eval-apply-groups-ten", "eval-apply-groups-resume", "eval-apply-groups-switch"):
+        R.extend(check_apply_groups(name, repo, branch, status, rep))
+
     elif name == "eval-apply-on-main":
         R.append(("No commit was added to main", main_unchanged(repo), f"main log={subjects(repo, 'main')}"))
         hit = re.search(r"on (the )?main|feature branch|create (a |the )?branch|specwright-branch", rep)
@@ -420,6 +624,9 @@ def check(name, repo, run):
     if name in ("eval-apply-three-tasks", "eval-finish-local"):
         R.append(("No commit was amended", not amends(repo), f"amend entries={amends(repo)}"))
     if name == "eval-apply-three-tasks":
+        marked = [c.subject for c in commits_in(repo, "--all") if c.tasks]
+        R.append(("No commit carries a Specwright-Task trailer", not marked, f"commits with the trailer={marked}"))
+
         def expected_apply(subs):
             return len(subs) == 5 and INITIAL in subs and PLAN_SUBJECT in subs and all(
                 len([s for s in subs if s.startswith(f"feat(add-greeting): task {t}")]) == 1 for t in TASKS)
@@ -1342,6 +1549,8 @@ def check_store(name, repo, run):
         ask = re.search(r"git init|initiali[sz]e", rep) and re.search(r"abort", rep)
         R.append(("The report asks whether to initialise git there or abort", bool(ask), f"report excerpt={rep[-200:]!r}"))
 
+    elif name == "eval-store-apply-groups" or name.startswith("eval-store-group-"):
+        R.extend(check_store_groups(name, repo, code, store, rep))
     elif name.startswith("eval-install-"):
         R.extend(check_install(name, repo, code, store, rep))
     elif name.startswith("eval-references-"):

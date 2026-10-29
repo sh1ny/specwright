@@ -2069,5 +2069,171 @@ class TestCheapTier(unittest.TestCase):
         self.assertRegex(d, r"(?i)say once that the setting could not be read", "the unreadable setting is not reported once")
 
 
+def flat(text):
+    return re.sub(r"\s+", " ", text)
+
+
+def commit_sec(heading):
+    s = section(read(COMMIT), heading)
+    assert s, f"specwright-commit SKILL.md has no section {heading}"
+    return flat(s)
+
+
+class GroupCommits(unittest.TestCase):
+    """commit-per-task-group: the commit skill's group mode, evidence and recovery rules."""
+
+    def test_commit_reads_granularity_task_default(self):
+        s1 = commit_sec(r"1\. Before the first task")
+        self.assertRegex(s1, r"(?i)`commit_granularity`.{0,120}`openspec/specwright\.yaml`", "step 1 does not read commit_granularity from specwright.yaml")
+        self.assertRegex(s1, r"(?i)\bonce\b.{0,60}apply run|apply run.{0,60}\bonce\b", "the setting is not read once per apply run")
+        self.assertRegex(s1, r"(?i)(no setting|unset|absent|omitted).{0,80}`task`|`task`.{0,80}(no setting|unset|default)",
+                         "an unset commit_granularity does not mean `task`")
+        self.assertRegex(flat(read(COMMIT)), r"(?i)task mode.{0,200}no `?Specwright-Task`? trailers?|no `?Specwright-Task`? trailers?.{0,80}task mode",
+                         "task mode is not said to write no trailers")
+        s2 = commit_sec(r"2\. After each task")
+        self.assertRegex(s2, r"Subject: `<type>\(<change-name>\): task X\.Y <task text>` with the full task text", "task mode's subject text changed")
+
+    def test_commit_stops_on_unknown_granularity(self):
+        s1 = commit_sec(r"1\. Before the first task")
+        self.assertRegex(s1, r"(?i)other than `task` or `group`.{0,160}stop.{0,80}before any commit|any other value.{0,160}stop.{0,80}before any commit",
+                         "an unknown value does not stop before any commit")
+        self.assertRegex(s1, r"(?i)(name|report)\w* the value.{0,60}`task`.{0,20}`group`|the value and `task` and `group`|value.{0,80}both allowed",
+                         "the stop does not name the value and the two allowed ones")
+
+    def test_commit_group_waits_for_every_task(self):
+        s2 = commit_sec(r"2\. After each task")
+        self.assertRegex(s2, r"(?i)group mode.{0,400}uncommitted until every task of the group is ticked",
+                         "group mode does not leave the group uncommitted until every task is ticked")
+        self.assertRegex(s2, r"(?i)freshly verified|fresh verification|verified (again|yourself)", "the group is not committed after fresh verification")
+        self.assertRegex(s2, r"(?i)once.{0,120}by name", "the group is not committed once, files by name")
+        self.assertRegex(s2, r"(?i)no commit holds.{0,60}(part|tick)|never commit part of a group|nothing of an incomplete group",
+                         "an interrupted group may leave a partial commit")
+        self.assertRegex(s2, r"`<type>\(<change-name>\): group N <group heading text>`", "no group subject")
+        self.assertRegex(s2, r"(?i)`## N\. <text>`.{0,200}(no|missing).{0,80}stop|(no|missing) .{0,40}heading.{0,120}no commit",
+                         "a group with no numbered heading does not stop")
+        self.assertRegex(s2, r"(?i)exactly N before the dot|integer major|major number|before the dot", "membership by the ID's major number is not stated")
+
+    def test_commit_group_trailers_in_final_block_before_coauthor(self):
+        s2 = commit_sec(r"2\. After each task")
+        self.assertRegex(s2, r"One `Specwright-Task: X\.Y` trailer per (covered )?task", "no one-trailer-per-task rule")
+        self.assertRegex(s2, r"(?i)task order", "the trailers are not in task order")
+        self.assertRegex(s2, r"(?i)final trailer block.{0,160}`?Co-authored-by`?|`?Co-authored-by`?.{0,160}final trailer block",
+                         "the trailers are not placed in the final trailer block with Co-authored-by")
+        self.assertRegex(s2, r"(?i)before.{0,60}`?Co-authored-by`?", "the trailers do not come before Co-authored-by")
+
+    def test_commit_one_group_pending_at_a_time(self):
+        s2 = commit_sec(r"2\. After each task")
+        self.assertRegex(s2, r"(?i)complete group is committed.{0,120}before any task of another group is ticked",
+                         "a complete group is not committed before another group's task is ticked")
+        self.assertRegex(s2, r"(?i)parallel.{0,200}(one group at a time|serial)|(one group at a time|serial).{0,200}parallel",
+                         "parallel dispatch is not serialised at tick and commit")
+        self.assertRegex(s2, r"(?i)commit fails.{0,200}no task of (any )?(another|other) group.{0,60}ticked|fails.{0,200}tick nothing",
+                         "a failed group commit does not block ticking another group")
+        self.assertRegex(s2, r"(?i)report.{0,80}failed.{0,60}group|names? the failed", "a failed group commit is not reported")
+
+    def test_commit_pending_ticks_wait_for_group(self):
+        s = flat(read(COMMIT))
+        self.assertRegex(s, r"(?i)planning (commit )?and amendment commits? (never|do not|must not) stage.{0,120}`?tasks\.md`?.{0,120}ticks?",
+                         "planning and amendment commits may stage a tasks.md that ticks an uncovered task")
+        self.assertRegex(s, r"(?i)waits? for (its|the) group commit", "that tasks.md does not wait for its group commit")
+        self.assertRegex(s, r"(?i)untracked `?tasks\.md`?.{0,120}already ticks.{0,120}stop.{0,40}(apply )?before any commit",
+                         "an untracked tasks.md that already ticks a task does not stop apply")
+        self.assertRegex(s, r"(?i)untracked `?tasks\.md`?.{0,300}(name|list)\w* the (ticked )?tasks", "the stop does not name the ticked tasks")
+
+    def test_commit_one_pending_group_resumes(self):
+        s = commit_sec(r"2\. After each task")
+        self.assertRegex(s, r"(?i)exactly one (pending )?group.{0,300}re-?verif\w*.{0,200}(finish|remaining|open).{0,200}commit once",
+                         "one pending group is not re-verified, finished and committed once")
+        self.assertRegex(s, r"(?i)never remove a tick|ticks are never removed|never untick", "a tick may be removed")
+
+    def test_commit_two_pending_groups_ask(self):
+        s = commit_sec(r"2\. After each task")
+        self.assertRegex(s, r"(?i)more than one (pending )?group.{0,200}no commit.{0,120}list.{0,80}ask",
+                         "two pending groups do not make no commit, list them and ask")
+
+    def test_commit_resumed_red_step_rule(self):
+        s = commit_sec(r"2\. After each task")
+        self.assertRegex(s, r"(?i)ticked red step.{0,200}running its named test.{0,120}(must )?exist.{0,60}pass",
+                         "a ticked red step is not re-verified by running its named test")
+        self.assertRegex(s, r"(?i)body (says|states).{0,80}red output.{0,40}unavailable", "the commit body does not say the red output is unavailable")
+        self.assertRegex(s, r"(?i)(stays|stay|remains|kept) ticked", "the red step does not stay ticked")
+        self.assertRegex(s, r"(?i)(named test|test) (is )?missing.{0,120}no commit.{0,120}report|missing.{0,60}test.{0,120}no commit.{0,80}report",
+                         "a missing named test does not stop the commit and get reported")
+
+    def test_commit_never_regroups(self):
+        s = commit_sec(r"2\. After each task")
+        self.assertRegex(s, r"(?i)never amend, squash, rebase or regroup", "history rewriting is not forbidden")
+        self.assertRegex(s, r"(?i)published or not", "the rule does not cover published commits")
+        self.assertRegex(s, r"(?i)covers only the (group's )?tasks? (of its group )?(that have|with) no evidence",
+                         "a group commit may cover tasks already committed")
+        self.assertRegex(s, r"(?i)mixes? (per-task and group|both)( commits| forms)?.{0,120}once.{0,60}(naming|names) the group|report.{0,60}once.{0,60}group",
+                         "a mixed group is not reported once by name")
+        self.assertRegex(s, r"(?i)PR (fix|feedback).{0,120}new commit|fix round.{0,120}new commit",
+                         "a PR fix round after group commits is not said to be a new commit")
+        self.assertRegex(flat(read(COMMIT)), r"(?i)never.{0,200}batch tasks into one commit",
+                         "the closing never-batch line is gone")
+
+    def test_commit_uses_task_cover_in_reconcile_and_end_check(self):
+        for name, sec in (("Reconcile", commit_sec(r"Reconcile \(")), ("step 3", commit_sec(r"3\. When every task"))):
+            self.assertIn("task-cover.sh", sec, f"{name} does not use task-cover.sh")
+            self.assertRegex(sec, r"--repo.{0,80}--range.{0,80}--tasks.{0,80}--change", f"{name} does not give the task-cover.sh arguments")
+            self.assertRegex(sec, r"(?i)(fails?|exit(s)? (non-zero|1|2|3)|no coverage data).{0,200}(no commit|stop)", f"{name}: a task-cover.sh failure does not stop")
+        self.assertRegex(commit_sec(r"3\. When every task"), r"(?i)each repo|both repos|every repo",
+                         "the end check does not run task-cover.sh against each repo when store-backed")
+
+    def test_commit_reports_task_work_commits(self):
+        s3 = commit_sec(r"3\. When every task")
+        self.assertIn("`<N> tasks, <M> task-work commits, tree clean`", s3, "the completion report is not `<N> tasks, <M> task-work commits, tree clean`")
+        self.assertNotRegex(s3, r"task commits, tree clean", "the old `task commits` report remains")
+        self.assertRegex(s3, r"`code: <N> tasks, <M> task-work commits, tree clean`", "the store report lines changed or are gone")
+        self.assertRegex(s3, r"(?i)exactly one covering commit|covered (twice|more than once)|duplicate", "the end check does not reject a task covered twice")
+        self.assertRegex(s3, r"(?i)cross-group", "the end check does not reject a cross-group trailer")
+
+    def test_commit_store_group_pair_code_first_one_message(self):
+        s2 = commit_sec(r"2\. After each task")
+        self.assertRegex(s2, r"(?i)group.{0,300}code files here first.{0,300}`tasks\.md`.{0,200}(identical|same) (message )?file",
+                         "a store-backed group does not commit code first, then the store, with one message file")
+        self.assertRegex(s2, r"(?i)`Code-Changes: none`.{0,60}before the trailers", "a group with no code does not get Code-Changes: none before the trailers")
+        rec = commit_sec(r"Reconcile \(")
+        self.assertRegex(rec, r"git log -1 --no-show-signature --format=%B <sha>",
+                         "Reconcile does not rebuild the store message from the code commit, with signature display off")
+        self.assertRegex(rec, r"(?i)trailers? name exactly.{0,120}ticked", "Reconcile does not require the trailers to name exactly the ticked tasks")
+        self.assertRegex(rec, r"(?i)no code commit and no uncommitted code change.{0,80}ask|ask.{0,160}no uncommitted code change",
+                         "a group tick with no code commit and a clean code tree is not asked about")
+
+    def test_commit_reconcile_exempts_this_sessions_open_group_ticks(self):
+        rec = commit_sec(r"Reconcile \(")
+        self.assertRegex(rec, r"(?i)ticks this session made in the group it has open.{0,160}not gaps",
+                         "Reconcile treats this session's earlier ticks in its open group as gaps")
+        self.assertRegex(rec, r"(?i)inherited from an earlier.{0,40}session.{0,60}(still|are) (gaps|reconciled)",
+                         "ticks inherited from an interrupted session are no longer reconciled")
+        self.assertRegex(rec, r"(?i)the task this session just ticked and is committing now is not a gap",
+                         "task mode lost the exemption for the task being committed now")
+
+    def test_commit_unfittable_group_reports_group_and_limit(self):
+        s2 = commit_sec(r"2\. After each task")
+        self.assertRegex(s2, r"(?i)exit 1.{0,200}group.{0,120}72|group.{0,200}exit 1.{0,120}72", "an unfittable group subject does not report the group and the 72 limit")
+
+    def test_commit_switching_back_to_task_mode(self):
+        s = flat(read(COMMIT))
+        self.assertRegex(s, r"(?i)back to `?task`? mode.{0,200}per-task commits?.{0,120}split rule|`task` with a pending group.{0,200}per-task",
+                         "switching back to task mode with a pending group is not covered")
+
+    def test_schema_apply_commits_per_configured_granularity(self):
+        apply = flat(schema_block("apply:"))
+        self.assertRegex(apply, r"commit per the configured granularity", "the apply instruction does not say to commit per the configured granularity")
+        self.assertNotRegex(apply, r"commit task by task \(the commit rules say how to split a group\)", "the apply instruction still says only to commit task by task")
+
+    def test_template_readme_and_contributing_name_the_setting(self):
+        tpl = read(ROOT / "templates" / "openspec" / "specwright.yaml")
+        self.assertRegex(tpl, r"(?m)^# commit_granularity: task\b", "the template has no commented `commit_granularity: task`")
+        readme = flat(read(README))
+        self.assertRegex(readme, r"commit_granularity", "the README never names commit_granularity")
+        self.assertRegex(readme, r"`<type>\(<change>\): group N <group heading>`", "the README commit table has no group subject")
+        self.assertRegex(readme, r"Specwright-Task: X\.Y", "the README does not name the Specwright-Task trailer")
+        self.assertNotRegex(readme, r"One commit per task, orchestrator re-verifies", "the README apply row still says only one commit per task")
+        self.assertRegex(flat(read(CONTRIBUTING)), r"commit_granularity", "CONTRIBUTING does not name the granularity setting")
+
+
 if __name__ == "__main__":
     unittest.main()

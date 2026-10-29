@@ -61,16 +61,17 @@ def init(repo):
     fixturecache.copy(("git-workflow.init",), _init, repo)
 
 
-def base(repo):
-    """The schema-bearing project repo on main; a copy of one built once per process (nothing in it names a path)."""
-    fixturecache.copy(("git-workflow.base",), _base, repo)
+def base(repo, settings="finish: local\n"):
+    """The schema-bearing project repo on main; a copy of one built once per process (nothing in it names a path).
+    `settings` is the text of openspec/specwright.yaml, committed in the first commit."""
+    fixturecache.copy(("git-workflow.base", settings), lambda d: _base(d, settings), repo)
 
 
-def _base(repo):
+def _base(repo, settings="finish: local\n"):
     _init(repo)
     shutil.copytree(ROOT / "schemas" / "specwright", repo / "openspec" / "schemas" / "specwright")
     shutil.copy(ROOT / "templates" / "openspec" / "config.yaml", repo / "openspec" / "config.yaml")
-    write(repo, "openspec/specwright.yaml", "finish: local\n")
+    write(repo, "openspec/specwright.yaml", settings)
     write(repo, "openspec/specs/.gitkeep", "")
     project(repo)
 
@@ -297,20 +298,141 @@ def commit_tick(store, t):
     git(store, "commit", "-q", "-m", TASK_SUBJECT[t])
 
 
-def apply_base(dest, verify_last=False):
+def apply_base(dest, verify_last=False, kind=None):
     """store_base, both repos on feat/add-greeting, the planning artifacts committed in the store.
-    verify_last: task 2.1 is a verification-only task instead of the README one."""
+    verify_last: task 2.1 is a verification-only task instead of the README one.
+    kind: a GROUP_TASKS key; group mode is on and tasks.md holds those groups."""
     code, store = dest / "code", dest / "store"
-    store_base(dest)
+    store_base(dest, settings=GROUP_SETTINGS if kind else "finish: local\n")
     for r in (code, store):
         git(r, "checkout", "-q", "-b", "feat/add-greeting")
-    change_artifacts(store)
+    if kind:
+        group_artifacts(store, kind)
+    else:
+        change_artifacts(store)
     if verify_last:
         text = (store / CHANGE / "tasks.md").read_text(encoding="utf-8")
         line = next(l for l in text.splitlines() if l.startswith("- [ ] 2.1 "))
         write(store, f"{CHANGE}/tasks.md", text.replace(line, VERIFY_TASK).replace("## 2. Documentation", "## 2. Verification"))
     git(store, "add", "-A")
     git(store, "commit", "-q", "-m", "feat(add-greeting): add planning artifacts")
+
+
+# ---- group mode (commit_granularity: group) ----
+GROUP_SETTINGS = "finish: local\ncommit_granularity: group\n"
+CO_AUTHOR = "Co-authored-by: KintsugiBot <296966193+KintsugiBot@users.noreply.github.com>"
+_V = "verify `python -m unittest -q` passes"
+_ONLY = "(verification only, no files change)"
+_T11 = f"Add `greet(name)` with tests test_greet_named and test_greet_empty; {_V}"
+_T12 = f"Add `farewell(name)` with tests test_farewell_named and test_farewell_empty; {_V}"
+GROUP_TASKS = {  # kind -> [(group number, heading, [(task id, text)])]
+    "groups": [(1, "Greeting functions", [("1.1", _T11), ("1.2", _T12), ("1.3", f"Export both names in `__all__` of greet.py; {_V}")]),
+               (2, "Documentation", [("2.1", "Document greet in README.md; verify README names greet"),
+                                     ("2.2", "Document farewell in README.md; verify README names farewell")])],
+    "ten": [(1, "Greeting functions", [("1.1", _T11), ("1.2", _T12)]),
+            (10, "Documentation", [("10.1", "Document greet and farewell in README.md; verify README names both functions")])],
+    "resume": [(1, "Greeting functions", [("1.1", "Write test_greet_named in test_greet.py and confirm it fails (red step)"),
+                                          ("1.2", f"Implement `greet(name)` in greet.py so test_greet_named passes; {_V}"),
+                                          ("1.3", f"Make `greet('')` raise ValueError with test_greet_empty, and add `farewell(name)` "
+                                                  f"with tests test_farewell_named and test_farewell_empty; {_V}")])],
+    "noop": [(1, "Greeting functions", [("1.1", _T11), ("1.2", _T12)]),
+             (2, "Documentation", [("2.1", "Document greet and farewell in README.md; verify README names both functions")]),
+             (3, "Verification", [("3.1", f"Verify the full suite: run `python -m unittest -q` and confirm it passes {_ONLY}"),
+                                  ("3.2", f"Verify test_greet.py names test_greet_named: run `python -m unittest -v` {_ONLY}")])],
+}
+TASKS_HEAD = ("# Tasks\n\n## Test map\n\n| Requirement | Scenario | Test file | Test name | State |\n|---|---|---|---|---|\n"
+              "| greeting → Greeting | Named greeting | test_greet.py | test_greet_named | red |\n"
+              "| greeting → Greeting | Empty name | test_greet.py | test_greet_empty | red |\n"
+              "| greeting → Farewell | Named farewell | test_greet.py | test_farewell_named | red |\n"
+              "| greeting → Farewell | Empty farewell name | test_greet.py | test_farewell_empty | red |\n")
+
+
+def group_artifacts(root, kind, name="add-greeting"):
+    """The change's planning artifacts (uncommitted), with the tasks.md of GROUP_TASKS[kind]."""
+    change_artifacts(root, name)
+    text = TASKS_HEAD + "".join(f"\n## {n}. {h}\n\n" + "".join(f"- [ ] {t} {x}\n" for t, x in ts) for n, h, ts in GROUP_TASKS[kind])
+    write(root, f"openspec/changes/{name}/tasks.md", text)
+
+
+def group_spec(kind, n):
+    """(heading, [task ids]) of group n."""
+    return next((h, [t for t, _ in ts]) for g, h, ts in GROUP_TASKS[kind] if g == n)
+
+
+def group_msg(kind, n, tasks=None, body=None, no_code=False):
+    """A group commit message: subject, optional body, then the final trailer block (Code-Changes: none first when
+    there is no code, the Specwright-Task trailers in task order, Co-authored-by last)."""
+    heading, ids = group_spec(kind, n)
+    lines = [f"feat(add-greeting): group {n} {heading}", ""] + ([body, ""] if body else [])
+    lines += (["Code-Changes: none"] if no_code else []) + [f"Specwright-Task: {t}" for t in (ids if tasks is None else tasks)] + [CO_AUTHOR]
+    return "\n".join(lines) + "\n"
+
+
+def group_code(code, n):
+    """Write group n's code files, uncommitted, and return their paths."""
+    if n == 1:
+        task_code(code, "1.2")
+        write(code, "greet.py", (code / "greet.py").read_text(encoding="utf-8") + '\n__all__ = ["greet", "farewell"]\n')
+        return ["greet.py", "test_greet.py"]
+    if n in (2, 10):
+        write(code, "README.md", "# greeter\n\nA tiny greeting library.\n\n- `greet(name)` returns `Hello, <name>!`.\n- `farewell(name)` returns `Goodbye, <name>!`.\n")
+        return ["README.md"]
+    return []
+
+
+def commit_group(code, root, kind, n, tasks=None, body=None, no_code=False, msg=None):
+    """Finish group n: write its code (unless no_code), tick its tasks in root's tasks.md, commit.
+    root == code: one commit. Store-backed: the code repo first, then tasks.md in root, with the same message."""
+    ids = group_spec(kind, n)[1] if tasks is None else tasks
+    msg = msg or group_msg(kind, n, ids, body, no_code)
+    paths = [] if no_code else group_code(code, n)
+    tick(root, *ids)
+    tasks_md = f"{CHANGE}/tasks.md"
+    if code == root:
+        git(code, "add", "--", *paths, tasks_md)
+        git(code, "commit", "-q", "-m", msg, "--", *paths, tasks_md)
+        return
+    if paths:
+        git(code, "add", "--", *paths)
+        git(code, "commit", "-q", "-m", msg, "--", *paths)
+    git(root, "add", "--", tasks_md)
+    git(root, "commit", "-q", "-m", msg, "--", tasks_md)
+
+
+def plan_commit(root):
+    git(root, "add", "--", CHANGE)
+    git(root, "commit", "-q", "-m", "feat(add-greeting): add planning artifacts")
+
+
+GROUP_EVALS = {"eval-apply-groups": "groups", "eval-apply-groups-ten": "ten", "eval-apply-groups-resume": "resume",
+               "eval-apply-groups-switch": "groups"}
+
+
+def build_group(name, repo):
+    """Repo-local group-mode fixtures, on feat/add-greeting with commit_granularity: group.
+    groups: planning artifacts uncommitted, plus scratch-notes.txt. ten: the same without the scratch file, groups 1 and 10.
+    resume: planning committed; 1.1 (red step) and 1.2 ticked with their work uncommitted, 1.3 open, and an uncommitted design.md edit.
+    switch: planning committed and task 1.1 committed per task before the mode changed; .git/fixture-state.json records its SHA."""
+    base(repo, GROUP_SETTINGS)
+    git(repo, "checkout", "-q", "-b", "feat/add-greeting")
+    group_artifacts(repo, GROUP_EVALS[name])
+    if name == "eval-apply-groups":
+        write(repo, "scratch-notes.txt", "personal notes - not part of the change\n")
+    elif name == "eval-apply-groups-resume":
+        plan_commit(repo)
+        tick(repo, "1.1", "1.2")
+        write(repo, "test_greet.py", "import unittest\n\nfrom greet import greet\n\n\nclass GreetTests(unittest.TestCase):\n    def test_greet_named(self):\n        self.assertEqual(greet('Ada'), 'Hello, Ada!')\n\n\nif __name__ == '__main__':\n    unittest.main()\n")
+        write(repo, "greet.py", '"""Greeting helpers."""\n\n\ndef greet(name):\n    return f"Hello, {name}!"\n')
+        with (repo / CHANGE / "design.md").open("a", encoding="utf-8", newline="\n") as f:
+            f.write("\n## Notes\n\n- Both functions live in `greet.py`, so the tasks of group 1 share that file. This note changes no decision.\n")
+    elif name == "eval-apply-groups-switch":
+        plan_commit(repo)
+        task_code(repo, "1.1")
+        tick(repo, "1.1")
+        git(repo, "add", "--", "greet.py", "test_greet.py", f"{CHANGE}/tasks.md")
+        git(repo, "commit", "-q", "-m", TASK_SUBJECT["1.1"])
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+        write(repo, ".git/fixture-state.json", json.dumps({"task_1_1": sha}, indent=2))
 
 
 def done_pair(dest, t):
@@ -787,6 +909,27 @@ def build_store(name, dest):
             git(r, "checkout", "-q", "-b", "feat/add-greeting")
         change_artifacts(store)  # planning lives in the store, uncommitted
         write(code, "scratch-notes.txt", "personal notes - not part of the change\n")
+    elif name == "eval-store-apply-groups":
+        store_base(dest, settings=GROUP_SETTINGS)
+        for r in (code, store):
+            git(r, "checkout", "-q", "-b", "feat/add-greeting")
+        group_artifacts(store, "groups")  # planning lives in the store, uncommitted
+        write(code, "scratch-notes.txt", "personal notes - not part of the change\n")
+    elif name == "eval-store-group-code-half":
+        apply_base(dest, kind="groups")  # 1.1-1.3 ticked in the store, group 1's code uncommitted, no group 1 commit anywhere
+        tick(store, "1.1", "1.2", "1.3")
+        group_code(code, 1)
+    elif name == "eval-store-group-store-half":
+        apply_base(dest, kind="groups")  # group 1's code commit exists; its store commit failed (ticks uncommitted)
+        paths = group_code(code, 1)
+        git(code, "add", "--", *paths)
+        git(code, "commit", "-q", "-m", group_msg("groups", 1), "--", *paths)
+        tick(store, "1.1", "1.2", "1.3")
+    elif name == "eval-store-group-noop":
+        apply_base(dest, kind="noop")  # groups 1 and 2 done as pairs; group 3 ticked in the store, no code, code tree clean
+        commit_group(code, store, "noop", 1)
+        commit_group(code, store, "noop", 2)
+        tick(store, "3.1", "3.2")
     elif name == "eval-store-apply-wrong-branch":
         store_base(dest)
         git(code, "checkout", "-q", "-b", "feat/add-greeting")  # the store stays on main
@@ -1360,6 +1503,8 @@ def build(name, repo):
         return build_roadmap_next_gap(repo, dirty=name.endswith("dirty-main"))
     if name in ("eval-roadmap-next-milestone-end", "eval-roadmap-close-agreed-split"):
         return build_roadmap_milestone_end(repo, user_verified=name.endswith("milestone-end"))
+    if name in GROUP_EVALS:
+        return build_group(name, repo)
     base(repo)
     if name == "eval-branch-dirty-main":
         write(repo, "README.md", "# greeter\n\nA tiny greeting library. WIP edit.\n")

@@ -1,6 +1,7 @@
 """Offline checks of grade.py: the store-resume code-merge graders must notice a recovery that merged without keeping the code."""
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -1463,6 +1464,370 @@ class ImplementerLightPacket(unittest.TestCase):
         rest = self.GOOD.split("\n", 1)[1]
         for rep in ("- STATUS: BLOCKED\n" + rest, "no status line\n" + rest):
             self.assertEqual(self.failed(self.fixture(rep)), ["The report states STATUS: DONE"], rep)
+
+
+# ---- group-mode apply and recovery (change commit-per-task-group, task 5.1) ----
+# These tests fix the contract of the grader checks added in task 5.2: each check's text is a constant below.
+# They simulate what an agent run leaves behind (commits, a report) on the fixtures of fixtures.py and grade it
+# with grade.check / grade.check_store. The grader must read evidence with its own parsing of `git log` subjects and
+# `git interpret-trailers --parse` (review S3), never by calling task-cover.sh, so the graded result does not depend on
+# the script under evaluation.
+CHANGE_TASKS = f"{grade.CHANGE}/tasks.md"
+DESIGN = f"{grade.CHANGE}/design.md"
+
+# eval-apply-groups
+G_TWO = "Exactly two task-work commits: group 1 with trailers 1.1, 1.2 and 1.3 in order, then group 2 with trailers 2.1 and 2.2"
+G_SHARED = "greet.py appears in the group 1 commit only, and no commit holds part of group 1's work"
+G_SCRATCH = "scratch-notes.txt was never committed and is still untracked"
+G_COVER = "Every task is covered by exactly one commit and no trailer names a task outside its commit's group"
+G_REPORT = "The report gives 5 tasks, 2 task-work commits, tree clean"
+# eval-apply-groups-ten
+T_ONE = "The group 1 commit carries trailers 1.1 and 1.2 only, and its tasks.md diff ticks only 1.1 and 1.2"
+T_TEN = "The group 10 commit carries trailer 10.1 only and ticks only 10.1"
+# eval-apply-groups-resume
+R_ONE = "Exactly one group 1 commit carries trailers 1.1, 1.2 and 1.3, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3"
+R_BODY = "The group 1 commit body says task 1.1's original red output is unavailable"
+R_PLAN = "The planning commit holds design.md and no tick: the ticks reach Git only in the group 1 commit"
+# eval-apply-groups-switch
+S_KEEP = "The task 1.1 commit keeps its SHA on the branch"
+S_G1 = "The group 1 commit carries trailers 1.2 and 1.3 only, and no task is covered twice"
+S_G2 = "The group 2 commit carries trailers 2.1 and 2.2"
+S_MIX = "The report says group 1 mixes per-task and group commits"
+# eval-store-apply-groups
+SP_PAIR = "Each group has one code commit and one store commit with the identical message: subject and trailers"
+SP_TICKS = "Each store group commit touches only tasks.md and its diff ticks exactly its group's tasks"
+SP_REPORT = "The report's completion check gives the task-work commits and a clean tree separately for the code repo and the store"
+# eval-store-group-code-half, -store-half, -noop
+CH_PAIR = "The code repo gets one group 1 commit, then the store one with the same message and the trailers 1.1, 1.2 and 1.3, and the store's tasks.md diff ticks exactly those tasks"
+CH_KEPT = "No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean"
+SH_STORE = "The store gets one commit with the code commit's subject and trailers, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3"
+SH_NODUP = "The code repo has exactly one group 1 commit"
+NG_CODE = "The code repo has no group 3 commit and its tree is clean"
+NG_ASK = "The report names group 3 and asks whether it changed code"
+NG_STORE = "A group 3 commit in the store has Code-Changes: none before the trailers 3.1 and 3.2 and ticks exactly 3.1 and 3.2; without one, both ticks are still uncommitted"
+# eval-apply-three-tasks (task mode)
+NO_TRAILER = "No commit carries a Specwright-Task trailer"
+
+GROUPS_REPORT = "Applied 5 tasks in 2 groups.\n\n5 tasks, 2 task-work commits, tree clean (scratch-notes.txt was already there).\n"
+STORE_REPORT = ("Applied 5 tasks in 2 groups, each committed in the code repo and then in the store.\n\n"
+                "- code: 5 tasks, 2 task-work commits, tree clean\n- store: 5 tasks, 2 task-work commits, tree clean\n")
+RED_BODY = "Task 1.1 was ticked before an interruption; its original red output is unavailable. test_greet_named now passes."
+
+
+class GroupGraderCase(unittest.TestCase):
+    def fixture(self, name, report=""):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(lambda: fixtures.rmtree(tmp.name))
+        self.addCleanup(tmp.cleanup)
+        self.name = name
+        self.run_dir = Path(tmp.name) / "run"
+        self.repo = self.run_dir / "repo"
+        fixtures.build(name, self.repo)
+        (self.run_dir / "outputs").mkdir()
+        self.report(report)
+        return self.repo
+
+    def report(self, text):
+        (self.run_dir / "outputs" / "report.md").write_text(text, encoding="utf-8")
+
+    def results(self):
+        fn = grade.check_store if grade.is_store_run(self.repo) else grade.check
+        return {t: (ok, ev) for t, ok, ev in fn(self.name, self.repo, self.run_dir)}
+
+    def failed(self):
+        return [t for t, (ok, _) in self.results().items() if not ok]
+
+    def assert_passes(self):
+        res = self.results()
+        self.assertTrue(res, f"grade.check returned no checks for {self.name}")
+        self.assertEqual([(t, ev) for t, (ok, ev) in res.items() if not ok], [])
+
+    def assert_fails(self, text):
+        res = self.results()
+        self.assertIn(text, res, f"{self.name} has no check {text!r}: {sorted(res)}")
+        self.assertFalse(res[text][0], f"{self.name}: {text!r} passed on a run that should fail it: {res[text][1]}")
+
+
+def commit_paths(root, msg, *paths):
+    """Commit exactly `paths` (staged by name) in `root` with `msg`."""
+    fixtures.git(root, "add", "--", *paths)
+    fixtures.git(root, "commit", "-q", "-m", msg, "--", *paths)
+
+
+def two_groups(repo, kind="groups"):
+    fixtures.plan_commit(repo)
+    fixtures.commit_group(repo, repo, kind, 1)
+    fixtures.commit_group(repo, repo, kind, 2)
+
+
+class GroupApply(GroupGraderCase):
+    """eval-apply-groups: group mode on a 5-task change (1.1-1.3 share greet.py, 2.1-2.2), scratch-notes.txt untracked."""
+    NAME = "eval-apply-groups"
+
+    def test_group_apply_two_commits_pass(self):
+        repo = self.fixture(self.NAME, GROUPS_REPORT)
+        two_groups(repo)
+        self.assert_passes()
+        res = self.results()
+        for t in (G_TWO, G_SHARED, G_SCRATCH, G_COVER, G_REPORT):
+            self.assertIn(t, res)
+
+    def test_group_apply_per_task_commits_fail(self):
+        repo = self.fixture(self.NAME, GROUPS_REPORT.replace("2 task-work", "5 task-work"))
+        fixtures.plan_commit(repo)
+        for n in (1, 2):
+            paths = fixtures.group_code(repo, n)
+            for i, t in enumerate(fixtures.group_spec("groups", n)[1]):
+                fixtures.tick(repo, t)
+                commit_paths(repo, f"feat(add-greeting): task {t} Do it", CHANGE_TASKS, *(paths if i == 0 else []))
+        self.assert_fails(G_TWO)
+
+    def test_group_apply_split_group_fails(self):
+        repo = self.fixture(self.NAME, GROUPS_REPORT)
+        fixtures.plan_commit(repo)
+        fixtures.task_code(repo, "1.2")
+        fixtures.tick(repo, "1.1", "1.2")
+        commit_paths(repo, fixtures.group_msg("groups", 1, ["1.1", "1.2"]), "greet.py", "test_greet.py", CHANGE_TASKS)
+        fixtures.group_code(repo, 1)  # task 1.3 changes greet.py again, in a second group 1 commit
+        fixtures.tick(repo, "1.3")
+        commit_paths(repo, fixtures.group_msg("groups", 1, ["1.3"]), "greet.py", CHANGE_TASKS)
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_fails(G_SHARED)
+
+    def test_group_apply_swept_scratch_fails(self):
+        repo = self.fixture(self.NAME, GROUPS_REPORT)
+        fixtures.plan_commit(repo)
+        paths = fixtures.group_code(repo, 1)
+        fixtures.tick(repo, "1.1", "1.2", "1.3")
+        commit_paths(repo, fixtures.group_msg("groups", 1), CHANGE_TASKS, "scratch-notes.txt", *paths)
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_fails(G_SCRATCH)
+
+    def test_grader_matches_evidence_without_task_cover(self):
+        """Review S3: the grader parses `git log` and `git interpret-trailers` itself. This guard is green by design."""
+        src = (Path(__file__).resolve().parent / "grade.py").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"""["'][^"'\s]*task-cover""", src))
+
+
+class GroupApplyTen(GroupGraderCase):
+    """eval-apply-groups-ten: groups 1 (1.1, 1.2) and 10 (10.1); `10.1` is not a task of group 1."""
+    NAME = "eval-apply-groups-ten"
+
+    def test_group_ten_pass(self):
+        repo = self.fixture(self.NAME)
+        fixtures.plan_commit(repo)
+        fixtures.commit_group(repo, repo, "ten", 1)
+        fixtures.commit_group(repo, repo, "ten", 10)
+        self.assert_passes()
+        res = self.results()
+        for t in (T_ONE, T_TEN):
+            self.assertIn(t, res)
+
+    def test_group_ten_tick_in_group_one_fails(self):
+        repo = self.fixture(self.NAME)
+        fixtures.plan_commit(repo)
+        fixtures.tick(repo, "10.1")  # task 10.1's tick rides along in the group 1 commit, whose trailers are right
+        fixtures.commit_group(repo, repo, "ten", 1)
+        fixtures.commit_group(repo, repo, "ten", 10)
+        self.assert_fails(T_ONE)
+
+
+class GroupApplyResume(GroupGraderCase):
+    """eval-apply-groups-resume: 1.1 (red step) and 1.2 ticked with work uncommitted, 1.3 open, design.md edited."""
+    NAME = "eval-apply-groups-resume"
+
+    def finish(self, body=RED_BODY, design_with_ticks=False):
+        repo = self.repo
+        fixtures.git(repo, "add", "--", *([DESIGN, CHANGE_TASKS] if design_with_ticks else [DESIGN]))
+        fixtures.git(repo, "commit", "-q", "-m", "docs(add-greeting): amend design")
+        fixtures.commit_group(repo, repo, "resume", 1, body=body)
+
+    def test_group_resume_one_commit_pass(self):
+        self.fixture(self.NAME, "Resumed group 1: re-ran test_greet_named (passes), finished 1.3, one group 1 commit.\n")
+        self.finish()
+        self.assert_passes()
+        res = self.results()
+        for t in (R_ONE, R_BODY, R_PLAN):
+            self.assertIn(t, res)
+
+    def test_group_resume_body_names_red_step(self):
+        self.fixture(self.NAME, "Resumed group 1.\n")
+        self.finish(body="Finished the group after an interruption.")
+        self.assert_fails(R_BODY)
+
+    def test_group_resume_planning_commit_without_ticks(self):
+        self.fixture(self.NAME, "Resumed group 1.\n")
+        self.finish(design_with_ticks=True)  # the planning commit staged tasks.md with the pending 1.1 and 1.2 ticks
+        self.assert_fails(R_PLAN)
+
+
+class GroupApplySwitch(GroupGraderCase):
+    """eval-apply-groups-switch: task 1.1 committed per task before commit_granularity became group."""
+    NAME = "eval-apply-groups-switch"
+    REPORT = "Group 1 mixes per-task and group commits: task 1.1 keeps its earlier commit, 1.2 and 1.3 are in the group 1 commit.\n"
+
+    def test_group_switch_mixed_pass(self):
+        repo = self.fixture(self.NAME, self.REPORT)
+        fixtures.commit_group(repo, repo, "groups", 1, tasks=["1.2", "1.3"])
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_passes()
+        res = self.results()
+        for t in (S_KEEP, S_G1, S_G2, S_MIX):
+            self.assertIn(t, res)
+
+    def test_group_switch_mixed_wording_any_order(self):
+        # iteration 1's with-skill run worded it this way: the group, "mixed" and "per-task" on one line, in another order
+        repo = self.fixture(self.NAME, "- **Mixed group:** Group 1 has one per-task commit (1.1) and one group commit (1.2 and 1.3).\n")
+        fixtures.commit_group(repo, repo, "groups", 1, tasks=["1.2", "1.3"])
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_passes()
+
+    def test_group_switch_unreported_mix_fails(self):
+        repo = self.fixture(self.NAME, "Group 1 is committed. Group 2 is committed as a group commit.\n")
+        fixtures.commit_group(repo, repo, "groups", 1, tasks=["1.2", "1.3"])
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_fails(S_MIX)
+
+    def test_group_switch_rewritten_task_commit_fails(self):
+        repo = self.fixture(self.NAME, self.REPORT)
+        fixtures.git(repo, "reset", "-q", "--soft", "HEAD~1")  # drops the task 1.1 commit: regrouped into one group 1 commit
+        fixtures.commit_group(repo, repo, "groups", 1)
+        fixtures.commit_group(repo, repo, "groups", 2)
+        self.assert_fails(S_KEEP)
+
+
+class StoreGroupApply(GroupGraderCase):
+    """eval-store-apply-groups: group mode with the planning in a store; each group is a code commit and a store commit."""
+    NAME = "eval-store-apply-groups"
+
+    def test_store_group_pair_pass(self):
+        self.fixture(self.NAME, STORE_REPORT)
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.plan_commit(store)
+        fixtures.commit_group(code, store, "groups", 1)
+        fixtures.commit_group(code, store, "groups", 2)
+        self.assert_passes()
+        res = self.results()
+        for t in (SP_PAIR, SP_TICKS, SP_REPORT):
+            self.assertIn(t, res)
+
+    def test_store_group_message_mismatch_fails(self):
+        self.fixture(self.NAME, STORE_REPORT)
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.plan_commit(store)
+        paths = fixtures.group_code(code, 1)
+        commit_paths(code, fixtures.group_msg("groups", 1), *paths)
+        fixtures.tick(store, "1.1", "1.2", "1.3")
+        commit_paths(store, fixtures.group_msg("groups", 1, ["1.1", "1.2"]), CHANGE_TASKS)  # the store message lost trailer 1.3
+        fixtures.commit_group(code, store, "groups", 2)
+        self.assert_fails(SP_PAIR)
+
+
+class StoreGroupRecovery(GroupGraderCase):
+    def test_store_group_code_half_pass(self):
+        self.fixture("eval-store-group-code-half", "Verified 1.1 to 1.3 again, committed group 1 in the code repo, then in the store.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.commit_group(code, store, "groups", 1)
+        self.assert_passes()
+        res = self.results()
+        for t in (CH_PAIR, CH_KEPT):
+            self.assertIn(t, res)
+
+    def test_store_group_code_half_then_group_two_pass(self):
+        # iteration 1's with-skill run resumed group 1, then applied group 2 as the prompt asks: no tick lost, more ticked
+        self.fixture("eval-store-group-code-half", "Verified 1.1 to 1.3 again, committed group 1 in the code repo, then in the store.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.commit_group(code, store, "groups", 1)
+        fixtures.commit_group(code, store, "groups", 2)
+        self.assert_passes()
+
+    def test_store_group_code_half_without_trailers_fails(self):
+        # identical messages in both repos, but no Specwright-Task trailers: tasks 1.1 to 1.3 have no evidence
+        self.fixture("eval-store-group-code-half", "Committed group 1 in the code repo, then in the store.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        msg = fixtures.group_msg("groups", 1, tasks=[])
+        commit_paths(code, msg, *fixtures.group_code(code, 1))
+        commit_paths(store, msg, CHANGE_TASKS)
+        self.assert_fails(CH_PAIR)
+
+    def test_store_group_code_half_lost_tick_fails(self):
+        self.fixture("eval-store-group-code-half", "Committed group 1.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        paths = fixtures.group_code(code, 1)
+        commit_paths(code, fixtures.group_msg("groups", 1), *paths)
+        text = (store / CHANGE_TASKS).read_text(encoding="utf-8").replace("- [x] 1.2 ", "- [ ] 1.2 ")  # a tick was removed
+        fixtures.write(store, CHANGE_TASKS, text)
+        commit_paths(store, fixtures.group_msg("groups", 1), CHANGE_TASKS)
+        self.assert_fails(CH_KEPT)
+
+    def test_store_group_store_half_pass(self):
+        self.fixture("eval-store-group-store-half", "Group 1's code commit existed; committed its ticks in the store with the same message.\n")
+        store = self.repo / "store"
+        commit_paths(store, fixtures.group_msg("groups", 1), CHANGE_TASKS)
+        self.assert_passes()
+        res = self.results()
+        for t in (SH_STORE, SH_NODUP):
+            self.assertIn(t, res)
+
+    def test_store_group_store_half_duplicate_code_fails(self):
+        self.fixture("eval-store-group-store-half", "Committed group 1.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.git(code, "commit", "-q", "--allow-empty", "-m", fixtures.group_msg("groups", 1))  # a second group 1 code commit
+        commit_paths(store, fixtures.group_msg("groups", 1), CHANGE_TASKS)
+        self.assert_fails(SH_NODUP)
+
+    ASK = "Group 3 is ticked in the store but neither repo has a group 3 commit and the code tree is clean. Did group 3 change any code?\n"
+
+    def test_store_group_noop_asks_first(self):
+        self.fixture("eval-store-group-noop", self.ASK)  # stops at the question: nothing committed
+        self.assert_passes()
+        res = self.results()
+        for t in (NG_CODE, NG_ASK, NG_STORE):
+            self.assertIn(t, res)
+        self.report("Recorded group 3 in the store with Code-Changes: none.\n")  # it assumed a no-op instead of asking
+        self.assert_fails(NG_ASK)
+
+    def test_store_group_nocode_store_only_pass(self):
+        self.fixture("eval-store-group-noop", self.ASK + "You said group 3 changed no code, so the store got the group 3 commit with Code-Changes: none.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.commit_group(code, store, "noop", 3, no_code=True)
+        self.assert_passes()
+        self.assertIn(NG_STORE, self.results())
+        fixtures.git(code, "commit", "-q", "--allow-empty", "-m", fixtures.group_msg("noop", 3))  # a code commit for group 3
+        self.assert_fails(NG_CODE)
+
+
+class TaskModeNoTrailers(GroupGraderCase):
+    """eval-apply-three-tasks (commit_granularity unset): the task commits carry no Specwright-Task trailer."""
+    NAME = "eval-apply-three-tasks"
+
+    def run_tasks(self, trailer=False):
+        repo = self.fixture(self.NAME, "3 tasks, 3 task commits, tree clean (scratch-notes.txt was already there).\n")
+        fixtures.plan_commit(repo)
+        for t in grade.TASKS:
+            fixtures.task_code(repo, t)
+            fixtures.tick(repo, t)
+            msg = fixtures.TASK_SUBJECT[t] + (f"\n\nSpecwright-Task: {t}\n" if trailer and t == "1.2" else "")
+            commit_paths(repo, msg, "greet.py", "test_greet.py", "README.md", CHANGE_TASKS)
+
+    def test_task_mode_run_has_no_trailers(self):
+        self.run_tasks()
+        res = self.results()
+        self.assertIn(NO_TRAILER, res, sorted(res))
+        self.assertTrue(res[NO_TRAILER][0], res[NO_TRAILER][1])
+        self.assertEqual(self.failed(), [])
+        self.run_tasks(trailer=True)
+        self.assert_fails(NO_TRAILER)
+
+
+class CompletionWording(unittest.TestCase):
+    BOTH = {"commits", "clean"}
+
+    def test_completion_accepts_task_work_wording(self):
+        rep = "code: 5 tasks, 2 task-work commits, tree clean\nstore: 5 tasks, 2 task-work commits, tree clean\n"
+        self.assertEqual(grade.completion_by_repo(rep), {"code": self.BOTH, "store": self.BOTH})
+        old = "code: 3 task commits, tree clean\nstore: 3 task commits, tree clean\n"
+        self.assertEqual(grade.completion_by_repo(old), {"code": self.BOTH, "store": self.BOTH})
 
 
 if __name__ == "__main__":
