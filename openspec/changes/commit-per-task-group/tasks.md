@@ -81,4 +81,4 @@ Agent-behaviour scenarios are proven twice: an instruction test pins the rule in
 
 ## 6. Release
 
-- [ ] 6.1 Run `release.sh bump --to 0.10.0` and rewrite the summary of the proposal's `## Release Notes` section to describe the whole release. Verify `release.sh check` and `release.sh notes --proposal openspec/changes/commit-per-task-group/proposal.md` both exit 0, and `python evals/run.py --changed main` passes.
+- [x] 6.1 Run `release.sh bump --to 0.10.0` and rewrite the summary of the proposal's `## Release Notes` section to describe the whole release. Verify `release.sh check` and `release.sh notes --proposal openspec/changes/commit-per-task-group/proposal.md` both exit 0, and `python evals/run.py --changed main` passes.
