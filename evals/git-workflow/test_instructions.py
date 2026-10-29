@@ -2195,10 +2195,18 @@ class GroupCommits(unittest.TestCase):
                          "a store-backed group does not commit code first, then the store, with one message file")
         self.assertRegex(s2, r"(?i)`Code-Changes: none`.{0,60}before the trailers", "a group with no code does not get Code-Changes: none before the trailers")
         rec = commit_sec(r"Reconcile \(")
-        self.assertRegex(rec, r"git log -1 --format=%B <sha>", "Reconcile does not rebuild the store message from the code commit")
+        self.assertRegex(rec, r"git log -1 --no-show-signature --format=%B <sha>",
+                         "Reconcile does not rebuild the store message from the code commit, with signature display off")
         self.assertRegex(rec, r"(?i)trailers? name exactly.{0,120}ticked", "Reconcile does not require the trailers to name exactly the ticked tasks")
         self.assertRegex(rec, r"(?i)no code commit and no uncommitted code change.{0,80}ask|ask.{0,160}no uncommitted code change",
                          "a group tick with no code commit and a clean code tree is not asked about")
+
+    def test_commit_reconcile_exempts_this_sessions_open_group_ticks(self):
+        rec = commit_sec(r"Reconcile \(")
+        self.assertRegex(rec, r"(?i)ticks this session made in the group it has open.{0,160}not gaps",
+                         "Reconcile treats this session's earlier ticks in its open group as gaps")
+        self.assertRegex(rec, r"(?i)inherited from an earlier.{0,40}session.{0,60}(still|are) (gaps|reconciled)",
+                         "ticks inherited from an interrupted session are no longer reconciled")
 
     def test_commit_unfittable_group_reports_group_and_limit(self):
         s2 = commit_sec(r"2\. After each task")

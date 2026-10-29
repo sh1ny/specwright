@@ -158,6 +158,27 @@ class TaskCover(unittest.TestCase):
         self.assertEqual(doc["groups"], [{"group": 1, "heading": "Grüße"}])
         self.assertEqual(doc["uncovered"], [])
 
+    def test_spaced_checkbox_counts_as_ticked(self):
+        # the apply schema: a box holding only x, with any spacing, is done; any other marker is not
+        text = "## 1. G\n\n- [ x] 1.1 a\n- [X ] 1.2 b\n- [ ] 1.3 c\n- [~] 1.4 d\n- [] 1.5 e\n"
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual([(t["id"], t["ticked"]) for t in doc["tasks"]],
+                         [("1.1", True), ("1.2", True), ("1.3", False), ("1.4", False), ("1.5", False)])
+        self.assertEqual(doc["pending_groups"], [{"group": 1, "tasks": ["1.1", "1.2"]}])
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "needs ssh-keygen")
+    def test_signed_commit_with_show_signature(self):
+        key = self.tmp / "key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True,
+                       capture_output=True)
+        self.git("config", "gpg.format", "ssh")
+        self.git("config", "user.signingkey", str(key))
+        self.git("config", "commit.gpgsign", "true")
+        sha = self.commit("feat(%s): group 1 Greeting" % CHANGE, "1.1", "1.2")
+        self.git("config", "log.showSignature", "true")
+        doc = self.cover()
+        self.assertEqual(self.task(doc, "1.1")["commits"], [{"sha": sha, "form": "trailer"}])
+
     def test_tasks_too_large_exits_2(self):
         big = self.tasks_file("## 1. G\n\n- [x] 1.1 " + "x" * (1024 * 1024) + "\n")
         r = self.run_script(tasks=big)

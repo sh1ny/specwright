@@ -14,8 +14,8 @@
 # never cross-group.
 # JSON keys:
 #   ok, change, range
-#   tasks[]         {id, group, ticked, commits:[{sha, form: subject|trailer}]}  (file order; ticks read from
-#                   `- [x] X.Y ` / `- [ ] X.Y ` lines; CRLF tolerated)
+#   tasks[]         {id, group, ticked, commits:[{sha, form: subject|trailer}]}  (file order; read from
+#                   `- [<box>] X.Y ` lines, ticked when the box holds only x, any case and spacing; CRLF tolerated)
 #   groups[]        {group, heading}  heading is null when `## N.` is missing
 #   pending_groups[] {group, tasks:[ids]}  groups with ticked tasks that have no evidence
 #   uncovered[]     ids of ticked tasks with no evidence
@@ -72,7 +72,8 @@ def parse_args(argv):
 
 def git(repo, *args):
     try:
-        r = subprocess.run(["git", "-C", repo, *args], capture_output=True)
+        # log.showSignature would print signature checks into the machine-readable log
+        r = subprocess.run(["git", "-c", "log.showSignature=false", "-C", repo, *args], capture_output=True)
     except OSError as e:
         stop("git_failed", "cannot run git: %s" % e, 3)
     if r.returncode != 0:
@@ -90,8 +91,13 @@ if os.path.getsize(tasks_path) > MAX_TASKS_BYTES:
 with open(tasks_path, "rb") as f:
     text = f.read().decode("utf-8", "replace")
 
+def box_done(box):
+    # the apply schema: a box holding only x (any case, any spacing) is done; every other marker is not
+    return box.strip() in ("x", "X")
+
+
 HEADING = re.compile(r"^##[ \t]+(\d+)\.[ \t]+(\S.*?)[ \t]*$")
-TASK = re.compile(r"^[ \t]*-[ \t]+\[([ xX])\][ \t]+(\d+)\.(\d+)(?=\s|$)")
+TASK = re.compile(r"^[ \t]*-[ \t]+\[([^\]\r\n]*)\][ \t]+(\d+)\.(\d+)(?=\s|$)")
 tasks, headings = [], {}
 for line in text.splitlines():
     m = HEADING.match(line)
@@ -101,7 +107,7 @@ for line in text.splitlines():
     m = TASK.match(line)
     if m:
         tasks.append({"id": "%s.%s" % (m.group(2), m.group(3)), "group": int(m.group(2)),
-                      "ticked": m.group(1) != " ", "commits": []})
+                      "ticked": box_done(m.group(1)), "commits": []})
 
 count = int(git(repo, "rev-list", "--count", rng).decode().strip() or 0)
 if count > MAX_COMMITS:
