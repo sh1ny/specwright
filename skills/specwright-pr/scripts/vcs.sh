@@ -455,6 +455,144 @@ def run_git_operation(command, repo, info, opts, paths, ctx):
     usage(command + " is not implemented for the Git backend")
 
 
+def revset_text(name):
+    return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def fileset_text(path):
+    return 'root:' + revset_text(path)
+
+
+def jj_path(path):
+    return path.replace("\\", "/") if os.name == "nt" else path
+
+
+def jj_one(repo, revset, template):
+    return jj_log(repo, revset, template, limit=1).strip()
+
+
+def snapshot_limit(repo):
+    result = jj(repo, "config", "get", "snapshot.max-new-file-size")
+    text = result.stdout.strip() if result.returncode == 0 else ""
+    found = re.fullmatch(r"(\d+)\s*([KMGT]?)(i?)B?", text, re.I)
+    if not found:
+        return 1024 * 1024
+    base = 1024 if found.group(3) else 1000
+    return int(found.group(1)) * base ** "BKMGT".index(found.group(2).upper() or "B")
+
+
+def jj_commit_argv_check(filesets, message):
+    argv = ["jj", "commit", *filesets, "-m", message]
+    if os.name == "nt":
+        size, limit = len(os.fsencode(process_arguments(argv))), 32000
+    else:
+        try:
+            limit = os.sysconf("SC_ARG_MAX") - sum(len(k) + len(v) + 2 for k, v in os.environb.items()) - 4096
+        except (ValueError, OSError):
+            limit = 100000
+        size = sum(len(os.fsencode(arg)) + 1 for arg in argv)
+    if size > limit:
+        raise Stop("too_many_paths", "named paths and message exceed the command-line limit; name a containing directory instead")
+
+
+def check_tracked(repo, paths, filesets):
+    present = [(p, f) for p, f in zip(paths, filesets) if os.path.lexists(os.path.join(repo, p))]
+    if not present:
+        return
+    listed = [path_text(line) for line in jj_result(repo, "file", "list", "-r", "@", *[f for _, f in present]).splitlines()]
+    for path, _ in present:
+        norm = path.rstrip("/") or "."
+        if norm == "." or any(item == norm or item.startswith(norm + "/") for item in listed):
+            continue
+        full = Path(repo) / path
+        if full.is_file() and not full.is_symlink() and full.stat().st_size > snapshot_limit(repo):
+            reason = "it is larger than snapshot.max-new-file-size (%d bytes)" % snapshot_limit(repo)
+        else:
+            reason = "it is ignored, or larger than snapshot.max-new-file-size"
+        raise Stop("path_not_tracked", "%s is not tracked in the jj working copy: %s" % (path, reason), path=path)
+
+
+def jj_verify_head(repo, branch):
+    head = git_checked(repo, "rev-parse", "HEAD").stdout.strip()
+    tip = git_checked(repo, "rev-parse", "refs/heads/" + branch).stdout.strip()
+    if head != tip:
+        raise Stop("jj_error", "Git HEAD %s differs from bookmark %s at %s" % (head, branch, tip))
+    return head
+
+
+def jj_switch(repo, target):
+    if jj_one(repo, "@", 'if(empty, "1", "0")') == "1":
+        jj_result(repo, "new", revset_text(target))
+        return {}
+    old = jj_one(repo, "@-", "commit_id")
+    jj_result(repo, "rebase", "-r", "@", "-o", revset_text(target))
+    if jj_one(repo, "@", 'if(conflict, "1", "0")') != "1":
+        return {}
+    listed = jj(repo, "resolve", "--list", "-r", "@")
+    names = [path_text(re.split(r"\s{2,}", line.strip())[0]) for line in listed.stdout.splitlines() if line.strip()]
+    jj_result(repo, "rebase", "-r", "@", "-o", revset_text(old))
+    raise Stop("carry_conflict", "edits conflict with %s in: %s; nothing was moved" % (target, ", ".join(names)), paths=names)
+
+
+def jj_advance(repo, info, opts):
+    scope = opts.get("scope")
+    if scope is None:
+        usage("advance requires --scope")
+    state = jj_state(repo, info, scope)
+    branch = state["branch"]
+    if opts.get("branch") and opts["branch"] != branch:
+        raise Stop("wrong_branch", "expected branch %r, resolved %r" % (opts["branch"], branch))
+    behind = state["behind"]
+    if not behind:
+        return {"ok": True, "backend": "jj", "branch": branch, "advanced": False}
+    tip = git_checked(repo, "rev-parse", "refs/heads/" + branch).stdout.strip()
+    if not jj_one(repo, revset_text(tip) + " & ::@-", "commit_id"):
+        raise Stop("ambiguous_branch", "bookmark %s is not an ancestor of @-" % branch)
+    pattern = re.compile(r"^[A-Za-z][A-Za-z0-9-]*\(" + re.escape(scope) + r"\): ")
+    if state["behind_truncated"] or not all(pattern.match(item.get("subject", "")) for item in behind):
+        listing = "; ".join("%s %s" % (item["commit"], item.get("subject", "")) for item in behind)
+        raise Stop("bookmark_behind", "bookmark %s is behind commits outside scope %s%s: %s" % (
+            branch, scope, " (first %d shown)" % len(behind) if state["behind_truncated"] else "", listing), commits=behind)
+    target = jj_one(repo, "@-", "commit_id")
+    jj_result(repo, "bookmark", "set", branch, "-r", revset_text(target))
+    return {"ok": True, "backend": "jj", "branch": branch, "advanced": True, "commit": jj_verify_head(repo, branch)}
+
+
+def run_jj_operation(command, repo, info, opts, paths):
+    main_and_context(info, opts)
+    repo = info["repo"]
+    if command == "branch-create":
+        branch = require_branch(opts)
+        jj_result(repo, "bookmark", "create", branch, "-r", "@-")
+        return {"ok": True, "backend": "jj", "branch": branch, "commit": jj_verify_head(repo, branch)}
+    if command == "switch":
+        branch = require_branch(opts)
+        jj_state(repo, info)
+        jj_switch(repo, branch)
+        return {"ok": True, "backend": "jj", "branch": branch}
+    if command == "advance":
+        return jj_advance(repo, info, opts)
+    if command == "commit":
+        branch = require_branch(opts)
+        if not opts.get("message_file") or not paths:
+            usage("commit requires --message-file and at least one path after --")
+        current = jj_state(repo, info)["branch"]
+        if current != branch:
+            raise Stop("wrong_branch", "expected branch %r, currently on %r" % (branch, current))
+        paths = [jj_path(p) for p in paths]
+        filesets = [fileset_text(p) for p in paths]
+        with open(opts["message_file"], encoding="utf-8", newline="") as stream:
+            message = stream.read()
+        jj_commit_argv_check(filesets, message)
+        check_tracked(repo, paths, filesets)
+        if not jj_result(repo, "diff", "-r", "@", "--name-only", *filesets).strip():
+            raise Stop("nothing_to_commit", "no changes to commit in the named paths")
+        jj_result(repo, "commit", *filesets, "-m", message)
+        jj_result(repo, "bookmark", "set", branch, "-r", "@-")
+        return {"ok": True, "backend": "jj", "branch": branch, "commit": jj_verify_head(repo, branch)}
+    usage("the jj %s operation is implemented by a later backend task" % command)
+
+
 def plan(repo, code, role, info, opts):
     operation = opts.get("operation")
     if operation not in ("switch", "pull", "delete-branch"):
@@ -491,8 +629,9 @@ def main(argv):
         return plan(repo, code, role, info, opts)
     if info["backend"] == "git":
         return run_git_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})
-    # Group 2 supplies jj probing and state only. Later groups own jj writes.
-    if command in {"branch-create", "switch", "commit", "merge", "delete-branch", "fetch-main", "pull", "push", "advance", "plan"}:
+    if command in {"branch-create", "switch", "commit", "advance"}:
+        return run_jj_operation(command, repo, info, opts, paths)
+    if command in {"merge", "delete-branch", "fetch-main", "pull", "push"}:
         usage("the jj %s operation is implemented by a later backend task" % command)
     usage("unknown command: " + command)
 

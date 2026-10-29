@@ -78,6 +78,7 @@ Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `spe
 ### Added
 - Independent `vcs: git | jj` and `planning_store.vcs` settings, each defaulting to Git. On jj, branch, commit, local merge, push and cleanup work through bookmarks, and other edits in the working copy are never committed (#19).
 - `vcs.sh` provides one branch-state and write boundary. With `vcs: jj`, its probe stops before a branch read or write when jj is missing or older than 0.46, or the repo is not colocated; ambiguous bookmarks stop and dirty paths use `/` separators (#19).
+- On jj, a switch carries uncommitted edits to the target and puts them back unchanged on a conflict (`carry_conflict`). A commit takes only its named paths and stops with `path_not_tracked` for an ignored or over-size file. A bookmark left behind by an interrupted commit moves forward only over the change's own commits, at most 50 (#19).
 - `jj git push` and `jj git fetch` run under the fenced GitHub login (#19).
 - Real-jj eval fixtures cover tracked and untracked main, with logged Git writes. CI installs jj 0.46.0 only after verifying its pinned SHA-256; local missing-jj runs skip explicitly, while CI requires the tool (#19).
 

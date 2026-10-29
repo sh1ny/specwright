@@ -31,26 +31,26 @@
 | vcs-backends → The Git backend keeps today's commands | Supplementary: call-site pull forms | evals/vcs/test_git_backend.py | `test_git_pull_call_site_forms` (cleanup and explicit roadmap remote/main) | green |
 | vcs-backends → The Git backend keeps today's commands | Supplementary: branch, merge and delete forms | evals/vcs/test_git_backend.py | `test_git_branch_merge_delete_forms` (checkout, merge message file, safe and guarded force delete) | green |
 | vcs-backends → The Git backend keeps today's commands | Supplementary: trace inheritance and operation parity | evals/vcs/test_git_backend.py | Existing call-site cases also compare raw Git with `vcs.sh` through the unedited `grade.git_trace` parser; no duplicate permanent cases | green |
-| vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Git reads after a jj commit | evals/vcs/test_commit.py | `test_git_reads_see_bookmark_tip` | red |
-| vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Working copy left with other edits | evals/vcs/test_commit.py | `test_unrelated_edit_stays_in_wc` | red |
+| vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Git reads after a jj commit | evals/vcs/test_commit.py | `test_git_reads_see_bookmark_tip` | green |
+| vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Working copy left with other edits | evals/vcs/test_commit.py | `test_unrelated_edit_stays_in_wc` | green |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | One bookmark | evals/vcs/test_state.py | `test_state_one_bookmark_beside_main` | green |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | Two bookmarks at the parent | evals/vcs/test_state.py | `test_state_two_bookmarks_ambiguous` | green |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | Neither main nor a bookmark | evals/vcs/test_state.py | `test_state_off_main_no_branch` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Remote main ahead, main tracked | evals/vcs/test_fetch_pull.py | `test_fetch_main_tracked_moves_nothing` | red |
 | vcs-backends → Fetches for reading move no jj bookmark | Local main diverged before a read | evals/vcs/test_fetch_pull.py | `test_fetch_main_diverged_no_conflict` | red |
 | vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | red |
-| vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | red |
+| vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_state_dirty_lists_paths`, `eval-branch-jj-dirty-no-stash` (live stop and no stash write) | red |
-| vcs-backends → Moving the working copy on jj carries uncommitted edits | Switch with carry-over | evals/vcs/test_switch.py | `test_switch_carries_added_files` | red |
-| vcs-backends → Moving the working copy on jj carries uncommitted edits | Carry conflicts | evals/vcs/test_switch.py | `test_switch_carry_conflict_rolls_back` | red |
-| vcs-backends → On jj a commit takes only its named paths | Group commit on jj | evals/vcs/test_commit.py | `test_commit_named_paths_only` | red |
-| vcs-backends → On jj a commit takes only its named paths | Nothing to commit | evals/vcs/test_commit.py | `test_commit_nothing_no_empty_commit` | red |
-| vcs-backends → On jj a commit takes only its named paths | Named file jj did not snapshot | evals/vcs/test_commit.py | `test_commit_oversize_file_path_not_tracked` | red |
-| vcs-backends → On jj a commit takes only its named paths | Message trailers kept | evals/vcs/test_commit.py | `test_commit_keeps_trailers` | red |
-| vcs-backends → An interrupted jj commit is resumed without loss | Bookmark left behind by an interruption | evals/vcs/test_advance.py | `test_advance_own_scope_moves` | red |
-| vcs-backends → An interrupted jj commit is resumed without loss | Someone else's commit | evals/vcs/test_advance.py | `test_advance_foreign_commit_stops` | red |
-| vcs-backends → An interrupted jj commit is resumed without loss | More than 50 commits | evals/vcs/test_advance.py | `test_advance_over_cap_stops` | red |
+| vcs-backends → Moving the working copy on jj carries uncommitted edits | Switch with carry-over | evals/vcs/test_switch.py | `test_switch_carries_added_files` | green |
+| vcs-backends → Moving the working copy on jj carries uncommitted edits | Carry conflicts | evals/vcs/test_switch.py | `test_switch_carry_conflict_rolls_back` | green |
+| vcs-backends → On jj a commit takes only its named paths | Group commit on jj | evals/vcs/test_commit.py | `test_commit_named_paths_only` | green |
+| vcs-backends → On jj a commit takes only its named paths | Nothing to commit | evals/vcs/test_commit.py | `test_commit_nothing_no_empty_commit` | green |
+| vcs-backends → On jj a commit takes only its named paths | Named file jj did not snapshot | evals/vcs/test_commit.py | `test_commit_oversize_file_path_not_tracked` | green |
+| vcs-backends → On jj a commit takes only its named paths | Message trailers kept | evals/vcs/test_commit.py | `test_git_reads_see_bookmark_tip` (also verifies complete trailers through Git and `task-cover.sh`) | green |
+| vcs-backends → An interrupted jj commit is resumed without loss | Bookmark left behind by an interruption | evals/vcs/test_advance.py | `test_advance_own_scope_moves` | green |
+| vcs-backends → An interrupted jj commit is resumed without loss | Someone else's commit | evals/vcs/test_advance.py | `test_advance_foreign_commit_stops` | green |
+| vcs-backends → An interrupted jj commit is resumed without loss | More than 50 commits | evals/vcs/test_advance.py | `test_advance_over_cap_stops` | green |
 | vcs-backends → A jj local merge keeps the merge proof | Local merge on jj with leftover edits | evals/vcs/test_merge.py | `test_merge_first_parent_and_carry` | red |
 | vcs-backends → A jj local merge keeps the merge proof | Conflicted merge | evals/vcs/test_merge.py | `test_merge_conflict_abandons` | red |
 | vcs-backends → A jj local merge keeps the merge proof | Interrupted after the merge commit | evals/vcs/test_merge.py | `test_merge_rerun_reuses_commit` | red |
@@ -122,11 +122,11 @@
 
 ## 3. jj writes: branch, switch, commit, advance
 
-- [ ] 3.1 Write failing tests:
+- [x] 3.1 Write failing tests:
   - `evals/vcs/test_branch.py` (Gate on jj);
   - `evals/vcs/test_switch.py` (Switch with carry-over, Carry conflicts);
   - `evals/vcs/test_commit.py`, all six rows. The over-size file uses jj's default `snapshot.max-new-file-size`.
-- [ ] 3.2 Implement the jj `branch-create`, `switch` (`jj new` when `@` is empty; otherwise `jj rebase -r @ -o`, with conflict roll-back → `carry_conflict`) and `commit`:
+- [x] 3.2 Implement the jj `branch-create`, `switch` (`jj new` when `@` is empty; otherwise `jj rebase -r @ -o`, with conflict roll-back → `carry_conflict`) and `commit`:
   - the bookmark check;
   - the `path_not_tracked` (`jj file list`) pre-check before `nothing_to_commit`, so a lone ignored or over-size named file reports the actual reason;
   - `root:"…"` filesets with escaping;
@@ -134,7 +134,7 @@
   - `jj commit -m`, then `jj bookmark set -r @-`, then verify that `git rev-parse HEAD` equals the bookmark.
 
   Verify the 3.1 tests pass and flip the rows green.
-- [ ] 3.3 Write `evals/vcs/test_advance.py` (Bookmark left behind, Someone else's commit, More than 50 commits), then implement `advance --scope` with the own-scope subject rule. Verify and flip the rows green.
+- [x] 3.3 Write `evals/vcs/test_advance.py` (Bookmark left behind, Someone else's commit, More than 50 commits), then implement `advance --scope` with the own-scope subject rule. Verify and flip the rows green.
 
 ## 4. jj merge, delete, fetch, pull, push and the fence
 
