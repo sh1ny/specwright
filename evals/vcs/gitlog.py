@@ -11,6 +11,8 @@ _WRITE_COMMANDS = {
     "update-ref", "worktree", "fetch",
 }
 _READ_ONLY_CONFIG = {"--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin", "--show-scope"}
+_TAG_READS = {"-l", "--list", "-n", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
+_TAG_WRITES = {"-a", "-d", "-f", "-s", "-u", "-m", "-F", "--delete", "--force", "--annotate", "--sign"}
 _BRANCH_READS = {"--show-current", "--list", "-l", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--remotes"}
 
 
@@ -32,6 +34,9 @@ def classify(argv):
     exception = None
     if command == "branch" and (not tail or tail[0] in _BRANCH_READS or any(arg in _BRANCH_READS for arg in tail)):
         write = False
+    if command == "tag" and (not tail or any(arg in _TAG_READS or arg.startswith(("--format=", "--sort=", "--points-at=", "--contains="))
+                                              for arg in tail)) and not any(arg in _TAG_WRITES for arg in tail):
+        write = False  # listing tags reads
     if command == "fetch" and any(arg == "--refmap=" for arg in tail):
         write = False
         exception = "FETCH_HEAD-only read fetch"

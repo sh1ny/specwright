@@ -29,7 +29,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCRIPT = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
+sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
+import jjenv  # noqa: E402
 
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the repo with its first commit is built once and copied
@@ -843,6 +845,31 @@ class Rounds(Base):
 
     def rounds(self):
         return self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH)
+
+    def test_remote_contains_jj_moves_no_ref(self):
+        """On a jj repo the tip fetch of remote_contains writes FETCH_HEAD only: refs/remotes/origin/<branch> stays put."""
+        jj = jjenv.require_jj()
+        bares = {}
+        for d, slug in ((self.code, CODE), (self.store, STORE)):
+            bares[d] = self.attach_bare(d, slug)
+            self.git(d, "push", "-q", "origin", BRANCH)
+        fix = self.commit(self.store, {"a.md": "1\n"}, "fix(add-greeting): address review feedback\n\nFeedback-Round: 2")
+        self.git(self.store, "push", "-q", "origin", BRANCH)
+        other = self.tmp / "other-store"
+        self.git(self.tmp, "clone", "-q", "-b", BRANCH, fixtures.posix(bares[self.store]), str(other))
+        self.git(other, "config", "user.name", "Other")
+        self.git(other, "config", "user.email", "other@example.com")
+        self.commit(other, {"b.md": "2\n"}, "docs: someone else's commit")
+        self.git(other, "push", "-q", "origin", BRANCH)
+        theirs = self.tip(other)
+        r = subprocess.run([jj, "git", "init", "--colocate"], cwd=self.store, capture_output=True, text=True, env=self.env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        tracking = f"refs/remotes/origin/{BRANCH}"
+        self.assertEqual(self.git(self.store, "rev-parse", tracking), fix)
+        r = self.rounds()
+        self.assertEqual((r["unpushed"], r["remote_unreadable"]), ({}, []))
+        self.assertEqual(self.git(self.store, "rev-parse", tracking), fix)  # not advanced to the other checkout's tip
+        self.assertEqual(self.git(self.store, "rev-parse", "FETCH_HEAD"), theirs)
 
     def test_rounds_highest_across_branches(self):
         self.commit(self.store, {"a.md": "1\n"}, "fix(add-greeting): address review feedback\n\nFeedback-Round: 1")
@@ -2643,6 +2670,37 @@ class Cleanup(Base):
             self.assertNotIn("force_delete_allowed", e)
             self.assertEqual(e["commands"][0]["cwd"], str(self.code if repo == "code" else self.store).replace("\\", "/"))
         self.assertEqual(p["keep"], [])
+
+    def test_cleanup_plan_jj_commands(self):
+        """A jj repo's switch, pull and delete come from vcs.sh plan; the paired Git store keeps its Git commands."""
+        jj = jjenv.require_jj()
+        r = subprocess.run([jj, "git", "init", "--colocate"], cwd=self.code, capture_output=True, text=True, env=self.env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.write("code/openspec/specwright.yaml", "vcs: jj\n")
+        self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)
+        self.add_pull(STORE, 2, state="closed", merged=self.merged, sha=self.tip(self.store))
+        p = self.plan()
+        vcs_sh = str(SCRIPT.parent / "vcs.sh").replace("\\", "/").lower()
+
+        def opt(cmd, flag):
+            return cmd[cmd.index(flag) + 1]
+
+        e = p["code"]
+        switch, pull, check = self.cmds(e)
+        for cmd, op in ((switch, "switch"), (pull, "pull")):
+            self.assertEqual((cmd[0], cmd[1].lower(), cmd[2]), ("bash", vcs_sh, op), cmd)
+            self.assertEqual((opt(cmd, "--role"), opt(cmd, "--branch")), ("code", "main"), cmd)
+            self.assertEqual(Path(opt(cmd, "--repo")).resolve(), Path(self.code).resolve(), cmd)
+        self.assertEqual(opt(pull, "--login"), "KintsugiBot")
+        self.assertEqual(check, self.check_cmd(e, "a" * 40))
+        delete = e["delete"]
+        self.assertEqual((delete[0], delete[1].lower(), delete[2]), ("bash", vcs_sh, "delete-branch"), delete)
+        self.assertEqual(opt(delete, "--branch"), BRANCH)
+        self.assertIn("--force", delete)
+        self.assertEqual(e["commands"][0]["cwd"], str(self.code).replace("\\", "/"))
+        s = p["store"]
+        self.same_cmds(self.cmds(s)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
+        self.assertEqual(s["delete"], ["git", "branch", "-D", BRANCH])
 
     def test_cleanup_plan_pull_runs_through_as_sh(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)

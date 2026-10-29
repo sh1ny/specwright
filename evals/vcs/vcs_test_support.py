@@ -51,6 +51,17 @@ def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
     return env
 
 
+def bash_run(args, cwd, env=None, shim=None):
+    """Run `bash <args>` with a Git-Bash-native PATH (the way VcsTestCase.invoke does); returns the CompletedProcess.
+    `env` adds variables (its PATH is ignored); `shim` is a directory put first on PATH."""
+    shell_env = bash_path_env(shim)
+    shell_env.update({key: value for key, value in (env or {}).items() if key != "PATH"})
+    shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
+    return subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
+                           "bash-run", *map(str, args)], cwd=cwd, env=shell_env, capture_output=True, text=True,
+                          encoding="utf-8")
+
+
 class VcsTestCase(unittest.TestCase):
     def setUp(self):
         if not VCS.is_file():

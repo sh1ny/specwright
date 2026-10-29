@@ -38,7 +38,7 @@
 | vcs-backends → On jj the current change branch is resolved from bookmarks | Neither main nor a bookmark | evals/vcs/test_state.py | `test_state_off_main_no_branch` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Remote main ahead, main tracked | evals/vcs/test_fetch_pull.py | `test_fetch_main_tracked_moves_nothing` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Local main diverged before a read | evals/vcs/test_fetch_pull.py | `test_fetch_main_diverged_no_conflict` | green |
-| vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | red |
+| vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_state_dirty_lists_paths`, `eval-branch-jj-dirty-no-stash` (live stop and no stash write) | red |
@@ -64,19 +64,19 @@
 | vcs-backends → The jj pull fetches only main and only fast-forwards | Local main diverged | evals/vcs/test_fetch_pull.py | `test_pull_diverged_stops_before_jj_fetch` | green |
 | vcs-backends → The jj pull fetches only main and only fast-forwards | Local main ahead | evals/vcs/test_fetch_pull.py | `test_pull_local_ahead_succeeds_unmoved` | green |
 | vcs-backends → The jj pull fetches only main and only fast-forwards | Remote moved again during the pull | evals/vcs/test_fetch_pull.py | `test_pull_conflicted_main_set_back` (origin moved by a hook between read and fetch) | green |
-| vcs-backends → Release tags are the one Git write on jj | Publish on jj | evals/release/test_release_jj.py | `test_publish_jj_only_tag_writes` | red |
-| vcs-backends → Release tags are the one Git write on jj | Tag at another commit | evals/release/test_release_jj.py | `test_publish_jj_tag_elsewhere_exit_1` | red |
+| vcs-backends → Release tags are the one Git write on jj | Publish on jj | evals/release/test_release_jj.py | `test_publish_jj_only_tag_writes` | green |
+| vcs-backends → Release tags are the one Git write on jj | Tag at another commit | evals/release/test_release_jj.py | `test_publish_jj_tag_elsewhere_exit_1` | green |
 | vcs-backends → No other Git write runs under jj | Full local flow on jj | evals/vcs/test_flows.py | `test_local_flow_no_git_writes` | red |
 | vcs-backends → No other Git write runs under jj | Full PR flow on jj | evals/vcs/test_flows.py | `test_pr_flow_no_git_writes` | red |
 | vcs-backends → Debug never stashes on jj | Dirty working copy during a reproduction | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-dirty-no-stash` (live changed-path report, question and no stash write) | red |
 | vcs-backends → Debug never stashes on jj | Clean working copy | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-clean` (live reproduction proceeds without an unnecessary question) | red |
-| vcs-backends → The archive undo plan uses jj on a jj repo | Undo plan on jj | evals/finish/test_undo_jj.py | `test_undo_plan_jj_commands_and_result` | red |
-| vcs-backends → The archive undo plan uses jj on a jj repo | Archive committed on another branch | evals/finish/test_undo_jj.py | `test_undo_plan_jj_other_branch_moves_wc` | red |
-| vcs-backends → The archive undo plan uses jj on a jj repo | Touched path already changed | evals/finish/test_undo_jj.py | `test_undo_plan_jj_guard_fails_first` | red |
-| vcs-backends → The archive undo plan uses jj on a jj repo | Wrong branch | evals/finish/test_undo_jj.py | `test_undo_plan_jj_wrong_branch` | red |
-| vcs-backends → A jj store passes the update's branch check | jj store on main | evals/update/test_update_jj_store.py | `test_jj_store_on_main_not_refused` | red |
-| vcs-backends → A jj store passes the update's branch check | Git store with a detached HEAD | evals/update/test_update_jj_store.py | `test_git_store_detached_still_refused` | red |
-| vcs-backends → A jj store passes the update's branch check | Script missing from the download | evals/update/test_update_jj_store.py | `test_jj_store_vcs_script_missing` | red |
+| vcs-backends → The archive undo plan uses jj on a jj repo | Undo plan on jj | evals/finish/test_undo_jj.py | `test_undo_plan_jj_commands_and_result` | green |
+| vcs-backends → The archive undo plan uses jj on a jj repo | Archive committed on another branch | evals/finish/test_undo_jj.py | `test_undo_plan_jj_other_branch_moves_wc` | green |
+| vcs-backends → The archive undo plan uses jj on a jj repo | Touched path already changed | evals/finish/test_undo_jj.py | `test_undo_plan_jj_guard_fails_first` | green |
+| vcs-backends → The archive undo plan uses jj on a jj repo | Wrong branch | evals/finish/test_undo_jj.py | `test_undo_plan_jj_wrong_branch` | green |
+| vcs-backends → A jj store passes the update's branch check | jj store on main | evals/update/test_update_jj_store.py | `test_jj_store_on_main_not_refused` | green |
+| vcs-backends → A jj store passes the update's branch check | Git store with a detached HEAD | evals/update/test_update_jj_store.py | `test_git_store_detached_still_refused` | green |
+| vcs-backends → A jj store passes the update's branch check | Script missing from the download | evals/update/test_update_jj_store.py | `test_jj_store_vcs_script_missing` | green |
 | vcs-backends → Paired repos each use their own backend | jj code repo with a Git store | evals/vcs/test_pair.py | `test_pair_jj_code_git_store_branch` | red |
 | vcs-backends → Paired repos each use their own backend | Store probe fails | evals/vcs/test_pair.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_pair_store_probe_fails`, `eval-branch-store-probe-fails` (live no branch creation and lock released) | red |
 | github-identity → jj network commands are fenced like git | Push on jj | evals/pr-pair/test_as_jj.py | `test_jj_push_uses_fenced_token` (fake credential helper answers only the fenced token) | green |
@@ -158,18 +158,18 @@
 
 ## 5. Scripts that read the branch or emit commands
 
-- [ ] 5.1 Write `evals/finish/test_undo_jj.py` (four rows). Then change `finish.sh`:
+- [x] 5.1 Write `evals/finish/test_undo_jj.py` (four rows). Then change `finish.sh`:
   - it reads the branch through `../../specwright-pr/scripts/vcs.sh state` (exit 2 naming the path when missing);
   - on jj it emits D13's script: the guards, `jj new <b>` for another branch, the moves, `jj restore --from`, removals, `jj commit` and the bookmark set, plus the failure warning.
 
   Verify the rows go green, and that `python evals/run.py finish` keeps the Git tests green.
-- [ ] 5.2 Change `pr-pair.sh`:
+- [x] 5.2 Change `pr-pair.sh`:
   - `cleanup-plan` asks `vcs.sh plan` for each repo's switch, pull and delete commands, and reads the branch through `vcs.sh state`;
   - `remote_contains` adds `--refmap=` on a jj repo.
 
   Add the cases `test_cleanup_plan_jj_commands` and `test_remote_contains_jj_moves_no_ref` to `evals/pr-pair`, and verify that `python evals/run.py pr-pair` passes.
-- [ ] 5.3 Write `evals/update/test_update_jj_store.py` (three rows). Then change `update.sh store_busy_reason`: for a jj store, read the branch through the download's `skills/specwright-pr/scripts/vcs.sh state` and refuse with `vcs_script_missing` when it is absent. A Git store is unchanged. Verify and flip the rows green, and confirm `python evals/run.py update` passes.
-- [ ] 5.4 Write `evals/release/test_release_jj.py` (Release publish on jj with main tracked; Publish on jj; Tag at another commit). Then add `release.sh --base <branch>`, which `merged_pulls` uses when given; the tag fetch names `refs/tags/<tag>` only. Verify the rows go green, and that `python evals/run.py release` keeps the existing tests green.
+- [x] 5.3 Write `evals/update/test_update_jj_store.py` (three rows). Then change `update.sh store_busy_reason`: for a jj store, read the branch through the download's `skills/specwright-pr/scripts/vcs.sh state` and refuse with `vcs_script_missing` when it is absent. A Git store is unchanged. Verify and flip the rows green, and confirm `python evals/run.py update` passes.
+- [x] 5.4 Write `evals/release/test_release_jj.py` (Release publish on jj with main tracked; Publish on jj; Tag at another commit). Then add `release.sh --base <branch>`, which `merged_pulls` uses when given; the tag fetch names `refs/tags/<tag>` only. Verify the rows go green, and that `python evals/run.py release` keeps the existing tests green.
 
 ## 6. Skill prose routes through vcs.sh
 

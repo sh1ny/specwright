@@ -91,6 +91,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -1249,6 +1250,11 @@ def cmd_pair_state(argv):
     return {**r, "action": "ready" if not r["waiting_on"] else "wait"}
 
 
+def is_jj(d):
+    """A jj repo: it has .jj/ at its toplevel (colocated)."""
+    return os.path.isdir(os.path.join(toplevel(d), ".jj"))
+
+
 def remote_contains(d, branch, sha):
     r = git_net(d, "ls-remote", "origin", f"refs/heads/{branch}")
     if r.returncode != 0:
@@ -1261,7 +1267,8 @@ def remote_contains(d, branch, sha):
         return True
     if git(d, "cat-file", "-e", remote + "^{commit}").returncode != 0:
         # another checkout pushed a tip this repo lacks: fetch it (FETCH_HEAD only, no local ref moves) before the ancestry test
-        git_net(d, "fetch", "-q", "origin", f"refs/heads/{branch}")
+        # --refmap= on a jj repo: jj imports a remote-tracking move into a tracked bookmark, so only FETCH_HEAD may change
+        git_net(d, "fetch", "-q", *(["--refmap="] if is_jj(d) else []), "origin", f"refs/heads/{branch}")
     r = git(d, "merge-base", "--is-ancestor", sha, remote)
     if r.returncode in (0, 1):
         return r.returncode == 0
@@ -2004,6 +2011,34 @@ def cmd_branch_check(argv):
     return {"ok": True, "delete": False, "reason": "lacking", "lacking": lacking(f"{mref}..{tip}", "--not", head)}
 
 
+def vcs_sh(*args):
+    return run([BASH, f"{os.environ['PR_PAIR_DIR']}/vcs.sh", *args])
+
+
+def vcs_plan(cwd, role, code, operation, branch, *extra):
+    """The commands vcs.sh plan prints for one operation in a jj repo, as {cmd: argv, cwd}."""
+    r = vcs_sh("plan", "--repo", cwd, "--role", role, "--code", code, "--operation", operation, "--branch", branch, *extra)
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        doc = {}
+    if not doc.get("ok"):
+        raise Stop(doc.get("error") or "vcs_error", doc.get("message") or f"vcs.sh plan failed in {cwd}: {r.stderr.strip()}")
+    return [[x.replace("\\", "/") if re.match(r"^[A-Za-z]:\\", x) else x for x in shlex.split(c)] for c in doc["commands"]]  # drive paths: forward slashes
+
+
+def vcs_branch(cwd, role, code):
+    """The current branch of a repo, read through vcs.sh state."""
+    r = vcs_sh("state", "--repo", cwd, "--role", role, "--code", code)
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        doc = {}
+    if not doc.get("ok"):
+        raise Stop(doc.get("error") or "vcs_error", doc.get("message") or f"vcs.sh state failed in {cwd}: {r.stderr.strip()}")
+    return doc["branch"]
+
+
 def cmd_cleanup(argv):
     a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch"})
     need(a, "code", "store", "branch")
@@ -2012,6 +2047,7 @@ def cmd_cleanup(argv):
     ctx = contexts(a["code"], a["store"])
     as_sh = f"{os.environ['PR_PAIR_DIR']}/as.sh"
     members, keep, out = e["set"], [], {}
+    backends = cmd_vcs(["--code", a["code"]])
     all_merged = bool(members) and all(e[k]["pr"] and e[k]["pr"]["state"] == "MERGED" for k in members)
     for k, d in (("code", a["code"]), ("store", a["store"])):
         side, main = e[k], e[k]["main"]
@@ -2019,21 +2055,32 @@ def cmd_cleanup(argv):
         exists = has_ref(d, f"refs/heads/{branch}")
         ent = {"expected": side["expected"], "repo": side["repo"], "dir": cwd, "merged": False, "branch_exists": exists, "pr": pr, "commands": []}
         cmd = lambda *c: {"cmd": list(c), "cwd": cwd}
+        jj = backends[k] == "jj"  # a jj repo gets vcs.sh plan's commands; a Git repo keeps the Git commands below
         if side["expected"] and pr and pr["state"] == "MERGED":
             ent["merged"] = True
             if exists:
                 # after the pull, branch-check decides: the skill runs `delete` only when it answers delete: true
                 check = ["pr-pair.sh", "branch-check", "--dir", cwd, "--branch", branch, "--main", main] + (["--head", pr["head_sha"]] if pr.get("head_sha") else [])
-                ent["commands"] = [cmd("git", "checkout", main), cmd("bash", as_sh, ctx[k]["login"] or ambient_login(), "git", "pull", "--ff-only"), cmd(*check)]
-                ent["delete"] = ["git", "branch", "-D", branch]
+                if jj:
+                    login = ctx[k]["login"] or ambient_login()
+                    ent["commands"] = ([cmd(*c) for c in vcs_plan(cwd, k, a["code"], "switch", main)] +
+                                       [cmd(*c) for c in vcs_plan(cwd, k, a["code"], "pull", main, "--login", login)] + [cmd(*check)])
+                    ent["delete"] = vcs_plan(cwd, k, a["code"], "delete-branch", branch, "--force")[0]
+                else:
+                    ent["commands"] = [cmd("git", "checkout", main), cmd("bash", as_sh, ctx[k]["login"] or ambient_login(), "git", "pull", "--ff-only"), cmd(*check)]
+                    ent["delete"] = ["git", "branch", "-D", branch]
         elif side["expected"]:
             keep.append({"repo": k, "slug": side["repo"], "state": pr["state"] if pr else "NONE", "branch": branch,
                          "url": pr["url"] if pr else None})
         elif k == "store" and exists and side["reason"] == "no_github_origin":  # no PR can merge it: the user shares it by hand
             keep.append({"repo": k, "slug": None, "state": "SHARE_BY_HAND", "branch": branch, "url": None})
         elif k == "code" and exists and all_merged:  # the empty code branch, kept until now
-            cur = git(d, "branch", "--show-current").stdout.strip()
-            ent["commands"] = ([cmd("git", "checkout", main)] if cur == branch else []) + [cmd("git", "branch", "-d", branch)]
+            cur = vcs_branch(cwd, k, a["code"])
+            if jj:
+                ent["commands"] = (([cmd(*c) for c in vcs_plan(cwd, k, a["code"], "switch", main)] if cur == branch else []) +
+                                   [cmd(*c) for c in vcs_plan(cwd, k, a["code"], "delete-branch", branch)])
+            else:
+                ent["commands"] = ([cmd("git", "checkout", main)] if cur == branch else []) + [cmd("git", "branch", "-d", branch)]
         out[k] = ent
     return {"ok": True, "branch": branch, "set": members, "code": out["code"], "store": out["store"], "keep": keep}
 

@@ -81,6 +81,7 @@ Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `spe
 - On jj, a switch carries uncommitted edits to the target and puts them back unchanged on a conflict (`carry_conflict`). A commit takes only its named paths and stops with `path_not_tracked` for an ignored or over-size file. A bookmark left behind by an interrupted commit moves forward only over the change's own commits, at most 50 (#19).
 - `jj git push` and `jj git fetch` run under the fenced GitHub login. `as.sh` refuses every other jj subcommand and any option that selects another repository or config (#19).
 - On jj, a refresh that only reads origin's main moves no bookmark. A pull fetches only main, so a change bookmark whose remote branch was deleted stays. It fast-forwards main, and stops with `not_fast_forward` when main has diverged. A local merge keeps its `merge: <name>` first-parent commit, and a rerun reuses it (#19).
+- On jj, finish's archive undo plan works the working copy with `jj restore` and `jj commit` and runs no Git write. PR cleanup plans use the repo's own backend. The install and update accept a jj store on main, and refuse with `vcs_script_missing` when the download lacks the backend script. `release.sh` takes `--base <branch>`, so a jj publish lists merged PRs by the base branch's name (#19).
 - Real-jj eval fixtures cover tracked and untracked main, with logged Git writes. CI installs jj 0.46.0 only after verifying its pinned SHA-256; local missing-jj runs skip explicitly, while CI requires the tool (#19).
 
 ### Changed
