@@ -10,6 +10,7 @@
 - Existing predicates in `evals/git-workflow/grade.py` and existing `test_grade.py` cases remain unchanged. Additive graders and fixtures may cover ordering invariants that have no existing behavioral coverage. Running the offline unittest suite is not evidence that a live-agent eval ran.
 - Git compatibility cases preserve each call site's operation argv and inherited `GIT_TRACE`. Trace comparisons permit mandatory read-only probe/settings commands, but preserve operation order, branch guards and every write; no unexpected write is filtered out.
 - Tasks 1-5 add and verify the backend before task 6.2 cuts the skill instructions over. Ask the user before each heavy live-agent eval run; a run awaiting approval remains incomplete.
+- Test-map rows prefixed `Supplementary:` refine coverage of an existing requirement; they do not claim additional `#### Scenario:` blocks in the spec.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
@@ -26,10 +27,10 @@
 | vcs-backends → The Git backend keeps today's commands | Git commit by name | evals/vcs/test_git_backend.py | `test_git_commit_commands_exact` | red |
 | vcs-backends → The Git backend keeps today's commands | Git push | evals/vcs/test_git_backend.py | `test_git_push_command_exact_no_deadline` | red |
 | vcs-backends → The Git backend keeps today's commands | Git commit with nothing to commit | evals/vcs/test_git_backend.py | `test_git_commit_nothing_fails_like_git` | red |
-| vcs-backends → The Git backend keeps today's commands | Call-site fetch forms | evals/vcs/test_git_backend.py | `test_git_fetch_call_site_forms` (quiet, no-tags, plain; exact argv and real trace) | red |
-| vcs-backends → The Git backend keeps today's commands | Call-site pull forms | evals/vcs/test_git_backend.py | `test_git_pull_call_site_forms` (cleanup and explicit roadmap remote/main) | red |
-| vcs-backends → The Git backend keeps today's commands | Branch, merge and delete forms | evals/vcs/test_git_backend.py | `test_git_branch_merge_delete_forms` (checkout, merge message file, safe and guarded force delete) | red |
-| vcs-backends → The Git backend keeps today's commands | Trace inheritance and operation parity | evals/vcs/test_git_backend.py | Existing call-site cases also compare raw Git with `vcs.sh` through the unedited `grade.git_trace` parser; no duplicate permanent cases | red |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: call-site fetch forms | evals/vcs/test_git_backend.py | `test_git_fetch_call_site_forms` (quiet, no-tags, plain; exact argv and real trace) | red |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: call-site pull forms | evals/vcs/test_git_backend.py | `test_git_pull_call_site_forms` (cleanup and explicit roadmap remote/main) | red |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: branch, merge and delete forms | evals/vcs/test_git_backend.py | `test_git_branch_merge_delete_forms` (checkout, merge message file, safe and guarded force delete) | red |
+| vcs-backends → The Git backend keeps today's commands | Supplementary: trace inheritance and operation parity | evals/vcs/test_git_backend.py | Existing call-site cases also compare raw Git with `vcs.sh` through the unedited `grade.git_trace` parser; no duplicate permanent cases | red |
 | vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Git reads after a jj commit | evals/vcs/test_commit.py | `test_git_reads_see_bookmark_tip` | red |
 | vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Working copy left with other edits | evals/vcs/test_commit.py | `test_unrelated_edit_stays_in_wc` | red |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | One bookmark | evals/vcs/test_state.py | `test_state_one_bookmark_beside_main` | red |
@@ -175,6 +176,7 @@
 - [ ] 6.1 Before deleting an affected prose-pinning assertion, add an inventory table below this task: assertion → consumer-visible invariant → script behavior test or named live-agent eval → verification result. Include affected assertions in `evals/git-workflow/test_instructions.py`, `evals/pr-pair/test_skill_text.py`, `evals/release/test_skill_text.py` and `evals/review-routes/test_skill_text.py`. Delete the obsolete source-text assertions, never re-pin them to `vcs.sh` wording:
   - Invariants now owned by scripts use real behavior tests: wrong-branch refusal, named-path commits, no empty jj commit, safe versus guarded force deletion, annotated release tags and tag-only push.
   - Agent-order invariants use live evals with command traces and resulting repo state: store lock held before branch creation and released afterwards; subject fitting before commit; status/guard before switch and pull. Name the existing eval for each; when none covers it, add only the missing fixture/eval and additive grader predicate, leaving existing `grade.py` predicates and `test_grade.py` cases untouched.
+  - Include `test_instructions.py`'s exact branch/commit `allowed-tools` pin in the inventory. Its replacement verifies script-invocation preapproval in the actual harness permission path, not another source regex; absence of an `allowed-tools` field is not itself a restrictive allowlist.
   - Add live cases `eval-branch-git-jj-note`, `eval-branch-jj-dirty-no-stash`, `eval-branch-store-probe-fails`, `eval-debug-jj-dirty-no-stash` and `eval-debug-jj-clean`, with fake external services and isolated fixtures. They check observed notes/questions, executed commands, lock/branch state and absence of stash writes, not source spelling.
   - Confirm new script behavior checks fail before implementation where applicable. Live checks remain red until the individually approved post-cutover runs in 7.3; an unrun eval is never green. Inventory coverage must be complete before an assertion is removed.
 - [ ] 6.2 Rewrite the write steps and branch reads to name `vcs.sh` subcommands. On jj, `fetch-main`'s `ref` replaces `origin/<main>`. Files:
@@ -187,7 +189,7 @@
   - `skills/specwright-release/SKILL.md`: publish fetch, `--base`, and the tag exception named;
   - `skills/specwright-debug/SKILL.md`: no stash on jj.
 
-  Bump each touched skill's `version:`. Remove obsolete raw write instructions in the cutover, retaining only the annotated release-tag exception and read-only Git operations. Run the affected script and offline regression tests after the cutover; these do not stand in for live ordering evidence. Leave Debug and gate live-eval rows red until 7.3 exercises them with approval.
+  Bump each touched skill's `version:`. Update branch and commit's `allowed-tools` grants to permit the new `bash .../vcs.sh` calls (`Bash(bash *)`, as finish already grants), preserving their existing Git/OpenSpec grants. Audit all eight cutover skills' explicit or inherited script permissions and keep invocation usable under normal permissions, without silently relying on permission bypass. Remove obsolete raw write instructions in the cutover, retaining only the annotated release-tag exception and read-only Git operations. Run the affected script and offline regression tests after the cutover; these do not stand in for live ordering/permission evidence. Leave Debug and gate live-eval rows red until 7.3 exercises them with approval.
 - [ ] 6.3 Document `vcs` and `planning_store.vcs` in `README.md`: setup, colocated requirement, jj 0.46+, no conversion, the tag exception, and that the user's own jj skill is optional, never installed by Specwright. Verify with `python evals/run.py --changed main`.
 
 ## 7. End-to-end on jj, and the release
