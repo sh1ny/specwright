@@ -1498,7 +1498,7 @@ SP_PAIR = "Each group has one code commit and one store commit with the identica
 SP_TICKS = "Each store group commit touches only tasks.md and its diff ticks exactly its group's tasks"
 SP_REPORT = "The report's completion check gives the task-work commits and a clean tree separately for the code repo and the store"
 # eval-store-group-code-half, -store-half, -noop
-CH_PAIR = "The code repo gets one group 1 commit, then the store one with the same message, and the store's tasks.md diff ticks exactly 1.1, 1.2 and 1.3"
+CH_PAIR = "The code repo gets one group 1 commit, then the store one with the same message and the trailers 1.1, 1.2 and 1.3, and the store's tasks.md diff ticks exactly those tasks"
 CH_KEPT = "No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean"
 SH_STORE = "The store gets one commit with the code commit's subject and trailers, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3"
 SH_NODUP = "The code repo has exactly one group 1 commit"
@@ -1740,6 +1740,15 @@ class StoreGroupRecovery(GroupGraderCase):
         fixtures.commit_group(code, store, "groups", 1)
         fixtures.commit_group(code, store, "groups", 2)
         self.assert_passes()
+
+    def test_store_group_code_half_without_trailers_fails(self):
+        # identical messages in both repos, but no Specwright-Task trailers: tasks 1.1 to 1.3 have no evidence
+        self.fixture("eval-store-group-code-half", "Committed group 1 in the code repo, then in the store.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        msg = fixtures.group_msg("groups", 1, tasks=[])
+        commit_paths(code, msg, *fixtures.group_code(code, 1))
+        commit_paths(store, msg, CHANGE_TASKS)
+        self.assert_fails(CH_PAIR)
 
     def test_store_group_code_half_lost_tick_fails(self):
         self.fixture("eval-store-group-code-half", "Committed group 1.\n")

@@ -2207,6 +2207,8 @@ class GroupCommits(unittest.TestCase):
                          "Reconcile treats this session's earlier ticks in its open group as gaps")
         self.assertRegex(rec, r"(?i)inherited from an earlier.{0,40}session.{0,60}(still|are) (gaps|reconciled)",
                          "ticks inherited from an interrupted session are no longer reconciled")
+        self.assertRegex(rec, r"(?i)the task this session just ticked and is committing now is not a gap",
+                         "task mode lost the exemption for the task being committed now")
 
     def test_commit_unfittable_group_reports_group_and_limit(self):
         s2 = commit_sec(r"2\. After each task")

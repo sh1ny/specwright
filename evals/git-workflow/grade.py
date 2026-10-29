@@ -437,8 +437,8 @@ def check_store_groups(name, repo, code, store, rep):
     elif name == "eval-store-group-code-half":
         c, s = pair(1)
         want = GROUPS_TASKS[1]
-        R.append(("The code repo gets one group 1 commit, then the store one with the same message, and the store's tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
-                  same(1) and s[0].ct >= c[0].ct and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [want],
+        R.append(("The code repo gets one group 1 commit, then the store one with the same message and the trailers 1.1, 1.2 and 1.3, and the store's tasks.md diff ticks exactly those tasks",
+                  same(1) and c[0].tasks == s[0].tasks == want and s[0].ct >= c[0].ct and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [want],
                   f"code={[x.subject for x in c]} store={[x.subject for x in s]} ticks={st_ticks(1)}"))
         R.append(("No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean",
                   set(want) <= set(ticked_tasks(store)) and clean[0], f"ticked={ticked_tasks(store)} {clean[1]}"))
