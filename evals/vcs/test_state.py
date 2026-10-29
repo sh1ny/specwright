@@ -45,6 +45,41 @@ class TestJjState(VcsTestCase):
         self.assertEqual(state["branch"], "")
         self.assertFalse(state["on_main"])
 
+    def test_state_two_parent_working_copy_ambiguous(self):
+        jj = require_jj()
+        import subprocess
+        for args in (("commit", "-m", "settings"), ("bookmark", "set", "main", "-r", "@-"),
+                     ("new", "main", "-m", "left"), ("new", "main", "-m", "right")):
+            subprocess.run([jj, *args, "--repository", str(self.repo)], env=self.scratch.env,
+                           capture_output=True, text=True, check=True)
+        result = subprocess.run([jj, "new", 'description(exact:"left\\n")', 'description(exact:"right\\n")',
+                                 "--repository", str(self.repo)], env=self.scratch.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        state, _ = self.invoke("state", repo=self.repo, expected=1)
+        self.assertEqual(state["error"], "ambiguous_branch")
+
+    def test_state_conflicted_bookmark_ambiguous(self):
+        jj = require_jj()
+        import subprocess
+
+        def run(*args):
+            result = subprocess.run([jj, *args, "--repository", str(self.repo)], env=self.scratch.env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result.stdout.strip()
+
+        run("commit", "-m", "settings")
+        run("bookmark", "set", "main", "-r", "@-")
+        run("new", "main", "-m", "left")
+        run("new", "main", "-m", "right")
+        left = run("log", "--no-graph", "-r", 'description(exact:"left\\n")', "-T", "commit_id")
+        right = run("log", "--no-graph", "-r", 'description(exact:"right\\n")', "-T", "commit_id")
+        run("bookmark", "create", "feat/x", "-r", left)
+        run("--at-op", "@-", "bookmark", "create", "feat/x", "-r", right)
+        run("new", left)
+        state, _ = self.invoke("state", repo=self.repo, expected=1)
+        self.assertEqual(state["error"], "ambiguous_branch", state)
+
     def test_state_dirty_lists_paths(self):
         (self.repo / "dirty file.txt").write_text("dirty\n", encoding="utf-8")
         state, _ = self.invoke("state", repo=self.repo)

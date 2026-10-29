@@ -36,8 +36,8 @@
 | vcs-backends → On jj the current change branch is resolved from bookmarks | One bookmark | evals/vcs/test_state.py | `test_state_one_bookmark_beside_main` | green |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | Two bookmarks at the parent | evals/vcs/test_state.py | `test_state_two_bookmarks_ambiguous` | green |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | Neither main nor a bookmark | evals/vcs/test_state.py | `test_state_off_main_no_branch` | green |
-| vcs-backends → Fetches for reading move no jj bookmark | Remote main ahead, main tracked | evals/vcs/test_fetch_pull.py | `test_fetch_main_tracked_moves_nothing` | red |
-| vcs-backends → Fetches for reading move no jj bookmark | Local main diverged before a read | evals/vcs/test_fetch_pull.py | `test_fetch_main_diverged_no_conflict` | red |
+| vcs-backends → Fetches for reading move no jj bookmark | Remote main ahead, main tracked | evals/vcs/test_fetch_pull.py | `test_fetch_main_tracked_moves_nothing` | green |
+| vcs-backends → Fetches for reading move no jj bookmark | Local main diverged before a read | evals/vcs/test_fetch_pull.py | `test_fetch_main_diverged_no_conflict` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | red |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | green |
@@ -51,19 +51,19 @@
 | vcs-backends → An interrupted jj commit is resumed without loss | Bookmark left behind by an interruption | evals/vcs/test_advance.py | `test_advance_own_scope_moves` | green |
 | vcs-backends → An interrupted jj commit is resumed without loss | Someone else's commit | evals/vcs/test_advance.py | `test_advance_foreign_commit_stops` | green |
 | vcs-backends → An interrupted jj commit is resumed without loss | More than 50 commits | evals/vcs/test_advance.py | `test_advance_over_cap_stops` | green |
-| vcs-backends → A jj local merge keeps the merge proof | Local merge on jj with leftover edits | evals/vcs/test_merge.py | `test_merge_first_parent_and_carry` | red |
-| vcs-backends → A jj local merge keeps the merge proof | Conflicted merge | evals/vcs/test_merge.py | `test_merge_conflict_abandons` | red |
-| vcs-backends → A jj local merge keeps the merge proof | Interrupted after the merge commit | evals/vcs/test_merge.py | `test_merge_rerun_reuses_commit` | red |
-| vcs-backends → A jj branch is deleted only locally and only once merged | Cleanup after local merge | evals/vcs/test_delete.py | `test_delete_forgets_no_remote_deletion` | red |
-| vcs-backends → A jj branch is deleted only locally and only once merged | Not merged | evals/vcs/test_delete.py | `test_delete_unmerged_stops` | red |
-| vcs-backends → A jj push publishes only the change bookmark | Ship on jj | evals/vcs/test_push.py | `test_push_only_change_bookmark` | red |
-| vcs-backends → A jj push publishes only the change bookmark | Conflicted commit | evals/vcs/test_push.py | `test_push_conflicted_stops` | red |
-| vcs-backends → A jj push publishes only the change bookmark | Bookmark not at the parent | evals/vcs/test_push.py | `test_push_bookmark_not_parent_stops` | red |
-| vcs-backends → The jj pull fetches only main and only fast-forwards | Cleanup pull on jj | evals/vcs/test_fetch_pull.py | `test_pull_fast_forward_tracked_and_untracked` | red |
-| vcs-backends → The jj pull fetches only main and only fast-forwards | Remote head branch deleted at merge | evals/vcs/test_fetch_pull.py | `test_pull_keeps_bookmark_of_deleted_remote` | red |
-| vcs-backends → The jj pull fetches only main and only fast-forwards | Local main diverged | evals/vcs/test_fetch_pull.py | `test_pull_diverged_stops_before_jj_fetch` | red |
-| vcs-backends → The jj pull fetches only main and only fast-forwards | Local main ahead | evals/vcs/test_fetch_pull.py | `test_pull_local_ahead_succeeds_unmoved` | red |
-| vcs-backends → The jj pull fetches only main and only fast-forwards | Remote moved again during the pull | evals/vcs/test_fetch_pull.py | `test_pull_conflicted_main_set_back` (origin moved by a hook between read and fetch) | red |
+| vcs-backends → A jj local merge keeps the merge proof | Local merge on jj with leftover edits | evals/vcs/test_merge.py | `test_merge_first_parent_and_carry` | green |
+| vcs-backends → A jj local merge keeps the merge proof | Conflicted merge | evals/vcs/test_merge.py | `test_merge_conflict_abandons` | green |
+| vcs-backends → A jj local merge keeps the merge proof | Interrupted after the merge commit | evals/vcs/test_merge.py | `test_merge_rerun_reuses_commit` | green |
+| vcs-backends → A jj branch is deleted only locally and only once merged | Cleanup after local merge | evals/vcs/test_delete.py | `test_delete_forgets_no_remote_deletion` | green |
+| vcs-backends → A jj branch is deleted only locally and only once merged | Not merged | evals/vcs/test_delete.py | `test_delete_unmerged_stops` | green |
+| vcs-backends → A jj push publishes only the change bookmark | Ship on jj | evals/vcs/test_push.py | `test_push_only_change_bookmark` | green |
+| vcs-backends → A jj push publishes only the change bookmark | Conflicted commit | evals/vcs/test_push.py | `test_push_conflicted_stops` | green |
+| vcs-backends → A jj push publishes only the change bookmark | Bookmark not at the parent | evals/vcs/test_push.py | `test_push_bookmark_not_parent_stops` | green |
+| vcs-backends → The jj pull fetches only main and only fast-forwards | Cleanup pull on jj | evals/vcs/test_fetch_pull.py | `test_pull_fast_forward_tracked_and_untracked` | green |
+| vcs-backends → The jj pull fetches only main and only fast-forwards | Remote head branch deleted at merge | evals/vcs/test_fetch_pull.py | `test_pull_keeps_bookmark_of_deleted_remote` | green |
+| vcs-backends → The jj pull fetches only main and only fast-forwards | Local main diverged | evals/vcs/test_fetch_pull.py | `test_pull_diverged_stops_before_jj_fetch` | green |
+| vcs-backends → The jj pull fetches only main and only fast-forwards | Local main ahead | evals/vcs/test_fetch_pull.py | `test_pull_local_ahead_succeeds_unmoved` | green |
+| vcs-backends → The jj pull fetches only main and only fast-forwards | Remote moved again during the pull | evals/vcs/test_fetch_pull.py | `test_pull_conflicted_main_set_back` (origin moved by a hook between read and fetch) | green |
 | vcs-backends → Release tags are the one Git write on jj | Publish on jj | evals/release/test_release_jj.py | `test_publish_jj_only_tag_writes` | red |
 | vcs-backends → Release tags are the one Git write on jj | Tag at another commit | evals/release/test_release_jj.py | `test_publish_jj_tag_elsewhere_exit_1` | red |
 | vcs-backends → No other Git write runs under jj | Full local flow on jj | evals/vcs/test_flows.py | `test_local_flow_no_git_writes` | red |
@@ -79,10 +79,10 @@
 | vcs-backends → A jj store passes the update's branch check | Script missing from the download | evals/update/test_update_jj_store.py | `test_jj_store_vcs_script_missing` | red |
 | vcs-backends → Paired repos each use their own backend | jj code repo with a Git store | evals/vcs/test_pair.py | `test_pair_jj_code_git_store_branch` | red |
 | vcs-backends → Paired repos each use their own backend | Store probe fails | evals/vcs/test_pair.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_pair_store_probe_fails`, `eval-branch-store-probe-fails` (live no branch creation and lock released) | red |
-| github-identity → jj network commands are fenced like git | Push on jj | evals/pr-pair/test_as_jj.py | `test_jj_push_uses_fenced_token` (fake credential helper answers only the fenced token) | red |
-| github-identity → jj network commands are fenced like git | Repository option | evals/pr-pair/test_as_jj.py | `test_jj_repository_option_refused` | red |
-| github-identity → jj network commands are fenced like git | Config override | evals/pr-pair/test_as_jj.py | `test_jj_config_option_refused` | red |
-| github-identity → jj network commands are fenced like git | Other jj subcommand | evals/pr-pair/test_as_jj.py | `test_jj_other_subcommand_refused` | red |
+| github-identity → jj network commands are fenced like git | Push on jj | evals/pr-pair/test_as_jj.py | `test_jj_push_uses_fenced_token` (fake credential helper answers only the fenced token) | green |
+| github-identity → jj network commands are fenced like git | Repository option | evals/pr-pair/test_as_jj.py | `test_jj_repository_option_refused` | green |
+| github-identity → jj network commands are fenced like git | Config override | evals/pr-pair/test_as_jj.py | `test_jj_config_option_refused` | green |
+| github-identity → jj network commands are fenced like git | Other jj subcommand | evals/pr-pair/test_as_jj.py | `test_jj_other_subcommand_refused` | green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | `test_workflow_installs_pinned_jj_and_requires_it` | green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | `test_workflow_checks_jj_sha256_before_use` | green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Local run without jj | evals/runner/test_jjenv.py | `test_jj_missing_skips_with_reason` | green |
@@ -138,23 +138,23 @@
 
 ## 4. jj merge, delete, fetch, pull, push and the fence
 
-- [ ] 4.1 Write `evals/vcs/test_merge.py` (three rows) and `evals/vcs/test_delete.py` (two rows). Then implement:
+- [x] 4.1 Write `evals/vcs/test_merge.py` (three rows) and `evals/vcs/test_delete.py` (two rows). Then implement:
   - `merge`: find or create with `jj new --no-edit`; abandon on conflict; carry `@`; set main; rerun reuse;
   - `delete-branch`: `jj bookmark forget`, with the merged check unless `--force`.
 
   Verify and flip the rows green.
-- [ ] 4.2 Write `evals/vcs/test_fetch_pull.py` (the two read-fetch rows and the five pull rows; tracked repos from `jj git clone --colocate`, untracked from `jj git init --colocate`). Then implement:
+- [x] 4.2 Write `evals/vcs/test_fetch_pull.py` (the two read-fetch rows and the five pull rows; tracked repos from `jj git clone --colocate`, untracked from `jj git init --colocate`). Then implement:
   - `fetch-main`: `git fetch --refmap= origin refs/heads/<main>`, printing `ref`;
   - `pull`: read and classify, then `jj git fetch --branch <main>`, the untracked fast-forward, the conflict set-back and the carry.
 
   Verify and flip the rows green.
-- [ ] 4.3 Write `evals/pr-pair/test_as_jj.py` (four rows; the push row uses a fake credential helper that answers only the fenced token over an `insteadOf` remote). Then extend `as.sh`:
+- [x] 4.3 Write `evals/pr-pair/test_as_jj.py` (four rows; the push row uses a fake credential helper that answers only the fenced token over an `insteadOf` remote). Then extend `as.sh`:
   - accept only `jj git push` and `jj git fetch`;
   - refuse `-R`, `--repository`, `--config` and `--config-file`, and any other jj subcommand (exit 3);
   - keep the remote, rewrite and transport checks.
 
   Verify and flip the rows green.
-- [ ] 4.4 Write `evals/vcs/test_push.py` (three rows), then implement the jj `push`: bookmark at `@-`, no conflicted or undescribed commit in `main..b`, `jj git push --remote origin --bookmark b` through `as.sh`. Verify and flip the rows green.
+- [x] 4.4 Write `evals/vcs/test_push.py` (three rows), then implement the jj `push`: bookmark at `@-`, no conflicted or undescribed commit in `main..b`, `jj git push --remote origin --bookmark b` through `as.sh`. Verify and flip the rows green.
 
 ## 5. Scripts that read the branch or emit commands
 

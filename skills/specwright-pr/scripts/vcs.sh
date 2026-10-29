@@ -260,13 +260,18 @@ def jj_log(repo, revset, template, limit=None):
     return jj_result(repo, *args)
 
 
+# stringify() keeps the conditional lazy: a conflicted bookmark has no normal_target.
+BOOKMARK_TEMPLATE = ('if(remote, "", json({"name" => name, "conflict" => conflict, '
+                     '"target" => stringify(if(normal_target, normal_target.commit_id(), ""))})) ++ "\\n"')
+
+
 def jj_state(repo, info, scope=None):
     parent_text = jj_log(repo, "@", 'parents.map(|c| json(c.commit_id())).join("\\t") ++ "\\n"').strip()
-    parent_ids = [json.loads(item) for item in parent_text.split("\\t")] if parent_text else []
+    parent_ids = [json.loads(item) for item in parent_text.split("\t")] if parent_text else []
     if len(parent_ids) != 1:
         raise Stop("ambiguous_branch", "working copy @ must have exactly one parent; found %d" % len(parent_ids))
     parent = parent_ids[0]
-    template = 'if(remote, "", json({"name" => name, "conflict" => conflict, "target" => if(normal_target, normal_target.commit_id(), "")})) ++ "\\n"'
+    template = BOOKMARK_TEMPLATE
     bookmarks_raw = jj_result(repo, "bookmark", "list", "--revision", "@-", "-T", template)
     bookmarks = []
     for line in bookmarks_raw.splitlines():
@@ -558,7 +563,170 @@ def jj_advance(repo, info, opts):
     return {"ok": True, "backend": "jj", "branch": branch, "advanced": True, "commit": jj_verify_head(repo, branch)}
 
 
-def run_jj_operation(command, repo, info, opts, paths):
+def exact_pattern(name):
+    return "exact:" + revset_text(name)
+
+
+def jj_bookmark(repo, name, allow_conflict=False):
+    raw = jj_result(repo, "bookmark", "list", exact_pattern(name), "-T", BOOKMARK_TEMPLATE)
+    items = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    if not items:
+        raise Stop("no_such_branch", "bookmark %s does not exist" % name)
+    item = items[0]
+    if item.get("conflict") or not item.get("target"):
+        if allow_conflict:
+            return ""
+        raise Stop("ambiguous_branch", "bookmark %s is conflicted" % name)
+    return item["target"]
+
+
+def git_ancestor(repo, ancestor, descendant):
+    result = git(repo, "merge-base", "--is-ancestor", ancestor, descendant)
+    if result.returncode not in (0, 1):
+        raise Stop("git_error", (result.stderr or result.stdout).strip() or "git merge-base --is-ancestor failed")
+    return result.returncode == 0
+
+
+def conflict_paths(repo, revision):
+    listed = jj(repo, "resolve", "--list", "-r", revision)
+    return [path_text(re.split(r"\s{2,}", line.strip())[0]) for line in listed.stdout.splitlines() if line.strip()]
+
+
+def fence_login(repo, github, login):
+    who = login or ""
+    if github and not who:
+        resolved = bash_script(repo, AS_SH, "--resolve")
+        if resolved.returncode:
+            raise Stop("fence_failed", resolved.stderr.strip() or "as.sh could not resolve GitHub login", 3)
+        who = resolved.stdout.strip()
+    return who
+
+
+def network_jj(repo, args, login):
+    github = is_github_url(remote_url(repo))
+    who = fence_login(repo, github, login)
+    result = bash_script(repo, AS_SH, who, "jj", *args) if github else jj(repo, *args)
+    if result.returncode:
+        message = (result.stderr or result.stdout).strip() or "jj network operation failed"
+        raise Stop("fence_failed" if github and result.returncode == 3 else "git_network_error", message, 3)
+    return result
+
+
+def jj_fetch_main(repo, main, opts, login):
+    args = ["fetch"]
+    if opts.get("quiet"):
+        args.append("-q")
+    if opts.get("no_tags"):
+        args.append("--no-tags")
+    args.extend(("--refmap=", "origin", "refs/heads/" + main))
+    network_git(repo, args, login)
+    return git_checked(repo, "rev-parse", "--verify", "FETCH_HEAD^{commit}", error="fetch_failed").stdout.strip()
+
+
+def jj_find_merge(repo, main_id, branch_id, subject):
+    revset = "merges() & children(%s) & children(%s)" % (revset_text(main_id), revset_text(branch_id))
+    template = ('json({"commit" => commit_id, "subject" => description.first_line(), '
+                '"parents" => stringify(parents.map(|c| c.commit_id()).join(" "))}) ++ "\\n"')
+    for line in jj_log(repo, revset, template).splitlines():
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        if item["parents"].split(" ") == [main_id, branch_id] and item["subject"].rstrip("\r") == subject:
+            return item["commit"]
+    return ""
+
+
+def jj_merge(repo, info, opts):
+    branch = require_branch(opts)
+    if not opts.get("message_file"):
+        usage("merge requires --message-file")
+    main = info["main"]
+    state = jj_state(repo, info)
+    main_id, branch_id = jj_bookmark(repo, main), jj_bookmark(repo, branch)
+    if jj_one(repo, revset_text(branch_id) + " & ::" + revset_text(main_id), "commit_id"):
+        return {"ok": True, "backend": "jj", "branch": branch, "commit": main_id, "already_merged": True}
+    with open(opts["message_file"], encoding="utf-8", newline="") as stream:
+        message = stream.read()
+    subject = (message.splitlines() or [""])[0]
+    merge = jj_find_merge(repo, main_id, branch_id, subject)
+    resumed = bool(merge) and jj_one(repo, "@-", "commit_id") == merge
+    if not resumed and not state["on_main"]:
+        raise Stop("wrong_branch", "expected to be on %r, currently on %r" % (main, state["branch"]))
+    if not merge:
+        jj_result(repo, "new", "--no-edit", "-m", message, revset_text(main_id), revset_text(branch_id))
+        merge = jj_find_merge(repo, main_id, branch_id, subject)
+        if not merge:
+            raise Stop("jj_error", "could not find the merge commit that jj new created")
+    if not resumed:
+        if jj_one(repo, revset_text(merge), 'if(conflict, "1", "0")') == "1":
+            names = conflict_paths(repo, merge)
+            jj_result(repo, "abandon", revset_text(merge))
+            raise Stop("conflicted", "merging %s into %s conflicts in: %s; the merge was abandoned" % (
+                branch, main, ", ".join(names)), paths=names)
+        try:
+            jj_switch(repo, merge)
+        except Stop as exc:
+            if exc.error == "carry_conflict":
+                jj_result(repo, "abandon", revset_text(merge))
+            raise
+    jj_result(repo, "bookmark", "set", main, "-r", revset_text(merge))
+    return {"ok": True, "backend": "jj", "branch": branch, "commit": jj_verify_head(repo, main)}
+
+
+def jj_delete(repo, info, opts):
+    branch = require_branch(opts)
+    jj_bookmark(repo, branch, allow_conflict=bool(opts.get("force")))
+    if not opts.get("force"):
+        main_id = jj_bookmark(repo, info["main"])
+        if not jj_one(repo, revset_text(branch) + " & ::" + revset_text(main_id), "commit_id"):
+            raise Stop("not_merged", "branch %s is not merged into %s" % (branch, info["main"]))
+    jj_result(repo, "bookmark", "forget", exact_pattern(branch))
+    return {"ok": True, "backend": "jj", "branch": branch}
+
+
+def jj_pull(repo, info, opts, login):
+    main = info["main"]
+    was_on_main = jj_state(repo, info)["on_main"]
+    old = jj_bookmark(repo, main)
+    fetched = jj_fetch_main(repo, main, opts, login)
+    if git_ancestor(repo, fetched, old):
+        return {"ok": True, "backend": "jj", "branch": main if was_on_main else "", "commit": old, "moved": False}
+    if not git_ancestor(repo, old, fetched):
+        raise Stop("not_fast_forward", "local %s at %s and origin %s at %s have diverged" % (main, old, main, fetched))
+    network_jj(repo, ["git", "fetch", "--remote", "origin", "--branch", exact_pattern(main)], login)
+    current = jj_bookmark(repo, main, allow_conflict=True)
+    remote = jj_one(repo, revset_text(main) + "@" + revset_text("origin"), "commit_id")
+    if current and remote and current != remote and git_ancestor(repo, current, remote):
+        jj_result(repo, "bookmark", "set", main, "-r", revset_text(remote))
+        current = remote
+    if not current or not git_ancestor(repo, old, current):
+        jj_result(repo, "bookmark", "set", main, "-r", revset_text(old), "--allow-backwards")
+        raise Stop("not_fast_forward", "origin %s moved during the pull; local %s was set back to %s" % (main, main, old))
+    if was_on_main:
+        jj_switch(repo, current)
+    return {"ok": True, "backend": "jj", "branch": main if was_on_main else "", "commit": current, "moved": True}
+
+
+def jj_push(repo, info, opts, login):
+    branch = require_branch(opts)
+    current = jj_state(repo, info)["branch"]
+    if current != branch:
+        raise Stop("wrong_branch", "expected branch %r, currently on %r" % (branch, current))
+    template = ('json({"commit" => commit_id, "conflict" => conflict, "subject" => description.first_line(), '
+                '"described" => if(description.trim(), "1", "0")}) ++ "\\n"')
+    commits = [json.loads(line) for line in
+               jj_log(repo, revset_text(info["main"]) + ".." + revset_text(branch), template).splitlines() if line.strip()]
+    bad = [item["commit"] for item in commits if item.get("conflict")]
+    if bad:
+        raise Stop("conflicted", "commit(s) in %s..%s are conflicted: %s" % (info["main"], branch, ", ".join(bad)), commits=bad)
+    bad = [item["commit"] for item in commits if item.get("described") != "1"]
+    if bad:
+        raise Stop("undescribed", "commit(s) in %s..%s have no description: %s" % (info["main"], branch, ", ".join(bad)), commits=bad)
+    network_jj(repo, ["git", "push", "--remote", "origin", "--bookmark", exact_pattern(branch)], login)
+    return {"ok": True, "backend": "jj", "branch": branch}
+
+
+def run_jj_operation(command, repo, info, opts, paths, ctx):
     main_and_context(info, opts)
     repo = info["repo"]
     if command == "branch-create":
@@ -590,7 +758,19 @@ def run_jj_operation(command, repo, info, opts, paths):
         jj_result(repo, "commit", *filesets, "-m", message)
         jj_result(repo, "bookmark", "set", branch, "-r", "@-")
         return {"ok": True, "backend": "jj", "branch": branch, "commit": jj_verify_head(repo, branch)}
-    usage("the jj %s operation is implemented by a later backend task" % command)
+    login = opts.get("login") or ctx.get("login")
+    if command == "merge":
+        return jj_merge(repo, info, opts)
+    if command == "delete-branch":
+        return jj_delete(repo, info, opts)
+    if command == "fetch-main":
+        sha = jj_fetch_main(repo, info["main"], opts, login)
+        return {"ok": True, "backend": "jj", "ref": sha, "commit": sha}
+    if command == "pull":
+        return jj_pull(repo, info, opts, login)
+    if command == "push":
+        return jj_push(repo, info, opts, login)
+    usage("unknown command: " + command)
 
 
 def plan(repo, code, role, info, opts):
@@ -629,11 +809,7 @@ def main(argv):
         return plan(repo, code, role, info, opts)
     if info["backend"] == "git":
         return run_git_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})
-    if command in {"branch-create", "switch", "commit", "advance"}:
-        return run_jj_operation(command, repo, info, opts, paths)
-    if command in {"merge", "delete-branch", "fetch-main", "pull", "push"}:
-        usage("the jj %s operation is implemented by a later backend task" % command)
-    usage("unknown command: " + command)
+    return run_jj_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})
 
 
 try:
