@@ -6,7 +6,10 @@
 - Script behaviour is tested in a new `evals/vcs` suite against real jj (0.46+). It uses scratch colocated repos under a short temp root, a local bare remote and the existing fake `gh`.
 - Each test needing jj goes through one helper, `evals/vcs/jjenv.py`, which skips with `jj not installed` unless `SPECWRIGHT_REQUIRE_JJ=1` (eval-runner).
 - Git calls that Specwright makes are logged by a `git` shim, `evals/vcs/gitlog.py`; jj's own Git child process bypasses it through `git.executable-path`.
-- Rules in skill prose are pinned by instruction tests in `evals/git-workflow/test_instructions.py`.
+- Skill rules are verified through executed commands and resulting repository state, not source-text assertions. Before removing an affected prose-pinning assertion, task 6.1 inventories its invariant and names the script behavior test or live-agent eval that covers it.
+- Existing predicates in `evals/git-workflow/grade.py` and existing `test_grade.py` cases remain unchanged. Additive graders and fixtures may cover ordering invariants that have no existing behavioral coverage. Running the offline unittest suite is not evidence that a live-agent eval ran.
+- Git compatibility cases preserve each call site's operation argv and inherited `GIT_TRACE`. Trace comparisons permit mandatory read-only probe/settings commands, but preserve operation order, branch guards and every write; no unexpected write is filtered out.
+- Tasks 1-5 add and verify the backend before task 6.2 cuts the skill instructions over. Ask the user before each heavy live-agent eval run; a run awaiting approval remains incomplete.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
@@ -18,11 +21,15 @@
 | vcs-backends → The jj backend is probed before the branch is read | jj too old | evals/vcs/test_probe.py | `test_probe_tool_too_old` (version stub on PATH) | red |
 | vcs-backends → The jj backend is probed before the branch is read | Not a jj repo | evals/vcs/test_probe.py | `test_probe_not_managed_runs_no_init` | red |
 | vcs-backends → The jj backend is probed before the branch is read | Secondary jj workspace | evals/vcs/test_probe.py | `test_probe_secondary_workspace_not_colocated` | red |
-| vcs-backends → A jj repo on the Git backend is reported, not blocked | Leftover jj metadata | evals/vcs/test_state.py, evals/git-workflow/test_instructions.py | `test_git_state_reports_jj_present`, `test_branch_gate_prints_jj_note` | red |
+| vcs-backends → A jj repo on the Git backend is reported, not blocked | Leftover jj metadata | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_git_state_reports_jj_present`, `eval-branch-git-jj-note` (live gate note and Git-only trace) | red |
 | vcs-backends → A jj repo on the Git backend is reported, not blocked | Git repo on Git | evals/vcs/test_state.py | `test_git_state_no_jj_note_runs_no_jj` | red |
 | vcs-backends → The Git backend keeps today's commands | Git commit by name | evals/vcs/test_git_backend.py | `test_git_commit_commands_exact` | red |
 | vcs-backends → The Git backend keeps today's commands | Git push | evals/vcs/test_git_backend.py | `test_git_push_command_exact_no_deadline` | red |
 | vcs-backends → The Git backend keeps today's commands | Git commit with nothing to commit | evals/vcs/test_git_backend.py | `test_git_commit_nothing_fails_like_git` | red |
+| vcs-backends → The Git backend keeps today's commands | Call-site fetch forms | evals/vcs/test_git_backend.py | `test_git_fetch_call_site_forms` (quiet, no-tags, plain; exact argv and real trace) | red |
+| vcs-backends → The Git backend keeps today's commands | Call-site pull forms | evals/vcs/test_git_backend.py | `test_git_pull_call_site_forms` (cleanup and explicit roadmap remote/main) | red |
+| vcs-backends → The Git backend keeps today's commands | Branch, merge and delete forms | evals/vcs/test_git_backend.py | `test_git_branch_merge_delete_forms` (checkout, merge message file, safe and guarded force delete) | red |
+| vcs-backends → The Git backend keeps today's commands | Trace inheritance and operation parity | evals/vcs/test_git_backend.py | Existing call-site cases also compare raw Git with `vcs.sh` through the unedited `grade.git_trace` parser; no duplicate permanent cases | red |
 | vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Git reads after a jj commit | evals/vcs/test_commit.py | `test_git_reads_see_bookmark_tip` | red |
 | vcs-backends → On jj a change branch is a bookmark at the parent of the working copy | Working copy left with other edits | evals/vcs/test_commit.py | `test_unrelated_edit_stays_in_wc` | red |
 | vcs-backends → On jj the current change branch is resolved from bookmarks | One bookmark | evals/vcs/test_state.py | `test_state_one_bookmark_beside_main` | red |
@@ -33,7 +40,7 @@
 | vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | red |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | red |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | red |
-| vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/test_instructions.py | `test_state_dirty_lists_paths`, `test_branch_gate_jj_no_stash_offer` | red |
+| vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_state_dirty_lists_paths`, `eval-branch-jj-dirty-no-stash` (live stop and no stash write) | red |
 | vcs-backends → Moving the working copy on jj carries uncommitted edits | Switch with carry-over | evals/vcs/test_switch.py | `test_switch_carries_added_files` | red |
 | vcs-backends → Moving the working copy on jj carries uncommitted edits | Carry conflicts | evals/vcs/test_switch.py | `test_switch_carry_conflict_rolls_back` | red |
 | vcs-backends → On jj a commit takes only its named paths | Group commit on jj | evals/vcs/test_commit.py | `test_commit_named_paths_only` | red |
@@ -60,8 +67,8 @@
 | vcs-backends → Release tags are the one Git write on jj | Tag at another commit | evals/release/test_release_jj.py | `test_publish_jj_tag_elsewhere_exit_1` | red |
 | vcs-backends → No other Git write runs under jj | Full local flow on jj | evals/vcs/test_flows.py | `test_local_flow_no_git_writes` | red |
 | vcs-backends → No other Git write runs under jj | Full PR flow on jj | evals/vcs/test_flows.py | `test_pr_flow_no_git_writes` | red |
-| vcs-backends → Debug never stashes on jj | Dirty working copy during a reproduction | evals/git-workflow/test_instructions.py | `test_debug_jj_never_stashes` | red |
-| vcs-backends → Debug never stashes on jj | Clean working copy | evals/git-workflow/test_instructions.py | `test_debug_jj_clean_continues` | red |
+| vcs-backends → Debug never stashes on jj | Dirty working copy during a reproduction | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-dirty-no-stash` (live changed-path report, question and no stash write) | red |
+| vcs-backends → Debug never stashes on jj | Clean working copy | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-clean` (live reproduction proceeds without an unnecessary question) | red |
 | vcs-backends → The archive undo plan uses jj on a jj repo | Undo plan on jj | evals/finish/test_undo_jj.py | `test_undo_plan_jj_commands_and_result` | red |
 | vcs-backends → The archive undo plan uses jj on a jj repo | Archive committed on another branch | evals/finish/test_undo_jj.py | `test_undo_plan_jj_other_branch_moves_wc` | red |
 | vcs-backends → The archive undo plan uses jj on a jj repo | Touched path already changed | evals/finish/test_undo_jj.py | `test_undo_plan_jj_guard_fails_first` | red |
@@ -70,7 +77,7 @@
 | vcs-backends → A jj store passes the update's branch check | Git store with a detached HEAD | evals/update/test_update_jj_store.py | `test_git_store_detached_still_refused` | red |
 | vcs-backends → A jj store passes the update's branch check | Script missing from the download | evals/update/test_update_jj_store.py | `test_jj_store_vcs_script_missing` | red |
 | vcs-backends → Paired repos each use their own backend | jj code repo with a Git store | evals/vcs/test_pair.py | `test_pair_jj_code_git_store_branch` | red |
-| vcs-backends → Paired repos each use their own backend | Store probe fails | evals/vcs/test_pair.py, evals/git-workflow/test_instructions.py | `test_pair_store_probe_fails`, `test_branch_store_probe_before_create_releases_lock` | red |
+| vcs-backends → Paired repos each use their own backend | Store probe fails | evals/vcs/test_pair.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_pair_store_probe_fails`, `eval-branch-store-probe-fails` (live no branch creation and lock released) | red |
 | github-identity → jj network commands are fenced like git | Push on jj | evals/pr-pair/test_as_jj.py | `test_jj_push_uses_fenced_token` (fake credential helper answers only the fenced token) | red |
 | github-identity → jj network commands are fenced like git | Repository option | evals/pr-pair/test_as_jj.py | `test_jj_repository_option_refused` | red |
 | github-identity → jj network commands are fenced like git | Config override | evals/pr-pair/test_as_jj.py | `test_jj_config_option_refused` | red |
@@ -109,7 +116,8 @@
   - **`state [--scope]`:** the jj bookmark rule (one non-main local bookmark at `@-`; conflicted bookmark or multi-parent `@` → `ambiguous_branch`); on-main; clean; dirty paths normalised to `/`; `behind` (cap 50). Git: `branch --show-current` and `status --porcelain` as today.
 
   Verify the 2.1 tests pass and flip their rows green.
-- [ ] 2.3 Write `evals/vcs/test_git_backend.py` (rows: Git commit by name, Git push, Git commit with nothing to commit) with the git shim asserting exact argv. Then implement the Git branch of `branch-create`, `switch`, `commit`, `merge`, `delete-branch`, `fetch-main`, `pull` and `push`, running today's commands. `push` and `pull` go through `as.sh` only when origin's fetch URL is on github.com, with no deadline. Verify that the tests and `python evals/run.py --changed main` pass, then flip the rows green.
+- [ ] 2.3 Write `evals/vcs/test_git_backend.py` with the git shim asserting the exact operation argv and consumer-visible result for every form the skills use today. Cover named-path `git add -- <paths>` then `git commit -F <msgfile> -- <paths>` (including nothing to commit), `checkout -b`, switch, `merge --no-ff <branch> -F <msgfile>`, safe `branch -d`, guarded PR cleanup `branch -D`, and `push -u origin HEAD`. Cover all fetch forms (`-q origin <main>`, `--no-tags origin <main>`, `origin <main>`) and both pull forms (`--ff-only`, `--ff-only origin <main>`), selected by explicit backend options rather than normalization. See the tests fail, then implement the Git branches of `branch-create`, `switch`, `commit`, `merge`, `delete-branch`, `fetch-main`, `pull` and `push`. Network calls use `as.sh` only when origin's fetch URL is on github.com, with no new deadline. Verify the tests and `python evals/run.py --changed main`, then flip the script rows green.
+- [ ] 2.4 In the same real-operation cases from 2.3, run the raw Git baseline and `vcs.sh` with inherited `GIT_TRACE` and parse both using the unedited `grade.git_trace`. Verify the same operation/write argv and order, allowing the backend's required read-only probe/settings calls while preserving branch guards and rejecting every unexpected write. Do not add duplicate permanent cases for an already-covered path, weaken existing graders or claim an offline test proves a live-agent run. Flip the trace-parity row green.
 
 ## 3. jj writes: branch, switch, commit, advance
 
@@ -119,7 +127,7 @@
   - `evals/vcs/test_commit.py`, all six rows. The over-size file uses jj's default `snapshot.max-new-file-size`.
 - [ ] 3.2 Implement the jj `branch-create`, `switch` (`jj new` when `@` is empty; otherwise `jj rebase -r @ -o`, with conflict roll-back → `carry_conflict`) and `commit`:
   - the bookmark check;
-  - the `nothing_to_commit` and `path_not_tracked` (`jj file list`) pre-checks;
+  - the `path_not_tracked` (`jj file list`) pre-check before `nothing_to_commit`, so a lone ignored or over-size named file reports the actual reason;
   - `root:"…"` filesets with escaping;
   - the `too_many_paths` argv check;
   - `jj commit -m`, then `jj bookmark set -r @-`, then verify that `git rev-parse HEAD` equals the bookmark.
@@ -164,12 +172,11 @@
 
 ## 6. Skill prose routes through vcs.sh
 
-- [ ] 6.1 Add the instruction tests to `evals/git-workflow/test_instructions.py`:
-  - `test_branch_gate_prints_jj_note`, `test_branch_gate_jj_no_stash_offer`, `test_branch_store_probe_before_create_releases_lock`;
-  - `test_debug_jj_never_stashes`, `test_debug_jj_clean_continues`;
-  - `test_no_raw_git_write_in_skills`: no `git checkout -b`, `git add`/`commit` write step, `git merge --no-ff`, `git branch -d/-D`, `git pull` or `git push -u` remains outside `vcs.sh` references, apart from the release tag steps.
-
-  See them fail.
+- [ ] 6.1 Before deleting an affected prose-pinning assertion, add an inventory table below this task: assertion → consumer-visible invariant → script behavior test or named live-agent eval → verification result. Include affected assertions in `evals/git-workflow/test_instructions.py`, `evals/pr-pair/test_skill_text.py`, `evals/release/test_skill_text.py` and `evals/review-routes/test_skill_text.py`. Delete the obsolete source-text assertions, never re-pin them to `vcs.sh` wording:
+  - Invariants now owned by scripts use real behavior tests: wrong-branch refusal, named-path commits, no empty jj commit, safe versus guarded force deletion, annotated release tags and tag-only push.
+  - Agent-order invariants use live evals with command traces and resulting repo state: store lock held before branch creation and released afterwards; subject fitting before commit; status/guard before switch and pull. Name the existing eval for each; when none covers it, add only the missing fixture/eval and additive grader predicate, leaving existing `grade.py` predicates and `test_grade.py` cases untouched.
+  - Add live cases `eval-branch-git-jj-note`, `eval-branch-jj-dirty-no-stash`, `eval-branch-store-probe-fails`, `eval-debug-jj-dirty-no-stash` and `eval-debug-jj-clean`, with fake external services and isolated fixtures. They check observed notes/questions, executed commands, lock/branch state and absence of stash writes, not source spelling.
+  - Confirm new script behavior checks fail before implementation where applicable. Live checks remain red until the individually approved post-cutover runs in 7.3; an unrun eval is never green. Inventory coverage must be complete before an assertion is removed.
 - [ ] 6.2 Rewrite the write steps and branch reads to name `vcs.sh` subcommands. On jj, `fetch-main`'s `ref` replaces `origin/<main>`. Files:
   - `skills/specwright-branch/SKILL.md`: gate, jj note, no stash on jj, store pair;
   - `skills/specwright-commit/SKILL.md`: planning, task, group, amend and Reconcile commits; `advance --scope`;
@@ -180,7 +187,7 @@
   - `skills/specwright-release/SKILL.md`: publish fetch, `--base`, and the tag exception named;
   - `skills/specwright-debug/SKILL.md`: no stash on jj.
 
-  Bump each touched skill's `version:`. Verify that the 6.1 tests pass, then flip the Debug rows and the gate-instruction parts of the Leftover jj metadata, Dirty working copy and Store probe fails rows green.
+  Bump each touched skill's `version:`. Remove obsolete raw write instructions in the cutover, retaining only the annotated release-tag exception and read-only Git operations. Run the affected script and offline regression tests after the cutover; these do not stand in for live ordering evidence. Leave Debug and gate live-eval rows red until 7.3 exercises them with approval.
 - [ ] 6.3 Document `vcs` and `planning_store.vcs` in `README.md`: setup, colocated requirement, jj 0.46+, no conversion, the tag exception, and that the user's own jj skill is optional, never installed by Specwright. Verify with `python evals/run.py --changed main`.
 
 ## 7. End-to-end on jj, and the release
@@ -191,8 +198,9 @@
   - PR flow: branch, ship, a merge on the fake GitHub that deletes the head branch, then cleanup.
 
   Flip the Full local flow and Full PR flow rows green. Record the `vcs` suite's wall time in `evals/timings.md`.
-- [ ] 7.3 Run `python evals/run.py --changed main` and `openspec validate add-jj-backend --strict`. Confirm every row of the test map is green, and that the existing Git suites the map selects pass unchanged.
-- [ ] 7.4 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.11.0` and rewrite the proposal's Release Notes summary to describe the whole release. Verify with `bash skills/specwright-release/scripts/release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/add-jj-backend/proposal.md`.
+- [ ] 7.3 After the group-6 cutover, run the live-agent evals named by the 6.1 inventory, on `vcs: git` for Git compatibility/order and on jj for the jj gate/debug scenarios. Ask the user before each heavy live-agent run; record the exact approved command, eval IDs, outcome, trace and repository-state evidence in the inventory. Grade actual run artifacts, not synthetic stand-ins. A run awaiting approval or not passing remains incomplete. Flip live rows green only after their runs pass.
+- [ ] 7.4 Run `python evals/run.py --changed main` and `openspec validate add-jj-backend --strict`. Confirm every test-map row is green and the 6.1 coverage inventory is complete. Existing selected suites must pass; existing `grade.py` predicates and `test_grade.py` cases stay unchanged, except additive graders for previously uncovered behavioral invariants. The only affected instruction-test removals are those justified in the 6.1 inventory.
+- [ ] 7.5 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.11.0` and rewrite the proposal's Release Notes summary to describe the whole release. Verify with `bash skills/specwright-release/scripts/release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/add-jj-backend/proposal.md`.
 
 ## Workflow follow-up
 
