@@ -211,14 +211,18 @@ class TestJjPull(FetchPullCase):
         y2 = self.jj_log("@-")
         self.fixture.run(self.jj, "bookmark", "set", "main", "-r", x_prime)
         self.fixture.run(self.jj, "new", "main")
-        origin = str(self.scratch.origin)
-        # push by URL so no remote-tracking ref moves: origin gets Y1 now, and Y2 once the read fetch is done
+        # push by a file:// URL, not origin's configured spelling, so no remote-tracking ref moves: origin gets Y1 now,
+        # and Y2 once the read fetch is done
+        origin = self.scratch.origin.resolve().as_uri()
+        tracking = self.ref("refs/remotes/origin/main")
         self.must(self.repo, "push", origin, "%s:refs/heads/main" % y1, "--force")
+        self.assertEqual(self.ref("refs/remotes/origin/main"), tracking, "the setup push moved origin/main")
+        self.assertEqual(self.jj_log("main"), x_prime, "jj moved main after the setup push")
         hook = self.root / "hook.sh"
         real = jjenv.real_git().replace("\\", "/")
         with hook.open("w", encoding="utf-8", newline="\n") as stream:
             stream.write('#!/bin/sh\n"%s" --git-dir="%s" push --force "%s" %s:refs/heads/main >/dev/null 2>&1\n' % (
-                real, (self.repo / ".git").as_posix(), origin.replace("\\", "/"), y2))
+                real, (self.repo / ".git").as_posix(), origin, y2))
         # a git wrapper which runs the hook once, right after the read fetch, as the shim does for logging
         shim_git = self.root / "shim" / "git"
         text = shim_git.read_text(encoding="utf-8")
