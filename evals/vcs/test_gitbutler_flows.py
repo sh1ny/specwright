@@ -277,16 +277,19 @@ class TestGitButlerCleanupLoneBranch(GitButlerFlowCase):
             login = ("--login", LOGIN)
             fetched = self.vcs(scratch, wrap, "fetch-main", "--quiet", *login)
             self.assertEqual(fetched["commit"], merged)
+            head_sha = self.tip(repo, BRANCH)  # the merged PR's head
             self.shim.log_path.unlink(missing_ok=True)
 
             self.assertFalse(self.vcs(scratch, wrap, "switch", "--branch", "main")["switched"])
             pulled = self.vcs(scratch, wrap, "pull", "--branch", BRANCH, *login)
             self.assertTrue(pulled["pulled"], pulled)
             self.assertEqual(self.applied(repo), [], "the integrated branch left the workspace")
-            check = self.script(scratch, wrap, PR_PAIR, "branch-check", "--dir", repo.path, "--branch", BRANCH, "--main",
-                                fetched["commit"], "--code", repo.path, "--role", "code", *login)
-            self.assertEqual((check["ok"], check["delete"], check["reason"], check["lacking"]),
-                             (True, True, "already_deleted", []), check)
+            # the repo-local call the pr and finish skills document, then the store-backed cleanup-plan form
+            for extra in (("--head", head_sha), ("--code", repo.path, "--role", "code", *login)):
+                check = self.script(scratch, wrap, PR_PAIR, "branch-check", "--dir", repo.path, "--branch", BRANCH,
+                                    "--main", fetched["commit"], *extra)
+                self.assertEqual((check["ok"], check["delete"], check["reason"], check["lacking"]),
+                                 (True, True, "already_deleted", []), check)
             deleted = self.vcs(scratch, wrap, "delete-branch", "--branch", BRANCH, "--force", "--merged-commit", merged, *login)
             self.assertEqual((deleted["ok"], deleted["deleted"], deleted["reason"]), (True, False, "already_deleted"), deleted)
 

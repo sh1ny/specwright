@@ -19,12 +19,12 @@
 #                                     the parent did not; otherwise a commit whose own version is unreadable changed it only when
 #                                     the version it is judged against is not among those it matched; a change raised it only
 #                                     when it matched a version and all of them are greater than that version
+#                                     check: when the code repo's backend is gitbutler (read as vcs.sh reads it, through pr-pair.sh vcs)
+#                                     --branch is required: exit 2, usage. HEAD is the workspace commit there. An unknown branch is
+#                                     exit 1, branch_not_found
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
-#                                     When the code repo's backend is gitbutler (read as vcs.sh reads it, through pr-pair.sh vcs)
-#                                     --branch is required: exit 2, usage. HEAD is the workspace commit there. An unknown branch is
-#                                     exit 1, branch_not_found
 #   status --version V [--main <ref>] [--base <branch>] [--store <dir> [--store-main <ref>] [--store-prefix <path>]]
 #                                     V's release commit: the first commit on <ref>'s first-parent history whose primary file
 #                                     reads V (default: the local main; the skill passes origin/<main>). It must be a merge

@@ -2015,9 +2015,12 @@ def cmd_branch_check(argv):
     def fail(what, r):
         raise Stop("git_error", f"{what} in {d}: {(r.stderr or r.stdout).strip()}")
 
-    if backend == "gitbutler" and not has_ref(d, f"refs/heads/{b}"):
-        # `but pull` removed the integrated branch: delete-branch reports already_deleted without a write
-        return {"ok": True, "delete": True, "reason": "already_deleted", "lacking": []}
+    if not has_ref(d, f"refs/heads/{b}"):
+        # without --code (the repo-local call) <dir> is the code repo; a store is never on GitButler
+        if not a.get("code"):
+            backend = cmd_vcs(["--code", d])["code"]
+        if backend == "gitbutler":  # `but pull` removed the integrated branch: delete-branch reports already_deleted
+            return {"ok": True, "delete": True, "reason": "already_deleted", "lacking": []}
 
     # --main may be a commit id (the fetched main on GitButler) when no branch has that name
     by_commit = re.fullmatch(r"[0-9a-fA-F]{7,40}", m) and not has_ref(d, f"refs/heads/{m}")
