@@ -58,9 +58,9 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | preship-review → The pre-ship review runs when every task is committed | Opted out | evals/review-routes/test_skill_text.py | test_commit_step3_preship_false_skips | green |
 | preship-review → The pre-ship review runs when every task is committed | Store-backed change | evals/review-routes/test_skill_text.py | test_subagent_preship_dispatch_names_root_and_store | green |
 | preship-review → The pre-ship review runs when every task is committed | GitButler workspace | evals/review-routes/test_skill_text.py | test_preship_range_names_branch_tip | red |
-| github-identity → GitButler pulls are fenced like git | Cleanup pull | evals/pr-pair/test_as_gitbutler.py | test_but_pull_uses_fenced_token | red |
-| github-identity → GitButler pulls are fenced like git | Other `but` subcommand | evals/pr-pair/test_as_gitbutler.py | test_but_other_subcommand_refused | red |
-| github-identity → GitButler pulls are fenced like git | Directory option | evals/pr-pair/test_as_gitbutler.py | test_but_directory_option_refused | red |
+| github-identity → GitButler pulls are fenced like git | Cleanup pull | evals/pr-pair/test_as_gitbutler.py | test_but_pull_uses_fenced_token | green |
+| github-identity → GitButler pulls are fenced like git | Other `but` subcommand | evals/pr-pair/test_as_gitbutler.py | test_but_other_subcommand_refused | green |
+| github-identity → GitButler pulls are fenced like git | Directory option | evals/pr-pair/test_as_gitbutler.py | test_but_directory_option_refused | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_only | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Upstream released a new version | evals/runner/test_ci_workflow.py | test_workflow_pins_but_build_url | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Downloaded bytes differ | evals/runner/test_ci_workflow.py | test_workflow_checks_but_sha256_before_use | green |
@@ -106,8 +106,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 7. `as.sh` fence for `but pull`
 
-- [ ] 7.1 Write failing tests in `evals/pr-pair/test_as_gitbutler.py` for the three github-identity rows
-- [ ] 7.2 Fence `but pull` in `as.sh`, refuse every other `but` subcommand and `-C`/`--current-dir` with exit 3. Verify the 7.1 tests pass, flip their rows green, and re-run `evals/pr-pair/test_as_sh.py` and `test_as_jj.py` (still green)
+- [x] 7.1 Write failing tests in `evals/pr-pair/test_as_gitbutler.py` for the three github-identity rows
+- [x] 7.2 Fence `but pull` in `as.sh`, refuse every other `but` subcommand and `-C`/`--current-dir` with exit 3. Verify the 7.1 tests pass, flip their rows green, and re-run `evals/pr-pair/test_as_sh.py` and `test_as_jj.py` (still green)
 
 ## 8. Reads use the branch tip
 

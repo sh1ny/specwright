@@ -32,6 +32,8 @@
 # Run git from inside the target repo: the URL check and the http extraHeader
 # scrub cover the current repository only, so a git command that selects
 # another one (-C, --git-dir, --work-tree) is refused (exit 3).
+# but: only `but pull` runs (it runs the system `git fetch`, so the same transport rules
+# apply); -C/--current-dir and every other but subcommand are refused (exit 3).
 # jj: only `jj git push` and `jj git fetch` run (they use a Git child process, so the
 # same transport rules apply); -R/--repository, --config/--config-file and every other
 # jj subcommand are refused (exit 3).
@@ -169,6 +171,33 @@ case ${1##*/} in
         *) break ;;
       esac
     done ;;
+esac
+
+# but (GitButler): only `but pull` is fenced. It fetches by running the system `git fetch`,
+# which takes the transport settings below from the environment. -C/--current-dir selects
+# another repository (the checks here read the one as.sh starts in), so it is refused
+# anywhere before `--`, and so is every other subcommand.
+case ${1##*/} in
+  but|but.exe)
+    for a in "${@:2}"; do
+      [ "$a" != -- ] || break
+      case $a in
+        -C|-C?*|--current-dir|--current-dir=*)
+          echo "as.sh: but $a selects another repository; run as.sh from inside it; refusing" >&2; exit 3 ;;
+      esac
+    done
+    w1= i=2
+    while [ "$i" -le $# ]; do
+      a=${!i}
+      case $a in
+        --) break ;;
+        -*) i=$((i + 1)) ;;
+        *) w1=$a; break ;;
+      esac
+    done
+    if [ "$w1" != pull ]; then
+      echo "as.sh: only 'but pull' is fenced; refusing 'but${w1:+ $w1}'" >&2; exit 3
+    fi ;;
 esac
 
 # jj: only `jj git push` and `jj git fetch` are fenced. They run a Git child process,
