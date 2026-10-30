@@ -1221,6 +1221,10 @@ def plan(repo, code, role, info, opts):
         args.append("--remote-branch")
     if opts.get("login"):
         args.extend(("--login", opts["login"]))
+    if opts.get("merged_commit"):
+        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", opts["merged_commit"]):
+            usage("--merged-commit must be a commit id of 7 to 40 hex digits")
+        args.extend(("--merged-commit", opts["merged_commit"]))
     return {"ok": True, "backend": info["backend"], "commands": [" ".join(map(shlex.quote, args))]}
 
 
@@ -1239,10 +1243,10 @@ def main(argv):
         return result
     if command == "state":
         return current_state(repo, info, opts)
+    if command == "plan":  # the commands to run, for every backend (GitButler: switch no-op, pull --branch, delete-branch --force)
+        return plan(repo, code, role, info, opts)
     if info["backend"] == "gitbutler":
         return run_gitbutler_operation(command, info, opts, paths)
-    if command == "plan":
-        return plan(repo, code, role, info, opts)
     if info["backend"] == "git":
         return run_git_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})
     return run_jj_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})

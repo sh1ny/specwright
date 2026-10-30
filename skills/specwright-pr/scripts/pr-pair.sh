@@ -1262,6 +1262,12 @@ def is_jj(d):
     return os.path.isdir(os.path.join(toplevel(d), ".jj"))
 
 
+def is_gitbutler(d):
+    """A repo GitButler manages: it has .git/gitbutler/."""
+    r = git(d, "rev-parse", "--git-path", "gitbutler")
+    return r.returncode == 0 and bool(r.stdout.strip()) and os.path.isdir(os.path.join(d, r.stdout.strip()))
+
+
 def remote_contains(d, branch, sha):
     r = git_net(d, "ls-remote", "origin", f"refs/heads/{branch}")
     if r.returncode != 0:
@@ -1274,8 +1280,9 @@ def remote_contains(d, branch, sha):
         return True
     if git(d, "cat-file", "-e", remote + "^{commit}").returncode != 0:
         # another checkout pushed a tip this repo lacks: fetch it (FETCH_HEAD only, no local ref moves) before the ancestry test
-        # --refmap= on a jj repo: jj imports a remote-tracking move into a tracked bookmark, so only FETCH_HEAD may change
-        git_net(d, "fetch", "-q", *(["--refmap="] if is_jj(d) else []), "origin", f"refs/heads/{branch}")
+        # --refmap= on a jj or GitButler repo: jj imports a remote-tracking move into a tracked bookmark, and a Git ref write is
+        # outside GitButler's workspace, so only FETCH_HEAD may change
+        git_net(d, "fetch", "-q", *(["--refmap="] if is_jj(d) or is_gitbutler(d) else []), "origin", f"refs/heads/{branch}")
     r = git(d, "merge-base", "--is-ancestor", sha, remote)
     if r.returncode in (0, 1):
         return r.returncode == 0
@@ -1604,7 +1611,9 @@ def pass_write(argv):
               if not local and any(edits_for(f, "code") for f in intent["findings"]) else None)
     owner = new_owner(secrets.token_hex(16), a["code"])
     rec = {**intent, "version": 2, "owner": owner, "change": a["change"], "code_repo": a["code_repo"], "heads": heads, "marker": marker,
-           "written_at": owner["at"]}  # when the pass began: the last-resort re-request cutoff (adopt keeps it; nothing rewrites it)
+           "written_at": owner["at"]}
+    if cmd_vcs(["--code", a["code"]])["code"] == "gitbutler":  # D13: unassigned paths already there are not this pass's to ask about
+        rec["preexisting"] = sorted(vcs_state(a["code"], "code", a["code"], intent["branch"])["unassigned_paths"])  # when the pass began: the last-resort re-request cutoff (adopt keeps it; nothing rewrites it)
     path.parent.mkdir(parents=True, exist_ok=True)
     f, tmp = temp_beside(path)  # a uniquely named file: two writers never share one
     try:
@@ -1749,6 +1758,7 @@ def pass_plan(argv):
     ctx = contexts(a["code"], a.get("store"))
     dirs = {"code": a["code"], "store": a.get("store")}
     marker = rec.get("marker")
+    code_gitbutler = cmd_vcs(["--code", a["code"]])["code"] == "gitbutler"
     dests = [k for k in ("store", "code") if any(edits_for(f, k) for f in findings) or (k == "store" and marker)]
     if not a.get("store") and ("store" in dests or prs.get("store") or any(f["source"] == "store" for f in findings)):
         raise Stop("store_required", "this record names the store repo; pass plan needs --store <dir>", code=2)
@@ -1780,7 +1790,13 @@ def pass_plan(argv):
             if v == "unjudgeable":
                 stops.append({"reason": "edit_unjudgeable", "repo": k, "finding": e["finding"], "file": norm(e["file"]),
                               "detail": "the recorded edit has no contains/absent/deleted check, so it cannot be judged done"})
-        dirty = dirty_paths(d)
+        if k == "code" and code_gitbutler:
+            # D13: the change's paths and the unassigned ones; another branch's never count, nor do the unassigned paths that
+            # `pass write` recorded as preexisting (unless the pass itself edits one of them)
+            st = vcs_state(d, "code", a["code"], branch)
+            dirty = (set(st["change_paths"]) | set(st["unassigned_paths"])) - (set(rec.get("preexisting") or []) - set(files))
+        else:
+            dirty = dirty_paths(d)
         extra = sorted(dirty - set(files))
         if extra:
             stops.append({"reason": "unrecorded_change", "repo": k, "files": extra,
@@ -1980,19 +1996,33 @@ def cmd_pass(argv):
 
 def cmd_branch_check(argv):
     """May a change branch be deleted once its PR merged and main is updated? Local refs only; changes nothing."""
-    a, _ = parse_args(argv, {"--dir": "dir", "--branch": "branch", "--main": "main", "--head": "head"})
+    a, _ = parse_args(argv, {"--dir": "dir", "--branch": "branch", "--main": "main", "--head": "head", "--code": "code",
+                             "--role": "role", "--login": "login"})
     need(a, "dir", "branch", "main")
     d, b, m, head = a["dir"], a["branch"], a["main"], a.get("head")
+    if a.get("code"):  # a non-Git backend reads the fetched main through vcs.sh: its local main may lag a skipped pull
+        role = a.get("role") or "code"
+        if role not in ("code", "store"):
+            usage("--role must be code or store")
+        if cmd_vcs(["--code", a["code"]])[role] != "git":
+            m = vcs_json("fetch-main", "--repo", d, "--role", role, "--code", a["code"],
+                         *(["--login", a["login"]] if a.get("login") else []))["commit"]
     if head is not None and not re.match(r"^[0-9a-fA-F]{4,64}$", head):
         raise Stop("usage", f"--head must be a commit id, got {head!r}", code=2)
 
     def fail(what, r):
         raise Stop("git_error", f"{what} in {d}: {(r.stderr or r.stdout).strip()}")
 
-    for ref in (f"refs/heads/{b}", f"refs/heads/{m}"):
+    # --main may be a commit id (the fetched main on GitButler) when no branch has that name
+    by_commit = re.fullmatch(r"[0-9a-fA-F]{7,40}", m) and not has_ref(d, f"refs/heads/{m}")
+    for ref in (f"refs/heads/{b}",) + (() if by_commit else (f"refs/heads/{m}",)):
         r = git(d, "rev-parse", "--verify", "-q", ref + "^{commit}")
         if r.returncode != 0:
             fail(f"cannot resolve {ref}", r)
+    if by_commit:
+        r = git(d, "rev-parse", "--verify", "-q", m + "^{commit}")
+        if r.returncode != 0:
+            fail(f"cannot resolve commit {m}", r)
 
     def ancestor(x, y, what):
         r = git(d, "merge-base", "--is-ancestor", x, y)
@@ -2007,7 +2037,7 @@ def cmd_branch_check(argv):
         rows = [(rec.strip("\n").split("\x1f") + [""])[:2] for rec in r.stdout.split("\x1e") if rec.strip()]
         return [{"sha": sha.strip(), "subject": subject} for sha, subject in rows]
 
-    tip, mref = f"refs/heads/{b}", f"refs/heads/{m}"
+    tip, mref = f"refs/heads/{b}", (m if by_commit else f"refs/heads/{m}")
     if ancestor(tip, mref, f"cannot compare {b} with {m}"):
         return {"ok": True, "delete": True, "reason": "on_main", "lacking": []}
     known = bool(head) and git(d, "cat-file", "-e", head + "^{commit}").returncode == 0
@@ -2032,6 +2062,23 @@ def vcs_plan(cwd, role, code, operation, branch, *extra):
     if not doc.get("ok"):
         raise Stop(doc.get("error") or "vcs_error", doc.get("message") or f"vcs.sh plan failed in {cwd}: {r.stderr.strip()}")
     return [[x.replace("\\", "/") if re.match(r"^[A-Za-z]:\\", x) else x for x in shlex.split(c)] for c in doc["commands"]]  # drive paths: forward slashes
+
+
+def vcs_json(command, *args):
+    r = vcs_sh(command, *args)
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        doc = {}
+    if not doc.get("ok"):
+        raise Stop(doc.get("error") or "vcs_error", doc.get("message") or f"vcs.sh {command} failed: {r.stderr.strip()}",
+                   code=3 if r.returncode == 3 else 1)
+    return doc
+
+
+def vcs_state(cwd, role, code, branch):
+    """vcs.sh state for the named change branch (GitButler: the change's, unassigned and other branches' paths)."""
+    return vcs_json("state", "--repo", cwd, "--role", role, "--code", code, "--branch", branch)
 
 
 def vcs_branch(cwd, role, code):
@@ -2062,7 +2109,8 @@ def cmd_cleanup(argv):
         exists = has_ref(d, f"refs/heads/{branch}")
         ent = {"expected": side["expected"], "repo": side["repo"], "dir": cwd, "merged": False, "branch_exists": exists, "pr": pr, "commands": []}
         cmd = lambda *c: {"cmd": list(c), "cwd": cwd}
-        jj = backends[k] == "jj"  # a jj repo gets vcs.sh plan's commands; a Git repo keeps the Git commands below
+        jj = backends[k] != "git"  # a jj or GitButler repo gets vcs.sh plan's commands; a Git repo keeps the Git commands below
+        gb = backends[k] == "gitbutler"
         if side["expected"] and pr and pr["state"] == "MERGED":
             ent["merged"] = True
             if exists:
@@ -2070,9 +2118,14 @@ def cmd_cleanup(argv):
                 check = ["pr-pair.sh", "branch-check", "--dir", cwd, "--branch", branch, "--main", main] + (["--head", pr["head_sha"]] if pr.get("head_sha") else [])
                 if jj:
                     login = ctx[k]["login"] or ambient_login()
+                    merged_sha = pr.get("merge_commit_sha")
+                    if gb:  # the pull names the branch being cleaned up; the check reads the fetched main; the delete carries the squash proof
+                        check += ["--code", a["code"], "--role", k, "--login", login]
                     ent["commands"] = ([cmd(*c) for c in vcs_plan(cwd, k, a["code"], "switch", main)] +
-                                       [cmd(*c) for c in vcs_plan(cwd, k, a["code"], "pull", main, "--login", login)] + [cmd(*check)])
-                    ent["delete"] = vcs_plan(cwd, k, a["code"], "delete-branch", branch, "--force")[0]
+                                       [cmd(*c) for c in vcs_plan(cwd, k, a["code"], "pull", branch if gb else main, "--login", login)] +
+                                       [cmd(*check)])
+                    ent["delete"] = vcs_plan(cwd, k, a["code"], "delete-branch", branch, "--force",
+                                             *(["--merged-commit", merged_sha] if gb and merged_sha else []))[0]
                 else:
                     ent["commands"] = [cmd("git", "checkout", main), cmd("bash", as_sh, ctx[k]["login"] or ambient_login(), "git", "pull", "--ff-only"), cmd(*check)]
                     ent["delete"] = ["git", "branch", "-D", branch]

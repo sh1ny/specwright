@@ -44,9 +44,9 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → A GitButler branch is deleted only once merged | Pull skipped | evals/vcs/test_gitbutler_delete.py | test_delete_left_applied_when_base_lacks_merge | green |
 | vcs-backends → A GitButler branch is deleted only once merged | Not merged | evals/vcs/test_gitbutler_delete.py | test_delete_unmerged_left_applied | green |
 | vcs-backends → A GitButler branch is deleted only once merged | `but` write fails with `core.autocrlf=true` (design.md Risks, Line endings) | evals/vcs/test_gitbutler_delete.py | test_but_error_names_autocrlf | green |
-| vcs-backends → No other Git write runs under GitButler | Full PR flow on GitButler | evals/vcs/test_gitbutler_flows.py | test_full_pr_flow_git_write_boundary | red |
-| vcs-backends → No other Git write runs under GitButler | GitButler code repo with a Git store | evals/vcs/test_gitbutler_flows.py | test_cleanup_plan_routes_code_repo_through_vcs | red |
-| vcs-backends → No other Git write runs under GitButler | Feedback pass with another agent's edits | evals/vcs/test_gitbutler_flows.py | test_feedback_pass_ignores_other_and_preexisting_paths | red |
+| vcs-backends → No other Git write runs under GitButler | Full PR flow on GitButler | evals/vcs/test_gitbutler_flows.py | test_full_pr_flow_git_write_boundary | green |
+| vcs-backends → No other Git write runs under GitButler | GitButler code repo with a Git store | evals/vcs/test_gitbutler_flows.py | test_cleanup_plan_routes_code_repo_through_vcs | green |
+| vcs-backends → No other Git write runs under GitButler | Feedback pass with another agent's edits | evals/vcs/test_gitbutler_flows.py | test_feedback_pass_ignores_other_and_preexisting_paths | green |
 | vcs-backends → The Git backend refuses to write in a GitButler workspace | `vcs` unset in a GitButler workspace | evals/vcs/test_gitbutler_probe.py | test_git_backend_refuses_workspace_head | green |
 | vcs-backends → The Git backend refuses to write in a GitButler workspace | `vcs` unset with one applied branch | evals/vcs/test_gitbutler_probe.py | test_git_backend_refuses_single_branch_mode | green |
 | vcs-backends → The Git backend refuses to write in a GitButler workspace | GitButler metadata with HEAD on main | evals/vcs/test_gitbutler_probe.py | test_git_backend_refuses_head_on_main | green |
@@ -116,8 +116,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 9. PR-pair routing and the Git-write boundary
 
-- [ ] 9.1 Write failing tests `test_full_pr_flow_git_write_boundary`, `test_cleanup_plan_routes_code_repo_through_vcs` and `test_feedback_pass_ignores_other_and_preexisting_paths`. The flow test records every Git write through a wrapper and allows only the push, the read-only fetch and the release tag
-- [ ] 9.2 Route `pr-pair.sh cleanup-plan`, `remote_contains` and `branch-check` through `vcs.sh` for every backend other than Git, and pass the PR's `merge_commit_sha` (carried by `norm_pr`) as `--merged-commit`, make the feedback pass ignore other branches' paths and the unassigned paths present at its start (D13). Verify the 9.1 tests pass and flip their rows green
+- [x] 9.1 Write failing tests `test_full_pr_flow_git_write_boundary`, `test_cleanup_plan_routes_code_repo_through_vcs` and `test_feedback_pass_ignores_other_and_preexisting_paths`. The flow test records every Git write through a wrapper and allows only the push, the read-only fetch and the release tag
+- [x] 9.2 Route `pr-pair.sh cleanup-plan`, `remote_contains` and `branch-check` through `vcs.sh` for every backend other than Git, and pass the PR's `merge_commit_sha` (carried by `norm_pr`) as `--merged-commit`, make the feedback pass ignore other branches' paths and the unassigned paths present at its start (D13). Verify the 9.1 tests pass and flip their rows green
 
 ## 10. Skills, debug, undo and GitButler's skills
 
