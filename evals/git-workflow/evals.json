@@ -1422,6 +1422,97 @@
         "A group 3 commit in the store has Code-Changes: none before the trailers 3.1 and 3.2 and ticks exactly 3.1 and 3.2; without one, both ticks are still uncommitted",
         "No commit was amended in either repo"
       ]
+    },
+    {
+      "id": 78,
+      "name": "eval-branch-git-jj-note",
+      "skills": [
+        "specwright-branch",
+        "specwright-pr"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV. Just scaffold the change (don't write the artifacts yet).",
+      "expected_output": "The repo is on Git (no vcs setting) but holds .jj/ metadata, and a jj on PATH fails if run. The gate reports once that the repo has jj metadata and that vcs: jj routes writes through jj, creates feat/add-csv-export with git checkout -b from main, scaffolds the change, and runs no jj command and no stash.",
+      "assertions": [
+        "Branch feat/add-csv-export exists, is checked out and starts at main's tip",
+        "main is unchanged",
+        "The change directory openspec/changes/add-csv-export exists",
+        "The only Git write was git checkout -b feat/add-csv-export",
+        "No jj command ran",
+        "The report says the repo has jj metadata and that vcs: jj routes writes through jj",
+        "No stash was made: no stash entry, no refs/stash and no git stash write in the trace"
+      ]
+    },
+    {
+      "id": 79,
+      "name": "eval-branch-jj-dirty-no-stash",
+      "skills": [
+        "specwright-branch",
+        "specwright-pr"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV.",
+      "expected_output": "vcs is jj in a colocated repo on main, and the working copy holds an uncommitted edit to README.md. The gate stops before any branch or change file, shows README.md as the changed path, and offers to commit first or abort. It never offers or runs a stash, and the edit stays in the working copy.",
+      "assertions": [
+        "Still on main with no new branch",
+        "No change directory openspec/changes/add-csv-export was created",
+        "The uncommitted README.md edit is still in the working tree",
+        "No stash was made: no stash entry, no refs/stash and no git stash write in the trace",
+        "The only Git commands were reads",
+        "The report shows the changed path README.md and offers to commit first or abort",
+        "The report does not offer a stash"
+      ]
+    },
+    {
+      "id": 80,
+      "name": "eval-branch-store-probe-fails",
+      "skills": [
+        "specwright-branch",
+        "specwright-pr"
+      ],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV. Just scaffold the change (don't write the artifacts yet).",
+      "expected_output": "The code repo's settings say planning_store.vcs is jj, but the store is a plain Git repo with no .jj/. The gate takes the store lock, probes the store, stops with not_managed before creating a branch in either repo, releases the lock, and reports the store and its missing .jj.",
+      "assertions": [
+        "Both repos are on main with only the main branch and no new commit",
+        "No change directory add-csv-export exists in either repo",
+        "No gate lock is left in the store",
+        "Every jj probe of the store ran with the gate lock held, and at least one ran",
+        "The only Git commands were reads",
+        "The report names the store and its missing .jj"
+      ]
+    },
+    {
+      "id": 81,
+      "name": "eval-debug-jj-dirty-no-stash",
+      "skills": [
+        "specwright-debug",
+        "specwright-pr"
+      ],
+      "prompt": "test_greet_named in test_greet.py started failing after my local edits to greet.py. Find the root cause, and check whether my uncommitted changes are the cause by running the test on a clean tree. Report the cause only: make no fix yet.",
+      "expected_output": "vcs is jj in a colocated repo whose working copy holds an uncommitted edit to greet.py. Debug sees the edit may cause the bug, does not stash (jj has none), shows greet.py as the changed path and asks the user to set the edit aside or abort. The edit stays untouched and nothing is committed.",
+      "assertions": [
+        "The uncommitted edit to greet.py is untouched and nothing was committed",
+        "No stash was made: no stash entry, no refs/stash and no git stash write in the trace",
+        "The only Git commands were reads",
+        "The report shows the changed path greet.py and asks the user to set the edits aside or abort",
+        "The report does not offer a stash"
+      ]
+    },
+    {
+      "id": 82,
+      "name": "eval-debug-jj-clean",
+      "skills": [
+        "specwright-debug",
+        "specwright-pr"
+      ],
+      "prompt": "test_greet_named in test_greet.py is failing on a fresh checkout. Debug it and fix the root cause test-first. Do not commit.",
+      "expected_output": "vcs is jj in a colocated repo with an empty working copy and a committed bug in greet.py. Debug reproduces the failure, finds the cause (the greeting lacks the comma and exclamation mark), fixes greet.py, and never stashes or asks the user to set anything aside. The fix is left uncommitted.",
+      "assertions": [
+        "The test suite passes",
+        "The fix is left uncommitted in greet.py, with no other file changed",
+        "No stash was made: no stash entry, no refs/stash and no git stash write in the trace",
+        "The only Git commands were reads",
+        "The report does not ask the user to set edits aside, stash or abort",
+        "The report names greet.py and the cause"
+      ]
     }
   ]
 }

@@ -86,3 +86,4 @@ Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `spe
 
 ### Changed
 - The Git backend preserves the existing per-call-site commit, merge, fetch, pull and push commands, including named paths and message files, with no new network deadline. Real-command trace comparisons guard that compatibility (#19).
+- The branch, commit, finish, PR, roadmap, review, release and debug skills read the branch and make every write through `vcs.sh`. On jj they never stash. On Git a repo with jj metadata gets a one-line note, not a stop. Release tags stay the one Git write. The README documents the `vcs` settings and the colocated jj 0.46+ setup (#19).

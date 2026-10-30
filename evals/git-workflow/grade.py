@@ -2487,12 +2487,137 @@ def check_branch_store(name, code, store, rep):
     return R
 
 
+VCS_EVALS = ("eval-branch-git-jj-note", "eval-branch-jj-dirty-no-stash", "eval-branch-store-probe-fails",
+             "eval-debug-jj-dirty-no-stash", "eval-debug-jj-clean")
+STASH_TEXT = "No stash was made: no stash entry, no refs/stash and no git stash write in the trace"
+STASH_NEGATED = re.compile(r"\bnot\b|n't|\bno\b|\bnever\b|\bwithout\b|instead of|rather than|\bnone\b")
+
+
+def local_branches(repo):
+    """Local branch names from the refs, so a colocated jj repo with a detached HEAD lists only real branches."""
+    return sorted((git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") or "").splitlines())
+
+
+def stash_writes(repos, trace):
+    """Evidence of a stash in any of `repos`: stash entries, a refs/stash ref, or a stash command other than list/show in the
+    git trace. `trace` is git_trace()'s result, None when the run recorded none (then nothing can be shown)."""
+    found = {r.name: (git(r, "stash", "list") or "", git(r, "rev-parse", "--verify", "-q", "refs/stash")) for r in repos}
+    found = {k: v for k, v in found.items() if v[0] or v[1]}
+    cmds = [c for c in (trace or []) if c[:1] == ["stash"] and not git_read_only(c)]
+    return found, cmds
+
+
+def check_no_stash(repos, trace):
+    found, cmds = stash_writes(repos, trace)
+    return (STASH_TEXT, trace is not None and not found and not cmds, f"trace recorded={trace is not None} stashes={found} commands={cmds}")
+
+
+def check_reads_only(trace):
+    changes = changing_git(trace or [])
+    return ("The only Git commands were reads", trace is not None and not changes, f"trace recorded={trace is not None} changing={changes}")
+
+
+def stash_offers(rep):
+    return [x for x in re.split(r"(?<=[.!?\n])\s+", rep) if "stash" in x and not STASH_NEGATED.search(x)]
+
+
+def asks_to_set_aside(rep):
+    return [x for x in re.split(r"(?<=[.!?\n])\s+", rep) if re.search(r"\baside\b|\babort\b|\bstash\b", x) and re.search(r"\?|please|\bor\b", x)]
+
+
+def check_vcs(name, repo, run):
+    """The jj-backend live evals (add-jj-backend task 6.1). They judge the repository, the git trace (GIT_TRACE, git-trace.log in the
+    run's repo), the stub jj's call log (jj-calls.log) and the report; never the skill's wording."""
+    rep = report(run).replace("\\", "/")
+    R = []  # (text, passed, evidence)
+    trace = git_trace(repo)
+    jj_calls = (repo / "jj-calls.log").read_text(encoding="utf-8").splitlines() if (repo / "jj-calls.log").exists() else []
+    if name == "eval-branch-store-probe-fails":
+        code, store = repo / "code", repo / "store"
+        fx = json.loads((repo / "fixture-state.json").read_text(encoding="utf-8"))
+        on = lambda r: git(r, "branch", "--show-current")
+        tips = {"code": git(code, "rev-parse", "main"), "store": git(store, "rev-parse", "main")}
+        R.append(("Both repos are on main with only the main branch and no new commit",
+                  on(code) == on(store) == "main" and local_branches(code) == local_branches(store) == ["main"]
+                  and tips == {"code": fx["code_main"], "store": fx["store_main"]},
+                  f"code={on(code)} {local_branches(code)} store={on(store)} {local_branches(store)} tips={tips}"))
+        dirs = [r for r in (code, store) if (r / "openspec/changes/add-csv-export").exists()]
+        R.append(("No change directory add-csv-export exists in either repo", not dirs, f"dirs={dirs}"))
+        cd = git(store, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        lock = Path(cd) / "specwright-gate.lock" if cd else None
+        R.append(("No gate lock is left in the store", lock is not None and not lock.exists(), f"lock={lock}"))
+        R.append(("Every jj probe of the store ran with the gate lock held, and at least one ran",
+                  bool(jj_calls) and all(l.startswith("held jj ") for l in jj_calls), f"jj calls={jj_calls}"))
+        R.append(check_reads_only(trace))
+        hit = re.search(r"not_managed|\.jj\b|not a jj|no jj|not managed|jj repo", rep)
+        R.append(("The report names the store and its missing .jj", bool(hit) and "store" in rep, f"match={hit.group(0) if hit else None}"))
+        return R
+    fx = json.loads((repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))
+    status = status_of(repo)
+    if name == "eval-branch-git-jj-note":
+        new = "feat/add-csv-export"
+        tip = git(repo, "rev-parse", "--verify", "-q", new)
+        R.append(("Branch feat/add-csv-export exists, is checked out and starts at main's tip",
+                  git(repo, "branch", "--show-current") == new and tip is not None and tip == fx["main"],
+                  f"branch={git(repo, 'branch', '--show-current')} tip={tip} main={fx['main']}"))
+        R.append(("main is unchanged", git(repo, "rev-parse", "main") == fx["main"] and count_all(repo) == fx["commits"],
+                  f"main={git(repo, 'rev-parse', 'main')}"))
+        d = repo / "openspec/changes/add-csv-export"
+        R.append(("The change directory openspec/changes/add-csv-export exists", d.is_dir(), f"exists={d.is_dir()}"))
+        changes = changing_git(trace or [])
+        R.append(("The only Git write was git checkout -b feat/add-csv-export", trace is not None and changes == [["checkout", "-b", new]],
+                  f"trace recorded={trace is not None} changing={changes}"))
+        R.append(("No jj command ran", not jj_calls, f"jj calls={jj_calls}"))
+        hit = re.search(r"jj metadata|\.jj\b|jj repo|jj directory", rep)
+        R.append(("The report says the repo has jj metadata and that vcs: jj routes writes through jj",
+                  bool(hit) and bool(re.search(r"vcs: ?`?jj|vcs.{0,6}jj", rep)), f"match={hit.group(0) if hit else None}"))
+        R.append(check_no_stash([repo], trace))
+    elif name == "eval-branch-jj-dirty-no-stash":
+        branches = local_branches(repo)
+        R.append(("Still on main with no new branch", branches == ["main"] and git(repo, "rev-parse", "main") == fx["main"],
+                  f"branches={branches}"))
+        d = repo / "openspec/changes/add-csv-export"
+        R.append(("No change directory openspec/changes/add-csv-export was created", not d.exists(), f"exists={d.exists()}"))
+        text = (repo / "README.md").read_text(encoding="utf-8") if (repo / "README.md").exists() else None
+        R.append(("The uncommitted README.md edit is still in the working tree", text == fx["edited"] and any("README.md" in l for l in status),
+                  f"status={status}"))
+        R.append(check_no_stash([repo], trace))
+        R.append(check_reads_only(trace))
+        R.append(("The report shows the changed path README.md and offers to commit first or abort",
+                  "readme.md" in rep and "commit" in rep and "abort" in rep, f"report excerpt={rep[-200:]!r}"))
+        R.append(("The report does not offer a stash", not stash_offers(rep), f"offers={stash_offers(rep)}"))
+    elif name == "eval-debug-jj-dirty-no-stash":
+        text = (repo / "greet.py").read_text(encoding="utf-8") if (repo / "greet.py").exists() else None
+        R.append(("The uncommitted edit to greet.py is untouched and nothing was committed",
+                  text == fx["edited"] and count_all(repo) == fx["commits"], f"commits={count_all(repo)} fixture={fx['commits']}"))
+        R.append(check_no_stash([repo], trace))
+        R.append(check_reads_only(trace))
+        R.append(("The report shows the changed path greet.py and asks the user to set the edits aside or abort",
+                  "greet.py" in rep and bool(asks_to_set_aside(rep)) and "?" in rep, f"asks={asks_to_set_aside(rep)}"))
+        R.append(("The report does not offer a stash", not stash_offers(rep), f"offers={stash_offers(rep)}"))
+    else:  # eval-debug-jj-clean
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        tr = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=repo, capture_output=True, text=True, env=env)
+        R.append(("The test suite passes", tr.returncode == 0, (tr.stderr or tr.stdout).strip().splitlines()[-1:] or ["no output"]))
+        R.append(("The fix is left uncommitted in greet.py, with no other file changed",
+                  count_all(repo) == fx["commits"] and any(l.endswith("greet.py") for l in status)
+                  and all(l.endswith(("greet.py", "test_greet.py")) for l in status), f"commits={count_all(repo)} status={status}"))
+        R.append(check_no_stash([repo], trace))
+        R.append(check_reads_only(trace))
+        R.append(("The report does not ask the user to set edits aside, stash or abort", not asks_to_set_aside(rep),
+                  f"asks={asks_to_set_aside(rep)}"))
+        hit = re.search(r"comma|exclamation|punctuation|hello,", rep)
+        R.append(("The report names greet.py and the cause", "greet.py" in rep and bool(hit), f"match={hit.group(0) if hit else None}"))
+    return R
+
+
 def main(it):
     for run in sorted(Path(it).glob("eval-*/*/run-*")):
         repo = run / "repo"
         if not repo.exists():
             continue
-        res = (check_store if is_store_run(repo) else check)(run.parents[1].name, repo, run)
+        name = run.parents[1].name
+        res = (check_vcs if name in VCS_EVALS else check_store if is_store_run(repo) else check)(name, repo, run)
         exp = [{"text": t, "passed": bool(p), "evidence": str(e)} for t, p, e in res]
         n = sum(x["passed"] for x in exp)
         g = {"expectations": exp, "summary": {"passed": n, "failed": len(exp) - n, "total": len(exp),
