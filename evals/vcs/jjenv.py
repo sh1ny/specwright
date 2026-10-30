@@ -99,6 +99,15 @@ class Scratch:
         self.root = Path(self._temp.name)
         self.origin = self.root / "origin.git"
         self._git = real_git()
+        # The user's jj config is not read (a CI runner has none): jj commits get the fixture identity everywhere.
+        # jj 0.46 keeps repo config outside .jj/, so jj's own Git calls are pointed past a test's logging shim here.
+        self.jj_env = {
+            "JJ_CONFIG": str(self.root / "jj-config.toml"),
+            "JJ_USER": FIXTURE_NAME,
+            "JJ_EMAIL": FIXTURE_EMAIL,
+        }
+        (self.root / "jj-config.toml").write_text(
+            "git.executable-path = %s\n" % _toml_string(self._git), encoding="utf-8")
         self.env = {
             **os.environ,
             "GIT_CONFIG_NOSYSTEM": "1",
@@ -107,6 +116,7 @@ class Scratch:
             "GIT_AUTHOR_EMAIL": FIXTURE_EMAIL,
             "GIT_COMMITTER_NAME": FIXTURE_NAME,
             "GIT_COMMITTER_EMAIL": FIXTURE_EMAIL,
+            **self.jj_env,
         }
         self._make_bare_remote()
 

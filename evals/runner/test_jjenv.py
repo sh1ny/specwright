@@ -34,5 +34,24 @@ class TestJjMissing(unittest.TestCase):
         self.assertIn("not installed", str(caught.exception).lower())
 
 
+class TestJjIdentity(unittest.TestCase):
+    def test_fixture_ignores_the_users_jj_config(self):
+        """A CI runner has no jj user config: the fixture sets its own, so a jj commit has an author there too, and jj's
+        own Git calls go to the real git, past a test's logging shim (jj 0.46 never reads .jj/repo/config.toml)."""
+        with mock.patch.dict(os.environ, {"JJ_CONFIG": "/elsewhere/config.toml", "JJ_USER": "Someone"}):
+            with jjenv.Scratch() as scratch:
+                self.assertEqual(Path(scratch.env["JJ_CONFIG"]).parent, scratch.root)
+                self.assertEqual(scratch.env["JJ_USER"], jjenv.FIXTURE_NAME)
+                self.assertEqual(scratch.env["JJ_EMAIL"], jjenv.FIXTURE_EMAIL)
+                repo = scratch.tracked_repo()
+                jj = jjenv.require_jj()
+                executable = repo.run(jj, "config", "get", "git.executable-path").stdout.strip()
+                self.assertEqual(Path(executable), Path(jjenv.real_git()))
+                (repo.path / "work.txt").write_text("work\n", encoding="utf-8")
+                repo.run(jj, "commit", "-m", "work")
+                author = repo.run(jj, "log", "--no-graph", "-r", "@-", "-T", 'author.name() ++ "|" ++ author.email()').stdout
+        self.assertEqual(author, "%s|%s" % (jjenv.FIXTURE_NAME, jjenv.FIXTURE_EMAIL))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,12 @@
 """jj commits only the requested, snapshotted paths with their complete message."""
 
 import json
+import os
 import subprocess
 from pathlib import Path
+from unittest import mock
 
+import jjenv
 from jjenv import Scratch, require_jj
 from vcs_test_support import VcsTestCase, bash_path_env
 
@@ -71,6 +74,17 @@ class TestJjCommit(VcsTestCase):
         covered = next(task for task in coverage["tasks"] if task["id"] == "3.1")
         self.assertEqual(len(covered["commits"]), 1)
         self.assertEqual(covered["commits"][0]["form"], "trailer")
+
+    def test_vcs_sh_jj_reads_the_fixture_config(self):
+        """A CI runner has no jj user config, so the jj that vcs.sh runs must read the fixture's, not the user's."""
+        (self.repo / "group.txt").write_text("group work\n", encoding="utf-8")
+        user = self.root / "user-jj.toml"
+        user.write_text('user.name = "Someone Else"\nuser.email = "else@example.invalid"\n', encoding="utf-8")
+        with mock.patch.dict(os.environ, {"JJ_CONFIG": str(user), "JJ_USER": "Someone Else"}):
+            result, _ = self.commit("feat(add-jj-backend): work\n", "group.txt")
+        self.assertTrue(result["ok"], result)
+        author = self.git(self.repo, "log", "-1", "--format=%an|%ae|%cn|%ce", self.bookmark()).stdout.strip()
+        self.assertEqual(author, "|".join([jjenv.FIXTURE_NAME, jjenv.FIXTURE_EMAIL] * 2))
 
     def test_unrelated_edit_stays_in_wc(self):
         named = self.repo / "named.txt"

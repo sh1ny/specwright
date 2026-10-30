@@ -102,6 +102,8 @@ class VcsTestCase(unittest.TestCase):
             args += ["--code", str(code)]
         shim = getattr(self, "shim", None)
         shell_env = bash_path_env(shim.path if shim else None)
+        scratch = getattr(self, "scratch", None)
+        shell_env.update(scratch.jj_env if scratch is not None else {})  # the jj that vcs.sh runs reads the fixture's config
         shell_env.update({key: value for key, value in getattr(self, "env", {}).items() if key != "PATH"})
         shell_env.update(env or {})
         shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
