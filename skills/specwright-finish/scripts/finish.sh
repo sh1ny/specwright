@@ -423,7 +423,11 @@ def cmd_undo(d, a):
         state_cmd = f'bash {sq(VCS_SH)} state --repo {sq(top)} --role code --branch {sq(branch)}'
         lines = ["set -euo pipefail", f"cd {sq(top)}",
                  f'case "$({state_cmd})" in *{sq(chr(34) + "branch" + chr(34) + ": " + json.dumps(plan_branch, ensure_ascii=False))}*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
-                 f'test "$(git rev-parse {sq(headref)})" = {sq(T)}']
+                 f'test "$(git rev-parse {sq(headref)})" = {sq(T)}',
+                 # HEAD is the workspace commit: a touched path that differs from the tip there is another applied branch's,
+                 # and restoring the file would undo that branch's committed change
+                 f'git diff --quiet {sq(T)} HEAD -- ' + " ".join(sq(f) for f in touched_all)
+                 + ' || { echo "another applied branch changes a path the undo restores" >&2; exit 1; }']
         if mode == "committed":
             lines.append(f'test -z "$(git --no-optional-locks status --porcelain --untracked-files=all -- '
                          + " ".join(sq(f) for f in touched_all) + ')"')

@@ -650,12 +650,12 @@ def gitbutler_pull(root, info, opts, login):
 
 
 def gitbutler_push(root, info, opts, login):
-    """D6: the fenced Git push of the branch's own ref; no force, no -u, never `but push` or `but pr`."""
+    """D6: the fenced Git push of the branch's own ref; no force, no -u, no tags (push.followTags), never `but push` or `but pr`."""
     branch = require_branch(opts)
     require_applied(root, branch)
     refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
     try:
-        network_git(root, ["push", "origin", refspec], login)
+        network_git(root, ["push", "--no-follow-tags", "origin", refspec], login)
     except Stop as exc:
         if exc.error == "git_network_error" and re.search(r"\[rejected\]|non-fast-forward|fetch first", exc.message):
             raise Stop("push_rejected", "the remote rejected the push of %s as non-fast-forward; Specwright never forces "

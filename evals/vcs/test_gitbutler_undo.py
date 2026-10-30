@@ -127,3 +127,42 @@ class TestGitButlerUndoPlan(GitButlerFlowCase):
             self.assertEqual(self.applied(repo), [BRANCH, "feat/b"])
             self.assert_only_allowed_git_writes([])
             self.assertEqual(self.git_writes(), [], "the undo ran a Git write")
+
+    def test_undo_stops_when_another_branch_changed_a_spec(self):
+        require_but()
+        with Scratch() as scratch:
+            wrap, repo = self.start(scratch)
+            work = repo.path
+            # spec a is on main, so another branch can commit its own edit of it
+            side = self.clone_of_origin(scratch)
+            fx.write(side, "%s/specs/a/spec.md" % P, fx.base_spec("a"))
+            self.side_git(side, "add", "%s/specs/a/spec.md" % P)
+            self.side_git(side, "commit", "-q", "-m", "docs: spec a")
+            self.side_git(side, "push", "-q", "origin", "HEAD:refs/heads/main")
+            repo.but("pull")
+            repo.but("branch", "new", "feat/b")
+            repo.but("branch", "new", BRANCH)
+            fx.make_change(work, CHANGE, "DEFERRED", {"a": "New thing", "b": "B thing"}, commit_it=False)
+            self.commit_paths(scratch, wrap, "docs(add-c): add planning artifacts", CHANGE_DIR + "/")
+            fx.archive(work, CHANGE, commit_it=False)
+            archive = self.commit_paths(scratch, wrap, "chore(add-c): archive change", ARCHIVE_DIR + "/", CHANGE_DIR + "/",
+                                        "%s/specs/a/spec.md" % P, "%s/specs/b/spec.md" % P)
+            # feat/b then commits its own edit of spec a's title line
+            spec_a = work / P / "specs" / "a" / "spec.md"
+            text = spec_a.read_text(encoding="utf-8")
+            spec_a.write_text(text.replace("# a Specification", "# a Specification (feat/b)", 1), encoding="utf-8")
+            repo.but("commit", "-b", "feat/b", "-m", "docs: retitle spec a", "--json", "%s/specs/a/spec.md" % P)
+            self.assertIn("(feat/b)", self.git(work, "show", "refs/heads/feat/b:%s/specs/a/spec.md" % P).stdout)
+            self.assertEqual(self.tip(repo, BRANCH), archive)
+            before = spec_a.read_bytes()
+
+            doc = self.plan(scratch, wrap, repo)
+
+            self.assertTrue(doc["ok"], doc)
+            calls_before = len(wrap.calls())
+            stopped = self.run_script(scratch, wrap, repo, doc["script"], "guard", expected=1)
+            self.assertIn("another applied branch", stopped.stderr)
+            self.assertEqual(spec_a.read_bytes(), before, "the undo restored feat/b's committed edit away")
+            self.assertTrue((work / P / "changes" / "archive" / ARCHIVED).is_dir(), "the guard let the script move the archive")
+            self.assertEqual(self.tip(repo, BRANCH), archive)
+            self.assertEqual([c for c in wrap.calls()[calls_before:] if c[:1] == ["commit"]], [], "the guard let a but commit run")

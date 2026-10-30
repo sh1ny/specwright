@@ -801,8 +801,10 @@ def code_backend(st):
 
 def cmd_check(st, a):
     branch = a.get("branch")
-    if not branch and code_backend(st) == "gitbutler":
-        usage("vcs: gitbutler needs --branch <prefix>/<change-name>: HEAD is the workspace commit, not the change branch")
+    # --main compares the change branch with main: on GitButler HEAD is the workspace commit, so it needs the branch.
+    # A plain check (the bump task's verification) reads the working tree, as on Git.
+    if not branch and a.get("main") and code_backend(st) == "gitbutler":
+        usage("vcs: gitbutler needs --branch <prefix>/<change-name> with --main: HEAD is the workspace commit, not the change branch")
     entries = st.entries()
     tip = "HEAD"
     if branch:  # resolved now, on every call: never a SHA from the caller, never HEAD

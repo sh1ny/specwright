@@ -2187,6 +2187,19 @@ class GitButlerSkillText(unittest.TestCase):
         self.assertRegex(t, r"`backend` \(`git`, `jj` or `gitbutler`\)", "debug does not list gitbutler as a backend")
         self.assertRegex(t, r"(?is)### Stash \(Git backend only\)", "the stash section is no longer Git-only")
 
+    def test_branch_gate_loads_only_an_unchanged_repo_copy(self):
+        # an applied branch can rewrite a copy of the skill inside the shared working tree; `but skill check` compares
+        # versions only, so the gate checks the copy against main before it loads it
+        t = flat(read(BRANCH_SKILL))
+        self.assertRegex(t, r"(?is)`gitbutler` skill.{0,600}outside the (code )?(repo|checkout)",
+                         "the gate does not prefer a copy outside the repo")
+        self.assertRegex(t, r"(?is)`git diff --quiet <main> HEAD -- <dir>`", "a repo copy is not compared with main")
+        self.assertRegex(t, r"(?is)`git status --porcelain -- <dir>`", "a repo copy is not checked for uncommitted edits")
+        self.assertRegex(t, r"(?is)(otherwise|else|when either fails).{0,80}(do not|never) load (that|the) copy",
+                         "a changed repo copy is still loaded")
+        self.assertRegex(t, r"(?is)`but skill check`[^.]{0,200}(version|versions) only",
+                         "the gate does not say `but skill check` cannot authenticate the copy")
+
     def test_branch_gate_notes_missing_but_skill(self):
         t = flat(read(BRANCH_SKILL))
         self.assertRegex(t, r"`but skill check", "the gate never runs `but skill check`")

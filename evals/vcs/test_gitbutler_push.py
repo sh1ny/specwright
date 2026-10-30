@@ -32,7 +32,7 @@ class TestGitButlerPush(GitButlerNetworkCase):
             self.assertEqual(set(self.gh_tokens(scratch)), {"tok-code"}, "the push went through as.sh")
             # one fenced Git push of the branch's own ref, never `but push` or `but pr`
             self.assertEqual([call["argv"] for call in self.pushes()],
-                             [["push", "origin", "refs/heads/feat/add-c:refs/heads/feat/add-c"]])
+                             [["push", "--no-follow-tags", "origin", "refs/heads/feat/add-c:refs/heads/feat/add-c"]])
             self.assertEqual(wrap.writes(), [], "a but write ran")
             self.assertEqual([call for call in self.shim.calls() if call["write"] and call["action"] != "push"], [])
             # HEAD, config and the local branches are untouched
@@ -41,6 +41,24 @@ class TestGitButlerPush(GitButlerNetworkCase):
             for name, tip in tips.items():
                 self.assertEqual(self.tip(repo, name), tip, name)
             self.assertEqual((repo.path / "notes.txt").read_text(encoding="utf-8"), "uncommitted\n")
+
+    def test_push_sends_no_tags(self):
+        require_but()
+        with Scratch() as scratch:
+            wrap = self.prepare(scratch)
+            repo = self.workspace(scratch, ["feat/b", "feat/add-c"])
+            self.github_view()
+            # the user's push.followTags would publish an annotated tag that points into the pushed branch
+            self.assertEqual(self.git(repo.path, "config", "push.followTags", "true").returncode, 0)
+            tag = self.git(repo.path, "tag", "-a", "v9.9.9", "-m", "local only", "refs/heads/feat/add-c")
+            self.assertEqual(tag.returncode, 0, tag.stderr)
+
+            result = self.vcs(scratch, wrap, "push", "--branch", "feat/add-c", "--login", LOGIN)
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(self.origin_refs(scratch)["refs/heads/feat/add-c"], self.tip(repo, "feat/add-c"))
+            tags = self.git(scratch.origin, "tag", "--list").stdout.split()
+            self.assertEqual(tags, [], "the push published a tag")
 
     def test_push_unapplied_stops(self):
         require_but()

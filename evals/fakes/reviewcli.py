@@ -52,7 +52,7 @@ def main(argv):
     name, args = argv[0], argv[1:]
     u = name.upper()
     env = os.environ.get
-    entry = {"cli": name, "argv": args}
+    entry = {"cli": name, "argv": args, "cwd": os.getcwd(), "cwd_files": sorted(os.listdir("."))}
     log = env(f"FAKE_{u}_ARGV_LOG")
 
     def write_log():

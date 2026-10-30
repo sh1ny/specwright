@@ -123,6 +123,29 @@ class TestGitButlerRanges(GitButlerRangeCase):
             out, _ = self.preflight(scratch, repo, "--branch", BRANCH)
             self.assertEqual(out["heads"], {"code": tips[BRANCH]})
 
+    def test_preship_reviewer_reads_copy_of_branch_tip(self):
+        # the working tree holds feat/b's files too: a CLI reviewer runs in a copy of the change branch's tip
+        require_but()
+        with Scratch() as scratch:
+            repo = self.pair(scratch)
+            self.install_claude(scratch)
+            tip = self.tip(repo, BRANCH)
+            self.assertTrue((repo.path / "b.txt").is_file(), "feat/b's file is in the working tree")
+            stdout = self.root / "claude-stdout.json"
+            stdout.write_text(json.dumps({"type": "result", "result": "done", "structured_output": CLEAN}), encoding="utf-8")
+            env = self.env(scratch, FAKE_CLAUDE_STDOUT=str(stdout))
+
+            result = self.script(REVIEW, scratch, repo, "run", "--kind", "preship", "--route", "claude", "--out",
+                                 self.root / "out.json", "--change", CHANGE, "--base", "main", "--branch", BRANCH, env=env)
+
+            self.assertEqual(result["status"], "ok", result)
+            run = self.claude_runs()[0]
+            self.assertIn("add-c.txt", run["cwd_files"], "the reviewer's directory lacks the change's file")
+            self.assertNotIn("b.txt", run["cwd_files"], "the reviewer reads feat/b's file from the shared working tree")
+            self.assertNotEqual(Path(run["cwd"]).resolve(), repo.path.resolve())
+            self.assertIn("a copy of the files at %s" % tip, run["stdin"])
+            self.assertIn("Code repository: %s" % Path(run["cwd"]).as_posix(), run["stdin"].replace("\\", "/"))
+
     def test_gate_after_archive_resolves_branch_tip(self):
         require_but()
         with Scratch() as scratch:
@@ -211,6 +234,19 @@ class TestGitButlerRanges(GitButlerRangeCase):
             self.assertEqual(result["files"], ["VERSION"])
             missing = self.script(RELEASE, scratch, repo, "check", "--main", "main", "--branch", "feat/nope", expected=1)
             self.assertEqual(missing["error"], "branch_not_found", missing)
+
+    def test_release_plain_check_reads_work_tree(self):
+        # the bump task's verification: `check` without --main reads the working tree, also on GitButler
+        require_but()
+        with Scratch() as scratch:
+            repo = self.pair(scratch, settings="vcs: gitbutler\nfinish: pr\nrelease:\n  enabled: true\n  version_files:\n"
+                                                    "    VERSION: '^(\\d+\\.\\d+\\.\\d+)$'\n")
+            (repo.path / "VERSION").write_text("0.3.0\n", encoding="utf-8")
+
+            result = self.script(RELEASE, scratch, repo, "check")
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["version"], "0.3.0")
 
 
 FINISH_SH = ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh"
