@@ -309,6 +309,25 @@ class Wiring(unittest.TestCase):
         self.assertRegex(s3[review.start():handoff.start()], r"(?i)(pass|passes|passed)",
                          "the hand-off does not wait for a passing review")
 
+    def test_preship_range_names_branch_tip(self):
+        # GitButler: HEAD is the workspace commit, so every pre-ship range and key names the change branch's tip (D4)
+        s3 = self.commit_step3()
+        self.assertRegex(s3, r"<main>\.\.\.<head>|<main>\.\.\.<branch>", "commit step 3 does not name the branch-tip range")
+        self.assertRegex(s3, r"(?is)tip of (the )?(change )?branch|branch.{0,12}tip", "commit step 3 does not name the branch tip")
+        review = read(REVIEW)
+        step = sections(review)["pre-ship review"] if "pre-ship review" in sections(review) else review
+        for sub_name in ("preflight", "run --kind preship", "record --kind preship", "gate", "waive"):
+            call = re.search(r"review-run\.sh[`\"']?\s+" + sub_name + r"\b[^`]*`", review)
+            self.assertTrue(call, f"the review skill never calls `review-run.sh {sub_name}`")
+            self.assertIn("--branch <prefix>/<change-name>", call.group(0), f"`review-run.sh {sub_name}` has no --branch")
+        self.assertRegex(step, r"(?is)GitButler.{0,300}--branch|--branch.{0,300}GitButler",
+                         "the review skill does not say that GitButler needs --branch")
+        for agent in (ROOT / "agents" / "claude" / "specwright-reviewer.md", ROOT / "agents" / "omp" / "specwright-reviewer.md"):
+            text = read(agent)
+            self.assertIn("git diff --no-color <base>...<branch>", text, f"{agent.parent.name}: the agent diffs against HEAD")
+            self.assertNotIn("<base>...HEAD", text, f"{agent.parent.name}: the agent still names HEAD")
+            self.assertIn("git show <branch>:<path>", text, f"{agent.parent.name}: the agent does not read code at the branch")
+
     def test_commit_step3_preship_false_skips(self):
         s3 = self.commit_step3()
         self.assertRegex(s3, r"(?is)review\.preship: false.{0,120}(skip|no (pre-ship )?review)",

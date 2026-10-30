@@ -38,6 +38,9 @@
 #                       archive directories restore to one <P>/changes/<name>/), member_missing (a later commit deleted a
 #                       member's archive directory; `paths` names them), backup_exists (the backup directory exists),
 #                       bad_ref, not_a_repo.
+#                       On GitButler (the code repo's backend, read through vcs.sh) --branch is required (exit 2, usage) and the
+#                       head every guard checks is the tip of refs/heads/<branch>, resolved now: HEAD is the workspace commit
+#                       there. On Git and jj the head is HEAD, as before.
 #                       The current branch is read through ../../specwright-pr/scripts/vcs.sh `state` (exit 2, error
 #                       vcs_script_missing, naming the path when that script is absent). --code is the code repo's toplevel; give
 #                       it with `--dir <store>` so the store's own backend is probed. On a jj repo `script` works the working copy
@@ -108,11 +111,14 @@ def nul_list(r):
     return [x.decode("utf-8", "replace") for x in r.stdout.split(b"\0") if x]
 
 
-def vcs_state(top, code):
-    """The branch and the working-copy changes, read through vcs.sh state (Git or jj, the repo's own backend)."""
+def vcs_state(top, code, branch=None):
+    """The branch and the working-copy changes, read through vcs.sh state (the repo's own backend). --branch is passed along:
+    on GitButler `branch` is empty unless that branch is applied."""
     if not os.path.isfile(VCS_SH):
         raise Stop("vcs_script_missing", f"{VCS_SH} is missing; finish.sh reads the branch through it", code=2, path=VCS_SH)
     role = ["--role", "store", "--code", code] if code else ["--role", "code"]
+    if branch:
+        role += ["--branch", branch]
     try:
         r = subprocess.run([BASH, VCS_SH, "state", "--repo", top, *role], cwd=top, env=ENV, capture_output=True)
     except OSError as e:
@@ -171,8 +177,17 @@ def cmd_undo(d, a):
     if r.returncode != 0:
         raise Stop("not_a_repo", "the repository has no commit")
     head = text_of(r)
-    vs = vcs_state(top, a.get("code"))
+    vs = vcs_state(top, a.get("code"), a.get("branch"))
     jj = vs["backend"] == "jj"
+    headref = "HEAD"
+    if vs["backend"] == "gitbutler":  # HEAD is the workspace commit: the head every guard checks is the branch's tip
+        if not a.get("branch"):
+            usage("--branch is required on GitButler: HEAD is the workspace commit, not the change branch")
+        headref = "refs/heads/" + a["branch"]
+        r = git(top, "rev-parse", "--verify", "-q", headref + "^{commit}")
+        if r.returncode != 0:
+            raise Stop("bad_ref", f"{a['branch']} is not a local branch")
+        head = text_of(r)
     cb = vs["branch"]
     branch = a.get("branch") or cb
     if not branch:
@@ -409,13 +424,13 @@ def cmd_undo(d, a):
             lines += ['test -z "$(jj diff -r @ --name-only)"', f'test "$(git rev-parse {sq("refs/heads/" + branch)})" = {sq(T)}',
                       f"jj new {sq(rev)}"]
         lines += [f'case "$({state_cmd})" in *{sq(chr(34) + "branch" + chr(34) + ": " + json.dumps(plan_branch, ensure_ascii=False))}*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
-                  f'test "$(git rev-parse HEAD)" = {sq(T)}']
+                  f'test "$(git rev-parse {sq(headref)})" = {sq(T)}']
         if mode == "committed":
             lines.append(f'test -z "$(jj diff -r @ --name-only {fsets})"')
         lines.append(f"test ! -e {sq(backup_dir)}")
     else:
         lines = ["set -euo pipefail", f"cd {sq(top)}"]
-    guard = [f'test "$(git branch --show-current)" = {sq(plan_branch)}', f'test "$(git rev-parse HEAD)" = {sq(T)}',
+    guard = [f'test "$(git branch --show-current)" = {sq(plan_branch)}', f'test "$(git rev-parse {sq(headref)})" = {sq(T)}',
              "git diff --cached --quiet", f"test ! -e {sq(backup_dir)}"]
     if not jj:
         if mode == "committed" and branch != cb:

@@ -28,18 +28,18 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → On GitButler a commit takes only its named paths into the change branch | Path belongs to another branch | evals/vcs/test_gitbutler_commit.py | test_commit_path_owned_elsewhere_stops | green |
 | vcs-backends → On GitButler a commit takes only its named paths into the change branch | Short path that looks like an ID | evals/vcs/test_gitbutler_commit.py | test_commit_short_path_not_cli_id | green |
 | vcs-backends → On GitButler a commit takes only its named paths into the change branch | Trailers kept | evals/vcs/test_gitbutler_commit.py | test_commit_keeps_trailers | green |
-| vcs-backends → Change ranges read the change branch tip | Other applied branches | evals/vcs/test_gitbutler_ranges.py | test_preship_range_uses_branch_tip | red |
-| vcs-backends → Change ranges read the change branch tip | Gate after the archive commit | evals/vcs/test_gitbutler_ranges.py | test_gate_after_archive_resolves_branch_tip | red |
-| vcs-backends → Change ranges read the change branch tip | Version check ignores other branches | evals/vcs/test_gitbutler_ranges.py | test_release_check_reads_branch_tip | red |
-| vcs-backends → Change ranges read the change branch tip | Branch not given | evals/vcs/test_gitbutler_ranges.py | test_without_branch_stops | red |
-| vcs-backends → Change ranges read the change branch tip | Branch moved after the review | evals/vcs/test_gitbutler_ranges.py | test_branch_moved_voids_record | red |
+| vcs-backends → Change ranges read the change branch tip | Other applied branches | evals/vcs/test_gitbutler_ranges.py | test_preship_range_uses_branch_tip | green |
+| vcs-backends → Change ranges read the change branch tip | Gate after the archive commit | evals/vcs/test_gitbutler_ranges.py | test_gate_after_archive_resolves_branch_tip | green |
+| vcs-backends → Change ranges read the change branch tip | Version check ignores other branches | evals/vcs/test_gitbutler_ranges.py | test_release_check_reads_branch_tip | green |
+| vcs-backends → Change ranges read the change branch tip | Branch not given | evals/vcs/test_gitbutler_ranges.py | test_without_branch_stops | green |
+| vcs-backends → Change ranges read the change branch tip | Branch moved after the review | evals/vcs/test_gitbutler_ranges.py | test_branch_moved_voids_record | green |
 | vcs-backends → Change ranges read the change branch tip | Git unchanged | evals/review-routes/test_review_run.py | test_record_preship_repo_local_keyed_by_code_head | green |
 | vcs-backends → A GitButler push publishes only the change branch | Ship with another branch applied | evals/vcs/test_gitbutler_push.py | test_push_only_change_branch | green |
 | vcs-backends → A GitButler push publishes only the change branch | Rewritten branch | evals/vcs/test_gitbutler_push.py | test_push_rejected_never_forced | green |
 | vcs-backends → The GitButler pull never rebases another branch | Cleanup alone in the workspace | evals/vcs/test_gitbutler_pull.py | test_pull_alone_runs_fenced | green |
 | vcs-backends → The GitButler pull never rebases another branch | Another branch applied | evals/vcs/test_gitbutler_pull.py | test_pull_skipped_other_branch | green |
 | vcs-backends → The GitButler pull never rebases another branch | Linked worktree | evals/vcs/test_gitbutler_pull.py | test_pull_skipped_linked_worktree | green |
-| vcs-backends → The GitButler pull never rebases another branch | Finish after a skipped pull | evals/vcs/test_gitbutler_pull.py | test_finish_reads_fetched_main | red |
+| vcs-backends → The GitButler pull never rebases another branch | Finish after a skipped pull | evals/vcs/test_gitbutler_pull.py | test_finish_reads_fetched_main | green |
 | vcs-backends → A GitButler branch is deleted only once merged | Squash-merged PR | evals/vcs/test_gitbutler_delete.py | test_delete_after_squash_merge | green |
 | vcs-backends → A GitButler branch is deleted only once merged | Pull skipped | evals/vcs/test_gitbutler_delete.py | test_delete_left_applied_when_base_lacks_merge | green |
 | vcs-backends → A GitButler branch is deleted only once merged | Not merged | evals/vcs/test_gitbutler_delete.py | test_delete_unmerged_left_applied | green |
@@ -57,7 +57,7 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | preship-review → The pre-ship review runs when every task is committed | Default settings | evals/review-routes/test_skill_text.py | test_commit_step3_runs_preship_before_handoff | green |
 | preship-review → The pre-ship review runs when every task is committed | Opted out | evals/review-routes/test_skill_text.py | test_commit_step3_preship_false_skips | green |
 | preship-review → The pre-ship review runs when every task is committed | Store-backed change | evals/review-routes/test_skill_text.py | test_subagent_preship_dispatch_names_root_and_store | green |
-| preship-review → The pre-ship review runs when every task is committed | GitButler workspace | evals/review-routes/test_skill_text.py | test_preship_range_names_branch_tip | red |
+| preship-review → The pre-ship review runs when every task is committed | GitButler workspace | evals/review-routes/test_skill_text.py | test_preship_range_names_branch_tip | green |
 | github-identity → GitButler pulls are fenced like git | Cleanup pull | evals/pr-pair/test_as_gitbutler.py | test_but_pull_uses_fenced_token | green |
 | github-identity → GitButler pulls are fenced like git | Other `but` subcommand | evals/pr-pair/test_as_gitbutler.py | test_but_other_subcommand_refused | green |
 | github-identity → GitButler pulls are fenced like git | Directory option | evals/pr-pair/test_as_gitbutler.py | test_but_directory_option_refused | green |
@@ -111,8 +111,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 8. Reads use the branch tip
 
-- [ ] 8.1 Write failing tests for the "Change ranges read the change branch tip" rows (red ones), `test_finish_reads_fetched_main` and `test_preship_range_names_branch_tip`
-- [ ] 8.2 Add `--branch` to `review-run.sh` (range, record key, after-archive lookup, task evidence), `release.sh check` and `finish.sh`, each resolving the tip on every call and stopping on GitButler without it. Update the reviewer agents (`agents/*/specwright-reviewer.md`) to diff against the branch and read surrounding code with `git show <branch>:<path>`, and update the skills' call sites listed in D4. Verify the 8.1 tests pass, flip their rows green, and re-run `test_record_preship_repo_local_keyed_by_code_head` and the three green preship rows (still green)
+- [x] 8.1 Write failing tests for the "Change ranges read the change branch tip" rows (red ones), `test_finish_reads_fetched_main` and `test_preship_range_names_branch_tip`
+- [x] 8.2 Add `--branch` to `review-run.sh` (range, record key, after-archive lookup, task evidence), `release.sh check` and `finish.sh`, each resolving the tip on every call and stopping on GitButler without it. Update the reviewer agents (`agents/*/specwright-reviewer.md`) to diff against the branch and read surrounding code with `git show <branch>:<path>`, and update the skills' call sites listed in D4. Verify the 8.1 tests pass, flip their rows green, and re-run `test_record_preship_repo_local_keyed_by_code_head` and the three green preship rows (still green)
 
 ## 9. PR-pair routing and the Git-write boundary
 
