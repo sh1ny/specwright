@@ -235,7 +235,7 @@ def context(argv):
     command, args = argv[0], argv[1:]
     allowed = {"--repo": "repo", "--role": "role", "--code": "code", "--branch": "branch",
                "--message-file": "message_file", "--scope": "scope", "--operation": "operation",
-               "--login": "login", "--main": "main"}
+               "--login": "login", "--main": "main", "--prefix": "prefix"}
     flags = {"--force": "force", "--no-tags": "no_tags", "--quiet": "quiet", "--remote-branch": "remote_branch"}
     opts, paths, after = {}, [], False
     i = 0
@@ -380,6 +380,148 @@ def jj_state(repo, info, scope=None):
 
 
 
+BUT_STATUS_CAP = 16 * 1024 * 1024  # `but status --json` is read up to this many bytes (design: Resource Bounds)
+
+
+def but_run(root, *args, cap=None):
+    """Run `but` in the repo and return its stdout; with `cap`, stop reading past that many bytes."""
+    argv = [BASH, "-c", 'exec "$@"', "vcs", "but", *args]
+    with tempfile.TemporaryFile() as errors:
+        try:
+            proc = subprocess.Popen(process_arguments(argv), cwd=str(root), env=os.environ.copy(),
+                                    stdout=subprocess.PIPE, stderr=errors)
+        except OSError as exc:
+            raise Stop("tool_missing", "but could not run: " + str(exc))
+        data = proc.stdout.read(cap + 1) if cap else proc.stdout.read()
+        if cap and len(data) > cap:
+            proc.kill()
+            proc.stdout.close()
+            proc.wait()
+            raise Stop("but_output_too_large", "but %s printed more than %d bytes; nothing was changed" % (args[0], cap))
+        proc.stdout.close()
+        code = proc.wait()
+        errors.seek(0)
+        stderr = errors.read().decode("utf-8", errors="replace")
+    out = data.decode("utf-8", errors="replace")
+    if code:
+        raise Stop("but_error", (stderr or out).strip() or "but %s failed" % " ".join(args))
+    return out
+
+
+def but_status(root):
+    """`but status --json`, the only read of the workspace: names and paths are the keys, never the short IDs."""
+    try:
+        status = json.loads(but_run(root, "status", "--json", cap=BUT_STATUS_CAP))
+    except ValueError:
+        raise Stop("but_error", "but status --json returned invalid JSON")
+    if not isinstance(status, dict):
+        raise Stop("but_error", "but status --json returned an unexpected document")
+    return status
+
+
+def stack_names(stack):
+    return [b.get("name", "") for b in stack.get("branches") or []]
+
+
+def change_file(entry):
+    return path_text(entry.get("filePath") or entry.get("path") or "")
+
+
+def gitbutler_state(root, info, opts):
+    """D4: the change branch is the one the caller names; HEAD (the workspace commit or another branch) is never read."""
+    branch = opts.get("branch") or ""
+    status = but_status(root)
+    stacks = status.get("stacks") or []
+    applied_branches = [name for stack in stacks for name in stack_names(stack)]
+    applied = bool(branch) and branch in applied_branches
+    target = (status.get("mergeBase") or {}).get("commitId") or ""
+    tip = ""
+    if branch:
+        found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
+        tip = found.stdout.strip() if found.returncode == 0 else ""
+    owner = {}  # path -> index of the stack that holds it
+    for index, stack in enumerate(stacks):
+        for entry in stack.get("assignedChanges") or []:
+            owner.setdefault(change_file(entry), index)
+    uncommitted = [change_file(entry) for entry in status.get("uncommittedChanges") or []]
+    touched = set()
+    if tip and target:
+        diff = git(root, "diff", "--name-only", "--no-renames", "-z", target, tip)
+        touched = set(path_text(name) for name in diff.stdout.split("\0") if name)
+    change_dir = ""
+    if branch:
+        prefix = (opts.get("prefix") or "openspec").replace("\\", "/").strip("/")
+        change_dir = "%s/changes/%s/" % (prefix, branch.split("/", 1)[1] if "/" in branch else branch)
+    change_paths, unassigned_paths, other_paths = [], [], []
+    for path, index in owner.items():
+        if applied and branch in stack_names(stacks[index]):
+            change_paths.append(path)
+        else:
+            names = stack_names(stacks[index])
+            other_paths.append({"path": path, "branch": names[0] if names else ""})
+    for path in uncommitted:
+        if path in owner or path in unassigned_paths or path in change_paths:
+            continue
+        if branch and (path.startswith(change_dir) or path in touched):
+            change_paths.append(path)  # the change's own: its artifacts, or a file the branch already touched
+        else:
+            unassigned_paths.append(path)
+    paths = []
+    for path in change_paths + unassigned_paths + [item["path"] for item in other_paths]:
+        if path not in paths:
+            paths.append(path)
+    return {"ok": True, "backend": "gitbutler", "main": info["main"], "branch": branch if applied else "",
+            "on_main": not applied, "applied": applied, "head": tip, "target": target,
+            "applied_branches": applied_branches, "change_paths": change_paths, "unassigned_paths": unassigned_paths,
+            "other_branch_paths": other_paths, "clean": not change_paths,
+            "dirty_paths": paths, "dirty": [{"status": "", "path": path} for path in paths],
+            "behind": [], "behind_truncated": False}
+
+
+def require_applied(root, branch):
+    status = but_status(root)
+    if branch not in [name for stack in status.get("stacks") or [] for name in stack_names(stack)]:
+        raise Stop("branch_not_applied", "branch %s is not applied in the GitButler workspace; Specwright never applies "
+                   "one (it can conflict with the other branches): apply it yourself, or choose another branch" % branch,
+                   branch=branch)
+    return status
+
+
+def gitbutler_branch_create(root, info, opts):
+    branch = require_branch(opts)
+    if git(root, "show-ref", "--verify", "--quiet", "refs/heads/" + branch).returncode == 0:
+        raise Stop("branch_exists", "branch %s already exists (applied or not): resume it, choose another name, or "
+                   "abort; nothing was changed" % branch, branch=branch)
+    but_run(root, "branch", "new", branch, "--json")
+    status = but_status(root)
+    stack = next((s for s in status.get("stacks") or [] if branch in stack_names(s)), None)
+    target = (status.get("mergeBase") or {}).get("commitId") or ""
+    found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
+    tip = found.stdout.strip() if found.returncode == 0 else ""
+    mine = [b for b in (stack or {}).get("branches") or [] if b.get("name") == branch]
+    if stack is None or not tip or tip != target or (mine and mine[0].get("commits")):
+        raise Stop("branch_create_mismatch", "branch %s was created but is not applied on the target with no commits "
+                   "(tip %s, target %s)" % (branch, tip or "-", target or "-"))
+    return {"ok": True, "backend": "gitbutler", "branch": branch, "commit": tip, "applied": True}
+
+
+def run_gitbutler_operation(command, info, opts, paths):
+    root = info["repo"]
+    if command == "branch-create":
+        return gitbutler_branch_create(root, info, opts)
+    if command == "switch":
+        branch = require_branch(opts)
+        if branch != info["main"]:  # the workspace is always based on main: only another branch needs to be applied
+            require_applied(root, branch)
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "switched": False}
+    if command == "commit":
+        branch = require_branch(opts)
+        if not opts.get("message_file") or not paths:
+            usage("commit requires --message-file and at least one path after --")
+        require_applied(root, branch)
+    raise Stop("unsupported", "the GitButler backend does not implement %s yet" % command)
+
+
 def main_and_context(info, opts):
     if opts.get("main"):
         info["main"] = opts["main"]
@@ -387,9 +529,15 @@ def main_and_context(info, opts):
 
 
 def current_state(repo, info, opts):
-    if info["backend"] == "git":
-        return git_state(repo, info, opts.get("scope"))
-    return jj_state(repo, info, opts.get("scope"))
+    if info["backend"] == "gitbutler":
+        return gitbutler_state(info["repo"], info, opts)
+    state = git_state(repo, info, opts.get("scope")) if info["backend"] == "git" else jj_state(repo, info, opts.get("scope"))
+    # D4: HEAD is the change's commit on Git and jj; `--branch` is reported, never a stop (finish asks from main)
+    head = git(repo, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    state["head"] = head.stdout.strip() if head.returncode == 0 else ""
+    if opts.get("branch"):
+        state["branch_matches"] = state["branch"] == opts["branch"]
+    return state
 
 
 def git_checked(repo, *args, env=None, error="git_error"):
@@ -890,10 +1038,10 @@ def main(argv):
         if info["backend"] == "git" and info.get("jj_present"):
             result["jj_present"] = True
         return result
-    if info["backend"] == "gitbutler":
-        raise Stop("unsupported", "the GitButler backend does not implement %s yet" % command)
     if command == "state":
         return current_state(repo, info, opts)
+    if info["backend"] == "gitbutler":
+        return run_gitbutler_operation(command, info, opts, paths)
     if command == "plan":
         return plan(repo, code, role, info, opts)
     if info["backend"] == "git":

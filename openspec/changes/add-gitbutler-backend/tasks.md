@@ -16,14 +16,14 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → The GitButler backend is probed before any `but` command | `but` missing | evals/vcs/test_gitbutler_probe.py | test_but_missing_stops_before_write | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | Repo not managed by GitButler | evals/vcs/test_gitbutler_probe.py | test_unmanaged_repo_not_set_up | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | Target is another branch | evals/vcs/test_gitbutler_probe.py | test_target_mismatch_stops | green |
-| vcs-backends → The GitButler gate applies the change branch beside the others | Other branches applied | evals/vcs/test_gitbutler_branch.py | test_branch_create_beside_applied | red |
-| vcs-backends → The GitButler gate applies the change branch beside the others | Name already taken | evals/vcs/test_gitbutler_branch.py | test_branch_create_name_taken | red |
-| vcs-backends → On GitButler the change branch is resolved by name | Workspace HEAD | evals/vcs/test_gitbutler_state.py | test_state_reads_branch_not_head | red |
-| vcs-backends → On GitButler the change branch is resolved by name | Another agent's edits during the completion check | evals/vcs/test_gitbutler_state.py | test_clean_ignores_other_branch_paths | red |
-| vcs-backends → On GitButler the change branch is resolved by name | Own unnamed edit at the completion check | evals/vcs/test_gitbutler_state.py | test_own_unassigned_edit_not_clean | red |
+| vcs-backends → The GitButler gate applies the change branch beside the others | Other branches applied | evals/vcs/test_gitbutler_branch.py | test_branch_create_beside_applied | green |
+| vcs-backends → The GitButler gate applies the change branch beside the others | Name already taken | evals/vcs/test_gitbutler_branch.py | test_branch_create_name_taken | green |
+| vcs-backends → On GitButler the change branch is resolved by name | Workspace HEAD | evals/vcs/test_gitbutler_state.py | test_state_reads_branch_not_head | green |
+| vcs-backends → On GitButler the change branch is resolved by name | Another agent's edits during the completion check | evals/vcs/test_gitbutler_state.py | test_clean_ignores_other_branch_paths | green |
+| vcs-backends → On GitButler the change branch is resolved by name | Own unnamed edit at the completion check | evals/vcs/test_gitbutler_state.py | test_own_unassigned_edit_not_clean | green |
 | vcs-backends → On GitButler the change branch is resolved by name | Finish commits the archive on the change branch | evals/vcs/test_gitbutler_commit.py | test_archive_commit_names_exact_paths | red |
-| vcs-backends → On GitButler the change branch is resolved by name | Cleanup switches to main | evals/vcs/test_gitbutler_state.py | test_switch_to_main_is_noop | red |
-| vcs-backends → On GitButler the change branch is resolved by name | Branch unapplied mid-change | evals/vcs/test_gitbutler_state.py | test_branch_not_applied_stops | red |
+| vcs-backends → On GitButler the change branch is resolved by name | Cleanup switches to main | evals/vcs/test_gitbutler_state.py | test_switch_to_main_is_noop | green |
+| vcs-backends → On GitButler the change branch is resolved by name | Branch unapplied mid-change | evals/vcs/test_gitbutler_state.py | test_branch_not_applied_stops | green |
 | vcs-backends → On GitButler a commit takes only its named paths into the change branch | Unrelated edits stay uncommitted | evals/vcs/test_gitbutler_commit.py | test_commit_takes_only_named_paths | red |
 | vcs-backends → On GitButler a commit takes only its named paths into the change branch | Path belongs to another branch | evals/vcs/test_gitbutler_commit.py | test_commit_path_owned_elsewhere_stops | red |
 | vcs-backends → On GitButler a commit takes only its named paths into the change branch | Short path that looks like an ID | evals/vcs/test_gitbutler_commit.py | test_commit_short_path_not_cli_id | red |
@@ -90,8 +90,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 4. State, branch creation and switch
 
-- [ ] 4.1 Write failing tests for the rows of "The GitButler gate applies the change branch beside the others" and "On GitButler the change branch is resolved by name", except the archive commit row (group 5)
-- [ ] 4.2 Implement `state --branch` (resolved by name; tip, target, paths split into own, unassigned and other branches'; 16 MiB cap on `but status`), `branch-create` with `but branch new`, `switch` to main as a no-op and `branch_not_applied` (D3, D4). Verify the 4.1 tests pass and flip their rows green
+- [x] 4.1 Write failing tests for the rows of "The GitButler gate applies the change branch beside the others" and "On GitButler the change branch is resolved by name", except the archive commit row (group 5)
+- [x] 4.2 Implement `state --branch` (resolved by name; tip, target, paths split into own, unassigned and other branches'; 16 MiB cap on `but status`), `branch-create` with `but branch new`, `switch` to main as a no-op and `branch_not_applied` (D3, D4). Verify the 4.1 tests pass and flip their rows green
 
 ## 5. Commit with named paths
 

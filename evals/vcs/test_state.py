@@ -35,6 +35,14 @@ class TestJjState(VcsTestCase):
         self.assertIn("feat/x", state["message"])
         self.assertIn("docs/y", state["message"])
 
+    def test_state_branch_flag_reports_head_and_match(self):
+        self.test_state_one_bookmark_beside_main()
+        head = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        state, _ = self.invoke("state", "--branch", "feat/x", repo=self.repo)
+        self.assertEqual((state["head"], state["branch_matches"]), (head, True))
+        state, _ = self.invoke("state", "--branch", "feat/other", repo=self.repo)
+        self.assertEqual((state["head"], state["branch_matches"], state["branch"]), (head, False, "feat/x"))
+
     def test_state_off_main_no_branch(self):
         jj = require_jj()
         import subprocess
@@ -89,6 +97,17 @@ class TestJjState(VcsTestCase):
 
 
 class TestGitState(VcsTestCase):
+    def test_git_state_branch_flag_reports_head_and_match(self):
+        """`--branch` is a report on Git: HEAD is the change's commit, and a different branch is never a stop."""
+        self.git(self.repo, "checkout", "-b", "feat/x")
+        head = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        state, _ = self.invoke("state", "--branch", "feat/x")
+        self.assertEqual((state["head"], state["branch_matches"], state["branch"]), (head, True, "feat/x"))
+        state, _ = self.invoke("state", "--branch", "feat/other")
+        self.assertEqual((state["head"], state["branch_matches"], state["branch"]), (head, False, "feat/x"))
+        state, _ = self.invoke("state")
+        self.assertNotIn("branch_matches", state)
+
     def test_git_state_reports_jj_present(self):
         (self.repo / ".jj").mkdir()
         state, _ = self.invoke("state")
