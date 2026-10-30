@@ -61,11 +61,11 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | github-identity → GitButler pulls are fenced like git | Cleanup pull | evals/pr-pair/test_as_gitbutler.py | test_but_pull_uses_fenced_token | red |
 | github-identity → GitButler pulls are fenced like git | Other `but` subcommand | evals/pr-pair/test_as_gitbutler.py | test_but_other_subcommand_refused | red |
 | github-identity → GitButler pulls are fenced like git | Directory option | evals/pr-pair/test_as_gitbutler.py | test_but_directory_option_refused | red |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_only | red |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Upstream released a new version | evals/runner/test_ci_workflow.py | test_workflow_pins_but_build_url | red |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Downloaded bytes differ | evals/runner/test_ci_workflow.py | test_workflow_checks_but_sha256_before_use | red |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Local run without `but` | evals/runner/test_butenv.py | test_but_missing_skips_with_reason | red |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Required but missing | evals/runner/test_butenv.py | test_but_missing_required_fails | red |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_only | green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Upstream released a new version | evals/runner/test_ci_workflow.py | test_workflow_pins_but_build_url | green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Downloaded bytes differ | evals/runner/test_ci_workflow.py | test_workflow_checks_but_sha256_before_use | green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Local run without `but` | evals/runner/test_butenv.py | test_but_missing_skips_with_reason | green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | Required but missing | evals/runner/test_butenv.py | test_but_missing_required_fails | green |
 
 ## 1. Feasibility checks and ADR 0018
 
@@ -79,8 +79,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 2. Eval harness and CI for `but`
 
-- [ ] 2.1 Write failing `evals/runner/test_butenv.py` (`test_but_missing_skips_with_reason`, `test_but_missing_required_fails`) and the CI tests in `evals/runner/test_ci_workflow.py` (`test_workflow_installs_pinned_but_for_vcs_only`, `test_workflow_pins_but_build_url`, `test_workflow_checks_but_sha256_before_use`). Verify they fail because `butenv.py`, `BUT_VERSION` and the CI step are missing
-- [ ] 2.2 Add `evals/vcs/butenv.py` (scratch repo set up by `but`, local bare remote, fake `gh`, isolated GitButler app data with metrics disabled, `GIT_CONFIG_NOSYSTEM=1` and `core.autocrlf=false`, skip or fail per `SPECWRIGHT_REQUIRE_BUT`). Add `BUT_VERSION` (`0.23.1-3317`) and, in `.github/workflows/evals.yml`, an install step only in the `vcs` job: `curl --fail` the versioned Linux `but` URL, `sha256sum --check` it against `57e442543839c912f164fb91a20ea934826fc0023ddf552a70f2ed63ba514a73` before making it executable, put it on `PATH`, fail unless `but --version` names the version part of `BUT_VERSION` (derived in the step), and set `SPECWRIGHT_REQUIRE_BUT=1` in every suite job (D10). Map the new files in `evals/suites.json`, with `pr-pair.sh`, `as.sh`, `review-run.sh`, `release.sh` and `finish.sh` also mapped to `vcs`. Verify: the five tests pass, flip their rows green, and the suite-map test in `evals/runner` passes
+- [x] 2.1 Write failing `evals/runner/test_butenv.py` (`test_but_missing_skips_with_reason`, `test_but_missing_required_fails`) and the CI tests in `evals/runner/test_ci_workflow.py` (`test_workflow_installs_pinned_but_for_vcs_only`, `test_workflow_pins_but_build_url`, `test_workflow_checks_but_sha256_before_use`). Verify they fail because `butenv.py`, `BUT_VERSION` and the CI step are missing
+- [x] 2.2 Add `evals/vcs/butenv.py` (scratch repo set up by `but`, local bare remote, fake `gh`, isolated GitButler app data with metrics disabled, `GIT_CONFIG_NOSYSTEM=1` and `core.autocrlf=false`, skip or fail per `SPECWRIGHT_REQUIRE_BUT`). Add `BUT_VERSION` (`0.23.1-3317`) and, in `.github/workflows/evals.yml`, an install step only in the `vcs` job: `curl --fail` the versioned Linux `but` URL, `sha256sum --check` it against `57e442543839c912f164fb91a20ea934826fc0023ddf552a70f2ed63ba514a73` before making it executable, put it on `PATH`, fail unless `but --version` names the version part of `BUT_VERSION` (derived in the step), and set `SPECWRIGHT_REQUIRE_BUT=1` in every suite job (D10). Map the new files in `evals/suites.json`, with `pr-pair.sh`, `as.sh`, `review-run.sh`, `release.sh` and `finish.sh` also mapped to `vcs`. Verify: the five tests pass, flip their rows green, and the suite-map test in `evals/runner` passes
 
 ## 3. Settings, probe and the Git-backend refusal
 
