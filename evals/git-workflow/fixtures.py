@@ -1471,7 +1471,94 @@ RELEASE_EVALS = {"eval-finish-release-offer": release_settings(True, False), "ev
                  "eval-finish-release-disabled": release_settings(False, True)}
 
 
+# --- jj-backend evals (add-jj-backend task 6.1) ---------------------------------------------------------------
+VCS_EVALS = ("eval-branch-git-jj-note", "eval-branch-jj-dirty-no-stash", "eval-branch-store-probe-fails",
+             "eval-debug-jj-dirty-no-stash", "eval-debug-jj-clean")
+VCS_HIDDEN = "/bin/\n/eval.env\n/git-trace.log\n/jj-calls.log\n/state/\n/xdg-data/\n/xdg-config/\n"
+JJ_SETTINGS = "finish: local\nvcs: jj\n"
+GREET_OK = '"""Greeting helpers."""\n\n\ndef greet(name):\n    return f"Hello, {name}!"\n'
+GREET_BAD = '"""Greeting helpers."""\n\n\ndef greet(name):\n    return f"Hello {name}"\n'
+GREET_EDITED = '"""Greeting helpers."""\n\n\ndef greet(name):\n    return "Hello " + name  # local experiment\n'
+GREET_TEST = ("import unittest\n\nimport greet\n\n\nclass GreetTests(unittest.TestCase):\n"
+              "    def test_greet_named(self):\n        self.assertEqual(greet.greet(\"Ada\"), \"Hello, Ada!\")\n\n\n"
+              "if __name__ == '__main__':\n    unittest.main()\n")
+# A `jj` first on the run's PATH. It answers `--version` like jj 0.46.0, fails every other call, and logs each call
+# with whether the store's gate lock existed at that moment ("held" or "free"). In the Git-backend fixture any log
+# line means Specwright ran jj on a Git backend.
+JJ_STUB = """#!/bin/sh
+d="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -d "$d/store/.git/specwright-gate.lock" ]; then held=held; else held=free; fi
+echo "$held jj $*" >> "$d/jj-calls.log"
+case "$1" in
+  --version) echo "jj 0.46.0"; exit 0;;
+esac
+echo "jj must not run in this fixture" >&2
+exit 1
+"""
+
+
+def _rev(repo, *args):
+    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def jj_colocate(repo):
+    """Make the Git repo at `repo` a colocated jj repo with the real jj (`jj git init --colocate`, which imports main as
+    a bookmark and starts an empty @ on top of it). The identity is set for this repo only."""
+    jj = shutil.which("jj")
+    if not jj:
+        raise SystemExit("jj is not on PATH: this fixture needs the real jj 0.46 or newer")
+    for argv in (["git", "init", "--colocate"], ["config", "set", "--repo", "user.name", "Eval Bot"],
+                 ["config", "set", "--repo", "user.email", "eval@example.invalid"]):
+        subprocess.run([jj, *argv], cwd=repo, check=True, capture_output=True, text=True)
+
+
+def vcs_helpers(dest):
+    """bin/jj (the stub), and eval.env with GIT_TRACE; the first call to env_file also puts bin/ on PATH."""
+    (dest / "bin").mkdir(exist_ok=True)
+    write(dest, "bin/jj", JJ_STUB)
+    (dest / "bin" / "jj").chmod(0o755)
+    env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
+
+
+def build_vcs(name, repo):
+    """The jj-backend live evals. The run's helper files sit in the repo directory (hidden through .git/info/exclude),
+    and .git/fixture-state.json (fixture-state.json for the store pair) records what the graders compare with."""
+    if name == "eval-branch-store-probe-fails":
+        # the code repo's settings ask for a jj store; the store is a plain Git repo, so the gate's store probe must stop
+        store_base(repo, settings="finish: local\nplanning_store:\n  vcs: jj\n")
+        vcs_helpers(repo)
+        write(repo, "fixture-state.json", json.dumps({"code_main": _rev(repo / "code", "rev-parse", "main"),
+                                                      "store_main": _rev(repo / "store", "rev-parse", "main")}, indent=2))
+        return
+    jj_backend = name != "eval-branch-git-jj-note"
+    base(repo, JJ_SETTINGS if jj_backend else "finish: local\n")
+    if name.startswith("eval-debug-"):
+        write(repo, "greet.py", GREET_OK if name.endswith("dirty-no-stash") else GREET_BAD)
+        write(repo, "test_greet.py", GREET_TEST)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "feat: add greet")
+    write(repo, ".git/info/exclude", VCS_HIDDEN)
+    extra = {}
+    if jj_backend:
+        jj_colocate(repo)  # before the helpers: the Git-backend fixture has the stub, the jj ones the real jj
+        if name == "eval-branch-jj-dirty-no-stash":
+            extra["edited"] = "# greeter\n\nA tiny greeting library. WIP edit.\n"
+            write(repo, "README.md", extra["edited"])
+        elif name == "eval-debug-jj-dirty-no-stash":
+            extra["edited"] = GREET_EDITED
+            write(repo, "greet.py", GREET_EDITED)
+        (repo / "bin").mkdir(exist_ok=True)
+        env_file(repo, GIT_TRACE=posix(repo / "git-trace.log"))
+    else:  # leftover jj metadata on a Git-backend repo; jj writes this same .gitignore into its own .jj
+        write(repo, ".jj/.gitignore", "/*\n")
+        vcs_helpers(repo)
+    write(repo, ".git/fixture-state.json", json.dumps(
+        {"main": _rev(repo, "rev-parse", "main"), "commits": int(_rev(repo, "rev-list", "--count", "--all")), **extra}, indent=2))
+
+
 def build(name, repo):
+    if name in VCS_EVALS:
+        return build_vcs(name, repo)
     if name in RELEASE_EVALS:
         return build_finish_resume_merged(repo, squash=True, release=RELEASE_EVALS[name])
     if name == "eval-finish-local-release-reported":

@@ -190,6 +190,9 @@ native() {  # native VAR PATH: VAR = PATH as an absolute path both bash and a na
 # script itself: passing 13 KB of source as an argument costs about a second per call under Git Bash on Windows.
 PYLOAD='import sys;f=sys.argv[1];s=open(f,encoding="utf-8").read().split("\n#---PYSRC---\n",1)[1].split("\nPYSRC_EOF\n",1)[0];sys.argv=sys.argv[1:];exec(compile(s,f,"exec"),{"__name__":"__main__"})'
 native SELF "${BASH_SOURCE[0]}"
+UPDATE_BASH=${BASH:-bash}  # the shell that runs the downloaded vcs.sh for a jj store (a Windows path under Git Bash)
+if command -v cygpath >/dev/null 2>&1; then UPDATE_BASH=$(cygpath -w "$UPDATE_BASH"); fi
+export UPDATE_BASH
 pyx() { "$py" -I -X utf8 -c "$PYLOAD" "$SELF" "$@"; }
 
 code="" root="" download="" ref="" sub="" ROLLBACK=0
@@ -1453,10 +1456,64 @@ def rel_to(top, p):
 STAGING_RX = re.compile(r"^(?:.*/)?openspec/\.specwright-update-schemas[^/]*")
 
 
+class VcsScriptMissing(Exception):
+    """A jj store, and the download has no skills/specwright-pr/scripts/vcs.sh to read its branch with."""
+
+
+VCS_SH_REL = "skills/specwright-pr/scripts/vcs.sh"
+PR_PAIR_REL = "skills/specwright-pr/scripts/pr-pair.sh"
+
+
+def store_is_jj(o):
+    """planning_store.vcs is jj in the code repo's openspec/specwright.yaml (git when unset), as the download's
+    pr-pair.sh vcs reads it (every YAML form); a download without it falls back to the block form."""
+    script = Path(o["download"]) / PR_PAIR_REL
+    if script.is_file():
+        try:
+            r = subprocess.run([os.environ.get("UPDATE_BASH") or "bash", script.as_posix(), "vcs", "--code", str(o["code"])],
+                               capture_output=True)
+            doc = json.loads(r.stdout.decode("utf-8", "replace"))
+        except (OSError, ValueError):
+            doc = {}
+        if doc.get("ok"):
+            return doc.get("store") == "jj"
+    try:
+        text = (Path(o["code"]) / "openspec" / "specwright.yaml").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return yaml_setting(text, ("planning_store", "vcs")) == "jj"
+
+
+def jj_store_branch(o, top):
+    """(branch, problem) of a jj store by the jj rule, read through the download's vcs.sh state: the change bookmark at @-,
+    else the store's main when main points at @-, else "" (no branch). Raises VcsScriptMissing without the script."""
+    script = Path(o["download"]) / VCS_SH_REL
+    if not script.is_file():
+        raise VcsScriptMissing(f"the store's backend is jj, and the downloaded copy has no {VCS_SH_REL} to read its branch with "
+                               f"(looked in {o['download']})")
+    try:
+        r = subprocess.run([os.environ.get("UPDATE_BASH") or "bash", script.as_posix(), "state", "--repo", str(top), "--role", "store",
+                            "--code", str(o["code"])], capture_output=True)
+        doc = json.loads(r.stdout.decode("utf-8", "replace"))
+    except (OSError, ValueError) as e:
+        return None, f"vcs.sh state failed in the store ({e})"
+    if not doc.get("ok"):
+        return None, f"vcs.sh state failed in the store ({doc.get('error') or 'error'}: {doc.get('message') or 'no message'})"
+    return (doc["main"] if doc.get("on_main") and not doc.get("branch") else doc.get("branch", "")), None
+
+
 def store_busy_reason(o, top, allowed):
     """Why the store is not free (design D5), or None: it must be on its main, and `git status` may list only paths
-    for which allowed(path) is true. Returns (reason, branch)."""
-    branch = git(top, "branch", "--show-current")[1].decode("utf-8", "replace").strip()
+    for which allowed(path) is true. Returns (reason, branch). A jj store has a detached Git HEAD, so its branch is read
+    by the jj rule (VcsScriptMissing when the download lacks vcs.sh)."""
+    if store_is_jj(o):
+        branch, problem = jj_store_branch(o, top)
+        if problem:
+            return problem, ""
+        if not branch:
+            return "the store is on no branch (a jj store whose @- has neither main nor a change bookmark)", branch
+    else:
+        branch = git(top, "branch", "--show-current")[1].decode("utf-8", "replace").strip()
     main = store_main_name(o, top)
     if not branch:
         return "the store has a detached HEAD", branch
@@ -1547,7 +1604,10 @@ def cmd_store_check(o, pos):
             stop("store_version_changed", f"the store now records version {rec['version']} (owner {rec['owner']}), not the "
                  f"{j.get('store_version')} this update was planned against; nothing was written. Rerun the update to plan it again")
         staging = [p for p in (rel_to(top, g["staging"]) for g in j["groups"]) if p]
-        reason, _ = store_busy_reason(o, top, lambda p: under(p, staging))
+        try:
+            reason, _ = store_busy_reason(o, top, lambda p: under(p, staging))
+        except VcsScriptMissing as e:
+            stop("vcs_script_missing", f"{e}. Nothing was swapped; use a download that ships specwright-pr, then rerun the update")
         if reason is None:
             emit({"ok": True, "mode": "write"})
         if not workflow_update(j["from"], j["to"]):
@@ -1560,7 +1620,10 @@ def cmd_store_check(o, pos):
         stop("store_owner_changed", f"the store's schema is now owned by {rec['owner']}, not by {me}; the swapped state and the journal are kept")
     if j.get("store_state") == "written" and (rec is None or rec["version"] != j["to"]):
         stop("store_owner_changed", f"the store's record no longer reads version: {j['to']} owned by {me}; the swapped state and the journal are kept")
-    reason, _ = store_busy_reason(o, top, written_by_update(j, top))
+    try:
+        reason, _ = store_busy_reason(o, top, written_by_update(j, top))
+    except VcsScriptMissing as e:
+        stop("vcs_script_missing", f"{e}. The rollback stops before any rename and the swapped state and the journal are kept")
     if reason:
         stop("store_busy", f"{reason}. The rollback stops before any rename and the swapped state and the journal are kept; "
              f"the store stays on {j['to']}. Finish that change, then run the rollback again")

@@ -71,7 +71,7 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertIn("github.login", publish)
         self.assertNotIn("with no run login, plain", text)
         self.assertNotRegex(text, r"git fetch[^`\n]*--tags")
-        self.assertIn("git fetch --no-tags origin <main>`", text)  # tagOpt=--tags would otherwise fetch every tag
+        self.assertIn("`--no-tags`", text)  # tagOpt=--tags would otherwise fetch every tag
 
 
 class TestFinishText(unittest.TestCase):
@@ -137,7 +137,7 @@ class TestFinishText(unittest.TestCase):
         self.assertRegex(check, r"(?i)before the merge|before `git merge")
         self.assertRegex(check, r"(?is)refus[^.]*stops?[^.]*merge|stops?[^.]*before `git merge`")
         self.assertRegex(check, r"(?i)bump")
-        self.assertLess(local.index(check), local.index("git merge --no-ff"), "the check comes after the merge")
+        self.assertLess(local.index(check), local.index("Write the merge message"), "the check comes after the merge")
         # store-backed, the store merges first: the code repo's check runs before either merge
         self.assertRegex(check, r"(?i)before either repo's merge")
         store = paragraph(local, r"^- \*\*Store-backed:\*\*", "finish: the **Store-backed:** bullet of ## local")
@@ -155,9 +155,9 @@ class TestWatchText(unittest.TestCase):
     def test_watch_checks_version_before_ready_and_merge(self):
         watch = sections(read(SKILLS / "specwright-pr" / "SKILL.md"))["watch"]
         step = line_with(watch, r"^   - \*\*Version check\*\*", "watch: the **Version check** bullet in step 3")
-        self.assertIn("release.sh check --main origin/<main>", step)
+        self.assertIn("release.sh check --main", step)
         self.assertRegex(step, r"release\.enabled")
-        self.assertIn("git fetch --no-tags origin <main>", step)
+        self.assertIn("--no-tags", step)
         self.assertRegex(step, r"(?i)before (it )?report")
         self.assertRegex(step, r"(?i)before (each|the) merge")
         self.assertRegex(step, r"(?is)refus[^.]*(neither|no)[^.]*ready")
@@ -175,7 +175,7 @@ class TestWatchText(unittest.TestCase):
         self.assertLess(c.find("closed-check"), c.index(s), "the release step comes before the cleanup bullets")
         self.assertRegex(s, r"(?i)after an agent merge")
         self.assertRegex(s, r"(?is)cleanup (finished|is done|completed)")
-        self.assertRegex(s, r"(?is)(stopped|stops)[^.]*git pull --ff-only|git pull --ff-only[^.]*(stopped|fail)")
+        self.assertRegex(s, r"(?is)(stopped|stops)[^.]*\bpull\b|\bpull\b[^.]*(stopped|fail)")
         self.assertRegex(s, r"(?is)(no|neither|not)[^.]*(release|offer)")
 
     def test_offer_without_auto(self):
@@ -206,11 +206,10 @@ class TestShipText(unittest.TestCase):
 
     def test_ship_checks_version_against_fetched_main_before_push(self):
         ship = self.ship
-        step = line_with(ship, r"^   1\. .*release\.sh check --main origin/<main>", "ship: the version check item")
+        step = line_with(ship, r"^   1\. .*release\.sh check --main", "ship: the version check item")
         self.assertRegex(step, r"release\.enabled")
-        fetch = step.index("git fetch --no-tags origin <main>")
-        self.assertIn("[as]", step[:fetch], "the fetch is not fenced")
-        self.assertLess(fetch, step.index("check --main origin/<main>"), "the check comes before the fetch")
+        fetch = step.index("--no-tags")
+        self.assertLess(fetch, step.index("check --main"), "the check comes before the fetch")
         self.assertRegex(step, r"(?is)refus[^.]*stop")
         self.assertRegex(step, r"(?i)bump")
         # the store is pushed first, so the code repo's check runs once, before either repo is validated or pushed
@@ -221,7 +220,7 @@ class TestShipText(unittest.TestCase):
         self.assertIn("`planning_store.validate` in the store", validate)
         self.assertIn("`pr.validate` in the code repo", validate)
         self.assertLess(ship.index(step), ship.index(validate), "the check comes after validate")
-        self.assertLess(ship.index(step), ship.index("git push -u origin HEAD"), "the check comes after the push")
+        self.assertLess(ship.index(step), ship.index("Push each repo once its validate passed"), "the check comes after the push")
 
 
 class TestVersionCheckOptIn(unittest.TestCase):

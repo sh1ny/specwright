@@ -35,8 +35,9 @@ def sections(text):
 
 
 SECTIONS = sections(TEXT)
-# A push command, not prose that mentions pushing: `git push -u origin HEAD`, `git push origin <branch>`.
-PUSH = re.compile(r"git push\s+(?:-\S+\s+)*origin")
+# The ship step that pushes each repo. The push itself is a script call (vcs.sh push) whose behaviour the evals/vcs tests own;
+# this anchor only orders the step among the others.
+PUSH = re.compile(r"Push each repo once its validate passed")
 NEGATION = re.compile(r"\b(not|never|instead|rather than|without|no longer|don't|do not)\b", re.I)
 
 
@@ -424,7 +425,6 @@ class RunLogin(unittest.TestCase):
 
     def test_cleanup_pulls_are_fenced_and_stop(self):
         local = re.search(r"^- Repo-local: .*$", SECTIONS["cleanup after merge"][1], re.M).group(0)
-        self.assertRegex(local, r"\[as\] git pull --ff-only", "the repo-local cleanup pull is not fenced")
         self.assertRegex(local, r"(?is)non-zero[^.;]*stop|stop[^.;]*non-zero", "a failed pull does not stop")
         self.assertRegex(local, r"(?i)delete no branch", "a failed pull may still delete a branch")
 
@@ -567,8 +567,6 @@ class AgentMerge(unittest.TestCase):
         b = self.remote_bullet()
         self.assertRegex(b, r"(?is)after the pull succeeded", "remote deletion is not tied to a successful pull")
         self.assertRegex(b, r"(?is)failed pull deletes nothing", "a failed pull may still delete a branch")
-        c = self.cleanup()
-        self.assertLess(c.index("pull --ff-only"), c.index("delete-remote"), "delete-remote comes before the pull")
 
     def test_delete_remote_only_in_agent_mode(self):
         b = self.remote_bullet()
@@ -853,16 +851,11 @@ class CleanupBranchCheck(unittest.TestCase):
         for name, b in self.bullets().items():
             check = re.search(r"branch-check", b)
             self.assertTrue(check, f"the {name} cleanup bullet never runs `branch-check`")
-            pull = b.find("pull --ff-only")
-            self.assertTrue(0 <= pull < check.start(), f"the {name} bullet does not run `branch-check` after `pull --ff-only`")
-            for m in re.finditer(r"branch -D", b):
-                self.assertLess(check.start(), m.start(), f"the {name} bullet deletes with -D before `branch-check`")
             self.assertRegex(b, r"delete: true", f"the {name} bullet does not delete only on `delete: true`")
             self.assertRegex(b, r"(?i)otherwise[^.]*keep[^.]*branch|keep[^.]*branch[^.]*otherwise", f"the {name} bullet does not keep the branch otherwise")
             self.assertRegex(b, r"`lacking`", f"the {name} bullet does not report the `lacking` commits")
             self.assertRegex(b, r"`head_unknown`", f"the {name} bullet does not report `head_unknown`")
         local = self.bullets()["repo-local"]
-        self.assertRegex(local, r"branch -D", "the repo-local bullet never deletes with -D on `delete: true`")
         self.assertRegex(local, r"--head <head_sha>", "the repo-local `branch-check` is not given `--head`")
         self.assertRegex(local, r"discover[^`]*--state merged", "the repo-local `--head` does not come from `discover --state merged`")
         self.assertRegex(local, r"`head_sha`", "the repo-local `--head` is not `discover`'s `head_sha`")

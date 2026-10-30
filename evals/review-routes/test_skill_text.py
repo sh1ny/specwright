@@ -348,7 +348,7 @@ class Wiring(unittest.TestCase):
     def test_finish_local_gate_before_merge(self):
         local = sections(read(FINISH)).get("local", "")
         self.assertTrue(local, "specwright-finish has no '## local' section")
-        g, m = positions(GATE, local), positions(re.compile(r"git merge --no-ff"), local)
+        g, m = positions(GATE, local), positions(re.compile(r"Write the merge message"), local)
         self.assertTrue(g, "the local finish never runs `review-run.sh gate`")
         self.assertTrue(m)
         self.assertLess(g[0], m[0], "the gate runs after the merge")

@@ -109,6 +109,10 @@ pr:
 # group of a TIER: LIGHT change to specwright-implementer-light, a pinned copy
 # of the implementer on the cheaper model (Claude Code: haiku, OMP: pi/smol).
 # FULL changes, reviews, watch and the orchestrator never change.
+# Backend for this repository's branch state and version-control writes:
+# git (default) | jj. Selection is explicit and never inferred from .jj/.
+vcs: git
+
 cheap_tier:
   enabled: false
 
@@ -117,6 +121,9 @@ cheap_tier:
 # code repo, and each key below falls back to the code repo's value.
 # planning_store:
 #   # Store main branch. Omit to detect (main, else master) in the store.
+#   # Backend for this repository's branch state and version-control writes:
+#   # git (default) | jj. Independent of the code repository's vcs setting.
+#   vcs: git
 #   main_branch: main
 #   # Account for the store's pushes, PRs and replies. Default: github.login.
 #   login: ""

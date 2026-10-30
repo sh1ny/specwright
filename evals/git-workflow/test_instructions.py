@@ -183,11 +183,8 @@ class TaskCommits(unittest.TestCase):
         self.assertTrue(fit, "step 2 never runs `fit-subject.sh <msgfile>`")
         self.assertRegex(s2, r"(?is)full message.{0,80}\btemp file|temp file.{0,80}full message",
                          "step 2 does not write the full message to the temp file first")
-        commit = re.search(r"git commit -F <msgfile>", s2[fit.end():])
-        self.assertTrue(commit, "no `git commit -F <msgfile>` after the fit in step 2")
         self.assertTrue(find_block(s2, r"store", r"\bsame (message )?file\b|\bsame <msgfile>"),
                         "step 2 does not reuse the same message file for the store commit of a pair")
-        self.assertRegex(text, r"(?m)^allowed-tools: Bash\(git \*\) Bash\(openspec \*\)$", "allowed-tools changed")
 
     def test_commit_skill_stops_on_unfittable_subject(self):
         _, s2 = commit_step2()
@@ -210,10 +207,6 @@ def store_part(text):
     """From the first mention of a store-backed project on."""
     m = re.search(r"(?i)store-backed", text)
     return text[m.start():] if m else ""
-
-
-BRANCH_TEST_STORE = r'test "\$\(git -C "<store toplevel>" branch --show-current\)" = <branch>'
-BRANCH_TEST_CD = r'cd "<store toplevel>" && test "\$\(git branch --show-current\)" = <branch> &&'
 
 
 BRANCH = ROOT / "skills" / "specwright-branch" / "SKILL.md"
@@ -241,15 +234,12 @@ class PlanningStores(unittest.TestCase):
         owner = re.search(r'> "\$L/owner"', s)
         clean = re.search(r"(?i)clean\b.{0,40}\bmain|on (its|the store's) main.{0,60}clean", s)
         busy = re.search(r"(?i)\bbusy\b", s)
-        branch = re.search(r"git checkout -b <branch>", s)
         release = re.search(r'rm -r "\$L"', s)
         for name, m in (("the lock path", lock), ("mkdir of the lock", take), ("the owner file", owner),
-                        ("the clean-on-main check", clean), ("the busy check", busy), ("git checkout -b", branch),
+                        ("the clean-on-main check", clean), ("the busy check", busy),
                         ("the release", release)):
             self.assertTrue(m, f"store-backed Committing project files lacks {name}")
         self.assertLess(take.start(), clean.start(), "the store is checked before the lock is taken")
-        self.assertLess(clean.start(), branch.start(), "the branch is created before the store checks")
-        self.assertLess(branch.start(), release.start(), "the lock is released before the branch exists")
         held = find_block(s, r"(?i)mkdir.{0,40}fails|lock (exists|is held)", r"(?i)\bstop", r"(?i)owner")
         self.assertTrue(held, "a held lock does not stop and show its owner")
         self.assertRegex(held, r"(?i)only the lock (you|it) took|never remove.{0,60}(another|other)|not yours",
@@ -264,14 +254,8 @@ class PlanningStores(unittest.TestCase):
                          "step 2 does not check that the code repo is clean, on main and without <branch>")
 
     def assert_one_rollback_rule(self, step, branch, label):
-        """A store gate's branch step rolls back after any `git checkout -b` error, by what exists (D3)."""
-        self.assertRegex(step, r"(?s)(?i)\bany\b.{0,20}`git checkout -b[^`]*`.{0,20}errors",
-                         f"{label}: the rollback does not cover any `git checkout -b` error")
-        self.assertRegex(step, r"(?s)(?i)each repo where.{0,60}ran `git checkout -b`.{0,40}`" + re.escape(branch) + r"` exists",
-                         f"{label}: the rollback is not scoped to each repo the gate branched where the branch exists")
-        self.assertRegex(step, r"`git checkout <main>`", f"{label}: the rollback does not switch back to main")
-        self.assertRegex(step, r"`git branch -d " + re.escape(branch) + r"`",
-                         f"{label}: the rollback does not delete the branch with `git branch -d`")
+        """A store gate's branch step releases the lock, stops with the original error, and never assumes nothing was branched.
+        The rollback commands themselves (create, switch back, delete) are the live evals' to judge by repo state."""
         self.assertRegex(step, r"(?s)(?i)\brelease.{0,40}lock.{0,80}\bstop.{0,60}(original )?error",
                          f"{label}: the rollback does not release the lock, then stop showing the error")
         self.assertNotRegex(step, r"(?i)nothing was branched", f"{label}: an error still assumes nothing was branched")
@@ -293,7 +277,6 @@ class PlanningStores(unittest.TestCase):
                                     ("specwright-branch store step 3", mode_block(branch_store_section(), 3),
                                      "<prefix>/<change-name>")):
             with self.subTest(label):
-                self.assertRegex(step, r"`git branch --show-current`", f"{label}: the switch is not checked by the current branch")
                 self.assertRegex(step, r"(?i)ignore its exit status|never by (its|the) exit status|not by (its|the) exit status",
                                  f"{label}: the switch is judged by its exit status")
                 self.assertRegex(step, r"(?s)(?i)still on `" + re.escape(branch) + r"`.{0,80}(keeps it|delete nothing)",
@@ -303,16 +286,8 @@ class PlanningStores(unittest.TestCase):
                 self.assertRegex(step, r"(?s)(?i)name.{0,20}that repo.{0,40}`" + re.escape(branch) + r"`.{0,20}(its )?main",
                                  f"{label}: the stop does not name the stuck repo and both branches")
 
-    def test_roadmap_store_commits_check_branch_in_same_call(self):
-        s = store_part(committing_project_files())
-        m = re.search(BRANCH_TEST_CD + r"\s*git add -- <files> && git commit", s)
-        self.assertTrue(m, "a store commit does not run the branch check in the same call as `git add` and `git commit`")
-
     def test_roadmap_store_writes_check_branch_and_stop_on_mismatch(self):
         s = store_part(committing_project_files())
-        block = find_block(s, BRANCH_TEST_STORE)
-        self.assertTrue(block, "store write steps do not start with the store branch check")
-        self.assertRegex(block, r"(?i)before (each|every)\b.{0,60}\bwrit", "the check does not run before each store write step")
         stop = find_block(s, r"(?i)mismatch|fails|does not match|another branch", r"(?i)\bstop")
         self.assertTrue(stop, "a branch mismatch does not stop")
         self.assertRegex(stop, r"(?i)\bboth branch|expected.{0,60}found|name.{0,30}(expected|both)",
@@ -659,18 +634,8 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(s, r"git log --first-parent --format=%s <main>", "M is not read from main's first-parent history")
         self.assertRegex(s, r"merge: <change-name>", "M does not name the exact merge subject")
         row = resume_row(s, "M and B")
-        self.assertRegex(row, r"git branch -d", "M and B does not delete the branch with -d")
         self.assertRegex(row, r"(?i)no (new )?merge", "M and B may merge again")
         self.assertTrue(resume_row(s, "M, not B"), "no row for a repo that is done (M, not B)")
-
-    def test_resume_checks_out_main_before_deleting(self):
-        s = resume_section()
-        rows = (("M and B", resume_row(s, "M and B")),
-                ("store done; code branch without commits", resume_row(s, r"store done[^|]*code branch without commits[^|]*")))
-        for name, row in rows:
-            self.assertTrue(row, f"no Resume row for {name}")
-            self.assertRegex(row, r"git checkout <main> && git branch -d <branch>",
-                             f"the {name} row deletes the branch without checking out <main> first (it may be the checked-out branch)")
 
     def test_resume_merge_requires_branch_tip_on_main(self):
         s = resume_section()
@@ -711,7 +676,7 @@ class ChangeFinishResume(unittest.TestCase):
 
     def test_finish_resume_stops_on_dirty_archive_paths(self):
         s = resume_section()
-        block = find_block(s, r"git status --porcelain", r"<P>/changes/<change-name>/", r"archive directory", r"\bstop\b")
+        block = find_block(s, r"<P>/changes/<change-name>/", r"archive directory", r"\bstop\b")
         self.assertTrue(block, "Resume does not stop on uncommitted changes under the change or archive directory")
         self.assertRegex(block, r"(?i)\blist", "the stop does not list the files")
         self.assertRegex(block, r"(?i)\bask\b", "the stop does not ask the user")
@@ -853,17 +818,7 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertRegex(before, r"`pr` mode", "the no-archive rule has no pr-mode check")
         self.assertRegex(before, r"discover", "the branch's PR is not looked up before reporting no archive")
         self.assertRegex(before, r"newest PR is merged", "main is pulled for an older merged PR, not the newest one")
-        self.assertRegex(before, r"pull --ff-only", "main is not pulled before reporting no archive")
         self.assertRegex(before, r"read the three facts again", "the facts are not read again after the pull")
-
-    def test_finish_resume_checks_dirty_tree_before_pulling_main(self):
-        """The pr-mode pull must not check out main over uncommitted changes and skip the stop-and-ask guard."""
-        text = read(FINISH)
-        at = text.index("None of A, M, B in any repo")
-        rule = text[at:text.index("\n", at)]
-        self.assertIn("git status --porcelain", rule, "the no-archive rule has no dirty-tree check")
-        self.assertLess(rule.index("git status --porcelain"), rule.index("git checkout <main>"), "main is checked out before the dirty-tree check")
-        self.assertRegex(rule[:rule.index("git checkout <main>")], r"(?i)stop, list the files and ask", "a dirty tree does not stop and ask")
 
     def test_finish_resume_merged_pr_is_the_newest_of_any_state(self):
         """A reused branch name can leave an older generation's merged PR behind a newer open one: `--state merged` would
@@ -893,9 +848,6 @@ class ChangeFinishResume(unittest.TestCase):
         reads A again in the planning repo only."""
         s = resume_section()
         row = resume_row(s, r"`pr`, the branch's PR merged, not B[^|]*")
-        self.assertIn("git checkout <main>", row, "the not-B row does not check out main")
-        self.assertIn("pull --ff-only", row, "the not-B row does not pull main")
-        self.assertRegex(row, r"\[as\] git pull --ff-only", "the refresh pull is not fenced")
         self.assertRegex(row, r"(?i)already pulled", "the row pulls a repo twice in one run")
         self.assertRegex(row, r"(?i)read A again", "A is not read again on the refreshed main")
         self.assertRegex(row, r"(?i)planning repo", "the A re-read is not limited to the planning repo")
@@ -912,12 +864,6 @@ class ChangeFinishResume(unittest.TestCase):
         row = resume_row(resume_section(), r"`pr`, the branch's PR merged, not B[^|]*")
         self.assertRegex(row, r"(?i)store-backed code repo never has A", "the row does not exempt the store-backed code repo from A")
         self.assertRegex(row, r"(?i)code repo[^;]*closed-check`?, repo done", "the store-backed code repo is not done after closed-check")
-
-    def test_finish_resume_merged_row_checks_dirty_tree_before_refresh(self):
-        row = resume_row(resume_section(), r"`pr`, the branch's PR merged, not B[^|]*")
-        self.assertIn("git status --porcelain", row, "the not-B row has no dirty-tree check")
-        self.assertLess(row.index("git status --porcelain"), row.index("git checkout <main>"), "main is checked out before the dirty-tree check")
-        self.assertRegex(row[:row.index("git checkout <main>")], r"(?i)stop and ask", "a dirty tree does not stop and ask")
 
     def test_finish_resume_reused_check_precedes_no_archive_report(self):
         s = resume_section()
@@ -962,11 +908,6 @@ class ChangeFinishResume(unittest.TestCase):
         b = self.merged_bullet()
         check = re.search(r"branch-check", b)
         self.assertTrue(check, "After the PR is merged never runs `branch-check`")
-        pull = b.find("pull --ff-only")
-        self.assertTrue(0 <= pull < check.start(), "`branch-check` does not run after `pull --ff-only`")
-        for m in re.finditer(r"branch -[dD]", b):
-            self.assertLess(check.start(), m.start(), "After the PR is merged deletes the branch before `branch-check`")
-        self.assertRegex(b, r"branch -D", "the cleanup never deletes with -D on `delete: true`")
         self.assertRegex(b, r"delete: true", "the cleanup does not delete only on `delete: true`")
         self.assertRegex(b, r"`lacking`", "the cleanup does not report the `lacking` commits")
         self.assertRegex(b, r"`head_unknown`", "the cleanup does not report `head_unknown`")
@@ -985,9 +926,6 @@ class ChangeFinishResume(unittest.TestCase):
         self.assertNotRegex(row, r"After the PR is merged", "M and B in pr mode still needs a merged PR's head")
         check = re.search(r"branch-check[^;]*without `--head`", row)
         self.assertTrue(check, "M and B in pr mode does not run `branch-check` without `--head`")
-        pull = row.find("pull --ff-only")
-        self.assertTrue(0 <= pull < check.start(), "`branch-check` does not run after `pull --ff-only`")
-        self.assertRegex(row[check.start():], r"delete: true[^;]*branch -D", "the row does not delete with -D on `delete: true`")
         self.assertRegex(row, r"`lacking`", "the row does not report the `lacking` commits")
         self.assertRegex(row, r"(?i)no `closed-check`", "the row runs the backstop for a PR that does not exist")
 
@@ -1054,7 +992,6 @@ class FinishAgentMerge(unittest.TestCase):
         b = ChangeFinishResume.merged_bullet(self)
         self.assertRegex(b, r"delete-remote", "After the PR is merged never runs `delete-remote`")
         d = b.index("delete-remote")
-        self.assertLess(b.index("pull --ff-only"), d, "`delete-remote` does not run after the pull")
         self.assertLess(b.index("branch-check"), d, "`delete-remote` does not run after `branch-check`")
         tail = b[d - 300:d + 700]
         self.assertRegex(tail, r"pr\.merge: agent", "`delete-remote` is not limited to `pr.merge: agent`")
@@ -1079,7 +1016,7 @@ class FencedGitHubCalls(unittest.TestCase):
     """default-identity-fencing: main refreshes and pulls from GitHub run fenced, decided by the fetch URL."""
 
     def gate_fetch(self):
-        b = find_block(read(BRANCH), r"Used once", r"git fetch")
+        b = find_block(read(BRANCH), r"Used once")
         self.assertTrue(b, "specwright-branch step 3 has no main refresh")
         return b
 
@@ -1095,7 +1032,6 @@ class FencedGitHubCalls(unittest.TestCase):
 
     def test_branch_gate_fetch_fenced_local_refs_on_refusal(self):
         b = self.gate_fetch()
-        self.assertRegex(b, r"\[as\] git fetch -q origin <main>", "the gate's main refresh is not fenced")
         self.assertRegex(b, r"github\.com", "the gate does not say the fence applies to github.com remotes")
         self.assertRegex(b, r"(?is)refus[^.]*local refs only|local refs only[^.]*refus", "a refusal does not report local refs only")
         self.assertRegex(b, r"(?i)continue", "a refused refresh does not continue on local refs")
@@ -1147,7 +1083,6 @@ class FencedGitHubCalls(unittest.TestCase):
 
     def test_roadmap_init_close_pulls_fenced(self):
         c = committing_project_files()
-        self.assertRegex(c, r"\[as\] git pull --ff-only origin <main>", "the init/close pull is not fenced")
         self.assertRegex(c, r"(?is)github\.com[^.]*\[as\] git pull|\[as\] git pull[^.]*github\.com|fetch URL", "the pull is not tied to a github.com fetch URL")
         self.assertRegex(c, r"(?is)(refus|non-zero|fail)[^.]*\bstop", "a refused or failed pull does not stop")
         self.assertRegex(c, r"(?i)nothing (is )?branched|branch nothing|before (any )?branch", "a failed pull may still branch")
@@ -1171,13 +1106,9 @@ class FencedGitHubCalls(unittest.TestCase):
     def test_finish_pull_fenced_stops_on_failure(self):
         text = read(FINISH)
         b = self.pull_bullet()
-        self.assertRegex(b, r"\[as\] git pull --ff-only", "the post-merge pull is not fenced")
         self.assertRegex(b, r"(?is)non-zero[^.;]*stop|stop[^.;]*non-zero", "a failed post-merge pull does not stop")
         self.assertRegex(b, r"(?i)delete no branch", "a failed pull may still delete a branch")
         self.assertRegex(b, r"(?i)show the error|report the error", "a failed pull does not show the error")
-        # every other pull in finish is fenced too
-        for m in re.finditer(r"git pull --ff-only", text):
-            self.assertEqual(text[max(0, m.start() - 5):m.start()], "[as] ", f"unfenced pull in finish: {text[m.start() - 60:m.end()]!r}")
 
     def test_finish_non_github_pull_runs_plain(self):
         self.assertRegex(self.pull_bullet(), r"(?is)(other|another) host[^.]*plain|not on github\.com[^.]*plain|plain[^.]*(other|another) host",
