@@ -33,3 +33,18 @@ The `runner` suite (`evals/runner`, new in this change) has no before figure; it
 `python evals/run.py --ids` for the six suites, compared with `openspec/changes/fix-eval-gaps/test-ids-base.txt` (the
 IDs at the base commit, unittest loader discovery only): 1377 base IDs, 1405 now. Every base test ID is present.
 28 IDs are new.
+
+## The `vcs` suite (change `add-jj-backend`)
+
+The `vcs` suite (`evals/vcs`, new in `add-jj-backend`) has no before figure and stays out of the table and totals above.
+Measured 2026-10-30 with `python evals/run.py --jobs 2 vcs` (`--jobs 2`, not the default 24, because other agents were using
+the machine; the other suites' figures above used the default), once, after group 7 added `test_pair.py` and `test_flows.py`.
+
+| Suite | Wall (s) | Files | Tests | Jobs |
+|---|---|---|---|---|
+| vcs | 685.8 | 15 | 56 | 2 |
+
+The run reported `1 of 15 files failed`: `test_git_backend.py` (3 of its 6 tests), where real `git` exited `0xC0000005` under
+`GIT_TRACE` in `record_baseline`, before any Specwright code ran. It fails the same way when run on its own; the time counts the
+whole suite, failed file included. The slowest files are the two flow tests (about 230 to 250 s each on their own), which build
+a real jj repository and run Specwright's `git` calls through a logging shim.

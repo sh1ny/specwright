@@ -73,7 +73,7 @@ This change is M5 (Commits and VCS backends), change 6, version 0.11.0. It serve
 
 ## Release Notes
 
-Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `specwright.yaml`, and `planning_store.vcs` for a store. Every change write then goes through jj; Git stays the default.
+Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `specwright.yaml`, and `planning_store.vcs` for a store; each repo picks its own backend. Every branch, commit, merge, push and cleanup then goes through jj in a colocated repo, and Specwright stops before any write when jj is missing, too old or the repo is not colocated. Git stays the default and its flow is unchanged; release tags are the one Git write on jj.
 
 ### Added
 - Independent `vcs: git | jj` and `planning_store.vcs` settings, each defaulting to Git. On jj, branch, commit, local merge, push and cleanup work through bookmarks, and other edits in the working copy are never committed (#19).
@@ -82,7 +82,7 @@ Projects can run the whole Specwright workflow on Jujutsu. Set `vcs: jj` in `spe
 - `jj git push` and `jj git fetch` run under the fenced GitHub login. `as.sh` refuses every other jj subcommand and any option that selects another repository or config (#19).
 - On jj, a refresh that only reads origin's main moves no bookmark. A pull fetches only main, so a change bookmark whose remote branch was deleted stays. It fast-forwards main, and stops with `not_fast_forward` when main has diverged. A local merge keeps its `merge: <name>` first-parent commit, and a rerun reuses it (#19).
 - On jj, finish's archive undo plan works the working copy with `jj restore` and `jj commit` and runs no Git write. PR cleanup plans use the repo's own backend. The install and update accept a jj store on main, and refuse with `vcs_script_missing` when the download lacks the backend script. `release.sh` takes `--base <branch>`, so a jj publish lists merged PRs by the base branch's name (#19).
-- Real-jj eval fixtures cover tracked and untracked main, with logged Git writes. CI installs jj 0.46.0 only after verifying its pinned SHA-256; local missing-jj runs skip explicitly, while CI requires the tool (#19).
+- Real-jj eval fixtures cover tracked and untracked main, with logged Git writes. End-to-end tests run a whole local flow and a whole PR flow on jj (branch, group commits, archive, finish or ship, merge and cleanup) and a jj code repo paired with a Git store, with no Git write. CI installs jj 0.46.0 only after verifying its pinned SHA-256; local missing-jj runs skip explicitly, while CI requires the tool (#19).
 
 ### Changed
 - The Git backend preserves the existing per-call-site commit, merge, fetch, pull and push commands, including named paths and message files, with no new network deadline. Real-command trace comparisons guard that compatibility (#19).

@@ -22,7 +22,7 @@
 | vcs-backends → The jj backend is probed before the branch is read | jj too old | evals/vcs/test_probe.py | `test_probe_tool_too_old` (version stub on PATH) | green |
 | vcs-backends → The jj backend is probed before the branch is read | Not a jj repo | evals/vcs/test_probe.py | `test_probe_not_managed_runs_no_init` | green |
 | vcs-backends → The jj backend is probed before the branch is read | Secondary jj workspace | evals/vcs/test_probe.py | `test_probe_secondary_workspace_not_colocated` | green |
-| vcs-backends → A jj repo on the Git backend is reported, not blocked | Leftover jj metadata | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_git_state_reports_jj_present`, `eval-branch-git-jj-note` (live gate note and Git-only trace) | red |
+| vcs-backends → A jj repo on the Git backend is reported, not blocked | Leftover jj metadata | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_git_state_reports_jj_present`, `eval-branch-git-jj-note` (live gate note and Git-only trace) | green |
 | vcs-backends → A jj repo on the Git backend is reported, not blocked | Git repo on Git | evals/vcs/test_state.py | `test_git_state_no_jj_note_runs_no_jj` | green |
 | vcs-backends → The Git backend keeps today's commands | Git commit by name | evals/vcs/test_git_backend.py | `test_git_commit_commands_exact` | green |
 | vcs-backends → The Git backend keeps today's commands | Git push | evals/vcs/test_git_backend.py | `test_git_push_command_exact_no_deadline` | green |
@@ -41,7 +41,7 @@
 | vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | evals/release/test_release_jj.py | `test_publish_jj_base_by_name_no_bookmark_moves` | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Gate on jj | evals/vcs/test_branch.py | `test_branch_create_at_parent` | green |
 | vcs-backends → The jj gate creates the bookmark from a clean main | Carry-over on Windows | evals/vcs/test_paths.py | `test_backslash_paths_normalised` (captured Windows output, every platform) | green |
-| vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_state_dirty_lists_paths`, `eval-branch-jj-dirty-no-stash` (live stop and no stash write) | red |
+| vcs-backends → The jj gate creates the bookmark from a clean main | Dirty working copy | evals/vcs/test_state.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_state_dirty_lists_paths`, `eval-branch-jj-dirty-no-stash` (live stop and no stash write) | green |
 | vcs-backends → Moving the working copy on jj carries uncommitted edits | Switch with carry-over | evals/vcs/test_switch.py | `test_switch_carries_added_files` | green |
 | vcs-backends → Moving the working copy on jj carries uncommitted edits | Carry conflicts | evals/vcs/test_switch.py | `test_switch_carry_conflict_rolls_back` | green |
 | vcs-backends → On jj a commit takes only its named paths | Group commit on jj | evals/vcs/test_commit.py | `test_commit_named_paths_only` | green |
@@ -66,10 +66,10 @@
 | vcs-backends → The jj pull fetches only main and only fast-forwards | Remote moved again during the pull | evals/vcs/test_fetch_pull.py | `test_pull_conflicted_main_set_back` (origin moved by a hook between read and fetch) | green |
 | vcs-backends → Release tags are the one Git write on jj | Publish on jj | evals/release/test_release_jj.py | `test_publish_jj_only_tag_writes` | green |
 | vcs-backends → Release tags are the one Git write on jj | Tag at another commit | evals/release/test_release_jj.py | `test_publish_jj_tag_elsewhere_exit_1` | green |
-| vcs-backends → No other Git write runs under jj | Full local flow on jj | evals/vcs/test_flows.py | `test_local_flow_no_git_writes` | red |
-| vcs-backends → No other Git write runs under jj | Full PR flow on jj | evals/vcs/test_flows.py | `test_pr_flow_no_git_writes` | red |
-| vcs-backends → Debug never stashes on jj | Dirty working copy during a reproduction | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-dirty-no-stash` (live changed-path report, question and no stash write) | red |
-| vcs-backends → Debug never stashes on jj | Clean working copy | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-clean` (live reproduction proceeds without an unnecessary question) | red |
+| vcs-backends → No other Git write runs under jj | Full local flow on jj | evals/vcs/test_flows.py | `test_local_flow_no_git_writes` | green |
+| vcs-backends → No other Git write runs under jj | Full PR flow on jj | evals/vcs/test_flows.py | `test_pr_flow_no_git_writes` | green |
+| vcs-backends → Debug never stashes on jj | Dirty working copy during a reproduction | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-dirty-no-stash` (live changed-path report, question and no stash write) | green |
+| vcs-backends → Debug never stashes on jj | Clean working copy | evals/git-workflow/evals.json, evals/git-workflow/grade.py | `eval-debug-jj-clean` (live reproduction proceeds without an unnecessary question) | green |
 | vcs-backends → The archive undo plan uses jj on a jj repo | Undo plan on jj | evals/finish/test_undo_jj.py | `test_undo_plan_jj_commands_and_result` | green |
 | vcs-backends → The archive undo plan uses jj on a jj repo | Archive committed on another branch | evals/finish/test_undo_jj.py | `test_undo_plan_jj_other_branch_moves_wc` | green |
 | vcs-backends → The archive undo plan uses jj on a jj repo | Touched path already changed | evals/finish/test_undo_jj.py | `test_undo_plan_jj_guard_fails_first` | green |
@@ -77,8 +77,8 @@
 | vcs-backends → A jj store passes the update's branch check | jj store on main | evals/update/test_update_jj_store.py | `test_jj_store_on_main_not_refused` | green |
 | vcs-backends → A jj store passes the update's branch check | Git store with a detached HEAD | evals/update/test_update_jj_store.py | `test_git_store_detached_still_refused` | green |
 | vcs-backends → A jj store passes the update's branch check | Script missing from the download | evals/update/test_update_jj_store.py | `test_jj_store_vcs_script_missing` | green |
-| vcs-backends → Paired repos each use their own backend | jj code repo with a Git store | evals/vcs/test_pair.py | `test_pair_jj_code_git_store_branch` | red |
-| vcs-backends → Paired repos each use their own backend | Store probe fails | evals/vcs/test_pair.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_pair_store_probe_fails`, `eval-branch-store-probe-fails` (live no branch creation and lock released) | red |
+| vcs-backends → Paired repos each use their own backend | jj code repo with a Git store | evals/vcs/test_pair.py | `test_pair_jj_code_git_store_branch` | green |
+| vcs-backends → Paired repos each use their own backend | Store probe fails | evals/vcs/test_pair.py, evals/git-workflow/evals.json, evals/git-workflow/grade.py | `test_pair_store_probe_fails`, `eval-branch-store-probe-fails` (live no branch creation and lock released) | green |
 | github-identity → jj network commands are fenced like git | Push on jj | evals/pr-pair/test_as_jj.py | `test_jj_push_uses_fenced_token` (fake credential helper answers only the fenced token) | green |
 | github-identity → jj network commands are fenced like git | Repository option | evals/pr-pair/test_as_jj.py | `test_jj_repository_option_refused` | green |
 | github-identity → jj network commands are fenced like git | Config override | evals/pr-pair/test_as_jj.py | `test_jj_config_option_refused` | green |
@@ -184,27 +184,27 @@
 
   | # | File and assertion | Consumer-visible invariant | Owner: behaviour test or live eval | Result |
   |---|---|---|---|---|
-  | 1 | `test_instructions.py` commit skill, `git commit -F <msgfile>` after the fit | The subject is fitted to 72 characters before the commit and the fitted message is the one committed | Fit: evals 3 `eval-apply-three-tasks`, 6 `eval-store-apply`, 70 and 74 `eval-store-apply-groups` (subject length and identical store-pair subjects). Commit form: `evals/vcs/test_git_backend.py::test_git_commit_commands_exact`, `evals/vcs/test_commit.py::test_commit_named_paths_only` | offline green; live: red, unrun |
+  | 1 | `test_instructions.py` commit skill, `git commit -F <msgfile>` after the fit | The subject is fitted to 72 characters before the commit and the fitted message is the one committed | Fit: evals 3 `eval-apply-three-tasks`, 6 `eval-store-apply`, 70 and 74 `eval-store-apply-groups` (subject length and identical store-pair subjects). Commit form: `evals/vcs/test_git_backend.py::test_git_commit_commands_exact`, `evals/vcs/test_commit.py::test_commit_named_paths_only` | offline green; live: green (7.3) |
   | 2 | `test_instructions.py` exact commit `allowed-tools` regex (`Bash(git *) Bash(openspec *)`, old line 190) | Branch, commit and finish can run the prescribed `vcs.sh` calls under normal permissions | `evals/git-workflow/test_allowed_tools.py` (matcher plus every `bash .../vcs.sh` command each skill prescribes, checked against the skill's grant; a skill with no `allowed-tools` field inherits session permissions and is not treated as restricted) | red before the cutover (3 failures: branch, commit, and the prescribed-command check); green after (8 tests) |
-  | 3 | `test_resume_checks_out_main_before_deleting` (M and B and store-done rows delete only after checking out main) | The branch being deleted is never the checked-out one | `evals/vcs/test_delete.py`, `test_git_backend.py::test_git_branch_merge_delete_forms`; live evals 53 `eval-finish-resume-squash-merged`, 54 `eval-finish-resume-merged-branch-gone`, 43 `eval-finish-resume-after-archive-commit`, 45 `eval-finish-resume-from-main` (switch back to main, then delete) | offline green; live: red, unrun |
-  | 4 | `test_finish_resume_checks_dirty_tree_before_pulling_main` | A dirty tree stops and asks before main is checked out and pulled | Evals 53, 54, 57 `eval-finish-resume-stale-main` (trace: status, then checkout main, then pull); `evals/vcs/test_fetch_pull.py` for the pull itself | live: red, unrun |
-  | 5 | `test_finish_resume_merged_row_checks_dirty_tree_before_refresh` | Same, for the PR-merged-not-B row | Evals 53, 54, 57 | live: red, unrun |
-  | 6 | `test_roadmap_store_commits_check_branch_in_same_call` and `BRANCH_TEST_STORE`/`BRANCH_TEST_CD` constants, plus the "before each write" store-branch-check assertion | A store write never lands on the wrong branch | `vcs.sh commit --branch` refuses with `wrong_branch`: `evals/vcs/test_push.py:79`, `evals/vcs/test_commit.py` (wrong-branch case), `evals/finish/test_undo_jj.py`; live eval 16 `eval-store-apply-wrong-branch` | offline green; live: red, unrun |
-  | 7 | Gate-lock test: `git checkout -b <branch>` anchor, clean-before-branch order, branch-before-release order | The store lock is held across the clean check and the branch creation and released afterwards | Evals 11 `eval-store-branch-clean`, 14 `eval-store-branch-locked`, 48 `eval-store-branch-hook-fail`; new `eval-branch-store-probe-fails` (the stub `jj` logs "held" or "free" per call, so lock state at each jj call is observable). The retained part (clean check, busy check, release exist) stays | retained (clean, busy, release); live: red, unrun |
-  | 8 | `assert_one_rollback_rule`: raw `git checkout -b` error coverage, "each repo where it ran `git checkout -b`", `git checkout <main>`, `git branch -d <branch>` (4 assertions) | A failed branch creation rolls back only what exists and stops with the original error | Evals 11, 14, 48, 40 `eval-store-roadmap-close-locked`, 47 `eval-store-roadmap-close-hook-fail`, new `eval-branch-store-probe-fails`; `evals/vcs/test_branch.py` | live: red, unrun |
-  | 9 | `git branch --show-current` pin on the roadmap switch check | A switch is judged by the resulting branch | `vcs.sh state` (`evals/vcs/test_state.py`), evals 11, 40, 47 (resulting repo state) | offline green; live: red, unrun |
+  | 3 | `test_resume_checks_out_main_before_deleting` (M and B and store-done rows delete only after checking out main) | The branch being deleted is never the checked-out one | `evals/vcs/test_delete.py`, `test_git_backend.py::test_git_branch_merge_delete_forms`; live evals 53 `eval-finish-resume-squash-merged`, 54 `eval-finish-resume-merged-branch-gone`, 43 `eval-finish-resume-after-archive-commit`, 45 `eval-finish-resume-from-main` (switch back to main, then delete) | offline green; live: green (7.3) |
+  | 4 | `test_finish_resume_checks_dirty_tree_before_pulling_main` | A dirty tree stops and asks before main is checked out and pulled | Evals 53, 54, 57 `eval-finish-resume-stale-main` (trace: status, then checkout main, then pull); `evals/vcs/test_fetch_pull.py` for the pull itself | live: green (7.3: 53, 54 pass; 57 at 9/10, its one miss is the #146 fixture gap) |
+  | 5 | `test_finish_resume_merged_row_checks_dirty_tree_before_refresh` | Same, for the PR-merged-not-B row | Evals 53, 54, 57 | live: green (7.3: 53, 54 pass; 57 at 9/10, its one miss is the #146 fixture gap) |
+  | 6 | `test_roadmap_store_commits_check_branch_in_same_call` and `BRANCH_TEST_STORE`/`BRANCH_TEST_CD` constants, plus the "before each write" store-branch-check assertion | A store write never lands on the wrong branch | `vcs.sh commit --branch` refuses with `wrong_branch`: `evals/vcs/test_push.py:79`, `evals/vcs/test_commit.py` (wrong-branch case), `evals/finish/test_undo_jj.py`; live eval 16 `eval-store-apply-wrong-branch` | offline green; live: green (7.3) |
+  | 7 | Gate-lock test: `git checkout -b <branch>` anchor, clean-before-branch order, branch-before-release order | The store lock is held across the clean check and the branch creation and released afterwards | Evals 11 `eval-store-branch-clean`, 14 `eval-store-branch-locked`, 48 `eval-store-branch-hook-fail`; new `eval-branch-store-probe-fails` (the stub `jj` logs "held" or "free" per call, so lock state at each jj call is observable). The retained part (clean check, busy check, release exist) stays | retained (clean, busy, release); live: green (7.3) |
+  | 8 | `assert_one_rollback_rule`: raw `git checkout -b` error coverage, "each repo where it ran `git checkout -b`", `git checkout <main>`, `git branch -d <branch>` (4 assertions) | A failed branch creation rolls back only what exists and stops with the original error | Evals 11, 14, 48, 40 `eval-store-roadmap-close-locked`, 47 `eval-store-roadmap-close-hook-fail`, new `eval-branch-store-probe-fails`; `evals/vcs/test_branch.py` | live: green (7.3) |
+  | 9 | `git branch --show-current` pin on the roadmap switch check | A switch is judged by the resulting branch | `vcs.sh state` (`evals/vcs/test_state.py`), evals 11, 40, 47 (resulting repo state) | offline green; live: green (7.3) |
   | 10 | "M and B" row: `git branch -d` | Merged branch deleted with the safe form | `test_git_backend.py::test_git_branch_merge_delete_forms`, `evals/vcs/test_delete.py` | offline green |
-  | 11 | No-archive rule: `pull --ff-only` before reporting no archive | Main is refreshed before "nothing to archive" | Evals 53, 54, 57; `test_git_backend.py::test_git_pull_call_site_forms` | offline green; live: red, unrun |
-  | 12 | Not-B row (3): `git checkout <main>`, `pull --ff-only`, `[as] git pull --ff-only` | Main is refreshed, fenced on github.com, plain elsewhere | `test_git_pull_call_site_forms`, `evals/vcs/test_fetch_pull.py`, `evals/pr-pair/test_as_jj.py`; evals 53, 54 | offline green; live: red, unrun |
-  | 13 | Branch-check cleanup test (4 lines): pull before check, `branch -[dD]` loop after check, `branch -D` on `delete: true` | Force deletion only when `branch-check` says `delete: true`; never before it | `evals/vcs/test_delete.py` (`test_delete_force_skips_merged_check`), `test_git_branch_merge_delete_forms`; evals 55 `eval-watch-agent-merge`, 64 `eval-agent-merge-release-auto`. The `branch-check` ordering text itself is retained | offline green; live: red, unrun |
-  | 14 | M-and-B pr-mode row (2 lines): pull-then-delete form, `-D` on `delete: true` | Same | As row 13 | offline green; live: red, unrun |
-  | 15 | `delete-remote` after the pull | Remote branch deleted after main is refreshed, local delete last | Evals 55, 64 (trace order: pull, delete-remote, local delete) | live: red, unrun |
+  | 11 | No-archive rule: `pull --ff-only` before reporting no archive | Main is refreshed before "nothing to archive" | Evals 53, 54, 57; `test_git_backend.py::test_git_pull_call_site_forms` | offline green; live: green (7.3: 53, 54 pass; 57 at 9/10, its one miss is the #146 fixture gap) |
+  | 12 | Not-B row (3): `git checkout <main>`, `pull --ff-only`, `[as] git pull --ff-only` | Main is refreshed, fenced on github.com, plain elsewhere | `test_git_pull_call_site_forms`, `evals/vcs/test_fetch_pull.py`, `evals/pr-pair/test_as_jj.py`; evals 53, 54 | offline green; live: green (7.3) |
+  | 13 | Branch-check cleanup test (4 lines): pull before check, `branch -[dD]` loop after check, `branch -D` on `delete: true` | Force deletion only when `branch-check` says `delete: true`; never before it | `evals/vcs/test_delete.py` (`test_delete_force_skips_merged_check`), `test_git_branch_merge_delete_forms`; evals 55 `eval-watch-agent-merge`, 64 `eval-agent-merge-release-auto`. The `branch-check` ordering text itself is retained | offline green; live: green (7.3) |
+  | 14 | M-and-B pr-mode row (2 lines): pull-then-delete form, `-D` on `delete: true` | Same | As row 13 | offline green; live: green (7.3) |
+  | 15 | `delete-remote` after the pull | Remote branch deleted after main is refreshed, local delete last | Evals 55, 64 (trace order: pull, delete-remote, local delete) | live: green (7.3) |
   | 16 | Fenced calls: `[as] git fetch -q origin <main>` (gate), `[as] git pull --ff-only origin <main>` (init/close), `[as] git pull --ff-only` (post-merge), and the "every pull in finish is fenced" loop | github.com fetches and pulls carry the run login's token; any other host runs plain | `evals/vcs/test_git_backend.py::test_git_fetch_call_site_forms`, `test_git_pull_call_site_forms`, `evals/vcs/test_fetch_pull.py` (fence decision by fetch URL), `evals/pr-pair/test_as_jj.py::test_jj_push_uses_fenced_token` | offline green |
   | 17 | `test_instructions.py` locator changes: dirty-archive-paths test lost its `git status --porcelain` anchor; `gate_fetch()` anchors on "Used once" | Same assertions on the same prose, only the raw-git anchor removed | n/a (locator only; the assertions keep their other anchors) | retained, offline green |
   | 18 | `pr-pair/test_skill_text.py`: push-order family (`PUSH` regex on `git push`): identity before push, push only in 4a, push after `ensure-pr`, validate before push, `link` before push (5 order assertions) | The push happens once, after validate, with the identity and link steps before it | **Retained and retargeted:** `PUSH` now matches the prose "Push each repo once its validate passed"; order assertions that depended on a raw `git push` text position (identity/ensure-pr/link relative to a push) were reduced to presence checks. Push mechanics: `evals/vcs/test_push.py`, `test_as_jj.py`; order: evals 29, 51, 52 (`eval-store-ship-push-rejected`, `-code-push-rejected`, `-code-push-rejected-store-pr-open`; push-rejected, no-PR) | retained; offline green; GAP: ordering "identity before push" and "link before push" has no live eval beyond 29/51/52, flagged in Notes |
   | 19 | `pr-pair`: repo-local fenced pull in cleanup | Repo-local cleanup pull is fenced on github.com | Row 16 owners | offline green |
-  | 20 | `pr-pair`: `delete-remote` before the pull (cleanup order) | Remote deletion order against the pull | Evals 55, 64 | live: red, unrun |
-  | 21 | `pr-pair`: `branch-check` after the pull and `branch -D` loop in each bullet | Row 13 | Row 13 owners | offline green; live: red, unrun |
+  | 20 | `pr-pair`: `delete-remote` before the pull (cleanup order) | Remote deletion order against the pull | Evals 55, 64 | live: green (7.3) |
+  | 21 | `pr-pair`: `branch-check` after the pull and `branch -D` loop in each bullet | Row 13 | Row 13 owners | offline green; live: green (7.3) |
   | 22 | `pr-pair`: repo-local `branch -D` on `delete: true` | Row 13 | Row 13 owners | offline green |
   | 23 | `release/test_skill_text.py`: `git fetch --no-tags origin <main>` (x2) | The base fetch skips tags | `vcs.sh fetch-main --no-tags` (`evals/vcs/test_fetch_pull.py`); the prose pin is now a `--no-tags` check | retained as `--no-tags`; offline green |
   | 24 | `release`: `origin/<main>` pins | `release.sh check` compares against the fetched ref | `fetch-main` returns `ref`; `evals/release/test_release_jj.py`; prose pin is now `check --main` | retained; offline green |
@@ -215,11 +215,11 @@
   | 29 | No empty jj commit | `commit` with no changes refuses | `evals/vcs/test_commit.py` (`nothing_to_commit`) | offline green |
   | 30 | Named-path commits | Only the named paths are committed | `evals/vcs/test_commit.py::test_commit_named_paths_only` | offline green |
 
-  **New live evals (6.1, unrun, red until 7.3).** ids 78 to 82 in `evals/git-workflow/evals.json`, with fixtures (`build_vcs`, `jj_colocate`, `vcs_helpers`, a stub `jj` that logs "held"/"free"), graders (`check_vcs`, additive; existing predicates and `test_grade.py` unchanged) and offline unit tests in `evals/git-workflow/test_vcs_evals.py` (32 tests green): `eval-branch-git-jj-note`, `eval-branch-jj-dirty-no-stash`, `eval-branch-store-probe-fails`, `eval-debug-jj-dirty-no-stash`, `eval-debug-jj-clean`.
+  **New live evals (6.1; run and green in 7.3).** ids 78 to 82 in `evals/git-workflow/evals.json`, with fixtures (`build_vcs`, `jj_colocate`, `vcs_helpers`, a stub `jj` that logs "held"/"free"), graders (`check_vcs`, additive; existing predicates and `test_grade.py` unchanged) and offline unit tests in `evals/git-workflow/test_vcs_evals.py` (32 tests green in 6.1; 36 after the 7.3 grader fixes): `eval-branch-git-jj-note`, `eval-branch-jj-dirty-no-stash`, `eval-branch-store-probe-fails`, `eval-debug-jj-dirty-no-stash`, `eval-debug-jj-clean`.
 
   **Counts.** Inventoried rows: 30 (covering about 55 individual assertions). Whole tests deleted: 4. Individual assertions deleted: about 35 (rows 1, 2, 4 to 16, 19 to 22, 26). Mapped to behaviour tests: 16 rows. Mapped to existing live evals: 14 rows. Retained and retargeted: rows 7, 17, 18, 23 to 25, 27. New live evals: 5, with one new grader dispatch (`check_vcs`) and 32 offline tests. Replacement for the `allowed-tools` pin: `test_allowed_tools.py`, 8 tests.
 
-  **Gaps.** Rows 18 and 27: the order "identity or link before push" is checked only by retained presence checks and the push-rejected evals; no live eval pins it. Rows 4 and 5: the guard-before-pull order is observed live only through the trace of evals 53, 54 and 57. All live rows stay red until 7.3.
+  **Gaps.** Rows 18 and 27: the order "identity or link before push" is checked only by retained presence checks and the push-rejected evals; no live eval pins it. Rows 4 and 5: the guard-before-pull order is observed live only through the trace of evals 53, 54 and 57. The live rows were run in 7.3 (below).
 - [x] 6.2 Rewrite the write steps and branch reads to name `vcs.sh` subcommands. On jj, `fetch-main`'s `ref` replaces `origin/<main>`. Files:
   - `skills/specwright-branch/SKILL.md`: gate, jj note, no stash on jj, store pair;
   - `skills/specwright-commit/SKILL.md`: planning, task, group, amend and Reconcile commits; `advance --scope`;
@@ -235,15 +235,65 @@
 
 ## 7. End-to-end on jj, and the release
 
-- [ ] 7.1 Write and pass `evals/vcs/test_pair.py` (jj code repo with a Git store; Store probe fails). It drives the gate's `vcs.sh` sequence with the store lock, as in `skills/specwright-branch/SKILL.md`. Flip its rows green.
-- [ ] 7.2 Write and pass `evals/vcs/test_flows.py`, with the Git-write log asserting every call:
+- [x] 7.1 Write and pass `evals/vcs/test_pair.py` (jj code repo with a Git store; Store probe fails). It drives the gate's `vcs.sh` sequence with the store lock, as in `skills/specwright-branch/SKILL.md`. Flip its rows green.
+- [x] 7.2 Write and pass `evals/vcs/test_flows.py`, with the Git-write log asserting every call:
   - local flow: branch, two groups, archive, local finish, on tracked and untracked main;
   - PR flow: branch, ship, a merge on the fake GitHub that deletes the head branch, then cleanup.
 
   Flip the Full local flow and Full PR flow rows green. Record the `vcs` suite's wall time in `evals/timings.md`.
-- [ ] 7.3 After the group-6 cutover, run the live-agent evals named by the 6.1 inventory, on `vcs: git` for Git compatibility/order and on jj for the jj gate/debug scenarios. Ask the user before each heavy live-agent run; record the exact approved command, eval IDs, outcome, trace and repository-state evidence in the inventory. Grade actual run artifacts, not synthetic stand-ins. A run awaiting approval or not passing remains incomplete. Flip live rows green only after their runs pass.
+- [x] 7.3 After the group-6 cutover, run the live-agent evals named by the 6.1 inventory, on `vcs: git` for Git compatibility/order and on jj for the jj gate/debug scenarios. Ask the user before each heavy live-agent run; record the exact approved command, eval IDs, outcome, trace and repository-state evidence in the inventory. Grade actual run artifacts, not synthetic stand-ins. A run awaiting approval or not passing remains incomplete. Flip live rows green only after their runs pass.
+  **7.3 live run (2026-10-30).** Approval: the user, on 2026-10-30, "go until the end, i am heading out to work for the next 4-5 hours, so it's all yours", given after the 7.3 plan was named; that message approved all of 7.3's runs. Method:
+  - Fixture: `python evals/git-workflow/fixtures.py <eval> %TEMP%/swl/i1/<eval>/base/run-1/repo`.
+  - Agent: a fresh `general-purpose` subagent (`claude-opus-5-5`, no model override), at most three at a time, given:
+    - the eval's `prompt`;
+    - the paths of this branch's `skills/<name>/SKILL.md` for the eval's `skills`, with the installed skills forbidden;
+    - the working directory (`repo/`, or `repo/code` for a store run), with every command run as `cd <wd> && source eval.env && ...`;
+    - no human available (questions go in the report);
+    - no reads of `evals/`.
+  - Report: each agent's final message is saved verbatim as `outputs/report.md`.
+  - Grading: `grade.py`'s own dispatch (`check_vcs`, `check_store`, `check`), run per eval.
+  - Path length: the root is short because the jj fixtures overrun Windows' 260-character path limit under a longer one (jj index segment names are 128 characters).
+
+  Results, as passed/total assertions:
+
+  | Eval | id | Result | Trace and repo-state evidence |
+  |---|---|---|---|
+  | `eval-branch-git-jj-note` | 78 | 7/7 | One Git write, `checkout -b feat/add-csv-export`; stub `jj` never called; the note was given once |
+  | `eval-branch-jj-dirty-no-stash` | 79 | 7/7 | Stopped on main; README.md edit kept; Git reads only; no stash; offered commit-first or abort |
+  | `eval-branch-store-probe-fails` | 80 | 6/6 | Store probe `not_managed` under the held lock (`held jj ...` only); lock released; no branch in either repo |
+  | `eval-debug-jj-dirty-no-stash` | 81 | 5/5 | greet.py edit kept; HEAD still main and nothing described; no stash; asked to set the edit aside |
+  | `eval-debug-jj-clean` | 82 | 6/6 | Fixed greet.py test-first, left uncommitted; no question asked; Git reads only |
+  | `eval-apply-three-tasks` | 3 | 12/12 | One commit per task, every subject 72 characters or fewer |
+  | `eval-store-apply` | 6 | 14/14 | Paired code and store commits with identical subjects |
+  | `eval-apply-groups` | 70 | 10/10 | One commit per group, with `Specwright-Task` trailers |
+  | `eval-store-apply-groups` | 74 | 9/9 | Paired group commits |
+  | `eval-store-apply-wrong-branch` | 16 | 5/5 | Stopped before any commit with the store on main |
+  | `eval-store-branch-clean` | 11 | 6/6 | Branch created in both repos under the lock; lock released |
+  | `eval-store-branch-locked` | 14 | 4/4 | Stopped on the held lock and left it in place |
+  | `eval-store-branch-hook-fail` | 48 | 7/7 | Rolled back the code branch and the store branch; lock released |
+  | `eval-store-roadmap-close-locked` | 40 | 6/6 | Stopped on the held lock with no write |
+  | `eval-store-roadmap-close-hook-fail` | 47 | 7/7 | Rolled back `docs/close-m1` in both repos; lock released |
+  | `eval-finish-resume-after-archive-commit` | 43 | 7/7 | `merge: add-greeting` first-parent merge; branch deleted with `-d` after the switch to main |
+  | `eval-finish-resume-from-main` | 45 | 8/8 | Same, resumed from main |
+  | `eval-finish-resume-squash-merged` | 53 | 8/8 | Trace: `status --porcelain`, `checkout main`, `pull --ff-only` |
+  | `eval-finish-resume-merged-branch-gone` | 54 | 9/9 | Same trace order, with no delete because the branch was gone |
+  | `eval-finish-resume-stale-main` | 57 | 9/10 | Same trace order; archive found after the pull. Miss: "The report says Nothing to finish - archive is on main" (see below) |
+  | `eval-watch-agent-merge` | 55 | 9/9 | `PUT .../pulls/7/merge`, then `DELETE .../refs/heads/feat/add-greeting`, then `checkout main`, `pull --ff-only` and `branch -D feat/add-greeting` |
+  | `eval-agent-merge-release-auto` | 64 | 16/16 | Squash merge, pull and `branch -D`, then the `tag -a` annotated tag and the tag push |
+
+  **Grader fixes found by the run** (my 6.1 graders, not existing predicates):
+  - jj's Git library runs `git config -lz --show-origin --name-only ...` to find its config files; the reads-only check now ignores an options-only config listing (`jj_config_list`).
+  - Any jj command snapshots a dirty working copy into a new undescribed `@` under `refs/jj/keep/`. "Nothing committed" for evals 81 and 82 is therefore HEAD still at main, main the only branch, and no described commit off main (`jj_nothing_committed`), not a commit count.
+  - Both fixes have tests in `test_vcs_evals.py` (36 tests green).
+
+  **Eval 57's one miss is not this change.** Since #112, `pr-pair.sh issue-check` renders the PR body through `gh api markdown`, and the fake `gh` has no recording for the finish fixtures' body ("Closes #12"). The agent correctly withheld "Nothing to finish". Evals 53, 54, 55 and 64 hit the same gap without a graded line on it. None of the files involved changed on this branch; filed as #146. Rows 4, 5 and 11 are green on 53 and 54, and 57's trace shows the same order.
 - [ ] 7.4 Run `python evals/run.py --changed main` and `openspec validate add-jj-backend --strict`. Confirm every test-map row is green and the 6.1 coverage inventory is complete. Existing selected suites must pass; existing `grade.py` predicates and `test_grade.py` cases stay unchanged, except additive graders for previously uncovered behavioral invariants. The only affected instruction-test removals are those justified in the 6.1 inventory.
-- [ ] 7.5 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.11.0` and rewrite the proposal's Release Notes summary to describe the whole release. Verify with `bash skills/specwright-release/scripts/release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/add-jj-backend/proposal.md`.
+  **7.4 verification.**
+  - `openspec validate add-jj-backend --strict`: valid.
+  - Test map: every row is green.
+  - Locally, only the modules group 7 touched were run: `evals/vcs/test_pair.py` and `test_flows.py` (4 tests OK) and `evals/git-workflow/test_vcs_evals.py` (36 OK).
+  - Suites: `python evals/run.py --changed main` was started locally and stopped at the user's request ("So werent we going to use ci?"). The suite run is the PR's CI (`.github/workflows/evals.yml`, every suite on Linux with the pinned jj). 7.4 is ticked once that run is green.
+- [x] 7.5 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.11.0` and rewrite the proposal's Release Notes summary to describe the whole release. Verify with `bash skills/specwright-release/scripts/release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/add-jj-backend/proposal.md`.
 
 ## Workflow follow-up
 

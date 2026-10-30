@@ -69,6 +69,13 @@ class Fx(unittest.TestCase):
         r = bash_run([VCS, *args, "--repo", repo, "--role", role, *(["--code", code] if code else [])], self.repo, shim=self.repo / "bin")
         return r.returncode, json.loads(r.stdout or "{}")
 
+    def jj(self, *args):
+        """Run the real jj in the run's repo; any jj command first snapshots the working copy into a new undescribed @."""
+        import shutil
+        r = subprocess.run([shutil.which("jj"), *args], cwd=self.repo, capture_output=True, text=True)
+        assert r.returncode == 0, (args, r.stderr)
+        return r.stdout
+
     def results(self, name):
         return {t: (ok, ev) for t, ok, ev in grade.check_vcs(name, self.repo, self.run_dir)}
 
@@ -253,6 +260,31 @@ class DebugDirty(Fx):
         self.assertIn("No stash was made: no stash entry, no refs/stash and no git stash write in the trace", failed)
         self.assertIn("The only Git commands were reads", failed)
 
+    def test_a_jj_snapshot_and_jjs_config_listing_pass(self):
+        # every jj read snapshots the edited working copy into a new @ (kept under refs/jj/keep/), and jj's Git library lists the
+        # config to find its files; neither commits or writes anything
+        self.build(self.NAME)
+        self.jj("status")
+        self.trace(self.repo, ["config", "-lz", "--show-origin", "--no-includes", "--show-scope", "--name-only"], ["status", "--porcelain"])
+        self.say(self.GOOD)
+        self.assertEqual(self.failed(self.NAME), [])
+
+    def test_describing_the_working_copy_or_a_config_write_fails(self):
+        self.build(self.NAME)
+        self.jj("describe", "-m", "wip: greet experiment")
+        self.trace(self.repo, ["config", "user.name", "x"])
+        self.say(self.GOOD)
+        self.assertEqual(sorted(self.failed(self.NAME)), ["The only Git commands were reads",
+                                                         "The uncommitted edit to greet.py is untouched and nothing was committed"])
+
+    def test_a_jj_commit_fails(self):
+        self.build(self.NAME)
+        self.jj("commit", "-m", "wip: greet experiment")
+        fixtures.write(self.repo, "greet.py", json.loads((self.repo / ".git" / "fixture-state.json").read_text(encoding="utf-8"))["edited"])
+        self.trace(self.repo, ["status", "--porcelain"])
+        self.say(self.GOOD)
+        self.assertIn("The uncommitted edit to greet.py is untouched and nothing was committed", self.failed(self.NAME))
+
     def test_a_silent_run_that_asks_nothing_fails(self):
         self.build(self.NAME)
         self.trace(self.repo, ["status", "--porcelain"])
@@ -280,6 +312,11 @@ class DebugClean(Fx):
 
     def test_diagnose_and_fix_without_asking_passes(self):
         self.fixed()
+        self.assertEqual(self.failed(self.NAME), [])
+
+    def test_a_jj_snapshot_of_the_fix_passes(self):
+        self.fixed()
+        self.jj("status")
         self.assertEqual(self.failed(self.NAME), [])
 
     def test_an_unnecessary_question_fails(self):
