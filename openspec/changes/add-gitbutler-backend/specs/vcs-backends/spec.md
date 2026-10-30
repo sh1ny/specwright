@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The backend is chosen per repo
-`vcs` in `openspec/specwright.yaml` SHALL select the backend of the code repo, and `planning_store.vcs` the backend of a planning store. `vcs` SHALL accept `git`, `jj` or `gitbutler`; `planning_store.vcs` SHALL accept `git` or `jj`. Each SHALL default to `git` when absent. `planning_store.vcs` SHALL NOT fall back to `vcs`. `planning_store.vcs: gitbutler` SHALL stop with `unsupported_vcs`, and `vcs: gitbutler` with `finish` other than `pr` (absent included, since it defaults to `local`) SHALL stop with `unsupported_combination`; both stops SHALL come from the first step that reads the branch or writes, before any write in either repo.
+`vcs` in `openspec/specwright.yaml` SHALL select the backend of the code repo, and `planning_store.vcs` the backend of a planning store. `vcs` SHALL accept `git`, `jj` or `gitbutler`; `planning_store.vcs` SHALL accept `git` or `jj`. Each SHALL default to `git` when absent. `planning_store.vcs` SHALL NOT fall back to `vcs`.
 
 #### Scenario: Unset means Git
 - **WHEN** `specwright.yaml` has no `vcs` key and the repo has no `.jj/`
@@ -19,6 +19,11 @@
 - **WHEN** `vcs` is `hg`
 - **THEN** the first step that reads the branch or writes stops before any write with `unknown_vcs`, naming the value and the accepted values `git`, `jj` and `gitbutler`
 
+## ADDED Requirements
+
+### Requirement: GitButler runs only for the code repo with `finish: pr`
+`planning_store.vcs: gitbutler` SHALL stop with `unsupported_vcs`, and `vcs: gitbutler` with `finish` other than `pr` (absent included, since it defaults to `local`) SHALL stop with `unsupported_combination`. Both stops SHALL come from the first step that reads the branch or writes, before any write in either repo.
+
 #### Scenario: GitButler store
 - **WHEN** `planning_store.vcs` is `gitbutler`
 - **THEN** the first step that reads a branch or writes stops before any write in either repo with `unsupported_vcs`, saying a store accepts `git` or `jj`
@@ -30,8 +35,6 @@
 #### Scenario: GitButler with no finish setting
 - **WHEN** `vcs` is `gitbutler` and `specwright.yaml` has no `finish` key
 - **THEN** the branch gate stops before any branch exists with `unsupported_combination`
-
-## ADDED Requirements
 
 ### Requirement: The GitButler backend is probed before any `but` command
 Every branch read and write on `gitbutler` SHALL first check with Git reads that GitButler manages the repo (`.git/gitbutler/` and `gitbutler.project.targetRef`) with `<main>` as target, then run `but --version` outside the repo to require 0.23+. A failure SHALL stop before any write with `not_managed`, `target_mismatch`, `tool_missing`, `tool_version_unknown` or `tool_too_old`. Specwright SHALL never run `but` setup, teardown or target commands.

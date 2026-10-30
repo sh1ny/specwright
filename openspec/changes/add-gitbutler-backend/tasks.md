@@ -10,9 +10,9 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → The backend is chosen per repo | Store keeps its own backend | evals/vcs/test_settings.py | test_store_vcs_not_inherited | green |
 | vcs-backends → The backend is chosen per repo | GitButler code repo with a Git store | evals/vcs/test_settings.py | test_gitbutler_code_with_git_store | red |
 | vcs-backends → The backend is chosen per repo | Unknown value | evals/vcs/test_settings.py | test_unknown_vcs_stops | red |
-| vcs-backends → The backend is chosen per repo | GitButler store | evals/vcs/test_settings.py | test_gitbutler_store_unsupported_vcs | red |
-| vcs-backends → The backend is chosen per repo | GitButler with a local finish | evals/vcs/test_settings.py | test_gitbutler_local_finish_unsupported | red |
-| vcs-backends → The backend is chosen per repo | GitButler with no finish setting | evals/vcs/test_settings.py | test_gitbutler_absent_finish_unsupported | red |
+| vcs-backends → GitButler runs only for the code repo with `finish: pr` | GitButler store | evals/vcs/test_settings.py | test_gitbutler_store_unsupported_vcs | red |
+| vcs-backends → GitButler runs only for the code repo with `finish: pr` | GitButler with a local finish | evals/vcs/test_settings.py | test_gitbutler_local_finish_unsupported | red |
+| vcs-backends → GitButler runs only for the code repo with `finish: pr` | GitButler with no finish setting | evals/vcs/test_settings.py | test_gitbutler_absent_finish_unsupported | red |
 | vcs-backends → The GitButler backend is probed before any `but` command | `but` missing | evals/vcs/test_gitbutler_probe.py | test_but_missing_stops_before_write | red |
 | vcs-backends → The GitButler backend is probed before any `but` command | Repo not managed by GitButler | evals/vcs/test_gitbutler_probe.py | test_unmanaged_repo_not_set_up | red |
 | vcs-backends → The GitButler backend is probed before any `but` command | Target is another branch | evals/vcs/test_gitbutler_probe.py | test_target_mismatch_stops | red |
@@ -84,7 +84,7 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 3. Settings, probe and the Git-backend refusal
 
-- [ ] 3.1 Write failing tests for every red row of "The backend is chosen per repo", "The GitButler backend is probed before any `but` command" and "The Git backend refuses to write in a GitButler workspace". Verify they fail for the right reason, and that the `probe` tests assert no `.git/gitbutler/` is created
+- [ ] 3.1 Write failing tests for every red row of "The backend is chosen per repo", "GitButler runs only for the code repo with `finish: pr`", "The GitButler backend is probed before any `but` command" and "The Git backend refuses to write in a GitButler workspace". Verify they fail for the right reason, and that the `probe` tests assert no `.git/gitbutler/` is created
 - [ ] 3.2 Accept `gitbutler` for the code repo in `pr-pair.sh vcs` and `vcs.sh get_settings`, refuse it for the store (`unsupported_vcs`) and without `finish: pr` (`unsupported_combination`). Add the GitButler `probe` (Git reads first, then `but --version` outside the repo) and the `gitbutler_workspace` stop on the Git backend (D1, D2, D14). Verify the 3.1 tests pass, flip their rows green, and re-run `test_unset_vcs_is_git` and `test_store_vcs_not_inherited` (still green)
 - [ ] 3.3 Document `vcs: gitbutler` (code repo, PR only) in `templates/openspec/specwright.yaml` and README, and the GitButler limits: `core.autocrlf=true` (design.md Risks, Line endings). Verify: `python evals/run.py --changed main` passes the template and skill-text tests
 
