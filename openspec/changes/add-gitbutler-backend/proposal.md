@@ -70,7 +70,7 @@ This change is M5 (Commits and VCS backends), change 7, version 0.12.0. It serve
 
 ## Release Notes
 
-Projects can run the Specwright workflow in a GitButler workspace. With `vcs: gitbutler` in `specwright.yaml`, a change gets its own applied branch next to the others. Commits name their paths and go only to that branch, and only that branch is pushed and gets a PR. Specwright stops before any write when `but` is missing or too old, or the repo is not GitButler-managed. GitButler runs in PR mode with a Git or jj planning store. Git stays the default.
+Specwright 0.12.0 adds GitButler as a backend next to Git and jj. With `vcs: gitbutler`, a change gets its own applied branch in a GitButler workspace. Commits name their paths and go only to that branch, only that branch is pushed and gets a PR, and cleanup never rebases another branch. Change ranges (pre-ship review, task evidence, version check) read the branch tip, which is HEAD on Git and jj. Specwright stops before any write when `but` is missing or older than 0.23, or the repo is not GitButler-managed. GitButler needs `finish: pr`. Git stays the default.
 
 ### Added
 - `vcs: gitbutler` for the code repo: branch, commit, push, PR and cleanup through GitButler 0.23+. Commits name their paths and target the change's branch with `but commit -b`, and other applied branches and unassigned edits are never committed, pushed or rebased (#19).

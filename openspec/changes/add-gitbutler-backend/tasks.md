@@ -126,8 +126,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 11. Integration and release
 
-- [ ] 11.1 Check that every Test map row is green, `openspec validate add-gitbutler-backend --strict` passes, and `python evals/run.py --changed main` passes. Every suite then runs in PR CI with `but` installed
-- [ ] 11.2 Run `release.sh bump --to 0.12.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/add-gitbutler-backend/proposal.md`
+- [x] 11.1 Check that every Test map row is green, `openspec validate add-gitbutler-backend --strict` passes, and `python evals/run.py --changed main` passes. Every suite then runs in PR CI with `but` installed
+- [x] 11.2 Run `release.sh bump --to 0.12.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/add-gitbutler-backend/proposal.md`
 
 ## Workflow follow-up
 
