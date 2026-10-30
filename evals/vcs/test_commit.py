@@ -175,6 +175,29 @@ class TestJjCommit(VcsTestCase):
         self.assertEqual(self.bookmark(), before)
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), before_head)
 
+    def test_commit_directory_with_oversize_file_path_not_tracked(self):
+        """A named directory is not covered by one snapshotted file: an oversize new file in it stops the commit,
+        while an ignored oversize file there does not."""
+        work = self.repo / "work"
+        (work / "deep").mkdir(parents=True)
+        (work / "small.txt").write_text("snapshotted\n", encoding="utf-8")
+        (work / "deep" / "oversize.bin").write_bytes(b"x" * (2 * 1024 * 1024))
+        before = self.bookmark()
+
+        result, _ = self.commit("feat(add-jj-backend): directory\n\nSpecwright-Task: 3.1\n", "work", expected=1)
+
+        self.assertEqual(result["error"], "path_not_tracked")
+        self.assertEqual(result["path"], "work/deep/oversize.bin")
+        self.assertIn("snapshot.max-new-file-size", result["message"])
+        self.assertEqual(self.bookmark(), before)
+
+        (self.repo / ".gitignore").write_text("*.bin\n", encoding="utf-8")
+        result, _ = self.commit("feat(add-jj-backend): directory\n\nSpecwright-Task: 3.1\n", "work", ".gitignore")
+        self.assertTrue(result["ok"], result)
+        names = self.git(self.repo, "ls-tree", "-r", "--name-only", self.bookmark()).stdout.split()
+        self.assertIn("work/small.txt", names)
+        self.assertNotIn("work/deep/oversize.bin", names)
+
 
 def require_jjenv_bash():
     import jjenv

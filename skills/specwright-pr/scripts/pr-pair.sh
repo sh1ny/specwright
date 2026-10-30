@@ -5,9 +5,10 @@
 #
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
-#   context --code <dir> [--store <dir>]
+#   context --code <dir> [--store <dir>] [--only repos]
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
-#                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
+#                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting;
+#                                     --only repos skips that check, for callers that never merge, such as vcs.sh)
 #   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj","store":"git|jj"};
 #                                     absent settings default independently to git; unknown values stop with unknown_vcs
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
@@ -586,7 +587,7 @@ def setting_text(m, key):
     return str(v).lower() if isinstance(v, bool) else str(v)
 
 
-def contexts(code, store):
+def contexts(code, store, check_merge=True):
     s = load_settings(code)
     pr = s.get("pr") or {}
     out = {"code": repo_ctx(s, code, "code"), "store": repo_ctx(s, store, "store") if store else None,
@@ -598,7 +599,7 @@ def contexts(code, store):
     if merge not in (None, "") and merge not in ("user", "agent"):
         out["merge_note"] = f"pr.merge: {setting_text(pr, 'merge')} is not user or agent; treated as user"
     out["merge_method"], out["delete_branch"] = "merge", True
-    if out["merge"] != "agent":  # only the agent merge reads them: user mode keeps today's behaviour
+    if out["merge"] != "agent" or not check_merge:  # only the agent merge reads them: user mode keeps today's behaviour
         return out
     method = pr.get("merge_method")
     method = "merge" if method is None else method
@@ -721,9 +722,11 @@ def cmd_identity(argv):
 
 
 def cmd_context(argv):
-    a, _ = parse_args(argv, {"--code": "code", "--store": "store"})
+    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--only": "only"})
     need(a, "code")
-    c = contexts(a["code"], a.get("store"))
+    if a.get("only") not in (None, "repos"):
+        usage("--only takes repos")
+    c = contexts(a["code"], a.get("store"), check_merge=a.get("only") != "repos")
     for k, d in (("code", a["code"]), ("store", a.get("store"))):
         if c[k] is not None:
             try:

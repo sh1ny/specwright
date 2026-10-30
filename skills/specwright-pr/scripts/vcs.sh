@@ -63,7 +63,8 @@ def process_arguments(argv):
 def run(argv, cwd=None, env=None):
     try:
         return subprocess.run(process_arguments(argv), cwd=str(cwd) if cwd else None,
-                              env=env or os.environ.copy(), capture_output=True, text=True)
+                              env=env or os.environ.copy(), capture_output=True, text=True,
+                              encoding="utf-8", errors="surrogateescape")  # git and jj write UTF-8, whatever the locale
     except OSError as exc:
         return subprocess.CompletedProcess(argv, 127, "", str(exc))
 
@@ -89,13 +90,20 @@ def path_text(path):
 
 
 def parse_porcelain(out):
+    """`git status --porcelain -z`: unquoted names, NUL-ended; a rename or copy is followed by its source."""
     paths, entries = [], []
-    for line in out.splitlines():
-        if len(line) < 4:
+    records = out.split("\0")
+    while records:
+        record = records.pop(0)
+        if len(record) < 4:
             continue
-        status, name = line[:2], path_text(line[3:])
+        status, name = record[:2], path_text(record[3:])
+        entry = {"status": status, "path": name}
         paths.append(name)
-        entries.append({"status": status, "path": name})
+        if "R" in status or "C" in status:
+            entry["from"] = path_text(records.pop(0)) if records else ""
+            paths.append(entry["from"])
+        entries.append(entry)
     return paths, entries
 
 
@@ -122,7 +130,7 @@ def get_settings(code, repo, role):
     backend = choices.get("code" if role == "code" else "store")
     if backend not in ("git", "jj"):
         raise Stop("settings_error", "pr-pair.sh vcs did not return a valid backend")
-    context_args = ["context", "--code", str(code)]
+    context_args = ["context", "--code", str(code), "--only", "repos"]  # login and main only: merge settings are not validated
     if role == "store":
         context_args.extend(("--store", str(repo)))
     context = bash_script(None, PR_PAIR, *context_args)
@@ -236,9 +244,9 @@ def git_current(repo):
 
 def git_state(repo, info, scope=None):
     branch = git_current(repo)
-    status = git(repo, "status", "--porcelain")
+    status = git(repo, "status", "--porcelain", "-z")
     if status.returncode:
-        raise Stop("git_error", status.stderr.strip() or "git status --porcelain failed")
+        raise Stop("git_error", status.stderr.strip() or "git status --porcelain -z failed")
     paths, entries = parse_porcelain(status.stdout)
     return {"ok": True, "backend": "git", "main": info["main"], "branch": branch,
             "on_main": branch == info["main"], "clean": not paths, "dirty_paths": paths,
@@ -500,6 +508,25 @@ def jj_commit_argv_check(filesets, message):
         raise Stop("too_many_paths", "named paths and message exceed the command-line limit; name a containing directory instead")
 
 
+def check_directory_snapshot(repo, path, listed):
+    """One snapshotted file does not cover a named directory: jj leaves out a new file over the size limit."""
+    limit, oversize = snapshot_limit(repo), []
+    for top, dirs, files in os.walk(os.path.join(repo, path)):
+        dirs[:] = [name for name in dirs if name not in (".jj", ".git")]
+        for name in files:
+            full = os.path.join(top, name)
+            rel = path_text(os.path.relpath(full, repo))
+            if rel not in listed and os.path.isfile(full) and not os.path.islink(full) and os.path.getsize(full) > limit:
+                oversize.append(rel)
+    if not oversize:
+        return
+    ignored = set(path_text(line) for line in git(repo, "check-ignore", "--", *oversize).stdout.splitlines())
+    for rel in oversize:
+        if rel not in ignored:
+            raise Stop("path_not_tracked", "%s is not tracked in the jj working copy: it is larger than "
+                       "snapshot.max-new-file-size (%d bytes)" % (rel, limit), path=rel)
+
+
 def check_tracked(repo, paths, filesets):
     present = [(p, f) for p, f in zip(paths, filesets) if os.path.lexists(os.path.join(repo, p))]
     if not present:
@@ -508,6 +535,8 @@ def check_tracked(repo, paths, filesets):
     for path, _ in present:
         norm = path.rstrip("/") or "."
         if norm == "." or any(item == norm or item.startswith(norm + "/") for item in listed):
+            if os.path.isdir(os.path.join(repo, path)):
+                check_directory_snapshot(repo, path, set(listed))
             continue
         full = Path(repo) / path
         if full.is_file() and not full.is_symlink() and full.stat().st_size > snapshot_limit(repo):

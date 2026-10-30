@@ -99,3 +99,29 @@ class TestGitState(VcsTestCase):
         state, _ = self.invoke("state")
         self.assertNotIn("jj_present", state)
         self.assertEqual(state["backend"], "git")
+
+    def test_git_writes_ignore_bad_merge_settings(self):
+        """Only the agent merge reads pr.merge_method and pr.delete_branch: a typo there stops no branch write."""
+        self.set_settings(self.repo, "pr:\n  merge: agent\n  merge_method: typo\n  delete_branch: maybe\n")
+        self.git(self.repo, "add", "openspec")
+        self.git(self.repo, "commit", "-m", "settings")
+        for command, options in (("probe", ()), ("state", ()), ("branch-create", ("--branch", "feat/add-x"))):
+            with self.subTest(command):
+                result, _ = self.invoke(command, *options)
+                self.assertTrue(result["ok"], result)
+        self.assertEqual(self.git(self.repo, "branch", "--show-current").stdout.strip(), "feat/add-x")
+
+    def test_git_dirty_paths_are_real_paths(self):
+        """Porcelain quotes names with spaces or non-ASCII characters; the state lists the names themselves."""
+        notes = self.repo / "openspec" / "changes" / "add-x" / "notes draft.md"
+        notes.parent.mkdir(parents=True)
+        notes.write_text("draft\n", encoding="utf-8")
+        (self.repo / "naïve.txt").write_text("x\n", encoding="utf-8")
+        self.git(self.repo, "mv", "base.txt", "moved base.txt")
+        state, _ = self.invoke("state")
+        self.assertEqual(sorted(state["dirty_paths"]), sorted([
+            "base.txt", "moved base.txt", "naïve.txt", "openspec/"]))
+        for path in state["dirty_paths"]:
+            self.assertTrue(path == "base.txt" or (self.repo / path).exists(), path)
+        renamed = next(entry for entry in state["dirty"] if entry["path"] == "moved base.txt")
+        self.assertEqual((renamed["status"], renamed["from"]), ("R ", "base.txt"))

@@ -110,7 +110,7 @@ class VcsTestCase(unittest.TestCase):
         result = subprocess.run(
             [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
              "vcs-test", VCS.as_posix(), command, *args, *map(str, options)],
-            cwd=target, env=shell_env, capture_output=True, text=True)
+            cwd=target, env=shell_env, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)
