@@ -284,6 +284,9 @@ class TestGitButlerCleanupLoneBranch(GitButlerFlowCase):
             pulled = self.vcs(scratch, wrap, "pull", "--branch", BRANCH, *login)
             self.assertTrue(pulled["pulled"], pulled)
             self.assertEqual(self.applied(repo), [], "the integrated branch left the workspace")
+            # `but pull` fetches with the system git (D7); the shim sees that child on Linux, not on Windows
+            self.assertEqual([w for w in self.git_writes() if "fetch" not in w], [], "the pull wrote more than a fetch")
+            self.shim.log_path.unlink(missing_ok=True)
             # the repo-local call the pr and finish skills document, then the store-backed cleanup-plan form
             for extra in (("--head", head_sha), ("--code", repo.path, "--role", "code", *login)):
                 check = self.script(scratch, wrap, PR_PAIR, "branch-check", "--dir", repo.path, "--branch", BRANCH,
