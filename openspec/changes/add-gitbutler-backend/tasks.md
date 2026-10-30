@@ -50,10 +50,10 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → The Git backend refuses to write in a GitButler workspace | `vcs` unset in a GitButler workspace | evals/vcs/test_gitbutler_probe.py | test_git_backend_refuses_workspace_head | green |
 | vcs-backends → The Git backend refuses to write in a GitButler workspace | `vcs` unset with one applied branch | evals/vcs/test_gitbutler_probe.py | test_git_backend_refuses_single_branch_mode | green |
 | vcs-backends → The Git backend refuses to write in a GitButler workspace | GitButler metadata with HEAD on main | evals/vcs/test_gitbutler_probe.py | test_git_backend_refuses_head_on_main | green |
-| vcs-backends → Debug never stashes on GitButler | Dirty workspace during a reproduction | evals/git-workflow/test_instructions.py | test_debug_never_stashes_on_gitbutler | red |
-| vcs-backends → The archive undo plan uses GitButler on a GitButler repo | Undo a deferred archive | evals/vcs/test_gitbutler_undo.py | test_undo_plan_uses_but_commit | red |
-| vcs-backends → GitButler's agent skills are offered, never installed silently | Skill not installed | evals/git-workflow/test_instructions.py | test_branch_gate_notes_missing_but_skill | red |
-| vcs-backends → GitButler's agent skills are offered, never installed silently | Install without consent | evals/git-workflow/test_instructions.py | test_but_skill_install_only_on_yes | red |
+| vcs-backends → Debug never stashes on GitButler | Dirty workspace during a reproduction | evals/git-workflow/test_instructions.py | test_debug_never_stashes_on_gitbutler | green |
+| vcs-backends → The archive undo plan uses GitButler on a GitButler repo | Undo a deferred archive | evals/vcs/test_gitbutler_undo.py | test_undo_plan_uses_but_commit | green |
+| vcs-backends → GitButler's agent skills are offered, never installed silently | Skill not installed | evals/git-workflow/test_instructions.py | test_branch_gate_notes_missing_but_skill | green |
+| vcs-backends → GitButler's agent skills are offered, never installed silently | Install without consent | evals/git-workflow/test_instructions.py | test_but_skill_install_only_on_yes | green |
 | preship-review → The pre-ship review runs when every task is committed | Default settings | evals/review-routes/test_skill_text.py | test_commit_step3_runs_preship_before_handoff | green |
 | preship-review → The pre-ship review runs when every task is committed | Opted out | evals/review-routes/test_skill_text.py | test_commit_step3_preship_false_skips | green |
 | preship-review → The pre-ship review runs when every task is committed | Store-backed change | evals/review-routes/test_skill_text.py | test_subagent_preship_dispatch_names_root_and_store | green |
@@ -121,8 +121,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 10. Skills, debug, undo and GitButler's skills
 
-- [ ] 10.1 Write failing tests `test_debug_never_stashes_on_gitbutler`, `test_branch_gate_notes_missing_but_skill`, `test_but_skill_install_only_on_yes` and `test_undo_plan_uses_but_commit`
-- [ ] 10.2 Update `specwright-branch` (workspace gate, `but skill check` note), `-commit`, `-finish` (PR-only stop, exact archive paths, cleanup), `-pr`, `-roadmap` (pull skip, `--branch` for roadmap branches), `-review`, `-release`, `-debug` (no stash on GitButler), `finish.sh`'s undo plan (`but commit -b`, `git cat-file --filters`), and the README and install prompt offer of `but skill install --path` (D9, D11). Verify the 10.1 tests pass and flip their rows green
+- [x] 10.1 Write failing tests `test_debug_never_stashes_on_gitbutler`, `test_branch_gate_notes_missing_but_skill`, `test_but_skill_install_only_on_yes` and `test_undo_plan_uses_but_commit`
+- [x] 10.2 Update `specwright-branch` (workspace gate, `but skill check` note), `-commit`, `-finish` (PR-only stop, exact archive paths, cleanup), `-pr`, `-roadmap` (pull skip, `--branch` for roadmap branches), `-review`, `-release`, `-debug` (no stash on GitButler), `finish.sh`'s undo plan (`but commit -b`, `git cat-file --filters`), and the README and install prompt offer of `but skill install --path` (D9, D11). Verify the 10.1 tests pass and flip their rows green
 
 ## 11. Integration and release
 

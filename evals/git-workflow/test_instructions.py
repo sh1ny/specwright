@@ -2166,5 +2166,59 @@ class GroupCommits(unittest.TestCase):
         self.assertRegex(flat(read(CONTRIBUTING)), r"commit_granularity", "CONTRIBUTING does not name the granularity setting")
 
 
+BRANCH_SKILL = ROOT / "skills" / "specwright-branch" / "SKILL.md"
+
+
+class GitButlerSkillText(unittest.TestCase):
+    """add-gitbutler-backend (vcs-backends): debug never stashes, the gate notes a missing `but` skill, the install offers it."""
+
+    def test_debug_never_stashes_on_gitbutler(self):
+        t = read(DEBUG)
+        line = next((l for l in t.splitlines() if re.search(r"(?i)never stash", l) and re.search(r"(?i)gitbutler", l)), None)
+        self.assertIsNotNone(line, "debug does not say never to stash on GitButler")
+        self.assertRegex(line, r"(?is)dirty_paths.{0,200}ask.{0,120}(set|commit|abort)|ask.{0,200}dirty_paths",
+                         "debug does not show the changed paths and ask on GitButler")
+        self.assertRegex(line, r"(?is)reproduce nothing until|wait for the answer",
+                         "debug does not wait for the user's answer before reproducing on GitButler")
+        # the Git stash is scoped to the Git backend, and the state document names the GitButler backend
+        for l in t.splitlines():
+            if "git stash push" in l:
+                self.assertRegex(l, r"(?i)on the Git backend", "a `git stash push` instruction is not limited to the Git backend")
+        self.assertRegex(t, r"`backend` \(`git`, `jj` or `gitbutler`\)", "debug does not list gitbutler as a backend")
+        self.assertRegex(t, r"(?is)### Stash \(Git backend only\)", "the stash section is no longer Git-only")
+
+    def test_branch_gate_notes_missing_but_skill(self):
+        t = flat(read(BRANCH_SKILL))
+        self.assertRegex(t, r"`but skill check", "the gate never runs `but skill check`")
+        self.assertRegex(t, r"(?is)`but skill check.{0,400}(missing|not installed).{0,200}(out of date|outdated|stale)",
+                         "the gate does not name a missing or out-of-date skill")
+        self.assertRegex(t, r"(?is)`but skill check.{0,700}`but skill install --path <[^>]+>(/gitbutler)?`",
+                         "the note does not carry the install command with --path")
+        self.assertRegex(t, r"(?is)`but skill check.{0,900}(a note|note it|notes).{0,120}(not a stop|never a stop|without stopping)",
+                         "the missing-skill note is not marked as not a stop")
+        self.assertRegex(t, r"(?is)`but skill check.{0,900}[ ]once[ ]", "the missing-skill note is not given once")
+        self.assertRegex(t, r"(?is)probe\s+passed.{0,900}`but skill check", "the check does not run after the probe passed")
+        self.assertRegex(t, r"(?is)load the `gitbutler` skill|`gitbutler` skill", "the gate does not point the agent to GitButler's own skill")
+        self.assertRegex(t, r"(?is)GitButler.{0,400}(beside|alongside|leave).{0,120}(applied|other)",
+                         "the gate does not describe the workspace gate (the change branch is applied beside the others)")
+        self.assertRegex(t, r"(?is)will not commit|not part of this change",
+                         "the gate does not list other uncommitted changes as not committed by this change")
+
+    def test_but_skill_install_only_on_yes(self):
+        s6 = flat(step(read(README), "Step 6"))
+        self.assertRegex(s6, r"`but skill install --path <[^>]+>(/gitbutler)?`", "the install prompt never offers `but skill install --path`")
+        self.assertRegex(s6, r"(?is)vcs: gitbutler.{0,600}`but skill install --path", "the offer is not tied to `vcs: gitbutler`")
+        self.assertRegex(s6, r"(?is)(each|every)\s+(chosen|selected)\s+(agent|skills)", "the offer is not made for each selected agent")
+        self.assertRegex(s6, r"(?is)`but skill install --path.{0,500}only\s+(on|after|when)\s+(the\s+)?user'?s?\s+(yes|says yes|answers yes)|only\s+on\s+(the\s+)?user'?s?\s+yes.{0,300}`but skill install",
+                         "the install does not run only on the user's yes")
+        self.assertRegex(s6, r"(?is)(declin\w*|answers?\s+no|not\s+yes).{0,200}(runs?\s+no\s+`but skill install`|no\s+`but skill install`|nothing)",
+                         "a declined offer does not say nothing is installed")
+        self.assertRegex(s6, r"(?is)(never|not).{0,60}(global|silently)", "the prompt does not rule out a global or silent install")
+        s7 = flat(step(read(README), "Step 7"))
+        self.assertRegex(s7, r"(?is)gitbutler", "the verify step does not allow the GitButler skill directory beside the Specwright skills")
+        r = flat(read(README))
+        self.assertRegex(r, r"(?is)GitButler.{0,3000}`but skill install --path", "the README GitButler section does not name the offer")
+
+
 if __name__ == "__main__":
     unittest.main()
