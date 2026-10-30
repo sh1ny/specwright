@@ -2,57 +2,36 @@
 
 ## Metadata
 
-- **Round:** 4
-- **Prior round:** Round 3: APPROVE_WITH_CHANGES with no Critical, 4 Moderate findings (D14's HEAD-on-main exemption, the delete precondition reading `gitbutler.project.targetRef`, D4's call-site list missing ship step 1 and the roadmap rollback, the archive commit naming whole `<P>/changes/` and `<P>/specs/`) and 3 Suggestions. Its 8 Required Changes were re-checked and recorded as applied (CHANGES_APPLIED: yes). That pass was voided when the CI install of `but` changed from the official installer to a pinned, SHA-256-checked download, so this is a new full round.
+- **Round:** 5
+- **Prior round:** Round 4: APPROVE_WITH_CHANGES with no Critical and 3 Moderate findings (the squash-merge commit's source, the download listing's window, task 5.2 against D5). Its 3 Required Changes were re-checked and recorded as applied. That verdict was voided when apply ran feasibility tasks 1.1-1.4, check 1.3 failed as specified, and the author amended design.md (D5 steps 6-8, D8's base, the archive-commit gap, the Risks results) and tasks.md (task 5.2). This is a new full round.
 - **Reviewer:** fresh-context subagent (Claude Code specwright-reviewer)
 - **Reviewed:**
-  - Change artifacts, all under `openspec/changes/add-gitbutler-backend/`: review.md (rounds 1-3), proposal.md, design.md, specs/vcs-backends/spec.md, specs/eval-runner/spec.md, specs/preship-review/spec.md and specs/github-identity/spec.md (headings), and tasks.md (checked against the design for consistency).
-  - CI: `.github/workflows/evals.yml` (the whole file, including the pinned-jj step at lines 59-76), `evals/runner/test_ci_workflow.py`, `evals/suites.json`, `JJ_VERSION`.
-  - Source, to check the design's citations:
-    - `skills/specwright-pr/scripts/vcs.sh`: `get_settings` (132), `probe` (157-188), the Git `branch-create`, `commit` and `push` branches (407-464), `jj_fetch_main` (656-664) and `main()` (840-846).
-    - `skills/specwright-pr/scripts/pr-pair.sh`: `norm_pr` and `discover` (687-708), `cmd_vcs` (755-773), `remote_contains` (1272-1276), `dirty_paths` (1635-1646), the `unrecorded_change` stop (1779-1783), `cleanup-plan` (2055-2088) and the agent-merge result (2105-2121).
-    - `skills/specwright-review/scripts/review-run.sh`: `current_heads` (1244-1248), `parent_of` (1251), the after-archive lookup (1390-1398) and the `Preship-Round` count (1504-1506).
-    - `skills/specwright-release/scripts/release.sh:753-759`, `skills/specwright-finish/scripts/finish.sh` (168-180, 191-199, 410-448), `skills/specwright-pr/scripts/as.sh:172-201`.
-    - `skills/specwright-pr/SKILL.md:156-159` (cleanup, store-backed and repo-local, and remote branch deletion).
-  - GitButler download listing: one read-only `curl -s https://app.gitbutler.com/api/downloads?channel=release` on 2026-10-30. The binary was not downloaded, and `but` was not run.
+  - Change artifacts under `openspec/changes/add-gitbutler-backend/`: proposal.md, design.md, tasks.md, specs/vcs-backends/spec.md, specs/eval-runner/spec.md, review.md (rounds 1-4), and the uncommitted amendments (`git diff -- openspec/changes/add-gitbutler-backend/`).
+  - Feasibility evidence (read, not run): `%TEMP%/specwright-add-gitbutler-backend/feas/feas.py` (checks 1.1-1.4) and `feas13.py` (the four archive and delete scenarios after check 1.3 failed).
+  - Source: `skills/specwright-pr/scripts/vcs.sh` (the Git `commit`, `delete-branch`, `pull` and `push` branches, 380-470), `skills/specwright-commit/SKILL.md` (path naming, Reconcile), `skills/specwright-finish/SKILL.md:14` (archive paths), the `docs/adr/` list and ADR 0017's scope line.
+  - The effective Git config on this machine: `git config --show-origin --get-all core.autocrlf` (read-only).
   - Project skills named in the request: none.
 
-### Round 3 resolution check
+### The amendments, checked against the evidence
 
-All 8 of round 3's Required Changes are still in the artifacts as applied. The new CI text did not touch them:
-- D14 and its spec requirement refuse whatever HEAD is.
-- The proposal has no HEAD-on-main exemption.
-- D8 reads the stored workspace base, never `gitbutler.project.targetRef`, and the matching Risk is present.
-- The State row for "Local target / main" is present.
-- The delete requirement and the "Pull skipped" scenario use workspace-base wording.
-- D4 names the roadmap branches, ship step 1 and the branch rollback.
-- The archive commit names finish's exact paths.
-
-Round 3's Suggestions:
-- S3 (the reviewer reads surrounding code with `git show <branch>:<path>`) is in task 8.2.
-- S1 (the spec's narrower `clean` definition) and S2 (the scope of "never a SHA from the caller") were not applied. They remain optional and are not raised again here.
-
-### The CI change, checked
-
-- The listing returns the Linux x86_64 standalone `but` for 0.23.1-3317 at the URL the design gives. It returns no file checksum: each entry's `sha` field is a source commit (`d6feaf66…` for 0.23.1), not a hash of a file. Both claims hold.
-- D10 mirrors the jj step's shape: `curl --fail` into `$RUNNER_TEMP`, `sha256sum --check` before use, a job-local bin directory on `GITHUB_PATH`, the `SPECWRIGHT_REQUIRE_*` flag and a `--version` check.
-- `fail-fast: false` (`evals.yml:34`) keeps the other suites' jobs running when the `vcs` job's setup fails, so the spec's "Downloaded bytes differ" THEN holds.
-- The existing test helper `install_run_block` finds a step by name and skips an `if:` line before `run:`, so the planned `test_workflow_checks_but_sha256_before_use` can reuse the jj test's fake-`curl` approach.
+- **Check 1.3 (D5 steps 6-8, the archive gap).** `feas.py:check_1_3` names `openspec/changes/c1/` (only rename sources after the move), the archive directory and the spec. That is the call the design says fails with "Could not find uncommitted change", so the failure matches the script. `feas13.py` then shows the alternatives: `arch_dest_only` (the new directory and spec only), `arch_files` (files changed while moved), `del_dir` and `del_file`. The new rule follows from them: step 6 passes to `but` only the named paths that cover a listed `filePath`, and step 8 still holds the commit to every named path with `--no-renames`. With finish's exact paths (`skills/specwright-finish/SKILL.md:14`), `c1/` is dropped from `but`'s arguments, the rename commits the deletions, and `diff-tree --no-renames` then lists D under `c1/` and A under `archive/`, all inside the named paths. A finish that forgot `c1/` stops with `commit_mismatch`. The rule holds whichever addition GitButler pairs a deleted delta spec with, because the check is by path set, not by rename pairing.
+- **Check 1.2 (D8's base).** `feas.py:check_1_2` reads `gitbutler/target`, `mergeBase`, `origin/main` and `targetRef` before, after `git fetch` and after `but pull`. D8 now names `mergeBase.commitId` and drops `gitbutler/target`, which the State table no longer relies on either.
+- **Check 1.4 (pull fence).** `feas.py:check_1_4` tests both an `insteadOf` redirect through `GIT_CONFIG_*` and an env-provided credential helper over HTTP against the logging server. The Risk now records that the fence holds, so the `unfenced` fallback goes. No spec or task depended on the fallback beyond task 1.4's conditional.
+- **Check 1.1 (network).** The local commands made no fetch, forge or `gh` call; the one outbound request was GitButler's usage metrics, following the user's own `but config metrics`. Task 1.1's stop condition is literally met ("any call is recorded"), but the Risk's purpose was ADR 0008 and the Git-write boundary, and a telemetry call carries neither a Git credential nor a forge write. I accept the author's reading: no D5 or `as.sh` change follows. The evals isolate app data and turn metrics off, so CI sends nothing.
+- **Task 5.2** matches the new D5 steps 6-8.
 
 ### Required Changes re-check
 
-All 3 of round 4's Required Changes are applied as written:
-- **RC1 (merge_commit_sha source).** D8 names GitHub's `merge_commit_sha`, says `norm_pr` (`pr-pair.sh:687-690`, which today lacks it) gains the field, and gives the repo-local cleanup's source and the null case. D13 step 3 adds the source and "omitted when null". Tasks 6.2 and 9.2 both carry `norm_pr`'s new field and the `--merged-commit` pass-through.
-- **RC2 (download listing).** The Context "Downloads" bullet states the 10-release window, the 0.23.1-3317 to 0.20.4-3116 range and the unknown URL lifetime. The Risk "GitButler removes an old build" ends with the window and its horizon. The Open Question carries the no-evidence sentence.
-- **RC3 (task 5.2).** Task 5.2 now normalizes paths with `bad_path`, stops with `nothing_to_commit`, passes paths with `--json` and never CLI IDs, and checks the parent, file set, message and other tips, matching D5 and the vcs-backends commit requirement.
+Checked against `git diff -- openspec/changes/add-gitbutler-backend/design.md openspec/changes/add-gitbutler-backend/tasks.md` and the current design.md and tasks.md (2026-10-30).
 
-The suggestion edits introduce no new inconsistency:
-- S1: the Risk now says trust-on-first-use from one download, and the Context says Scoop hashes only the Windows installer.
-- S2: D10 and task 2.2 set `SPECWRIGHT_REQUIRE_BUT=1` in every suite job, D10 has `test_butenv.py` clear it itself, and the eval-runner requirement says "suites with tests that need a real `but`" and "as every CI job sets". tasks.md's preamble (skip locally unless the flag is set) still holds.
-- S3: D10 and task 2.2 derive the version check from `BUT_VERSION` in the step, and the Context names the `ubuntu-24.04` runner (`evals.yml:31`).
-- S4: task 1.1 no longer cites "M7". Task 9.1 and the Test map share `test_feedback_pass_ignores_other_and_preexisting_paths`. D11 cites `finish.sh:433`, which is the `git cat-file --filters` line. The proposal's `delete-branch` bullet uses workspace-base wording.
-
-Two cosmetic leftovers, not blocking and not Required Changes: in "Downloads", "For Linux x86_64 that includes the standalone CLI" now follows the "not known" sentence, so "that" has lost its antecedent (the listing). The Failure-modes row "CI `but` install" still says `but --version` "differs from `BUT_VERSION`" where D10 now says the version part of it.
+- **RC1 (design.md Risks "Line endings", Open Questions): applied as written.** The old last sentence ("gets `but`'s error as `but_error`") is gone. The Line endings item now carries the required text word for word: only `branch delete` was seen failing, `but pull` untested with `autocrlf` on and open until the dogfood run, `vcs.sh` keeps `but_error` and adds the `hint: core.autocrlf is true; GitButler checkouts can conflict on line endings` text, and the README states the limit. Open Questions has the new first item, worded as required.
+- **RC2 (tasks.md 6.1, 6.2, Test map): applied as written.** 6.2 ends with "; a failed `but` write in a repo whose effective `core.autocrlf` is `true` adds the autocrlf hint to `but_error` (design.md Risks, Line endings)". 6.1 names `test_but_error_names_autocrlf` with "a fake failing `but` is enough". The Test map has a red row under "A GitButler branch is deleted only once merged" in `evals/vcs/test_gitbutler_delete.py`.
+- **RC3 (tasks.md 2.2, 3.3): applied as written.** 2.2's `butenv.py` description now reads "isolated GitButler app data with metrics disabled, `GIT_CONFIG_NOSYSTEM=1` and `core.autocrlf=false`". 3.3 adds "and the GitButler limits: `core.autocrlf=true` (design.md Risks, Line endings)" to the README documentation. The design's Line endings item names the same `butenv.py` settings, so the task and the design agree.
+- **Applied suggestions (S1, S3, S4): no inconsistency introduced.**
+  - S1: D5 step 3 now judges from step 1's `uncommittedChanges` "as in step 6" and says step 7 never runs with an empty path list. The renumbered steps line up: step 3 points to step 6 (the coverage filter) and step 7 (the `but commit` run), the CLI-ID paragraph now says "between steps 2 and 7", and the archive-commit gap still points to "D5 step 6" for leaving rename sources out. No other step reference in design.md, tasks.md or the specs uses the old numbers. Task 5.2's "when no named path changed" is less precise than step 3, but it cites D5, which governs.
+  - S3: task 5.1 lists the three archive cases (all renamed unchanged, some changed while moved, only the new directory named → `commit_mismatch`).
+  - S4: task 1.3's Verify now says the result is recorded in design.md's archive-commit gap and that D5 follows it. The archive-commit gap holds that result.
+- **Note (non-blocking).** The new Test map row's Scenario column holds a description ("`but` write fails with `core.autocrlf=true` (design.md Risks, Line endings)") instead of a scenario from specs/vcs-backends/spec.md, since the spec has no autocrlf scenario. RC2 asked for this row, and no eval in the repo checks that Scenario cells name spec scenarios. So nothing breaks, and the row traces to the design's Risk.
 
 ## Findings
 
@@ -62,97 +41,41 @@ None.
 
 ### Moderate
 
-**M1. D8 and D13 depend on a squash-merge commit that no cleanup path has.**
+**M1. `core.autocrlf=true`, the Git for Windows default and this user's own config, breaks `but branch delete`, and the design neither documents it for users nor knows which other `but` writes it breaks.**
 
-D8 says: "for a squash merge, the `--merged-commit <sha>` is [its ancestor]. The caller already reads that commit in the merged-PR lookup." D13's GitButler plan emits `vcs.sh delete-branch --branch <b> --force --merged-commit <sha>`.
+The Risks "Line endings" item records that with `core.autocrlf=true` in system config, `but branch delete` failed with "1 conflict prevents checkout", and says a user's Windows workspace "gets `but`'s error as `but_error`". Three things follow from the evidence.
 
-The merged-PR lookup is `pr-pair.sh discover --state merged`, which the repo-local cleanup reads at `skills/specwright-pr/SKILL.md:158`, and `cleanup-plan` uses the same PR data. Both build their PR objects with `norm_pr` (`pr-pair.sh:687-690`), which keeps only:
-- `number`;
-- `url`;
-- `state`;
-- `base`;
-- `head_sha`;
-- `merged_at`;
-- `title`.
+- This is the user's configuration, not a corner case. `git config --show-origin --get-all core.autocrlf` on this machine prints `file:F:/scoop/apps/git/2.55.0.4/etc/gitconfig true`, and the dogfood projects are built with Specwright on this machine. The M5 criterion's dogfood run will meet this path.
+- Only `branch delete` was seen failing, and the rest is unknown. Every run in `feas.py` uses `GIT_ENV` with `GIT_CONFIG_NOSYSTEM=1` and clones with `core.autocrlf=false` (`feas.py:32-34, 66`), so no recorded check exercised `autocrlf=true`. In `check_1_1` the delete comes before `but pull`, and `but(...)` raises on failure (`check=True`), so in the failing run `but pull` never ran. `but pull` checks out the rebased workspace too, and it is cleanup's main path for removing the branch (D7: when alone, the pull removes the integrated branch and the delete reports `already_deleted`). So on a Windows workspace the common cleanup step may fail as well, and nothing in the design says so.
+- Nothing tells the user. The README tasks (3.3, 5.3, 10.2) cover the setting, hooks and skill install, but not line endings. The proposal's Release Notes and the spec say nothing. A user sees a raw `but_error` about a checkout conflict at cleanup, after the PR merged, with the branch still applied and its commits in the shared work tree.
 
-`merge_commit_sha` appears in exactly one place, the agent-merge result (`pr-pair.sh:2120-2121`). That result is only there when the agent merged the PR, never when the user did (`merge: user`). The repo-local cleanup's `[vcs] delete-branch --branch <branch> --force` (`SKILL.md:158`) passes no merge commit either.
+The evals cannot catch this. CI runs on Linux, and `butenv.py` turns the system config off (D10, Risks).
 
-Consequences:
-- `cleanup-plan` cannot build D13's step 3 from the data it has.
-- An implementer either adds an unreviewed field to `norm_pr`, whose output also feeds `expected` and `pair-state`, or drops `--merged-commit`.
-- If the flag is dropped, a squash-merged branch that `but pull` did not remove as integrated fails the tip-ancestor test forever. Specwright then reports `left_applied`, saying the base lacks the merge when it does not.
-
-*Fix:* name the source. The GitHub pulls payload that `norm_pr` already reads carries `merge_commit_sha`, so `norm_pr` adds it. `cleanup-plan` and the repo-local cleanup pass it as `--merged-commit` when it is not null. Required Change 1.
-
-**M2. The design's claims about the download listing do not match the listing, and the pin's expected lifetime follows from the difference.**
-
-The Context says: "every build stays downloadable at a versioned URL, listed by `https://app.gitbutler.com/api/downloads?channel=release` (builds back to 0.22.1-3215)". The Risk "GitButler removes an old build" ends: "Builds back to 0.22.1 are listed today."
-
-The listing fetched on 2026-10-30 holds exactly 10 releases:
-- the newest is 0.23.1-3317, released 2026-10-28;
-- the oldest is 0.20.4-3116, released 2026-06-26;
-- it includes 0.22.0, 0.21.x and 0.20.4, which are older than 0.22.1.
-
-So the listing is a window of the latest 10 releases, not "every build", and the stated lower bound is wrong. The window turned over in about four months. Nothing shows whether a URL still answers once its build leaves the window. The jj pin points at a GitHub release asset, whose lifetime does not depend on later releases, so the comparison with jj does not carry over here.
-
-Consequences:
-- The Open Question ("stays at 0.23.1-3317 until a dogfood project needs newer") has an unstated horizon. When the URL stops answering, the `vcs` job fails on unrelated PRs.
-- The failure is visible (`curl --fail` names the URL), but the design presents permanence as established, and nobody plans the bump.
-
-*Fix:* state what the listing shows and carry the horizon into the Risk and the Open Question. Required Change 2.
-
-**M3. Task 5.2 contradicts D5: it maps paths to CLI IDs and drops most of D5's checks.**
-
-Task 5.2 says to "map paths to CLI IDs, run `but commit -b <branch> -F <msgfile> <ids>`, then verify the committed file set". The design says something different:
-- D5 step 6 passes the normalized paths (`but commit -b <branch> -F <msgfile> --json <paths...>`).
-- The Context records that "Short IDs change between calls, so names are the stable key."
-
-IDs read from one `but status --json` call and passed to a second `but` call can name different objects, so this is exactly the misresolution the file-set check exists to catch. Each time it happens, `commit_mismatch` leaves a wrong commit on the branch for the user to undo.
-
-Task 5.2 also leaves out these D5 steps, which the 5.1 tests ("Trailers kept", the parent and other-tip checks) will need:
-- path normalization and `bad_path`;
-- `nothing_to_commit`;
-- the parent, message and other-tips checks.
-
-*Fix:* align task 5.2 with D5. Required Change 3.
+*Fix:* see Required Changes 1-3. Make the failure named and documented. Leave `but pull` under `autocrlf` as an explicitly open point for the dogfood run instead of an implied pass. Have task 2.2 carry the `butenv.py` settings the design already relies on.
 
 ### Suggestions
 
-- **S1. The Scoop corroboration does not cover the Linux `but`.** The Risk "The pinned hash is ours, not GitButler's" says "the same file Scoop installs". Scoop is a Windows package manager, and the listing's only Windows build is `GitButler_0.23.1_x64_en-US.msi`, so no Scoop manifest hashes the Linux ELF. The pinned hash has a single witness: the author's download on 2026-10-30. Say so plainly, for example: "The hash is trust-on-first-use from one download. Scoop hashes only the Windows installer from the same host." The decision itself still stands.
-- **S2. Make a misplaced real-`but` test fail loudly in CI.** `SPECWRIGHT_REQUIRE_BUT=1` is set only in the `vcs` job. A real-`but` test added later outside `evals/vcs` would skip with `but not installed` in every CI job, and that skip "does not count as a failure". Consider exporting `SPECWRIGHT_REQUIRE_BUT=1` in every suite job while installing `but` only in `vcs`. `evals/runner/test_butenv.py` would clear the variable itself, as `test_ci_workflow.py:115` does for jj. Also reword the eval-runner requirement's "suites with GitButler tests" to "suites with tests that need a real `but`". As written, `pr-pair` (`test_as_gitbutler.py`, which uses a fake `but`) and `git-workflow` arguably match it.
-- **S3. Version check and runner image.**
-  - D10 derives the `but --version` check from `BUT_VERSION`, but task 2.2 hard-codes `0.23.1`. Derive it in the step, so a bump edits only `BUT_VERSION` and the hash.
-  - The Context says the libraries are present on `ubuntu-latest`, but the workflow pins `ubuntu-24.04` (`evals.yml:31`). Name that image. A glibc symbol-version mismatch would surface at the `--version` check either way.
-- **S4. Stale references.**
-  - Task 1.1 points to "design.md M7", which does not exist.
-  - Task 9.1 names `test_feedback_pass_ignores_other_and_preexisting_paths_gitbutler`, while the Test map row has `test_feedback_pass_ignores_other_and_preexisting_paths`.
-  - D11 cites `finish.sh:447` for `git cat-file --filters`, but that read is at `finish.sh:199` and `433`; line 447 is `git rm -q --cached`.
-  - The proposal's `delete-branch` bullet still says "once GitButler's target already holds the merge", where the spec now says the workspace base.
+- **S1. Tie D5 step 3 to step 6's coverage rule.** Step 3 ("no named path has an uncommitted change") and step 6 ("covers at least one `uncommittedChanges[].filePath`") should use the same test. If an implementer judged step 3 from Git's view instead, where a rename source is a changed path, a commit naming only rename sources would pass step 3, step 6 would filter every path out, and step 7 would run `but commit -b <branch>` with no paths. The Context says that commits everything in the workspace, and the step-8 check would only find it after the write. The spec already says "never without paths". One sentence in step 3 ("judged from step 1's `uncommittedChanges`, as in step 6"), plus the line "step 7 never runs with an empty path list", closes it. The same edit makes the spec's `nothing_to_commit` wording ("named paths unchanged") match what happens to a named rename source.
+- **S2. Name the half-named rename case.** A task that `git mv`s `src/a.py` to `src/b.py` and names only `src/b.py` commits only the addition on Git (`vcs.sh` runs `git add -- <paths>` and `git commit -- <paths>`). On GitButler the rename commits the deletion of `src/a.py` too, and step 8 then stops with `commit_mismatch` after the write, with the commit left on the branch. That is safe, but a pre-write check would be kinder if `but status --json` carries a rename's previous path. Otherwise add one line to Flow & State Gaps saying the stop is expected, and have `specwright-commit` name both sides of a move.
+- **S3. Cover the mixed archive in `test_archive_commit_names_exact_paths`.** `feas13.py` never passes `c1/` to `but` when it covers both `removed` entries (files changed while moved) and rename sources. That is the case where step 6 keeps `c1/` in the arguments. Add it to the 5.1 test with the pure-rename case and the "only the new directory named" `commit_mismatch` case.
+- **S4. Task 1.3's text.** Its Verify ("`git show --stat` lists only those paths") failed by design. When apply ticks it, the result recorded in the archive-commit gap is the evidence. Consider rewording the task's Verify to "the result is recorded in design.md's archive-commit gap", so a ticked task does not claim a check that failed.
 
 ## Verdict
 
-The CI change holds up against the listing and the existing jj step:
-- the URL is real and versioned;
-- the bytes are checked before they run;
-- only the `vcs` job is affected.
-
-The listing's description is wrong in one way that matters, though: it is a 10-release window, not a permanent archive (M2). A full pass also found that D8's squash-merge proof relies on a merge commit that none of the cleanup's GitHub reads return (M1), and that task 5.2 contradicts D5's path rule (M3). Each fix is a specific text edit, and none needs a new design decision.
+The amendments follow the feasibility evidence. The rename-source rule in D5 is the right shape: `but` gets only paths it can resolve, and the Git-read check still holds the commit to every named path. D8's base and the pull fence now rest on scripted checks instead of assumptions. One Moderate finding remains. On Windows with `core.autocrlf=true`, the Git for Windows default and this user's own config, `but branch delete` is known to fail, and `but pull` is untested, with no user-facing word and no named error. The fix is text and an error mapping, and needs no new design decision.
 
 VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. **design.md D8 and D13; tasks 6.2 and 9.2:**
-   - In D8, replace "The caller already reads that commit in the merged-PR lookup." with:
-     > That commit is GitHub's `merge_commit_sha` for the merged PR. `pr-pair.sh`'s `norm_pr` (`pr-pair.sh:687-690`) gains `merge_commit_sha`, so `discover --state merged` and `cleanup-plan` carry it; today only the agent-merge result returns it (`pr-pair.sh:2120-2121`). The repo-local cleanup passes the `newest` merged PR's `merge_commit_sha`. When it is null, the delete judges the tip alone.
-   - In D13 step 3, after `--merged-commit <sha>`, add "(the PR's `merge_commit_sha` from `cleanup-plan`'s PR data, omitted when null)".
-   - In tasks 6.2 and 9.2, add "`norm_pr` carries `merge_commit_sha`; cleanup passes it as `--merged-commit`".
-2. **design.md Context "Downloads", Risks and Open Questions:**
-   - In "Downloads", replace "But every build stays downloadable at a versioned URL, listed by `https://app.gitbutler.com/api/downloads?channel=release` (builds back to 0.22.1-3215)." with:
-     > But each build has a versioned URL. `https://app.gitbutler.com/api/downloads?channel=release` lists the latest 10 releases, each with a standalone Linux x86_64 `but`; on 2026-10-30 that was 0.23.1-3317 back to 0.20.4-3116 (released 2026-06-26). Whether a URL keeps answering after its build leaves that list is not known.
-   - In the Risk "GitButler removes an old build from its release host", replace "Builds back to 0.22.1 are listed today." with "The listing holds only the latest 10 releases, about four months at the 2026 pace, so a pin that has left it may stop downloading."
-   - In Open Questions, append: "A pin that has left the 10-release listing has no evidence of staying downloadable."
-3. **tasks.md 5.2:** replace "map paths to CLI IDs, run `but commit -b <branch> -F <msgfile> <ids>`, then verify the committed file set equals the named changed paths, otherwise `commit_mismatch` (D5)" with "normalize the paths (`bad_path` on glob characters), stop with `nothing_to_commit` when no named path changed, run `but commit -b <branch> -F <msgfile> --json <paths...>` with the paths, never CLI IDs, then verify the parent, the committed file set, the message and every other branch's tip, otherwise `commit_mismatch` (D5)".
+1. **design.md, Risks "Line endings":** replace the last sentence ("A user's Windows workspace with `autocrlf` on gets `but`'s error as `but_error`.") with:
+   > Only `branch delete` was seen failing. `but pull`, which also checks out the workspace, was not run with `autocrlf` on, so whether cleanup's pull works there is open until the dogfood run. When a `but` write fails and the repo's effective `core.autocrlf` is `true`, `vcs.sh` keeps `but_error` and adds `hint: core.autocrlf is true; GitButler checkouts can conflict on line endings` to the message. The README states this limit under the GitButler setup.
+
+   Add the same open point to Open Questions: "Whether `but pull` and `but branch delete` work in a workspace with `core.autocrlf=true`; the dogfood run on Windows answers it."
+2. **tasks.md 6.2:** after "and the `merge` stop (D6, D7, D8)", add: "; a failed `but` write in a repo whose effective `core.autocrlf` is `true` adds the autocrlf hint to `but_error` (design.md Risks, Line endings)". Add a matching test name to task 6.1, for example `test_but_error_names_autocrlf` (a fake failing `but` is enough), with a Test map row under "A GitButler branch is deleted only once merged".
+3. **tasks.md 2.2 and 3.3:**
+   - In 2.2, extend the `butenv.py` description to "(scratch repo set up by `but`, local bare remote, fake `gh`, isolated GitButler app data with metrics disabled, `GIT_CONFIG_NOSYSTEM=1` and `core.autocrlf=false`, skip or fail per `SPECWRIGHT_REQUIRE_BUT`)".
+   - In 3.3, add "and the GitButler limits: `core.autocrlf=true` (Risks, Line endings)" to the README documentation.
 
 CHANGES_APPLIED: yes
 
