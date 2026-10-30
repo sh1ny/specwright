@@ -264,6 +264,38 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             self.assertEqual(wrap.writes(), [], "no but write ran: the pull was skipped and the delete left the branch applied")
 
 
+class TestGitButlerCleanupLoneBranch(GitButlerFlowCase):
+    def test_cleanup_after_pull_removes_lone_branch(self):
+        require_but()
+        with Scratch() as scratch:
+            wrap = self.prepare(scratch)
+            repo = self.workspace(scratch, [BRANCH])
+            self.settings(repo.path, SETTINGS)
+            self.github_view()
+            origin_before = self.origin_refs(scratch)
+            merged = self.real_squash(scratch, {"add-c.txt": "add-c.txt\n"})  # the branch's own content
+            login = ("--login", LOGIN)
+            fetched = self.vcs(scratch, wrap, "fetch-main", "--quiet", *login)
+            self.assertEqual(fetched["commit"], merged)
+            self.shim.log_path.unlink(missing_ok=True)
+
+            self.assertFalse(self.vcs(scratch, wrap, "switch", "--branch", "main")["switched"])
+            pulled = self.vcs(scratch, wrap, "pull", "--branch", BRANCH, *login)
+            self.assertTrue(pulled["pulled"], pulled)
+            self.assertEqual(self.applied(repo), [], "the integrated branch left the workspace")
+            check = self.script(scratch, wrap, PR_PAIR, "branch-check", "--dir", repo.path, "--branch", BRANCH, "--main",
+                                fetched["commit"], "--code", repo.path, "--role", "code", *login)
+            self.assertEqual((check["ok"], check["delete"], check["reason"], check["lacking"]),
+                             (True, True, "already_deleted", []), check)
+            deleted = self.vcs(scratch, wrap, "delete-branch", "--branch", BRANCH, "--force", "--merged-commit", merged, *login)
+            self.assertEqual((deleted["ok"], deleted["deleted"], deleted["reason"]), (True, False, "already_deleted"), deleted)
+
+            self.assertEqual(self.git_writes(), [])
+            self.assertEqual({k: v for k, v in self.origin_refs(scratch).items() if k != "refs/heads/main"},
+                             {k: v for k, v in origin_before.items() if k != "refs/heads/main"})
+            self.assertEqual(self.origin_refs(scratch)["refs/heads/main"], merged)
+
+
 class TestGitButlerFeedbackPass(GitButlerFlowCase):
     def snapshot(self):
         snap = {"viewer": "KintsugiBot", "number": 5, "url": "https://github.com/%s/pull/5" % CODE, "state": "OPEN", "draft": False,

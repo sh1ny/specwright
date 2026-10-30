@@ -2000,11 +2000,13 @@ def cmd_branch_check(argv):
                              "--role": "role", "--login": "login"})
     need(a, "dir", "branch", "main")
     d, b, m, head = a["dir"], a["branch"], a["main"], a.get("head")
+    backend = "git"
     if a.get("code"):  # a non-Git backend reads the fetched main through vcs.sh: its local main may lag a skipped pull
         role = a.get("role") or "code"
         if role not in ("code", "store"):
             usage("--role must be code or store")
-        if cmd_vcs(["--code", a["code"]])[role] != "git":
+        backend = cmd_vcs(["--code", a["code"]])[role]
+        if backend != "git":
             m = vcs_json("fetch-main", "--repo", d, "--role", role, "--code", a["code"],
                          *(["--login", a["login"]] if a.get("login") else []))["commit"]
     if head is not None and not re.match(r"^[0-9a-fA-F]{4,64}$", head):
@@ -2012,6 +2014,10 @@ def cmd_branch_check(argv):
 
     def fail(what, r):
         raise Stop("git_error", f"{what} in {d}: {(r.stderr or r.stdout).strip()}")
+
+    if backend == "gitbutler" and not has_ref(d, f"refs/heads/{b}"):
+        # `but pull` removed the integrated branch: delete-branch reports already_deleted without a write
+        return {"ok": True, "delete": True, "reason": "already_deleted", "lacking": []}
 
     # --main may be a commit id (the fetched main on GitButler) when no branch has that name
     by_commit = re.fullmatch(r"[0-9a-fA-F]{7,40}", m) and not has_ref(d, f"refs/heads/{m}")

@@ -93,6 +93,16 @@ class GitButlerNetworkCase(GitButlerWorkspaceCase):
         self.side_git(side, "push", "-q", "origin", ":refs/heads/" + branch)
         return self.side_git(side, "rev-parse", "HEAD")
 
+    def real_squash(self, scratch, files):
+        """A squash merge as GitHub makes it: one new commit on origin's main holding the branch's files (name -> text)."""
+        side = self.clone_of_origin(scratch)
+        for name, text in files.items():
+            (side / name).write_text(text, encoding="utf-8")
+            self.side_git(side, "add", name)
+        self.side_git(side, "commit", "-q", "-m", "feat: add c (#1)")
+        self.side_git(side, "push", "-q", "origin", "HEAD:refs/heads/main")
+        return self.side_git(side, "rev-parse", "HEAD")
+
     def squash_stand_in(self, scratch):
         """A new commit on origin's main that leaves the branch's files alone: the PR's `merge_commit_sha`.
 
