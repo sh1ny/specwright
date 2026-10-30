@@ -14,6 +14,7 @@ export VCS_DIR VCS_BASH
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import json
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -477,7 +478,8 @@ def fileset_text(path):
 
 
 def jj_path(path):
-    return path.replace("\\", "/") if os.name == "nt" else path
+    """The repo-relative spelling jj and `jj file list` use: `./a`, `a/../a` and `a/` all name `a`."""
+    return posixpath.normpath(path.replace("\\", "/") if os.name == "nt" else path)
 
 
 def jj_one(repo, revset, template):

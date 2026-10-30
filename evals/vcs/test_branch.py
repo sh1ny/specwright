@@ -33,3 +33,18 @@ class TestJjBranchCreate(VcsTestCase):
         self.assertEqual(bookmark.returncode, 0, bookmark.stderr)
         self.assertEqual(bookmark.stdout.strip(), parent.stdout.strip())
         self.assertEqual(head.stdout.strip(), bookmark.stdout.strip())
+
+    def test_rollback_deletes_empty_bookmark_without_switch(self):
+        """The gate's jj rollback: the new bookmark shares main's commit, so a switch to main changes nothing and `state`
+        still reports the change branch; delete-branch alone puts the repo back on main."""
+        branch = "feat/add-jj-backend"
+        self.invoke("branch-create", "--branch", branch, repo=self.repo)
+        self.invoke("switch", "--branch", "main", repo=self.repo)
+        state, _ = self.invoke("state", repo=self.repo)
+        self.assertEqual((state["branch"], state["on_main"]), (branch, False))
+
+        result, _ = self.invoke("delete-branch", "--branch", branch, repo=self.repo)
+        self.assertTrue(result["ok"], result)
+        state, _ = self.invoke("state", repo=self.repo)
+        self.assertTrue(state["on_main"], state)
+        self.assertEqual(self.git(self.repo, "rev-parse", "--verify", "-q", "refs/heads/" + branch).returncode, 1)

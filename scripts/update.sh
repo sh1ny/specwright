@@ -1461,10 +1461,22 @@ class VcsScriptMissing(Exception):
 
 
 VCS_SH_REL = "skills/specwright-pr/scripts/vcs.sh"
+PR_PAIR_REL = "skills/specwright-pr/scripts/pr-pair.sh"
 
 
 def store_is_jj(o):
-    """planning_store.vcs is jj in the code repo's openspec/specwright.yaml (git when unset)."""
+    """planning_store.vcs is jj in the code repo's openspec/specwright.yaml (git when unset), as the download's
+    pr-pair.sh vcs reads it (every YAML form); a download without it falls back to the block form."""
+    script = Path(o["download"]) / PR_PAIR_REL
+    if script.is_file():
+        try:
+            r = subprocess.run([os.environ.get("UPDATE_BASH") or "bash", script.as_posix(), "vcs", "--code", str(o["code"])],
+                               capture_output=True)
+            doc = json.loads(r.stdout.decode("utf-8", "replace"))
+        except (OSError, ValueError):
+            doc = {}
+        if doc.get("ok"):
+            return doc.get("store") == "jj"
     try:
         text = (Path(o["code"]) / "openspec" / "specwright.yaml").read_text(encoding="utf-8", errors="replace")
     except OSError:

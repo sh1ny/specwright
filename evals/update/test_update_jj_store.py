@@ -80,6 +80,16 @@ class TestJjStore(JjStoreBase):
         self.assertEqual(fx.tree(self.a.schema), fx.tree(self.dl / "schemas" / "specwright"))
         self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
 
+    def test_jj_store_flow_map_setting_not_refused(self):
+        """`planning_store: {vcs: jj}` selects jj as pr-pair.sh vcs reads it, so the jj store is not refused as detached."""
+        self.pair()
+        self.store_jj()
+        fx.write(self.a.code, "openspec/specwright.yaml", "planning_store: {vcs: jj}\n")
+        self.plan_stage()
+        code, doc = self.run_sub("swap")
+        self.assertEqual(code, 0, doc)
+        self.assertTrue(doc["store_written"], doc)
+
     def test_git_store_detached_still_refused(self):
         self.pair()
         fx.write(self.a.code, "openspec/specwright.yaml", "planning_store:\n  vcs: git\n")

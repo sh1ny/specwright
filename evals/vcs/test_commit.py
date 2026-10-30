@@ -175,6 +175,19 @@ class TestJjCommit(VcsTestCase):
         self.assertEqual(self.bookmark(), before)
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), before_head)
 
+    def test_commit_equivalent_path_spellings(self):
+        """`./work/a.txt` and `work/../work` name snapshotted paths: they commit instead of stopping as not tracked."""
+        (self.repo / "work").mkdir()
+        (self.repo / "work" / "a.txt").write_text("a\n", encoding="utf-8")
+        (self.repo / "work" / "b.txt").write_text("b\n", encoding="utf-8")
+        result, _ = self.commit("feat(add-jj-backend): spelled\n\nSpecwright-Task: 3.1\n", "./work/a.txt")
+        self.assertTrue(result["ok"], result)
+        result, _ = self.commit("feat(add-jj-backend): spelled dir\n\nSpecwright-Task: 3.1\n", "work/../work/")
+        self.assertTrue(result["ok"], result)
+        names = self.git(self.repo, "ls-tree", "-r", "--name-only", self.bookmark()).stdout.split()
+        self.assertIn("work/a.txt", names)
+        self.assertIn("work/b.txt", names)
+
     def test_commit_directory_with_oversize_file_path_not_tracked(self):
         """A named directory is not covered by one snapshotted file: an oversize new file in it stops the commit,
         while an ignored oversize file there does not."""
