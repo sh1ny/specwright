@@ -43,6 +43,18 @@ class TestJjAdvance(VcsTestCase):
         self.assertEqual(count.returncode, 0, count.stderr)
         self.assertEqual(count.stdout.strip(), "1")
 
+    def test_scoped_state_on_main_ignores_bookmark_off_ancestry(self):
+        """On main, a change bookmark ahead of main is not on @-'s ancestry: scoped state does not adopt it."""
+        self.make_commit(1, "feat(add-jj-backend): work on the branch")
+        self.fixture.run(self.jj, "bookmark", "set", self.branch, "-r", "@-")
+        self.fixture.run(self.jj, "new", "main")
+
+        state, _ = self.invoke("state", "--scope", self.scope, repo=self.repo)
+
+        self.assertEqual(state["branch"], "", state)
+        self.assertTrue(state["on_main"], state)
+        self.assertEqual(state["behind"], [])
+
     def test_advance_foreign_commit_stops(self):
         old_bookmark = self.bookmark()
         foreign = self.make_commit(1, "wip")

@@ -211,6 +211,23 @@ class TestJjCommit(VcsTestCase):
         self.assertIn("work/small.txt", names)
         self.assertNotIn("work/deep/oversize.bin", names)
 
+    def test_commit_directory_of_tracked_deletions(self):
+        """A directory whose tracked files were all deleted, left empty on disk, names those deletions."""
+        work = self.repo / "work"
+        work.mkdir()
+        (work / "a.txt").write_text("a\n", encoding="utf-8")
+        (work / "b.txt").write_text("b\n", encoding="utf-8")
+        result, _ = self.commit("feat(add-jj-backend): add work\n\nSpecwright-Task: 3.1\n", "work")
+        self.assertTrue(result["ok"], result)
+        (work / "a.txt").unlink()
+        (work / "b.txt").unlink()
+
+        result, _ = self.commit("feat(add-jj-backend): remove work\n\nSpecwright-Task: 3.1\n", "work")
+
+        self.assertTrue(result["ok"], result)
+        names = self.git(self.repo, "ls-tree", "-r", "--name-only", self.bookmark()).stdout.split()
+        self.assertEqual([name for name in names if name.startswith("work/")], [])
+
     def test_commit_directory_ignored_non_ascii_oversize_file(self):
         """An ignored oversize file with a non-ASCII name is matched as ignored, not stopped as untracked."""
         work = self.repo / "work"

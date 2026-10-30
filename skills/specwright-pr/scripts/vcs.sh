@@ -315,7 +315,7 @@ def jj_state(repo, info, scope=None):
     behind, truncated = [], False
     if not branch and scope:
         scoped = [b for b in scoped if b.get("target") and b["name"] != info["main"]]
-        if len(scoped) == 1:
+        if len(scoped) == 1 and git_ancestor(repo, scoped[0]["target"], parent):
             selected = scoped[0]
             branch = selected["name"]
     if branch and scope and selected and selected.get("target") and selected["target"] != parent:
@@ -536,9 +536,17 @@ def check_tracked(repo, paths, filesets):
     if not present:
         return
     listed = [path_text(line) for line in jj_result(repo, "file", "list", "-r", "@", *[f for _, f in present]).splitlines()]
+    parent_listed = None
     for path, _ in present:
         norm = path.rstrip("/") or "."
-        if norm == "." or any(item == norm or item.startswith(norm + "/") for item in listed):
+        covered = norm == "." or any(item == norm or item.startswith(norm + "/") for item in listed)
+        if not covered and os.path.isdir(os.path.join(repo, path)):
+            # a directory whose tracked files were all deleted names those deletions
+            if parent_listed is None:
+                parent_listed = [path_text(line) for line in
+                                 jj_result(repo, "file", "list", "-r", "@-", *[f for _, f in present]).splitlines()]
+            covered = any(item.startswith(norm + "/") for item in parent_listed)
+        if covered:
             if os.path.isdir(os.path.join(repo, path)):
                 check_directory_snapshot(repo, path, set(listed))
             continue
