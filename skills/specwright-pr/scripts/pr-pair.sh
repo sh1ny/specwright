@@ -687,7 +687,8 @@ def ambient_login():
 def norm_pr(p):
     state = "MERGED" if p.get("merged_at") else ("OPEN" if p.get("state") == "open" else "CLOSED")
     return {"number": p["number"], "url": p["html_url"], "state": state, "base": (p.get("base") or {}).get("ref"),
-            "head_sha": (p.get("head") or {}).get("sha"), "merged_at": p.get("merged_at"), "title": p.get("title", "")}
+            "head_sha": (p.get("head") or {}).get("sha"), "merged_at": p.get("merged_at"),
+            "merge_commit_sha": p.get("merge_commit_sha"), "title": p.get("title", "")}
 
 
 def discover(repo, branch, base=None, states=None):

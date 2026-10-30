@@ -34,16 +34,16 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → Change ranges read the change branch tip | Branch not given | evals/vcs/test_gitbutler_ranges.py | test_without_branch_stops | red |
 | vcs-backends → Change ranges read the change branch tip | Branch moved after the review | evals/vcs/test_gitbutler_ranges.py | test_branch_moved_voids_record | red |
 | vcs-backends → Change ranges read the change branch tip | Git unchanged | evals/review-routes/test_review_run.py | test_record_preship_repo_local_keyed_by_code_head | green |
-| vcs-backends → A GitButler push publishes only the change branch | Ship with another branch applied | evals/vcs/test_gitbutler_push.py | test_push_only_change_branch | red |
-| vcs-backends → A GitButler push publishes only the change branch | Rewritten branch | evals/vcs/test_gitbutler_push.py | test_push_rejected_never_forced | red |
-| vcs-backends → The GitButler pull never rebases another branch | Cleanup alone in the workspace | evals/vcs/test_gitbutler_pull.py | test_pull_alone_runs_fenced | red |
-| vcs-backends → The GitButler pull never rebases another branch | Another branch applied | evals/vcs/test_gitbutler_pull.py | test_pull_skipped_other_branch | red |
-| vcs-backends → The GitButler pull never rebases another branch | Linked worktree | evals/vcs/test_gitbutler_pull.py | test_pull_skipped_linked_worktree | red |
+| vcs-backends → A GitButler push publishes only the change branch | Ship with another branch applied | evals/vcs/test_gitbutler_push.py | test_push_only_change_branch | green |
+| vcs-backends → A GitButler push publishes only the change branch | Rewritten branch | evals/vcs/test_gitbutler_push.py | test_push_rejected_never_forced | green |
+| vcs-backends → The GitButler pull never rebases another branch | Cleanup alone in the workspace | evals/vcs/test_gitbutler_pull.py | test_pull_alone_runs_fenced | green |
+| vcs-backends → The GitButler pull never rebases another branch | Another branch applied | evals/vcs/test_gitbutler_pull.py | test_pull_skipped_other_branch | green |
+| vcs-backends → The GitButler pull never rebases another branch | Linked worktree | evals/vcs/test_gitbutler_pull.py | test_pull_skipped_linked_worktree | green |
 | vcs-backends → The GitButler pull never rebases another branch | Finish after a skipped pull | evals/vcs/test_gitbutler_pull.py | test_finish_reads_fetched_main | red |
-| vcs-backends → A GitButler branch is deleted only once merged | Squash-merged PR | evals/vcs/test_gitbutler_delete.py | test_delete_after_squash_merge | red |
-| vcs-backends → A GitButler branch is deleted only once merged | Pull skipped | evals/vcs/test_gitbutler_delete.py | test_delete_left_applied_when_base_lacks_merge | red |
-| vcs-backends → A GitButler branch is deleted only once merged | Not merged | evals/vcs/test_gitbutler_delete.py | test_delete_unmerged_left_applied | red |
-| vcs-backends → A GitButler branch is deleted only once merged | `but` write fails with `core.autocrlf=true` (design.md Risks, Line endings) | evals/vcs/test_gitbutler_delete.py | test_but_error_names_autocrlf | red |
+| vcs-backends → A GitButler branch is deleted only once merged | Squash-merged PR | evals/vcs/test_gitbutler_delete.py | test_delete_after_squash_merge | green |
+| vcs-backends → A GitButler branch is deleted only once merged | Pull skipped | evals/vcs/test_gitbutler_delete.py | test_delete_left_applied_when_base_lacks_merge | green |
+| vcs-backends → A GitButler branch is deleted only once merged | Not merged | evals/vcs/test_gitbutler_delete.py | test_delete_unmerged_left_applied | green |
+| vcs-backends → A GitButler branch is deleted only once merged | `but` write fails with `core.autocrlf=true` (design.md Risks, Line endings) | evals/vcs/test_gitbutler_delete.py | test_but_error_names_autocrlf | green |
 | vcs-backends → No other Git write runs under GitButler | Full PR flow on GitButler | evals/vcs/test_gitbutler_flows.py | test_full_pr_flow_git_write_boundary | red |
 | vcs-backends → No other Git write runs under GitButler | GitButler code repo with a Git store | evals/vcs/test_gitbutler_flows.py | test_cleanup_plan_routes_code_repo_through_vcs | red |
 | vcs-backends → No other Git write runs under GitButler | Feedback pass with another agent's edits | evals/vcs/test_gitbutler_flows.py | test_feedback_pass_ignores_other_and_preexisting_paths | red |
@@ -101,8 +101,8 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 6. Push, pull, fetch and delete
 
-- [ ] 6.1 Write failing tests for the rows of "A GitButler push publishes only the change branch", "The GitButler pull never rebases another branch" (in `evals/vcs/`) and "A GitButler branch is deleted only once merged", including `test_but_error_names_autocrlf` (a fake failing `but` is enough)
-- [ ] 6.2 Implement `push` (fenced `git push origin refs/heads/<b>:refs/heads/<b>`, no force, no `-u`, `push_rejected`), `pull` (fenced `but pull` only when nothing else is applied and no linked worktree exists, otherwise `pull_skipped`), `fetch-main` (`FETCH_HEAD` only), `delete-branch` (base from task 1.2, `--merged-commit`, `left_applied`; `norm_pr` carries `merge_commit_sha`, and cleanup passes it as `--merged-commit`) and the `merge` stop (D6, D7, D8); a failed `but` write in a repo whose effective `core.autocrlf` is `true` adds the autocrlf hint to `but_error` (design.md Risks, Line endings). Verify the 6.1 tests pass and flip their rows green
+- [x] 6.1 Write failing tests for the rows of "A GitButler push publishes only the change branch", "The GitButler pull never rebases another branch" (in `evals/vcs/`) and "A GitButler branch is deleted only once merged", including `test_but_error_names_autocrlf` (a fake failing `but` is enough)
+- [x] 6.2 Implement `push` (fenced `git push origin refs/heads/<b>:refs/heads/<b>`, no force, no `-u`, `push_rejected`), `pull` (fenced `but pull` only when nothing else is applied and no linked worktree exists, otherwise `pull_skipped`), `fetch-main` (`FETCH_HEAD` only), `delete-branch` (base from task 1.2, `--merged-commit`, `left_applied`; `norm_pr` carries `merge_commit_sha`, and cleanup passes it as `--merged-commit`) and the `merge` stop (D6, D7, D8); a failed `but` write in a repo whose effective `core.autocrlf` is `true` adds the autocrlf hint to `but_error` (design.md Risks, Line endings). Verify the 6.1 tests pass and flip their rows green
 
 ## 7. `as.sh` fence for `but pull`
 

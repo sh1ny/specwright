@@ -235,7 +235,7 @@ def context(argv):
     command, args = argv[0], argv[1:]
     allowed = {"--repo": "repo", "--role": "role", "--code": "code", "--branch": "branch",
                "--message-file": "message_file", "--scope": "scope", "--operation": "operation",
-               "--login": "login", "--main": "main", "--prefix": "prefix"}
+               "--login": "login", "--main": "main", "--prefix": "prefix", "--merged-commit": "merged_commit"}
     flags = {"--force": "force", "--no-tags": "no_tags", "--quiet": "quiet", "--remote-branch": "remote_branch"}
     opts, paths, after = {}, [], False
     i = 0
@@ -404,8 +404,20 @@ def but_run(root, *args, cap=None):
         stderr = errors.read().decode("utf-8", errors="replace")
     out = data.decode("utf-8", errors="replace")
     if code:
-        raise Stop("but_error", (stderr or out).strip() or "but %s failed" % " ".join(args))
+        message = (stderr or out).strip() or "but %s failed" % " ".join(args)
+        if args[0] not in ("status", "--version"):
+            message += autocrlf_hint(root)
+        raise Stop("but_error", message)
     return out
+
+
+AUTOCRLF_HINT = "hint: core.autocrlf is true; GitButler checkouts can conflict on line endings"
+
+
+def autocrlf_hint(root):
+    """A failed `but` write in a repo whose effective core.autocrlf is true gets the line-ending hint (design: Risks)."""
+    found = git(root, "config", "--type=bool", "--get", "core.autocrlf")
+    return "\n" + AUTOCRLF_HINT if found.returncode == 0 and found.stdout.strip() == "true" else ""
 
 
 def but_status(root):
@@ -590,6 +602,98 @@ def gitbutler_commit(root, info, opts, paths):
     return {"ok": True, "backend": "gitbutler", "branch": branch, "commit": new, "files": committed}
 
 
+def fenced_but_pull(root, login):
+    """`as.sh <login> but pull --json` for a GitHub origin (D7); plain `but pull --json` for any other remote."""
+    github = is_github_url(remote_url(root))
+    who = fence_login(root, github, login)
+    result = bash_script(root, AS_SH, who, "but", "pull", "--json") if github else bash_command(root, "but", "pull", "--json")
+    if result.returncode:
+        message = (result.stderr or result.stdout).strip() or "but pull failed"
+        if github and result.returncode == 3 and message.startswith("as.sh:"):
+            raise Stop("fence_failed", message, 3)
+        raise Stop("but_error", message + autocrlf_hint(root) + "\nGitButler keeps its own undo (`but undo`); "
+                   "Specwright runs none")
+    return result.stdout
+
+
+def linked_worktrees(root):
+    """D7: every worktree after the main one in `git worktree list --porcelain`."""
+    listed = git(root, "worktree", "list", "--porcelain")
+    if listed.returncode:
+        raise Stop("git_error", (listed.stderr or listed.stdout).strip() or "git worktree list failed")
+    paths = [path_text(line[len("worktree "):]) for line in listed.stdout.splitlines() if line.startswith("worktree ")]
+    return paths[1:]
+
+
+def gitbutler_pull(root, info, opts, login):
+    """D7: `but pull` rebases every applied branch, so it runs only when the cleaned-up branch is alone and no linked
+    worktree exists. A skipped pull is a result, not a failure."""
+    branch = require_branch(opts)
+    status = but_status(root)
+    others = [name for stack in status.get("stacks") or [] for name in stack_names(stack) if name != branch]
+    worktrees = linked_worktrees(root)
+    if others or worktrees:
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "pulled": False, "reason": "pull_skipped",
+                "applied_branches": others, "worktrees": worktrees}
+    out = fenced_but_pull(root, login)
+    result = {"ok": True, "backend": "gitbutler", "branch": branch, "pulled": True}
+    try:
+        report = json.loads(out)
+        if isinstance(report, dict) and report.get("status"):
+            result["status"] = report["status"]
+    except ValueError:
+        pass
+    after = but_status(root)
+    result["target"] = (after.get("mergeBase") or {}).get("commitId") or ""
+    result["applied_branches"] = [name for stack in after.get("stacks") or [] for name in stack_names(stack)]
+    return result
+
+
+def gitbutler_push(root, info, opts, login):
+    """D6: the fenced Git push of the branch's own ref; no force, no -u, never `but push` or `but pr`."""
+    branch = require_branch(opts)
+    require_applied(root, branch)
+    refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
+    try:
+        network_git(root, ["push", "origin", refspec], login)
+    except Stop as exc:
+        if exc.error == "git_network_error" and re.search(r"\[rejected\]|non-fast-forward|fetch first", exc.message):
+            raise Stop("push_rejected", "the remote rejected the push of %s as non-fast-forward; Specwright never forces "
+                       "it: the user decides (%s)" % (branch, exc.message.replace("\n", " ").strip()), 1, branch=branch)
+        raise
+    return {"ok": True, "backend": "gitbutler", "branch": branch}
+
+
+def gitbutler_delete(root, info, opts, login):
+    """D8: delete only a merged branch whose merge the workspace base already holds; never a Git write."""
+    branch = require_branch(opts)
+    merged_commit = opts.get("merged_commit") or ""
+    if merged_commit and not re.fullmatch(r"[0-9a-fA-F]{7,40}", merged_commit):
+        usage("--merged-commit must be a commit id of 7 to 40 hex digits")
+    found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
+    if found.returncode:
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "deleted": False, "reason": "already_deleted"}
+    tip = found.stdout.strip()
+    status = require_applied(root, branch)
+    if not opts.get("force"):  # no caller proved a merged PR: the tip must be in the fetched main
+        fetched = jj_fetch_main(root, info["main"], opts, login)
+        if not git_ancestor(root, tip, fetched):
+            raise Stop("not_merged", "branch %s is not merged into the fetched %s; nothing was deleted" % (branch, info["main"]),
+                       branch=branch)
+    base = (status.get("mergeBase") or {}).get("commitId") or ""
+    proofs = [tip]
+    if merged_commit:
+        resolved = git(root, "rev-parse", "--verify", "-q", merged_commit + "^{commit}")
+        if resolved.returncode == 0:
+            proofs.append(resolved.stdout.strip())
+    if not base or not any(git_ancestor(root, proof, base) for proof in proofs):
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "deleted": False, "reason": "left_applied",
+                "base": base, "message": "branch %s stays applied: the workspace base %s does not hold its merge yet; "
+                "the user's next `but pull` removes it" % (branch, base or "(unknown)")}
+    but_run(root, "branch", "delete", branch, "--json")
+    return {"ok": True, "backend": "gitbutler", "branch": branch, "deleted": True}
+
+
 def run_gitbutler_operation(command, info, opts, paths):
     root = info["repo"]
     if command == "branch-create":
@@ -601,6 +705,19 @@ def run_gitbutler_operation(command, info, opts, paths):
         return {"ok": True, "backend": "gitbutler", "branch": branch, "switched": False}
     if command == "commit":
         return gitbutler_commit(root, info, opts, paths)
+    login = opts.get("login") or info.get("login", "")
+    if command == "push":
+        return gitbutler_push(root, info, opts, login)
+    if command == "pull":
+        return gitbutler_pull(root, info, opts, login)
+    if command == "fetch-main":
+        sha = jj_fetch_main(root, info["main"], opts, login)
+        return {"ok": True, "backend": "gitbutler", "ref": sha, "commit": sha}
+    if command == "delete-branch":
+        return gitbutler_delete(root, info, opts, login)
+    if command in ("merge", "advance"):
+        raise Stop("unsupported_combination", "%s has no GitButler meaning: vcs: gitbutler runs only with finish: pr, "
+                   "where the PR merges on GitHub" % command)
     raise Stop("unsupported", "the GitButler backend does not implement %s yet" % command)
 
 
