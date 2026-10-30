@@ -195,6 +195,29 @@ class TestJjPull(FetchPullCase):
         self.assertEqual(self.jj_log("@-"), local)
         self.assertEqual(self.conflicted(), [])
 
+    def test_pull_carry_conflict_sets_main_back(self):
+        """Edits in @ that conflict with origin's change stop the pull with main where it was, so a retry pulls again."""
+        self.tracked()
+        old = self.ref("refs/heads/main")
+        (self.repo / "from-origin.txt").write_text("local edit\n", encoding="utf-8")
+        new = self.origin_commit("feat: origin moved")
+
+        result, _ = self.pull(expected=1)
+
+        self.assertEqual(result["error"], "carry_conflict", result)
+        self.assertEqual(self.jj_log("main"), old)
+        self.assertEqual(self.ref("refs/heads/main"), old)
+        self.assertEqual(self.jj_log("@-"), old)
+        self.assertEqual((self.repo / "from-origin.txt").read_text(encoding="utf-8"), "local edit\n")
+
+        self.fixture.run(self.jj, "restore")
+        result, _ = self.pull()
+
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["moved"], result)
+        self.assertEqual(self.jj_log("main"), new)
+        self.assertEqual(self.jj_log("@-"), new)
+
     def test_pull_conflicted_main_set_back(self):
         self.tracked()
         base = self.ref("refs/heads/main")

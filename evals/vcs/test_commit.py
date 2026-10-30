@@ -211,6 +211,21 @@ class TestJjCommit(VcsTestCase):
         self.assertIn("work/small.txt", names)
         self.assertNotIn("work/deep/oversize.bin", names)
 
+    def test_commit_directory_ignored_non_ascii_oversize_file(self):
+        """An ignored oversize file with a non-ASCII name is matched as ignored, not stopped as untracked."""
+        work = self.repo / "work"
+        work.mkdir()
+        (work / "small.txt").write_text("snapshotted\n", encoding="utf-8")
+        (work / "naïve.bin").write_bytes(b"x" * (2 * 1024 * 1024))
+        (self.repo / ".gitignore").write_text("*.bin\n", encoding="utf-8")
+
+        result, _ = self.commit("feat(add-jj-backend): directory\n\nSpecwright-Task: 3.1\n", "work", ".gitignore")
+
+        self.assertTrue(result["ok"], result)
+        names = self.git(self.repo, "ls-tree", "-r", "--name-only", self.bookmark()).stdout.split()
+        self.assertIn("work/small.txt", names)
+        self.assertEqual([name for name in names if name.endswith(".bin")], [])
+
 
 def require_jjenv_bash():
     import jjenv

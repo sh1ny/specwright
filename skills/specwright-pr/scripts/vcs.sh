@@ -61,25 +61,25 @@ def process_arguments(argv):
     return " ".join(quoted)
 
 
-def run(argv, cwd=None, env=None):
+def run(argv, cwd=None, env=None, input=None):
     try:
         return subprocess.run(process_arguments(argv), cwd=str(cwd) if cwd else None,
-                              env=env or os.environ.copy(), capture_output=True, text=True,
+                              env=env or os.environ.copy(), capture_output=True, text=True, input=input,
                               encoding="utf-8", errors="surrogateescape")  # git and jj write UTF-8, whatever the locale
     except OSError as exc:
         return subprocess.CompletedProcess(argv, 127, "", str(exc))
 
 
-def bash_command(repo, *args, env=None):
-    return run([BASH, "-c", 'exec "$@"', "vcs", *args], cwd=repo, env=env)
+def bash_command(repo, *args, env=None, input=None):
+    return run([BASH, "-c", 'exec "$@"', "vcs", *args], cwd=repo, env=env, input=input)
 
 
 def bash_script(repo, script, *args, env=None):
     return run([BASH, str(script), *args], cwd=repo, env=env)
 
 
-def git(repo, *args, env=None):
-    return bash_command(repo, "git", *args, env=env)
+def git(repo, *args, env=None, input=None):
+    return bash_command(repo, "git", *args, env=env, input=input)
 
 
 def jj(repo, *args):
@@ -522,7 +522,9 @@ def check_directory_snapshot(repo, path, listed):
                 oversize.append(rel)
     if not oversize:
         return
-    ignored = set(path_text(line) for line in git(repo, "check-ignore", "--", *oversize).stdout.splitlines())
+    names = "".join(rel + "\0" for rel in oversize)  # NUL-separated both ways: git quotes a non-ASCII path otherwise
+    listed_ignored = git(repo, "check-ignore", "-z", "--stdin", input=names).stdout.split("\0")
+    ignored = set(path_text(name) for name in listed_ignored if name)
     for rel in oversize:
         if rel not in ignored:
             raise Stop("path_not_tracked", "%s is not tracked in the jj working copy: it is larger than "
@@ -734,7 +736,12 @@ def jj_pull(repo, info, opts, login):
         jj_result(repo, "bookmark", "set", main, "-r", revset_text(old), "--allow-backwards")
         raise Stop("not_fast_forward", "origin %s moved during the pull; local %s was set back to %s" % (main, main, old))
     if was_on_main:
-        jj_switch(repo, current)
+        try:
+            jj_switch(repo, current)
+        except Stop as exc:
+            if exc.error == "carry_conflict":  # a failed switch leaves main where the pull found it
+                jj_result(repo, "bookmark", "set", main, "-r", revset_text(old), "--allow-backwards")
+            raise
     return {"ok": True, "backend": "jj", "branch": main if was_on_main else "", "commit": current, "moved": True}
 
 
