@@ -287,12 +287,12 @@
   - Both fixes have tests in `test_vcs_evals.py` (36 tests green).
 
   **Eval 57's one miss is not this change.** Since #112, `pr-pair.sh issue-check` renders the PR body through `gh api markdown`, and the fake `gh` has no recording for the finish fixtures' body ("Closes #12"). The agent correctly withheld "Nothing to finish". Evals 53, 54, 55 and 64 hit the same gap without a graded line on it. None of the files involved changed on this branch; filed as #146. Rows 4, 5 and 11 are green on 53 and 54, and 57's trace shows the same order.
-- [ ] 7.4 Run `python evals/run.py --changed main` and `openspec validate add-jj-backend --strict`. Confirm every test-map row is green and the 6.1 coverage inventory is complete. Existing selected suites must pass; existing `grade.py` predicates and `test_grade.py` cases stay unchanged, except additive graders for previously uncovered behavioral invariants. The only affected instruction-test removals are those justified in the 6.1 inventory.
+- [x] 7.4 Run `python evals/run.py --changed main` and `openspec validate add-jj-backend --strict`. Confirm every test-map row is green and the 6.1 coverage inventory is complete. Existing selected suites must pass; existing `grade.py` predicates and `test_grade.py` cases stay unchanged, except additive graders for previously uncovered behavioral invariants. The only affected instruction-test removals are those justified in the 6.1 inventory.
   **7.4 verification.**
   - `openspec validate add-jj-backend --strict`: valid.
   - Test map: every row is green.
   - Locally, only the modules group 7 touched were run: `evals/vcs/test_pair.py` and `test_flows.py` (4 tests OK) and `evals/git-workflow/test_vcs_evals.py` (36 OK).
-  - Suites: `python evals/run.py --changed main` was started locally and stopped at the user's request ("So werent we going to use ci?"). The suite run is the PR's CI (`.github/workflows/evals.yml`, every suite on Linux with the pinned jj). 7.4 is ticked once that run is green.
+  - Suites: `python evals/run.py --changed main` was started locally and stopped at the user's request ("So werent we going to use ci?"). The suite run is the PR's CI (`.github/workflows/evals.yml`, every suite on Linux with the pinned jj). That run is green on 31563999 (evals run 41071138200: all 9 suite jobs pass).
 - [x] 7.5 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.11.0` and rewrite the proposal's Release Notes summary to describe the whole release. Verify with `bash skills/specwright-release/scripts/release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/add-jj-backend/proposal.md`.
 
 ## Workflow follow-up
