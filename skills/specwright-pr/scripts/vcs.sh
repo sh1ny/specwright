@@ -505,6 +505,91 @@ def gitbutler_branch_create(root, info, opts):
     return {"ok": True, "backend": "gitbutler", "branch": branch, "commit": tip, "applied": True}
 
 
+def gitbutler_path(root, raw):
+    """D5 step 5: repo-relative, `/` separators, no `./`; a directory ends in `/`. Globs and escapes stop."""
+    text = raw.replace("\\", "/")
+    if re.search(r"[*?\[\]{}]", text):
+        raise Stop("bad_path", "%s contains glob characters; name the file or its directory" % raw, path=raw)
+    is_dir = text.endswith("/") or os.path.isdir(os.path.join(root, text))
+    norm = posixpath.normpath(text)
+    if not text or norm in (".", "") or norm.startswith("/") or norm == ".." or norm.startswith("../") \
+            or re.match(r"^[A-Za-z]:", norm) or ".git" in norm.split("/"):
+        raise Stop("bad_path", "%s is not a path inside the repository" % raw, path=raw)
+    return norm + "/" if is_dir else norm
+
+
+def path_covers(named, changed):
+    return changed == named or (named.endswith("/") and changed.startswith(named))
+
+
+def gitbutler_commit(root, info, opts, paths):
+    """D5: `but commit -b <branch> -F <file> --json <paths>` for the named paths only, then Git reads verify it."""
+    branch = require_branch(opts)
+    if not opts.get("message_file") or not paths:
+        usage("commit requires --message-file and at least one path after --")
+    status = require_applied(root, branch)
+    named = []
+    for raw in paths:
+        path = gitbutler_path(root, raw)
+        if path not in named:
+            named.append(path)
+    stacks = status.get("stacks") or []
+    own = [s for s in stacks if branch in stack_names(s)]
+    others = [s for s in stacks if branch not in stack_names(s)]
+    for stack in others:  # a named path that covers another stack's change would move it silently
+        for entry in stack.get("assignedChanges") or []:
+            file = change_file(entry)
+            for path in named:
+                if path_covers(path, file):
+                    owner = next(iter(stack_names(stack)), "")
+                    raise Stop("path_owned_elsewhere", "%s is assigned to branch %s, not %s; nothing was committed"
+                               % (file, owner, branch), path=file, branch=owner)
+    changed = [change_file(e) for e in status.get("uncommittedChanges") or []]
+    changed += [change_file(e) for s in own for e in s.get("assignedChanges") or []]
+    given = [p for p in named if any(path_covers(p, f) for f in changed)]
+    if not given:
+        raise Stop("nothing_to_commit", "no changes to commit in the named paths")
+    jj_commit_argv_check(given, opts["message_file"])  # the same command-line size bound as Git and jj
+    with open(opts["message_file"], encoding="utf-8", newline="") as stream:
+        message = stream.read()
+    applied = [name for stack in stacks for name in stack_names(stack)]
+
+    def tip_of(name):
+        found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + name + "^{commit}")
+        return found.stdout.strip() if found.returncode == 0 else ""
+
+    before = {name: tip_of(name) for name in applied}
+    but_run(root, "commit", "-b", branch, "-F", opts["message_file"], "--json", *given)
+    new = tip_of(branch)
+    old = before[branch]
+    problems = []
+    parent = git(root, "rev-parse", "--verify", "-q", new + "^{commit}^") if new else None
+    if not new or parent is None or parent.returncode or parent.stdout.strip() != old:
+        problems.append("the new tip's parent is not the old tip")
+    committed = []
+    if new:
+        diff = git(root, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", new)
+        committed = sorted(path_text(n) for n in diff.stdout.split("\0") if n)
+    extra = [f for f in committed if not any(path_covers(p, f) for p in named)]
+    missing = [f for f in changed if any(path_covers(p, f) for p in named) and f not in committed]
+    if extra:
+        problems.append("it holds files outside the named paths: " + ", ".join(extra))
+    if missing:
+        problems.append("it lacks named changes: " + ", ".join(missing))
+    body = git(root, "log", "-1", "--format=%B", "refs/heads/" + branch).stdout if new else ""
+    if body.rstrip("\n") != message.rstrip("\n"):
+        problems.append("its message differs from the message file")
+    moved = [name for name in applied if name != branch and tip_of(name) != before[name]]
+    if moved:
+        problems.append("another branch's tip moved: " + ", ".join(moved))
+    if problems:
+        raise Stop("commit_mismatch", "the GitButler commit on %s is not what was asked: %s; the commit was left in place "
+                   "(tip %s, was %s); files taken: %s" % (branch, "; ".join(problems), new or "-", old,
+                                                          ", ".join(committed) or "-"),
+                   old_tip=old, new_tip=new, files=committed)
+    return {"ok": True, "backend": "gitbutler", "branch": branch, "commit": new, "files": committed}
+
+
 def run_gitbutler_operation(command, info, opts, paths):
     root = info["repo"]
     if command == "branch-create":
@@ -515,10 +600,7 @@ def run_gitbutler_operation(command, info, opts, paths):
             require_applied(root, branch)
         return {"ok": True, "backend": "gitbutler", "branch": branch, "switched": False}
     if command == "commit":
-        branch = require_branch(opts)
-        if not opts.get("message_file") or not paths:
-            usage("commit requires --message-file and at least one path after --")
-        require_applied(root, branch)
+        return gitbutler_commit(root, info, opts, paths)
     raise Stop("unsupported", "the GitButler backend does not implement %s yet" % command)
 
 

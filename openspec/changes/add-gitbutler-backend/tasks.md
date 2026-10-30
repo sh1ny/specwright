@@ -21,13 +21,13 @@ Every real-`but` test lives in `evals/vcs/` (D10) and uses `evals/vcs/butenv.py`
 | vcs-backends → On GitButler the change branch is resolved by name | Workspace HEAD | evals/vcs/test_gitbutler_state.py | test_state_reads_branch_not_head | green |
 | vcs-backends → On GitButler the change branch is resolved by name | Another agent's edits during the completion check | evals/vcs/test_gitbutler_state.py | test_clean_ignores_other_branch_paths | green |
 | vcs-backends → On GitButler the change branch is resolved by name | Own unnamed edit at the completion check | evals/vcs/test_gitbutler_state.py | test_own_unassigned_edit_not_clean | green |
-| vcs-backends → On GitButler the change branch is resolved by name | Finish commits the archive on the change branch | evals/vcs/test_gitbutler_commit.py | test_archive_commit_names_exact_paths | red |
+| vcs-backends → On GitButler the change branch is resolved by name | Finish commits the archive on the change branch | evals/vcs/test_gitbutler_commit.py | test_archive_commit_names_exact_paths | green |
 | vcs-backends → On GitButler the change branch is resolved by name | Cleanup switches to main | evals/vcs/test_gitbutler_state.py | test_switch_to_main_is_noop | green |
 | vcs-backends → On GitButler the change branch is resolved by name | Branch unapplied mid-change | evals/vcs/test_gitbutler_state.py | test_branch_not_applied_stops | green |
-| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Unrelated edits stay uncommitted | evals/vcs/test_gitbutler_commit.py | test_commit_takes_only_named_paths | red |
-| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Path belongs to another branch | evals/vcs/test_gitbutler_commit.py | test_commit_path_owned_elsewhere_stops | red |
-| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Short path that looks like an ID | evals/vcs/test_gitbutler_commit.py | test_commit_short_path_not_cli_id | red |
-| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Trailers kept | evals/vcs/test_gitbutler_commit.py | test_commit_keeps_trailers | red |
+| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Unrelated edits stay uncommitted | evals/vcs/test_gitbutler_commit.py | test_commit_takes_only_named_paths | green |
+| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Path belongs to another branch | evals/vcs/test_gitbutler_commit.py | test_commit_path_owned_elsewhere_stops | green |
+| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Short path that looks like an ID | evals/vcs/test_gitbutler_commit.py | test_commit_short_path_not_cli_id | green |
+| vcs-backends → On GitButler a commit takes only its named paths into the change branch | Trailers kept | evals/vcs/test_gitbutler_commit.py | test_commit_keeps_trailers | green |
 | vcs-backends → Change ranges read the change branch tip | Other applied branches | evals/vcs/test_gitbutler_ranges.py | test_preship_range_uses_branch_tip | red |
 | vcs-backends → Change ranges read the change branch tip | Gate after the archive commit | evals/vcs/test_gitbutler_ranges.py | test_gate_after_archive_resolves_branch_tip | red |
 | vcs-backends → Change ranges read the change branch tip | Version check ignores other branches | evals/vcs/test_gitbutler_ranges.py | test_release_check_reads_branch_tip | red |
@@ -95,9 +95,9 @@ Every check runs only in a new scratch repo under `$TEMP/specwright-add-gitbutle
 
 ## 5. Commit with named paths
 
-- [ ] 5.1 Write failing tests for the rows of "On GitButler a commit takes only its named paths into the change branch" and `test_archive_commit_names_exact_paths` (cases: every file renamed unchanged, some files changed while moved, and only the new directory named, which stops with `commit_mismatch`)
-- [ ] 5.2 Implement `commit` on GitButler: check that each named path is unassigned or the change's own, normalize the paths (`bad_path` on glob characters), stop with `nothing_to_commit` when no named path changed, run `but commit -b <branch> -F <msgfile> --json <paths...>` with the named paths that cover a listed change (a path covering only a rename's source is left out), never CLI IDs, then verify the parent, the committed file set (read with `--no-renames`, held to every named path), the message and every other branch's tip, otherwise `commit_mismatch` (D5). Verify the 5.1 tests pass and flip their rows green
-- [ ] 5.3 Document in README that `but commit` does not run the pre-commit or commit-msg hooks. Verify: the README skill-text test passes
+- [x] 5.1 Write failing tests for the rows of "On GitButler a commit takes only its named paths into the change branch" and `test_archive_commit_names_exact_paths` (cases: every file renamed unchanged, some files changed while moved, and only the new directory named, which stops with `commit_mismatch`)
+- [x] 5.2 Implement `commit` on GitButler: check that each named path is unassigned or the change's own, normalize the paths (`bad_path` on glob characters), stop with `nothing_to_commit` when no named path changed, run `but commit -b <branch> -F <msgfile> --json <paths...>` with the named paths that cover a listed change (a path covering only a rename's source is left out), never CLI IDs, then verify the parent, the committed file set (read with `--no-renames`, held to every named path), the message and every other branch's tip, otherwise `commit_mismatch` (D5). Verify the 5.1 tests pass and flip their rows green
+- [x] 5.3 Document in README that `but commit` does not run the pre-commit or commit-msg hooks. Verify: the README skill-text test passes
 
 ## 6. Push, pull, fetch and delete
 
