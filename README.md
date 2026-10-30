@@ -431,7 +431,7 @@ The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scr
 finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
 # commit_granularity: task      # task (default) = one commit per task; group = one commit per task group, evidence in Specwright-Task trailers; any other value stops apply
-# vcs: git                      # git (default) | jj = branch reads and writes go through a colocated Jujutsu repo; never inferred from .jj/
+# vcs: git                      # git (default) | jj = branch reads and writes go through a colocated Jujutsu repo | gitbutler = GitButler (code repo, finish: pr only); never inferred from .jj/ or .git/gitbutler/
 
 github:
   login: my-bot-account         # pushes, PRs, replies; empty = the active gh account, resolved once per run and fenced
@@ -491,6 +491,13 @@ release:                        # opt-in; refused with pr.merge_method: rebase
 - **The one Git write.** The annotated release tag (`specwright-release`) is still created and pushed with Git. Every other write on a jj repository goes through jj, and reads such as `git log` stay as they are.
 - **Your own jj skill is optional.** Specwright never installs a jj skill or a jj configuration. If you keep a personal one (for identity, trailers or push rules), it works beside Specwright; the skills do not need it.
 - **Stores.** `planning_store.vcs` sets the store's backend on its own and does not inherit `vcs`: a jj code repository can have a Git store and the other way round. Each repository needs its own colocated checkout under the same rules.
+
+**GitButler (`vcs: gitbutler`).** Set `vcs: gitbutler` to have the skills write through [GitButler](https://gitbutler.com)'s `but` CLI, so the change branch is applied beside the branches other agents or you have applied, instead of taking over the working tree. It is for the code repository only and needs `finish: pr`.
+
+- **Setup.** Install `but` 0.23 or newer, open the repository with GitButler yourself (the app, or `but status`), and set `vcs: gitbutler` and `finish: pr`. Specwright never sets GitButler up or tears it down: a repo GitButler does not manage yet stops with `not_managed`, and a GitButler target other than your main branch stops with `target_mismatch`, before any write.
+- **Only code repo, only PR.** `planning_store.vcs: gitbutler` stops with `unsupported_vcs` (a store accepts `git` or `jj`), and `vcs: gitbutler` without `finish: pr` (an absent `finish` counts as `local`) stops with `unsupported_combination`.
+- **Git backend in a GitButler repo.** With `vcs` unset or `git`, a repo that GitButler manages stops with `gitbutler_workspace`, whatever HEAD is: set `vcs: gitbutler`, or take the repo out of GitButler first. The Git backend never writes in a GitButler workspace.
+- **Limits.** With `core.autocrlf=true` (the Git for Windows default), GitButler checkouts can conflict on line endings: `but branch delete` has been seen failing, and `but pull` is untested.
 
 Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
 

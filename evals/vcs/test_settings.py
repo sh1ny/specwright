@@ -62,6 +62,30 @@ class TestVcsSettings(unittest.TestCase):
         self.assertIn("hg", result.get("message", ""))
         self.assertIn("git", result.get("message", ""))
         self.assertIn("jj", result.get("message", ""))
+        self.assertIn("gitbutler", result.get("message", ""))
+
+    def test_gitbutler_code_with_git_store(self):
+        self.set_settings("vcs: gitbutler\nfinish: pr\n")
+        self.assertEqual(self.vcs(), {"ok": True, "code": "gitbutler", "store": "git"})
+
+    def test_gitbutler_store_unsupported_vcs(self):
+        self.set_settings("finish: pr\nplanning_store:\n  vcs: gitbutler\n")
+        result = self.vcs(expected=1)
+        self.assertEqual(result.get("error"), "unsupported_vcs")
+        self.assertIn("git", result.get("message", ""))
+        self.assertIn("jj", result.get("message", ""))
+
+    def test_gitbutler_local_finish_unsupported(self):
+        self.set_settings("vcs: gitbutler\nfinish: local\n")
+        result = self.vcs(expected=1)
+        self.assertEqual(result.get("error"), "unsupported_combination")
+        self.assertIn("finish: pr", result.get("message", ""))
+
+    def test_gitbutler_absent_finish_unsupported(self):
+        self.set_settings("vcs: gitbutler\n")
+        result = self.vcs(expected=1)
+        self.assertEqual(result.get("error"), "unsupported_combination")
+        self.assertIn("finish: pr", result.get("message", ""))
 
 
 if __name__ == "__main__":

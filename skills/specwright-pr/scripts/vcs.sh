@@ -20,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -129,7 +130,7 @@ def get_settings(code, repo, role):
     except ValueError:
         raise Stop("settings_error", "pr-pair.sh vcs returned invalid JSON")
     backend = choices.get("code" if role == "code" else "store")
-    if backend not in ("git", "jj"):
+    if backend not in ("git", "jj", "gitbutler") or (backend == "gitbutler" and role != "code"):
         raise Stop("settings_error", "pr-pair.sh vcs did not return a valid backend")
     context_args = ["context", "--code", str(code), "--only", "repos"]  # login and main only: merge settings are not validated
     if role == "store":
@@ -156,8 +157,44 @@ def detect_main(repo, configured):
     return "main"
 
 
+def gitbutler_managed(root):
+    """Git reads only: `.git/gitbutler/` in the common git dir and a `gitbutler.project.targetRef`; returns the target or None."""
+    common = git(root, "rev-parse", "--git-common-dir")
+    common_dir = (root / common.stdout.strip()) if common.returncode == 0 and common.stdout.strip() else root / ".git"
+    if not (common_dir / "gitbutler").is_dir():
+        return None
+    target = git(root, "config", "--get", "gitbutler.project.targetRef")
+    return target.stdout.strip() if target.returncode == 0 and target.stdout.strip() else None
+
+
+def probe_gitbutler(repo, configured_main, settings):
+    root = git_root(repo)
+    main = detect_main(root, configured_main)
+    target = gitbutler_managed(root)
+    if target is None:
+        raise Stop("not_managed", "vcs: gitbutler selected, but GitButler does not manage this repo (no .git/gitbutler/ "
+                   "and gitbutler.project.targetRef); open the repo with GitButler first (the app, or run `but status` "
+                   "yourself); Specwright never sets it up")
+    if target not in ("refs/heads/" + main, "refs/remotes/origin/" + main):
+        raise Stop("target_mismatch", "GitButler target is %s, but the main branch is %s (expected refs/heads/%s or "
+                   "refs/remotes/origin/%s)" % (target, main, main, main))
+    with tempfile.TemporaryDirectory(prefix="swb-probe-") as outside:  # installed skills live inside the code checkout
+        version = bash_command(outside, "but", "--version")
+    if version.returncode == 127:
+        raise Stop("tool_missing", "vcs: gitbutler is selected but but is not installed or not on PATH: but")
+    found = re.search(r"\b(\d+)\.(\d+)\.(\d+)", version.stdout + version.stderr)
+    if version.returncode or not found:
+        raise Stop("tool_version_unknown", "could not determine but version from but --version")
+    current = tuple(map(int, found.groups()))
+    if current < (0, 23, 0):
+        raise Stop("tool_too_old", "but version %s.%s.%s is too old; minimum supported version is 0.23" % current)
+    return {"backend": "gitbutler", "main": main, "repo": str(root), "login": settings["login"]}
+
+
 def probe(repo, code, role):
     backend, configured_main, settings = get_settings(code, repo, role)
+    if backend == "gitbutler":
+        return probe_gitbutler(repo, configured_main, settings)
     if backend == "jj":
         version = jj(repo, "--version")
         if version.returncode == 127:
@@ -184,6 +221,10 @@ def probe(repo, code, role):
     root = git_root(repo)
     main = detect_main(root, configured_main)
     if backend == "git":
+        if gitbutler_managed(root) is not None:
+            raise Stop("gitbutler_workspace", "GitButler manages this repo, and the Git backend must not write in its "
+                       "workspace: set vcs: gitbutler (with finish: pr) in openspec/specwright.yaml, or take the repo "
+                       "out of GitButler before using Git")
         return {"backend": "git", "main": main, "repo": str(root), "login": settings["login"],
                 "jj_present": (root / ".jj").exists()}
 
@@ -849,6 +890,8 @@ def main(argv):
         if info["backend"] == "git" and info.get("jj_present"):
             result["jj_present"] = True
         return result
+    if info["backend"] == "gitbutler":
+        raise Stop("unsupported", "the GitButler backend does not implement %s yet" % command)
     if command == "state":
         return current_state(repo, info, opts)
     if command == "plan":

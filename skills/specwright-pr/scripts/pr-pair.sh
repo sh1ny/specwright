@@ -9,8 +9,8 @@
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
 #                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting;
 #                                     --only repos skips that check, for callers that never merge, such as vcs.sh)
-#   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj","store":"git|jj"};
-#                                     absent settings default independently to git; unknown values stop with unknown_vcs
+#   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj|gitbutler","store":"git|jj"};
+#                                     absent settings default independently to git; unknown values stop with unknown_vcs; gitbutler is code-repo only and needs finish: pr
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
 #                                     is false, with a "note" when the value or the section is not true/false/a map). Reads no other
 #                                     setting, so a bad pr.merge_method cannot change it; exit 0 for any readable settings file
@@ -760,19 +760,22 @@ def cmd_vcs(argv):
     if not isinstance(planning_store, dict):
         planning_store = {}
 
-    def selected(section, name):
+    def selected(section, name, accepted):
         value = section.get("vcs")
         if value is None:
             return "git"
-        if value not in ("git", "jj"):
-            raise Stop("unknown_vcs", f"unknown {name} VCS {value!r}; accepted values: git, jj")
+        if value not in accepted:
+            raise Stop("unknown_vcs", f"unknown {name} VCS {value!r}; accepted values: {', '.join(accepted)}")
         return value
 
-    return {
-        "ok": True,
-        "code": selected(raw, "code"),
-        "store": selected(planning_store, "planning_store"),
-    }
+    code = selected(raw, "code", ("git", "jj", "gitbutler"))
+    if planning_store.get("vcs") == "gitbutler":
+        raise Stop("unsupported_vcs", "planning_store.vcs: gitbutler is not supported; a store accepts git or jj")
+    store = selected(planning_store, "planning_store", ("git", "jj"))
+    if code == "gitbutler" and raw.get("finish") != "pr":
+        raise Stop("unsupported_combination", "vcs: gitbutler runs only with finish: pr (finish is "
+                   f"{setting_text(raw, 'finish') if raw.get('finish') is not None else 'absent, which counts as local'})")
+    return {"ok": True, "code": code, "store": store}
 
 
 
