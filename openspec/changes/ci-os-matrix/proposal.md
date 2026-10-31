@@ -4,10 +4,10 @@
 
 `.github/workflows/evals.yml` runs every eval suite on `ubuntu-24.04` only, but much of the shipped code is platform-specific: MSYS argv quoting in `vcs.sh`, `\` versus `/` paths and `cygpath`, CRLF handling and Git Bash PATH conversion. Linux CI never exercises any of it. Meanwhile local runs on Windows are slow and take over the machine: `pr-pair` takes about 57 minutes locally against 6 in Linux CI. Three `evals/vcs/test_git_backend.py` cases also crash real `git` (`0xC0000005`) on this machine, and nobody can tell yet whether that is the machine or a real problem. Issue #145 asks to run every suite on Linux, Windows and macOS in CI and to stop running suites locally during a change.
 
-This change is M6 (Packs), change 1, version 0.12.1. It serves these exit criteria:
+This change is M6 (Packs), change 1, version 0.12.2. It serves these exit criteria:
 - `.github/workflows/evals.yml` runs every suite from `evals/run.py --list-suites` on `ubuntu-24.04`, `windows-latest` and `macos-latest`, with `fail-fast: false`. Every job passes on the PR that adds it and on each later M6 PR.
 - Every issue in M6's changes is closed by a merged PR, and each code fix has a regression test in `evals/`.
-- The change ships as its own release, 0.12.1.
+- The change ships as its own release, 0.12.2.
 
 ## What Changes
 
@@ -46,7 +46,7 @@ This change is M6 (Packs), change 1, version 0.12.1. It serves these exit criter
   - Fixes from triage land with regression tests in their suites.
 - **Docs:** `AGENTS.md`, `CONTRIBUTING.md` (the testing section, including the per-area `unittest discover` bullets), `README.md`, `openspec/architecture.md` (evals row, which today says "on Linux"), `openspec/roadmap.md` (this change's line said `but` per OS).
 - **Repo config:** `.gitattributes` (`*VERSION text eol=lf`).
-- **Release:** version files bumped to 0.12.1.
+- **Release:** version files bumped to 0.12.2.
 - **Dependencies:** none new. jj and `but` stay at their pinned versions.
 
 ## Release Notes

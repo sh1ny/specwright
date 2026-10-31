@@ -113,9 +113,9 @@ Extra tests (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_
 - [x] 4.7 If a job or file runs past its timeout, follow the design's Risks steps in order: raise the timeouts toward the 360-minute cap, then split. Splitting a suite across matrix jobs changes the "one job per suite and OS" requirement and `run.py`'s targets. Before doing it, stop and amend the spec delta, then rerun the design review. Verify with a dispatch run in which every job passes.
 - [x] 4.8 Set each OS's `timeout` and `run_timeout` to about 1.5 × the measured slowest job and slowest file, rounded up. Record the measurements in a CI section of `evals/timings.md`, in a form that `test_timings.py`'s suite-row pattern does not match. Verify that `python -m unittest evals/runner/test_timings.py evals/runner/test_workflow.py` passes and a final dispatch run is all green.
 
-## 5. Release 0.12.1
+## 5. Release 0.12.2
 
-- [x] 5.1 Run `release.sh bump --to 0.12.1`. Rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including any fixes from group 4 in `### Fixed`. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/ci-os-matrix/proposal.md`.
+- [x] 5.1 Run `release.sh bump --to 0.12.2`. Rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including any fixes from group 4 in `### Fixed`. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/ci-os-matrix/proposal.md`.
 
 ## Workflow follow-up
 
