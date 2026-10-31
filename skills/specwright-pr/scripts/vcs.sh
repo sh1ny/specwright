@@ -1201,7 +1201,10 @@ def run_jj_operation(command, repo, info, opts, paths, ctx):
         branch = require_branch(opts)
         if not opts.get("message_file") or not paths:
             usage("commit requires --message-file and at least one path after --")
-        current = jj_state(repo, info)["branch"]
+        state = jj_state(repo, info)
+        current = state["branch"]
+        if state["on_main"]:  # jj_state reads main as branch ""; a commit on main names it, as on Git (#153)
+            current = info["main"]
         if current != branch:
             raise Stop("wrong_branch", "expected branch %r, currently on %r" % (branch, current))
         paths = [jj_path(p) for p in paths]

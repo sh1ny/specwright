@@ -251,3 +251,51 @@ def require_jjenv_bash():
     if not bash:
         raise AssertionError("Git Bash required for task-cover.sh")
     return bash
+
+
+class TestJjCommitOnMain(VcsTestCase):
+    """#153: on main the jj state reads branch "" (on_main true); `commit --branch <main>` works as on Git."""
+
+    def setUp(self):
+        super().setUp()
+        self.jj = require_jj()
+        self.scratch = Scratch()
+        self.addCleanup(self.scratch.close)
+        self.fixture = self.scratch.tracked_repo()
+        self.repo = self.fixture.path
+        self.set_settings(self.repo, "vcs: jj\nmain_branch: main\n")
+        self.fixture.run(self.jj, "commit", "-m", "fixture Specwright settings")
+        self.fixture.run(self.jj, "bookmark", "set", "main", "-r", "@-")
+
+    def main_tip(self):
+        return self.git(self.repo, "rev-parse", "refs/heads/main").stdout.strip()
+
+    def commit(self, branch, *paths, expected=0):
+        message_file = self.root / "baseline-message.txt"
+        message_file.write_text("chore: install Specwright\n", encoding="utf-8")
+        return self.invoke("commit", "--branch", branch, "--message-file", message_file,
+                           "--", *paths, repo=self.repo, expected=expected)
+
+    def test_commit_on_main_advances_main(self):
+        (self.repo / "installed.txt").write_text("workflow file\n", encoding="utf-8")
+        (self.repo / "other.txt").write_text("not named\n", encoding="utf-8")
+        before = self.main_tip()
+        result, _ = self.commit("main", "installed.txt")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["branch"], "main")
+        after = self.main_tip()
+        self.assertNotEqual(after, before)
+        self.assertEqual(self.git(self.repo, "rev-parse", after + "^").stdout.strip(), before)
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), after)
+        show = self.git(self.repo, "show", "--format=", "--name-only", after)
+        self.assertEqual(show.stdout.replace("\\", "/").splitlines(), ["installed.txt"])
+        state, _ = self.invoke("state", repo=self.repo)
+        self.assertTrue(state["on_main"], state)
+        self.assertEqual(state["dirty_paths"], ["other.txt"])
+
+    def test_commit_other_branch_on_main_still_stops(self):
+        (self.repo / "installed.txt").write_text("workflow file\n", encoding="utf-8")
+        before = self.main_tip()
+        result, _ = self.commit("feat/not-current", "installed.txt", expected=1)
+        self.assertEqual(result["error"], "wrong_branch")
+        self.assertEqual(self.main_tip(), before)
