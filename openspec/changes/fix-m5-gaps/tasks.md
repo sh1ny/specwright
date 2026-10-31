@@ -4,8 +4,8 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| releases → The release skill names the proposal in the planning repo | Store-backed project | evals/release/test_skill_text.py | TestReleaseSkill.test_notes_check_names_proposal_in_planning_repo | red |
-| releases → The release skill names the proposal in the planning repo | A hardcoded path comes back | evals/release/test_skill_text.py | TestReleaseSkill.test_no_skill_passes_a_fixed_proposal_path | red |
+| releases → The release skill names the proposal in the planning repo | Store-backed project | evals/release/test_skill_text.py | TestReleaseSkill.test_notes_check_names_proposal_in_planning_repo | green |
+| releases → The release skill names the proposal in the planning repo | A hardcoded path comes back | evals/release/test_skill_text.py | TestReleaseSkill.test_no_skill_passes_a_fixed_proposal_path | green |
 | task-commits → A repeated task id stops the coverage check | Ticked line followed by a draft line with the same id | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_task_id_exits_2 | red |
 | task-commits → A repeated task id stops the coverage check | Unique ids | evals/git-workflow/test_task_cover.py | TaskCover (existing coverage tests, unchanged) | green |
 | task-commits → A repeated task id stops the coverage check | Repeated id in an untracked line | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_id_in_plain_bullet_is_not_a_task | red |
@@ -50,8 +50,8 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 2. Release skill names the proposal by role (#133)
 
-- [ ] 2.1 Add `test_notes_check_names_proposal_in_planning_repo` and `test_no_skill_passes_a_fixed_proposal_path` to `evals/release/test_skill_text.py` (`TestReleaseSkill`). Run the module and see both fail on `skills/specwright-release/SKILL.md:48`.
-- [ ] 2.2 Rewrite the notes check in `skills/specwright-release/SKILL.md` (`## Release notes`) to `release.sh notes --proposal <proposal.md>`, saying it is the change's `<P>/changes/<change>/proposal.md` in the planning repo, in the store when store-backed. Verify: `python -m unittest evals/release/test_skill_text.py` passes, and flip both rows green.
+- [x] 2.1 Add `test_notes_check_names_proposal_in_planning_repo` and `test_no_skill_passes_a_fixed_proposal_path` to `evals/release/test_skill_text.py` (`TestReleaseSkill`). Run the module and see both fail on `skills/specwright-release/SKILL.md:48`.
+- [x] 2.2 Rewrite the notes check in `skills/specwright-release/SKILL.md` (`## Release notes`) to `release.sh notes --proposal <proposal.md>`, saying it is the change's `<P>/changes/<change>/proposal.md` in the planning repo, in the store when store-backed. Verify: `python -m unittest evals/release/test_skill_text.py` passes, and flip both rows green.
 
 ## 3. Repeated task ids stop task-cover (#143)
 
