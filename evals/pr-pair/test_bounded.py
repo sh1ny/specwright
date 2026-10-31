@@ -271,6 +271,30 @@ class RunBounded(Base):
         self.assertEqual((r.rc, r.limit), (127, None))
 
 
+class SpawnRecord(Base):
+    def setUp(self):
+        super().setUp()
+        self.b = load_bounded()
+        self.spawns = self.tmp / "spawns"
+        self.spawns.mkdir()
+
+    def spawn_quick(self, env):
+        p = self.b.spawn(py("pass"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        p.wait()
+        self.b.close_job(p)
+        return p
+
+    def test_spawn_records_nothing_without_spawn_dir(self):
+        env = {k: v for k, v in self.env.items() if k != "SPECWRIGHT_TEST_SPAWN_DIR"}
+        with mock.patch.dict(os.environ):
+            os.environ.pop("SPECWRIGHT_TEST_SPAWN_DIR", None)
+            self.spawn_quick(env)
+        self.assertEqual(os.listdir(str(self.spawns)), [], "a spawn wrote a record with no SPECWRIGHT_TEST_SPAWN_DIR set")
+        if os.name != "nt":  # control: with the directory set, the same spawn records its pid (POSIX only)
+            p = self.spawn_quick({**env, "SPECWRIGHT_TEST_SPAWN_DIR": str(self.spawns)})
+            self.assertEqual(os.listdir(str(self.spawns)), [str(p.pid)])
+
+
 class DeadlineAt(Base):
     def test_deadline_at_honours_fractional_override(self):
         t0 = time.time()

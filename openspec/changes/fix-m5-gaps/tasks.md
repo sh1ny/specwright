@@ -17,9 +17,9 @@
 | eval-grading → A fake gh read never rewrites the state | A mutation still saves | evals/pr-pair/test_fake_gh.py | StateFile.test_mutation_still_saves | green |
 | eval-grading → Every seeded PR body for an issue check has a recorded rendering | Finish fixtures' body | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_finish_fixture_body_closed_check_reads_issue_state | red |
 | eval-grading → Every seeded PR body for an issue check has a recorded rendering | A new fixture body without a recording | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_every_closing_body_has_a_recording (bodies now include the fixture bodies) | red |
-| eval-runner → A stopped test file's nested sessions are stopped too | Timed-out file with a nested bounded session | evals/runner/test_run.py | test_a_timed_out_file_nested_bounded_session_is_stopped | red |
-| eval-runner → A stopped test file's nested sessions are stopped too | Interrupted run | evals/runner/test_run.py | test_an_interrupt_stops_a_nested_bounded_session | red |
-| eval-runner → A stopped test file's nested sessions are stopped too | Outside the runner | evals/pr-pair/test_bounded.py | test_spawn_records_nothing_without_spawn_dir | red |
+| eval-runner → A stopped test file's nested sessions are stopped too | Timed-out file with a nested bounded session | evals/runner/test_run.py | test_a_timed_out_file_nested_bounded_session_is_stopped | green |
+| eval-runner → A stopped test file's nested sessions are stopped too | Interrupted run | evals/runner/test_run.py | test_an_interrupt_stops_a_nested_bounded_session | green |
+| eval-runner → A stopped test file's nested sessions are stopped too | Outside the runner | evals/pr-pair/test_bounded.py | test_spawn_records_nothing_without_spawn_dir | green |
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed in the repo | evals/vcs/test_gitbutler_probe.py | test_scripts_in_work_tree_stop_before_but | red |
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed at user level | evals/vcs/test_gitbutler_probe.py | test_scripts_outside_work_tree_probe_continues | red |
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | A sibling branch adds a skill copy | evals/vcs/test_gitbutler_probe.py | test_specwright_copy_in_work_tree_stops | red |
@@ -82,14 +82,14 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 6. Runner stops nested sessions (#136)
 
-- [ ] 6.1 Write the three tests, then run them:
+- [x] 6.1 Write the three tests, then run them:
   - In `evals/runner/test_run.py`, `test_a_timed_out_file_nested_bounded_session_is_stopped`: a hang file loads `skills/specwright-pr/scripts/bounded.py` by path, `bounded.spawn`s a sleeper, writes both pids and sleeps; with `--timeout 4`, both pids are dead after the runner exits.
   - In the same file, `test_an_interrupt_stops_a_nested_bounded_session`.
   - In `evals/pr-pair/test_bounded.py`, `test_spawn_records_nothing_without_spawn_dir`.
 
   On Windows the nested pair already dies, so the red step for the two runner tests is shown on POSIX: WSL with the user's OK, else the PR's Linux and macOS jobs. Record which in the task commit.
-- [ ] 6.2 Add the `SPECWRIGHT_TEST_SPAWN_DIR` hook to `skills/specwright-pr/scripts/bounded.py`. On POSIX only, after a successful `spawn`, create `<dir>/<pid>` for the directory in `os.environ`, and also for the one in the child's `env=` when it is different; ignore `OSError`. List the hook in the header (lines 12-14), then copy the file byte-identically to `skills/specwright-release/scripts/bounded.py` and `skills/specwright-review/scripts/bounded.py`.
-- [ ] 6.3 In `evals/run.py`, give each file `<workdir>/spawns/<n>/` through `env={**os.environ, SPECWRIGHT_TEST_SPAWN_DIR: dir}`. After every `bounded.kill(p)` (timeout, interrupt, `finally`, `stop_all`), `killpg(pid, SIGKILL)` each recorded pid, ignoring `ProcessLookupError` and `PermissionError`. Correct the comments at lines 5-6 and 264. Verify: `python -m unittest evals/runner/test_run.py` and `evals/pr-pair/test_bounded.py` (including `test_bounded_copies_identical`) pass, and flip the rows green.
+- [x] 6.2 Add the `SPECWRIGHT_TEST_SPAWN_DIR` hook to `skills/specwright-pr/scripts/bounded.py`. On POSIX only, after a successful `spawn`, create `<dir>/<pid>` for the directory in `os.environ`, and also for the one in the child's `env=` when it is different; ignore `OSError`. List the hook in the header (lines 12-14), then copy the file byte-identically to `skills/specwright-release/scripts/bounded.py` and `skills/specwright-review/scripts/bounded.py`.
+- [x] 6.3 In `evals/run.py`, give each file `<workdir>/spawns/<n>/` through `env={**os.environ, SPECWRIGHT_TEST_SPAWN_DIR: dir}`. After every `bounded.kill(p)` (timeout, interrupt, `finally`, `stop_all`), `killpg(pid, SIGKILL)` each recorded pid, ignoring `ProcessLookupError` and `PermissionError`. Correct the comments at lines 5-6 and 264. Verify: `python -m unittest evals/runner/test_run.py` and `evals/pr-pair/test_bounded.py` (including `test_bounded_copies_identical`) pass, and flip the rows green.
 
 ## 7. Finish fixture PR body recorded (#146)
 

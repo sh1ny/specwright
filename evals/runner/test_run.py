@@ -53,6 +53,23 @@ def hang_file(pids, seconds):
             f"        time.sleep({seconds})\n")
 
 
+BOUNDED = HERE.parent.parent / "skills" / "specwright-pr" / "scripts" / "bounded.py"
+
+
+def nested_hang_file(pids, seconds):
+    """A test file that loads bounded.py by path, starts a sleeper with bounded.spawn (its own session on POSIX), records the
+    file's PID and the sleeper's in `pids`, and sleeps `seconds`."""
+    return ("import importlib.util, os, sys, time, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_hang(self):\n"
+            f"        spec = importlib.util.spec_from_file_location('bounded', {str(BOUNDED)!r})\n"
+            "        bounded = importlib.util.module_from_spec(spec)\n"
+            "        spec.loader.exec_module(bounded)\n"
+            f"        child = bounded.spawn([sys.executable, '-c', 'import time; time.sleep({seconds})'])\n"
+            f"        open({str(pids)!r}, 'w').write('%d %d' % (os.getpid(), child.pid))\n"
+            f"        time.sleep({seconds})\n")
+
+
 def load_runner():
     spec = importlib.util.spec_from_file_location("evals_run_under_test", str(RUN))
     mod = importlib.util.module_from_spec(spec)
@@ -194,6 +211,17 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(Path(m.group(1)).is_file())
         self.assertRegex(r.stdout, r"(?m)^alpha: 2 files, 2 tests, ")  # the other file still ran
 
+    def test_a_timed_out_file_nested_bounded_session_is_stopped(self):
+        pids = self.root / "pids.txt"
+        self.suite("alpha", {"test_hang.py": nested_hang_file(pids, 600), "test_ok.py": PASSING})
+        r = self.run_runner("alpha", "--timeout", "4")
+        found = [int(x) for x in pids.read_text().split()] if pids.exists() else []
+        self.assertEqual(len(found), 2, "the test file never recorded its PIDs: " + r.stdout + r.stderr)
+        alive = wait_dead(found)  # never leaves a sleeper behind, whatever the assertion says
+        self.assertEqual(alive, [], "the file's own process or the session its bounded.spawn started survived the runner")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"timeout after 4 s")
+
     def interrupt_once(self, pids):
         """Interrupt the main thread, as Ctrl-C does, once `pids` exists; gives up after 60 s."""
         def fire():
@@ -242,6 +270,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(len(found), 2, "the hanging file never recorded its PIDs")
         self.assertLess(took, 25, "the runner waited for the serial file to end before stopping it")
         self.assertEqual(alive, [], "the serial file's tree outlived the interrupt")
+
+    def test_an_interrupt_stops_a_nested_bounded_session(self):
+        pids = self.root / "pids.txt"
+        self.suite("alpha", {"test_hang.py": nested_hang_file(pids, 40)})
+        self.interrupt_once(pids)
+        interrupted, took = self.run_in_process(load_runner(), "alpha")
+        found = [int(x) for x in pids.read_text().split()] if pids.exists() else []
+        alive = wait_dead(found)
+        self.assertTrue(interrupted, "the interrupt did not reach the caller")
+        self.assertEqual(len(found), 2, "the hanging file never recorded its PIDs")
+        self.assertLess(took, 25, "the runner waited for the running file to end before stopping it")
+        self.assertEqual(alive, [], "a session the file's bounded.spawn started outlived the interrupt")
 
     def test_a_leftover_of_a_passing_file_is_stopped(self):
         pids = self.root / "pids.txt"

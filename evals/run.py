@@ -3,7 +3,9 @@
 A suite is a subdirectory of the evals directory that holds test_*.py files (`fakes` holds none, so it is not one). Each file runs
 as `python -m unittest discover -s <root>/<suite> -t <root>/<suite> -p <file>`, so sibling imports resolve as they do for
 `python -m unittest discover evals/<suite>`. Files start through bounded.spawn (skills/specwright-pr/scripts/bounded.py), so each
-file's whole process tree lives in a job object (Windows) or session (POSIX); a file past --timeout is stopped with bounded.kill.
+file's tree lives in a job object (Windows) or session (POSIX); a file past --timeout is stopped with bounded.kill. On POSIX a
+session a file's own bounded.spawn starts is not part of that one: each spawn records its pid in the file's
+SPECWRIGHT_TEST_SPAWN_DIR (<workdir>/spawns/<n>/), and the runner kills every recorded group after bounded.kill.
 
 Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
         python evals/run.py --ids [--root DIR] [suite ...]
@@ -31,10 +33,12 @@ with --changed also a suite-map target that does not exist, or a BASE git cannot
 """
 import argparse
 import importlib.util
+import itertools
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -217,6 +221,28 @@ class Run:
         self.lock = threading.Lock()
         self.running = set()
         self.stopping = False
+        self.counter = itertools.count(1)
+
+    def stop(self, p):
+        """bounded.kill(p), then (POSIX) a killpg of every pid the file's nested bounded.spawn calls recorded: those sessions
+        are not in p's group. Windows job objects nest, so bounded.kill reaches them."""
+        self.bounded.kill(p)
+        d = getattr(p, "spawn_dir", None)
+        if d is None or os.name == "nt":
+            return
+        try:
+            names = os.listdir(str(d))
+        except OSError:
+            return
+        for name in names:
+            if not name.isdigit():
+                continue
+            try:
+                os.killpg(int(name), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            except OSError:
+                pass
 
     def run_file(self, suite, fname):
         """Run one file; returns a dict with its status (rc, or timed_out), tests, start/end times and log path."""
@@ -232,19 +258,23 @@ class Run:
         with open(str(log), "wb") as out:
             p = None
             try:
-                p = self.bounded.spawn(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=str(REPO))
+                spawn_dir = self.workdir / "spawns" / str(next(self.counter))
+                spawn_dir.mkdir(parents=True, exist_ok=True)
+                env = {**os.environ, "SPECWRIGHT_TEST_SPAWN_DIR": str(spawn_dir)}
+                p = self.bounded.spawn(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=str(REPO), env=env)
+                p.spawn_dir = spawn_dir
                 with self.lock:
                     self.running.add(p)
                     stopping = self.stopping
                 if stopping:  # stop_all ran between the check above and the spawn
-                    self.bounded.kill(p)
+                    self.stop(p)
                 deadline = res["start"] + self.timeout
                 try:
                     while res["rc"] is None:
                         left = deadline - time.monotonic()
                         if left <= 0:
                             res["timed_out"] = True
-                            self.bounded.kill(p)
+                            self.stop(p)
                             p.wait()
                             break
                         try:
@@ -252,7 +282,7 @@ class Run:
                         except subprocess.TimeoutExpired:
                             pass
                 except BaseException:  # an interrupt in the serial phase lands here: stop the tree before the finally drops it
-                    self.bounded.kill(p)
+                    self.stop(p)
                     raise
             except OSError as e:
                 out.write(("runner: cannot start the file: %s\n" % e).encode("utf-8", "replace"))
@@ -261,7 +291,7 @@ class Run:
                 if p is not None:
                     with self.lock:
                         self.running.discard(p)
-                    self.bounded.kill(p)  # a leftover the file started (a fake gh hang sleeper) dies with its job or session
+                    self.stop(p)  # a leftover of the file, and every session its nested bounded.spawn calls started, dies here
                     self.bounded.close_job(p)
         res["end"] = time.monotonic()
         res["tests"] = tests_run(log)
@@ -274,7 +304,7 @@ class Run:
             procs = list(self.running)
         for p in procs:
             try:
-                self.bounded.kill(p)
+                self.stop(p)
             finally:
                 self.bounded.close_job(p)
 
