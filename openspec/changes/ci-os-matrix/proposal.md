@@ -51,7 +51,7 @@ This change is M6 (Packs), change 1, version 0.12.1. It serves these exit criter
 
 ## Release Notes
 
-Every eval suite now runs in CI on Linux, Windows and macOS for each pull request, so the platform-specific parts of Specwright (Git Bash argv quoting, `cygpath`, CRLF, BSD tools) are tested on all three. jj is pinned and checksum-verified on each OS. Contributors no longer run eval suites locally during a change.
+Every eval suite now runs in CI on Linux, Windows and macOS for each pull request, so the platform-specific parts of Specwright (Git Bash argv quoting, `cygpath`, CRLF, BSD tools) are tested on all three. jj is pinned and checksum-verified on each OS. Contributors no longer run eval suites locally during a change. The first macOS runs found two bugs in `update` on macOS, both fixed in this release.
 
 ### Changed
 - `.github/workflows/evals.yml` runs every suite on `ubuntu-24.04`, `windows-latest` and `macos-latest` with `fail-fast: false`, with a pinned, checksum-verified jj on each OS; `but` stays Linux-only because GitButler ships no standalone CLI for macOS or Windows (#145, #154).

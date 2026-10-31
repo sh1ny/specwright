@@ -115,7 +115,7 @@ Extra tests (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_
 
 ## 5. Release 0.12.1
 
-- [ ] 5.1 Run `release.sh bump --to 0.12.1`. Rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including any fixes from group 4 in `### Fixed`. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/ci-os-matrix/proposal.md`.
+- [x] 5.1 Run `release.sh bump --to 0.12.1`. Rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including any fixes from group 4 in `### Fixed`. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/ci-os-matrix/proposal.md`.
 
 ## Workflow follow-up
 
