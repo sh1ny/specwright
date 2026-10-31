@@ -275,9 +275,9 @@ class ReplyTempFiles(ReplyCase):
             f"sys.path.insert(0, {fixtures.posix(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
             "import gh\n"
             "p = sys.argv[1]\n"
-            "st = json.load(open(p, encoding='utf-8'))\n"
+            "st = gh.read_state(p)\n"
             f"gh.add_review(st, {self.SLUG!r}, {self.PR}, 'me', 'draft', state='PENDING')\n"
-            "json.dump(st, open(p, 'w', encoding='utf-8'))\n", encoding="utf-8")
+            "gh.write_state(p, st)\n", encoding="utf-8")
         gh.write_text('#!/bin/sh\n"$(dirname "$0")/gh-real" "$@" || exit $?\n'
                       f'case "$*" in *replies*) "{fixtures.posix(sys.executable)}" "{fixtures.posix(helper)}" "$FAKE_GH_STATE";; esac\n',
                       encoding="utf-8", newline="\n")

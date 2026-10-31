@@ -8,10 +8,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 GH = HERE.parent / "fakes" / "gh.py"
@@ -1092,6 +1094,70 @@ class IssueList(FakeGhCase):
         self.assertEqual(nums, [1, 2])
         open_only = json.loads(self.gh("api", "repos/o/n/issues").stdout)
         self.assertEqual([i["number"] for i in open_only], [1, 3, 4])
+
+
+class StateFile(FakeGhCase):
+    """The state file is replaced whole, and a read call never rewrites it (#134)."""
+
+    def test_reader_never_sees_a_partial_state(self):
+        states = [{"n": i, "pad": "x" * 20000} for i in range(200)]
+        fake_gh.write_state(self.state, states[0])
+        stop, reads, errors = threading.Event(), [], []
+
+        def reader():
+            while not stop.is_set():
+                try:
+                    reads.append(fake_gh.read_state(self.state))
+                except Exception as e:  # a torn file (JSONDecodeError) or a refused open
+                    errors.append(repr(e))
+
+        t = threading.Thread(target=reader)
+        t.start()
+        try:
+            for st in states:
+                fake_gh.write_state(self.state, st)
+        finally:
+            stop.set()
+            t.join(30)
+        self.assertFalse(t.is_alive(), "the reader did not stop")
+        self.assertEqual(errors, [])
+        self.assertTrue(reads, "the reader never read")
+        for got in reads:
+            self.assertEqual(got, states[got["n"]], "a read that is not a written state")
+        self.assertEqual(self.st(), states[-1])
+
+    def test_held_rename_fails_after_bound_and_keeps_state(self):
+        before = self.state.read_bytes()
+        with mock.patch.object(fake_gh, "RETRY_BOUND", 0.2), mock.patch.object(fake_gh, "RETRY_STEP", 0.01), \
+                mock.patch("os.replace", side_effect=PermissionError("held")) as rep:
+            with self.assertRaises(OSError) as cm:
+                fake_gh.write_state(self.state, {"new": True})
+        self.assertGreater(rep.call_count, 1, "the replace was not retried")
+        self.assertIn(str(self.state), str(cm.exception))
+        self.assertEqual(self.state.read_bytes(), before, "the state file was touched")
+        self.assertEqual(sorted(p.name for p in self.tmp.glob("state.json.*")), [], "a temp file was left behind")
+
+    def test_read_call_leaves_state_file_untouched(self):
+        old = 1_000_000_000  # an old mtime, so any rewrite shows even on a coarse clock
+        os.utime(self.state, (old, old))
+        before_bytes, before_mtime = self.state.read_bytes(), self.state.stat().st_mtime_ns
+        self.gh("api", "user")
+        self.gh("auth", "token", "--user", "sh1ny")
+        self.assertEqual(self.state.read_bytes(), before_bytes)
+        self.assertEqual(self.state.stat().st_mtime_ns, before_mtime)
+
+    def test_mutation_still_saves(self):
+        self.gh("pr", "create", "--repo", "o/n", "--head", "feat/x", "--title", "t")
+        pulls = self.st()["repos"]["o/n"]["pulls"]
+        self.assertEqual([p["head"]["ref"] for p in pulls], ["feat/x"])
+        self.assertEqual(sorted(p.name for p in self.tmp.glob("state.json.*")), [], "a temp file was left behind")
+        # a used-up `once` failure is a change too
+        st = self.st()
+        st["fail"] = [{"match": "api user", "once": True}]
+        self.seed(st)
+        self.assertEqual(self.gh("api", "user", check=False).returncode, 1)
+        self.assertEqual(self.st()["fail"], [])
+        self.assertEqual(self.gh("api", "user", check=False).returncode, 0)
 
 
 if __name__ == "__main__":

@@ -62,13 +62,13 @@ class SnapCase(unittest.TestCase):
 
     # ---- state -------------------------------------------------------------------------------------------
     def st(self):
-        return json.loads(self.gh_state.read_text(encoding="utf-8"))
+        return fake_gh.read_state(self.gh_state)
 
     def mutate(self, fn):
-        """Load the fake's state, apply fn(state), save it. Returns fn's result."""
-        st = json.loads(self.gh_state.read_text(encoding="utf-8")) if self.gh_state.exists() else {}
+        """Load the fake's state, apply fn(state), save it whole. Returns fn's result."""
+        st = fake_gh.read_state(self.gh_state) if self.gh_state.exists() else {}
         out = fn(st)
-        self.gh_state.write_text(json.dumps(st, indent=2), encoding="utf-8", newline="\n")
+        fake_gh.write_state(self.gh_state, st)
         return out
 
     def advance(self, seconds):

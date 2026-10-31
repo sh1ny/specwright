@@ -11,10 +11,10 @@
 | task-commits → A repeated task id stops the coverage check | Repeated id in an untracked line | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_id_in_plain_bullet_is_not_a_task | green |
 | eval-grading → Store-group pair evidence names the trailers it checks | Only the trailers fail | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_code_half_without_trailers_fails (extended with the evidence assertion) | green |
 | eval-grading → Store-group pair evidence names the trailers it checks | Trailers present | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_pair_evidence_lists_tasks | green |
-| eval-grading → The fake gh state file is replaced whole | Reader during a write | evals/pr-pair/test_fake_gh.py | StateFile.test_reader_never_sees_a_partial_state | red |
-| eval-grading → The fake gh state file is replaced whole | Rename held off | evals/pr-pair/test_fake_gh.py | StateFile.test_held_rename_fails_after_bound_and_keeps_state | red |
-| eval-grading → A fake gh read never rewrites the state | Watcher polls while the test mutates | evals/pr-pair/test_fake_gh.py | StateFile.test_read_call_leaves_state_file_untouched | red |
-| eval-grading → A fake gh read never rewrites the state | A mutation still saves | evals/pr-pair/test_fake_gh.py | StateFile.test_mutation_still_saves | red |
+| eval-grading → The fake gh state file is replaced whole | Reader during a write | evals/pr-pair/test_fake_gh.py | StateFile.test_reader_never_sees_a_partial_state | green |
+| eval-grading → The fake gh state file is replaced whole | Rename held off | evals/pr-pair/test_fake_gh.py | StateFile.test_held_rename_fails_after_bound_and_keeps_state | green |
+| eval-grading → A fake gh read never rewrites the state | Watcher polls while the test mutates | evals/pr-pair/test_fake_gh.py | StateFile.test_read_call_leaves_state_file_untouched | green |
+| eval-grading → A fake gh read never rewrites the state | A mutation still saves | evals/pr-pair/test_fake_gh.py | StateFile.test_mutation_still_saves | green |
 | eval-grading → Every seeded PR body for an issue check has a recorded rendering | Finish fixtures' body | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_finish_fixture_body_closed_check_reads_issue_state | red |
 | eval-grading → Every seeded PR body for an issue check has a recorded rendering | A new fixture body without a recording | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_every_closing_body_has_a_recording (bodies now include the fixture bodies) | red |
 | eval-runner → A stopped test file's nested sessions are stopped too | Timed-out file with a nested bounded session | evals/runner/test_run.py | test_a_timed_out_file_nested_bounded_session_is_stopped | red |
@@ -65,14 +65,14 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 5. Fake gh state written whole, reads never write (#134)
 
-- [ ] 5.1 Add class `StateFile` to `evals/pr-pair/test_fake_gh.py` with four tests:
+- [x] 5.1 Add class `StateFile` to `evals/pr-pair/test_fake_gh.py` with four tests:
   - `test_reader_never_sees_a_partial_state`: a reader thread loops while 200 writes run, and every read parses and equals a written state.
   - `test_held_rename_fails_after_bound_and_keeps_state`: patch `os.replace` to raise `PermissionError`, and use a short bound through a module constant.
   - `test_read_call_leaves_state_file_untouched`: the file's mtime and bytes are unchanged after a read call.
   - `test_mutation_still_saves`.
 
   Run the module and see them fail.
-- [ ] 5.2 Add `write_state` and `read_state` to `evals/fakes/gh.py`:
+- [x] 5.2 Add `write_state` and `read_state` to `evals/fakes/gh.py`:
   - `write_state` writes a temp file in the same directory, flushes, fsyncs and `os.replace`s it, retrying `PermissionError` every 20 ms for up to 5 s, then raises `OSError` naming the file and removes the temp file.
   - `read_state` retries `PermissionError` on open for 5 s.
   - `save()` and `load()` use them.

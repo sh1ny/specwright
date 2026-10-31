@@ -137,6 +137,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
@@ -160,19 +161,65 @@ def http_fail(status, message):
     return Fail(f"gh: {message} (HTTP {status})", 1, {"message": message, "status": str(status)})
 
 
+RETRY_BOUND = 5.0   # seconds a state read or write waits out a PermissionError (Windows holds a file a reader has open)
+RETRY_STEP = 0.02   # seconds between those retries
+
+
+def read_state(path):
+    """The state file parsed. A PermissionError on open is retried for RETRY_BOUND seconds, then raised."""
+    deadline = time.monotonic() + RETRY_BOUND
+    while True:
+        try:
+            f = open(path, encoding="utf-8")
+            break
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(RETRY_STEP)
+    with f:
+        return json.load(f)
+
+
+def write_state(path, st):
+    """Replace the state file whole: dump to <path>.<pid>.<thread id>.tmp beside it, flush, fsync, then os.replace onto it, so
+    a reader sees the old file or the new one, never a partial one. A PermissionError on the replace is retried every
+    RETRY_STEP seconds for RETRY_BOUND seconds; after that the temp file is removed and an OSError names the state file,
+    which is left as it was."""
+    path = os.fspath(path)
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(st, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        deadline = time.monotonic() + RETRY_BOUND
+        while True:
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as e:
+                if time.monotonic() >= deadline:
+                    raise OSError(f"cannot replace the state file {path}: still held after {RETRY_BOUND} s ({e})") from e
+                time.sleep(RETRY_STEP)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def load():
     p = os.environ.get("FAKE_GH_STATE")
     if p and os.path.exists(p):
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
+        return read_state(p)
     return {}
 
 
 def save(st):
     p = os.environ.get("FAKE_GH_STATE")
     if p:
-        with open(p, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(st, f, indent=2)
+        write_state(p, st)
 
 
 def log(argv):
@@ -1067,6 +1114,7 @@ def main(argv):
             stream.reconfigure(encoding="utf-8", **({"newline": "\n"} if stream is sys.stdout else {}))
     log(argv)
     st = load()
+    before = json.dumps(st)  # a call that left the state as it was (every read) writes nothing
     try:
         inject_failure(st, argv)
         hostile(st, argv)
@@ -1081,7 +1129,8 @@ def main(argv):
             print(json.dumps(e.body))
         print(str(e), file=sys.stderr)
         return e.code
-    save(st)
+    if json.dumps(st) != before:
+        save(st)
     return 0
 
 

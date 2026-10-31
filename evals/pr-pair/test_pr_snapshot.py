@@ -324,13 +324,13 @@ class WaitUnwritable(SnapCase):
             f"sys.path.insert(0, {str(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
             "import gh\n"
             "p = os.environ['FAKE_GH_STATE']\n"
-            "st = json.load(open(p, encoding='utf-8'))\n"
+            "st = gh.read_state(p)\n"
             "gh.advance_clock(st, int(os.environ['FAKE_SLEEP_STEP']))\n"
             "for ev in json.loads(os.environ.get('FAKE_SLEEP_EVENTS', '[]')):\n"
             "    if st['clock'] >= ev['at'] and ev['key'] not in st.setdefault('fired', []):\n"
             "        st['fired'].append(ev['key'])\n"
             "        gh.add_pr_comment(st, 'o/n', 7, ev['author'], ev['body'], at=ev['at'])\n"
-            "json.dump(st, open(p, 'w', encoding='utf-8', newline='\\n'), indent=2)\n", encoding="utf-8")
+            "gh.write_state(p, st)\n", encoding="utf-8")
         sleep = self.tmp / "bin" / "sleep"
         sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
@@ -527,12 +527,14 @@ class WatchElapsed(SnapCase):
         helper = self.tmp / "patchsleep.py"
         helper.write_text(
             "import json, os, sys, time\n"
+            f"sys.path.insert(0, {str(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
+            "import gh\n"
             "p = os.environ['FAKE_GH_STATE']\n"
             "patch = json.loads(os.environ.get('FAKE_SLEEP_PATCH', '{}'))\n"
             "if patch and not os.path.exists(p + '.patched'):\n"
-            "    st = json.load(open(p, encoding='utf-8'))\n"
+            "    st = gh.read_state(p)\n"
             "    st.update(patch)\n"
-            "    json.dump(st, open(p, 'w', encoding='utf-8', newline='\\n'), indent=2)\n"
+            "    gh.write_state(p, st)\n"
             "    open(p + '.patched', 'w').close()\n"
             "time.sleep(float(sys.argv[1]))\n", encoding="utf-8")
         sleep = self.tmp / "bin" / "sleep"
@@ -725,7 +727,7 @@ class TestUntilAttention(SnapCase):
             "n = int(open(c).read()) if os.path.exists(c) else 0\n"
             "steps = json.loads(os.environ.get('FAKE_STEPS', '[]'))\n"
             "if n < len(steps):\n"
-            "    st = json.load(open(p, encoding='utf-8'))\n"
+            "    st = gh.read_state(p)\n"
             "    s = steps[n]\n"
             "    pull = st['repos']['o/n']['pulls'][0]\n"
             "    if 'checks' in s:\n"
@@ -734,7 +736,7 @@ class TestUntilAttention(SnapCase):
             "        pull.setdefault('fields', {}).update(s['fields'])\n"
             "    if 'comment' in s:\n"
             "        gh.add_pr_comment(st, 'o/n', 7, s['comment'][0], s['comment'][1])\n"
-            "    json.dump(st, open(p, 'w', encoding='utf-8', newline='\\n'), indent=2)\n"
+            "    gh.write_state(p, st)\n"
             "open(c, 'w').write(str(n + 1))\n"
             "time.sleep(0.2)\n", encoding="utf-8")
         sleep = self.tmp / "bin" / "sleep"
