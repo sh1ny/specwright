@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.11.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.12.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -297,12 +297,23 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   `templates/openspec/specwright.yaml`, and ask whether to keep the default.
   If the user's file has keys the downloaded file no longer has (uncommented
   or commented out), list them and ask before removing them.
+- GitButler's agent skill, only when `vcs: gitbutler` is set in
+  `openspec/specwright.yaml` (just chosen, or already there). It is GitButler's
+  own skill and the tool guidance on that backend; Specwright ships none. For
+  each chosen skills directory (Step 2), offer
+  `but skill install --path <skills dir>/gitbutler`, run in the code checkout.
+  Run it only on the user's yes. If the user declines or does not answer, run
+  no `but skill install` and change no skills directory. Always pass `--path`
+  (without a terminal `but` picks a global directory), and never install it
+  silently or into a global directory. With `but` not on PATH, skip the offer
+  and say so.
 
 Step 7 - Verify, stamp the version, finish, clean up
 - Run `openspec schema validate specwright` inside `<root>`.
 - Every file of the downloaded `skills/specwright-*` directories exists,
   with the same content, in every chosen skills directory, and nothing else
-  is in them.
+  is in them (a `gitbutler` directory that `but skill install` created at the
+  user's yes in Step 6 is not Specwright's: leave it and do not count it).
 - Every downloaded agent file exists in each chosen agents directory (the
   `model:` line may differ, per Step 4).
 - `<root>/openspec/config.yaml` has `schema: specwright` (or the schema the user
@@ -431,7 +442,7 @@ The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scr
 finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
 # commit_granularity: task      # task (default) = one commit per task; group = one commit per task group, evidence in Specwright-Task trailers; any other value stops apply
-# vcs: git                      # git (default) | jj = branch reads and writes go through a colocated Jujutsu repo; never inferred from .jj/
+# vcs: git                      # git (default) | jj = branch reads and writes go through a colocated Jujutsu repo | gitbutler = GitButler (code repo, finish: pr only); never inferred from .jj/ or .git/gitbutler/
 
 github:
   login: my-bot-account         # pushes, PRs, replies; empty = the active gh account, resolved once per run and fenced
@@ -491,6 +502,16 @@ release:                        # opt-in; refused with pr.merge_method: rebase
 - **The one Git write.** The annotated release tag (`specwright-release`) is still created and pushed with Git. Every other write on a jj repository goes through jj, and reads such as `git log` stay as they are.
 - **Your own jj skill is optional.** Specwright never installs a jj skill or a jj configuration. If you keep a personal one (for identity, trailers or push rules), it works beside Specwright; the skills do not need it.
 - **Stores.** `planning_store.vcs` sets the store's backend on its own and does not inherit `vcs`: a jj code repository can have a Git store and the other way round. Each repository needs its own colocated checkout under the same rules.
+
+**GitButler (`vcs: gitbutler`).** Set `vcs: gitbutler` to have the skills write through [GitButler](https://gitbutler.com)'s `but` CLI, so the change branch is applied beside the branches other agents or you have applied, instead of taking over the working tree. It is for the code repository only and needs `finish: pr`.
+
+- **Setup.** Install `but` 0.23 or newer, open the repository with GitButler yourself (the app, or `but status`), and set `vcs: gitbutler` and `finish: pr`. Specwright never sets GitButler up or tears it down: a repo GitButler does not manage yet stops with `not_managed`, and a GitButler target other than your main branch stops with `target_mismatch`, before any write.
+- **Only code repo, only PR.** `planning_store.vcs: gitbutler` stops with `unsupported_vcs` (a store accepts `git` or `jj`), and `vcs: gitbutler` without `finish: pr` (an absent `finish` counts as `local`) stops with `unsupported_combination`.
+- **Git backend in a GitButler repo.** With `vcs` unset or `git`, a repo that GitButler manages stops with `gitbutler_workspace`, whatever HEAD is: set `vcs: gitbutler`, or take the repo out of GitButler first. The Git backend never writes in a GitButler workspace.
+- **Commits and hooks.** Each commit names its paths and goes in with `but commit -b <branch>`, which runs no `pre-commit` or `commit-msg` hook; Specwright writes its trailers into the message itself, and `pr.validate` still runs before each push. A path another applied branch owns stops the commit with `path_owned_elsewhere`; edits you did not name stay uncommitted, and a file that two agents edit unassigned is committed whole.
+- **GitButler's skill is offered, never installed silently.** Specwright ships no GitButler skill; GitButler's own is the tool guidance. With `vcs: gitbutler` the install prompt offers `but skill install --path <skills dir>/gitbutler` for each skills directory you chose and runs it only on your yes (a no changes nothing, and no global skill directory is touched). The branch gate runs `but skill check` and adds a note, never a stop, when the skill is missing or out of date in the project.
+- **What the skills do differently.** Commits, pushes and the PR are for the change branch alone, and cleanup pulls only when no other branch is applied (`pull_skipped` otherwise), so a merge that main already holds is read on the fetched main. `specwright-debug` never stashes on GitButler: it shows the changed paths and asks you to set your edits aside. A deferred archive's undo script moves the archive back, rewrites the main specs from `git cat-file --filters` and commits exactly those paths with `but commit -b <branch>`, with no Git write.
+- **Limits.** With `core.autocrlf=true` (the Git for Windows default), GitButler checkouts can conflict on line endings: `but branch delete` has been seen failing, and `but pull` is untested.
 
 Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
 

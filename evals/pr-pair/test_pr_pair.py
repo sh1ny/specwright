@@ -458,6 +458,17 @@ class Discover(Base):
         r = self.pp("discover", "--repo", CODE, "--branch", BRANCH, "--base", "main")
         self.assertEqual([p["number"] for p in r["other_base"]], [2])
 
+    def test_discover_carries_merge_commit_sha(self):
+        merged = self.pull(CODE, 3, state="closed", merged="2026-10-01T00:00:00Z")
+        merged["merge_commit_sha"] = "a" * 40
+        self.seed_pulls(CODE, [merged, self.pull(CODE, 4)])
+        r = self.pp("discover", "--repo", CODE, "--branch", BRANCH, "--base", "main")
+        by_number = {p["number"]: p for p in r["prs"]}
+        self.assertEqual(by_number[3]["merge_commit_sha"], "a" * 40)
+        self.assertIsNone(by_number[4]["merge_commit_sha"])
+        newest_merged = self.pp("discover", "--repo", CODE, "--branch", BRANCH, "--base", "main", "--state", "merged")["newest"]
+        self.assertEqual(newest_merged["merge_commit_sha"], "a" * 40)
+
     def test_discover_failure_is_unknown(self):
         st = self.gh()
         st["fail"] = [{"match": r"api .*repos/acme/code/pulls", "exit": 1, "stderr": "HTTP 502"}]

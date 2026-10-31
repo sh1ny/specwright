@@ -4,11 +4,14 @@
 # JSON document.
 #
 # Usage: bash release.sh [--dir <repo>] <subcommand> [options]
-#   check [--main <ref>]              read the version files in the working tree: exactly one match per file, one shared
+#   check [--main <ref>] [--branch <name>]
+#                                     read the version files in the working tree (with --branch: at the tip of refs/heads/<name>,
+#                                     resolved now, through git; the range below is then <ref>..<tip> and the merge base is the
+#                                     tip's: no other branch's commit counts): exactly one match per file, one shared
 #                                     version -> version + the files read. With --main, then refuse (exit 1,
 #                                     version_not_ahead_of_main) a branch that bumped to a version not greater than <ref>'s. It
 #                                     bumped when its version differs from the merge base's with <ref>, or the newest non-merge
-#                                     commit in <ref>..HEAD that changed the primary file's version raised it; no readable version
+#                                     commit in <ref>..HEAD (<ref>..<tip>) that changed the primary file's version raised it; no readable version
 #                                     at <ref> passes. A primary file that exists but does not read exactly one version is
 #                                     unreadable, not absent: an unreadable merge base or parent counts as a bump only when the
 #                                     version is not among the versions it matched (and, for a commit, is greater than all of them);
@@ -16,6 +19,9 @@
 #                                     the parent did not; otherwise a commit whose own version is unreadable changed it only when
 #                                     the version it is judged against is not among those it matched; a change raised it only
 #                                     when it matched a version and all of them are greater than that version
+#                                     check: when the code repo's backend is gitbutler (read as vcs.sh reads it, through pr-pair.sh vcs)
+#                                     --branch is required: exit 2, usage. HEAD is the workspace commit there. An unknown branch is
+#                                     exit 1, branch_not_found
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
@@ -744,7 +750,7 @@ def own_bump(st, entries, commits, ref):
     return False
 
 
-def check_ahead_of(st, entries, ref, version):
+def check_ahead_of(st, entries, ref, version, tip="HEAD"):
     """D3/D5: a branch that bumped must be greater than `ref`'s version. An unreadable version at `ref` passes, as an absent
     one does; an unreadable merge base counts as bumped only when the branch's version is not among those it matched."""
     if not ref_exists(st.root, ref):
@@ -752,11 +758,11 @@ def check_ahead_of(st, entries, ref, version):
     theirs = primary_at(st, entries, ref)
     if theirs is None or isinstance(theirs, Unreadable):
         return
-    base = git(st.root, "merge-base", "HEAD", ref)
+    base = git(st.root, "merge-base", tip, ref)
     base_version = primary_at(st, entries, text_of(base)) if base.returncode == 0 and text_of(base) else None
     bumped = version not in base_version.versions if isinstance(base_version, Unreadable) else base_version != version
     if not bumped:
-        r = git(st.root, "log", "--no-merges", "--topo-order", "--format=%H", f"{ref}..HEAD", "--",
+        r = git(st.root, "log", "--no-merges", "--topo-order", "--format=%H", f"{ref}..{tip}", "--",
                 f":(glob){entries[0][0]}" if has_glob(entries[0][0]) else f":(literal){entries[0][0]}")
         if r.returncode != 0:
             raise Stop("git_failed", f"git log failed: {err_of(r)}", code=3)
@@ -767,11 +773,48 @@ def check_ahead_of(st, entries, ref, version):
                    version=version, main_version=theirs, main=ref)
 
 
+PR_PAIR = os.path.join(os.path.dirname(os.environ["RELEASE_DIR"]), "..", "specwright-pr", "scripts", "pr-pair.sh")
+
+
+def code_backend(st):
+    """The code repo's VCS backend, read the way vcs.sh reads it (`pr-pair.sh vcs --code <repo>`). Settings that do not
+    mention gitbutler cannot select it, so that case skips the process; settings that mention it with pr-pair.sh missing stop
+    rather than guess. A settings error stops, as it does for vcs.sh."""
+    try:
+        with open(os.path.join(st.root, "openspec", "specwright.yaml"), encoding="utf-8", errors="replace") as f:
+            if "gitbutler" not in f.read():
+                return "git"
+    except OSError:
+        return "git"
+    script = os.path.normpath(PR_PAIR)
+    if not os.path.isfile(script):  # the settings may select gitbutler: fail closed rather than read HEAD
+        raise Stop("vcs_error", f"{script} is missing, so the code repo's backend cannot be read")
+    r = run([shutil.which("bash") or "bash", script, "vcs", "--code", st.root], cwd=st.root)
+    try:
+        doc = json.loads(r.stdout.decode("utf-8", "replace"))
+    except ValueError:
+        raise Stop("vcs_error", f"{script} vcs printed no JSON: {err_of(r)}")
+    if not doc.get("ok"):
+        raise Stop(str(doc.get("error") or "vcs_error"), str(doc.get("message") or "pr-pair.sh vcs failed"))
+    return str(doc.get("code") or "git")
+
+
 def cmd_check(st, a):
+    branch = a.get("branch")
+    # --main compares the change branch with main: on GitButler HEAD is the workspace commit, so it needs the branch.
+    # A plain check (the bump task's verification) reads the working tree, as on Git.
+    if not branch and a.get("main") and code_backend(st) == "gitbutler":
+        usage("vcs: gitbutler needs --branch <prefix>/<change-name> with --main: HEAD is the workspace commit, not the change branch")
     entries = st.entries()
-    version, files = agree(WorkTree(st.root), entries)
+    tip = "HEAD"
+    if branch:  # resolved now, on every call: never a SHA from the caller, never HEAD
+        r = git(st.root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}")
+        if r.returncode != 0 or not text_of(r):
+            raise Stop("branch_not_found", f"{st.root} has no local branch {branch}")
+        tip = text_of(r)
+    version, files = agree(CommitTree(st.root, tip) if branch else WorkTree(st.root), entries)
     if a.get("main"):
-        check_ahead_of(st, entries, a["main"], version)
+        check_ahead_of(st, entries, a["main"], version, tip)
     return {"ok": True, "version": version, "files": files}
 
 
@@ -1773,7 +1816,7 @@ def cmd_publish(st, a):
 
 STORE_OPTS = {"--store": "store", "--store-main": "store-main", "--store-prefix": "store-prefix"}
 COMMANDS = {
-    "check": (cmd_check, {"--main": "main"}),
+    "check": (cmd_check, {"--main": "main", "--branch": "branch"}),
     "bump": (cmd_bump, {"--to": "to"}),
     "status": (cmd_status, {"--version": "version", "--main": "main", "--base": "base", **STORE_OPTS}),
     "untagged": (cmd_untagged, {"--main": "main", "--local": Flag("local")}),
@@ -1793,7 +1836,7 @@ def main(argv):
             usage(f"unexpected argument {pos[0]}")
         emit(cmd_notes(a))
     if not rest or rest[0] not in COMMANDS:
-        usage("usage: release.sh [--dir <repo>] check [--main ref] | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] [--local] | publish --version V | notes --proposal <file>")
+        usage("usage: release.sh [--dir <repo>] check [--main ref] [--branch name] | bump --to V | status --version V [--main ref] [--store dir] | untagged [--main ref] [--local] | publish --version V | notes --proposal <file>")
     fn, spec = COMMANDS[rest[0]]
     a, pos = parse_args(rest[1:], spec)
     if pos:

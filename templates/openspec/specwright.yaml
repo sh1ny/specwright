@@ -110,7 +110,11 @@ pr:
 # of the implementer on the cheaper model (Claude Code: haiku, OMP: pi/smol).
 # FULL changes, reviews, watch and the orchestrator never change.
 # Backend for this repository's branch state and version-control writes:
-# git (default) | jj. Selection is explicit and never inferred from .jj/.
+# git (default) | jj | gitbutler. Selection is explicit and never inferred from .jj/
+# or .git/gitbutler/. gitbutler is for this (code) repository only and needs
+# finish: pr; a repo GitButler already manages must set it, the git backend
+# refuses to write there. Git on Windows with core.autocrlf=true can make
+# GitButler checkouts conflict on line endings.
 vcs: git
 
 cheap_tier:
@@ -122,7 +126,7 @@ cheap_tier:
 # planning_store:
 #   # Store main branch. Omit to detect (main, else master) in the store.
 #   # Backend for this repository's branch state and version-control writes:
-#   # git (default) | jj. Independent of the code repository's vcs setting.
+#   # git (default) | jj (gitbutler is not supported for a store). Independent of the code repository's vcs setting.
 #   vcs: git
 #   main_branch: main
 #   # Account for the store's pushes, PRs and replies. Default: github.login.

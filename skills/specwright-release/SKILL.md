@@ -2,7 +2,7 @@
 name: specwright-release
 description: "Opt-in release tagging for Specwright projects (release.enabled): bumps the version files as a tracked task in a change, and after the change is on main publishes the annotated tag and the GitHub release through scripts/release.sh. Backfills an older untagged version on request. Triggers: 'release', 'tag', 'publish v0.5.0', 'backfill a tag', or specwright-finish, specwright-pr watch and specwright-roadmap close offering a release."
 metadata:
-  version: 0.11.0
+  version: 0.12.0
 ---
 
 # Specwright Release
@@ -27,7 +27,7 @@ release:
 
 A tracked task in the change's last task group, committed by the orchestrator through `specwright-commit`: `bash scripts/release.sh bump --to <version>` rewrites every version file and commits nothing. Verify with `bash scripts/release.sh check`, which reports the target version when all files agree.
 
-Two changes can bump to the same version, and main's history then shows it once. `bash scripts/release.sh check --main <ref>` also compares a bumped branch with `<ref>`'s version and refuses (`version_not_ahead_of_main`) one that is not greater: bump again with a greater target. A branch that did not bump, or a `<ref>` with no readable version, passes. With `release.enabled` true, `specwright-pr` **ship** (`--main origin/<main>`, after a fenced fetch of main, before any push) and **watch** (before it reports ready and before the merge), and `specwright-finish` before a local merge (`--main <main>`), run it.
+Two changes can bump to the same version, and main's history then shows it once. `bash scripts/release.sh check --main <ref> --branch <branch>` (the tip of the change branch `<prefix>/<change-name>`, read through git; required on GitButler, where HEAD is the workspace) also compares a bumped branch with `<ref>`'s version and refuses (`version_not_ahead_of_main`) one that is not greater: bump again with a greater target. A branch that did not bump, or a `<ref>` with no readable version, passes. With `release.enabled` true, `specwright-pr` **ship** (`--main origin/<main>`, after a fenced fetch of main, before any push) and **watch** (before it reports ready and before the merge), and `specwright-finish` before a local merge (`--main <main>`), run it.
 
 ## Release notes
 

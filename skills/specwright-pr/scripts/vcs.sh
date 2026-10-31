@@ -20,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -27,6 +28,7 @@ VCS_DIR = Path(os.environ["VCS_DIR"])
 BASH = os.environ.get("VCS_BASH") or shutil.which("bash") or "bash"
 PR_PAIR = VCS_DIR / "pr-pair.sh"
 AS_SH = VCS_DIR / "as.sh"
+SETTINGS_FILE = "openspec/specwright.yaml"  # what every step reads from the code work tree
 
 
 class Stop(Exception):
@@ -129,7 +131,7 @@ def get_settings(code, repo, role):
     except ValueError:
         raise Stop("settings_error", "pr-pair.sh vcs returned invalid JSON")
     backend = choices.get("code" if role == "code" else "store")
-    if backend not in ("git", "jj"):
+    if backend not in ("git", "jj", "gitbutler") or (backend == "gitbutler" and role != "code"):
         raise Stop("settings_error", "pr-pair.sh vcs did not return a valid backend")
     context_args = ["context", "--code", str(code), "--only", "repos"]  # login and main only: merge settings are not validated
     if role == "store":
@@ -156,8 +158,44 @@ def detect_main(repo, configured):
     return "main"
 
 
+def gitbutler_managed(root):
+    """Git reads only: `.git/gitbutler/` in the common git dir and a `gitbutler.project.targetRef`; returns the target or None."""
+    common = git(root, "rev-parse", "--git-common-dir")
+    common_dir = (root / common.stdout.strip()) if common.returncode == 0 and common.stdout.strip() else root / ".git"
+    if not (common_dir / "gitbutler").is_dir():
+        return None
+    target = git(root, "config", "--get", "gitbutler.project.targetRef")
+    return target.stdout.strip() if target.returncode == 0 and target.stdout.strip() else None
+
+
+def probe_gitbutler(repo, configured_main, settings):
+    root = git_root(repo)
+    main = detect_main(root, configured_main)
+    target = gitbutler_managed(root)
+    if target is None:
+        raise Stop("not_managed", "vcs: gitbutler selected, but GitButler does not manage this repo (no .git/gitbutler/ "
+                   "and gitbutler.project.targetRef); open the repo with GitButler first (the app, or run `but status` "
+                   "yourself); Specwright never sets it up")
+    if target not in ("refs/heads/" + main, "refs/remotes/origin/" + main):
+        raise Stop("target_mismatch", "GitButler target is %s, but the main branch is %s (expected refs/heads/%s or "
+                   "refs/remotes/origin/%s)" % (target, main, main, main))
+    with tempfile.TemporaryDirectory(prefix="swb-probe-") as outside:  # installed skills live inside the code checkout
+        version = bash_command(outside, "but", "--version")
+    if version.returncode == 127:
+        raise Stop("tool_missing", "vcs: gitbutler is selected but but is not installed or not on PATH: but")
+    found = re.search(r"\b(\d+)\.(\d+)\.(\d+)", version.stdout + version.stderr)
+    if version.returncode or not found:
+        raise Stop("tool_version_unknown", "could not determine but version from but --version")
+    current = tuple(map(int, found.groups()))
+    if current < (0, 23, 0):
+        raise Stop("tool_too_old", "but version %s.%s.%s is too old; minimum supported version is 0.23" % current)
+    return {"backend": "gitbutler", "main": main, "repo": str(root), "login": settings["login"]}
+
+
 def probe(repo, code, role):
     backend, configured_main, settings = get_settings(code, repo, role)
+    if backend == "gitbutler":
+        return probe_gitbutler(repo, configured_main, settings)
     if backend == "jj":
         version = jj(repo, "--version")
         if version.returncode == 127:
@@ -184,6 +222,10 @@ def probe(repo, code, role):
     root = git_root(repo)
     main = detect_main(root, configured_main)
     if backend == "git":
+        if gitbutler_managed(root) is not None:
+            raise Stop("gitbutler_workspace", "GitButler manages this repo, and the Git backend must not write in its "
+                       "workspace: set vcs: gitbutler (with finish: pr) in openspec/specwright.yaml, or take the repo "
+                       "out of GitButler before using Git")
         return {"backend": "git", "main": main, "repo": str(root), "login": settings["login"],
                 "jj_present": (root / ".jj").exists()}
 
@@ -194,7 +236,7 @@ def context(argv):
     command, args = argv[0], argv[1:]
     allowed = {"--repo": "repo", "--role": "role", "--code": "code", "--branch": "branch",
                "--message-file": "message_file", "--scope": "scope", "--operation": "operation",
-               "--login": "login", "--main": "main"}
+               "--login": "login", "--main": "main", "--prefix": "prefix", "--merged-commit": "merged_commit"}
     flags = {"--force": "force", "--no-tags": "no_tags", "--quiet": "quiet", "--remote-branch": "remote_branch"}
     opts, paths, after = {}, [], False
     i = 0
@@ -339,6 +381,369 @@ def jj_state(repo, info, scope=None):
 
 
 
+BUT_STATUS_CAP = 16 * 1024 * 1024  # `but status --json` is read up to this many bytes (design: Resource Bounds)
+
+
+def but_run(root, *args, cap=None):
+    """Run `but` in the repo and return its stdout; with `cap`, stop reading past that many bytes."""
+    argv = [BASH, "-c", 'exec "$@"', "vcs", "but", *args]
+    with tempfile.TemporaryFile() as errors:
+        try:
+            proc = subprocess.Popen(process_arguments(argv), cwd=str(root), env=os.environ.copy(),
+                                    stdout=subprocess.PIPE, stderr=errors)
+        except OSError as exc:
+            raise Stop("tool_missing", "but could not run: " + str(exc))
+        data = proc.stdout.read(cap + 1) if cap else proc.stdout.read()
+        if cap and len(data) > cap:
+            proc.kill()
+            proc.stdout.close()
+            proc.wait()
+            raise Stop("but_output_too_large", "but %s printed more than %d bytes; nothing was changed" % (args[0], cap))
+        proc.stdout.close()
+        code = proc.wait()
+        errors.seek(0)
+        stderr = errors.read().decode("utf-8", errors="replace")
+    out = data.decode("utf-8", errors="replace")
+    if code:
+        message = (stderr or out).strip() or "but %s failed" % " ".join(args)
+        if args[0] not in ("status", "--version"):
+            message += autocrlf_hint(root)
+        raise Stop("but_error", message)
+    return out
+
+
+AUTOCRLF_HINT = "hint: core.autocrlf is true; GitButler checkouts can conflict on line endings"
+
+
+def autocrlf_hint(root):
+    """A failed `but` write in a repo whose effective core.autocrlf is true gets the line-ending hint (design: Risks)."""
+    found = git(root, "config", "--type=bool", "--get", "core.autocrlf")
+    return "\n" + AUTOCRLF_HINT if found.returncode == 0 and found.stdout.strip() == "true" else ""
+
+
+def but_status(root):
+    """`but status --json`, the only read of the workspace: names and paths are the keys, never the short IDs."""
+    try:
+        status = json.loads(but_run(root, "status", "--json", cap=BUT_STATUS_CAP))
+    except ValueError:
+        raise Stop("but_error", "but status --json returned invalid JSON")
+    if not isinstance(status, dict):
+        raise Stop("but_error", "but status --json returned an unexpected document")
+    return status
+
+
+def stack_names(stack):
+    return [b.get("name", "") for b in stack.get("branches") or []]
+
+
+def change_file(entry):
+    return path_text(entry.get("filePath") or entry.get("path") or "")
+
+
+def gitbutler_state(root, info, opts):
+    """D4: the change branch is the one the caller names; HEAD (the workspace commit or another branch) is never read."""
+    branch = opts.get("branch") or ""
+    status = but_status(root)
+    stacks = status.get("stacks") or []
+    applied_branches = [name for stack in stacks for name in stack_names(stack)]
+    applied = bool(branch) and branch in applied_branches
+    target = (status.get("mergeBase") or {}).get("commitId") or ""
+    tip = ""
+    if branch:
+        found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
+        tip = found.stdout.strip() if found.returncode == 0 else ""
+    if applied and tip:
+        require_settings_pinned(root, branch, status)
+    owner = {}  # path -> index of the stack that holds it
+    for index, stack in enumerate(stacks):
+        for entry in stack.get("assignedChanges") or []:
+            owner.setdefault(change_file(entry), index)
+    uncommitted = [change_file(entry) for entry in status.get("uncommittedChanges") or []]
+    touched = set()
+    if tip and target:
+        diff = git(root, "diff", "--name-only", "--no-renames", "-z", target, tip)
+        touched = set(path_text(name) for name in diff.stdout.split("\0") if name)
+    change_dir = ""
+    if branch:
+        prefix = (opts.get("prefix") or "openspec").replace("\\", "/").strip("/")
+        change_dir = "%s/changes/%s/" % (prefix, branch.split("/", 1)[1] if "/" in branch else branch)
+    change_paths, unassigned_paths, other_paths = [], [], []
+    for path, index in owner.items():
+        if applied and branch in stack_names(stacks[index]):
+            change_paths.append(path)
+        else:
+            names = stack_names(stacks[index])
+            other_paths.append({"path": path, "branch": names[0] if names else ""})
+    for path in uncommitted:
+        if path in owner or path in unassigned_paths or path in change_paths:
+            continue
+        if branch and (path.startswith(change_dir) or path in touched):
+            change_paths.append(path)  # the change's own: its artifacts, or a file the branch already touched
+        else:
+            unassigned_paths.append(path)
+    paths = []
+    for path in change_paths + unassigned_paths + [item["path"] for item in other_paths]:
+        if path not in paths:
+            paths.append(path)
+    return {"ok": True, "backend": "gitbutler", "main": info["main"], "branch": branch if applied else "",
+            "on_main": not applied, "applied": applied, "head": tip, "target": target,
+            "applied_branches": applied_branches, "change_paths": change_paths, "unassigned_paths": unassigned_paths,
+            "other_branch_paths": other_paths, "clean": not change_paths,
+            "dirty_paths": paths, "dirty": [{"status": "", "path": path} for path in paths],
+            "behind": [], "behind_truncated": False}
+
+
+def require_settings_pinned(root, branch, status=None):
+    """The settings every Specwright step reads from the shared work tree must be the change branch's own: a sibling
+    branch's committed or assigned edit of openspec/specwright.yaml (its validate command, review.preship) stops."""
+    status = status if status is not None else but_status(root)
+    for stack in status.get("stacks") or []:
+        names = stack_names(stack)
+        if branch in names:
+            continue
+        if any(change_file(entry) == SETTINGS_FILE for entry in stack.get("assignedChanges") or []):
+            raise Stop("settings_not_pinned", "%s holds an uncommitted edit of %s from branch %s; Specwright reads it from the "
+                       "shared work tree, so unapply that branch or move the edit first" % (root, SETTINGS_FILE, names[0] if names else "?"))
+    diff = git(root, "diff", "--quiet", "refs/heads/" + branch, "HEAD", "--", SETTINGS_FILE)
+    if diff.returncode == 1:
+        raise Stop("settings_not_pinned", "another applied branch changes %s, so the work tree's settings are not those of %s; "
+                   "unapply that branch, or bring the change onto %s, first" % (SETTINGS_FILE, branch, branch))
+    if diff.returncode not in (0, 1):
+        raise Stop("git_error", "git diff of %s failed: %s" % (SETTINGS_FILE, diff.stderr.strip()))
+
+
+def require_applied(root, branch):
+    status = but_status(root)
+    if branch not in [name for stack in status.get("stacks") or [] for name in stack_names(stack)]:
+        raise Stop("branch_not_applied", "branch %s is not applied in the GitButler workspace; Specwright never applies "
+                   "one (it can conflict with the other branches): apply it yourself, or choose another branch" % branch,
+                   branch=branch)
+    return status
+
+
+def gitbutler_branch_create(root, info, opts):
+    branch = require_branch(opts)
+    if git(root, "show-ref", "--verify", "--quiet", "refs/heads/" + branch).returncode == 0:
+        raise Stop("branch_exists", "branch %s already exists (applied or not): resume it, choose another name, or "
+                   "abort; nothing was changed" % branch, branch=branch)
+    but_run(root, "branch", "new", branch, "--json")
+    status = but_status(root)
+    stack = next((s for s in status.get("stacks") or [] if branch in stack_names(s)), None)
+    target = (status.get("mergeBase") or {}).get("commitId") or ""
+    found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
+    tip = found.stdout.strip() if found.returncode == 0 else ""
+    mine = [b for b in (stack or {}).get("branches") or [] if b.get("name") == branch]
+    if stack is None or not tip or tip != target or (mine and mine[0].get("commits")):
+        raise Stop("branch_create_mismatch", "branch %s was created but is not applied on the target with no commits "
+                   "(tip %s, target %s)" % (branch, tip or "-", target or "-"))
+    return {"ok": True, "backend": "gitbutler", "branch": branch, "commit": tip, "applied": True}
+
+
+def gitbutler_path(root, raw):
+    """D5 step 5: repo-relative, `/` separators, no `./`; a directory ends in `/`. Globs and escapes stop."""
+    text = raw.replace("\\", "/")
+    if re.search(r"[*?\[\]{}]", text):
+        raise Stop("bad_path", "%s contains glob characters; name the file or its directory" % raw, path=raw)
+    is_dir = text.endswith("/") or os.path.isdir(os.path.join(root, text))
+    norm = posixpath.normpath(text)
+    if not text or norm in (".", "") or norm.startswith("/") or norm == ".." or norm.startswith("../") \
+            or re.match(r"^[A-Za-z]:", norm) or ".git" in norm.split("/"):
+        raise Stop("bad_path", "%s is not a path inside the repository" % raw, path=raw)
+    return norm + "/" if is_dir else norm
+
+
+def path_covers(named, changed):
+    return changed == named or (named.endswith("/") and changed.startswith(named))
+
+
+def gitbutler_commit(root, info, opts, paths):
+    """D5: `but commit -b <branch> -F <file> --json <paths>` for the named paths only, then Git reads verify it."""
+    branch = require_branch(opts)
+    if not opts.get("message_file") or not paths:
+        usage("commit requires --message-file and at least one path after --")
+    status = require_applied(root, branch)
+    named = []
+    for raw in paths:
+        path = gitbutler_path(root, raw)
+        if path not in named:
+            named.append(path)
+    stacks = status.get("stacks") or []
+    own = [s for s in stacks if branch in stack_names(s)]
+    others = [s for s in stacks if branch not in stack_names(s)]
+    for stack in others:  # a named path that covers another stack's change would move it silently
+        for entry in stack.get("assignedChanges") or []:
+            file = change_file(entry)
+            for path in named:
+                if path_covers(path, file):
+                    owner = next(iter(stack_names(stack)), "")
+                    raise Stop("path_owned_elsewhere", "%s is assigned to branch %s, not %s; nothing was committed"
+                               % (file, owner, branch), path=file, branch=owner)
+    changed = [change_file(e) for e in status.get("uncommittedChanges") or []]
+    changed += [change_file(e) for s in own for e in s.get("assignedChanges") or []]
+    given = [p for p in named if any(path_covers(p, f) for f in changed)]
+    if not given:
+        raise Stop("nothing_to_commit", "no changes to commit in the named paths")
+    jj_commit_argv_check(given, opts["message_file"])  # the same command-line size bound as Git and jj
+    with open(opts["message_file"], encoding="utf-8", newline="") as stream:
+        message = stream.read()
+    applied = [name for stack in stacks for name in stack_names(stack)]
+
+    def tip_of(name):
+        found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + name + "^{commit}")
+        return found.stdout.strip() if found.returncode == 0 else ""
+
+    before = {name: tip_of(name) for name in applied}
+    but_run(root, "commit", "-b", branch, "-F", opts["message_file"], "--json", *given)
+    new = tip_of(branch)
+    old = before[branch]
+    problems = []
+    parent = git(root, "rev-parse", "--verify", "-q", new + "^{commit}^") if new else None
+    if not new or parent is None or parent.returncode or parent.stdout.strip() != old:
+        problems.append("the new tip's parent is not the old tip")
+    committed = []
+    if new:
+        diff = git(root, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", new)
+        committed = sorted(path_text(n) for n in diff.stdout.split("\0") if n)
+    extra = [f for f in committed if not any(path_covers(p, f) for p in named)]
+    missing = [f for f in changed if any(path_covers(p, f) for p in named) and f not in committed]
+    if extra:
+        problems.append("it holds files outside the named paths: " + ", ".join(extra))
+    if missing:
+        problems.append("it lacks named changes: " + ", ".join(missing))
+    body = git(root, "log", "-1", "--format=%B", "refs/heads/" + branch).stdout if new else ""
+    if body.rstrip("\n") != message.rstrip("\n"):
+        problems.append("its message differs from the message file")
+    moved = [name for name in applied if name != branch and tip_of(name) != before[name]]
+    if moved:
+        problems.append("another branch's tip moved: " + ", ".join(moved))
+    if problems:
+        raise Stop("commit_mismatch", "the GitButler commit on %s is not what was asked: %s; the commit was left in place "
+                   "(tip %s, was %s); files taken: %s" % (branch, "; ".join(problems), new or "-", old,
+                                                          ", ".join(committed) or "-"),
+                   old_tip=old, new_tip=new, files=committed)
+    return {"ok": True, "backend": "gitbutler", "branch": branch, "commit": new, "files": committed}
+
+
+def fenced_but_pull(root, login):
+    """`as.sh <login> but pull --json` for a GitHub origin (D7); plain `but pull --json` for any other remote."""
+    github = is_github_url(remote_url(root))
+    who = fence_login(root, github, login)
+    result = bash_script(root, AS_SH, who, "but", "pull", "--json") if github else bash_command(root, "but", "pull", "--json")
+    if result.returncode:
+        message = (result.stderr or result.stdout).strip() or "but pull failed"
+        if github and result.returncode == 3 and message.startswith("as.sh:"):
+            raise Stop("fence_failed", message, 3)
+        raise Stop("but_error", message + autocrlf_hint(root) + "\nGitButler keeps its own undo (`but undo`); "
+                   "Specwright runs none")
+    return result.stdout
+
+
+def linked_worktrees(root):
+    """D7: every worktree after the main one in `git worktree list --porcelain`."""
+    listed = git(root, "worktree", "list", "--porcelain")
+    if listed.returncode:
+        raise Stop("git_error", (listed.stderr or listed.stdout).strip() or "git worktree list failed")
+    paths = [path_text(line[len("worktree "):]) for line in listed.stdout.splitlines() if line.startswith("worktree ")]
+    return paths[1:]
+
+
+def gitbutler_pull(root, info, opts, login):
+    """D7: `but pull` rebases every applied branch, so it runs only when the cleaned-up branch is alone and no linked
+    worktree exists. A skipped pull is a result, not a failure."""
+    branch = require_branch(opts)
+    status = but_status(root)
+    others = [name for stack in status.get("stacks") or [] for name in stack_names(stack) if name != branch]
+    worktrees = linked_worktrees(root)
+    if others or worktrees:
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "pulled": False, "reason": "pull_skipped",
+                "applied_branches": others, "worktrees": worktrees}
+    out = fenced_but_pull(root, login)
+    result = {"ok": True, "backend": "gitbutler", "branch": branch, "pulled": True}
+    try:
+        report = json.loads(out)
+        if isinstance(report, dict) and report.get("status"):
+            result["status"] = report["status"]
+    except ValueError:
+        pass
+    after = but_status(root)
+    result["target"] = (after.get("mergeBase") or {}).get("commitId") or ""
+    result["applied_branches"] = [name for stack in after.get("stacks") or [] for name in stack_names(stack)]
+    return result
+
+
+def gitbutler_push(root, info, opts, login):
+    """D6: the fenced Git push of the branch's own ref; no force, no -u, no tags (push.followTags), never `but push` or `but pr`."""
+    branch = require_branch(opts)
+    require_applied(root, branch)
+    require_settings_pinned(root, branch)
+    refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
+    try:
+        network_git(root, ["push", "--no-follow-tags", "origin", refspec], login)
+    except Stop as exc:
+        if exc.error == "git_network_error" and re.search(r"\[rejected\]|non-fast-forward|fetch first", exc.message):
+            raise Stop("push_rejected", "the remote rejected the push of %s as non-fast-forward; Specwright never forces "
+                       "it: the user decides (%s)" % (branch, exc.message.replace("\n", " ").strip()), 1, branch=branch)
+        raise
+    return {"ok": True, "backend": "gitbutler", "branch": branch}
+
+
+def gitbutler_delete(root, info, opts, login):
+    """D8: delete only a merged branch whose merge the workspace base already holds; never a Git write."""
+    branch = require_branch(opts)
+    merged_commit = opts.get("merged_commit") or ""
+    if merged_commit and not re.fullmatch(r"[0-9a-fA-F]{7,40}", merged_commit):
+        usage("--merged-commit must be a commit id of 7 to 40 hex digits")
+    found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
+    if found.returncode:
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "deleted": False, "reason": "already_deleted"}
+    tip = found.stdout.strip()
+    status = require_applied(root, branch)
+    if not opts.get("force"):  # no caller proved a merged PR: the tip must be in the fetched main
+        fetched = jj_fetch_main(root, info["main"], opts, login)
+        if not git_ancestor(root, tip, fetched):
+            raise Stop("not_merged", "branch %s is not merged into the fetched %s; nothing was deleted" % (branch, info["main"]),
+                       branch=branch)
+    base = (status.get("mergeBase") or {}).get("commitId") or ""
+    proofs = [tip]
+    if merged_commit:
+        resolved = git(root, "rev-parse", "--verify", "-q", merged_commit + "^{commit}")
+        if resolved.returncode == 0:
+            proofs.append(resolved.stdout.strip())
+    if not base or not any(git_ancestor(root, proof, base) for proof in proofs):
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "deleted": False, "reason": "left_applied",
+                "base": base, "message": "branch %s stays applied: the workspace base %s does not hold its merge yet; "
+                "the user's next `but pull` removes it" % (branch, base or "(unknown)")}
+    but_run(root, "branch", "delete", branch, "--json")
+    return {"ok": True, "backend": "gitbutler", "branch": branch, "deleted": True}
+
+
+def run_gitbutler_operation(command, info, opts, paths):
+    root = info["repo"]
+    if command == "branch-create":
+        return gitbutler_branch_create(root, info, opts)
+    if command == "switch":
+        branch = require_branch(opts)
+        if branch != info["main"]:  # the workspace is always based on main: only another branch needs to be applied
+            require_applied(root, branch)
+        return {"ok": True, "backend": "gitbutler", "branch": branch, "switched": False}
+    if command == "commit":
+        return gitbutler_commit(root, info, opts, paths)
+    login = opts.get("login") or info.get("login", "")
+    if command == "push":
+        return gitbutler_push(root, info, opts, login)
+    if command == "pull":
+        return gitbutler_pull(root, info, opts, login)
+    if command == "fetch-main":
+        sha = jj_fetch_main(root, info["main"], opts, login)
+        return {"ok": True, "backend": "gitbutler", "ref": sha, "commit": sha}
+    if command == "delete-branch":
+        return gitbutler_delete(root, info, opts, login)
+    if command in ("merge", "advance"):
+        raise Stop("unsupported_combination", "%s has no GitButler meaning: vcs: gitbutler runs only with finish: pr, "
+                   "where the PR merges on GitHub" % command)
+    raise Stop("unsupported", "the GitButler backend does not implement %s yet" % command)
+
+
 def main_and_context(info, opts):
     if opts.get("main"):
         info["main"] = opts["main"]
@@ -346,9 +751,15 @@ def main_and_context(info, opts):
 
 
 def current_state(repo, info, opts):
-    if info["backend"] == "git":
-        return git_state(repo, info, opts.get("scope"))
-    return jj_state(repo, info, opts.get("scope"))
+    if info["backend"] == "gitbutler":
+        return gitbutler_state(info["repo"], info, opts)
+    state = git_state(repo, info, opts.get("scope")) if info["backend"] == "git" else jj_state(repo, info, opts.get("scope"))
+    # D4: HEAD is the change's commit on Git and jj; `--branch` is reported, never a stop (finish asks from main)
+    head = git(repo, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    state["head"] = head.stdout.strip() if head.returncode == 0 else ""
+    if opts.get("branch"):
+        state["branch_matches"] = state["branch"] == opts["branch"]
+    return state
 
 
 def git_checked(repo, *args, env=None, error="git_error"):
@@ -833,6 +1244,10 @@ def plan(repo, code, role, info, opts):
         args.append("--remote-branch")
     if opts.get("login"):
         args.extend(("--login", opts["login"]))
+    if opts.get("merged_commit"):
+        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", opts["merged_commit"]):
+            usage("--merged-commit must be a commit id of 7 to 40 hex digits")
+        args.extend(("--merged-commit", opts["merged_commit"]))
     return {"ok": True, "backend": info["backend"], "commands": [" ".join(map(shlex.quote, args))]}
 
 
@@ -851,8 +1266,10 @@ def main(argv):
         return result
     if command == "state":
         return current_state(repo, info, opts)
-    if command == "plan":
+    if command == "plan":  # the commands to run, for every backend (GitButler: switch no-op, pull --branch, delete-branch --force)
         return plan(repo, code, role, info, opts)
+    if info["backend"] == "gitbutler":
+        return run_gitbutler_operation(command, info, opts, paths)
     if info["backend"] == "git":
         return run_git_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})
     return run_jj_operation(command, repo, info, opts, paths, {"login": info.get("login", "")})

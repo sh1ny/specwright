@@ -35,6 +35,8 @@ jobs:
       matrix:
         suite: ${{ fromJSON(needs.list.outputs.suites) }}
     name: ${{ matrix.suite }}
+    env:
+      SPECWRIGHT_REQUIRE_BUT: '1'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -74,6 +76,24 @@ jobs:
           echo "SPECWRIGHT_REQUIRE_JJ=1" >> "$GITHUB_ENV"
           export SPECWRIGHT_REQUIRE_JJ=1
           "$RUNNER_TEMP/jj-bin/jj" --version
+      - name: Install pinned but
+        if: matrix.suite == 'vcs'
+        run: |
+          build="${BUT_VERSION:-$(cat BUT_VERSION)}"
+          version="${build%%-*}"
+          url="https://releases.gitbutler.com/releases/release/${build}/linux/x86_64/but"
+          expected="${BUT_SHA256:-57e442543839c912f164fb91a20ea934826fc0023ddf552a70f2ed63ba514a73}"
+          mkdir -p "$RUNNER_TEMP/but-download" "$RUNNER_TEMP/but-bin"
+          curl --fail --location "$url" --output "$RUNNER_TEMP/but-download/but"
+          echo "$expected  $RUNNER_TEMP/but-download/but" | sha256sum --check
+          install -m 0755 "$RUNNER_TEMP/but-download/but" "$RUNNER_TEMP/but-bin/but"
+          echo "$RUNNER_TEMP/but-bin" >> "$GITHUB_PATH"
+          reported="$("$RUNNER_TEMP/but-bin/but" --version)"
+          echo "$reported"
+          case " $reported " in
+            *" $version "*) ;;
+            *) echo "but --version does not name $version" >&2; exit 1 ;;
+          esac
       - name: Git identity and default branch
         run: |
           git config --global user.name "Specwright CI"

@@ -38,6 +38,9 @@
 #                       archive directories restore to one <P>/changes/<name>/), member_missing (a later commit deleted a
 #                       member's archive directory; `paths` names them), backup_exists (the backup directory exists),
 #                       bad_ref, not_a_repo.
+#                       On GitButler (the code repo's backend, read through vcs.sh) --branch is required (exit 2, usage) and the
+#                       head every guard checks is the tip of refs/heads/<branch>, resolved now: HEAD is the workspace commit
+#                       there. On Git and jj the head is HEAD, as before.
 #                       The current branch is read through ../../specwright-pr/scripts/vcs.sh `state` (exit 2, error
 #                       vcs_script_missing, naming the path when that script is absent). --code is the code repo's toplevel; give
 #                       it with `--dir <store>` so the store's own backend is probed. On a jj repo `script` works the working copy
@@ -108,11 +111,14 @@ def nul_list(r):
     return [x.decode("utf-8", "replace") for x in r.stdout.split(b"\0") if x]
 
 
-def vcs_state(top, code):
-    """The branch and the working-copy changes, read through vcs.sh state (Git or jj, the repo's own backend)."""
+def vcs_state(top, code, branch=None):
+    """The branch and the working-copy changes, read through vcs.sh state (the repo's own backend). --branch is passed along:
+    on GitButler `branch` is empty unless that branch is applied."""
     if not os.path.isfile(VCS_SH):
         raise Stop("vcs_script_missing", f"{VCS_SH} is missing; finish.sh reads the branch through it", code=2, path=VCS_SH)
     role = ["--role", "store", "--code", code] if code else ["--role", "code"]
+    if branch:
+        role += ["--branch", branch]
     try:
         r = subprocess.run([BASH, VCS_SH, "state", "--repo", top, *role], cwd=top, env=ENV, capture_output=True)
     except OSError as e:
@@ -171,8 +177,21 @@ def cmd_undo(d, a):
     if r.returncode != 0:
         raise Stop("not_a_repo", "the repository has no commit")
     head = text_of(r)
-    vs = vcs_state(top, a.get("code"))
+    vs = vcs_state(top, a.get("code"), a.get("branch"))
     jj = vs["backend"] == "jj"
+    gb = vs["backend"] == "gitbutler"
+    headref = "HEAD"
+    if gb:  # HEAD is the workspace commit: the head every guard checks is the branch's tip
+        if not a.get("branch"):
+            usage("--branch is required on GitButler: HEAD is the workspace commit, not the change branch")
+        if not vs.get("applied"):
+            raise Stop("branch_not_applied", f"{a['branch']} is not applied in the GitButler workspace; Specwright never applies one "
+                       "(it can conflict with the other branches): apply it yourself, then plan again", branch=a["branch"])
+        headref = "refs/heads/" + a["branch"]
+        r = git(top, "rev-parse", "--verify", "-q", headref + "^{commit}")
+        if r.returncode != 0:
+            raise Stop("bad_ref", f"{a['branch']} is not a local branch")
+        head = text_of(r)
     cb = vs["branch"]
     branch = a.get("branch") or cb
     if not branch:
@@ -207,7 +226,7 @@ def cmd_undo(d, a):
             return None
 
     def staged():
-        return [] if jj else nul_list(git(top, "diff", "--cached", "--name-only", "-z"))  # no index on jj
+        return [] if jj or gb else nul_list(git(top, "diff", "--cached", "--name-only", "-z"))  # no index on jj; GitButler never stages
 
     def unique_members(order):
         """Two archive directories that restore to one changes/<name>/ would nest one inside the other."""
@@ -399,9 +418,22 @@ def cmd_undo(d, a):
 
     # ---- the guard ---------------------------------------------------------------------------------------------
     sq = q
-    if jj:
+    touched_all = [m["dir"] for m in members] + [join(P, "changes", m["name"]) for m in members] + main_mod + main_new
+    if gb:  # the guard reads: the branch is applied at the planned tip and the touched paths have no uncommitted change
+        state_cmd = f'bash {sq(VCS_SH)} state --repo {sq(top)} --role code --branch {sq(branch)}'
+        lines = ["set -euo pipefail", f"cd {sq(top)}",
+                 f'case "$({state_cmd})" in *{sq(chr(34) + "branch" + chr(34) + ": " + json.dumps(plan_branch, ensure_ascii=False))}*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
+                 f'test "$(git rev-parse {sq(headref)})" = {sq(T)}',
+                 # HEAD is the workspace commit: a touched path that differs from the tip there is another applied branch's,
+                 # and restoring the file would undo that branch's committed change
+                 f'git diff --quiet {sq(T)} HEAD -- ' + " ".join(sq(f) for f in touched_all)
+                 + ' || { echo "another applied branch changes a path the undo restores" >&2; exit 1; }']
+        if mode == "committed":
+            lines.append(f'test -z "$(git --no-optional-locks status --porcelain --untracked-files=all -- '
+                         + " ".join(sq(f) for f in touched_all) + ')"')
+        lines.append(f"test ! -e {sq(backup_dir)}")
+    elif jj:
         rev = branch if re.fullmatch(r"[A-Za-z0-9._/]+(-[A-Za-z0-9._/]+)*", branch) else dq(branch)  # a revset symbol or string
-        touched_all = [m["dir"] for m in members] + [join(P, "changes", m["name"]) for m in members] + main_mod + main_new
         fsets = " ".join(sq("root:" + dq(f)) for f in touched_all)
         state_cmd = f'bash {sq(VCS_SH)} state --repo {sq(top)} ' + (f"--role store --code {sq(a['code'])}" if a.get("code") else "--role code")
         lines = ["set -euo pipefail", f"cd {sq(top)}"]
@@ -409,15 +441,15 @@ def cmd_undo(d, a):
             lines += ['test -z "$(jj diff -r @ --name-only)"', f'test "$(git rev-parse {sq("refs/heads/" + branch)})" = {sq(T)}',
                       f"jj new {sq(rev)}"]
         lines += [f'case "$({state_cmd})" in *{sq(chr(34) + "branch" + chr(34) + ": " + json.dumps(plan_branch, ensure_ascii=False))}*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
-                  f'test "$(git rev-parse HEAD)" = {sq(T)}']
+                  f'test "$(git rev-parse {sq(headref)})" = {sq(T)}']
         if mode == "committed":
             lines.append(f'test -z "$(jj diff -r @ --name-only {fsets})"')
         lines.append(f"test ! -e {sq(backup_dir)}")
     else:
         lines = ["set -euo pipefail", f"cd {sq(top)}"]
-    guard = [f'test "$(git branch --show-current)" = {sq(plan_branch)}', f'test "$(git rev-parse HEAD)" = {sq(T)}',
+    guard = [f'test "$(git branch --show-current)" = {sq(plan_branch)}', f'test "$(git rev-parse {sq(headref)})" = {sq(T)}',
              "git diff --cached --quiet", f"test ! -e {sq(backup_dir)}"]
-    if not jj:
+    if not jj and not gb:
         if mode == "committed" and branch != cb:
             lines += ['test -z "$(git status --porcelain)"', f'test "$(git rev-parse {sq("refs/heads/" + branch)})" = {sq(T)}',
                       f"git checkout -q {sq(branch)} --"]
@@ -435,7 +467,7 @@ def cmd_undo(d, a):
     if not backup_files:
         lines.append(f"mkdir -p -- {sq(backup_dir)}")
 
-    if mode == "committed" and not jj:
+    if mode == "committed" and not jj and not gb:
         for m in members:
             lines.append(f"git rm -r -q --cached -- {sq(m['dir'])}")
             lines.append(f"git read-tree --prefix={sq(join(P, 'changes', m['name']) + '/')} {sq(T + ':' + m['dir'])}")
@@ -454,6 +486,10 @@ def cmd_undo(d, a):
     src = f"--source={sq(A + '^')}" if mode == "committed" else f"--source={sq(T)}"
     if main_mod and jj:
         lines.append(f"jj restore --from {sq(A + '-' if mode == 'committed' else T)} " + " ".join(sq("root:" + dq(f)) for f in main_mod))
+    elif main_mod and gb:  # a file write from a Git read: `git restore` would be a Git write to the shared work tree
+        base_rev = A + "^" if mode == "committed" else T
+        for f in main_mod:
+            lines.append(f"git cat-file --filters {sq(base_rev + ':' + f)} > {sq(f)}")
     elif main_mod:
         lines.append(f"git restore {src} --worktree -- " + " ".join(sq(f) for f in main_mod))
     if main_new:
@@ -464,6 +500,14 @@ def cmd_undo(d, a):
         subject = f"{typ}({change}): undo archive of {', '.join(names_all)}"
         lines.append(f"jj commit -m {sq(subject)} {fsets}")
         lines.append(f"jj bookmark set {sq(rev)} -r @-")
+    if gb and mode == "committed":
+        subject = f"{typ}({change}): undo archive of {', '.join(names_all)}"
+        msgfile = backup_dir + "/commit-message.txt"
+        lines.append(f"printf '%s\\n' {sq(subject)} > {sq(msgfile)}")
+        # a directory ends in `/` so the commit covers the files that left it
+        cpaths = [d + "/" for d in [m["dir"] for m in members] + [join(P, "changes", m["name"]) for m in members]] + main_mod + main_new
+        lines.append(f"bash {sq(VCS_SH)} commit --repo {sq(top)} --role code --branch {sq(branch)} --message-file {sq(msgfile)} -- "
+                     + " ".join(sq(f) for f in cpaths))
     lines.append(f"echo {sq('Undo done. Saved copies are in ' + backup_dir)}")
     script = "\n".join(lines) + "\n"
 
@@ -474,6 +518,11 @@ def cmd_undo(d, a):
         if vs["dirty_paths"] and branch == cb and any(p.startswith(tuple(f + "/" for f in touched_all)) or p in touched_all for p in vs["dirty_paths"]):
             warnings.append("@ already holds changes under the touched paths, so the script's guard stops before it moves anything. "
                             "Commit them elsewhere or set them aside, then plan again.")
+    elif mode == "committed" and gb:
+        warnings.append("The script moves and rewrites files in the shared GitButler work tree first and commits them last, with "
+                        f"`vcs.sh commit` (`but commit -b {branch}`), naming only the touched paths; no Git write runs. If it fails "
+                        "before the commit, those files are uncommitted changes: move the archived directories back by hand, write "
+                        "each main spec again with `git cat-file --filters <archive commit>^:<path>`, and plan again.")
     elif mode == "committed":
         touched = [m["dir"] for m in members] + [join(P, "changes", m["name"]) for m in members] + main_mod + main_new
         warnings.append("If the script fails after it began changing the index and before it commits, run "
