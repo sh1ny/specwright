@@ -9,7 +9,6 @@ Run: python evals/pr-pair/record_markdown.py [--all]    (--all renders every bod
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,6 +17,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import closing_bodies  # noqa: E402
+
+sys.path.append(str(HERE.parents[1] / "evals"))
+import bashexe  # noqa: E402
 
 ROOT = HERE.parents[1]
 AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
@@ -31,7 +33,7 @@ _spec.loader.exec_module(fake_gh)
 def render(text, tmp):
     req = Path(tmp) / "request.json"
     req.write_text(json.dumps({"text": text, "mode": closing_bodies.MODE, "context": closing_bodies.CONTEXT}), encoding="utf-8", newline="\n")
-    bash = shutil.which("bash")
+    bash = bashexe.bash()
     r = subprocess.run([bash, AS_SH.as_posix(), LOGIN, "gh", "api", "-X", "POST", "markdown", "--input", req.as_posix()],
                        capture_output=True, timeout=120)
     if r.returncode != 0:

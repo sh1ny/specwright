@@ -21,7 +21,7 @@ Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
                   names, --ids or --list-suites. Git runs in the repository that holds --root.
   No suite named means every suite. Files in SERIAL run one at a time, after the parallel batch.
 
-Output: one line per suite `suite: F files, T tests, S.Ss` (T from unittest's `Ran N tests` line; S from the suite's first file
+Output: one line per suite `suite: F files, T tests, K skipped, S.Ss` (T from unittest's `Ran N tests` line, K from `skipped=N` on its closing `OK (...)`/`FAILED (...)` line; S from the suite's first file
 start to its last file end, so with several suites named it includes their files too: time a suite by naming it alone). Each failed or timed-out file
 prints `FAILED suite/file (exit code N)` or `FAILED suite/file (timeout after S s)`, the last 200 lines of its output (stderr
 included) and `full output: <path>`; that log is kept after the run, the logs of passed files are removed.
@@ -202,6 +202,12 @@ def tests_run(path):
     return int(found[-1]) if found else 0
 
 
+def tests_skipped(path):
+    data = Path(path).read_bytes()[-65536:].decode("utf-8", "replace")
+    found = re.findall(r"^(?:OK|FAILED) \((?:[^)]*, )?skipped=(\d+)", data, re.M)
+    return int(found[-1]) if found else 0
+
+
 class Run:
     """The state of one run: the bounded module, the log directory, the Popens that are running and whether the run is
     stopping (an interrupt or an error: no file starts after it, and every running tree is stopped)."""
@@ -217,7 +223,7 @@ class Run:
         sdir = self.root / suite
         log = self.workdir / ("%s__%s.log" % (suite, fname))
         cmd = [sys.executable, "-m", "unittest", "discover", "-s", str(sdir), "-t", str(sdir), "-p", fname]
-        res = {"suite": suite, "file": fname, "log": log, "rc": None, "timed_out": False, "tests": 0}
+        res = {"suite": suite, "file": fname, "log": log, "rc": None, "timed_out": False, "tests": 0, "skipped": 0}
         res["start"] = time.monotonic()
         with self.lock:
             if self.stopping:  # a queued file after an interrupt: never started
@@ -259,6 +265,7 @@ class Run:
                     self.bounded.close_job(p)
         res["end"] = time.monotonic()
         res["tests"] = tests_run(log)
+        res["skipped"] = tests_skipped(log)
         return res
 
     def stop_all(self):
@@ -448,7 +455,8 @@ def main(argv):
         for suite in suites:
             rs = [r for r in results if r["suite"] == suite]
             wall = (max(r["end"] for r in rs) - min(r["start"] for r in rs)) if rs else 0.0
-            print("%s: %d files, %d tests, %.1fs" % (suite, len(rs), sum(r["tests"] for r in rs), wall))
+            print("%s: %d files, %d tests, %d skipped, %.1fs" % (
+                suite, len(rs), sum(r["tests"] for r in rs), sum(r["skipped"] for r in rs), wall))
         for r in failed:
             status = "timeout after %g s" % a.timeout if r["timed_out"] else "exit code %d" % r["rc"]
             print("\nFAILED %s/%s (%s)" % (r["suite"], r["file"], status))

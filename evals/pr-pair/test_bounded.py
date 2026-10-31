@@ -20,6 +20,7 @@ BOUNDED = ROOT / "skills" / "specwright-pr" / "scripts" / "bounded.py"
 FAKE_GH = ROOT / "evals" / "fakes" / "gh.py"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
+import bashexe  # noqa: E402
 
 
 def load_bounded():
@@ -239,7 +240,7 @@ class RunBounded(Base):
         if gpid:
             self.assertTrue(wait_gone(gpid, 10), "the grandchild outlived the deadline")
 
-    @unittest.skipUnless(os.name == "nt", "job objects are Windows only")
+    @unittest.skipUnless(os.name == "nt", "platform: job objects are Windows only")
     def test_no_job_object_falls_back_and_says_so(self):
         env = {**self.env, "SPECWRIGHT_TEST_NO_JOB": "1", "SPECWRIGHT_NET_DEADLINE": "1"}
         cmd = py(HANG, str(self.pidf))
@@ -250,7 +251,7 @@ class RunBounded(Base):
         self.assertTrue(lines[0].startswith("bounded: no job object: ") and len(lines[0]) > len("bounded: no job object: "), lines[0])
         self.assertTrue(wait_gone(self.pid(), 10), "the command survived")
 
-    @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the caller past the deadline")
+    @unittest.skipIf(os.name == "nt", "platform: needs SIGSTOP to hold the caller past the deadline")
     def test_an_exit_first_seen_after_the_deadline_is_deadline_exceeded(self):
         # the caller is frozen from 0.5 s (well after it set its deadline base) until 4.5 s into a 2 s deadline, and the
         # command prints and exits at 3.5 s: it was still running when the deadline passed, so its result is not returned
@@ -366,7 +367,7 @@ class Cli(Base):
 
     def test_limit_line_names_the_command_inside_bash_c(self):
         # the pr scripts run `bash -c 'exec gh "$@"' gh api ...`: the line names gh api, not bash -c
-        sh = shutil.which("bash") or shutil.which("sh")
+        sh = bashexe.bash() or shutil.which("sh")
         cmd = [sh, "-c", "sleep 3600", "gh", "api"]
         r = self.run_cli("--", *cmd, env={"SPECWRIGHT_NET_DEADLINE": "1"})
         self.assertEqual(r.returncode, 124)
@@ -394,7 +395,7 @@ class ShimOnWindows(Base):
     """A `#!/bin/sh` gh is started through "$BASH" -c 'exec gh "$@"', as the scripts do."""
 
     def test_sh_shim_runs_through_bash(self):
-        bash = os.environ.get("BASH") or shutil.which("bash")
+        bash = bashexe.bash()
         if not bash:
             self.skipTest("no bash")
         if shutil.which("cygpath"):
@@ -411,7 +412,7 @@ class ShimOnWindows(Base):
         self.assertEqual(r.stdout.strip(), "shim: api user")
 
     def test_the_fake_gh_hangs_and_is_stopped_through_bash(self):
-        bash = os.environ.get("BASH") or shutil.which("bash")
+        bash = bashexe.bash()
         if not bash:
             self.skipTest("no bash")
         if shutil.which("cygpath"):
@@ -435,7 +436,7 @@ class ShimOnWindows(Base):
 
 
 def windows_bash():
-    bash = os.environ.get("BASH") or shutil.which("bash")
+    bash = bashexe.bash()
     if not bash:
         return None
     if shutil.which("cygpath"):
@@ -443,7 +444,7 @@ def windows_bash():
     return bash
 
 
-@unittest.skipUnless(os.name == "nt", "the argument transport is Windows only")
+@unittest.skipUnless(os.name == "nt", "platform: the argument transport is Windows only")
 class ArgumentTransport(Base):
     """D1: on Windows the arguments after $0 travel on the child's stdin, not on the command line."""
 

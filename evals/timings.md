@@ -48,3 +48,42 @@ The run reported `1 of 15 files failed`: `test_git_backend.py` (3 of its 6 tests
 `GIT_TRACE` in `record_baseline`, before any Specwright code ran. It fails the same way when run on its own; the time counts the
 whole suite, failed file included. The slowest files are the two flow tests (about 230 to 250 s each on their own), which build
 a real jj repository and run Specwright's `git` calls through a logging shim.
+
+## CI matrix (change `ci-os-matrix`)
+
+`.github/workflows/evals.yml` runs every suite on `ubuntu-24.04`, `macos-latest` and `windows-latest` (#145). Measured from
+Actions run [41236084159](https://github.com/sh1ny/specwright/actions/runs/41236084159) (2026-10-31), the first run in which
+every suite passed on Linux and macOS and every suite but `update` passed on Windows (`update` failed one test on a short-name
+temp path, fixed afterwards). Each job runs `python evals/run.py <suite>` with the runner's default `--jobs`.
+
+Suite wall time, as `run.py` prints it, in seconds:
+
+| Suite | ubuntu-24.04 | macos-latest | windows-latest |
+|---|---|---|---|
+| finish | 16.3 | 56.8 | 137.2 |
+| git-workflow | 36.7 | 132.9 | 465.9 |
+| pr-pair | 357.9 | 600.7 | 1015.0 |
+| release | 64.8 | 117.2 | 323.0 |
+| review-routes | 53.2 | 125.3 | 406.6 |
+| runner | 10.2 | 11.1 | 17.1 |
+| update | 60.0 | 105.4 | 435.1 |
+| vcs | 76.5 | 75.3 | 259.5 |
+| Slowest job, setup included | 376 (pr-pair) | 667 (pr-pair) | 1093 (pr-pair) |
+
+`run.py` prints no time per file, so each OS's slowest suite stands in for its slowest file. The timeouts in the workflow:
+`run_timeout` is 1.5 × that suite, rounded up to whole 5 minutes; the job's `timeout` is `run_timeout` plus 5 minutes for
+setup, so a hung file is stopped by the runner (which prints its last 200 lines) before Actions stops the job. Each job
+timeout is also above 1.5 × the slowest job.
+
+| OS | run_timeout (s) | timeout (min) |
+|---|---|---|
+| ubuntu-24.04 | 600 | 15 |
+| macos-latest | 1200 | 25 |
+| windows-latest | 1800 | 35 |
+
+`vcs` skips 58 tests on macOS and Windows and none on Linux: the GitButler tests, since `but` is installed on Linux only
+(#154). `pr-pair` skips 6 on Linux and macOS and 2 on Windows, and `review-routes` skips 1 everywhere: each of those skips
+names its platform (`platform:`) or its issue, as `evals/runner/test_platform_skips.py` checks.
+
+The `test_git_backend.py` crash recorded under the `vcs` suite above was the test handing native `git.exe` a Git Bash
+(POSIX) PATH; the test now gives it the Windows PATH, and the file passes.

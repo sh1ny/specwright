@@ -15,6 +15,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
 CHANGE = "demo-change"
@@ -94,7 +97,7 @@ class Base(unittest.TestCase):
     maxDiff = None
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(tempfile.mkdtemp()).resolve()  # macOS: /var is /private/var, and git reports the resolved toplevel
         self.addCleanup(rmtree, self.tmp)
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
@@ -166,7 +169,7 @@ class Base(unittest.TestCase):
         return [c for c in self.calls(cli) if c["argv"][:1] not in (["--version"], ["config"], ["models"])]
 
     def script(self, *args, cwd=None, expect=0):
-        r = subprocess.run(["bash", str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=self.env(),
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=self.env(),
                            cwd=cwd or self.code, encoding="utf-8")
         lines = r.stdout.strip().splitlines()
         if expect is not None:
@@ -1030,7 +1033,7 @@ class OutputBound(Base):
         self.assertEqual(out["status"], "failed", out)
         self.assertIn("kept its output open", out["message"])
 
-    @unittest.skipIf(os.name == "nt", "needs SIGSTOP to hold the capture loop past the deadline")
+    @unittest.skipIf(os.name == "nt", "platform: needs SIGSTOP to hold the capture loop past the deadline")
     def test_an_exit_first_seen_after_the_deadline_is_a_timeout(self):
         # the capture loop is frozen from 0.5 s (after it set its deadline) until 4.5 s into a 2 s timeout, and the reviewer
         # answers and exits at 3.5 s: it was still running when review.timeout passed, so the run is a timeout, not its
@@ -1069,7 +1072,7 @@ class OutputBound(Base):
         self.assertIn("kept its output open", out["message"])
         self.assertFalse((self.tmp / "review.md").exists())
 
-    @unittest.skipUnless(os.name == "nt", "the job object is a Windows mechanism")
+    @unittest.skipUnless(os.name == "nt", "platform: the job object is a Windows mechanism")
     def test_no_job_object_receipt_names_it(self):
         self.install("codex")
         self.stdout_file("codex", json.dumps(VALID))

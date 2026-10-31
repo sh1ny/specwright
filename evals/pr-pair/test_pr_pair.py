@@ -35,6 +35,7 @@ import jjenv  # noqa: E402
 
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the repo with its first commit is built once and copied
+import bashexe  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("fake_gh", ROOT / "evals" / "fakes" / "gh.py")
 fake_gh = importlib.util.module_from_spec(_spec)
@@ -121,7 +122,7 @@ class Base(unittest.TestCase):
     def pp(self, *args, env=None, expect=0, cwd=None):
         """Run pr-pair.sh; return the parsed JSON line. The exit code must be `expect` (None = any)."""
         e = {**self.env(), **(env or {})}
-        r = subprocess.run(["bash", str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=e, cwd=cwd or self.tmp)
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=e, cwd=cwd or self.tmp)
         lines = r.stdout.strip().splitlines()
         if expect is not None:
             self.assertEqual(r.returncode, expect, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")
@@ -1001,7 +1002,7 @@ class Rounds(Base):
         ssh = self.write("user-ssh.sh", f'#!/bin/sh\necho "token=${{GH_TOKEN:-unset}}" >> "{fixtures.posix(seen)}"\nexit 1\n')
         as_sh = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
         e = {**self.env(), "GIT_SSH_COMMAND": f"sh {fixtures.posix(ssh)}"}
-        r = subprocess.run(["bash", str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
+        r = subprocess.run([bashexe.bash(), str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
                             "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
         self.assertIn('"ok": true', r.stdout, r.stdout + r.stderr)
         self.assertNotIn("SSH is disabled", r.stdout + r.stderr, "the store read ran inside the outer fence")
@@ -1034,7 +1035,7 @@ class Rounds(Base):
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
         as_sh = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
         e = {**self.env(), "NO_PROXY": "", "no_proxy": "", **env}
-        r = subprocess.run(["bash", str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
+        r = subprocess.run([bashexe.bash(), str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
                             "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
         helper = [c for c in self.gh_calls() if c["argv"][:2] == ["auth", "git-credential"]]
         self.assertTrue(helper, f"the store's credential helper never ran: {r.stdout}{r.stderr}")
@@ -2156,7 +2157,7 @@ class PassOwnership(PassBase):
 
     def test_pass_write_is_exclusive_under_concurrency(self):
         f = self.write_json("intent.json", self.intent([self.finding()]))
-        cmd = ["bash", str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)]
+        cmd = [bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)]
         res = []
         gate = threading.Barrier(2)
 
@@ -2601,7 +2602,7 @@ class PassRuntime(PassBase):
         self.state_dir.mkdir(parents=True)
         (self.state_dir / "feedback").write_text("not a directory\n", encoding="utf-8")  # the record's parent is a file
         f = self.write_json("intent.json", self.intent([self.finding()]))
-        r = subprocess.run(["bash", str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
                            capture_output=True, text=True, env=self.env(), cwd=self.tmp)
         self.assertNotIn("Traceback", r.stdout + r.stderr)
         lines = r.stdout.strip().splitlines()
@@ -2621,10 +2622,10 @@ class PassRuntime(PassBase):
             os.chmod(shims / name, 0o755)
         e = self.env()
         e["PATH"] = str(shims) + os.pathsep + e["PATH"]
-        v = subprocess.run(["bash", "-c", "python3 -c 'import sys; print(sys.version_info[:2])'"], capture_output=True, text=True, env=e)
+        v = subprocess.run([bashexe.bash(), "-c", "python3 -c 'import sys; print(sys.version_info[:2])'"], capture_output=True, text=True, env=e)
         self.assertEqual(v.stdout.strip(), "(3, 8)", f"the shim does not reach 3.8: {v.stdout!r} {v.stderr!r}")
         f = self.write_json("intent.json", self.intent([self.finding()]))
-        r = subprocess.run(["bash", str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
                            capture_output=True, text=True, env=e, cwd=self.tmp)
         self.assertEqual(r.returncode, 0, f"stdout: {r.stdout}\nstderr: {r.stderr}")
         self.assertTrue(json.loads(r.stdout.strip().splitlines()[0])["ok"], r.stdout)
@@ -2655,10 +2656,10 @@ class Cleanup(Base):
     @staticmethod
     def fenced_pull(login):
         """The fenced pull cleanup-plan emits: as.sh runs git pull as the login that reads the repo."""
-        return ["bash", str(SCRIPT.parent / "as.sh").replace("\\", "/"), login, "git", "pull", "--ff-only"]
+        return ["bash", str(SCRIPT.parent / "as.sh").replace("\\", "/"), login, "git", "pull", "--ff-only"]  # bare-bash: not started
 
     def same_cmds(self, got, want):
-        fold = lambda cs: [[x.lower() if i == 1 and c[:1] == ["bash"] else x for i, x in enumerate(c)] for c in cs]
+        fold = lambda cs: [[x.lower() if i == 1 and c[:1] == ["bash"] else x for i, x in enumerate(c)] for c in cs]  # bare-bash: not started
         self.assertEqual(fold(got), fold(want))
 
     @staticmethod
@@ -2699,13 +2700,13 @@ class Cleanup(Base):
         e = p["code"]
         switch, pull, check = self.cmds(e)
         for cmd, op in ((switch, "switch"), (pull, "pull")):
-            self.assertEqual((cmd[0], cmd[1].lower(), cmd[2]), ("bash", vcs_sh, op), cmd)
+            self.assertEqual((cmd[0], cmd[1].lower(), cmd[2]), ("bash", vcs_sh, op), cmd)  # bare-bash: not started
             self.assertEqual((opt(cmd, "--role"), opt(cmd, "--branch")), ("code", "main"), cmd)
             self.assertEqual(Path(opt(cmd, "--repo")).resolve(), Path(self.code).resolve(), cmd)
         self.assertEqual(opt(pull, "--login"), "KintsugiBot")
         self.assertEqual(check, self.check_cmd(e, "a" * 40))
         delete = e["delete"]
-        self.assertEqual((delete[0], delete[1].lower(), delete[2]), ("bash", vcs_sh, "delete-branch"), delete)
+        self.assertEqual((delete[0], delete[1].lower(), delete[2]), ("bash", vcs_sh, "delete-branch"), delete)  # bare-bash: not started
         self.assertEqual(opt(delete, "--branch"), BRANCH)
         self.assertIn("--force", delete)
         self.assertEqual(e["commands"][0]["cwd"], str(self.code).replace("\\", "/"))

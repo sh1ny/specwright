@@ -23,6 +23,7 @@ SCRIPT = Path(os.environ.get("RELEASE_SH") or ROOT / "skills" / "specwright-rele
 _spec = importlib.util.spec_from_file_location("release_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
+import bashexe  # noqa: E402
 
 VERSION_FILES = ["VERSION", "README.md", "skills/specwright-pr/SKILL.md", "skills/specwright-debug/SKILL.md"]
 
@@ -65,7 +66,7 @@ class Base(unittest.TestCase):
 
     def release(self, *args, cwd=None, env=None):
         """Run release.sh; returns (exit code, parsed JSON, raw stdout)."""
-        r = subprocess.run(["bash", str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
                            encoding="utf-8", env=env)
         try:
             doc = json.loads(r.stdout)
@@ -1761,7 +1762,7 @@ class TestBoundedNetwork(PubFlow):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
         t0 = time.time()
         try:
-            r = subprocess.run(["bash", str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=e,
+            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=e,
                                capture_output=True, text=True, encoding="utf-8", timeout=self.LIMIT)
         except subprocess.TimeoutExpired:
             self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
@@ -1787,7 +1788,7 @@ class TestBoundedNetwork(PubFlow):
 
     def test_untagged_within_deadline_names_no_limit(self):
         self.save()
-        r = subprocess.run(["bash", str(SCRIPT), "untagged"], cwd=self.work, capture_output=True, text=True, encoding="utf-8",
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), "untagged"], cwd=self.work, capture_output=True, text=True, encoding="utf-8",
                            env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         doc = json.loads(r.stdout)

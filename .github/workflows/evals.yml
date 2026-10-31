@@ -28,16 +28,33 @@ jobs:
 
   suite:
     needs: list
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         suite: ${{ fromJSON(needs.list.outputs.suites) }}
-    name: ${{ matrix.suite }}
-    env:
-      SPECWRIGHT_REQUIRE_BUT: '1'
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-24.04
+            timeout: 15
+            run_timeout: 600
+          - os: macos-latest
+            timeout: 25
+            run_timeout: 1200
+          - os: windows-latest
+            timeout: 35
+            run_timeout: 1800
+    name: ${{ matrix.suite }} (${{ matrix.os }})
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Put Git for Windows' tools first on PATH
+        if: runner.os == 'Windows'
+        run: |
+          echo 'C:\Program Files\Git\usr\bin' >> "$GITHUB_PATH"
+          echo 'C:\Program Files\Git\bin' >> "$GITHUB_PATH"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -53,6 +70,11 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      - name: Log the POSIX userland that bash and Python resolve
+        if: runner.os == 'Windows'
+        run: |
+          command -v bash cygpath sed
+          python -c "import shutil; print(shutil.which('bash'))"
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -61,23 +83,40 @@ jobs:
       - name: Install pinned jj
         run: |
           version="${JJ_VERSION:-$(cat JJ_VERSION)}"
-          archive="jj-v${version}-x86_64-unknown-linux-musl.tar.gz"
+          case "$RUNNER_OS/$RUNNER_ARCH" in
+            Linux/X64)
+              triple=x86_64-unknown-linux-musl; ext=tar.gz; name=jj
+              pinned=fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08 ;;
+            macOS/ARM64)
+              triple=aarch64-apple-darwin; ext=tar.gz; name=jj
+              pinned=43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58 ;;
+            Windows/X64)
+              triple=x86_64-pc-windows-msvc; ext=zip; name=jj.exe
+              pinned=c42316b10df04611bc65029a18bcb2d92636edddb6871d511f7bb4233e999b83 ;;
+            *) echo "no pinned jj for $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="jj-v${version}-${triple}.${ext}"
           url="https://github.com/jj-vcs/jj/releases/download/v${version}/${archive}"
-          expected="${JJ_SHA256:-fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08}"
+          expected="${JJ_SHA256:-$pinned}"
           mkdir -p "$RUNNER_TEMP/jj-download" "$RUNNER_TEMP/jj-bin"
           curl --fail --location "$url" --output "$RUNNER_TEMP/jj-download/$archive"
-          echo "$expected  $RUNNER_TEMP/jj-download/$archive" | sha256sum --check
+          python -c 'import hashlib, sys; actual = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest(); ok = actual == sys.argv[2]; ok or print("jj archive sha256 mismatch: expected %s, actual %s" % (sys.argv[2], actual), file=sys.stderr); sys.exit(0 if ok else 1)' "$RUNNER_TEMP/jj-download/$archive" "$expected"
           mkdir -p "$RUNNER_TEMP/jj-extract"
-          tar -xzf "$RUNNER_TEMP/jj-download/$archive" -C "$RUNNER_TEMP/jj-extract"
-          binary="$(find "$RUNNER_TEMP/jj-extract" -type f -name jj -print -quit)"
+          if [ "$ext" = zip ]; then
+            python -m zipfile -e "$RUNNER_TEMP/jj-download/$archive" "$RUNNER_TEMP/jj-extract"
+          else
+            tar -xzf "$RUNNER_TEMP/jj-download/$archive" -C "$RUNNER_TEMP/jj-extract"
+          fi
+          binary="$(find "$RUNNER_TEMP/jj-extract" -type f -name "$name" -print -quit)"
           test -n "$binary"
-          install -m 0755 "$binary" "$RUNNER_TEMP/jj-bin/jj"
+          install -m 0755 "$binary" "$RUNNER_TEMP/jj-bin/$name"
           echo "$RUNNER_TEMP/jj-bin" >> "$GITHUB_PATH"
           echo "SPECWRIGHT_REQUIRE_JJ=1" >> "$GITHUB_ENV"
           export SPECWRIGHT_REQUIRE_JJ=1
-          "$RUNNER_TEMP/jj-bin/jj" --version
+          "$RUNNER_TEMP/jj-bin/$name" --version
       - name: Install pinned but
-        if: matrix.suite == 'vcs'
+        # GitButler publishes a standalone `but` for Linux only; the macOS and Windows gap is issue #154.
+        if: matrix.suite == 'vcs' && runner.os == 'Linux'
         run: |
           build="${BUT_VERSION:-$(cat BUT_VERSION)}"
           version="${build%%-*}"
@@ -85,7 +124,7 @@ jobs:
           expected="${BUT_SHA256:-57e442543839c912f164fb91a20ea934826fc0023ddf552a70f2ed63ba514a73}"
           mkdir -p "$RUNNER_TEMP/but-download" "$RUNNER_TEMP/but-bin"
           curl --fail --location "$url" --output "$RUNNER_TEMP/but-download/but"
-          echo "$expected  $RUNNER_TEMP/but-download/but" | sha256sum --check
+          python -c 'import hashlib, sys; actual = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest(); ok = actual == sys.argv[2]; ok or print("but sha256 mismatch: expected %s, actual %s" % (sys.argv[2], actual), file=sys.stderr); sys.exit(0 if ok else 1)' "$RUNNER_TEMP/but-download/but" "$expected"
           install -m 0755 "$RUNNER_TEMP/but-download/but" "$RUNNER_TEMP/but-bin/but"
           echo "$RUNNER_TEMP/but-bin" >> "$GITHUB_PATH"
           reported="$("$RUNNER_TEMP/but-bin/but" --version)"
@@ -94,6 +133,9 @@ jobs:
             *" $version "*) ;;
             *) echo "but --version does not name $version" >&2; exit 1 ;;
           esac
+      - name: Require but where it is installed (Linux)
+        if: runner.os == 'Linux'
+        run: echo "SPECWRIGHT_REQUIRE_BUT=1" >> "$GITHUB_ENV"
       - name: Git identity and default branch
         run: |
           git config --global user.name "Specwright CI"
@@ -102,4 +144,4 @@ jobs:
       - name: Run the suite
         env:
           SPECWRIGHT_PY38: ${{ steps.py38.outputs.python-path }}
-        run: python evals/run.py --timeout 1200 ${{ matrix.suite }}
+        run: python evals/run.py --timeout ${{ matrix.run_timeout }} ${{ matrix.suite }}

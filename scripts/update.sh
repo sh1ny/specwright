@@ -275,9 +275,12 @@ claim_stale_lock() {
     stale=1
   fi
   if [ "$stale" = 1 ]; then rm -rf "$aside"; return 0; fi
-  # -T: never move it into a lock a third run has taken meanwhile; that run keeps the lock and the aside copy stays
-  mv -T "$aside" "$lock" 2>/dev/null \
-    || die locked "another update took $lock while this run was replacing a stale lock; its lock was left at $aside"
+  # No GNU mv -T (macOS mv is BSD): when a third run took the lock meanwhile, mv moves the copy into that lock, so it is
+  # moved back out; that run keeps the lock and the aside copy stays
+  if ! mv "$aside" "$lock" 2>/dev/null || [ -e "$lock/${aside##*/}" ]; then
+    [ -e "$lock/${aside##*/}" ] && mv "$lock/${aside##*/}" "$aside" 2>/dev/null
+    die locked "another update took $lock while this run was replacing a stale lock; its lock was left at $aside"
+  fi
   die locked "another update holds $lock (pid ${p:-unknown} on ${h:-unknown host}); wait for it to finish"
 }
 
@@ -321,7 +324,11 @@ trap release_lock EXIT
 # mv. No process but mv runs per journal write, which keeps a swap fast on Windows.
 
 JL=()
-jload_raw() { mapfile -t JL < "$journal"; }
+jload_raw() {  # one array element per line, read in a loop: macOS /bin/bash is 3.2, without the bash 4 builtin
+  local l
+  JL=()
+  while IFS= read -r l || [ -n "$l" ]; do JL+=("$l"); done < "$journal"
+}
 jload() {  # the journal must parse as a whole (journal-check) before any line of it is trusted; a failure stops, nothing touched
   local chk
   chk=$(pyx journal-check "${PYARGS[@]}") || { printf '%s\n' "$chk"; exit 1; }

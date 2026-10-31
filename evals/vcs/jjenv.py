@@ -3,8 +3,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 
 
 FIXTURE_NAME = "Specwright Eval"
@@ -26,25 +32,7 @@ def require_jj():
     raise unittest.SkipTest("jj not installed")
 
 
-def find_bash():
-    """Resolve Git Bash on Windows rather than accidentally selecting WSL's bash.exe."""
-    if os.name != "nt":
-        return shutil.which("bash")
-    candidates = [os.environ.get("GIT_BASH")]
-    scoop = os.environ.get("SCOOP")
-    if scoop:
-        candidates.append(str(Path(scoop) / "apps" / "git" / "current" / "bin" / "bash.exe"))
-    profile = os.environ.get("USERPROFILE")
-    if profile:
-        candidates.append(str(Path(profile) / "scoop" / "apps" / "git" / "current" / "bin" / "bash.exe"))
-    for variable in ("ProgramFiles", "ProgramFiles(x86)"):
-        root = os.environ.get(variable)
-        if root:
-            candidates.append(str(Path(root) / "Git" / "bin" / "bash.exe"))
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return candidate
-    return None
+find_bash = bashexe.bash  # moved to evals/bashexe.py; the name stays for the vcs suite
 
 
 def real_git():

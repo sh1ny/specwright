@@ -10,11 +10,15 @@ Run: python -m unittest discover evals/git-workflow -p "test_fit_subject.py"
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "fit-subject.sh"
 LIMIT = 72
 # Task 1.1 of the add-greeting fixture (fixtures.py), the subject #21 saw miscounted.
@@ -27,7 +31,7 @@ class FitSubject(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def run_script(self, msg):
-        return subprocess.run(["bash", str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp)
+        return subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp)
 
     def message(self, data):
         p = self.tmp / "msg.txt"
@@ -146,15 +150,15 @@ class FitSubject(unittest.TestCase):
                 env = {**os.environ, "LC_ALL": loc}
                 data = (short + "\n\nBody.\n").encode("utf-8")
                 msg = self.message(data)
-                r = subprocess.run(["bash", str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
+                r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(msg.read_bytes(), data, "a subject within 72 characters was cut")
                 msg = self.message(long + "\n")
-                r = subprocess.run(["bash", str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
+                r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assert_fitted(long, msg.read_bytes().decode("utf-8").split("\n", 1)[0])
                 msg = self.message(one_word_long + "\n")
-                r = subprocess.run(["bash", str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
+                r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(msg.read_bytes().decode("utf-8").split("\n", 1)[0], one_word)
 

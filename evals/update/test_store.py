@@ -30,7 +30,7 @@ class Base(unittest.TestCase):
     maxDiff = None
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(tempfile.mkdtemp()).resolve()  # macOS: /var is /private/var; Windows: 8.3 names (RUNNER~1)
         self.addCleanup(fx.rmtree, self.tmp)
 
     def pair(self, version="0.5.0", record="a"):

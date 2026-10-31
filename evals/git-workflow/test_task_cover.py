@@ -10,11 +10,15 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "task-cover.sh"
 CHANGE = "add-greeting"
 
@@ -73,7 +77,7 @@ class TaskCover(unittest.TestCase):
         tasks = tasks or self.tasks_file()
         e = dict(os.environ, **(env or {}))
         return subprocess.run(
-            ["bash", str(SCRIPT), "--repo", str(self.repo), "--range", self.base + "..HEAD",
+            [bashexe.bash(), str(SCRIPT), "--repo", str(self.repo), "--range", self.base + "..HEAD",
              "--tasks", str(tasks), "--change", change],
             capture_output=True, env=e)
 
@@ -199,7 +203,7 @@ class TaskCover(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
     def test_bad_range_exits_3(self):
-        r = subprocess.run(["bash", str(SCRIPT), "--repo", str(self.repo), "--range", "nope..HEAD",
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), "--repo", str(self.repo), "--range", "nope..HEAD",
                             "--tasks", str(self.tasks_file()), "--change", CHANGE], capture_output=True)
         self.assertEqual(r.returncode, 3)
 

@@ -36,6 +36,7 @@ import gh as fake_gh  # noqa: E402  the fake gh's state helpers
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: path-independent repo stages are built once and copied
+import bashexe  # noqa: E402
 
 
 def git(repo, *args):
@@ -1222,7 +1223,7 @@ def release_shim(repo, gated):
         .replace("@BARE@", bare).replace("@PRE@", posix(repo / "ob-pre.git")).replace("@LOG@", posix(repo / "gh-log.jsonl")) \
         .replace("@URL@", url).replace("@GATED@", "1" if gated else "0")
     write(repo, "bin/git", shim)
-    write(repo, "bin/bash", BASH_SHIM.replace("@REWRITE@", posix(rewrite)).replace("@BASH@", msys(shutil.which("bash") or "bash")))
+    write(repo, "bin/bash", BASH_SHIM.replace("@REWRITE@", posix(rewrite)).replace("@BASH@", msys(bashexe.bash() or "bash")))
     for n in ("git", "bash"):
         (repo / "bin" / n).chmod(0o755)
 

@@ -14,6 +14,9 @@ from butenv import Scratch, require_but
 from gbnet import GitButlerNetworkCase
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 REVIEW = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
 RELEASE = ROOT / "skills" / "specwright-release" / "scripts" / "release.sh"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
@@ -58,7 +61,7 @@ class GitButlerRangeCase(GitButlerNetworkCase):
         return [c for c in calls if c["argv"][:1] not in (["--version"], ["config"], ["models"])]
 
     def script(self, script, scratch, repo, *args, expected=0, env=None):
-        done = subprocess.run(["bash", str(script), *map(str, args)], cwd=repo.path, env=env or self.env(scratch),
+        done = subprocess.run([bashexe.bash(), str(script), *map(str, args)], cwd=repo.path, env=env or self.env(scratch),
                               capture_output=True, text=True, encoding="utf-8")
         lines = done.stdout.strip().splitlines()
         self.assertEqual(done.returncode, expected, "%s\nstdout: %s\nstderr: %s" % (args, done.stdout, done.stderr))

@@ -28,7 +28,7 @@ class TestInterrupt(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp())
+        cls.tmp = Path(tempfile.mkdtemp()).resolve()  # Windows: 8.3 names (RUNNER~1); macOS: /var is /private/var
         cls.dl_old = fx.make_mini_download(cls.tmp / "dl-0.5.0", "0.5.0", 2)
         cls.dl_new = fx.make_mini_download(cls.tmp / "dl-0.6.0", "0.6.0", 2)
         cls.co = fx.make_checkout(cls.tmp, "0.5.0", skills_dirs=(".claude/skills",), download=cls.dl_old)
@@ -168,7 +168,7 @@ class TestStoreInterrupt(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp())
+        cls.tmp = Path(tempfile.mkdtemp()).resolve()  # Windows: 8.3 names (RUNNER~1); macOS: /var is /private/var
         cls.dl_old = fx.make_mini_download(cls.tmp / "dl-0.5.0", "0.5.0", 1)
         cls.dl_new = fx.make_mini_download(cls.tmp / "dl-0.6.0", "0.6.0", 1, schema_edit=fx.schema_edit_comment)
         cls.pair = fx.make_store_pair(cls.tmp, "0.5.0", download=cls.dl_old)

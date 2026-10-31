@@ -28,6 +28,7 @@ SHIMS = Path(__file__).resolve().parent / "shims"
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
+import bashexe  # noqa: E402
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 STORE_ID = "team-plans"
 PREFIXES = ("feat", "bugfix", "refactor", "docs", "chore")
@@ -423,7 +424,7 @@ def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=Non
         env["UPDATE_SHIM_COUNT"] = posix(count_file)
     if kill_at is not None:
         env["UPDATE_KILL_AT"] = str(kill_at)
-    argv = ["bash", "-c", 'export UPDATE_KILL_PID=$$; exec bash "$@"', "update-eval", posix(script), *map(str, args)]
+    argv = [bashexe.bash(), "-c", 'export UPDATE_KILL_PID=$$; exec bash "$@"', "update-eval", posix(script), *map(str, args)]
     r = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
     doc = None
     out = r.stdout.strip()
