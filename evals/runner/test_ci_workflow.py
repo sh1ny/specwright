@@ -137,7 +137,8 @@ class TestPinnedJjWorkflow(unittest.TestCase):
             + install_run_block()
             + '\nset -a; . "$GITHUB_ENV"; set +a\n'
             + 'export PATH="$(cat "$GITHUB_PATH"):$PATH"\n'
-            + "jj --version\n"
+            # only Windows resolves `jj` to jj.exe; the step above already ran the installed binary by path
+            + ("jj --version\n" if row[4] == "jj" else "")
         )
         bash = bashexe.bash()
         if not bash:
