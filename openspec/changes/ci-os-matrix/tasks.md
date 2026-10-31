@@ -10,23 +10,23 @@
 | eval-runner → The runner runs each test file as its own process | Unknown suite | evals/runner/test_run.py | test_unknown_suite_exits_2 | green |
 | eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | test_a_crashing_file_is_reported | green |
 | eval-runner → The runner runs each test file as its own process | A file times out | evals/runner/test_run.py | test_a_timed_out_file_tree_is_stopped | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | All suites pass | evals/runner/test_workflow.py | test_workflow_runs_each_listed_suite_on_three_oses | red |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | All suites pass | evals/runner/test_workflow.py | test_workflow_runs_each_listed_suite_on_three_oses || green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails | evals/runner/test_workflow.py | test_one_failing_suite_does_not_cancel_the_others | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails on one OS | evals/runner/test_workflow.py | test_job_name_and_fail_fast_cover_each_os | red |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails on one OS | evals/runner/test_workflow.py | test_job_name_and_fail_fast_cover_each_os || green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A new suite appears | evals/runner/test_workflow.py | test_matrix_comes_from_list_suites | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | test_suite_jobs_need_the_list_job | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows | red |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A job runs past its timeout | evals/runner/test_workflow.py | test_job_and_run_timeouts_are_per_os | red |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows || green |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A job runs past its timeout | evals/runner/test_workflow.py | test_job_and_run_timeouts_are_per_os || green |
 | eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | test_agents_and_contributing_carry_the_rule | red |
 | eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | test_a_file_without_the_rule_is_named | red |
 | eval-runner → The instructions say which suites to run when | A file brings back a local suite run | evals/runner/test_agent_instructions.py | test_a_local_suite_run_is_named | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_jj_on_each_os | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | test_workflow_checks_jj_sha256_before_use (per OS row) | red |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Runner with no pinned archive | evals/runner/test_ci_workflow.py | test_unknown_runner_fails_before_download | red |
+| eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_jj_on_each_os || green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | test_workflow_checks_jj_sha256_before_use (per OS row) || green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Runner with no pinned archive | evals/runner/test_ci_workflow.py | test_unknown_runner_fails_before_download || green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Local run without jj | evals/runner/test_jjenv.py | test_jj_missing_skips_with_reason | green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Required but missing | evals/runner/test_jjenv.py | test_jj_missing_required_fails | green |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_on_linux_only | red |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | macOS and Windows jobs | evals/runner/test_ci_workflow.py | test_but_requirement_is_set_on_linux_only | red |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_on_linux_only || green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | macOS and Windows jobs | evals/runner/test_ci_workflow.py | test_but_requirement_is_set_on_linux_only || green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Upstream released a new version | evals/runner/test_ci_workflow.py | test_workflow_pins_but_build_url | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Downloaded bytes differ | evals/runner/test_ci_workflow.py | test_workflow_checks_but_sha256_before_use | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Local run without `but` | evals/runner/test_butenv.py | test_but_missing_skips_with_reason | green |
@@ -47,15 +47,15 @@ Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_p
 
 ## 2. Workflow: OS matrix, Git Bash, per-OS jj, Linux-only `but`, pin files
 
-- [ ] 2.1 File the GitHub issue for the macOS/Windows `but` gap, as KintsugiBot with the fenced `gh`. It says that GitButler ships a standalone `but` only for Linux (the manifest platforms in design Context), that GitButler tests skip on macOS and Windows CI, and what would close it. Verify by recording the issue number in the PR notes for 2.6.
-- [ ] 2.2 Write the failing workflow tests in `evals/runner/test_workflow.py`:
+- [x] 2.1 File the GitHub issue for the macOS/Windows `but` gap, as KintsugiBot with the fenced `gh`. It says that GitButler ships a standalone `but` only for Linux (the manifest platforms in design Context), that GitButler tests skip on macOS and Windows CI, and what would close it. Verify by recording the issue number in the PR notes for 2.6.
+- [x] 2.2 Write the failing workflow tests in `evals/runner/test_workflow.py`:
   - `test_workflow_runs_each_listed_suite_on_three_oses`: `matrix.os` holds exactly `ubuntu-24.04`, `windows-latest` and `macos-latest`, and `runs-on: ${{ matrix.os }}`.
   - `test_job_name_and_fail_fast_cover_each_os`: the job name holds both suite and os, and `fail-fast: false`.
   - `test_steps_run_under_bash_with_git_usr_bin_first_on_windows`: `defaults.run.shell: bash`, and a step `if: runner.os == 'Windows'` writes Git's `usr\bin` and then `bin` to `GITHUB_PATH` and logs `command -v bash cygpath sed` and Python's `shutil.which('bash')`.
   - `test_job_and_run_timeouts_are_per_os`: `matrix.include` gives each OS a `timeout` and a `run_timeout`, used by `timeout-minutes` and `--timeout`.
 
   Remove the Linux-only `test_workflow_runs_each_listed_suite_on_linux`. Update the module docstring. Run `python -m unittest evals/runner/test_workflow.py` and see the new tests fail.
-- [ ] 2.3 Write the failing tests in `evals/runner/test_ci_workflow.py`:
+- [x] 2.3 Write the failing tests in `evals/runner/test_ci_workflow.py`:
   - `test_workflow_installs_pinned_jj_on_each_os`: for `Linux/X64`, `macOS/ARM64` and `Windows/X64` (set through `RUNNER_OS`/`RUNNER_ARCH`), the fake `curl` is asked for that row's asset URL, a local `.tar.gz` or `.zip` fixture is unpacked, and `jj`/`jj.exe` runs. Each row's pinned digest appears in the step:
     - `fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08` (Linux);
     - `43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58` (macOS arm64);
@@ -67,7 +67,7 @@ Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_p
   - `test_version_pin_files_check_out_lf`: `git check-attr eol` reports `lf` for `OPENSPEC_VERSION`, `JJ_VERSION`, `BUT_VERSION` and `VERSION`.
 
   Run `python -m unittest evals/runner/test_ci_workflow.py` and see each fail for the missing behaviour.
-- [ ] 2.4 Edit `.github/workflows/evals.yml` (design D1-D5):
+- [x] 2.4 Edit `.github/workflows/evals.yml` (design D1-D5):
   - Add the `os` matrix with per-OS `include` timeouts (Linux 45/1200, macOS 60/1800, Windows 120/3600), `fail-fast: false`, `runs-on: ${{ matrix.os }}` and the job name `${{ matrix.suite }} (${{ matrix.os }})`.
   - Set `defaults.run.shell: bash` and add the Windows PATH step first.
   - Move the Python setup steps before jj.
@@ -77,8 +77,8 @@ Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_p
   - Use the matrix timeouts.
 
   Verify that `test_workflow.py` and `test_ci_workflow.py` pass on this machine (Git Bash), and flip their rows green.
-- [ ] 2.5 Add `*VERSION text eol=lf` to `.gitattributes` and run `git add --renormalize OPENSPEC_VERSION JJ_VERSION BUT_VERSION VERSION`. Verify `test_version_pin_files_check_out_lf` passes, and that `git ls-files --eol` shows `w/lf` for the four files after a fresh checkout of them.
-- [ ] 2.6 Re-run the unchanged green rows' tests: `test_one_failing_suite_does_not_cancel_the_others`, `test_matrix_comes_from_list_suites`, `test_suite_jobs_need_the_list_job`, `test_workflow_pins_but_build_url`, `test_workflow_checks_but_sha256_before_use`, `test_jjenv.py` and `test_butenv.py`. Verify they pass.
+- [x] 2.5 Add `*VERSION text eol=lf` to `.gitattributes` and run `git add --renormalize OPENSPEC_VERSION JJ_VERSION BUT_VERSION VERSION`. Verify `test_version_pin_files_check_out_lf` passes, and that `git ls-files --eol` shows `w/lf` for the four files after a fresh checkout of them.
+- [x] 2.6 Re-run the unchanged green rows' tests: `test_one_failing_suite_does_not_cancel_the_others`, `test_matrix_comes_from_list_suites`, `test_suite_jobs_need_the_list_job`, `test_workflow_pins_but_build_url`, `test_workflow_checks_but_sha256_before_use`, `test_jjenv.py` and `test_butenv.py`. Verify they pass.
 
 ## 3. Instructions: CI first, no local suite runs
 

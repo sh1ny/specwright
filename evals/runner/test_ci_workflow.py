@@ -1,13 +1,15 @@
-"""Execute the pinned-jj and pinned-but workflow setup steps against a local archive / file and fake binaries."""
+"""Execute the pinned-jj (each OS row) and pinned-but workflow setup steps against local archives / files and fake binaries."""
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +52,19 @@ def install_run_block(step="Install pinned jj"):
     raise AssertionError("the eval workflow has no step named %r" % step)
 
 
+JJ_VERSION = "0.46.0"
+JJ_BASE = "https://github.com/jj-vcs/jj/releases/download/v%s/" % JJ_VERSION
+# (RUNNER_OS, RUNNER_ARCH, release asset, pinned SHA-256, binary name in the archive)
+JJ_ROWS = (
+    ("Linux", "X64", "jj-v%s-x86_64-unknown-linux-musl.tar.gz" % JJ_VERSION,
+     "fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08", "jj"),
+    ("macOS", "ARM64", "jj-v%s-aarch64-apple-darwin.tar.gz" % JJ_VERSION,
+     "43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58", "jj"),
+    ("Windows", "X64", "jj-v%s-x86_64-pc-windows-msvc.zip" % JJ_VERSION,
+     "c42316b10df04611bc65029a18bcb2d92636edddb6871d511f7bb4233e999b83", "jj.exe"),
+)
+
+
 class TestPinnedJjWorkflow(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -57,12 +72,11 @@ class TestPinnedJjWorkflow(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        self.source_archive = self.root / "source.tar.gz"
         self.marker = self.root / "jj-ran.json"
+        self.curl_log = self.root / "curl.log"
         self.github_path = self.root / "github-path"
         self.github_env = self.root / "github-env"
         self._make_tools()
-        self._make_archive()
 
     def _make_tools(self):
         curl = self.bin / "curl"
@@ -71,6 +85,7 @@ class TestPinnedJjWorkflow(unittest.TestCase):
                 "#!/usr/bin/env python3\n"
                 "import os, shutil, sys\n"
                 "args = sys.argv[1:]\n"
+                "open(os.environ['JJ_TEST_CURL_LOG'], 'a', newline='\\n').write(' '.join(args) + '\\n')\n"
                 "if '--output' in args:\n"
                 "    out = args[args.index('--output') + 1]\n"
                 "elif '-o' in args:\n"
@@ -83,10 +98,11 @@ class TestPinnedJjWorkflow(unittest.TestCase):
             )
         curl.chmod(0o755)
 
-    def _make_archive(self):
-        binary_dir = self.root / "archive-content"
-        binary_dir.mkdir()
-        binary = binary_dir / "jj"
+    def make_archive(self, asset, name):
+        """A local archive in the row's format (.tar.gz or .zip) holding a stand-in `jj`/`jj.exe`."""
+        content = self.root / ("content-" + name)
+        content.mkdir(exist_ok=True)
+        binary = content / name
         with binary.open("w", encoding="utf-8", newline="\n") as script:
             script.write(
                 "#!/usr/bin/env python3\n"
@@ -95,22 +111,30 @@ class TestPinnedJjWorkflow(unittest.TestCase):
                 "print('jj 0.46.0')\n"
             )
         binary.chmod(0o755)
-        with tarfile.open(self.source_archive, "w:gz") as archive:
-            archive.add(binary, arcname="jj")
-        self.digest = hashlib.sha256(self.source_archive.read_bytes()).hexdigest()
+        archive = self.root / ("source-" + asset)
+        if asset.endswith(".zip"):
+            with zipfile.ZipFile(archive, "w") as z:
+                z.write(binary, arcname=name)
+        else:
+            with tarfile.open(archive, "w:gz") as z:
+                z.add(binary, arcname=name)
+        return archive, hashlib.sha256(archive.read_bytes()).hexdigest()
 
-    def run_install(self, checksum):
+    def run_install(self, checksum, row=JJ_ROWS[0], runner_arch=None, archive=None):
         env = {
             **os.environ,
             "PATH": os.environ.get("PATH", ""),
+            "RUNNER_OS": row[0],
+            "RUNNER_ARCH": runner_arch or row[1],
             "RUNNER_TEMP": str(self.root / "runner-temp"),
             "GITHUB_PATH": str(self.github_path),
             "GITHUB_ENV": str(self.github_env),
             "JJ_TEST_BIN": str(self.bin),
-            "JJ_VERSION": "0.46.0",
+            "JJ_VERSION": JJ_VERSION,
             "JJ_SHA256": checksum,
-            "JJ_TEST_ARCHIVE": str(self.source_archive),
+            "JJ_TEST_ARCHIVE": str(archive or self.root / "unused"),
             "JJ_TEST_MARKER": str(self.marker),
+            "JJ_TEST_CURL_LOG": str(self.curl_log),
         }
         env.pop("SPECWRIGHT_REQUIRE_JJ", None)
         (self.root / "runner-temp").mkdir(exist_ok=True)
@@ -135,16 +159,48 @@ class TestPinnedJjWorkflow(unittest.TestCase):
             cwd=ROOT, env=env, capture_output=True, text=True,
         )
 
-    def test_workflow_installs_pinned_jj_and_requires_it(self):
-        result = self.run_install(self.digest)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(json.loads(self.marker.read_text(encoding="utf-8")), {"required": "1", "version": "jj 0.46.0"})
-        self.assertIn("0.46.0", result.stdout)
+    def test_workflow_installs_pinned_jj_on_each_os(self):
+        step = install_run_block()
+        for row in JJ_ROWS:
+            with self.subTest(runner="%s/%s" % row[:2]):
+                self.assertIn(row[3], step, "the row's pinned digest is in the step")
+                self.marker.unlink(missing_ok=True)
+                self.curl_log.unlink(missing_ok=True)
+                archive, digest = self.make_archive(row[2], row[4])
+                result = self.run_install(digest, row, archive=archive)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(JJ_BASE + row[2], self.curl_log.read_text(encoding="utf-8").split())
+                self.assertEqual(json.loads(self.marker.read_text(encoding="utf-8")),
+                                 {"required": "1", "version": "jj 0.46.0"})
+                self.assertIn("0.46.0", result.stdout)
 
     def test_workflow_checks_jj_sha256_before_use(self):
-        result = self.run_install("0" * 64)
-        self.assertNotEqual(result.returncode, 0, "a mismatched jj archive must fail setup")
-        self.assertFalse(self.marker.exists(), "the jj binary must not be used after a checksum mismatch")
+        for row in JJ_ROWS:
+            with self.subTest(runner="%s/%s" % row[:2]):
+                self.marker.unlink(missing_ok=True)
+                archive, _ = self.make_archive(row[2], row[4])
+                result = self.run_install("0" * 64, row, archive=archive)
+                self.assertNotEqual(result.returncode, 0, "a mismatched jj archive must fail setup")
+                self.assertFalse(self.marker.exists(), "the jj binary must not be used after a checksum mismatch")
+                self.assertFalse((self.root / "runner-temp" / "jj-bin" / row[4]).exists(),
+                                 "nothing is unpacked or installed after a mismatch")
+
+    def test_unknown_runner_fails_before_download(self):
+        archive, digest = self.make_archive(JJ_ROWS[0][2], "jj")
+        result = self.run_install(digest, JJ_ROWS[0], runner_arch="ARM64", archive=archive)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no pinned jj for Linux/ARM64", result.stdout + result.stderr)
+        self.assertFalse(self.curl_log.exists(), "no download for an unpinned runner")
+        self.assertFalse(self.marker.exists())
+
+    def test_version_pin_files_check_out_lf(self):
+        files = ["OPENSPEC_VERSION", "JJ_VERSION", "BUT_VERSION", "VERSION"]
+        result = subprocess.run(["git", "check-attr", "eol", "--"] + files, cwd=ROOT,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = dict(line.split(": eol: ") for line in result.stdout.strip().splitlines())
+        for name in files:
+            self.assertEqual(found.get(name), "lf", "%s must check out with LF (.gitattributes)" % name)
 
 
 BUT_BUILD = "0.23.1-3317"
@@ -246,11 +302,11 @@ class TestPinnedButWorkflow(unittest.TestCase):
             cwd=ROOT, env=env, capture_output=True, text=True,
         )
 
-    def test_workflow_installs_pinned_but_for_vcs_only(self):
+    def test_workflow_installs_pinned_but_for_vcs_on_linux_only(self):
         step = step_text("Install pinned but")
-        self.assertRegex(step, r"if:\s*matrix\.suite == 'vcs'", "only the vcs job installs but")
-        self.assertRegex(suite_job_header(), r"SPECWRIGHT_REQUIRE_BUT:\s*['\"]?1['\"]?\s*(\n|$)",
-                         "every suite job requires but (job-level env)")
+        self.assertRegex(step, r"if:\s*matrix\.suite == 'vcs' && runner\.os == 'Linux'\s*(\n|$)",
+                         "only the Linux vcs job installs but")
+        self.assertIn("#154", step, "the comment names the macOS/Windows gap issue")
         result = self.run_install(self.digest)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(self.marker.exists(), "the installed but was run for its version")
@@ -258,6 +314,15 @@ class TestPinnedButWorkflow(unittest.TestCase):
         # A build whose `but --version` names another version fails setup.
         result = self.run_install(self.digest, {"BUT_VERSION": "0.24.0-1"})
         self.assertNotEqual(result.returncode, 0, "setup must fail when but --version names another version")
+
+    def test_but_requirement_is_set_on_linux_only(self):
+        self.assertNotIn("SPECWRIGHT_REQUIRE_BUT", suite_job_header(), "no job-level SPECWRIGHT_REQUIRE_BUT")
+        text = WORKFLOW.read_text(encoding="utf-8")
+        steps = re.split(r"(?m)^(?=      - )", text.split("\n    steps:\n", 1)[1])
+        setters = [s for s in steps if "SPECWRIGHT_REQUIRE_BUT=1" in s]
+        self.assertEqual(len(setters), 1)
+        self.assertRegex(setters[0], r"(?m)^\s+if: runner\.os == 'Linux'$")
+        self.assertRegex(setters[0], r"SPECWRIGHT_REQUIRE_BUT=1\"? >> \"\$GITHUB_ENV\"")
 
     def test_workflow_pins_but_build_url(self):
         self.assertEqual((ROOT / "BUT_VERSION").read_text(encoding="utf-8").strip(), BUT_BUILD)

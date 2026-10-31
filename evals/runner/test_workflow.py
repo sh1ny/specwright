@@ -1,4 +1,4 @@
-"""Text checks on .github/workflows/evals.yml (stdlib only, no YAML parser): the CI that runs every eval suite on Linux.
+"""Text checks on .github/workflows/evals.yml (stdlib only, no YAML parser): the CI that runs every eval suite on Linux, Windows and macOS.
 
 Run: python -m unittest discover evals/runner -p test_workflow.py
 """
@@ -48,11 +48,46 @@ class TestWorkflow(unittest.TestCase):
         self.assertRegex(lst, r"(?m)^\s+suites=\$\(python evals/run\.py --list-suites\)$")
         self.assertNotRegex(lst, r"echo \"[^\"]*\$\(python evals/run\.py --list-suites\)")
 
-    def test_workflow_runs_each_listed_suite_on_linux(self):
+    def test_workflow_runs_each_listed_suite_on_three_oses(self):
         suite = job_block(read(), "suite")
-        self.assertRegex(suite, r"runs-on: ubuntu-")
-        self.assertIn("python evals/run.py --timeout 1200 ${{ matrix.suite }}", suite)
-        self.assertIn("timeout-minutes: 45", suite)
+        m = re.search(r"(?m)^        os: \[([^\]]*)\]$", suite)
+        self.assertIsNotNone(m, "matrix.os must be an inline list")
+        self.assertEqual([o.strip() for o in m.group(1).split(",")], ["ubuntu-24.04", "windows-latest", "macos-latest"])
+        self.assertRegex(suite, r"(?m)^    runs-on: \$\{\{ matrix\.os \}\}$")
+        self.assertNotRegex(suite, r"runs-on: ubuntu-")
+        self.assertRegex(job_block(read(), "list"), r"runs-on: ubuntu-24\.04")
+
+    def test_job_name_and_fail_fast_cover_each_os(self):
+        suite = job_block(read(), "suite")
+        self.assertRegex(suite, r"(?m)^    name: \$\{\{ matrix\.suite \}\} \(\$\{\{ matrix\.os \}\}\)$")
+        self.assertIn("fail-fast: false", suite)
+
+    def test_steps_run_under_bash_with_git_usr_bin_first_on_windows(self):
+        suite = job_block(read(), "suite")
+        self.assertRegex(suite, r"(?m)^    defaults:\n      run:\n        shell: bash$")
+        steps = [s for s in re.split(r"(?m)^(?=      - )", suite.split("\n    steps:\n", 1)[1]) if s.strip()]
+        windows = [s for s in steps if "if: runner.os == 'Windows'" in s]
+        self.assertTrue(windows, "a step must run only on Windows")
+        path_step = windows[0]
+        usr, plain = "C:\\Program Files\\Git\\usr\\bin", "C:\\Program Files\\Git\\bin"
+        self.assertIn("GITHUB_PATH", path_step)
+        self.assertIn(usr, path_step)
+        self.assertIn(plain, path_step)
+        self.assertLess(path_step.index(usr), path_step.index(plain), "usr\\bin goes first")
+        install = next(i for i, s in enumerate(steps) if "Install pinned jj" in s.splitlines()[0])
+        self.assertLess(steps.index(path_step), install)
+        logged = "\n".join(windows)
+        self.assertIn("command -v bash cygpath sed", logged)
+        self.assertIn("shutil.which('bash')", logged)
+
+    def test_job_and_run_timeouts_are_per_os(self):
+        suite = job_block(read(), "suite")
+        for os_name, timeout, run_timeout in (("ubuntu-24.04", 45, 1200), ("macos-latest", 60, 1800),
+                                              ("windows-latest", 120, 3600)):
+            self.assertRegex(suite, r"- os: %s\n\s+timeout: %d\n\s+run_timeout: %d\b"
+                             % (re.escape(os_name), timeout, run_timeout))
+        self.assertRegex(suite, r"(?m)^    timeout-minutes: \$\{\{ matrix\.timeout \}\}$")
+        self.assertIn("python evals/run.py --timeout ${{ matrix.run_timeout }} ${{ matrix.suite }}", suite)
 
     def test_one_failing_suite_does_not_cancel_the_others(self):
         t = read()
