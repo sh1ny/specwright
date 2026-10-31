@@ -10,11 +10,15 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 SKILLS = ROOT / "skills"
 
 
@@ -30,7 +34,7 @@ class NoBytecode(unittest.TestCase):
         repo.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         env = {k: v for k, v in os.environ.items() if k not in ("PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX")}
-        r = subprocess.run(["bash", str(scripts / "review-run.sh"), "select", "--runtime", "claude"],
+        r = subprocess.run([bashexe.bash(), str(scripts / "review-run.sh"), "select", "--runtime", "claude"],
                            cwd=repo, env=env, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(sorted(p.name for p in scripts.iterdir()), ["bounded.py", "review-run.sh"])
