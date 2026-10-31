@@ -107,6 +107,7 @@ class _Bounded:
 
     def __getattr__(self, name):
         if _Bounded.mod is None:
+            sys.dont_write_bytecode = True  # no __pycache__ in an installed skill (#157)
             spec = importlib.util.spec_from_file_location("bounded", os.path.join(os.environ["REVIEW_RUN_DIR"], "bounded.py"))
             _Bounded.mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(_Bounded.mod)
