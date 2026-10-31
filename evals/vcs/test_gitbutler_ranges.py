@@ -146,6 +146,25 @@ class TestGitButlerRanges(GitButlerRangeCase):
             self.assertIn("a copy of the files at %s" % tip, run["stdin"])
             self.assertIn("Code repository: %s" % Path(run["cwd"]).as_posix(), run["stdin"].replace("\\", "/"))
 
+    def test_preship_copy_keeps_export_ignored_files(self):
+        require_but()
+        with Scratch() as scratch:
+            repo = self.pair(scratch)
+            self.install_claude(scratch)
+            (repo.path / ".gitattributes").write_text("add-c.txt export-ignore\n", encoding="utf-8")
+            repo.but("commit", "-b", BRANCH, "-m", "attrs", "--json", ".gitattributes")
+            stdout = self.root / "claude-stdout.json"
+            stdout.write_text(json.dumps({"type": "result", "result": "done", "structured_output": CLEAN}), encoding="utf-8")
+            env = self.env(scratch, FAKE_CLAUDE_STDOUT=str(stdout))
+
+            result = self.script(REVIEW, scratch, repo, "run", "--kind", "preship", "--route", "claude", "--out",
+                                 self.root / "out.json", "--change", CHANGE, "--base", "main", "--branch", BRANCH, env=env)
+
+            self.assertEqual(result["status"], "ok", result)
+            files = self.claude_runs()[0]["cwd_files"]
+            self.assertIn("add-c.txt", files, "an export-ignore file is missing from the reviewer's copy")
+            self.assertIn(".gitattributes", files)
+
     def test_gate_after_archive_resolves_branch_tip(self):
         require_but()
         with Scratch() as scratch:

@@ -28,6 +28,7 @@ VCS_DIR = Path(os.environ["VCS_DIR"])
 BASH = os.environ.get("VCS_BASH") or shutil.which("bash") or "bash"
 PR_PAIR = VCS_DIR / "pr-pair.sh"
 AS_SH = VCS_DIR / "as.sh"
+SETTINGS_FILE = "openspec/specwright.yaml"  # what every step reads from the code work tree
 
 
 class Stop(Exception):
@@ -451,6 +452,8 @@ def gitbutler_state(root, info, opts):
     if branch:
         found = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + branch + "^{commit}")
         tip = found.stdout.strip() if found.returncode == 0 else ""
+    if applied and tip:
+        require_settings_pinned(root, branch, status)
     owner = {}  # path -> index of the stack that holds it
     for index, stack in enumerate(stacks):
         for entry in stack.get("assignedChanges") or []:
@@ -488,6 +491,25 @@ def gitbutler_state(root, info, opts):
             "other_branch_paths": other_paths, "clean": not change_paths,
             "dirty_paths": paths, "dirty": [{"status": "", "path": path} for path in paths],
             "behind": [], "behind_truncated": False}
+
+
+def require_settings_pinned(root, branch, status=None):
+    """The settings every Specwright step reads from the shared work tree must be the change branch's own: a sibling
+    branch's committed or assigned edit of openspec/specwright.yaml (its validate command, review.preship) stops."""
+    status = status if status is not None else but_status(root)
+    for stack in status.get("stacks") or []:
+        names = stack_names(stack)
+        if branch in names:
+            continue
+        if any(change_file(entry) == SETTINGS_FILE for entry in stack.get("assignedChanges") or []):
+            raise Stop("settings_not_pinned", "%s holds an uncommitted edit of %s from branch %s; Specwright reads it from the "
+                       "shared work tree, so unapply that branch or move the edit first" % (root, SETTINGS_FILE, names[0] if names else "?"))
+    diff = git(root, "diff", "--quiet", "refs/heads/" + branch, "HEAD", "--", SETTINGS_FILE)
+    if diff.returncode == 1:
+        raise Stop("settings_not_pinned", "another applied branch changes %s, so the work tree's settings are not those of %s; "
+                   "unapply that branch, or bring the change onto %s, first" % (SETTINGS_FILE, branch, branch))
+    if diff.returncode not in (0, 1):
+        raise Stop("git_error", "git diff of %s failed: %s" % (SETTINGS_FILE, diff.stderr.strip()))
 
 
 def require_applied(root, branch):
@@ -653,6 +675,7 @@ def gitbutler_push(root, info, opts, login):
     """D6: the fenced Git push of the branch's own ref; no force, no -u, no tags (push.followTags), never `but push` or `but pr`."""
     branch = require_branch(opts)
     require_applied(root, branch)
+    require_settings_pinned(root, branch)
     refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
     try:
         network_git(root, ["push", "--no-follow-tags", "origin", refspec], login)

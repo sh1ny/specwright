@@ -22,7 +22,7 @@ BRANCH = "feat/add-c"
 CODE, STORE = "o/r", "o/plans"
 SETTINGS = "vcs: gitbutler\nfinish: pr\ngithub:\n  login: %s\n" % LOGIN
 CLEAN = {"summary": "nothing to report", "findings": []}
-PUSH = ["push", "origin", "refs/heads/%s:refs/heads/%s" % (BRANCH, BRANCH)]
+PUSH = ["push", "--no-follow-tags", "origin", "refs/heads/%s:refs/heads/%s" % (BRANCH, BRANCH)]
 # spec: "No other Git write runs under GitButler" - the verbs the code repo's log must not hold
 FORBIDDEN = {"checkout", "switch", "add", "rm", "restore", "read-tree", "commit", "merge", "stash", "reset", "rebase", "pull",
              "update-ref", "tag", "clean", "cherry-pick", "am", "apply", "mv"}
@@ -378,6 +378,29 @@ class TestGitButlerFeedbackPass(GitButlerFlowCase):
             (repo.path / "extra.txt").write_text("new\n", encoding="utf-8")
             plan = self.pass_plan(scratch, wrap, repo, owner)
             self.assertEqual([(s["reason"], s["files"]) for s in plan["stops"]], [("unrecorded_change", ["extra.txt"])])
+
+    def test_other_branch_edit_is_no_fix_evidence(self):
+        """The recorded file holds the fix only in feat/b's assigned edit: the change branch still has the bug, so a partial
+        round commit does not make the fix row done."""
+        require_but()
+        with Scratch() as scratch:
+            wrap, repo = self.begin(scratch)
+            (repo.path / "src" / "fix.py").write_text("def f(x):\n    return x  # broken\n", encoding="utf-8")
+            self.commit(scratch, wrap, "feat(add-c): f\n", "src/fix.py")
+            owner = self.script(scratch, wrap, PR_PAIR, "pass", "write", *self.pass_args(repo), "--intent", self.intent(),
+                                cwd=self.root)["owner"]
+            (repo.path / "src" / "fix.py").write_text("def f(x):\n    return x.strip()\n", encoding="utf-8")
+            wrap.set_assignments({"feat/b": ["src/b.py", "src/fix.py"]})
+            (repo.path / "c2.txt").write_text("part\n", encoding="utf-8")
+            partial = self.commit(scratch, wrap, "fix(add-c): address review feedback\n\nFeedback-Round: 2\n", "c2.txt")["commit"]
+
+            plan = self.pass_plan(scratch, wrap, repo, owner)
+
+            fix = [r for r in plan["rows"] if r["step"] == "fix_commit"][0]
+            self.assertEqual((fix["state"], fix.get("partial_commit")), ("todo", partial), fix)
+            self.assertEqual(fix["pending_edits"], [{"file": "src/fix.py", "finding": "F1", "reason": "not_made"}], fix)
+            replies = [r for r in plan["rows"] if r["step"] == "reply"]
+            self.assertTrue(replies and all(r["state"] != "todo" or r.get("blocked") for r in replies), replies)
 
     def test_pass_plan_remote_contains_fetch_writes_no_tracking_ref(self):
         """The pass plan's push check fetches an unknown remote tip into FETCH_HEAD only: a Git ref write is outside the workspace."""

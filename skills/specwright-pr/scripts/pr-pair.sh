@@ -1645,6 +1645,20 @@ def judge(d, e):
     return "done" if all(c in t for c in contains) and not any(x in t for x in absent) else "pending"
 
 
+def judge_at(d, e, rev):
+    """judge() on the file as commit `rev` has it."""
+    r = git(d, "cat-file", "blob", f"{rev}:{e['file']}")
+    if e.get("deleted"):
+        return "pending" if r.returncode == 0 else "done"
+    contains, absent = listify(e.get("contains")), listify(e.get("absent"))
+    if not contains and not absent:
+        return "unjudgeable"
+    if r.returncode != 0:
+        return "pending"
+    t = r.stdout
+    return "done" if all(c in t for c in contains) and not any(x in t for x in absent) else "pending"
+
+
 def dirty_paths(d):
     r = git(d, "status", "--porcelain", "-z", "-uall")
     parts, out, i = r.stdout.split("\0"), set(), 0
@@ -1783,8 +1797,12 @@ def pass_plan(argv):
         files = sorted({norm(e["file"]) for e in edits})
         row = {"step": "fix_commit", "repo": k, "state": "done" if sha else "todo", "sha": sha, "trailer": f"Feedback-Round: {n}",
                "files": files}
-        # judged even when a trailer commit exists: an interrupted pass can commit and push only part of its edits
-        verdicts = [(e, judge(d, e)) for e in edits]
+        st = vcs_state(d, "code", a["code"], branch) if k == "code" and code_gitbutler else None
+        # judged even when a trailer commit exists: an interrupted pass can commit and push only part of its edits.
+        # GitButler: the working tree holds every applied branch, so a file the change has no uncommitted edit in is
+        # judged at the branch tip; another branch's assigned edit is never evidence
+        mine = set(st["change_paths"]) | set(st["unassigned_paths"]) if st else None
+        verdicts = [(e, judge(d, e) if mine is None or norm(e["file"]) in mine else judge_at(d, e, tip[k])) for e in edits]
         pending = [{"file": norm(e["file"]), "finding": e["finding"], "reason": "not_made"} for e, v in verdicts if v == "pending"]
         for e, v in verdicts:
             if v == "unjudgeable":
@@ -1793,7 +1811,6 @@ def pass_plan(argv):
         if k == "code" and code_gitbutler:
             # D13: the change's paths and the unassigned ones; another branch's never count, nor do the unassigned paths that
             # `pass write` recorded as preexisting (unless the pass itself edits one of them)
-            st = vcs_state(d, "code", a["code"], branch)
             dirty = (set(st["change_paths"]) | set(st["unassigned_paths"])) - (set(rec.get("preexisting") or []) - set(files))
         else:
             dirty = dirty_paths(d)

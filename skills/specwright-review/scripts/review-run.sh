@@ -68,7 +68,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import threading
 import time
@@ -942,17 +941,34 @@ def build_prompt(change, code, store, limit, prefix="openspec", view=None):
 
 
 def snapshot_tip(d, tip, dest):
-    """The files of commit `tip` in `d`, written under `dest` (git archive): what a reviewer reads when the checkout is
-    not the tip (GitButler: HEAD is the workspace commit, and the working tree holds every applied branch)."""
-    r = subprocess.run(["git", "archive", "--format=tar", tip], cwd=d, env=ENV, capture_output=True)
-    if r.returncode != 0:
-        raise Stop("git_error", f"git archive {tip} in {d}: {r.stderr.decode('utf-8', 'replace').strip()}")
+    """The files of commit `tip` in `d`, written under `dest`: what a reviewer reads when the checkout is not the tip
+    (GitButler: HEAD is the workspace commit, and the working tree holds every applied branch). Read from the whole tree
+    (ls-tree, cat-file), never `git archive`, which drops export-ignore paths."""
+    def git_bytes(*args, data=None):
+        r = subprocess.run(["git", *args], cwd=d, env=ENV, input=data, capture_output=True)
+        if r.returncode != 0:
+            raise Stop("git_error", f"git {args[0]} {tip} in {d}: {r.stderr.decode('utf-8', 'replace').strip()}")
+        return r.stdout
+    entries = []
+    for rec in git_bytes("ls-tree", "-r", "-z", "--full-tree", tip).split(b"\0"):
+        if not rec:
+            continue
+        meta, path = rec.split(b"\t", 1)
+        _mode, kind, sha = meta.split()
+        parts = path.decode("utf-8", "surrogateescape").split("/")
+        if kind == b"blob" and not any(x in ("", ".", "..") for x in parts):  # submodules (commit) have no files here
+            entries.append((sha, parts))
+    out = git_bytes("cat-file", "--batch", data=b"".join(sha + b"\n" for sha, _ in entries))
     os.makedirs(dest)
-    with tarfile.open(fileobj=io.BytesIO(r.stdout)) as t:
-        if hasattr(tarfile, "data_filter"):
-            t.extractall(dest, filter="data")
-        else:
-            t.extractall(dest)
+    pos = 0
+    for _sha, parts in entries:
+        end = out.index(b"\n", pos)
+        size = int(out[pos:end].split()[2])
+        target = os.path.join(dest, *parts)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as f:
+            f.write(out[end + 1:end + 1 + size])
+        pos = end + 1 + size + 1
     return dest
 
 
