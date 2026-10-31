@@ -15,8 +15,8 @@
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails on one OS | evals/runner/test_workflow.py | test_job_name_and_fail_fast_cover_each_os | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A new suite appears | evals/runner/test_workflow.py | test_matrix_comes_from_list_suites | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | test_suite_jobs_need_the_list_job | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A test starts bash by bare name | evals/runner/test_bare_bash.py | test_bare_bash_call_is_named, test_repo_has_no_bare_bash | red |
+| eval-runner → Windows jobs and evals start Git Bash | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows | green |
+| eval-runner → Windows jobs and evals start Git Bash | A test starts bash by bare name | evals/runner/test_bare_bash.py | test_bare_bash_call_is_named, test_repo_has_no_bare_bash | red |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A job runs past its timeout | evals/runner/test_workflow.py | test_job_and_run_timeouts_are_per_os | green |
 | eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | test_agents_and_contributing_carry_the_rule | green |
 | eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | test_a_file_without_the_rule_is_named | green |

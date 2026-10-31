@@ -35,7 +35,7 @@
 - **THEN** the runner stops that file's whole process tree, reports it as `timeout after S s` with the kept output's path, still runs the other files, and exits 1
 
 ### Requirement: CI runs every suite on Linux, Windows and macOS for each pull request
-`.github/workflows/evals.yml` SHALL run on every pull request, opened or updated, and on a manual dispatch. It SHALL take the suites from `python evals/run.py --list-suites` and run each with `python evals/run.py <suite>` under `bash` on `ubuntu-24.04`, `windows-latest` and `macos-latest`, one job per suite and OS, with `fail-fast: false` and the OpenSpec CLI in `OPENSPEC_VERSION`. A job SHALL pass only when its setup and its run both succeed. On Windows, every `bash` a job or an eval starts SHALL be Git for Windows' Git Bash; an eval SHALL NOT start bash by its bare name.
+`.github/workflows/evals.yml` SHALL run on every pull request, opened or updated, and on a manual dispatch. It SHALL take the suites from `python evals/run.py --list-suites` and run each with `python evals/run.py <suite>` under `bash` on `ubuntu-24.04`, `windows-latest` and `macos-latest`, one job per suite and OS, with `fail-fast: false` and the OpenSpec CLI in `OPENSPEC_VERSION`. A job SHALL pass only when its setup and its run both succeed.
 
 #### Scenario: All suites pass
 - **WHEN** a pull request is opened or a new commit is pushed to it and every suite passes on every OS
@@ -56,14 +56,6 @@
 #### Scenario: The suite list cannot be read
 - **WHEN** `python evals/run.py --list-suites` exits non-zero in the workflow
 - **THEN** the job that lists the suites fails, no suite job starts on any OS, and the pull request shows a failed check rather than a passing one
-
-#### Scenario: Windows runs the POSIX userland of Git Bash
-- **WHEN** a Windows job runs a step or a test that starts `bash`, `cygpath` or `sed`
-- **THEN** it gets Git for Windows' `bash` and `usr/bin` tools, never another `bash` on the runner (such as the WSL launcher in `System32`), and the job's log names the `bash` it resolved
-
-#### Scenario: A test starts bash by bare name
-- **WHEN** an eval under `evals/` starts a process whose argument list begins with the bare name `"bash"`
-- **THEN** a runner test fails naming that file and line, since Windows would resolve that name in `System32` before PATH
 
 #### Scenario: A job runs past its timeout
 - **WHEN** a suite's run on one OS exceeds that OS's job timeout
@@ -135,6 +127,17 @@ Only Linux jobs of suites with tests that need a real `but` SHALL install `but`:
 - **THEN** each GitButler test fails, naming the missing `but`
 
 ## ADDED Requirements
+
+### Requirement: Windows jobs and evals start Git Bash
+On Windows, every `bash` a CI job or an eval starts SHALL be Git for Windows' Git Bash. An eval SHALL NOT start bash by its bare name: it SHALL start the bash that `evals/bashexe.py` resolves.
+
+#### Scenario: Windows runs the POSIX userland of Git Bash
+- **WHEN** a Windows job runs a step or a test that starts `bash`, `cygpath` or `sed`
+- **THEN** it gets Git for Windows' `bash` and `usr/bin` tools, never another `bash` on the runner (such as the WSL launcher in `System32`), and the job's log names the `bash` it resolved
+
+#### Scenario: A test starts bash by bare name
+- **WHEN** an eval under `evals/` starts a process whose argument list begins with the bare name `"bash"`
+- **THEN** a runner test fails naming that file and line, since Windows would resolve that name in `System32` before PATH
 
 ### Requirement: A test skipped on one OS names its issue
 An eval test skipped on some OSes only (its skip condition reads `os.name`, `sys.platform` or `platform.system()`) SHALL have a reason that names an issue (`#<number>`) for the gap, or starts with `platform:` when it tests a mechanism that exists only on the other OSes. A test in `evals/runner` SHALL check every `test_*.py` under `evals/`. Skips that depend on a tool or interpreter on PATH are outside this check; the runner's per-suite skip count shows them.
