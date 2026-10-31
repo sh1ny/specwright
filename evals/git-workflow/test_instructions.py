@@ -2232,6 +2232,30 @@ class GitButlerSkillText(unittest.TestCase):
         r = flat(read(README))
         self.assertRegex(r, r"(?is)GitButler.{0,3000}`but skill install --path", "the README GitButler section does not name the offer")
 
+    def test_readme_gitbutler_choice_names_user_level_targets(self):
+        """fix-m5-gaps D7 (#150): Specwright's own skills and agents go outside the repo on GitButler; GitButler's skill is another rule."""
+        text = read(README)
+        s2 = flat(step(text, "Step 2"))
+        self.assertRegex(s2, r"(?is)vcs: gitbutler", "Step 2 does not cover the GitButler choice")
+        for target in ("~/.claude/skills/", "~/.claude/agents/", "~/.agents/skills/", "~/.omp/agents/"):
+            self.assertIn(target, s2, "the GitButler choice does not name the user-level target " + target)
+        self.assertRegex(s2, r"(?is)vcs: gitbutler.{0,600}(outside the repo|never into it)",
+                         "the GitButler choice does not say the targets are outside the repo")
+        self.assertRegex(s2, r"target_in_workspace", "the GitButler choice does not name the plan refusal")
+        s6 = flat(step(text, "Step 6"))
+        self.assertNotRegex(s6, r"(?i)into a global directory",
+                            "the GitButler skill rule still says global, which reads as Specwright's own install rule")
+        self.assertRegex(s6, r"(?is)`but skill install.{0,900}GitButler's skill only.{0,300}Specwright's\s+own\s+skills\s+and\s+agents",
+                         "the GitButler skill rule does not separate itself from Specwright's own install")
+        start = text.index("**GitButler (`vcs: gitbutler`).**")
+        settings_part = flat(text[start:text.index("\n## ", start)])
+        self.assertRegex(settings_part, r"(?is)GitButler's skill is offered.{0,900}GitButler's skill only.{0,200}Specwright's own skills and agents.{0,120}user level",
+                         "the Settings section does not separate GitButler's skill from Specwright's own install")
+        self.assertNotRegex(settings_part, r"(?i)no global skill directory", "the Settings section still says no global directory is touched")
+        branch = flat(read(BRANCH_SKILL))
+        self.assertRegex(branch, r"(?is)GitButler's skill only.{0,300}Specwright's own skills and agents.{0,120}user level.{0,300}scripts_in_workspace",
+                         "the branch gate does not say Specwright installs at user level on GitButler")
+
 
 if __name__ == "__main__":
     unittest.main()

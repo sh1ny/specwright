@@ -20,10 +20,10 @@
 | eval-runner → A stopped test file's nested sessions are stopped too | Timed-out file with a nested bounded session | evals/runner/test_run.py | test_a_timed_out_file_nested_bounded_session_is_stopped | green |
 | eval-runner → A stopped test file's nested sessions are stopped too | Interrupted run | evals/runner/test_run.py | test_an_interrupt_stops_a_nested_bounded_session | green |
 | eval-runner → A stopped test file's nested sessions are stopped too | Outside the runner | evals/pr-pair/test_bounded.py | test_spawn_records_nothing_without_spawn_dir | green |
-| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed in the repo | evals/vcs/test_gitbutler_probe.py | test_scripts_in_work_tree_stop_before_but | red |
-| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed at user level | evals/vcs/test_gitbutler_probe.py | test_scripts_outside_work_tree_probe_continues | red |
-| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | A sibling branch adds a skill copy | evals/vcs/test_gitbutler_probe.py | test_specwright_copy_in_work_tree_stops | red |
-| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Git project with in-repo skills | evals/vcs/test_probe.py | test_git_backend_ignores_in_repo_scripts | red |
+| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed in the repo | evals/vcs/test_gitbutler_probe.py | test_scripts_in_work_tree_stop_before_but | green |
+| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed at user level | evals/vcs/test_gitbutler_probe.py | test_scripts_outside_work_tree_probe_continues | green |
+| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | A sibling branch adds a skill copy | evals/vcs/test_gitbutler_probe.py | test_specwright_copy_in_work_tree_stops | green |
+| vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Git project with in-repo skills | evals/vcs/test_probe.py | test_git_backend_ignores_in_repo_scripts | green |
 | vcs-backends → On GitButler the settings are those the change branch committed | Unassigned edit before ship | evals/pr-pair/test_pr_pair.py | ContextPin.test_unassigned_settings_edit_stops_context | red |
 | vcs-backends → On GitButler the settings are those the change branch committed | Watch reads merge settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_merge_settings_not_reported_when_unpinned | red |
 | vcs-backends → On GitButler the settings are those the change branch committed | Push with an unpinned edit | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push | red |
@@ -37,10 +37,10 @@
 | vcs-backends → On GitButler the settings are those the change branch committed | Branch already deleted | evals/vcs/test_gitbutler_delete.py | test_state_of_deleted_branch_has_no_pin_stop | red |
 | vcs-backends → On GitButler the settings are those the change branch committed | Pinned settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_pinned_settings_report_as_before | red |
 | vcs-backends → On GitButler the settings are those the change branch committed | Git backend | evals/pr-pair/test_pr_pair.py | ContextPin.test_git_backend_never_pins | red |
-| install-update → A GitButler project takes no in-repo skill or agent target | In-repo target for a GitButler project | evals/update/test_update.py | test_gitbutler_project_refuses_in_repo_target | red |
-| install-update → A GitButler project takes no in-repo skill or agent target | User-level target | evals/update/test_update.py | test_gitbutler_project_accepts_user_level_target | red |
-| install-update → A GitButler project takes no in-repo skill or agent target | Git project | evals/update/test_update.py | test_git_project_keeps_in_repo_target | red |
-| install-update → A GitButler project takes no in-repo skill or agent target | Fresh install with no settings yet | evals/update/test_update.py + evals/git-workflow/test_instructions.py | test_fresh_install_has_no_workspace_refusal + test_readme_gitbutler_choice_names_user_level_targets | red |
+| install-update → A GitButler project takes no in-repo skill or agent target | In-repo target for a GitButler project | evals/update/test_update.py | test_gitbutler_project_refuses_in_repo_target | green |
+| install-update → A GitButler project takes no in-repo skill or agent target | User-level target | evals/update/test_update.py | test_gitbutler_project_accepts_user_level_target | green |
+| install-update → A GitButler project takes no in-repo skill or agent target | Git project | evals/update/test_update.py | test_git_project_keeps_in_repo_target | green |
+| install-update → A GitButler project takes no in-repo skill or agent target | Fresh install with no settings yet | evals/update/test_update.py + evals/git-workflow/test_instructions.py | test_fresh_install_has_no_workspace_refusal + test_readme_gitbutler_choice_names_user_level_targets | green |
 
 The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It runs only on the Linux CI job (`SPECWRIGHT_REQUIRE_BUT=1`), and they skip on this Windows machine. Their red step is shown by running the module where `but` exists (WSL only with the user's OK, else the PR's Linux job), and the task says which was used. Per AGENTS.md, run only the module being written locally, red then green, and never a whole suite.
 
@@ -98,17 +98,17 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 8. GitButler runs only an install outside the repo (#150)
 
-- [ ] 8.1 Write the failing tests, then run each module and see them fail:
+- [x] 8.1 Write the failing tests, then run each module and see them fail:
   - In `evals/vcs/test_gitbutler_probe.py`: `test_scripts_in_work_tree_stop_before_but`, `test_scripts_outside_work_tree_probe_continues` and `test_specwright_copy_in_work_tree_stops`. Each logs that no `but` ran on a stop.
   - In `evals/vcs/test_probe.py`: `test_git_backend_ignores_in_repo_scripts`.
   - In `evals/update/test_update.py`: `test_gitbutler_project_refuses_in_repo_target`, `test_gitbutler_project_accepts_user_level_target`, `test_git_project_keeps_in_repo_target` and `test_fresh_install_has_no_workspace_refusal`.
-- [ ] 8.2 In `skills/specwright-pr/scripts/vcs.sh` `probe_gitbutler`, before `but --version`, stop with `scripts_in_workspace` (exit 1) in either of two cases:
+- [x] 8.2 In `skills/specwright-pr/scripts/vcs.sh` `probe_gitbutler`, before `but --version`, stop with `scripts_in_workspace` (exit 1) in either of two cases:
   - the resolved `VCS_DIR` is under the resolved repo root;
   - any of `.claude/skills/specwright-*`, `.agents/skills/specwright-*`, `.claude/agents/specwright-*.md` or `.omp/agents/specwright-*.md` exists in the work tree.
 
   The message names each path, says to install at user level, and says to remove committed copies by hand through GitButler. Verify: the 8.1 vcs modules pass (GitButler ones where `but` exists, see the note under the test map), and flip their rows green.
-- [ ] 8.3 In `scripts/update.sh` plan, read `<code>/openspec/specwright.yaml`. When it selects `vcs: gitbutler`, add a `target_in_workspace` refusal for each `--skills` or `--agents` directory under the code toplevel, and document it in the header. Verify: `python -m unittest evals/update/test_update.py` passes, and flip its rows green.
-- [ ] 8.4 Add `test_readme_gitbutler_choice_names_user_level_targets` to `evals/git-workflow/test_instructions.py` and see it fail. Then edit:
+- [x] 8.3 In `scripts/update.sh` plan, read `<code>/openspec/specwright.yaml`. When it selects `vcs: gitbutler`, add a `target_in_workspace` refusal for each `--skills` or `--agents` directory under the code toplevel, and document it in the header. Verify: `python -m unittest evals/update/test_update.py` passes, and flip its rows green.
+- [x] 8.4 Add `test_readme_gitbutler_choice_names_user_level_targets` to `evals/git-workflow/test_instructions.py` and see it fail. Then edit:
   - `README.md`: the install prompt's GitButler choice names user-level targets for Specwright's skills and agents. Reword the line about GitButler's own skill (README.md:307-308) so the two rules are not confused.
   - `skills/specwright-branch/SKILL.md`: the GitButler paragraph says the same.
 

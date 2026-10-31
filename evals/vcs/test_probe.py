@@ -1,7 +1,10 @@
 """The backend probe validates selected jj repositories without initializing them."""
 
+import json
+import shutil
+
 from jjenv import Scratch, require_jj, real_git
-from vcs_test_support import VcsTestCase, bash_path_env
+from vcs_test_support import ROOT, VcsTestCase, bash_path_env, bash_run
 
 
 class TestProbe(VcsTestCase):
@@ -60,3 +63,23 @@ class TestProbe(VcsTestCase):
             (workspace / "openspec" / "specwright.yaml").write_text("vcs: jj\n", encoding="utf-8")
             result, _ = self.invoke("probe", repo=workspace, expected=1)
             self.assertEqual(result["error"], "not_colocated")
+
+    def test_git_backend_ignores_in_repo_scripts(self):
+        """fix-m5-gaps D7 (#150): the workspace check belongs to the GitButler backend; Git keeps in-repo installs."""
+        self.set_settings(self.repo, "vcs: git\n")
+        scripts = self.repo / ".claude" / "skills" / "specwright-pr" / "scripts"
+        shutil.copytree(ROOT / "skills" / "specwright-pr" / "scripts", scripts,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        for extra in (".agents/skills/specwright-branch", ".claude/agents/specwright-reviewer.md",
+                      ".omp/agents/specwright-implementer.md"):
+            path = self.repo / extra
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if extra.endswith(".md"):
+                path.write_text("copy\n", encoding="utf-8")
+            else:
+                path.mkdir()
+        result = bash_run([(scripts / "vcs.sh").as_posix(), "probe", "--repo", str(self.repo), "--role", "code"],
+                          cwd=self.repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        obj = json.loads(result.stdout)
+        self.assertEqual((obj["ok"], obj["backend"], obj["main"]), (True, "git", "main"))
