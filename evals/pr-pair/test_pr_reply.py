@@ -207,7 +207,7 @@ class ReplyBody(ReplyCase):
         f.chmod(0)
         self.addCleanup(f.chmod, stat.S_IRUSR | stat.S_IWUSR)
         if os.access(f, os.R_OK) or os.name == "nt":
-            self.skipTest("chmod cannot make a file unreadable here (Windows, or running as a user that bypasses permissions)")
+            self.skipTest("platform: chmod cannot make a file unreadable here (Windows, or running as a user that bypasses permissions)")
         path = fixtures.posix(f)
         self.refused(self.reply("thread", tid, c["databaseId"], path), path)
         self.refused(self.reply("comment", "IC_x", path), path)

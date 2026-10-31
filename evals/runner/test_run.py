@@ -21,6 +21,9 @@ HERE = Path(__file__).resolve().parent
 RUN = HERE.parent / "run.py"
 
 PASSING = "import unittest\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n    def test_b(self):\n        pass\n"
+SKIPPING = ("import unittest\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n"
+            "    @unittest.skip('one')\n    def test_s1(self):\n        pass\n"
+            "    def test_s2(self):\n        self.skipTest('two')\n")
 FAILING = "import unittest\nclass T(unittest.TestCase):\n    def test_bad(self):\n        self.fail('boom-marker')\n"
 CRASHING = "import no_such_module_anywhere\n"
 
@@ -94,11 +97,19 @@ class RunnerTests(unittest.TestCase):
         self.suite("fakes", {"gh.py": "raise SystemExit(9)\n"})  # not a suite: holds no test_*.py
         r = self.run_runner("alpha", "beta")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertRegex(r.stdout, r"(?m)^alpha: 2 files, 4 tests, \d+(\.\d+)?s$")
-        self.assertRegex(r.stdout, r"(?m)^beta: 1 files, 2 tests, \d+(\.\d+)?s$")
+        self.assertRegex(r.stdout, r"(?m)^alpha: 2 files, 4 tests, 0 skipped, \d+(\.\d+)?s$")
+        self.assertRegex(r.stdout, r"(?m)^beta: 1 files, 2 tests, 0 skipped, \d+(\.\d+)?s$")
         r = self.run_runner()  # no suite named: every suite, and `fakes` is not one
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("fakes", r.stdout)
+
+    def test_skips_are_counted_per_suite(self):
+        self.suite("alpha", {"test_one.py": SKIPPING})
+        self.suite("beta", {"test_two.py": PASSING})
+        r = self.run_runner("alpha", "beta")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"(?m)^alpha: 1 files, 3 tests, 2 skipped, \d+(\.\d+)?s$")
+        self.assertRegex(r.stdout, r"(?m)^beta: 1 files, 2 tests, 0 skipped, \d+(\.\d+)?s$")
 
     def test_list_suites_prints_every_suite_as_json(self):
         self.suite("beta", {"test_two.py": PASSING})

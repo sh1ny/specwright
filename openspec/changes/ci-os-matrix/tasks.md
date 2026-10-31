@@ -4,8 +4,8 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| eval-runner → The runner runs each test file as its own process | All files pass | evals/runner/test_run.py | test_all_files_pass (asserts `0 skipped` in the suite line) | red |
-| eval-runner → The runner runs each test file as its own process | Skips are counted per suite | evals/runner/test_run.py | test_skips_are_counted_per_suite | red |
+| eval-runner → The runner runs each test file as its own process | All files pass | evals/runner/test_run.py | test_all_files_pass (asserts `0 skipped` in the suite line) || green |
+| eval-runner → The runner runs each test file as its own process | Skips are counted per suite | evals/runner/test_run.py | test_skips_are_counted_per_suite || green |
 | eval-runner → The runner runs each test file as its own process | A file fails | evals/runner/test_run.py | test_a_failing_file_is_reported_and_kept | green |
 | eval-runner → The runner runs each test file as its own process | Unknown suite | evals/runner/test_run.py | test_unknown_suite_exits_2 | green |
 | eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | test_a_crashing_file_is_reported | green |
@@ -31,19 +31,19 @@
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Downloaded bytes differ | evals/runner/test_ci_workflow.py | test_workflow_checks_but_sha256_before_use | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Local run without `but` | evals/runner/test_butenv.py | test_but_missing_skips_with_reason | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Required but missing | evals/runner/test_butenv.py | test_but_missing_required_fails | green |
-| eval-runner → A test skipped on one OS names its issue | A per-OS skip with its issue | evals/runner/test_platform_skips.py | test_os_skip_naming_an_issue_passes | red |
-| eval-runner → A test skipped on one OS names its issue | A mechanism that exists on one OS only | evals/runner/test_platform_skips.py | test_platform_prefixed_skip_passes | red |
-| eval-runner → A test skipped on one OS names its issue | A per-OS skip with neither | evals/runner/test_platform_skips.py | test_os_skip_with_neither_is_named | red |
-| eval-runner → A test skipped on one OS names its issue | A skip inside an OS branch | evals/runner/test_platform_skips.py | test_skiptest_inside_os_branch_is_named | red |
+| eval-runner → A test skipped on one OS names its issue | A per-OS skip with its issue | evals/runner/test_platform_skips.py | test_os_skip_naming_an_issue_passes || green |
+| eval-runner → A test skipped on one OS names its issue | A mechanism that exists on one OS only | evals/runner/test_platform_skips.py | test_platform_prefixed_skip_passes || green |
+| eval-runner → A test skipped on one OS names its issue | A per-OS skip with neither | evals/runner/test_platform_skips.py | test_os_skip_with_neither_is_named || green |
+| eval-runner → A test skipped on one OS names its issue | A skip inside an OS branch | evals/runner/test_platform_skips.py | test_skiptest_inside_os_branch_is_named || green |
 
 Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_pin_files_check_out_lf` (design D6). Integration: the real matrix run in group 4 is the end-to-end check of every CI scenario above.
 
 ## 1. Runner: skipped counts and the per-OS skip scan
 
-- [ ] 1.1 Write `test_skips_are_counted_per_suite` and extend `test_all_files_pass` to expect `K skipped` in the suite line (design D10). Run `python -m unittest evals/runner/test_run.py` and see both fail on the missing field.
-- [ ] 1.2 In `evals/run.py`, read `skipped=N` from each file's closing `OK (...)`/`FAILED (...)` line, sum it per suite and print `suite: F files, T tests, K skipped, S.Ss`. Update the module docstring's output line. Verify `test_run.py` passes and flip both rows green.
-- [ ] 1.3 Write `evals/runner/test_platform_skips.py` (design D7). It holds an AST scan of `evals/**/test_*.py` for `skipIf`/`skipUnless` (decorator or call), `self.skipTest` and `raise unittest.SkipTest` under a condition that reads `os.name`, `sys.platform` or `platform.system`. A reason passes when it matches `#\d+` or starts with `platform:`. Add the four scenario tests on synthetic sources in a temp dir, plus `test_repo_skips_pass` over the real tree. Run it and see `test_repo_skips_pass` fail, naming the six existing sites (`test_bounded.py:242,253,446`, `test_review_run.py:1033,1072`, `test_pr_reply.py:209-210`).
-- [ ] 1.4 Prefix those six reasons with `platform: ` without changing their conditions. Add a rule for `evals/runner/test_platform_skips.py` to `evals/suites.json` if `evals/runner/**` does not already cover it. Verify `python -m unittest evals/runner/test_platform_skips.py evals/runner/test_suite_map.py` passes and flip the four rows green.
+- [x] 1.1 Write `test_skips_are_counted_per_suite` and extend `test_all_files_pass` to expect `K skipped` in the suite line (design D10). Run `python -m unittest evals/runner/test_run.py` and see both fail on the missing field.
+- [x] 1.2 In `evals/run.py`, read `skipped=N` from each file's closing `OK (...)`/`FAILED (...)` line, sum it per suite and print `suite: F files, T tests, K skipped, S.Ss`. Update the module docstring's output line. Verify `test_run.py` passes and flip both rows green.
+- [x] 1.3 Write `evals/runner/test_platform_skips.py` (design D7). It holds an AST scan of `evals/**/test_*.py` for `skipIf`/`skipUnless` (decorator or call), `self.skipTest` and `raise unittest.SkipTest` under a condition that reads `os.name`, `sys.platform` or `platform.system`. A reason passes when it matches `#\d+` or starts with `platform:`. Add the four scenario tests on synthetic sources in a temp dir, plus `test_repo_skips_pass` over the real tree. Run it and see `test_repo_skips_pass` fail, naming the six existing sites (`test_bounded.py:242,253,446`, `test_review_run.py:1033,1072`, `test_pr_reply.py:209-210`).
+- [x] 1.4 Prefix those six reasons with `platform: ` without changing their conditions. Add a rule for `evals/runner/test_platform_skips.py` to `evals/suites.json` if `evals/runner/**` does not already cover it. Verify `python -m unittest evals/runner/test_platform_skips.py evals/runner/test_suite_map.py` passes and flip the four rows green.
 
 ## 2. Workflow: OS matrix, Git Bash, per-OS jj, Linux-only `but`, pin files
 
