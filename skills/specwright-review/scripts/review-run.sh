@@ -943,7 +943,8 @@ def build_prompt(change, code, store, limit, prefix="openspec", view=None):
 def snapshot_tip(d, tip, dest):
     """The files of commit `tip` in `d`, written under `dest`: what a reviewer reads when the checkout is not the tip
     (GitButler: HEAD is the workspace commit, and the working tree holds every applied branch). Read from the whole tree
-    (ls-tree, cat-file), never `git archive`, which drops export-ignore paths."""
+    (ls-tree, cat-file), never `git archive`, which drops export-ignore paths. A symlink stays a link; where none can be
+    made (Windows without the privilege) it is a copy of the target inside the tree, else a file holding the target."""
     def git_bytes(*args, data=None):
         r = subprocess.run(["git", *args], cwd=d, env=ENV, input=data, capture_output=True)
         if r.returncode != 0:
@@ -954,21 +955,42 @@ def snapshot_tip(d, tip, dest):
         if not rec:
             continue
         meta, path = rec.split(b"\t", 1)
-        _mode, kind, sha = meta.split()
+        mode, kind, sha = meta.split()
         parts = path.decode("utf-8", "surrogateescape").split("/")
         if kind == b"blob" and not any(x in ("", ".", "..") for x in parts):  # submodules (commit) have no files here
-            entries.append((sha, parts))
-    out = git_bytes("cat-file", "--batch", data=b"".join(sha + b"\n" for sha, _ in entries))
+            entries.append((sha, parts, mode == b"120000"))
+    out = git_bytes("cat-file", "--batch", data=b"".join(sha + b"\n" for sha, _, _ in entries))
     os.makedirs(dest)
-    pos = 0
-    for _sha, parts in entries:
+    pos, links = 0, []
+    for _sha, parts, link in entries:
         end = out.index(b"\n", pos)
         size = int(out[pos:end].split()[2])
         target = os.path.join(dest, *parts)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "wb") as f:
-            f.write(out[end + 1:end + 1 + size])
+        data = out[end + 1:end + 1 + size]
+        if link:
+            links.append((target, data.decode("utf-8", "surrogateescape")))
+        else:
+            with open(target, "wb") as f:
+                f.write(data)
         pos = end + 1 + size + 1
+    root = os.path.realpath(dest)
+    for path, to in links:  # after the files, so a link or copy finds its target
+        real = os.path.realpath(os.path.join(os.path.dirname(path), to))
+        inside = real.startswith(root + os.sep)  # a link out of the copy would let the reviewer read outside it
+        if inside:
+            try:
+                os.symlink(to, path, target_is_directory=os.path.isdir(real))
+                continue
+            except OSError:
+                pass
+        if inside and os.path.isfile(real):
+            shutil.copyfile(real, path)
+        elif inside and os.path.isdir(real):
+            shutil.copytree(real, path)
+        else:
+            with open(path, "w", encoding="utf-8", errors="surrogateescape") as f:
+                f.write(to)
     return dest
 
 

@@ -165,6 +165,32 @@ class TestGitButlerRanges(GitButlerRangeCase):
             self.assertIn("add-c.txt", files, "an export-ignore file is missing from the reviewer's copy")
             self.assertIn(".gitattributes", files)
 
+    def test_preship_copy_keeps_symlinks(self):
+        # a tracked symlink reads as its target in the reviewer's copy, never as a file holding the target's name
+        require_but()
+        with Scratch() as scratch:
+            repo = self.pair(scratch)
+            self.install_claude(scratch)
+            (repo.path / "real.py").write_text("def real():\n    return 1\n", encoding="utf-8")
+            try:
+                os.symlink("real.py", str(repo.path / "alias.py"))
+            except OSError:
+                self.skipTest("this machine cannot create symlinks")
+            repo.but("commit", "-b", BRANCH, "-m", "link", "--json", "real.py", "alias.py")
+            mode = self.git(repo.path, "ls-tree", "refs/heads/" + BRANCH, "alias.py").stdout.split()[0]
+            self.assertEqual(mode, "120000", "the branch does not hold alias.py as a symlink")
+            stdout = self.root / "claude-stdout.json"
+            stdout.write_text(json.dumps({"type": "result", "result": "done", "structured_output": CLEAN}), encoding="utf-8")
+            env = self.env(scratch, FAKE_CLAUDE_STDOUT=str(stdout), FAKE_CLAUDE_READ="alias.py")
+
+            result = self.script(REVIEW, scratch, repo, "run", "--kind", "preship", "--route", "claude", "--out",
+                                 self.root / "out.json", "--change", CHANGE, "--base", "main", "--branch", BRANCH, env=env)
+
+            self.assertEqual(result["status"], "ok", result)
+            read = self.claude_runs()[0]["read"]
+            self.assertIsNotNone(read, "alias.py is missing from the reviewer's copy")
+            self.assertEqual(read[1], "def real():\n    return 1\n", "alias.py does not read as real.py")
+
     def test_gate_after_archive_resolves_branch_tip(self):
         require_but()
         with Scratch() as scratch:

@@ -3,6 +3,7 @@
 Run as `python reviewcli.py <codex|claude|omp> <args...>`; the test's bin dir holds a `.cmd` and a POSIX shim per CLI.
 Environment (U = the CLI name in capitals):
   FAKE_U_ARGV_LOG      append one JSON line per call: {argv, stdin, prompt_file_text (omp), session_dir_before (omp)}
+  FAKE_U_READ          log [is_link, text] of this path (relative to the cwd) in the ARGV_LOG entry
   FAKE_U_VERSION_EXIT  exit code of `--version` (default 0; `--version` prints a version line)
   FAKE_U_EXIT          exit code of a review call (default 0)
   FAKE_U_STDOUT        file whose content a review call prints (codex: the text of one completed `agent_message` item, as
@@ -53,6 +54,9 @@ def main(argv):
     u = name.upper()
     env = os.environ.get
     entry = {"cli": name, "argv": args, "cwd": os.getcwd(), "cwd_files": sorted(os.listdir("."))}
+    if env(f"FAKE_{u}_READ"):  # what the reviewer sees at this path: (is a link, text), or None when missing
+        seen = env(f"FAKE_{u}_READ")
+        entry["read"] = [os.path.islink(seen), open(seen, encoding="utf-8").read()] if os.path.exists(seen) else None
     log = env(f"FAKE_{u}_ARGV_LOG")
 
     def write_log():
