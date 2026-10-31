@@ -198,6 +198,26 @@ class TaskCover(unittest.TestCase):
         self.assertEqual(doc["error"], "range_too_large")
         self.assertNotIn("tasks", doc)
 
+    def test_repeated_task_id_exits_2(self):
+        self.commit("feat(%s): task 1.1 add greet" % CHANGE)
+        text = "## 1. G\n\n- [x] 1.1 add greet\n- [x] 1.2 b\n- [~] 1.1 draft\n"
+        r = self.run_script(tasks=self.tasks_file(text))
+        self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
+        doc = json.loads(r.stdout)
+        self.assertFalse(doc["ok"])
+        self.assertEqual(doc["error"], "duplicate_task_ids")
+        self.assertIn("1.1", doc["message"])
+        self.assertNotIn("uncovered", doc)
+        self.assertNotIn("tasks", doc)
+
+    def test_repeated_id_in_plain_bullet_is_not_a_task(self):
+        sha = self.commit("feat(%s): task 1.1 add greet" % CHANGE)
+        text = "## 1. G\n\n- [x] 1.1 add greet\n- 1.1 note: see above\n"
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual([t["id"] for t in doc["tasks"]], ["1.1"])
+        self.assertEqual(self.task(doc, "1.1")["commits"], [{"sha": sha, "form": "subject"}])
+        self.assertEqual(doc["uncovered"], [])
+
     def test_missing_tasks_file_exits_2(self):
         r = self.run_script(tasks=self.tmp / "nope.md")
         self.assertEqual(r.returncode, 2)

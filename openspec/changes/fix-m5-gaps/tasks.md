@@ -6,9 +6,9 @@
 |---|---|---|---|---|
 | releases → The release skill names the proposal in the planning repo | Store-backed project | evals/release/test_skill_text.py | TestReleaseSkill.test_notes_check_names_proposal_in_planning_repo | green |
 | releases → The release skill names the proposal in the planning repo | A hardcoded path comes back | evals/release/test_skill_text.py | TestReleaseSkill.test_no_skill_passes_a_fixed_proposal_path | green |
-| task-commits → A repeated task id stops the coverage check | Ticked line followed by a draft line with the same id | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_task_id_exits_2 | red |
+| task-commits → A repeated task id stops the coverage check | Ticked line followed by a draft line with the same id | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_task_id_exits_2 | green |
 | task-commits → A repeated task id stops the coverage check | Unique ids | evals/git-workflow/test_task_cover.py | TaskCover (existing coverage tests, unchanged) | green |
-| task-commits → A repeated task id stops the coverage check | Repeated id in an untracked line | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_id_in_plain_bullet_is_not_a_task | red |
+| task-commits → A repeated task id stops the coverage check | Repeated id in an untracked line | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_id_in_plain_bullet_is_not_a_task | green |
 | eval-grading → Store-group pair evidence names the trailers it checks | Only the trailers fail | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_code_half_without_trailers_fails (extended with the evidence assertion) | red |
 | eval-grading → Store-group pair evidence names the trailers it checks | Trailers present | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_pair_evidence_lists_tasks | red |
 | eval-grading → The fake gh state file is replaced whole | Reader during a write | evals/pr-pair/test_fake_gh.py | StateFile.test_reader_never_sees_a_partial_state | red |
@@ -55,8 +55,8 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 3. Repeated task ids stop task-cover (#143)
 
-- [ ] 3.1 Add `test_repeated_task_id_exits_2` (`- [x] 1.1` then `- [~] 1.1 draft`: exit 2, `error: duplicate_task_ids`, message names `1.1`, no `uncovered`) and `test_repeated_id_in_plain_bullet_is_not_a_task` to `evals/git-workflow/test_task_cover.py`. Run the module: the first fails.
-- [ ] 3.2 In `skills/specwright-commit/scripts/task-cover.sh`, collect ids seen on more than one tracked line and `stop("duplicate_task_ids", ..., 2)` before coverage is built. Document the error in the header's exit-code block. Verify: `python -m unittest evals/git-workflow/test_task_cover.py` passes (existing tests included), and flip the rows green.
+- [x] 3.1 Add `test_repeated_task_id_exits_2` (`- [x] 1.1` then `- [~] 1.1 draft`: exit 2, `error: duplicate_task_ids`, message names `1.1`, no `uncovered`) and `test_repeated_id_in_plain_bullet_is_not_a_task` to `evals/git-workflow/test_task_cover.py`. Run the module: the first fails.
+- [x] 3.2 In `skills/specwright-commit/scripts/task-cover.sh`, collect ids seen on more than one tracked line and `stop("duplicate_task_ids", ..., 2)` before coverage is built. Document the error in the header's exit-code block. Verify: `python -m unittest evals/git-workflow/test_task_cover.py` passes (existing tests included), and flip the rows green.
 
 ## 4. Store-group evidence shows the trailers (#144)
 
