@@ -46,7 +46,7 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 1. ADR 0019 and architecture
 
-- [ ] 1.1 Write `docs/adr/0019-gitbutler-workspace-runs-only-the-user-level-install.md`: Status accepted, today's date, adds to 0018 (does not supersede it). Its Decision records D7 and D8 from design.md. Its Consequences name the residual risk of the schema, templates and `config.yaml` in the work tree, and `but worktree` as the fix that would close it. Add its row to the in-force index in `openspec/architecture.md`, and amend the `vcs.sh` and Install prompt rows (`scripts_in_workspace`, `settings_not_pinned` through `pr-pair.sh context --branch`/`--after-merge`, `target_in_workspace`). Verify: `python -m unittest evals/runner/test_suite_map.py` passes (add a `suites.json` rule or `no_eval` entry if it fails).
+- [x] 1.1 Write `docs/adr/0019-gitbutler-workspace-runs-only-the-user-level-install.md`: Status accepted, today's date, adds to 0018 (does not supersede it). Its Decision records D7 and D8 from design.md. Its Consequences name the residual risk of the schema, templates and `config.yaml` in the work tree, and `but worktree` as the fix that would close it. Add its row to the in-force index in `openspec/architecture.md`, and amend the `vcs.sh` and Install prompt rows (`scripts_in_workspace`, `settings_not_pinned` through `pr-pair.sh context --branch`/`--after-merge`, `target_in_workspace`). Verify: `python -m unittest evals/runner/test_suite_map.py` passes (add a `suites.json` rule or `no_eval` entry if it fails).
 
 ## 2. Release skill names the proposal by role (#133)
 
