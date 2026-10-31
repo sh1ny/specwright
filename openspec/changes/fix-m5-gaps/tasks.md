@@ -9,8 +9,8 @@
 | task-commits → A repeated task id stops the coverage check | Ticked line followed by a draft line with the same id | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_task_id_exits_2 | green |
 | task-commits → A repeated task id stops the coverage check | Unique ids | evals/git-workflow/test_task_cover.py | TaskCover (existing coverage tests, unchanged) | green |
 | task-commits → A repeated task id stops the coverage check | Repeated id in an untracked line | evals/git-workflow/test_task_cover.py | TaskCover.test_repeated_id_in_plain_bullet_is_not_a_task | green |
-| eval-grading → Store-group pair evidence names the trailers it checks | Only the trailers fail | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_code_half_without_trailers_fails (extended with the evidence assertion) | red |
-| eval-grading → Store-group pair evidence names the trailers it checks | Trailers present | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_pair_evidence_lists_tasks | red |
+| eval-grading → Store-group pair evidence names the trailers it checks | Only the trailers fail | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_code_half_without_trailers_fails (extended with the evidence assertion) | green |
+| eval-grading → Store-group pair evidence names the trailers it checks | Trailers present | evals/git-workflow/test_grade.py | StoreGroupRecovery.test_store_group_pair_evidence_lists_tasks | green |
 | eval-grading → The fake gh state file is replaced whole | Reader during a write | evals/pr-pair/test_fake_gh.py | StateFile.test_reader_never_sees_a_partial_state | red |
 | eval-grading → The fake gh state file is replaced whole | Rename held off | evals/pr-pair/test_fake_gh.py | StateFile.test_held_rename_fails_after_bound_and_keeps_state | red |
 | eval-grading → A fake gh read never rewrites the state | Watcher polls while the test mutates | evals/pr-pair/test_fake_gh.py | StateFile.test_read_call_leaves_state_file_untouched | red |
@@ -60,8 +60,8 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 4. Store-group evidence shows the trailers (#144)
 
-- [ ] 4.1 Extend `StoreGroupRecovery.test_store_group_code_half_without_trailers_fails` in `evals/git-workflow/test_grade.py` to assert the evidence shows each commit's empty task list. Add `test_store_group_pair_evidence_lists_tasks` for the passing case (`['1.1', '1.2', '1.3']`, both pair checks). Run the module and see them fail.
-- [ ] 4.2 Change the evidence of `eval-store-group-code-half` and `eval-store-group-store-half` in `evals/git-workflow/grade.py` to `(subject, tasks)` pairs, as `eval-store-apply-groups` already does. Verify: `python -m unittest evals/git-workflow/test_grade.py -k StoreGroup` passes, and flip the rows green.
+- [x] 4.1 Extend `StoreGroupRecovery.test_store_group_code_half_without_trailers_fails` in `evals/git-workflow/test_grade.py` to assert the evidence shows each commit's empty task list. Add `test_store_group_pair_evidence_lists_tasks` for the passing case (`['1.1', '1.2', '1.3']`, both pair checks). Run the module and see them fail.
+- [x] 4.2 Change the evidence of `eval-store-group-code-half` and `eval-store-group-store-half` in `evals/git-workflow/grade.py` to `(subject, tasks)` pairs, as `eval-store-apply-groups` already does. Verify: `python -m unittest evals/git-workflow/test_grade.py -k StoreGroup` passes, and flip the rows green.
 
 ## 5. Fake gh state written whole, reads never write (#134)
 
