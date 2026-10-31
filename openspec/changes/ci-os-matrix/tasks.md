@@ -17,9 +17,9 @@
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | test_suite_jobs_need_the_list_job | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows || green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A job runs past its timeout | evals/runner/test_workflow.py | test_job_and_run_timeouts_are_per_os || green |
-| eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | test_agents_and_contributing_carry_the_rule | red |
-| eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | test_a_file_without_the_rule_is_named | red |
-| eval-runner → The instructions say which suites to run when | A file brings back a local suite run | evals/runner/test_agent_instructions.py | test_a_local_suite_run_is_named | red |
+| eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | test_agents_and_contributing_carry_the_rule || green |
+| eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | test_a_file_without_the_rule_is_named || green |
+| eval-runner → The instructions say which suites to run when | A file brings back a local suite run | evals/runner/test_agent_instructions.py | test_a_local_suite_run_is_named || green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_jj_on_each_os || green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | test_workflow_checks_jj_sha256_before_use (per OS row) || green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Runner with no pinned archive | evals/runner/test_ci_workflow.py | test_unknown_runner_fails_before_download || green |
@@ -82,20 +82,20 @@ Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_p
 
 ## 3. Instructions: CI first, no local suite runs
 
-- [ ] 3.1 Rewrite `evals/runner/test_agent_instructions.py` (design D8):
+- [x] 3.1 Rewrite `evals/runner/test_agent_instructions.py` (design D8):
   - Both `AGENTS.md` and `CONTRIBUTING.md` must name `.github/workflows/evals.yml`, the single-module run (`python -m unittest evals/<suite>/test_`), the map test (`evals/runner/test_suite_map.py`) and `milestone close`.
   - `CLAUDE.md` must import `AGENTS.md`.
   - `test_a_file_without_the_rule_is_named` is updated for the new needles.
   - A new `test_a_local_suite_run_is_named` fails naming the file and command when `AGENTS.md`, `CONTRIBUTING.md` or `README.md` holds `python evals/run.py --changed main` or `python -m unittest discover evals/`.
 
   Run it and see it fail on today's text.
-- [ ] 3.2 Rewrite the AGENTS.md "Running evals" section, the CONTRIBUTING.md testing section (line 42 and the per-area bullets at 44-51; keep the Python 3.8 note naming `test_pass_write_on_python38`) and `README.md:629`:
+- [x] 3.2 Rewrite the AGENTS.md "Running evals" section, the CONTRIBUTING.md testing section (line 42 and the per-area bullets at 44-51; keep the Python 3.8 note naming `test_pass_write_on_python38`) and `README.md:629`:
   - During a change, rely on the CI matrix.
   - Locally, run only the module you are writing, red then green, and the map test after adding a tracked file.
   - At a milestone close, a green `gh workflow run evals.yml --ref main` run on the closing head of `main`.
 
   Update the evals row of `openspec/architecture.md` ("on Linux" → the three OSes). Verify `test_agent_instructions.py` passes and flip its three rows green.
-- [ ] 3.3 In `openspec/roadmap.md`, change this change's M6 line from "a pinned, checksummed jj and `but` per OS" to a pinned, checksummed jj per OS with `but` on Linux only, naming the 2.1 issue. Verify by `git diff openspec/roadmap.md` showing only that line.
+- [x] 3.3 In `openspec/roadmap.md`, change this change's M6 line from "a pinned, checksummed jj and `but` per OS" to a pinned, checksummed jj per OS with `but` on Linux only, naming the 2.1 issue. Verify by `git diff openspec/roadmap.md` showing only that line.
 
 ## 4. First matrix runs: triage and measured timeouts
 
