@@ -11,7 +11,7 @@ import subprocess
 import gitlog
 from butenv import real_git
 from butwrap import ButWrap
-from test_gitbutler_branch import GitButlerWorkspaceCase
+from test_gitbutler_branch import DEFAULT_SETTINGS, GitButlerWorkspaceCase
 from vcs_test_support import bash_path_env
 
 GITHUB = "https://github.com/o/r.git"
@@ -50,9 +50,9 @@ class GitButlerNetworkCase(GitButlerWorkspaceCase):
         calls = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
         return [call["env"]["GH_TOKEN"] for call in calls if call["argv"][0] == "api"]
 
-    def workspace(self, scratch, branches):
+    def workspace(self, scratch, branches, settings=DEFAULT_SETTINGS):
         """A managed repo with each branch applied and holding one commit (`<name>.txt`)."""
-        repo = self.managed(scratch)
+        repo = self.managed(scratch, settings)
         self.repo_path = repo.path
         for branch in branches:
             repo.but("branch", "new", branch)

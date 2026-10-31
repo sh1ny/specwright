@@ -2256,6 +2256,34 @@ class GitButlerSkillText(unittest.TestCase):
         self.assertRegex(branch, r"(?is)GitButler's skill only.{0,300}Specwright's own skills and agents.{0,120}user level.{0,300}scripts_in_workspace",
                          "the branch gate does not say Specwright installs at user level on GitButler")
 
+    def test_gitbutler_validate_read_from_pinned_context(self):
+        """fix-m5-gaps D8 (#151): on GitButler the settings are read only through `pr-pair.sh context --branch`, right before use."""
+        pr = flat(read(PR_SKILL))
+        self.assertRegex(pr, r"(?is)Before any push, run `pr\.validate`.{0,500}On GitButler.{0,200}read `validate` from "
+                             r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>` right before each run, "
+                             r"never from the settings file and never from an earlier read.{0,300}`settings_not_pinned`.{0,200}"
+                             r"stops before the command runs",
+                         "the push rule does not read validate from the pinned context right before each run on GitButler")
+        self.assertRegex(pr, r"(?is)Settings per repo:.{0,1200}On GitButler the call \(repo-local too\) is "
+                             r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`"
+                             r".{0,60}stops ship", "ship does not pass --branch <branch> to context on GitButler")
+        watch = flat(section(read(PR_SKILL), "watch"))
+        self.assertRegex(watch, r"(?is)Before the first wait, read the merge settings.{0,900}On GitButler the call is "
+                                r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`",
+                         "watch does not pass --branch <branch> to context on GitButler")
+        cleanup = flat(section(read(PR_SKILL), "Cleanup after merge"))
+        self.assertRegex(cleanup, r"(?is)`\[vcs\] delete-branch --branch <branch> --force --merged-commit.{0,400}after that pull and "
+                                  r"delete, read `merge` and `delete_branch` from `bash scripts/pr-pair\.sh context --code <code toplevel> "
+                                  r"--after-merge --branch <branch>`.{0,500}`settings_not_pinned`.{0,60}`but pull`",
+                         "cleanup does not read the merge settings with --after-merge --branch after its pull and delete")
+        finish = flat(read(FINISH))
+        self.assertRegex(finish, r"(?is)read `merge` from `bash scripts/pr-pair\.sh context` \(on GitButler: "
+                                 r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`",
+                         "finish does not pass --branch <branch> to context on GitButler")
+        self.assertRegex(finish, r"(?is)on GitButler from `bash scripts/pr-pair\.sh context --code <code toplevel> --after-merge "
+                                 r"--branch <branch>` run after the pull and the delete",
+                         "finish cleanup does not use --after-merge --branch <branch> after its pull and delete")
+
 
 if __name__ == "__main__":
     unittest.main()

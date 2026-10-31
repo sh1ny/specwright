@@ -701,6 +701,15 @@ def gitbutler_push(root, info, opts, login):
     branch = require_branch(opts)
     require_applied(root, branch)
     require_settings_pinned(root, branch)
+    pinned = bash_script(None, PR_PAIR, "context", "--code", str(opts["code"]), "--only", "repos", "--branch", branch)
+    if pinned.returncode:  # D8: the single comparison lives in pr-pair.sh; its error and message pass through
+        try:
+            data = json.loads(pinned.stdout)
+        except ValueError:
+            data = {"error": "settings_error", "message": pinned.stderr.strip() or pinned.stdout.strip()}
+        extra = {k: v for k, v in data.items() if k in ("file", "ref")}
+        raise Stop(data.get("error", "settings_error"), data.get("message", "could not check the settings"),
+                   min(pinned.returncode, 3), **extra)
     refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
     try:
         network_git(root, ["push", "--no-follow-tags", "origin", refspec], login)

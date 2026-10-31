@@ -428,6 +428,113 @@ class Context(Base):
             self.assertEqual((c["merge"], c["merge_method"], c["delete_branch"]), ("user", "merge", True), merge)
 
 
+class ContextPin(Base):
+    """fix-m5-gaps D8 (#151): with `vcs: gitbutler`, `context` stops unless the work-tree settings equal the file at the change
+    branch's tip (after the merge: that tip while the branch exists, else GitButler's target ref). No `but` is needed."""
+    FILE = "openspec/specwright.yaml"
+    PINNED = "vcs: gitbutler\nfinish: pr\npr:\n  validate: \"make test\"\n  merge: agent\n  delete_branch: false\n"
+
+    def setUp(self):
+        super().setUp()
+        self.code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.initial = self.git(self.code, "rev-parse", "HEAD")
+        self.settled = self.commit(self.code, {self.FILE: self.PINNED}, "chore: settings")  # the change branch starts here
+        self.git(self.code, "branch", BRANCH, self.settled)
+        self.git(self.code, "update-ref", "refs/remotes/origin/main", self.settled)
+        self.git(self.code, "config", "gitbutler.project.targetRef", "refs/remotes/origin/main")
+
+    def ctx(self, *extra, expect=0):
+        return self.pp("context", "--code", self.code, *extra, expect=expect)
+
+    def edit(self, text):
+        self.write(f"code/{self.FILE}", text)
+
+    def merged_on_target(self, text):
+        """The PR merged with `text` as the settings: the target ref and main hold it, the work tree equals it, the branch is gone."""
+        self.commit(self.code, {self.FILE: text}, "chore: merged settings")
+        self.git(self.code, "update-ref", "refs/remotes/origin/main", self.git(self.code, "rev-parse", "HEAD"))
+        self.git(self.code, "branch", "-D", BRANCH)
+
+    def test_unassigned_settings_edit_stops_context(self):
+        self.edit(self.PINNED.replace("make test", "echo pwned"))
+        r = self.ctx("--branch", BRANCH, expect=1)
+        self.assertEqual((r["ok"], r["error"]), (False, "settings_not_pinned"))
+        self.assertIn(self.FILE, r["message"])
+        self.assertIn(f"refs/heads/{BRANCH}", r["message"])
+        self.assertIn(f"commit the edit on {BRANCH}", r["message"])
+
+    def test_merge_settings_not_reported_when_unpinned(self):
+        self.edit(self.PINNED.replace("merge: agent", "merge: user"))
+        r = self.ctx("--branch", BRANCH, expect=1)
+        self.assertEqual(r["error"], "settings_not_pinned")
+        for key in ("merge", "merge_method", "delete_branch", "code"):
+            self.assertNotIn(key, r)
+
+    def test_gitbutler_context_without_branch_is_usage_error(self):
+        r = self.ctx(expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "usage"))
+        self.assertIn("--branch", r["message"])
+        self.assertNotIn("merge", r)
+        # the gate's and push's read of login and main (--only repos) names no merge setting and needs no branch
+        self.assertTrue(self.ctx("--only", "repos")["ok"])
+
+    def test_after_merge_without_branch_ref_compares_target_ref(self):
+        merged = self.PINNED.replace("delete_branch: false", "delete_branch: true")
+        self.merged_on_target(merged)  # the work tree and the target ref hold the merged settings, refs/heads/<b> is gone
+        r = self.ctx("--after-merge", "--branch", BRANCH)
+        self.assertEqual((r["ok"], r["merge"], r["delete_branch"]), (True, "agent", True), r)
+
+    def test_after_merge_unpinned_edit_stops(self):
+        self.merged_on_target(self.PINNED.replace("merge: agent", "merge: user"))
+        self.edit(self.PINNED.replace("delete_branch: false", "delete_branch: true"))
+        r = self.ctx("--after-merge", "--branch", BRANCH, expect=1)
+        self.assertEqual(r["error"], "settings_not_pinned")
+        self.assertIn(self.FILE, r["message"])
+        self.assertIn("refs/remotes/origin/main", r["message"])
+        self.assertIn("but pull", r["message"])
+        self.assertNotIn("commit the edit on", r["message"])
+        for key in ("merge", "delete_branch"):
+            self.assertNotIn(key, r)
+
+    def test_after_merge_with_branch_still_present_compares_tip(self):
+        # pull_skipped / left_applied: the branch stays, the target ref still holds the old settings, and the branch tip holds the merged ones
+        merged = self.PINNED.replace("delete_branch: false", "delete_branch: true")
+        self.git(self.code, "checkout", "-q", BRANCH)
+        self.commit(self.code, {self.FILE: merged}, "chore: edit settings on the change")
+        self.git(self.code, "checkout", "-q", "main")
+        self.edit(merged)  # the work tree carries the branch's committed copy; the target ref (settled) does not
+        r = self.ctx("--after-merge", "--branch", BRANCH)
+        self.assertEqual((r["ok"], r["merge"], r["delete_branch"]), (True, "agent", True), r)
+        self.edit(self.PINNED)  # equal to the target ref but not to the branch tip: still a stop
+        r = self.ctx("--after-merge", "--branch", BRANCH, expect=1)
+        self.assertEqual(r["error"], "settings_not_pinned")
+        self.assertIn(f"refs/heads/{BRANCH}", r["message"])
+
+    def test_settings_missing_at_tip_stops(self):
+        self.git(self.code, "branch", "-f", BRANCH, self.initial)  # the branch never committed the settings
+        r = self.ctx("--branch", BRANCH, expect=1)
+        self.assertEqual(r["error"], "settings_not_pinned")
+        self.assertIn(self.FILE, r["message"])
+
+    def test_pinned_settings_report_as_before(self):
+        r = self.ctx("--branch", BRANCH)
+        self.assertTrue(r["ok"])
+        self.assertEqual((r["code"]["validate"], r["merge"], r["delete_branch"]), ("make test", "agent", False))
+        # a CRLF checkout (core.autocrlf=true) compares equal: hash-object applies the repo's clean filter
+        self.git(self.code, "config", "core.autocrlf", "true")
+        (self.code / self.FILE).write_bytes(self.PINNED.replace("\n", "\r\n").encode("utf-8"))
+        r = self.ctx("--branch", BRANCH)
+        self.assertEqual((r["ok"], r["code"]["validate"]), (True, "make test"))
+
+    def test_git_backend_never_pins(self):
+        for vcs in ("", "vcs: git\n", "vcs: jj\n"):
+            self.edit(vcs + "pr:\n  validate: \"echo edited\"\n  merge: agent\n")  # never committed
+            for extra in ((), ("--branch", BRANCH), ("--after-merge", "--branch", BRANCH)):
+                with self.subTest(vcs=vcs, extra=extra):
+                    r = self.ctx(*extra)
+                    self.assertEqual((r["ok"], r["code"]["validate"], r["merge"]), (True, "echo edited", "agent"))
+
+
 # =======================================================================================================
 class Discover(Base):
     def test_discover_paginates_past_fork_prs(self):

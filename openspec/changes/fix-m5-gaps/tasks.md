@@ -24,19 +24,19 @@
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Skills installed at user level | evals/vcs/test_gitbutler_probe.py | test_scripts_outside_work_tree_probe_continues | green |
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | A sibling branch adds a skill copy | evals/vcs/test_gitbutler_probe.py | test_specwright_copy_in_work_tree_stops | green |
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Git project with in-repo skills | evals/vcs/test_probe.py | test_git_backend_ignores_in_repo_scripts | green |
-| vcs-backends → On GitButler the settings are those the change branch committed | Unassigned edit before ship | evals/pr-pair/test_pr_pair.py | ContextPin.test_unassigned_settings_edit_stops_context | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Watch reads merge settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_merge_settings_not_reported_when_unpinned | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Push with an unpinned edit | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Context without the branch | evals/pr-pair/test_pr_pair.py | ContextPin.test_gitbutler_context_without_branch_is_usage_error | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Feedback or CI fix push in a repo-local project | evals/git-workflow/test_instructions.py | test_gitbutler_validate_read_from_pinned_context | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Cleanup after the merge | evals/pr-pair/test_pr_pair.py | ContextPin.test_after_merge_without_branch_ref_compares_target_ref | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Cleanup with an unpinned edit | evals/pr-pair/test_pr_pair.py | ContextPin.test_after_merge_unpinned_edit_stops | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Cleanup after a skipped pull | evals/pr-pair/test_pr_pair.py | ContextPin.test_after_merge_with_branch_still_present_compares_tip | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Settings never committed on the branch | evals/pr-pair/test_pr_pair.py | ContextPin.test_settings_missing_at_tip_stops | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | The change commits its own settings edit | evals/vcs/test_gitbutler_commit.py | test_own_settings_edit_commits_then_context_passes | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Branch already deleted | evals/vcs/test_gitbutler_delete.py | test_state_of_deleted_branch_has_no_pin_stop | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Pinned settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_pinned_settings_report_as_before | red |
-| vcs-backends → On GitButler the settings are those the change branch committed | Git backend | evals/pr-pair/test_pr_pair.py | ContextPin.test_git_backend_never_pins | red |
+| vcs-backends → On GitButler the settings are those the change branch committed | Unassigned edit before ship | evals/pr-pair/test_pr_pair.py | ContextPin.test_unassigned_settings_edit_stops_context | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Watch reads merge settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_merge_settings_not_reported_when_unpinned | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Push with an unpinned edit | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Context without the branch | evals/pr-pair/test_pr_pair.py | ContextPin.test_gitbutler_context_without_branch_is_usage_error | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Feedback or CI fix push in a repo-local project | evals/git-workflow/test_instructions.py | test_gitbutler_validate_read_from_pinned_context | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Cleanup after the merge | evals/pr-pair/test_pr_pair.py | ContextPin.test_after_merge_without_branch_ref_compares_target_ref | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Cleanup with an unpinned edit | evals/pr-pair/test_pr_pair.py | ContextPin.test_after_merge_unpinned_edit_stops | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Cleanup after a skipped pull | evals/pr-pair/test_pr_pair.py | ContextPin.test_after_merge_with_branch_still_present_compares_tip | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Settings never committed on the branch | evals/pr-pair/test_pr_pair.py | ContextPin.test_settings_missing_at_tip_stops | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | The change commits its own settings edit | evals/vcs/test_gitbutler_commit.py | test_own_settings_edit_commits_then_context_passes | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Branch already deleted | evals/vcs/test_gitbutler_delete.py | test_state_of_deleted_branch_has_no_pin_stop | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Pinned settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_pinned_settings_report_as_before | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Git backend | evals/pr-pair/test_pr_pair.py | ContextPin.test_git_backend_never_pins | green |
 | install-update → A GitButler project takes no in-repo skill or agent target | In-repo target for a GitButler project | evals/update/test_update.py | test_gitbutler_project_refuses_in_repo_target | green |
 | install-update → A GitButler project takes no in-repo skill or agent target | User-level target | evals/update/test_update.py | test_gitbutler_project_accepts_user_level_target | green |
 | install-update → A GitButler project takes no in-repo skill or agent target | Git project | evals/update/test_update.py | test_git_project_keeps_in_repo_target | green |
@@ -116,22 +116,22 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 9. GitButler settings pinned where they are used (#151)
 
-- [ ] 9.1 Add class `ContextPin` to `evals/pr-pair/test_pr_pair.py` with the nine `context` tests in the test map. Each runs in a git repo with `vcs: gitbutler` settings and `gitbutler.project.targetRef` set; no `but` is needed for `pr-pair.sh`. Run `python -m unittest evals/pr-pair/test_pr_pair.py -k ContextPin` and see them fail.
-- [ ] 9.2 In `skills/specwright-pr/scripts/pr-pair.sh`:
+- [x] 9.1 Add class `ContextPin` to `evals/pr-pair/test_pr_pair.py` with the nine `context` tests in the test map. Each runs in a git repo with `vcs: gitbutler` settings and `gitbutler.project.targetRef` set; no `but` is needed for `pr-pair.sh`. Run `python -m unittest evals/pr-pair/test_pr_pair.py -k ContextPin` and see them fail.
+- [x] 9.2 In `skills/specwright-pr/scripts/pr-pair.sh`:
   - Add `settings_pinned(code, ref)`, which compares `git hash-object --path=openspec/specwright.yaml` of the work-tree file with `git rev-parse <ref>:openspec/specwright.yaml`. A difference, or a file on one side only, is `settings_not_pinned`; a git failure is `git_error`.
   - Add `context --branch <b>` and `--after-merge`, which use the tip of `refs/heads/<b>` while it exists, else `gitbutler.project.targetRef`. The message names the ref, and for `--after-merge` it says `but pull` or undo the edit.
   - On GitButler, a merge-settings `context` without `--branch` is exit 2 usage.
   - Document all of this in the header.
 
   Verify: the `ContextPin` tests pass, the existing `Context` tests still pass, and flip the rows green.
-- [ ] 9.3 Write the three tests and see them fail:
+- [x] 9.3 Write the three tests and see them fail:
   - In `evals/vcs/test_gitbutler_push.py`: `test_unassigned_settings_edit_stops_push`.
   - In `evals/vcs/test_gitbutler_commit.py`: `test_own_settings_edit_commits_then_context_passes`.
   - In `evals/vcs/test_gitbutler_delete.py`: `test_state_of_deleted_branch_has_no_pin_stop`.
 
   Switch the GitButler fixture (`evals/vcs/test_gitbutler_branch.py:14-16` and any shared helper) from hiding `openspec/specwright.yaml` in `.git/info/exclude` to committing it on main.
-- [ ] 9.4 Make `vcs.sh` `gitbutler_push` call `pr-pair.sh context --code <code> --only repos --branch <b>` before `but push`, and stop on its error. Leave `state` and `commit` unpinned. Verify: the 9.3 modules and the edited GitButler modules pass where `but` exists (see the note under the test map), and flip the rows green.
-- [ ] 9.5 Add `test_gitbutler_validate_read_from_pinned_context` to `evals/git-workflow/test_instructions.py` and see it fail. It checks the `specwright-pr` push rule (SKILL.md:53), the `context` calls at :67 and :128, cleanup at :156-159, and `specwright-finish` :93-94. Then edit those skill lines:
+- [x] 9.4 Make `vcs.sh` `gitbutler_push` call `pr-pair.sh context --code <code> --only repos --branch <b>` before `but push`, and stop on its error. Leave `state` and `commit` unpinned. Verify: the 9.3 modules and the edited GitButler modules pass where `but` exists (see the note under the test map), and flip the rows green.
+- [x] 9.5 Add `test_gitbutler_validate_read_from_pinned_context` to `evals/git-workflow/test_instructions.py` and see it fail. It checks the `specwright-pr` push rule (SKILL.md:53), the `context` calls at :67 and :128, cleanup at :156-159, and `specwright-finish` :93-94. Then edit those skill lines:
   - on GitButler, read `validate` from `pr-pair.sh context --code <code> --branch <branch>` right before each run;
   - watch, ship and finish pass `--branch <branch>`;
   - cleanup uses `--after-merge --branch <branch>` after its pull.

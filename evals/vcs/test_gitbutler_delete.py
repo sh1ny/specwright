@@ -65,6 +65,32 @@ class TestGitButlerDelete(GitButlerNetworkCase):
             self.assertEqual(self.base(repo), base)
             self.assertEqual((repo.path / "add-c.txt").read_text(encoding="utf-8"), "add-c.txt\n")
 
+    def test_state_of_deleted_branch_has_no_pin_stop(self):
+        # fix-m5-gaps D8 (#151): after the merge and the delete, state reports the branch gone with no settings_not_pinned
+        # stop, and cleanup's settings are pinned against GitButler's target ref instead (context --after-merge)
+        require_but()
+        with Scratch() as scratch:
+            repo, wrap, merged = self.merged_workspace(scratch, ["feat/add-c"])
+            self.github_view()
+            deleted = self.delete(scratch, wrap, "--force", "--merged-commit", merged, "--login", LOGIN)
+            self.assertIs(deleted["deleted"], True, deleted)
+            settings = repo.path / "openspec" / "specwright.yaml"
+            settings.write_text(settings.read_text(encoding="utf-8") + "pr:\n  merge: agent\n  delete_branch: true\n",
+                                encoding="utf-8")
+            env = self.fenced_env(scratch, wrap)
+
+            state = self.vcs(scratch, wrap, "state", "--branch", "feat/add-c")
+            self.assertTrue(state["ok"], state)
+            self.assertEqual((state["applied"], state["branch"]), (False, ""))
+            after = ("context", "--code", repo.path, "--after-merge", "--branch", "feat/add-c")
+            stopped = self.pr_pair(repo.path, *after, env=env, shim=self.shim.path, expected=1)
+            self.assertEqual(stopped["error"], "settings_not_pinned", stopped)
+            self.assertIn("but pull", stopped["message"])
+
+            self.set_settings(repo.path, "vcs: gitbutler\nfinish: pr\n")
+            passed = self.pr_pair(repo.path, *after, env=env, shim=self.shim.path)
+            self.assertEqual((passed["ok"], passed["merge"], passed["delete_branch"]), (True, "user", True), passed)
+
     def test_delete_unmerged_left_applied(self):
         require_but()
         with Scratch() as scratch:

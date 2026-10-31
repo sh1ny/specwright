@@ -34,9 +34,8 @@ class GitButlerFlowCase(GitButlerNetworkCase):
     def start(self, scratch, settings=SETTINGS):
         """A managed repo with the Specwright settings, the fake gh tokens and the Git-call log shim."""
         wrap = self.prepare(scratch)
-        repo = self.managed(scratch)
+        repo = self.managed(scratch, settings)
         self.repo_path = repo.path
-        self.settings(repo.path, settings)
         return wrap, repo
 
     def other_agent(self, repo, wrap):
@@ -269,8 +268,7 @@ class TestGitButlerCleanupLoneBranch(GitButlerFlowCase):
         require_but()
         with Scratch() as scratch:
             wrap = self.prepare(scratch)
-            repo = self.workspace(scratch, [BRANCH])
-            self.settings(repo.path, SETTINGS)
+            repo = self.workspace(scratch, [BRANCH], SETTINGS)
             self.github_view()
             origin_before = self.origin_refs(scratch)
             merged = self.real_squash(scratch, {"add-c.txt": "add-c.txt\n"})  # the branch's own content

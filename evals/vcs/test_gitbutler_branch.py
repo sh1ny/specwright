@@ -4,17 +4,40 @@ import json
 from butenv import Scratch, require_but
 from butwrap import ButWrap
 from test_gitbutler_probe import GitButlerCase
+from vcs_test_support import ROOT, bash_run
+
+PR_PAIR = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
+
+
+DEFAULT_SETTINGS = "vcs: gitbutler\nfinish: pr\n"
 
 
 class GitButlerWorkspaceCase(GitButlerCase):
-    def managed(self, scratch):
-        """A scratch GitButler repo with the Specwright settings kept out of the workspace's uncommitted changes."""
+    def managed(self, scratch, settings=DEFAULT_SETTINGS):
+        """A scratch GitButler repo whose `openspec/specwright.yaml` is committed on main (fix-m5-gaps D8): the file in the work
+        tree then equals the one every change branch starts from, so the settings pin passes until a test edits it. The commit goes
+        to origin's main through a side clone and `but pull` brings it into the workspace base before any branch exists."""
         repo = scratch.tracked_repo()
-        self.settings(repo.path)
-        exclude = repo.path / ".git" / "info" / "exclude"
-        exclude.parent.mkdir(exist_ok=True)
-        exclude.write_text("openspec/specwright.yaml\n", encoding="utf-8")
+        side = self.root / "settings-side"
+        for args in (("clone", "-q", str(scratch.origin), str(side)), ("-C", str(side), "config", "user.name", "Settings"),
+                     ("-C", str(side), "config", "user.email", "settings@example.invalid"),
+                     ("-C", str(side), "config", "core.autocrlf", "false")):
+            done = self.git(self.root, *args, env=scratch.env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+        self.set_settings(side, settings)
+        for args in (("add", "openspec/specwright.yaml"), ("commit", "-q", "-m", "chore: settings"),
+                     ("push", "-q", "origin", "HEAD:refs/heads/main")):
+            done = self.git(side, *args, env=scratch.env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+        repo.but("pull", "--json")
+        self.set_settings(repo.path, settings)  # the same bytes: nothing to commit, whether or not the pull wrote the file
         return repo
+
+    def pr_pair(self, repo_path, *args, env=None, shim=None, expected=0):
+        """`pr-pair.sh <args>` run in the repo with the fixture environment; returns its one JSON line."""
+        result = bash_run([PR_PAIR.as_posix(), *map(str, args)], cwd=repo_path, env=env, shim=shim)
+        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+        return json.loads(result.stdout)
 
     def commit_on(self, repo, branch, name):
         (repo.path / name).write_text(name + "\n", encoding="utf-8")
