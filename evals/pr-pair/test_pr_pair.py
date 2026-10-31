@@ -3279,7 +3279,7 @@ class ClosingRendered(Base):
             self.assertEqual((r["ok"], r["error"], r["unknown"]), (False, "lookup_failed", True), args[0])
 
 
-class ClosingRecordings(unittest.TestCase):
+class ClosingRecordings(Base):
     """Every body the closing tests send has a recorded GitHub rendering (evals/pr-pair/record_markdown.py)."""
 
     def test_every_closing_body_has_a_recording(self):
@@ -3291,6 +3291,21 @@ class ClosingRecordings(unittest.TestCase):
         missing = [b for b in bodies if fake_gh.markdown_key(closing_bodies.MODE, b) not in recorded]
         self.assertEqual(missing, [], "run `python evals/pr-pair/record_markdown.py` to record these bodies")
         self.assertEqual(len(recorded), len(bodies), "one entry per body: rerun the recorder to drop stale entries")
+
+    def test_finish_fixture_body_closed_check_reads_issue_state(self):
+        """The body the finish fixtures seed (#146) has a recording: closed-check reads the issue, not `no recorded rendering`."""
+        slug, issue = fixtures.PR_SLUG, fixtures.MERGED_CLOSES
+        for state, key in (("CLOSED", "closed"), ("OPEN", "open")):
+            with self.subTest(state=state):
+                st = self.gh()
+                st.setdefault("repos", {}).setdefault(slug, {})["pulls"] = [
+                    self.pull(slug, 7, body=fixtures.MERGED_PR_BODIES[0], state="closed", merged="2026-10-08T10:00:00Z")]
+                fake_gh.set_issue(st, slug, issue, state, ["CLOSED"] if state == "CLOSED" else [])
+                self.save_gh(st)
+                r = self.pp("closed-check", "--repo", slug, "--pr", 7, "--repos", slug, expect=None)
+                self.assertNotIn("no recorded rendering", json.dumps(r))
+                self.assertEqual(r["_rc"], 0, r)
+                self.assertEqual((r["status"], r["intended"], r[key]), ("merged", [f"{slug}#{issue}"], [f"{slug}#{issue}"]))
 
 
 class Merge(Base):

@@ -6,9 +6,11 @@ coverage test (`ClosingRecordings`) checks each has a recording, so a new test c
 literal as the call's first argument: a computed body is refused rather than missed.
 """
 import ast
+import importlib.util
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+FINISH_FIXTURES = HERE.parent / "git-workflow" / "fixtures.py"
 TEST_FILE = HERE / "test_pr_pair.py"
 CLASSES = ("ClosingCheck", "ClosedCheck", "ClosingRendered")
 SEEDERS = ("seed", "intended")
@@ -45,4 +47,15 @@ def collect_bodies(path=TEST_FILE):
                                      "must be a string literal or a local name assigned one")
                 if text not in bodies:
                     bodies.append(text)
+    for text in finish_fixture_bodies():
+        if text not in bodies:
+            bodies.append(text)
     return bodies
+
+
+def finish_fixture_bodies():
+    """The merged-PR bodies the git-workflow finish fixtures seed (fixtures.MERGED_PR_BODIES), loaded by path."""
+    spec = importlib.util.spec_from_file_location("gw_fixtures", FINISH_FIXTURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return list(module.MERGED_PR_BODIES)

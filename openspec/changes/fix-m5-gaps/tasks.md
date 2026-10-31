@@ -15,8 +15,8 @@
 | eval-grading → The fake gh state file is replaced whole | Rename held off | evals/pr-pair/test_fake_gh.py | StateFile.test_held_rename_fails_after_bound_and_keeps_state | green |
 | eval-grading → A fake gh read never rewrites the state | Watcher polls while the test mutates | evals/pr-pair/test_fake_gh.py | StateFile.test_read_call_leaves_state_file_untouched | green |
 | eval-grading → A fake gh read never rewrites the state | A mutation still saves | evals/pr-pair/test_fake_gh.py | StateFile.test_mutation_still_saves | green |
-| eval-grading → Every seeded PR body for an issue check has a recorded rendering | Finish fixtures' body | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_finish_fixture_body_closed_check_reads_issue_state | red |
-| eval-grading → Every seeded PR body for an issue check has a recorded rendering | A new fixture body without a recording | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_every_closing_body_has_a_recording (bodies now include the fixture bodies) | red |
+| eval-grading → Every seeded PR body for an issue check has a recorded rendering | Finish fixtures' body | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_finish_fixture_body_closed_check_reads_issue_state | green |
+| eval-grading → Every seeded PR body for an issue check has a recorded rendering | A new fixture body without a recording | evals/pr-pair/test_pr_pair.py | ClosingRecordings.test_every_closing_body_has_a_recording (bodies now include the fixture bodies) | green |
 | eval-runner → A stopped test file's nested sessions are stopped too | Timed-out file with a nested bounded session | evals/runner/test_run.py | test_a_timed_out_file_nested_bounded_session_is_stopped | green |
 | eval-runner → A stopped test file's nested sessions are stopped too | Interrupted run | evals/runner/test_run.py | test_an_interrupt_stops_a_nested_bounded_session | green |
 | eval-runner → A stopped test file's nested sessions are stopped too | Outside the runner | evals/pr-pair/test_bounded.py | test_spawn_records_nothing_without_spawn_dir | green |
@@ -93,8 +93,8 @@ The GitButler tests in `evals/vcs/test_gitbutler_*.py` need a real `but`. It run
 
 ## 7. Finish fixture PR body recorded (#146)
 
-- [ ] 7.1 In `evals/git-workflow/fixtures.py`, export the merged-PR bodies the finish fixtures seed as `MERGED_PR_BODIES` and use the constant at both seeding sites. Have `evals/pr-pair/closing_bodies.collect_bodies()` append them. Add `ClosingRecordings.test_finish_fixture_body_closed_check_reads_issue_state`: `pr-pair.sh closed-check` against a fake `gh` seeded like the finish fixture exits with the issue's state and does not say `no recorded rendering`. Run `python -m unittest evals/pr-pair/test_pr_pair.py -k ClosingRecordings`: both tests fail.
-- [ ] 7.2 Record the rendering. The orchestrator, not an implementer, runs `python evals/pr-pair/record_markdown.py`. It makes one read-only `POST /markdown` as KintsugiBot through `as.sh`. Check the diff of `evals/pr-pair/fixtures/markdown.json`: only new keys, no entries dropped. Verify: `python -m unittest evals/pr-pair/test_pr_pair.py -k ClosingRecordings` passes, and flip both rows green.
+- [x] 7.1 In `evals/git-workflow/fixtures.py`, export the merged-PR bodies the finish fixtures seed as `MERGED_PR_BODIES` and use the constant at both seeding sites. Have `evals/pr-pair/closing_bodies.collect_bodies()` append them. Add `ClosingRecordings.test_finish_fixture_body_closed_check_reads_issue_state`: `pr-pair.sh closed-check` against a fake `gh` seeded like the finish fixture exits with the issue's state and does not say `no recorded rendering`. Run `python -m unittest evals/pr-pair/test_pr_pair.py -k ClosingRecordings`: both tests fail.
+- [x] 7.2 Record the rendering. The orchestrator, not an implementer, runs `python evals/pr-pair/record_markdown.py`. It makes one read-only `POST /markdown` as KintsugiBot through `as.sh`. Check the diff of `evals/pr-pair/fixtures/markdown.json`: only new keys, no entries dropped. Verify: `python -m unittest evals/pr-pair/test_pr_pair.py -k ClosingRecordings` passes, and flip both rows green.
 
 ## 8. GitButler runs only an install outside the repo (#150)
 
