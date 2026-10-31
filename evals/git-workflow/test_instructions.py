@@ -1669,9 +1669,9 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertIn(".specwright-update-*/", readme, "the README does not name the staging directories")
         self.assertIn(".specwright-update-*/", read(ROOT / ".gitignore"), ".gitignore does not ignore the staging directories")
         self.assertRegex(section(readme, r"\S* ?Stores") or "", r"(?s)STORE.{0,1500}manual commit|manual commit.{0,1500}STORE", "Stores does not explain the transfer")
-        self.assertIn("python -m unittest discover evals/update", readme, "the README Evals section does not name evals/update")
+        self.assertIn("`evals/update`", readme, "the README Evals section does not name evals/update")
         testing = section(read(CONTRIBUTING), "Testing")
-        self.assertIn("python -m unittest discover evals/update", testing or "", "CONTRIBUTING Testing does not name evals/update")
+        self.assertIn("CI runs the `update` suite", testing or "", "CONTRIBUTING Testing does not name the update suite")
 
 
 REVIEW_TEMPLATE = ROOT / "schemas" / "specwright" / "templates" / "review.md"

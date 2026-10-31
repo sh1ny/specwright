@@ -17,6 +17,7 @@ HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("update_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
+import bashexe  # noqa: E402
 
 NEW_SKILL = {"specwright-extra": "---\nname: specwright-extra\ndescription: \"x\"\n---\n\n# extra\n"}
 
@@ -571,7 +572,7 @@ class TestStaleLockRace(Base):
 
     def host(self):
         import subprocess
-        return subprocess.run(["bash", "-c", 'echo "${HOSTNAME:-$(hostname)}"'], capture_output=True, text=True).stdout.strip()
+        return subprocess.run([bashexe.bash(), "-c", 'echo "${HOSTNAME:-$(hostname)}"'], capture_output=True, text=True).stdout.strip()
 
     def stale_lock(self, owner):
         lock = self.co.lock

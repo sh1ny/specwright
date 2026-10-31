@@ -32,6 +32,7 @@ import fixtures  # noqa: E402
 
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the empty repo is built once and copied
+import bashexe  # noqa: E402
 
 
 
@@ -71,7 +72,7 @@ class Recorder(BaseHTTPRequestHandler):
         pass
 
 
-@unittest.skipUnless(shutil.which("bash"), "needs bash")
+@unittest.skipUnless(bashexe.bash(), "needs bash")
 class AsShCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -139,7 +140,7 @@ class AsShCase(unittest.TestCase):
         Recorder.seen = []
         e = self.env()
         e.update(env or {})
-        return subprocess.run(["bash", str(AS_SH), *args], cwd=cwd, capture_output=True, text=True, env=e, input=stdin, timeout=60)
+        return subprocess.run([bashexe.bash(), str(AS_SH), *args], cwd=cwd, capture_output=True, text=True, env=e, input=stdin, timeout=60)
 
 
 class AsShHeaderScrub(AsShCase):
@@ -150,14 +151,14 @@ class AsShHeaderScrub(AsShCase):
 
     def test_scrubs_header_local_to_the_store(self):
         # planning_store.login unset, github.login = sh1ny: the store push is wrapped as sh1ny, from inside the store
-        seen = self.ls_remote(self.store, ["bash", str(AS_SH), "sh1ny", "git", "ls-remote", "origin"])
+        seen = self.ls_remote(self.store, [bashexe.bash(), str(AS_SH), "sh1ny", "git", "ls-remote", "origin"])
         self.assertTrue(seen, "git made no request through as.sh")
         self.assertFalse(self.leaked(seen), f"as.sh started in the store must scrub its local header: {seen}")
 
     def test_git_dash_c_into_the_store_refused(self):
         # as.sh in the code repo cannot fence a `git -C <store>` command (it scrubs only the repository it starts in),
         # so it refuses it: no request, so the store's header is never sent (PR #82)
-        seen = self.ls_remote(self.code, ["bash", str(AS_SH), "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"])
+        seen = self.ls_remote(self.code, [bashexe.bash(), str(AS_SH), "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"])
         self.assertFalse(seen, f"as.sh must refuse a git command pointed at another repository: {seen}")
 
 
@@ -165,7 +166,7 @@ class AsShIdentity(AsShCase):
     """The run login (D1): --resolve, the login's own token, refusals."""
 
     def marker_cmd(self):
-        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]
+        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]  # bare-bash: not started
 
     def test_configured_login_pins_its_token_not_the_active_one(self):
         r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login")  # the active account is sh1ny
@@ -227,7 +228,7 @@ class AsShIdentity(AsShCase):
 
 class AsShHost(AsShCase):
     """Fenced calls target github.com only (D3)."""
-    SHOW = ["bash", "-c", 'printf "%s|%s|%s" "${GH_HOST-unset}" "${GH_ENTERPRISE_TOKEN-unset}" "${GITHUB_ENTERPRISE_TOKEN-unset}"']
+    SHOW = ["bash", "-c", 'printf "%s|%s|%s" "${GH_HOST-unset}" "${GH_ENTERPRISE_TOKEN-unset}" "${GITHUB_ENTERPRISE_TOKEN-unset}"']  # bare-bash: not started
 
     def test_gh_host_and_enterprise_tokens_unset(self):
         env = {"GH_HOST": "enterprise.example", "GH_ENTERPRISE_TOKEN": "ent-tok", "GITHUB_ENTERPRISE_TOKEN": "ent-tok2"}
@@ -449,7 +450,7 @@ class Bounded(AsShCase):
     BOUND = DEADLINE + 10  # the spec: the deadline plus 10 s for process start and kill
 
     def marker_cmd(self):
-        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]
+        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]  # bare-bash: not started
 
     def hang(self, match):
         pidf = self.tmp / "hang.pid"
@@ -465,7 +466,7 @@ class Bounded(AsShCase):
         out, err = self.tmp / "as.out", self.tmp / "as.err"
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:
-            p = subprocess.Popen(["bash", str(AS_SH), *args], cwd=self.code, stdout=fo, stderr=fe, env=e)
+            p = subprocess.Popen([bashexe.bash(), str(AS_SH), *args], cwd=self.code, stdout=fo, stderr=fe, env=e)
             try:
                 rc = p.wait(timeout=45)
             except subprocess.TimeoutExpired:

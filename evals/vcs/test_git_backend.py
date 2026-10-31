@@ -25,6 +25,10 @@ class TestGitBackend(VcsTestCase):
                     "GIT_AUTHOR_EMAIL": "vcs-test@example.invalid", "GIT_COMMITTER_NAME": "VCS Test",
                     "GIT_COMMITTER_EMAIL": "vcs-test@example.invalid"}
 
+    def native_env(self, trace):
+        """self.env for a direct native git launch: on Windows its POSIX-form PATH crashes git.exe (0xC0000005)."""
+        return {**self.env, "PATH": os.environ.get("PATH", ""), "GIT_TRACE": str(trace)}
+
     def trace_writes(self, trace):
         path = Path(trace)
         if path.is_file():
@@ -40,7 +44,7 @@ class TestGitBackend(VcsTestCase):
         trace = self.root / (tag + "-raw-trace.log")
         trace.unlink(missing_ok=True)
         result = subprocess.run([jjenv.real_git(), *args], cwd=repo,
-                                env={**self.env, "GIT_TRACE": str(trace)}, capture_output=True, text=True)
+                                env=self.native_env(trace), capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         copy = self.root / (tag + "-trace")
         copy.mkdir(exist_ok=True)
@@ -71,7 +75,7 @@ class TestGitBackend(VcsTestCase):
         (baseline / "b.sh").write_text("b\n", encoding="utf-8")
         (baseline / "unrelated.txt").write_text("stay dirty\n", encoding="utf-8")
         baseline_trace = self.root / "commit-baseline-trace.log"
-        raw_env = {**self.env, "GIT_TRACE": str(baseline_trace)}
+        raw_env = self.native_env(baseline_trace)
         for args in (("add", "--", "a.sh", "b.sh"), ("commit", "-F", str(msg), "--", "a.sh", "b.sh")):
             result = subprocess.run([jjenv.real_git(), *args], cwd=baseline, env=raw_env,
                                     capture_output=True, text=True)
@@ -129,7 +133,7 @@ class TestGitBackend(VcsTestCase):
         baseline_calls = []
         for argv in (["add", "--", "base.txt"], ["commit", "-F", str(msg), "--", "base.txt"]):
             result = subprocess.run([jjenv.real_git(), *argv], cwd=baseline,
-                                    env={**self.env, "GIT_TRACE": str(baseline_trace)},
+                                    env=self.native_env(baseline_trace),
                                     capture_output=True, text=True)
             baseline_calls.append(result)
         self.assertEqual(baseline_calls[0].returncode, 0, baseline_calls[0].stderr)

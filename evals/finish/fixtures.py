@@ -24,6 +24,7 @@ ROOT = HERE.parents[1]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
+import bashexe  # noqa: E402
 SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
 DATE = "2026-10-19"
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
@@ -203,7 +204,7 @@ def fake_bin(tmp):
 
 def run_finish(work, *args, cwd=None):
     """Run finish.sh; returns (exit code, parsed JSON, raw stdout + stderr)."""
-    r = subprocess.run(["bash", str(SCRIPT), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8")
     try:
         doc = json.loads(r.stdout)
     except ValueError:
@@ -226,7 +227,7 @@ def run_bash(work, tmp, text, name, prefix="openspec"):
     path = Path(tmp) / f"{name}.sh"
     path.write_text(text, encoding="utf-8", newline="\n")
     env = dict(os.environ, PATH=str(fake_bin(tmp)) + os.pathsep + os.environ.get("PATH", ""), FIXTURE_PREFIX=prefix)
-    return subprocess.run(["bash", str(path)], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
+    return subprocess.run([bashexe.bash(), str(path)], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
 
 
 def run_scripts(work, tmp, change, prefix="openspec", between=None, rerun=True, **plan_kw):

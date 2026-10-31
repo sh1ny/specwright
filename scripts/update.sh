@@ -321,7 +321,11 @@ trap release_lock EXIT
 # mv. No process but mv runs per journal write, which keeps a swap fast on Windows.
 
 JL=()
-jload_raw() { mapfile -t JL < "$journal"; }
+jload_raw() {  # one array element per line, read in a loop: macOS /bin/bash is 3.2, without the bash 4 builtin
+  local l
+  JL=()
+  while IFS= read -r l || [ -n "$l" ]; do JL+=("$l"); done < "$journal"
+}
 jload() {  # the journal must parse as a whole (journal-check) before any line of it is trusted; a failure stops, nothing touched
   local chk
   chk=$(pyx journal-check "${PYARGS[@]}") || { printf '%s\n' "$chk"; exit 1; }

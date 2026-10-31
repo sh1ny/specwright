@@ -14,6 +14,7 @@ import unittest
 
 import snapfix
 from snapfix import SnapCase, fake_gh, fixtures
+import bashexe  # noqa: E402
 
 
 def setUpModule():
@@ -322,7 +323,7 @@ class Bounded(ReplyCase):
         out, err = self.tmp / "r.out", self.tmp / "r.err"
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:  # files, so an unbounded hung gh cannot hold a pipe open
-            p = subprocess.Popen(["bash", str(snapfix.REPLY), str(self.PR), "thread", tid, str(c["databaseId"]),
+            p = subprocess.Popen([bashexe.bash(), str(snapfix.REPLY), str(self.PR), "thread", tid, str(c["databaseId"]),
                                   fixtures.posix(body), "--repo", self.SLUG], stdout=fo, stderr=fe, env=env, cwd=self.tmp)
             try:
                 rc = p.wait(timeout=45)

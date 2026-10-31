@@ -20,6 +20,7 @@ BOUNDED = ROOT / "skills" / "specwright-pr" / "scripts" / "bounded.py"
 FAKE_GH = ROOT / "evals" / "fakes" / "gh.py"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
+import bashexe  # noqa: E402
 
 
 def load_bounded():
@@ -366,7 +367,7 @@ class Cli(Base):
 
     def test_limit_line_names_the_command_inside_bash_c(self):
         # the pr scripts run `bash -c 'exec gh "$@"' gh api ...`: the line names gh api, not bash -c
-        sh = shutil.which("bash") or shutil.which("sh")
+        sh = bashexe.bash() or shutil.which("sh")
         cmd = [sh, "-c", "sleep 3600", "gh", "api"]
         r = self.run_cli("--", *cmd, env={"SPECWRIGHT_NET_DEADLINE": "1"})
         self.assertEqual(r.returncode, 124)
@@ -394,7 +395,7 @@ class ShimOnWindows(Base):
     """A `#!/bin/sh` gh is started through "$BASH" -c 'exec gh "$@"', as the scripts do."""
 
     def test_sh_shim_runs_through_bash(self):
-        bash = os.environ.get("BASH") or shutil.which("bash")
+        bash = bashexe.bash()
         if not bash:
             self.skipTest("no bash")
         if shutil.which("cygpath"):
@@ -411,7 +412,7 @@ class ShimOnWindows(Base):
         self.assertEqual(r.stdout.strip(), "shim: api user")
 
     def test_the_fake_gh_hangs_and_is_stopped_through_bash(self):
-        bash = os.environ.get("BASH") or shutil.which("bash")
+        bash = bashexe.bash()
         if not bash:
             self.skipTest("no bash")
         if shutil.which("cygpath"):
@@ -435,7 +436,7 @@ class ShimOnWindows(Base):
 
 
 def windows_bash():
-    bash = os.environ.get("BASH") or shutil.which("bash")
+    bash = bashexe.bash()
     if not bash:
         return None
     if shutil.which("cygpath"):

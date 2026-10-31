@@ -18,6 +18,7 @@ SCRIPT = Path(os.environ.get("RELEASE_SH") or ROOT / "skills" / "specwright-rele
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
+import bashexe  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("release_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
@@ -68,7 +69,7 @@ class JjRelease(unittest.TestCase):
 
     def release(self, *args):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
-        r = subprocess.run(["bash", str(SCRIPT), *args], cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=self.env())
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=self.env())
         try:
             doc = json.loads(r.stdout)
         except ValueError:

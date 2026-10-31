@@ -1,14 +1,17 @@
 """The pr-pair settings interface chooses code and planning-store VCS independently."""
 import json
 import os
-import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 
 
 class TestVcsSettings(unittest.TestCase):
@@ -21,24 +24,8 @@ class TestVcsSettings(unittest.TestCase):
     def set_settings(self, text):
         (self.code / "openspec" / "specwright.yaml").write_text(text, encoding="utf-8")
 
-    def bash(self):
-        if os.name != "nt":
-            return shutil.which("bash")
-        candidates = [
-            os.environ.get("GIT_BASH"),
-            str(Path(os.environ["SCOOP"]) / "apps" / "git" / "current" / "bin" / "bash.exe")
-            if os.environ.get("SCOOP") else None,
-            str(Path(os.environ["USERPROFILE"]) / "scoop" / "apps" / "git" / "current" / "bin" / "bash.exe")
-            if os.environ.get("USERPROFILE") else None,
-        ]
-        for variable in ("ProgramFiles", "ProgramFiles(x86)"):
-            root = os.environ.get(variable)
-            if root:
-                candidates.append(str(Path(root) / "Git" / "bin" / "bash.exe"))
-        return next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
-
     def vcs(self, expected=0):
-        bash = self.bash()
+        bash = bashexe.bash()
         self.assertIsNotNone(bash, "Git Bash is required to run pr-pair.sh on Windows")
         result = subprocess.run(
             [bash, SCRIPT.as_posix(), "vcs", "--code", self.code.as_posix()],

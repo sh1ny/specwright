@@ -18,6 +18,7 @@
     {"paths": ["AGENTS.md", "CLAUDE.md", ".github/**"], "suites": ["runner"]},
     {"paths": ["openspec/**"], "suites": ["git-workflow/test_specs_strict.py"]},
     {"paths": ["evals/git-workflow/fixtures.py"], "suites": ["pr-pair"]},
+    {"paths": ["evals/bashexe.py"], "suites": ["finish", "git-workflow", "pr-pair", "release", "review-routes", "runner", "update", "vcs"]},
     {"paths": ["evals/git-workflow/grade.py"], "suites": ["pr-pair/test_fake_gh.py"]},
     {"paths": ["evals/suites.json", "evals/timings.md", "evals/runner/**", "JJ_VERSION", "BUT_VERSION"], "suites": ["runner"]},
     {"paths": ["evals/vcs/**", "skills/specwright-pr/scripts/vcs.sh", "skills/specwright-pr/scripts/pr-pair.sh", "skills/specwright-pr/scripts/as.sh", "skills/specwright-review/scripts/review-run.sh", "skills/specwright-release/scripts/release.sh", "skills/specwright-finish/scripts/finish.sh"], "suites": ["vcs"]}
