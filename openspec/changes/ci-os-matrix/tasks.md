@@ -4,39 +4,40 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| eval-runner → The runner runs each test file as its own process | All files pass | evals/runner/test_run.py | test_all_files_pass (asserts `0 skipped` in the suite line) || green |
-| eval-runner → The runner runs each test file as its own process | Skips are counted per suite | evals/runner/test_run.py | test_skips_are_counted_per_suite || green |
+| eval-runner → The runner runs each test file as its own process | All files pass | evals/runner/test_run.py | test_all_files_pass (asserts `0 skipped` in the suite line) | green |
+| eval-runner → The runner runs each test file as its own process | Skips are counted per suite | evals/runner/test_run.py | test_skips_are_counted_per_suite | green |
 | eval-runner → The runner runs each test file as its own process | A file fails | evals/runner/test_run.py | test_a_failing_file_is_reported_and_kept | green |
 | eval-runner → The runner runs each test file as its own process | Unknown suite | evals/runner/test_run.py | test_unknown_suite_exits_2 | green |
 | eval-runner → The runner runs each test file as its own process | A file's process crashes | evals/runner/test_run.py | test_a_crashing_file_is_reported | green |
 | eval-runner → The runner runs each test file as its own process | A file times out | evals/runner/test_run.py | test_a_timed_out_file_tree_is_stopped | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | All suites pass | evals/runner/test_workflow.py | test_workflow_runs_each_listed_suite_on_three_oses || green |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | All suites pass | evals/runner/test_workflow.py | test_workflow_runs_each_listed_suite_on_three_oses | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails | evals/runner/test_workflow.py | test_one_failing_suite_does_not_cancel_the_others | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails on one OS | evals/runner/test_workflow.py | test_job_name_and_fail_fast_cover_each_os || green |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A suite fails on one OS | evals/runner/test_workflow.py | test_job_name_and_fail_fast_cover_each_os | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A new suite appears | evals/runner/test_workflow.py | test_matrix_comes_from_list_suites | green |
 | eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | The suite list cannot be read | evals/runner/test_workflow.py | test_suite_jobs_need_the_list_job | green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows || green |
-| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A job runs past its timeout | evals/runner/test_workflow.py | test_job_and_run_timeouts_are_per_os || green |
-| eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | test_agents_and_contributing_carry_the_rule || green |
-| eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | test_a_file_without_the_rule_is_named || green |
-| eval-runner → The instructions say which suites to run when | A file brings back a local suite run | evals/runner/test_agent_instructions.py | test_a_local_suite_run_is_named || green |
-| eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_jj_on_each_os || green |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | test_workflow_checks_jj_sha256_before_use (per OS row) || green |
-| eval-runner → Suites that need jj run with a pinned jj in CI | Runner with no pinned archive | evals/runner/test_ci_workflow.py | test_unknown_runner_fails_before_download || green |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | Windows runs the POSIX userland of Git Bash | evals/runner/test_workflow.py | test_steps_run_under_bash_with_git_usr_bin_first_on_windows | green |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A test starts bash by bare name | evals/runner/test_bare_bash.py | test_bare_bash_call_is_named, test_repo_has_no_bare_bash | red |
+| eval-runner → CI runs every suite on Linux, Windows and macOS for each pull request | A job runs past its timeout | evals/runner/test_workflow.py | test_job_and_run_timeouts_are_per_os | green |
+| eval-runner → The instructions say which suites to run when | Both files carry the rule | evals/runner/test_agent_instructions.py | test_agents_and_contributing_carry_the_rule | green |
+| eval-runner → The instructions say which suites to run when | One file drops the rule | evals/runner/test_agent_instructions.py | test_a_file_without_the_rule_is_named | green |
+| eval-runner → The instructions say which suites to run when | A file brings back a local suite run | evals/runner/test_agent_instructions.py | test_a_local_suite_run_is_named | green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_jj_on_each_os | green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Checksum mismatch | evals/runner/test_ci_workflow.py | test_workflow_checks_jj_sha256_before_use (per OS row) | green |
+| eval-runner → Suites that need jj run with a pinned jj in CI | Runner with no pinned archive | evals/runner/test_ci_workflow.py | test_unknown_runner_fails_before_download | green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Local run without jj | evals/runner/test_jjenv.py | test_jj_missing_skips_with_reason | green |
 | eval-runner → Suites that need jj run with a pinned jj in CI | Required but missing | evals/runner/test_jjenv.py | test_jj_missing_required_fails | green |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_on_linux_only || green |
-| eval-runner → Suites that need GitButler run with a pinned `but` in CI | macOS and Windows jobs | evals/runner/test_ci_workflow.py | test_but_requirement_is_set_on_linux_only || green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | CI run | evals/runner/test_ci_workflow.py | test_workflow_installs_pinned_but_for_vcs_on_linux_only | green |
+| eval-runner → Suites that need GitButler run with a pinned `but` in CI | macOS and Windows jobs | evals/runner/test_ci_workflow.py | test_but_requirement_is_set_on_linux_only | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Upstream released a new version | evals/runner/test_ci_workflow.py | test_workflow_pins_but_build_url | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Downloaded bytes differ | evals/runner/test_ci_workflow.py | test_workflow_checks_but_sha256_before_use | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Local run without `but` | evals/runner/test_butenv.py | test_but_missing_skips_with_reason | green |
 | eval-runner → Suites that need GitButler run with a pinned `but` in CI | Required but missing | evals/runner/test_butenv.py | test_but_missing_required_fails | green |
-| eval-runner → A test skipped on one OS names its issue | A per-OS skip with its issue | evals/runner/test_platform_skips.py | test_os_skip_naming_an_issue_passes || green |
-| eval-runner → A test skipped on one OS names its issue | A mechanism that exists on one OS only | evals/runner/test_platform_skips.py | test_platform_prefixed_skip_passes || green |
-| eval-runner → A test skipped on one OS names its issue | A per-OS skip with neither | evals/runner/test_platform_skips.py | test_os_skip_with_neither_is_named || green |
-| eval-runner → A test skipped on one OS names its issue | A skip inside an OS branch | evals/runner/test_platform_skips.py | test_skiptest_inside_os_branch_is_named || green |
+| eval-runner → A test skipped on one OS names its issue | A per-OS skip with its issue | evals/runner/test_platform_skips.py | test_os_skip_naming_an_issue_passes | green |
+| eval-runner → A test skipped on one OS names its issue | A mechanism that exists on one OS only | evals/runner/test_platform_skips.py | test_platform_prefixed_skip_passes | green |
+| eval-runner → A test skipped on one OS names its issue | A per-OS skip with neither | evals/runner/test_platform_skips.py | test_os_skip_with_neither_is_named | green |
+| eval-runner → A test skipped on one OS names its issue | A skip inside an OS branch | evals/runner/test_platform_skips.py | test_skiptest_inside_os_branch_is_named | green |
 
-Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_pin_files_check_out_lf` (design D6). Integration: the real matrix run in group 4 is the end-to-end check of every CI scenario above.
+Extra tests (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_pin_files_check_out_lf` (design D6) and `test_install_steps_check_digests_without_sha256sum` (4.6); the bash-3.2 check of shipped scripts (4.4); the `test_git_backend` crash regression test (4.5). Integration: the real matrix run in group 4 is the end-to-end check of every CI scenario above.
 
 ## 1. Runner: skipped counts and the per-OS skip scan
 
@@ -100,13 +101,17 @@ Extra test (no scenario row): `evals/runner/test_ci_workflow.py` `test_version_p
 ## 4. First matrix runs: triage and measured timeouts
 
 - [ ] 4.1 Push the branch with `[vcs] push` through the fence (no PR yet) and run `gh workflow run evals.yml --ref chore/ci-os-matrix` as KintsugiBot. Collect each job's result, wall time, slowest file and the `K skipped` per suite and OS. Verify the run's jobs list shows all 3 × suites jobs.
-- [ ] 4.2 Triage each failing job and each suite whose skipped count differs between OSes (design D9). For each finding, either:
+- [ ] 4.2 Write `evals/runner/test_bare_bash.py` (amended D2): an `ast` scan of every `evals/**/*.py` that flags every list or tuple display whose first element is the string constant `"bash"`, failing with `<file>:<line>`, unless its line carries `# bare-bash: not started`. Synthetic-source tests (`test_bare_bash_call_is_named`) cover an inline call, an argv held in a variable and then run, an argv passed to a helper as a later argument, a marked expected value (passes) and the same value unmarked (fails). Add `test_repo_has_no_bare_bash` over the real tree. Run it and see the repo test fail, naming every `["bash"` display (50 lines in 21 files on the first run).
+- [ ] 4.3 Add `evals/bashexe.py` with `bash()` as amended D2 states (`jjenv.find_bash()` moved and extended; `jjenv` re-exports it; `None` when no Git Bash is found on Windows). Add a rule for it to `evals/suites.json` naming every suite that imports it. Route each display 4.2 names through `bashexe.bash()`, or mark it `# bare-bash: not started` when it is never started. Replace `test_ci_workflow.git_bash`, `test_settings.bash`, every `... or "bash"` fallback and every `shutil.which("bash")` skip guard with `bashexe.bash()`, and the bash-picking `shutil.which("bash")` calls the scan cannot see (`evals/pr-pair/record_markdown.py:34`, `evals/pr-pair/test_bounded.py:369,397,414,438`, `evals/git-workflow/fixtures.py:1225`). The `evals/suites.json` rule names each suite whose files import it (finish, git-workflow, pr-pair, release, review-routes, runner, update, vcs, as the routing turns out). Verify `python -m unittest evals/runner/test_bare_bash.py evals/runner/test_suite_map.py evals/runner/test_jjenv.py` passes and flip its row green; the next dispatch run verifies the routed suites.
+- [ ] 4.4 Fix `scripts/update.sh`'s `mapfile` (bash 4) so it runs on macOS's bash 3.2. First write `evals/runner/test_bash3.py`: it fails, naming file and line, when a shipped bash script (`scripts/*.sh`, `skills/*/scripts/*.sh`) uses a bash-4-only feature (`mapfile`, `readarray`, `declare -A`/`local -A`/`typeset -A`, `${x,,}`/`${x^^}`/`${x,}`/`${x^}`, `coproc`, `|&`, `&>>`, `declare -n`/`local -n`, `wait -n`, `[[ -v`, `${x@Q}` and the other `@` transformations). See it fail on today's tree, then fix every site it names and verify it passes.
+- [ ] 4.5 Fix the `test_git_backend` `0xC0000005` crash that CI reproduced on Windows. Root cause found during the amendment: on Windows `bash_path_env()` builds a POSIX-form PATH (`/usr/bin:/mingw64/bin:/c/...`) for bash, and `record_baseline` hands it to native `git.exe`, which crashes spawning its pack helpers for `push`/`fetch` (a minimal repro passes with the native PATH and crashes with the POSIX one). Give native `git` a native PATH there, and check the module for other native launches that get the POSIX PATH. The three failing tests are the regression check: verify `test_git_backend.py` passes locally, where it reproduces. If it still fails and the cause is in Git for Windows, or it stops reproducing locally, file an issue in this repository that links any upstream report and the CI evidence, and skip the affected tests on Windows with that `#<n>` in the reason (D7/D9).
+- [ ] 4.6 Triage each remaining failing job and each suite whose skipped count differs between OSes (design D9). For each finding, either:
   - fix it with a regression test in its suite, verified red then green by that module locally where it reproduces and by the next CI run; or
   - file an issue and give the skip an `#<n>` reason, which `test_platform_skips.py` accepts.
 
-  Record the `test_git_backend` `0xC0000005` result (passes in CI: machine-local, noted on #145; fails: fixed or filed). Verify with a dispatch run in which every job passes.
-- [ ] 4.3 If a job or file runs past its timeout, follow the design's Risks steps in order: raise the timeouts toward the 360-minute cap, then split. Splitting a suite across matrix jobs changes the "one job per suite and OS" requirement and `run.py`'s targets. Before doing it, stop and amend the spec delta, then rerun the design review. Verify with a dispatch run in which every job passes.
-- [ ] 4.4 Set each OS's `timeout` and `run_timeout` to about 1.5 × the measured slowest job and slowest file, rounded up. Record the measurements in a CI section of `evals/timings.md`, in a form that `test_timings.py`'s suite-row pattern does not match. Verify that `python -m unittest evals/runner/test_timings.py evals/runner/test_workflow.py` passes and a final dispatch run is all green.
+  The first run's other fixes go here: `test_instructions.py` still required `unittest discover evals/update` in the docs; the `but` step used GNU `sha256sum --check` (`test_install_steps_check_digests_without_sha256sum`); the review-routes tests compared unresolved macOS temp paths. Verify with a dispatch run in which every job passes.
+- [ ] 4.7 If a job or file runs past its timeout, follow the design's Risks steps in order: raise the timeouts toward the 360-minute cap, then split. Splitting a suite across matrix jobs changes the "one job per suite and OS" requirement and `run.py`'s targets. Before doing it, stop and amend the spec delta, then rerun the design review. Verify with a dispatch run in which every job passes.
+- [ ] 4.8 Set each OS's `timeout` and `run_timeout` to about 1.5 × the measured slowest job and slowest file, rounded up. Record the measurements in a CI section of `evals/timings.md`, in a form that `test_timings.py`'s suite-row pattern does not match. Verify that `python -m unittest evals/runner/test_timings.py evals/runner/test_workflow.py` passes and a final dispatch run is all green.
 
 ## 5. Release 0.12.1
 

@@ -35,7 +35,7 @@
 - **THEN** the runner stops that file's whole process tree, reports it as `timeout after S s` with the kept output's path, still runs the other files, and exits 1
 
 ### Requirement: CI runs every suite on Linux, Windows and macOS for each pull request
-`.github/workflows/evals.yml` SHALL run on every pull request, opened or updated, and on a manual dispatch. It SHALL take the suites from `python evals/run.py --list-suites` and run each with `python evals/run.py <suite>` under `bash` on `ubuntu-24.04`, `windows-latest` and `macos-latest`, one job per suite and OS, with `fail-fast: false` and the OpenSpec CLI in `OPENSPEC_VERSION`. A job SHALL pass only when its setup and its run both succeed.
+`.github/workflows/evals.yml` SHALL run on every pull request, opened or updated, and on a manual dispatch. It SHALL take the suites from `python evals/run.py --list-suites` and run each with `python evals/run.py <suite>` under `bash` on `ubuntu-24.04`, `windows-latest` and `macos-latest`, one job per suite and OS, with `fail-fast: false` and the OpenSpec CLI in `OPENSPEC_VERSION`. A job SHALL pass only when its setup and its run both succeed. On Windows, every `bash` a job or an eval starts SHALL be Git for Windows' Git Bash; an eval SHALL NOT start bash by its bare name.
 
 #### Scenario: All suites pass
 - **WHEN** a pull request is opened or a new commit is pushed to it and every suite passes on every OS
@@ -59,7 +59,11 @@
 
 #### Scenario: Windows runs the POSIX userland of Git Bash
 - **WHEN** a Windows job runs a step or a test that starts `bash`, `cygpath` or `sed`
-- **THEN** it gets Git for Windows' `bash` and `usr/bin` tools, never another `bash` on the runner's PATH, and the job's log names the `bash` it resolved
+- **THEN** it gets Git for Windows' `bash` and `usr/bin` tools, never another `bash` on the runner (such as the WSL launcher in `System32`), and the job's log names the `bash` it resolved
+
+#### Scenario: A test starts bash by bare name
+- **WHEN** an eval under `evals/` starts a process whose argument list begins with the bare name `"bash"`
+- **THEN** a runner test fails naming that file and line, since Windows would resolve that name in `System32` before PATH
 
 #### Scenario: A job runs past its timeout
 - **WHEN** a suite's run on one OS exceeds that OS's job timeout
