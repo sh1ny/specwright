@@ -3,3 +3,4 @@
 *.yaml text eol=lf
 evals/update/shims/* text eol=lf
 *VERSION text eol=lf
+schemas/** text eol=lf

@@ -21,6 +21,7 @@ SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
 SNAPSHOT, REPLY = SCRIPTS / "pr-snapshot.sh", SCRIPTS / "pr-reply.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
+import bashexe  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "evals" / "fakes"))
 import gh as fake_gh  # noqa: E402
@@ -130,7 +131,7 @@ class SnapCase(unittest.TestCase):
         return e
 
     def run_script(self, script, *args, login="me", env=None, cwd=None, stdin=None):
-        return subprocess.run(["bash", str(script), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
+        return subprocess.run([bashexe.bash(), str(script), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
                               env=self.env(login, **(env or {})), cwd=cwd or self.tmp, input=stdin)
 
     def snapshot_run(self, *args, login="me", env=None):

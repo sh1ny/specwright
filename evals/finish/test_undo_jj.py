@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import jjenv  # noqa: E402
+import bashexe  # noqa: E402
 import vcs_test_support  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtures.py")
@@ -176,7 +177,7 @@ class TestVcsScriptMissing(unittest.TestCase):
         lone = tmp / "skills" / "specwright-finish" / "scripts"
         lone.mkdir(parents=True)
         (lone / "finish.sh").write_bytes(fx.SCRIPT.read_bytes())
-        r = subprocess.run(["bash", str(lone / "finish.sh"), "undo-archive-plan", "--change", "add-x", "--archived-name",
+        r = subprocess.run([bashexe.bash(), str(lone / "finish.sh"), "undo-archive-plan", "--change", "add-x", "--archived-name",
                             f"{fx.DATE}-add-x", "--prefix", P, "--main", "main", "--branch", BRANCH],
                            cwd=work, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)

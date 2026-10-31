@@ -3,7 +3,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -13,24 +12,10 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "evals.yml"
-
-
-def git_bash():
-    if os.name != "nt":
-        return shutil.which("bash")
-    candidates = [os.environ.get("GIT_BASH")]
-    scoop = os.environ.get("SCOOP")
-    if scoop:
-        candidates.append(str(Path(scoop) / "apps" / "git" / "current" / "bin" / "bash.exe"))
-    profile = os.environ.get("USERPROFILE")
-    if profile:
-        candidates.append(str(Path(profile) / "scoop" / "apps" / "git" / "current" / "bin" / "bash.exe"))
-    for variable in ("ProgramFiles", "ProgramFiles(x86)"):
-        root = os.environ.get(variable)
-        if root:
-            candidates.append(str(Path(root) / "Git" / "bin" / "bash.exe"))
-    return next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
 
 
 def install_run_block(step="Install pinned jj"):
@@ -154,8 +139,11 @@ class TestPinnedJjWorkflow(unittest.TestCase):
             + 'export PATH="$(cat "$GITHUB_PATH"):$PATH"\n'
             + "jj --version\n"
         )
+        bash = bashexe.bash()
+        if not bash:
+            self.skipTest("needs bash")
         return subprocess.run(
-            [git_bash() or "bash", "-euo", "pipefail", "-c", shell],
+            [bash, "-euo", "pipefail", "-c", shell],
             cwd=ROOT, env=env, capture_output=True, text=True,
         )
 
@@ -201,6 +189,17 @@ class TestPinnedJjWorkflow(unittest.TestCase):
         found = dict(line.split(": eol: ") for line in result.stdout.strip().splitlines())
         for name in files:
             self.assertEqual(found.get(name), "lf", "%s must check out with LF (.gitattributes)" % name)
+
+    def test_schema_files_check_out_lf(self):
+        """Fixtures copy schemas/ byte for byte into repos that git commits with autocrlf and jj then compares: a CRLF
+        checkout on Windows shows as a modified file there."""
+        files = subprocess.run(["git", "ls-files", "--", "schemas"], cwd=ROOT, capture_output=True, text=True,
+                               check=True).stdout.split()
+        self.assertTrue(files)
+        result = subprocess.run(["git", "check-attr", "eol", "--"] + files, cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = dict(line.split(": eol: ") for line in result.stdout.strip().splitlines())
+        self.assertEqual([f for f in files if found.get(f) != "lf"], [], "schema files must check out with LF")
 
 
 BUT_BUILD = "0.23.1-3317"
@@ -297,8 +296,11 @@ class TestPinnedButWorkflow(unittest.TestCase):
             + '\nexport PATH="$(cat "$GITHUB_PATH"):$PATH"\n'
             + "but --version\n"
         )
+        bash = bashexe.bash()
+        if not bash:
+            self.skipTest("needs bash")
         return subprocess.run(
-            [git_bash() or "bash", "-euo", "pipefail", "-c", shell],
+            [bash, "-euo", "pipefail", "-c", shell],
             cwd=ROOT, env=env, capture_output=True, text=True,
         )
 
@@ -323,6 +325,14 @@ class TestPinnedButWorkflow(unittest.TestCase):
         self.assertEqual(len(setters), 1)
         self.assertRegex(setters[0], r"(?m)^\s+if: runner\.os == 'Linux'$")
         self.assertRegex(setters[0], r"SPECWRIGHT_REQUIRE_BUT=1\"? >> \"\$GITHUB_ENV\"")
+
+    def test_install_steps_check_digests_without_sha256sum(self):
+        # macOS has a BSD sha256sum without --check: both steps check the digest with Python, which runs the same on every OS
+        for step in ("Install pinned jj", "Install pinned but"):
+            with self.subTest(step=step):
+                body = install_run_block(step)
+                self.assertNotIn("sha256sum", body)
+                self.assertIn("hashlib", body)
 
     def test_workflow_pins_but_build_url(self):
         self.assertEqual((ROOT / "BUT_VERSION").read_text(encoding="utf-8").strip(), BUT_BUILD)

@@ -27,11 +27,13 @@ def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
         if git_shim:
             roots.append(Path(git_shim))
         roots.extend(Path(p) for p in extra_path)
-        bash_root = Path(bash).resolve().parent
-        roots.extend((bash_root.parent / "usr" / "bin", bash_root.parent / "mingw64" / "bin"))
+        bash_dir = Path(bash).resolve().parent
+        # bashexe.bash() is <git>/usr/bin/bash.exe; a GIT_BASH override may name the <git>/bin launcher instead
+        git_root = bash_dir.parent.parent if bash_dir.parent.name.lower() == "usr" else bash_dir.parent
+        roots.extend((git_root / "usr" / "bin", git_root / "mingw64" / "bin"))
         excluded = {str(Path(shutil.which(name)).parent.resolve()).casefold()
                     for name in exclude_tools if shutil.which(name)}
-        excluded.add(str(bash_root).casefold())
+        excluded.add(str(git_root / "bin").casefold())
         roots.extend(Path(p) for p in env.get("PATH", "").split(os.pathsep)
                      if p and str(Path(p).resolve()).casefold() not in excluded)
         converted = []

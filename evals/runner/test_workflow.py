@@ -82,8 +82,9 @@ class TestWorkflow(unittest.TestCase):
 
     def test_job_and_run_timeouts_are_per_os(self):
         suite = job_block(read(), "suite")
-        for os_name, timeout, run_timeout in (("ubuntu-24.04", 45, 1200), ("macos-latest", 60, 1800),
-                                              ("windows-latest", 120, 3600)):
+        # measured in evals/timings.md (CI matrix): run_timeout 1.5 x the slowest suite, timeout run_timeout + 5 min
+        for os_name, timeout, run_timeout in (("ubuntu-24.04", 15, 600), ("macos-latest", 25, 1200),
+                                              ("windows-latest", 35, 1800)):
             self.assertRegex(suite, r"- os: %s\n\s+timeout: %d\n\s+run_timeout: %d\b"
                              % (re.escape(os_name), timeout, run_timeout))
         self.assertRegex(suite, r"(?m)^    timeout-minutes: \$\{\{ matrix\.timeout \}\}$")

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fixtures  # noqa: E402
 import grade  # noqa: E402
+import bashexe  # noqa: E402
 
 TREE_CHECK = "The code repo's main tree equals the code branch's tip tree, so the merge kept the code"
 EVALS = ("eval-store-finish-resume-code-merge", "eval-store-finish-resume-code-merge-from-main")
@@ -66,7 +67,7 @@ class ResumeCodeMergeTree(unittest.TestCase):
             self.assertTrue(res[TREE_CHECK][0], f"{name}: {res[TREE_CHECK][1]}")
 
 
-@unittest.skipUnless(shutil.which("bash"), "needs bash")
+@unittest.skipUnless(bashexe.bash(), "needs bash")
 class WatchMerge(unittest.TestCase):
     """The watch-merge fixtures and graders: a simulated agent run (fake gh calls, git through the fixture's shim) grades green,
     and the wrong runs (a merge in default mode, a missing remote deletion, the wrong method) grade red."""
@@ -82,7 +83,7 @@ class WatchMerge(unittest.TestCase):
         return run_dir, repo
 
     def sh(self, repo, script):
-        r = subprocess.run(["bash", "-c", f'source eval.env && {script}'], cwd=repo, capture_output=True, text=True)
+        r = subprocess.run([bashexe.bash(), "-c", f'source eval.env && {script}'], cwd=repo, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout.strip()
 
@@ -104,7 +105,7 @@ class WatchMerge(unittest.TestCase):
                                         "--reviewer chatgpt-codex-connector:required:1200".replace("../../../", fixtures.posix(fixtures.ROOT) + "/")))
         self.assertEqual((snap["mergeable"], snap["merge_state"], snap["checks"]["pending"], snap["reviewers"][0]["state"]),
                          ("MERGEABLE", "CLEAN", 0, "reported"))
-        before = subprocess.run(["bash", "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
+        before = subprocess.run([bashexe.bash(), "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
         self.assertNotEqual(before.returncode, 0, "a pull before the merge must fail at the unreachable proxy")
 
     def test_agent_merge_run_passes_every_check(self):
@@ -141,7 +142,7 @@ class WatchMerge(unittest.TestCase):
         self.assertNotIn("merge", (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8"))
 
 
-@unittest.skipUnless(shutil.which("bash"), "needs bash")
+@unittest.skipUnless(bashexe.bash(), "needs bash")
 class RoadmapOffer(unittest.TestCase):
     """roadmap_offer and the agent-merge next-step check: the mode offered is the word bound to specwright-roadmap, and the check
     passes only when that set is exactly the mode the fixture's milestone state prescribes."""
@@ -424,7 +425,7 @@ class ExpectedWrites(unittest.TestCase):
     WATCH = "No other gh call created or changed anything (no gh pr merge, auto-merge or comment)"
     FINISH = "No gh call created or changed a pull request, issue or comment"
 
-    @unittest.skipUnless(shutil.which("bash"), "needs bash")
+    @unittest.skipUnless(bashexe.bash(), "needs bash")
     def test_release_auto_gh_log(self):
         cases = (("eval-agent-merge-release-auto", self.WATCH, [self.MERGE, self.DELETE]),
                  ("eval-finish-release-auto", self.FINISH, []))
@@ -666,7 +667,7 @@ class GraphqlOperations(unittest.TestCase):
         self.assertEqual(self.ops("# only a comment\n"), [])
 
 
-@unittest.skipUnless(shutil.which("bash"), "needs bash")
+@unittest.skipUnless(bashexe.bash(), "needs bash")
 class FinishResumeMerged(unittest.TestCase):
     """The merged-PR resume fixtures: origin is a local bare repo reached by pull and fetch only, the guarded refresh (checkout main,
     pull --ff-only) is allowed, and anything else that changes git still fails the grade."""
@@ -685,7 +686,7 @@ class FinishResumeMerged(unittest.TestCase):
         return run_dir, repo
 
     def sh(self, repo, script):
-        r = subprocess.run(["bash", "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
+        r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout.strip()
 
@@ -881,7 +882,7 @@ class ReleaseHelpers(unittest.TestCase):
         self.assertFalse(grade.near("v0.5.0 is untagged. push main.\n\n\nunrelated. tag it later.", r"0\.5\.0", r"push", r"publish"))
 
 
-@unittest.skipUnless(shutil.which("bash"), "needs bash")
+@unittest.skipUnless(bashexe.bash(), "needs bash")
 class ReleaseEvals(unittest.TestCase):
     """The five release fixtures and graders: simulated runs (git and the fake gh through the fixture's shims, and the real
     release.sh publish) grade green, and the wrong runs grade red."""
@@ -897,7 +898,7 @@ class ReleaseEvals(unittest.TestCase):
         return run_dir, repo
 
     def sh(self, repo, script):
-        r = subprocess.run(["bash", "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
+        r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout.strip()
 
@@ -1131,16 +1132,16 @@ class ReleaseEvals(unittest.TestCase):
         text = (repo / "openspec" / "specwright.yaml").read_text(encoding="utf-8")
         self.assertIn("merge: agent", text)
         self.assertIn("release:\n  enabled: true\n  auto: true\n", text)
-        before = subprocess.run(["bash", "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
+        before = subprocess.run([bashexe.bash(), "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
         self.assertNotEqual(before.returncode, 0, "a pull before the merge must fail at the unreachable proxy")
 
     def test_agent_fixture_serves_the_pre_merge_main_to_the_version_checks_fetch(self):
         _, repo = self.fixture("eval-agent-merge-release-auto")
         main = grade.git(repo, "rev-parse", "main")
-        r = subprocess.run(["bash", "-c", "source eval.env && git fetch -q --no-tags origin main"], cwd=repo, capture_output=True, text=True)
+        r = subprocess.run([bashexe.bash(), "-c", "source eval.env && git fetch -q --no-tags origin main"], cwd=repo, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), main, "a fetch before the merge must see main without the squash")
-        check = subprocess.run(["bash", str(Path(__file__).resolve().parents[2] / "skills" / "specwright-release" / "scripts" / "release.sh"), "check", "--main", "origin/main"],
+        check = subprocess.run([bashexe.bash(), str(Path(__file__).resolve().parents[2] / "skills" / "specwright-release" / "scripts" / "release.sh"), "check", "--main", "origin/main"],
                                cwd=repo, capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.agent_run(repo, publish=False)

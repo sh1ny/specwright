@@ -56,3 +56,7 @@ Every eval suite now runs in CI on Linux, Windows and macOS for each pull reques
 ### Changed
 - `.github/workflows/evals.yml` runs every suite on `ubuntu-24.04`, `windows-latest` and `macos-latest` with `fail-fast: false`, with a pinned, checksum-verified jj on each OS; `but` stays Linux-only because GitButler ships no standalone CLI for macOS or Windows (#145, #154).
 - `AGENTS.md`, `CONTRIBUTING.md` and the README rely on the CI matrix during a change and at a milestone close instead of local `run.py --changed main` runs (#145).
+
+### Fixed
+- `scripts/update.sh` reads its journal without `mapfile`, so `update` runs under macOS's `/bin/bash`, which is bash 3.2 (#145).
+- On macOS, `scripts/update.sh` again puts back a lock that another update run took while this one was replacing a stale lock. It used GNU `mv -T`, which BSD `mv` lacks, so the other run's lock was left renamed aside (#145).

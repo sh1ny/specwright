@@ -37,14 +37,14 @@ jobs:
         os: [ubuntu-24.04, windows-latest, macos-latest]
         include:
           - os: ubuntu-24.04
-            timeout: 45
-            run_timeout: 1200
+            timeout: 15
+            run_timeout: 600
           - os: macos-latest
-            timeout: 60
-            run_timeout: 1800
+            timeout: 25
+            run_timeout: 1200
           - os: windows-latest
-            timeout: 120
-            run_timeout: 3600
+            timeout: 35
+            run_timeout: 1800
     name: ${{ matrix.suite }} (${{ matrix.os }})
     defaults:
       run:
@@ -124,7 +124,7 @@ jobs:
           expected="${BUT_SHA256:-57e442543839c912f164fb91a20ea934826fc0023ddf552a70f2ed63ba514a73}"
           mkdir -p "$RUNNER_TEMP/but-download" "$RUNNER_TEMP/but-bin"
           curl --fail --location "$url" --output "$RUNNER_TEMP/but-download/but"
-          echo "$expected  $RUNNER_TEMP/but-download/but" | sha256sum --check
+          python -c 'import hashlib, sys; actual = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest(); ok = actual == sys.argv[2]; ok or print("but sha256 mismatch: expected %s, actual %s" % (sys.argv[2], actual), file=sys.stderr); sys.exit(0 if ok else 1)' "$RUNNER_TEMP/but-download/but" "$expected"
           install -m 0755 "$RUNNER_TEMP/but-download/but" "$RUNNER_TEMP/but-bin/but"
           echo "$RUNNER_TEMP/but-bin" >> "$GITHUB_PATH"
           reported="$("$RUNNER_TEMP/but-bin/but" --version)"

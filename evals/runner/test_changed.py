@@ -1,7 +1,8 @@
 """Tests for `evals/run.py --changed <base>`: the changed paths since a merge base select the suites to run.
 
-Every test builds a scratch git repository holding an `evals/` root of fake suites (each test file appends its own name to a
-marker file) and an `evals/suites.json`, then runs `run.py --root <scratch>/evals --changed main`. The live checkout is never read.
+Every test builds a scratch git repository holding an `evals/` root of fake suites (each test file writes its own name to a
+file of its own in a marker directory, since concurrent appends to one file lose writes on Windows) and an
+`evals/suites.json`, then runs `run.py --root <scratch>/evals --changed main`. The live checkout is never read.
 
 Run: python -m unittest discover evals/runner
 """
@@ -20,7 +21,7 @@ TEST_BODY = (
     "import os, unittest\n"
     "class T(unittest.TestCase):\n"
     "    def test_marker(self):\n"
-    "        with open(os.environ['MARKER_FILE'], 'a') as f:\n"
+    "        with open(os.path.join(os.environ['MARKER_DIR'], str(os.getpid())), 'w') as f:\n"
     "            f.write(%r + '\\n')\n")
 
 SUITES = {"alpha": ["test_one.py", "test_two.py"], "beta": ["test_one.py"], "gamma": ["test_one.py"], "delta": ["test_one.py"]}
@@ -40,7 +41,8 @@ class ChangedTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, str(base), True)
         self.repo = base / "repo"
         self.root = self.repo / "evals"
-        self.marker = base / "markers.txt"
+        self.marker = base / "markers"
+        self.marker.mkdir()
         self.repo.mkdir()
         self.git("init", "-q")
         self.git("checkout", "-q", "-b", "main")
@@ -74,10 +76,10 @@ class ChangedTests(unittest.TestCase):
 
     def run_changed(self, *args):
         """Run the runner over the scratch root; returns (exit code, stdout, stderr, the sorted marker lines)."""
-        env = dict(os.environ, MARKER_FILE=str(self.marker))
+        env = dict(os.environ, MARKER_DIR=str(self.marker))
         cmd = [sys.executable, str(RUN), "--root", str(self.root)] + list(args)
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(self.repo.parent))
-        marks = sorted(self.marker.read_text().split()) if self.marker.exists() else []
+        marks = sorted(m for f in self.marker.iterdir() for m in f.read_text().split())
         return r.returncode, r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace"), marks
 
     def changed(self, base="main"):

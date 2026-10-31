@@ -21,6 +21,7 @@ ROOT = HERE.parents[1]
 AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
+import bashexe  # noqa: E402
 
 FAKE_BUT = (
     "#!/bin/sh\n"
@@ -31,7 +32,7 @@ FAKE_BUT = (
 )
 
 
-@unittest.skipUnless(shutil.which("bash") and shutil.which("git"), "needs bash and git")
+@unittest.skipUnless(bashexe.bash() and shutil.which("git"), "needs bash and git")
 class TestAsGitButler(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="swb-"))
@@ -57,7 +58,7 @@ class TestAsGitButler(unittest.TestCase):
         return env
 
     def as_sh(self, *args):
-        return subprocess.run(["bash", str(AS_SH), "code-bot", "but", *args], cwd=self.work, env=self.env(),
+        return subprocess.run([bashexe.bash(), str(AS_SH), "code-bot", "but", *args], cwd=self.work, env=self.env(),
                               capture_output=True, text=True, timeout=120)
 
     def gh_calls(self):

@@ -21,6 +21,7 @@ HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
+import bashexe  # noqa: E402
 
 P = "openspec"
 SPEC_A = f"{P}/specs/a/spec.md"
@@ -132,7 +133,7 @@ class TestNoNetwork(Base):
         fake.write_text("#!/usr/bin/env bash" + NL + f'echo "$@" >> "{log.as_posix()}"' + NL + "sleep 600" + NL, encoding="utf-8", newline=NL)
         fake.chmod(0o755)
         env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""))
-        args = ["bash", str(fx.SCRIPT), "undo-archive-plan", "--change", "add-x", "--archived-name", f"{fx.DATE}-add-x",
+        args = [bashexe.bash(), str(fx.SCRIPT), "undo-archive-plan", "--change", "add-x", "--archived-name", f"{fx.DATE}-add-x",
                 "--prefix", P, "--main", "main"]
         t0 = time.monotonic()
         r = subprocess.run(args, cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=env, timeout=30)

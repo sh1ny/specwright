@@ -17,6 +17,7 @@ HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("update_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
+import bashexe  # noqa: E402
 
 NEW_SKILL = {"specwright-extra": "---\nname: specwright-extra\ndescription: \"x\"\n---\n\n# extra\n"}
 
@@ -530,7 +531,8 @@ class TestStageOpsFailure(Base):
 
 RACE_SHIM = r"""#!/bin/sh
 # Race shim: at the first mv/rm call naming the lock, another run is simulated taking the stale lock first (removed and
-# made afresh, before its owner write); then the real tool runs on what is there now.
+# made afresh, before its owner write); then the real tool runs on what is there now. With RACE_THIRD set, a third run
+# takes the lock just before the mv that puts the renamed lock back. With BSD_MV set, mv refuses GNU's -T as macOS's does.
 name=__NAME__
 here=$(cd "$(dirname "$0")" && pwd)
 real() {
@@ -543,6 +545,17 @@ real() {
   done
   IFS=$oldifs
 }
+if [ "$name" = mv ] && [ -n "$BSD_MV" ]; then
+  for a in "$@"; do
+    case "$a" in -T|-[!-]*T*) echo "mv: illegal option -- T" >&2; exit 64 ;; esac
+  done
+fi
+for last in "$@"; do :; done
+if [ "$name" = mv ] && [ -n "$RACE_THIRD" ] && [ ! -e "$RACE_THIRD" ] && [ -e "$RACE_MARK" ]; then
+  case "$last" in
+    *update.lock) : > "$RACE_THIRD"; mkdir "$RACE_LOCK"; : > "$RACE_LOCK/third" ;;
+  esac
+fi
 case " $* " in
   *update.lock*)
     if [ ! -e "$RACE_MARK" ]; then
@@ -571,7 +584,7 @@ class TestStaleLockRace(Base):
 
     def host(self):
         import subprocess
-        return subprocess.run(["bash", "-c", 'echo "${HOSTNAME:-$(hostname)}"'], capture_output=True, text=True).stdout.strip()
+        return subprocess.run([bashexe.bash(), "-c", 'echo "${HOSTNAME:-$(hostname)}"'], capture_output=True, text=True).stdout.strip()
 
     def stale_lock(self, owner):
         lock = self.co.lock
@@ -582,11 +595,17 @@ class TestStaleLockRace(Base):
         os.utime(lock, (t, t))
         return lock
 
-    def run_race(self):
+    bsd_mv = False
+
+    def run_race(self, third=False):
         env = dict(os.environ)
         env["PATH"] = str(self.shims) + os.pathsep + env["PATH"]
         env["RACE_MARK"] = fx.posix(self.tmp / "race-mark")
         env["RACE_LOCK"] = fx.posix(self.co.lock)
+        if third:
+            env["RACE_THIRD"] = fx.posix(self.tmp / "race-third")
+        if self.bsd_mv:
+            env["BSD_MV"] = "1"
         return self.run_sub("stage", env=env)
 
     def leftovers(self):
@@ -609,6 +628,16 @@ class TestStaleLockRace(Base):
         code, doc, err = self.run_race()
         self.assert_lock_kept(code, doc)
 
+    def test_lock_a_third_run_took_before_the_put_back_is_kept(self):
+        self.stale_lock(None)
+        code, doc, err = self.run_race(third=True)
+        self.assertTrue((self.tmp / "race-third").exists(), "the third run never took the lock")
+        self.assertEqual((code, doc["error"]), (1, "locked"), doc)
+        self.assertIn("another update took", doc["message"])
+        self.assertEqual(sorted(p.name for p in self.co.lock.iterdir()), ["third"], "the third run's lock is untouched")
+        self.assertEqual(len(self.leftovers()), 1, "the renamed lock stays aside, outside the third run's lock")
+        self.assertFalse(self.co.journal.exists())
+
     def test_dead_owner_lock_is_taken_over_without_leftovers(self):
         self.stale_lock(f"pid: 999999\nhost: {self.host()}\n")
         code, doc, err = self.run_sub("stage")
@@ -616,6 +645,11 @@ class TestStaleLockRace(Base):
         self.assertEqual(doc["lock_replaced"], {"pid": 999999, "host": self.host()})
         self.assertFalse(self.co.lock.exists())
         self.assertEqual(self.leftovers(), [])
+
+
+class TestStaleLockRaceBsdMv(TestStaleLockRace):
+    """The same races with a mv that has no -T, as on macOS (BSD mv)."""
+    bsd_mv = True
 
 
 class TestJournalIntegrity(Base):

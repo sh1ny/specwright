@@ -61,7 +61,7 @@ class GitButlerFlowCase(GitButlerNetworkCase):
         return json.loads(lines[0])
 
     def script(self, scratch, wrap, script, *args, cwd=None, expected=0):
-        return self.run_argv(scratch, wrap, ["bash", Path(script).as_posix(), *args], cwd or self.repo_path, expected)
+        return self.run_argv(scratch, wrap, ["bash", Path(script).as_posix(), *args], cwd or self.repo_path, expected)  # bare-bash: not started
 
     def message(self, text):
         path = self.root / "message.txt"
@@ -250,7 +250,7 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             self.shim.log_path.unlink(missing_ok=True)
             results = []
             for argv in argvs:
-                run = ["bash", PR_PAIR.as_posix(), *argv[1:]] if argv[0] == "pr-pair.sh" else argv
+                run = ["bash", PR_PAIR.as_posix(), *argv[1:]] if argv[0] == "pr-pair.sh" else argv  # bare-bash: not started
                 results.append(self.run_argv(scratch, wrap, run, repo.path))
             switched, pulled, checked, deleted = results
             self.assertFalse(switched["switched"])

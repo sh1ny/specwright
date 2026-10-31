@@ -15,6 +15,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "evals") not in sys.path:
+    sys.path.append(str(ROOT / "evals"))
+import bashexe  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
 CHANGE = "demo-change"
@@ -94,7 +97,7 @@ class Base(unittest.TestCase):
     maxDiff = None
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(tempfile.mkdtemp()).resolve()  # macOS: /var is /private/var, and git reports the resolved toplevel
         self.addCleanup(rmtree, self.tmp)
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
@@ -166,7 +169,7 @@ class Base(unittest.TestCase):
         return [c for c in self.calls(cli) if c["argv"][:1] not in (["--version"], ["config"], ["models"])]
 
     def script(self, *args, cwd=None, expect=0):
-        r = subprocess.run(["bash", str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=self.env(),
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=self.env(),
                            cwd=cwd or self.code, encoding="utf-8")
         lines = r.stdout.strip().splitlines()
         if expect is not None:
