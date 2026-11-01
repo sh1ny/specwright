@@ -25,6 +25,7 @@
   ],
   "no_eval": [
     ".gitattributes",
+    "LICENSE",
     "docs/**"
   ]
 }
