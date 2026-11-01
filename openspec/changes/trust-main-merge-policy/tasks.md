@@ -60,7 +60,7 @@ Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's cont
 
 ## 6. Release 0.13.0
 
-- [ ] 6.1 Run `python -m unittest evals/runner/test_suite_map.py` for the files this change adds (ADR 0020), and add a `suites.json` rule or `no_eval` entry where it fails. Then run `bash skills/specwright-release/scripts/release.sh bump --to 0.13.0` and rewrite the summary of this proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/trust-main-merge-policy/proposal.md`, both exit 0.
+- [x] 6.1 Run `python -m unittest evals/runner/test_suite_map.py` for the files this change adds (ADR 0020), and add a `suites.json` rule or `no_eval` entry where it fails. Then run `bash skills/specwright-release/scripts/release.sh bump --to 0.13.0` and rewrite the summary of this proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `bash skills/specwright-release/scripts/release.sh notes --proposal openspec/changes/trust-main-merge-policy/proposal.md`, both exit 0.
 
 ## Workflow follow-up
 

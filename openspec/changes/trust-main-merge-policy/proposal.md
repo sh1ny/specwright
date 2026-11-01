@@ -38,7 +38,7 @@ None.
 
 ## Release Notes
 
-0.13.0 makes the agent merge take its policy from the default branch. A PR branch can no longer turn on agent merge, change the merge method or the remote branch deletion, or replace the required reviewers for itself: watch reads those settings from main and at the head it would merge. When the two differ, watch lists the differences and asks before merging.
+0.13.0 makes the agent merge take its policy from the default branch (ADR 0020). A PR branch can no longer turn on agent merge, change the merge method or the remote branch deletion, or replace the required reviewers for itself. Watch reads those settings from GitHub, on main and at the head it would merge, before it archives and before each merge request. It checks that main's required reviewers reported on that head, and when the two copies differ it lists the differences and asks before merging. An unreadable policy merges nothing; an unchanged one merges as before.
 
 ### Changed
 - With `pr.merge: agent`, watch reads `pr.merge`, `merge_method`, `delete_branch` and the reviewers from the default branch and at the ready head, and asks the user before merging a PR whose policy differs from main's (#141)
