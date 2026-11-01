@@ -722,23 +722,24 @@ class TestGitButlerTargets(Base):
     def settings(self, co, text="vcs: gitbutler\nfinish: pr\n"):
         fx.write(co.code, "openspec/specwright.yaml", text)
 
-    def test_gitbutler_project_refuses_in_repo_target(self):
+    def assertNoRefusalNames(self, doc, co):
+        """No refusal, whatever its code, names a skills or agents target."""
+        text = " ".join(r.get("message", "") for r in doc.get("refusals", []))
+        for directory in (*co.skills, *co.agents.values()):
+            self.assertNotIn(fx.posix(directory), text)
+
+    def test_gitbutler_project_accepts_in_repo_target(self):
         co = self.checkout("0.5.0")  # skills in .claude/skills and .agents/skills, agents in .claude/agents
         self.settings(co)
         self.download("0.6.0")
-        before = fx.snapshot(co.code)
         for sub in ("plan", "stage"):
             with self.subTest(sub):
                 code, doc, err = self.run_sub(sub)
-                self.assertEqual(code, 1, err)
-                self.assertEqual(doc["error"], "refused")
-                refused = [r for r in doc["refusals"] if r["code"] == "target_in_workspace"]
-                self.assertEqual(len(refused), 3)
-                text = " ".join(r["message"] for r in refused)
-                for directory in (*co.skills, *co.agents.values()):
-                    self.assertIn(fx.posix(directory), text)
-                self.assertEqual(fx.snapshot(co.code), before)
-                self.assertEqual(self.staging_dirs(), [])
+                self.assertEqual(code, 0, err)
+                self.assertTrue(doc["ok"])
+                self.assertNoRefusalNames(doc, co)
+                if sub == "stage":
+                    self.assertTrue(self.staging_dirs(), "stage must stage skills for the in-repo directory")
 
     def test_gitbutler_project_accepts_user_level_target(self):
         co = self.checkout("0.5.0")
@@ -749,7 +750,7 @@ class TestGitButlerTargets(Base):
         self.download("0.6.0")
         code, doc, err = self.run_sub("plan")
         self.assertEqual(code, 0, err)
-        self.assertEqual([r for r in doc["refusals"] if r["code"] == "target_in_workspace"], [])
+        self.assertNoRefusalNames(doc, co)
         self.assertTrue(doc["ok"])
 
     def test_git_project_keeps_in_repo_target(self):
@@ -762,16 +763,16 @@ class TestGitButlerTargets(Base):
                 dl = fx.make_download(tmp / "dl-new", "0.6.0")
                 code, doc, out, err = fx.run_update(dl, [*co.args(), "plan"])
                 self.assertEqual(code, 0, out + err)
-                self.assertEqual([r for r in doc["refusals"] if r["code"] == "target_in_workspace"], [])
+                self.assertNoRefusalNames(doc, co)
 
-    def test_fresh_install_has_no_workspace_refusal(self):
+    def test_fresh_install_has_no_refusal_naming_the_directory(self):
         co = fx.make_checkout(self.tmp, None, skills_dirs=(".claude/skills",))
         self.assertFalse((co.code / "openspec" / "specwright.yaml").exists())
         self.download("0.6.0")
         code, doc, err = self.run_sub("plan", co=co)
         self.assertEqual(code, 0, err)
         self.assertEqual(doc["kind"], "fresh")
-        self.assertEqual([r for r in doc["refusals"] if r["code"] == "target_in_workspace"], [])
+        self.assertNoRefusalNames(doc, co)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed in the repo | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_in_repo_scripts_probe_passes | green |
 | vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed at user level beside an in-repo copy | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_user_level_scripts_with_in_repo_copy_probe_passes | green |
-| install-update → Every backend takes in-repo and user-level targets | In-repo target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_in_repo_target | red |
+| install-update → Every backend takes in-repo and user-level targets | In-repo target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_in_repo_target | green |
 | install-update → Every backend takes in-repo and user-level targets | User-level target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_user_level_target | green |
 | install-update → The install prompt explains what a user-level install shares | The install prompt on GitButler | evals/git-workflow/test_instructions.py | GitButlerSkillText.test_readme_offers_both_locations_with_warnings | red |
 
@@ -26,8 +26,8 @@ Extra tests (no scenario row):
 
 ## 3. update.sh takes in-repo targets on GitButler
 
-- [ ] 3.1 In `evals/update/test_update.py` `TestGitButlerTargets`, replace `test_gitbutler_project_refuses_in_repo_target` with `test_gitbutler_project_accepts_in_repo_target` (`plan` and `stage` with `--skills <code>/.claude/skills` and `vcs: gitbutler` each exit 0, no refusal names the directory, and `stage` stages skills for it). Rename `test_fresh_install_has_no_workspace_refusal` so it no longer names the removed refusal, keeping its assertion that no refusal names the directory. Verify the new test fails with `target_in_workspace`: `python -m unittest evals/update/test_update.py -k TestGitButlerTargets`.
-- [ ] 3.2 Remove `workspace_targets`, its call in plan (`refusals.extend(workspace_targets(o))`) and the header comment paragraph about `target_in_workspace` from `scripts/update.sh`. Verify: row 3 flips green, row 4 (`test_gitbutler_project_accepts_user_level_target`) still passes, and `grep -n target_in_workspace scripts/update.sh` prints nothing.
+- [x] 3.1 In `evals/update/test_update.py` `TestGitButlerTargets`, replace `test_gitbutler_project_refuses_in_repo_target` with `test_gitbutler_project_accepts_in_repo_target` (`plan` and `stage` with `--skills <code>/.claude/skills` and `vcs: gitbutler` each exit 0, no refusal names the directory, and `stage` stages skills for it). Rename `test_fresh_install_has_no_workspace_refusal` so it no longer names the removed refusal, keeping its assertion that no refusal names the directory. Verify the new test fails with `target_in_workspace`: `python -m unittest evals/update/test_update.py -k TestGitButlerTargets`.
+- [x] 3.2 Remove `workspace_targets`, its call in plan (`refusals.extend(workspace_targets(o))`) and the header comment paragraph about `target_in_workspace` from `scripts/update.sh`. Verify: row 3 flips green, row 4 (`test_gitbutler_project_accepts_user_level_target`) still passes, and `grep -n target_in_workspace scripts/update.sh` prints nothing.
 
 ## 4. Skill text and README
 
