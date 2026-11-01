@@ -442,6 +442,7 @@ class ContextPin(Base):
         self.git(self.code, "branch", BRANCH, self.settled)
         self.git(self.code, "update-ref", "refs/remotes/origin/main", self.settled)
         self.git(self.code, "config", "gitbutler.project.targetRef", "refs/remotes/origin/main")
+        (self.code / ".git" / "gitbutler").mkdir()  # GitButler-managed as vcs.sh sees it: the metadata dir and the target ref
 
     def ctx(self, *extra, expect=0):
         return self.pp("context", "--code", self.code, *extra, expect=expect)
@@ -537,6 +538,29 @@ class ContextPin(Base):
                     self.assertNotIn("code", r)
             with self.subTest(vcs=vcs, extra="no branch"):
                 self.assertEqual(self.ctx(expect=2)["error"], "usage")
+
+    def test_leftover_target_ref_without_metadata_does_not_pin(self):
+        # a Git or jj checkout with a leftover gitbutler.project.targetRef but no .git/gitbutler/ is not GitButler-managed for
+        # vcs.sh, so context does not pin either: the plain call needs no --branch and reports the work-tree settings
+        shutil.rmtree(self.code / ".git" / "gitbutler")
+        for vcs in ("", "vcs: git\n", "vcs: jj\n"):
+            self.edit(vcs + "pr:\n  validate: \"echo edited\"\n  merge: agent\n")
+            with self.subTest(vcs=vcs):
+                r = self.ctx()
+                self.assertEqual((r["ok"], r["code"]["validate"], r["merge"]), (True, "echo edited", "agent"))
+        # the settings still saying vcs: gitbutler pin without the metadata dir
+        self.edit(self.PINNED.replace("make test", "echo pwned"))
+        self.assertEqual(self.ctx("--branch", BRANCH, expect=1)["error"], "settings_not_pinned")
+
+    def test_relative_code_path_pins(self):
+        # --code relative to the caller's directory (self.tmp): the settings file is found and compared, not a git_error
+        r = self.pp("context", "--code", "code", "--branch", BRANCH)
+        self.assertEqual((r["ok"], r["code"]["validate"]), (True, "make test"), r)
+        r = self.pp("context", "--code", "code", "--after-merge", "--branch", BRANCH)
+        self.assertTrue(r["ok"], r)
+        self.edit(self.PINNED.replace("make test", "echo pwned"))
+        r = self.pp("context", "--code", "code", "--branch", BRANCH, expect=1)
+        self.assertEqual(r["error"], "settings_not_pinned", r)
 
     def test_git_backend_never_pins(self):
         self.git(self.code, "config", "--unset", "gitbutler.project.targetRef")  # a plain Git repo, not GitButler-managed

@@ -19,8 +19,9 @@
 #                                     with gitbutler.project.targetRef; its message names that ref and says to run `but pull` or undo the
 #                                     work-tree edit. A merge-settings call (anything but --only repos) without --branch is exit 2 usage
 #                                     on GitButler. GitButler here means `vcs: gitbutler` in the work-tree file or a GitButler-managed
-#                                     repo (gitbutler.project.targetRef set), so an unpinned edit of the vcs line cannot turn the
-#                                     check off. Other Git and jj repos never pin; they accept and ignore --branch.
+#                                     repo (gitbutler/ in the common git dir and gitbutler.project.targetRef set, as vcs.sh decides),
+#                                     so an unpinned edit of the vcs line cannot turn the check off. Other Git and jj repos (a leftover
+#                                     target ref alone included) never pin; they accept and ignore --branch.
 #   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj|gitbutler","store":"git|jj"};
 #                                     absent settings default independently to git; unknown values stop with unknown_vcs; gitbutler is code-repo only and needs finish: pr
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
@@ -740,7 +741,7 @@ def settings_path(code):
     for base in (code, toplevel(code)):
         p = Path(base) / "openspec" / "specwright.yaml"
         if p.is_file():
-            return p
+            return p.resolve()  # absolute: git runs with cwd=toplevel, so a path relative to the caller would miss
     return None
 
 
@@ -783,11 +784,16 @@ def settings_pinned(code, ref, branch, after_merge=False):
 
 
 def gitbutler_pins(code):
-    """Whether `context` pins the settings: `vcs: gitbutler` in the work-tree file, or a GitButler-managed repo
-    (gitbutler.project.targetRef set). The second does not come from the file being checked, so an unpinned edit of the
-    `vcs:` line cannot turn the check off."""
+    """Whether `context` pins the settings: `vcs: gitbutler` in the work-tree file, or a GitButler-managed repo as vcs.sh
+    `gitbutler_managed` sees it (`gitbutler/` in the common git dir and gitbutler.project.targetRef set). The second does not
+    come from the file being checked, so an unpinned edit of the `vcs:` line cannot turn the check off; a leftover target ref
+    without the metadata dir is a Git or jj checkout and does not pin."""
     if load_settings(code).get("vcs") == "gitbutler":
         return True
+    r = git(code, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    common = r.stdout.strip()
+    if r.returncode != 0 or not common or not (Path(common) / "gitbutler").is_dir():
+        return False
     r = git(code, "config", "--get", "gitbutler.project.targetRef")
     return r.returncode == 0 and bool(r.stdout.strip())
 
