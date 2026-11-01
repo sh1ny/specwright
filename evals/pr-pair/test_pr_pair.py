@@ -3958,5 +3958,391 @@ class TestTier(Base):
         self.assertEqual(self.pp("context", "--code", self.code, expect=2)["error"], "bad_setting")
 
 
+class PolicyBase(Base):
+    """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
+
+    HEAD = f"{9:040x}"
+    TOKEN = {"GH_TOKEN": "tok-k"}
+    PATH = "openspec/specwright.yaml"
+    AGENT = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
+    USER = "pr:\n  merge: user\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
+
+    def seed(self, ref, text):
+        st = self.gh()
+        fake_gh.set_file(st, CODE, ref, self.PATH, text)
+        self.save_gh(st)
+
+    def seed_both(self, main, head):
+        """main / head: the settings text, or None for a ref that holds another file only (the settings file is a 404)."""
+        st = self.gh()
+        for ref, text in (("main", main), (self.HEAD, head)):
+            if text is None:
+                fake_gh.set_file(st, CODE, ref, "README.md", "x")
+            else:
+                fake_gh.set_file(st, CODE, ref, self.PATH, text)
+        self.save_gh(st)
+
+    def policy(self, *extra, expect=0, **kw):
+        """Passes the snapshots policy requires (codex reported at the head) unless the test names its own."""
+        extra = list(extra)
+        if not any(str(x).startswith("code=") for x in extra):
+            extra += ["--snapshot", "code=" + str(self.psnap("default-code", self.HEAD, ["chatgpt-codex-connector"]))]
+        if "--store" in extra and not any(str(x).startswith("store=") for x in extra):
+            extra += ["--snapshot", "store=" + str(self.psnap("default-store", self.HEAD, ["chatgpt-codex-connector"])),
+                      "--reviewed-head", "store=" + self.HEAD]
+        return self.pp("policy", "--repo", CODE, "--head", self.HEAD, *extra, env=self.TOKEN, expect=expect, **kw)
+
+    def psnap(self, name, head, reported=(), waiting=()):
+        """A snapshot file shaped as pr-snapshot.sh writes it: the head and the reviewers with their state."""
+        rs = [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in reported]
+        rs += [{"login": l, "role": "required", "timeout": 1200, "state": "waiting"} for l in waiting]
+        return self.write_json(f"{name}.json", {"head_oid": head, "number": 1, "url": f"https://github.com/{CODE}/pull/1", "reviewers": rs})
+
+    def inject(self, *entries):
+        st = self.gh()
+        st["fail"] = list(entries)
+        self.save_gh(st)
+
+    def keys(self, r):
+        return {d["key"]: d for d in r["drift"]}
+
+
+class Policy(PolicyBase):
+    """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
+
+    def test_same_policy_no_drift_main_values(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["drift"], [])
+        self.assertEqual((r["ok"], r["default_branch"], r["merge"], r["merge_method"], r["delete_branch"]),
+                         (True, "main", "agent", "squash", True))
+        self.assertEqual(r["main"], r["head"])
+        self.assertIs(r["merge_ready"]["code"], True)
+        calls = [c for c in self.gh_calls() if any("contents/" in x for x in c["argv"])]
+        self.assertEqual(len(calls), 2)
+        for c in calls:
+            self.assertEqual((c.get("env") or {}).get("GH_TOKEN"), "tok-k", "every read runs as the run login")
+
+    def test_head_turns_on_agent_merge_drifts(self):
+        self.seed_both(self.USER, self.AGENT)
+        r = self.policy()
+        self.assertIn({"key": "pr.merge", "main": "user", "head": "agent"}, r["drift"])
+        self.assertEqual(r["merge"], "user")
+
+    def test_work_tree_settings_are_ignored(self):
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write("code/" + self.PATH, self.AGENT)
+        self.seed_both(self.USER, self.USER)
+        r = self.policy(cwd=code)
+        self.assertEqual((r["merge"], r["drift"]), ("user", []))
+
+    def test_missing_file_on_main_is_user_mode(self):
+        self.seed_both(None, self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["merge"], "user")
+        self.assertEqual(self.keys(r)["pr.merge"], {"key": "pr.merge", "main": "user", "head": "agent"})
+        self.assertEqual(r["_rc"], 0)
+
+    def test_bad_method_on_main_is_bad_setting(self):
+        self.seed_both("pr:\n  merge: agent\n  merge_method: fast-forward\n", self.AGENT)
+        r = self.policy(expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+        self.assertIn("fast-forward", r["message"])
+        self.assertIn("must be merge, squash or rebase", r["message"])
+
+    def test_default_branch_from_github_not_main_branch(self):
+        st = self.gh()
+        fake_gh.set_default_branch(st, CODE, "trunk")
+        self.save_gh(st)
+        self.seed("trunk", self.USER)
+        self.seed("attacker-branch", self.AGENT)
+        self.seed(self.HEAD, "main_branch: attacker-branch\n" + self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["default_branch"], "trunk")
+        self.assertEqual(r["merge"], "user")
+        self.assertEqual(self.keys(r)["pr.merge"]["main"], "user")
+        refs = [x for c in self.gh_calls() for x in c["argv"] if "contents/" in x]
+        self.assertTrue(all("attacker-branch" not in x for x in refs), refs)
+
+    def test_reviewer_set_difference_listed(self):
+        self.seed_both(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    someone-else: { role: required }\n")
+        r = self.policy()
+        d = self.keys(r)["pr.reviewers"]
+        self.assertEqual(set(d["main"]), {"chatgpt-codex-connector"})
+        self.assertEqual(set(d["head"]), {"someone-else"})
+        self.assertEqual(d["main"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": ""})
+
+    def test_non_mapping_reviewers_at_head_is_drift_not_a_crash(self):
+        # Pre-ship F1: the PR branch controls this value; a string or a list must not crash `policy`.
+        for value, shown in (("foo", "foo"), ("[a, b]", "[a, b]")):
+            with self.subTest(value=value):
+                self.seed_both(self.AGENT, f"pr:\n  merge: agent\n  merge_method: squash\n  reviewers: {value}\n")
+                r = self.policy()
+                d = self.keys(r)["pr.reviewers"]
+                self.assertEqual(set(d["main"]), {"chatgpt-codex-connector"})
+                self.assertEqual(d["head"], {})
+                self.assertIn({"side": "head", "key": "pr.reviewers", "value": shown}, r["invalid"])
+                self.assertFalse(r["reported"]["head"]["code"]["ok"])
+
+    def test_non_mapping_reviewers_on_main_authorizes_nothing(self):
+        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers: foo\n"
+        self.seed_both(bad, bad)
+        r = self.policy()
+        self.assertEqual(r["drift"], [])
+        self.assertFalse(r["merge_ready"]["code"])
+        self.assertFalse(r["reported"]["main"]["code"]["ok"])
+        self.assertIn({"side": "main", "key": "pr.reviewers", "value": "foo"}, r["invalid"])
+
+    def test_head_turns_agent_merge_off_drifts_and_main_stays_agent(self):
+        self.seed_both(self.AGENT, self.USER)
+        r = self.policy()
+        self.assertEqual(self.keys(r)["pr.merge"]["head"], "user")
+        self.assertEqual(r["merge"], "agent")
+
+    def test_formatting_only_difference_is_no_drift(self):
+        head = ("# the policy\npr:\n  reviewers:\n    chatgpt-codex-connector: { timeout: 20m, role: 'required' }  # codex\n"
+                "  merge_method: \"squash\"\n  merge: 'agent'\n")
+        main = ("pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector:\n      role: required\n"
+                "      timeout: 1200\n")
+        self.seed_both(main, head)
+        self.assertEqual(self.policy()["drift"], [])
+
+    def test_failed_read_is_unknown_exit_3(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        self.inject({"match": "ref=main", "stderr": "dial tcp: connection reset"})
+        r = self.policy(expect=3)
+        self.assertEqual((r["ok"], r["error"]), (False, "lookup_failed"))
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+        self.assertIn("connection reset", r["message"])
+
+    def test_missing_file_at_head_is_unknown(self):
+        self.seed_both(self.AGENT, None)
+        r = self.policy(expect=3)
+        self.assertEqual(r["error"], "lookup_failed")
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+        self.assertIn(f"no {self.PATH} readable at {self.HEAD}", r["message"])
+
+    def test_read_after_failure_succeeds(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        self.inject({"match": "ref=main", "once": True, "stderr": "dial tcp: connection reset"})
+        self.assertEqual(self.policy(expect=3)["error"], "lookup_failed")
+        r = self.policy()
+        self.assertEqual((r["ok"], r["drift"], r["merge"]), (True, [], "agent"))
+
+    def test_no_merge_key_anywhere_is_user(self):
+        self.seed_both("pr:\n  validate: x\n", "pr:\n  validate: x\n")
+        r = self.policy()
+        self.assertEqual((r["merge"], r["drift"]), ("user", []))
+        self.assertNotIn("merge_note", r)
+
+    def test_unrecognised_merge_value_noted_as_user(self):
+        self.seed_both("pr:\n  merge: yes\n", "pr:\n  merge: yes\n")
+        r = self.policy()
+        self.assertEqual(r["merge"], "user")
+        self.assertIn("pr.merge: yes is not user or agent; treated as user", r["merge_note"])
+        self.assertEqual(r["drift"], [])
+
+    def test_directory_at_the_path_is_unknown(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        st = self.gh()
+        st["repos"][CODE]["contents"]["main"] = {self.PATH + "/inner.yaml": "x"}
+        self.save_gh(st)
+        r = self.policy(expect=3)
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+
+    def assert_malformed_unknown(self, main, head, line):
+        self.seed_both(main, head)
+        r = self.policy(expect=3)
+        self.assertEqual(r["error"], "lookup_failed")
+        self.assertTrue(r["message"].startswith("merge policy unknown: unreadable openspec/specwright.yaml at "), r["message"])
+        self.assertIn(f"line {line}", r["message"])
+
+    def test_unterminated_flow_value_at_head_is_unknown(self):
+        """PR #160 review: `invalid: [unterminated` used to parse as a string, so the head read as unchanged and agent merged."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "invalid: [unterminated\n", 6)
+
+    def test_line_without_a_key_on_main_is_unknown(self):
+        self.assert_malformed_unknown("pr:\n  merge agent\n", self.AGENT, 2)
+
+    def test_misindented_line_is_unknown_not_dropped(self):
+        self.assert_malformed_unknown("pr:\n  merge: user\n merge_method: squash\n", self.AGENT, 3)
+
+    def test_unterminated_quote_and_nested_colon_are_unknown(self):
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: \"agent\n", 2)
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent: now\n", 2)
+
+    def test_unknown_double_quote_escape_is_unknown(self):
+        """PR #160 security review: `"\\q"` is not YAML, but any character after a backslash used to pass."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: \"\\q\"\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: [\"\\xZZ\"]\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "\"\\q\": x\n", 6)
+
+    def test_surrogate_and_out_of_range_escapes_are_unknown(self):
+        """PR #160 security review: `"\\uD800"` passed as four hex digits, but YAML has no surrogate or post-U+10FFFF code point."""
+        for esc in ("\\uD800", "\\uDFFF", "\\uD83D\\uDE00", "\\U0000D800", "\\U00110000"):
+            with self.subTest(esc=esc):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: \"" + esc + "\"\n", 6)
+
+    def test_colon_or_question_mark_led_flow_scalar_is_unknown(self):
+        """PR #160 security review: `{a: :b}` passed, but Psych reads a leading `:` (or `?`) in a flow collection as an indicator."""
+        for extra in ("unrelated: {a: :b}\n", "unrelated: [:b]\n", "unrelated: [?b]\n", "unrelated: {?a: b}\n",
+                      "unrelated: [a:?x]\n", "unrelated: {a: b:?c}\n", "unrelated: {a:?b: c}\n"):  # `:?` ends the scalar
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+
+    def test_flow_key_colon_without_a_space_is_unknown(self):
+        """PR #160 security review: `{a:[]}` passed, but Psych wants a space between a flow key's `:` and its value."""
+        for extra in ("unrelated: {a:[]}\n", "unrelated: {a:{}}\n", "unrelated: {\"a\":1}\n", "unrelated: {a:}\n"):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+
+    def test_invalid_flow_entries_are_unknown(self):
+        """PR #160 security review: `{ role: required,, }` is not YAML, and a trailing comma reads as an extra entry."""
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n"
+                                      "    chatgpt-codex-connector: { role: required,, }\n", 5)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "review:\n  order: [codex, claude,]\n", 7)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: {a:b: 1}\n", 6)
+
+    def test_yaml_the_reader_misreads_is_unknown(self):
+        """Valid YAML parse_yaml does not read as written fails closed: block sequences, anchors, duplicates, tabs."""
+        for extra, line in (("x:\n  - a\n", 7), ("x: &a 1\n", 6), ("pr:\n  merge: user\n", 6), ("x:\n\ty: 1\n", 7)):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
+
+    def test_colon_tab_in_a_plain_value_is_unknown(self):
+        """PR #160 security review: `foo:<TAB>bar` is not YAML; only `: ` with a space used to be caught."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: foo:\tbar\n", 6)
+
+    def test_document_markers_only_at_column_zero_first(self):
+        """PR #160 security review: an indented `---` used to be dropped, and the reader then read the file as empty."""
+        self.assert_malformed_unknown(self.AGENT, "  ---\n" + self.AGENT, 1)
+        self.assert_malformed_unknown(self.AGENT, "--- pr:\n  merge: agent\n", 1)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "---\nx: 1\n", 6)
+        self.assert_malformed_unknown(self.AGENT, "---\n---\n" + self.AGENT, 2)  # PR #160 Kody review: a second leading `---`
+
+    def test_breaks_controls_and_merge_keys_are_unknown(self):
+        """Forms the reader splits or keeps differently from YAML: unicode line breaks, control characters, `<<`."""
+        for extra, line in (("x: a y: b\n", 6), ("x: a\x00\n", 6), ("<<: {pr: {merge: user}}\n", 6),
+                            ("x: |\n      \n  y\n", 6)):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
+
+    def test_c1_controls_and_noncharacters_are_unknown(self):
+        """PR #160 security review: U+0080 passed (only U+0085 was listed); YAML allows printable characters only."""
+        for ch in ("\x80", "\x84", "\x86", "\x9f", "￾", "￿"):
+            with self.subTest(ch=hex(ord(ch))):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: a" + ch + "b\n", 6)
+
+    def test_unicode_spaces_are_unknown(self):
+        """PR #160 security review: `merge:<NBSP>agent` passed, since Python's `\\s` and strip() take NBSP as space; YAML does not."""
+        for extra in ("x:\u00a0y\n", "x: y\u00a0\n", "\u00a0x: y\n", "x: a\u3000b\n", "x: \"a\u2003b\"\n"):
+            with self.subTest(extra=ascii(extra)):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+
+    def test_tab_on_a_blank_or_comment_line_is_unknown(self):
+        """PR #160 security review: a tab-only line was dropped before the indentation check; YAML rejects it."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t\nx: 1\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t# note\nx: 1\n", 6)
+
+    def test_overlong_keys_are_unknown(self):
+        """PR #160 security review: YAML ends a simple key within 1024 characters; the reader read any length."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x" * 1025 + ": y\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: {" + "k" * 1025 + ": v}\n", 6)
+
+    def test_tab_led_line_in_a_folded_block_is_unknown(self):
+        """A tab after the indentation is text in a `|` block, but in a `>` block YAML keeps the line break."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n  \tb\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: |\n  a\n \tb\n", 6)
+
+    def test_deep_nesting_is_unknown_not_a_crash(self):
+        """PR #160 Kody review: ~1000 nested `[` exhausted the recursion limit, an internal error rather than exit 3."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: " + "[" * 2000 + "]" * 2000 + "\n", 6)
+        deep = "".join(" " * n + f"k{n}:\n" for n in range(1000)) + " " * 1000 + "v: 1\n"
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + deep, 38)
+
+    def test_folded_block_with_more_indented_lines_is_unknown(self):
+        """YAML keeps the line breaks around more-indented lines of a `>` block; the reader folds them."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n    b\n  c\n", 6)
+
+    def test_integer_is_not_a_boolean_in_drift(self):
+        """PR #160 review: 1 == True in Python, so `delete_branch: 1` against the default true read as no drift."""
+        for main_v, head_v in (("", "  delete_branch: 1\n"), ("  delete_branch: false\n", "  delete_branch: 0\n")):
+            with self.subTest(head=head_v):
+                self.seed_both(self.AGENT + main_v, self.AGENT + head_v)
+                r = self.policy()
+                self.assertIn("pr.delete_branch", self.keys(r), r)
+
+    def test_valid_yaml_forms_still_read(self):
+        text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n"
+                "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n  \"q\\\"k\": 1\n"
+                "pr:\n  validate: |\n    line one\n    ---\n    ...\n    line: two\n    \tline three\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
+                "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
+        self.seed_both("﻿" + text, text)  # a UTF-8 byte order mark is valid YAML
+        r = self.policy()
+        self.assertEqual((r["merge"], r["merge_method"], r["drift"]), ("agent", "squash", []))
+        self.assertIs(r["merge_ready"]["code"], True)
+
+    def test_store_adds_the_store_reviewers_side(self):
+        self.seed_both(self.AGENT + "planning_store:\n  reviewers: {}\n", self.AGENT)
+        r = self.policy("--store")
+        self.assertEqual(r["merge_ready"], {"code": True, "store": False})
+        self.assertIn("planning_store.reviewers", self.keys(r))
+
+
+class PolicyReviewers(PolicyBase):
+    """policy checks the reported reviewers against the authorizing set of each repository (D6)."""
+
+    CODEX = "chatgpt-codex-connector"
+    OTHER = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    someone-else: { role: required }\n"
+
+    def snap(self, name, head, reported):
+        return "code=" + str(self.psnap(name, head, reported))
+
+    def test_snapshot_without_main_required_reviewer_not_ok(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        r = self.policy("--snapshot", self.snap("s", self.HEAD, ["someone-else"]))
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["missing"], c["head_mismatch"]), (False, [self.CODEX], False))
+        self.assertIn(f"{self.CODEX}:required:1200", r["reviewer_args"]["main"]["code"])
+
+    def test_main_required_reviewer_reported_ok(self):
+        self.seed_both(self.AGENT, self.OTHER)
+        r = self.policy("--snapshot", self.snap("s", self.HEAD, [self.CODEX]))
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+        self.assertEqual(r["reported"]["main"]["code"]["missing"], [])
+        self.assertEqual(r["reviewer_args"]["head"]["code"], ["someone-else:required:1200"])
+        self.assertFalse(r["reported"]["head"]["code"]["ok"])
+
+    def test_reviewed_head_carry_over_checks_main_set(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        rev = f"{5:040x}"
+        r = self.policy("--snapshot", self.snap("a", rev, ["someone-else"]), "--reviewed-head", f"code={rev}")
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["missing"]), (False, [self.CODEX]))
+        r = self.policy("--snapshot", self.snap("b", rev, [self.CODEX]), "--reviewed-head", f"code={rev}")
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+        r = self.policy("--snapshot", self.snap("c", self.HEAD, [self.CODEX]), "--reviewed-head", f"code={rev}")
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["head_mismatch"]), (False, True))
+
+    def test_store_snapshot_checked_against_store_head(self):
+        main = self.AGENT.replace("reviewers:", "reviewers:\n    code-bot: { role: required }") + "planning_store:\n  reviewers:\n    store-bot: { role: required }\n"
+        self.seed_both(main, self.AGENT)
+        st = f"{7:040x}"
+        r = self.policy("--store", "--snapshot", self.snap("c", self.HEAD, [self.CODEX, "code-bot"]),
+                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"])), "--reviewed-head", f"store={st}")
+        self.assertTrue(r["reported"]["main"]["store"]["ok"], r["reported"])
+        self.assertTrue(r["reported"]["main"]["code"]["ok"], r["reported"])
+        self.assertEqual(r["reviewer_args"]["main"]["store"], ["store-bot:required:1200"])
+
+    def test_store_requires_store_snapshot_and_reviewed_head(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        code = "code=" + str(self.psnap("c", self.HEAD, [self.CODEX]))
+        base = ["policy", "--repo", CODE, "--head", self.HEAD, "--store", "--snapshot", code]
+        self.pp(*base, env=self.TOKEN, expect=2)
+        self.pp(*base, "--reviewed-head", f"store={self.HEAD}", env=self.TOKEN, expect=2)
+        self.pp(*base, "--snapshot", "store=" + str(self.psnap("s", self.HEAD, [self.CODEX])), env=self.TOKEN, expect=2)
+
+
 if __name__ == "__main__":
     unittest.main()

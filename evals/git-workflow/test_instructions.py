@@ -1900,7 +1900,7 @@ class DesignReviewDispositions(unittest.TestCase):
     def test_watch_archive_before_merge_kept_for_other_verdicts(self):
         b = self._archive_before_merge()
         self.assertIn("ask `Ready. Archive <change-name> on this branch now?`", b, "the user-mode archive question was lost")
-        self.assertIn("when `merge` is `agent`, archive without asking", b, "the agent-mode archive was lost")
+        self.assertRegex(b, r"main's `merge` is `agent`.{0,120}?, archive without asking", "the agent-mode archive was lost")
         self.assertRegex(b, r"(?i)every other change \(any other verdict, or no `review\.md`\) archives", "the DEFERRED skip is not scoped to DEFERRED only")
         self.assertNotRegex(b, r"(?i)APPROVE.{0,40}(skip|parked)", "the skip names a verdict other than DEFERRED")
 

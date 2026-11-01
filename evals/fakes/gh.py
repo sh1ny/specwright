@@ -35,6 +35,12 @@ Merge and refs (add-agent-merge). Per repo: "branches": {"feat/x": "<sha>"} (bra
   REST errors exit 1 with `gh: <message> (HTTP <code>)` on stderr and {"message","status"} on stdout. A "fail" entry with
   no HTTP code in its stderr (e.g. a connection error) models a failure without a status; "once": true fails only the next match.
 
+Contents (trust-main-merge-policy). Per repo "contents": {"<branch or sha>": {"<path>": "<file text>"}} (seed with
+set_file(st, slug, ref, path, text)); a ref is a key as given, no branch-to-sha resolution.
+  GET repos/<o>/<n>/contents/<path>?ref=<ref> (ref defaults to default_branch): a file -> {type: "file", encoding: "base64",
+    content (base64 with a line break every 60 characters), name, path, sha, size}; a directory -> a JSON list of
+    {type: "file" | "dir", name, path}; 404 for a missing path or a ref with no contents.
+  GET repos/<o>/<n> -> {full_name, default_branch (default "main"), private}.
 Optional per-repo "readers": [logins] - only they may call `api repos/<o>/<n>/...` (a private repo); others get 404.
 Optional per-repo "activity": [{"ref": "refs/heads/b", "after": "<sha>", "timestamp": "..."}]
 backs `api repos/<o>/<n>/activity?ref=...` (the push-time lookup).
@@ -49,7 +55,7 @@ release, exit 1; success prints https://github.com/<o>/<n>/releases/tag/<tag>. T
 Like real gh, `api --paginate` prints each page's JSON one after another.
 
 Reactions and closing references (state keys; add them with the helpers add_review_comment_reaction,
-add_node_reaction, set_closing_refs, set_default_branch, which take and mutate the state dict):
+add_node_reaction, set_closing_refs, set_default_branch, set_file, which take and mutate the state dict):
   repos[slug]["review_comment_reactions"] = {"<comment id>": [{"user": {"login": l}, "content": "+1" | "-1"}]}
   st["nodes"] = {"<node id>": {"repo": "owner/name", "reactions": [{"login": l, "content": "THUMBS_UP" | "THUMBS_DOWN"}]}}
   pull["closing_refs"] = [{"number": n, "repo": "owner/name"}]; pull["closing_refs_has_next"] = bool
@@ -129,6 +135,7 @@ Forms added for PR evidence (the shipped --jq filters run unchanged; raw `data` 
   A reaction is kept once per login and content: a repeat returns the existing one and keeps its time, as GitHub does.
   A review comment's reaction is one state: addReaction shows in the REST list, and the REST POST in the node's reactions.
 """
+import base64
 import hashlib
 import io
 import json
@@ -524,6 +531,30 @@ def set_default_branch(st, slug, name):
     st.setdefault("repos", {}).setdefault(slug, {})["default_branch"] = name
 
 
+def set_file(st, slug, ref, path, text):
+    """Seed the contents API: `ref` (a branch name or a commit sha) holds the file `path` with `text`."""
+    st.setdefault("repos", {}).setdefault(slug, {}).setdefault("contents", {}).setdefault(ref, {})[path] = text
+
+
+def contents_answer(repo, path, ref):
+    """What GET repos/<o>/<n>/contents/<path>?ref= returns: a file object, a list of entries for a directory, or None (404)."""
+    files = repo.get("contents", {}).get(ref or repo.get("default_branch", "main"))
+    if files is None:
+        return None
+    path = path.strip("/")
+    if path in files:
+        raw = base64.encodebytes(files[path].encode("utf-8")).decode("ascii")  # line breaks every 60 characters, as GitHub does
+        return {"type": "file", "encoding": "base64", "name": path.rpartition("/")[2], "path": path,
+                "sha": hashlib.sha1(files[path].encode("utf-8")).hexdigest(), "size": len(files[path].encode("utf-8")), "content": raw}
+    prefix = path + "/" if path else ""
+    names = {}
+    for p in files:
+        if p.startswith(prefix):
+            head, sep, _ = p[len(prefix):].partition("/")
+            names[head] = "dir" if sep else "file"
+    return [{"type": t, "name": n, "path": prefix + n} for n, t in sorted(names.items())] or None
+
+
 def set_issue(st, slug, number, state="OPEN", timeline=()):
     """state: "OPEN" or "CLOSED"; timeline: the close/reopen events in order, e.g. ["CLOSED", "REOPENED"]. An event is a name, or
     (name, createdAt); a bare "CLOSED" happened at CLOSE_AT."""
@@ -898,13 +929,21 @@ def cmd_api(st, args):
         if "include" in o or "i" in o:
             sys.stdout.write(f"HTTP/2.0 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nDate: {http_date(now(st))}\r\n\r\n")
         return emit(body, expr)
-    m = re.fullmatch(r"repos/([^/]+/[^/]+)/(.*)", path)
+    m = re.fullmatch(r"repos/([^/]+/[^/]+)(?:/(.*))?", path)
     if not m:
         raise Fail(f"fake gh: unsupported api endpoint {path}", 2)
-    slug, rest = m.groups()
+    slug, rest = m.group(1), m.group(2) or ""
     repo = st.setdefault("repos", {}).setdefault(slug, {})
     if repo.get("readers") and whoami(st) not in repo["readers"]:
         raise Fail("gh: Not Found (HTTP 404)")
+    if rest == "" and method == "GET":
+        return emit({"full_name": slug, "default_branch": repo.get("default_branch", "main"), "private": bool(repo.get("readers"))}, expr)
+    m = re.fullmatch(r"contents/(.*)", rest)
+    if m and method == "GET":
+        hit = contents_answer(repo, m.group(1), query.get("ref"))
+        if hit is None:
+            raise http_fail(404, "Not Found")
+        return emit(hit, expr)
     if rest == "pulls" and method == "GET":
         state = query.get("state", "open")
         head = query.get("head")

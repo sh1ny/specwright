@@ -599,6 +599,124 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(m, r"(?is)merge report[^.]*share[^.]*by hand", "the merge report omits the share-by-hand reminder")
         self.assertRegex(m, r"(?is)only the code PR is expected", "the reminder is not tied to a store shared by hand")
 
+    # trust-main-merge-policy: main's policy decides the archive and the merge (ADR 0020)
+
+    def policy_read(self):
+        w = self.watch()
+        return w[:w.index("\nLoop until")]
+
+    def sub_bullet(self, start):
+        m = self.merge()
+        at = m.find("\n     - " + start)
+        self.assertNotEqual(at, -1, f"the merge bullet has no '- {start}' sub-bullet")
+        end = m.find("\n     - ", at + 1)
+        return m[at:end if end != -1 else len(m)]
+
+    def test_context_merge_is_only_the_start_of_watch_read(self):
+        p = self.policy_read()
+        self.assertRegex(p, r"(?is)start-of-watch read[^.]*only|only[^.]*start-of-watch read", "`context` is not limited to the start-of-watch read")
+        self.assertRegex(p, r"(?is)never decides an archive or a merge", "`context`'s merge may still decide the archive or the merge")
+        self.assertRegex(p, r"(?is)\[as\] bash scripts/pr-pair\.sh policy --repo <owner>/<name> --head <ready head> --snapshot code=<file>",
+                         "watch has no fenced `policy` call")
+        self.assertRegex(p, r"(?is)default branch[^.]*never[^.]*work tree", "the policy is not read from the default branch")
+        self.assertRegex(p, r"(?is)for every change or roadmap branch[^.]*whatever `context`'s `merge` says", "the read is skipped when `context` says `user`")
+
+    def test_merge_decided_by_policy_not_context(self):
+        m = self.merge()
+        self.assertRegex(m, r"(?is)`policy`[^.]*again[^.]*version check|version check[^.]*then `policy`", "`policy` does not run again after the Version check")
+        self.assertLess(m.index("**Version check**"), m.index("`policy`"), "`policy` runs before the Version check")
+        self.assertRegex(m, r"(?is)main's `merge` is `agent`[^.]*never[^.]*`context`", "the merge is not decided by main's `merge` from `policy`")
+        self.assertRegex(m, r"(?is)`merge_ready`[^.]*from `policy`[^.]*every expected PR[^.]*before (the first|any) merge request",
+                         "`merge_ready` is not taken from `policy` for every expected PR")
+        self.assertRegex(m, r"(?is)`reported\.main`[^.]*`ok`[^.]*every expected PR", "`reported.main` is not required ok for every expected PR")
+        self.assertRegex(m, r"(?is)empty `drift`|no `drift`", "the no-drift condition is missing")
+        self.assertLess(m.index("`policy`"), m.index("pr-pair.sh merge"), "the merge runs before `policy` is read")
+
+    def test_unknown_policy_merges_nothing(self):
+        o = self.sub_bullet("**Policy outcome.**")
+        self.assertRegex(o, r"(?is)exit 3[^.]*`merge policy unknown: <reason>`", "exit 3 does not report `merge policy unknown`")
+        self.assertRegex(o, r"(?is)merge nothing", "an unknown policy may still merge")
+        self.assertRegex(o, r"(?is)next time watch reaches this step[^.]*again", "an unknown policy is not read again")
+        self.assertRegex(o, r"(?is)`bad_setting`[^.]*stop", "`bad_setting` from `policy` does not stop")
+
+    def test_drift_yes_merges_with_head_method(self):
+        d = self.sub_bullet("**Drift**")
+        self.assertRegex(d, r"(?is)list each `\{key, main, head\}`", "the drift is not listed")
+        self.assertIn("`Merge PR #<n> at <head> with the head's policy (<method>)?`", d)
+        self.assertRegex(d, r"(?is)`agent` with `reported\.head` `ok`[^.]*ask", "the question is not tied to a head that is `agent` and reported ok")
+        self.assertRegex(d, r"(?is)on yes merge with the head's `pr\.merge_method` at that head", "a yes does not merge with the head's method at that head")
+
+    def test_drift_with_main_user_still_reaches_the_question(self):
+        # "Branch turns on agent merge": main `user`, head `agent` -> ask, not stop as for `user`.
+        o = self.sub_bullet("**Policy outcome.**")
+        self.assertRegex(o, r"(?is)with `drift` go by \*\*Drift\*\*[^;]*main's `merge` is `user`", "drift with main `user` stops before the question")
+        self.assertRegex(o, r"(?is)with no `drift` main's `merge` must be `agent`", "the main-`agent` gate is not limited to no drift")
+        self.assertRegex(self.merge(), r"(?is)main's `merge` is `agent` \(from `policy`[^)]*\) or the user confirmed a drift", "the merge gate does not admit a confirmed drift")
+
+    def test_drift_no_reports_ready_without_merge(self):
+        d = self.sub_bullet("**Drift**")
+        self.assertRegex(d, r"(?is)on no report ready and send no merge request", "a no still merges or does not report ready")
+
+    def test_drift_without_head_agent_asks_nothing(self):
+        d = self.sub_bullet("**Drift**")
+        self.assertRegex(d, r"(?is)not `agent`[^.]*list the drift, report ready, ask nothing and merge nothing", "a head that is not `agent` is not left unmerged without a question")
+
+    def test_drift_head_agent_but_reviewers_missing_merges_nothing(self):
+        d = self.sub_bullet("**Drift**")
+        self.assertRegex(d, r"(?is)`agent` but `reported\.head` not `ok`[^.]*list the drift and the `missing` reviewers[^.]*merge nothing",
+                         "a head set short of reviewers is not reported with its missing reviewers")
+        # Pre-ship round 2: no wait may restart with the head's set before a yes, so this case must end the pass.
+        self.assertRegex(d, r"(?is)`agent` but `reported\.head` not `ok`[^.]*report ready and stop",
+                         "a head set short of reviewers does not report ready and stop")
+
+    def test_drift_answer_covers_one_head(self):
+        d = self.sub_bullet("**Drift**")
+        self.assertRegex(d, r"(?is)a yes covers that head only[^.]*new head[^.]*`policy` again[^.]*ask(ed)? again", "a yes is not limited to one head")
+
+    def test_unsatisfied_reviewer_set_restarts_the_wait_with_its_reviewer_args(self):
+        r = self.sub_bullet("**Reviewer check.**")
+        self.assertRegex(r, r"(?is)main's \(no drift\) or the head's \(after a yes\), never the head's before a yes", "the authorizing set is not main's or the head's after a yes")
+        self.assertRegex(r, r"(?is)not `ok`[^.]*merge nothing", "a set that is not ok may still merge")
+        self.assertRegex(r, r"(?is)restart that PR's wait with that set's `reviewer_args`", "the wait is not restarted with the set's `reviewer_args`")
+        self.assertRegex(r, r"(?is)post the requests that set names[^.]*re-request review", "the set's requests are not posted as on a re-request")
+
+    def test_store_pair_reads_policy_once_with_both_snapshots(self):
+        p = self.policy_read()
+        self.assertRegex(p, r"(?is)one call[^.]*`--store --snapshot code=<file> --snapshot store=<file> --reviewed-head store=<store ready head>`",
+                         "the store pair is not read in one `policy --store` call with both snapshots")
+        self.assertRegex(p, r"(?is)`merge_ready\.store` and `reported\.<side>\.store` replace `context`'s", "the store PR's readiness does not come from `policy`")
+        self.assertRegex(p, r"(?is)drift question covers the pair", "a drift question does not cover the pair")
+
+    def test_archive_without_asking_needs_policy_from_main(self):
+        a = self.archive()
+        self.assertRegex(a, r"(?is)`policy`[^.]*ready head[^.]*snapshot", "the archive decision does not run `policy` at the ready head with its snapshot")
+        self.assertRegex(a, r"(?is)main's `merge` is `agent`[^.]*no `drift`[^.]*`reported\.main` `ok`[^.]*every expected PR[^.]*archive without asking",
+                         "agent archive without asking is not tied to main's policy, no drift and `reported.main` ok")
+        self.assertRegex(a, r"(?is)otherwise.{0,300}Ready\. Archive <change-name> on this branch now\?", "anything else does not ask")
+        self.assertRegex(a, r"(?is)exit 3[^.]*ask", "an unknown policy does not ask before archiving")
+        self.assertLess(a.index("`policy`"), a.index("without asking"), "the archive decision comes before the policy read")
+
+    def test_archive_only_carry_over_checks_the_snapshot_against_the_ready_head(self):
+        a = self.archive()
+        self.assertRegex(a, r"(?is)--reviewed-head <repo>=<ready head before the archive>[^.]*(store in a store-backed change|store-backed)",
+                         "the carry-over does not pass the pre-archive ready head for the repository that got the archive commit")
+        self.assertRegex(self.merge(), r"(?is)--reviewed-head <repo>=<ready head before the archive>", "the merge step does not pass --reviewed-head on the carry-over")
+
+    def test_archive_keeps_the_pre_archive_snapshot_for_the_carry_over(self):
+        # Pre-ship round 3 F2: step 1 keeps only the latest snapshot, so the ready head's must be saved before archiving.
+        a = self.archive()
+        self.assertRegex(a, r"(?is)before (it )?archiv\w*[^.]*copy[^.]*latest snapshot[^.]*own file",
+                         "the ready head's snapshot is not kept before the archive replaces it")
+        self.assertRegex(a, r"(?is)--reviewed-head <repo>=<ready head before the archive>[^.]*that saved snapshot",
+                         "the carry-over read does not pass the saved pre-archive snapshot")
+
+    def test_policy_store_flag_only_with_a_store_pr(self):
+        # Pre-ship round 3 F1: no store PR (shared by hand) or no code PR (store-only) must not end in a usage error.
+        p = self.policy_read()
+        self.assertRegex(p, r"(?is)`--store`[^.]*only when a store PR is expected", "`--store` is not limited to an expected store PR")
+        self.assertRegex(p, r"(?is)shared by hand[^.]*without `--store`", "a store shared by hand is not read without `--store`")
+        self.assertRegex(p, r"(?is)no code PR[^.]*report ready[^.]*merge nothing", "a store-only change has no defined policy outcome")
+
 
 DESCRIPTION = SKILL.parent / "references" / "description.md"
 

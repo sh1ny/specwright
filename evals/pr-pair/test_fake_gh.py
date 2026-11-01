@@ -2,6 +2,7 @@
 
 Run: python -m unittest discover evals/pr-pair
 """
+import base64
 import json
 import os
 import shutil
@@ -1094,6 +1095,64 @@ class IssueList(FakeGhCase):
         self.assertEqual(nums, [1, 2])
         open_only = json.loads(self.gh("api", "repos/o/n/issues").stdout)
         self.assertEqual([i["number"] for i in open_only], [1, 3, 4])
+
+
+class Contents(FakeGhCase):
+    """`api repos/<o>/<n>/contents/<path>?ref=<branch or sha>` and `api repos/<o>/<n>` (trust-main-merge-policy)."""
+    SHA = "a" * 40
+    PATH = "openspec/specwright.yaml"
+
+    def seeded(self):
+        st = self.st()
+        fake_gh.set_default_branch(st, "o/n", "trunk")
+        fake_gh.set_file(st, "o/n", "trunk", self.PATH, "merge:\n  policy: trust-main\n" * 5)
+        fake_gh.set_file(st, "o/n", self.SHA, self.PATH, "merge:\n  policy: head\n")
+        fake_gh.set_file(st, "o/n", "trunk", "openspec/changes/x/tasks.md", "- [ ] 1\n")
+        self.seed(st)
+
+    def decoded(self, ref):
+        out = json.loads(self.gh("api", f"repos/o/n/contents/{self.PATH}?ref={ref}").stdout)
+        self.assertEqual((out["type"], out["encoding"], out["path"]), ("file", "base64", self.PATH))
+        return base64.b64decode(out["content"]).decode("utf-8")
+
+    def test_file_by_branch_name_is_base64(self):
+        self.seeded()
+        self.assertEqual(self.decoded("trunk"), "merge:\n  policy: trust-main\n" * 5)
+
+    def test_file_by_commit_sha(self):
+        self.seeded()
+        self.assertEqual(self.decoded(self.SHA), "merge:\n  policy: head\n")
+
+    def test_missing_path_is_404(self):
+        self.seeded()
+        r = self.gh("api", "repos/o/n/contents/nope.yaml?ref=trunk", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("(HTTP 404)", r.stderr)
+
+    def test_unknown_ref_is_404(self):
+        self.seeded()
+        r = self.gh("api", f"repos/o/n/contents/{self.PATH}?ref=ghost", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("(HTTP 404)", r.stderr)
+
+    def test_directory_is_a_list(self):
+        self.seeded()
+        out = json.loads(self.gh("api", "repos/o/n/contents/openspec?ref=trunk").stdout)
+        self.assertIsInstance(out, list)
+        self.assertEqual(sorted((e["name"], e["type"]) for e in out), [("changes", "dir"), ("specwright.yaml", "file")])
+
+    def test_default_branch_is_reported(self):
+        self.seeded()
+        self.assertEqual(self.gh("api", "repos/o/n", "--jq", ".default_branch").stdout.strip(), "trunk")
+
+    def test_private_repo_is_404_for_a_non_reader(self):
+        self.seeded()
+        st = self.st()
+        st["repos"]["o/n"]["readers"] = ["sh1ny"]
+        self.seed(st)
+        r = self.gh("api", f"repos/o/n/contents/{self.PATH}?ref=trunk", check=False)
+        self.assertIn("(HTTP 404)", r.stderr)
+        self.assertEqual(self.gh("api", "repos/o/n", check=False).returncode, 1)
 
 
 class StateFile(FakeGhCase):
