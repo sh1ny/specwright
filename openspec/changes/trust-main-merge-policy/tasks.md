@@ -10,10 +10,10 @@
 | pr-merge → The merge policy comes from main | No settings file on main | evals/pr-pair/test_pr_pair.py | Policy.test_missing_file_on_main_is_user_mode | green |
 | pr-merge → The merge policy comes from main | Invalid method on main | evals/pr-pair/test_pr_pair.py | Policy.test_bad_method_on_main_is_bad_setting | green |
 | pr-merge → The merge policy comes from main | Main branch renamed in the PR | evals/pr-pair/test_pr_pair.py | Policy.test_default_branch_from_github_not_main_branch | green |
-| pr-merge → Required reviewers are those of the authorizing set | Wait started with an edited set | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_snapshot_without_main_required_reviewer_not_ok | red |
-| pr-merge → Required reviewers are those of the authorizing set | Authorizing reviewer reported | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_main_required_reviewer_reported_ok | red |
-| pr-merge → Required reviewers are those of the authorizing set | Archive head carry-over | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_reviewed_head_carry_over_checks_main_set | red |
-| pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_store_snapshot_checked_against_store_head | red |
+| pr-merge → Required reviewers are those of the authorizing set | Wait started with an edited set | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_snapshot_without_main_required_reviewer_not_ok | green |
+| pr-merge → Required reviewers are those of the authorizing set | Authorizing reviewer reported | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_main_required_reviewer_reported_ok | green |
+| pr-merge → Required reviewers are those of the authorizing set | Archive head carry-over | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_reviewed_head_carry_over_checks_main_set | green |
+| pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_store_snapshot_checked_against_store_head | green |
 | pr-merge → A policy difference needs the user | Required reviewer replaced | evals/pr-pair/test_pr_pair.py | Policy.test_reviewer_set_difference_listed | green |
 | pr-merge → A policy difference needs the user | User confirms the difference | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_yes_merges_with_head_method | red |
 | pr-merge → A policy difference needs the user | User declines | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_no_reports_ready_without_merge | red |
@@ -50,8 +50,8 @@ Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's cont
 
 ## 4. `policy` reviewer check
 
-- [ ] 4.1 Write the `PolicyReviewers` tests for every `PolicyReviewers.*` row (snapshot files as `pr-snapshot.sh` writes them: `head_oid`, `reviewers` with `login`, `role`, `state`), plus a usage test that `--store` without `--snapshot store=` and `--reviewed-head store=` is exit 2. Run the module and see them fail.
-- [ ] 4.2 Implement `--snapshot code=|store=` and `--reviewed-head code=|store=` in `policy`: `reported.main|head.code|store` (`ok`, `missing`, `head_mismatch`) checked per repository against that repository's reviewed head, and `reviewer_args.main|head.code|store` (`login:role:seconds`). Document it in the header. Verify the `PolicyReviewers` rows turn green; flip them.
+- [x] 4.1 Write the `PolicyReviewers` tests for every `PolicyReviewers.*` row (snapshot files as `pr-snapshot.sh` writes them: `head_oid`, `reviewers` with `login`, `role`, `state`), plus a usage test that `--store` without `--snapshot store=` and `--reviewed-head store=` is exit 2. Run the module and see them fail.
+- [x] 4.2 Implement `--snapshot code=|store=` and `--reviewed-head code=|store=` in `policy`: `reported.main|head.code|store` (`ok`, `missing`, `head_mismatch`) checked per repository against that repository's reviewed head, and `reviewer_args.main|head.code|store` (`login:role:seconds`). Document it in the header. Verify the `PolicyReviewers` rows turn green; flip them.
 
 ## 5. Watch reads the policy
 

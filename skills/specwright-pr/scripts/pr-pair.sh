@@ -31,7 +31,7 @@
 #                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
 #                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
 #                                     cannot be read or the PUT got a 5xx, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
-#   policy --repo o/n --head sha [--store]
+#   policy --repo o/n --head sha --snapshot code=f [--reviewed-head code=sha] [--store --snapshot store=f --reviewed-head store=sha]
 #                                     the merge policy from GitHub, never the work tree: default_branch (repos/o/n), then openspec/specwright.yaml
 #                                     read through the contents API at the default branch and at the PR head, both as the run login. Prints
 #                                     main and head (pr.merge, pr.merge_method, pr.delete_branch, pr.reviewers; with --store also
@@ -39,7 +39,14 @@
 #                                     main alone: merge, merge_method, delete_branch, merge_ready {code[, store]}, merge_reason, merge_note.
 #                                     No file on main is user mode; a bad merge_method/delete_branch on main with merge: agent is exit 2
 #                                     bad_setting (a bad head value is only drift). A failed, cut-off or unreadable read (not a file, not
-#                                     base64, not YAML), or no file at the head, is exit 3 lookup_failed "merge policy unknown: <reason>"
+#                                     base64, not YAML), or no file at the head, is exit 3 lookup_failed "merge policy unknown: <reason>".
+#                                     Also reported.{main,head}.{code[,store]} {ok, missing, head_mismatch, snapshot_head, reviewed_head}:
+#                                     ok when the snapshot is of that repository's reviewed head (code: --head, or --reviewed-head code= for
+#                                     the archive carry-over; store: --reviewed-head store=, required) and every required reviewer of that
+#                                     side's authorizing set (store: planning_store.reviewers, else pr.reviewers) is reported in it; a set
+#                                     with no required reviewer is never ok. Heads match when equal or one is a prefix of the other.
+#                                     reviewer_args.{main,head}.{code[,store]}: login:role:seconds per reviewer, for pr-snapshot.sh --reviewer.
+#                                     --store without --snapshot store= and --reviewed-head store= is exit 2; an unreadable snapshot exits 2
 #   delete-remote --repo o/n --branch b --head sha
 #                                     delete the remote branch only when it is still at the full 40-hex merged head and no open PR is
 #                                     based on it: deleted | gone (404, or 422 gone meanwhile) | moved (sha) | based_on (prs) |
@@ -2404,14 +2411,53 @@ def has_required(reviewers):
     return any(r["role"] == "required" for r in reviewers.values())
 
 
+def same_commit(a, b):
+    """Two commit ids are the same when equal, or when one (7 to 40 hex digits) is a prefix of the other."""
+    a, b = str(a or "").lower(), str(b or "").lower()
+    return bool(re.fullmatch(r"[0-9a-f]{7,40}", a) and re.fullmatch(r"[0-9a-f]{7,40}", b)) and (a.startswith(b) or b.startswith(a))
+
+
+def reported_check(snapshot, reviewed, reviewers):
+    """Whether the snapshot is of the reviewed head and every required reviewer of the authorizing set reported in it.
+    A set with no required reviewer authorizes nothing: not ok."""
+    got = snapshot.get("head_oid") if isinstance(snapshot, dict) else None
+    mismatch = not same_commit(got, reviewed)
+    state = {}
+    for r in (snapshot.get("reviewers") if isinstance(snapshot, dict) else None) or []:
+        if isinstance(r, dict) and isinstance(r.get("login"), str):
+            login = re.sub(r"\[bot\]$", "", r["login"]).lower()
+            state[login] = state.get(login, False) or r.get("state") == "reported"
+    required = [l for l, r in reviewers.items() if r["role"] == "required"]
+    missing = [l for l in required if not state.get(l.lower())]
+    return {"ok": bool(required) and not missing and not mismatch, "missing": missing, "head_mismatch": mismatch,
+            "snapshot_head": got, "reviewed_head": reviewed}
+
+
 def cmd_policy(argv):
     """The merge policy as the default branch holds it, and where the PR head's copy differs (trust-main-merge-policy D1-D3)."""
     with_store = "--store" in argv
-    a, _ = parse_args([t for t in argv if t != "--store"], {"--repo": "repo", "--head": "head"})
+    a, _ = parse_args([t for t in argv if t != "--store"], {"--repo": "repo", "--head": "head", "--snapshot": "+snapshot",
+                                                            "--reviewed-head": "+reviewed"})
     need(a, "repo", "head")
     repo, head = a["repo"], a["head"]
     if not re.fullmatch(r"[0-9a-fA-F]{7,40}", head):
         usage(f"--head must be a commit id of 7 to 40 hex digits, got {head!r}")
+    reviewed = {}
+    for spec in a.get("reviewed", []):
+        name, _, sha = spec.partition("=")
+        if name not in ("code", "store") or not re.fullmatch(r"[0-9a-fA-F]{7,40}", sha):
+            usage("--reviewed-head is code=<sha> or store=<sha> (7 to 40 hex digits)")
+        reviewed[name] = sha
+    reviewed.setdefault("code", head)
+    sides = ["code", "store"] if with_store else ["code"]
+    snaps = read_snapshots(a)
+    for side in sides:
+        if side not in snaps:
+            usage(f"missing --snapshot {side}=<file>")
+    if with_store and "store" not in reviewed:
+        usage("--store needs --reviewed-head store=<sha>")
+    if not with_store and ("store" in snaps or "store" in reviewed):
+        usage("--snapshot store= and --reviewed-head store= need --store")
     body = policy_gh("api", f"repos/{repo}")
     try:
         default = json.loads(body or "")["default_branch"]
@@ -2437,6 +2483,14 @@ def cmd_policy(argv):
         own = main["planning_store.reviewers"]
         ready["store"] = ready["code"] if own is None else has_required(own)
     out["merge_ready"] = ready
+    out["reported"], out["reviewer_args"] = {}, {}
+    for which, side in (("main", main), ("head", head_side)):
+        sets = {"code": side["pr.reviewers"]}
+        if with_store:
+            own = side["planning_store.reviewers"]
+            sets["store"] = side["pr.reviewers"] if own is None else own
+        out["reported"][which] = {k: reported_check(snaps[k], reviewed[k], v) for k, v in sets.items()}
+        out["reviewer_args"][which] = {k: [f"{l}:{r['role']}:{r['timeout']}" for l, r in v.items()] for k, v in sets.items()}
     out["merge_reason"] = {k: None if v else "no_required_reviewer" for k, v in ready.items()}
     if note:
         out["merge_note"] = note

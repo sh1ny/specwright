@@ -3958,7 +3958,7 @@ class TestTier(Base):
         self.assertEqual(self.pp("context", "--code", self.code, expect=2)["error"], "bad_setting")
 
 
-class Policy(Base):
+class PolicyBase(Base):
     """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
 
     HEAD = f"{9:040x}"
@@ -3983,7 +3983,20 @@ class Policy(Base):
         self.save_gh(st)
 
     def policy(self, *extra, expect=0, **kw):
+        """Passes the snapshots policy requires (codex reported at the head) unless the test names its own."""
+        extra = list(extra)
+        if not any(str(x).startswith("code=") for x in extra):
+            extra += ["--snapshot", "code=" + str(self.psnap("default-code", self.HEAD, ["chatgpt-codex-connector"]))]
+        if "--store" in extra and not any(str(x).startswith("store=") for x in extra):
+            extra += ["--snapshot", "store=" + str(self.psnap("default-store", self.HEAD, ["chatgpt-codex-connector"])),
+                      "--reviewed-head", "store=" + self.HEAD]
         return self.pp("policy", "--repo", CODE, "--head", self.HEAD, *extra, env=self.TOKEN, expect=expect, **kw)
+
+    def psnap(self, name, head, reported=(), waiting=()):
+        """A snapshot file shaped as pr-snapshot.sh writes it: the head and the reviewers with their state."""
+        rs = [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in reported]
+        rs += [{"login": l, "role": "required", "timeout": 1200, "state": "waiting"} for l in waiting]
+        return self.write_json(f"{name}.json", {"head_oid": head, "number": 1, "url": f"https://github.com/{CODE}/pull/1", "reviewers": rs})
 
     def inject(self, *entries):
         st = self.gh()
@@ -3992,6 +4005,10 @@ class Policy(Base):
 
     def keys(self, r):
         return {d["key"]: d for d in r["drift"]}
+
+
+class Policy(PolicyBase):
+    """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
 
     def test_same_policy_no_drift_main_values(self):
         self.seed_both(self.AGENT, self.AGENT)
@@ -4117,6 +4134,61 @@ class Policy(Base):
         r = self.policy("--store")
         self.assertEqual(r["merge_ready"], {"code": True, "store": False})
         self.assertIn("planning_store.reviewers", self.keys(r))
+
+
+class PolicyReviewers(PolicyBase):
+    """policy checks the reported reviewers against the authorizing set of each repository (D6)."""
+
+    CODEX = "chatgpt-codex-connector"
+    OTHER = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    someone-else: { role: required }\n"
+
+    def snap(self, name, head, reported):
+        return "code=" + str(self.psnap(name, head, reported))
+
+    def test_snapshot_without_main_required_reviewer_not_ok(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        r = self.policy("--snapshot", self.snap("s", self.HEAD, ["someone-else"]))
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["missing"], c["head_mismatch"]), (False, [self.CODEX], False))
+        self.assertIn(f"{self.CODEX}:required:1200", r["reviewer_args"]["main"]["code"])
+
+    def test_main_required_reviewer_reported_ok(self):
+        self.seed_both(self.AGENT, self.OTHER)
+        r = self.policy("--snapshot", self.snap("s", self.HEAD, [self.CODEX]))
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+        self.assertEqual(r["reported"]["main"]["code"]["missing"], [])
+        self.assertEqual(r["reviewer_args"]["head"]["code"], ["someone-else:required:1200"])
+        self.assertFalse(r["reported"]["head"]["code"]["ok"])
+
+    def test_reviewed_head_carry_over_checks_main_set(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        rev = f"{5:040x}"
+        r = self.policy("--snapshot", self.snap("a", rev, ["someone-else"]), "--reviewed-head", f"code={rev}")
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["missing"]), (False, [self.CODEX]))
+        r = self.policy("--snapshot", self.snap("b", rev, [self.CODEX]), "--reviewed-head", f"code={rev}")
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+        r = self.policy("--snapshot", self.snap("c", self.HEAD, [self.CODEX]), "--reviewed-head", f"code={rev}")
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["head_mismatch"]), (False, True))
+
+    def test_store_snapshot_checked_against_store_head(self):
+        main = self.AGENT.replace("reviewers:", "reviewers:\n    code-bot: { role: required }") + "planning_store:\n  reviewers:\n    store-bot: { role: required }\n"
+        self.seed_both(main, self.AGENT)
+        st = f"{7:040x}"
+        r = self.policy("--store", "--snapshot", self.snap("c", self.HEAD, [self.CODEX, "code-bot"]),
+                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"])), "--reviewed-head", f"store={st}")
+        self.assertTrue(r["reported"]["main"]["store"]["ok"], r["reported"])
+        self.assertTrue(r["reported"]["main"]["code"]["ok"], r["reported"])
+        self.assertEqual(r["reviewer_args"]["main"]["store"], ["store-bot:required:1200"])
+
+    def test_store_requires_store_snapshot_and_reviewed_head(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        code = "code=" + str(self.psnap("c", self.HEAD, [self.CODEX]))
+        base = ["policy", "--repo", CODE, "--head", self.HEAD, "--store", "--snapshot", code]
+        self.pp(*base, env=self.TOKEN, expect=2)
+        self.pp(*base, "--reviewed-head", f"store={self.HEAD}", env=self.TOKEN, expect=2)
+        self.pp(*base, "--snapshot", "store=" + str(self.psnap("s", self.HEAD, [self.CODEX])), env=self.TOKEN, expect=2)
 
 
 if __name__ == "__main__":
