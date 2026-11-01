@@ -4,8 +4,8 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed in the repo | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_in_repo_scripts_probe_passes | red |
-| vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed at user level beside an in-repo copy | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_user_level_scripts_with_in_repo_copy_probe_passes | red |
+| vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed in the repo | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_in_repo_scripts_probe_passes | green |
+| vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed at user level beside an in-repo copy | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_user_level_scripts_with_in_repo_copy_probe_passes | green |
 | install-update → Every backend takes in-repo and user-level targets | In-repo target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_in_repo_target | red |
 | install-update → Every backend takes in-repo and user-level targets | User-level target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_user_level_target | green |
 | install-update → The install prompt explains what a user-level install shares | The install prompt on GitButler | evals/git-workflow/test_instructions.py | GitButlerSkillText.test_readme_offers_both_locations_with_warnings | red |
@@ -21,8 +21,8 @@ Extra tests (no scenario row):
 
 ## 2. vcs.sh runs from either location
 
-- [ ] 2.1 In `evals/vcs/test_gitbutler_probe.py`, replace `TestScriptsOutsideWorkspace` with `TestInstallLocation`: `test_in_repo_scripts_probe_passes` (scripts copied under `<repo>/.claude/skills/specwright-pr/scripts/`, stub `but`, `probe` exits 0 with `ok: true`, `backend: gitbutler`) and `test_user_level_scripts_with_in_repo_copy_probe_passes` (scripts outside the repo, `.claude/skills/specwright-pr/` in the work tree, same result). Verify both fail with `scripts_in_workspace`: `python -m unittest evals/vcs/test_gitbutler_probe.py`.
-- [ ] 2.2 Remove `WORKSPACE_COPIES`, `workspace_install` and the `scripts_in_workspace` raise from `probe_gitbutler` in `skills/specwright-pr/scripts/vcs.sh`, and any header or usage text naming the code. Verify: rows 1-2 pass and flip green, the rest of `test_gitbutler_probe.py` still passes, and `grep -n scripts_in_workspace skills/specwright-pr/scripts/vcs.sh` prints nothing.
+- [x] 2.1 In `evals/vcs/test_gitbutler_probe.py`, replace `TestScriptsOutsideWorkspace` with `TestInstallLocation`: `test_in_repo_scripts_probe_passes` (scripts copied under `<repo>/.claude/skills/specwright-pr/scripts/`, stub `but`, `probe` exits 0 with `ok: true`, `backend: gitbutler`) and `test_user_level_scripts_with_in_repo_copy_probe_passes` (scripts outside the repo, `.claude/skills/specwright-pr/` in the work tree, same result). Verify both fail with `scripts_in_workspace`: `python -m unittest evals/vcs/test_gitbutler_probe.py`.
+- [x] 2.2 Remove `WORKSPACE_COPIES`, `workspace_install` and the `scripts_in_workspace` raise from `probe_gitbutler` in `skills/specwright-pr/scripts/vcs.sh`, and any header or usage text naming the code. Verify: rows 1-2 pass and flip green, the rest of `test_gitbutler_probe.py` still passes, and `grep -n scripts_in_workspace skills/specwright-pr/scripts/vcs.sh` prints nothing.
 
 ## 3. update.sh takes in-repo targets on GitButler
 
