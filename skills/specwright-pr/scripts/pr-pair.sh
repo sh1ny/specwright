@@ -656,8 +656,8 @@ def yaml_problem(text):
         s = strip_comment(r).rstrip()
         if s.strip():
             lead = s[:len(s) - len(s.lstrip())]
-            if re.match(r"(---|\.\.\.)(\s|$)", s.strip()):
-                if lines or lead or s.strip() != "---":
+            if not lead and re.match(r"(---|\.\.\.)(\s|$)", s):  # indented: block text, or not a `key: value` line below
+                if lines or s != "---":
                     return f"line {n + 1}: a document marker the reader does not read (only `---` alone, first, at column 0)"
                 continue
             lines.append((len(lead), s.strip(), n))

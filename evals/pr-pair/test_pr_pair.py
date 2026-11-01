@@ -4227,7 +4227,7 @@ class Policy(PolicyBase):
     def test_valid_yaml_forms_still_read(self):
         text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n"
                 "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n  \"q\\\"k\": 1\n"
-                "pr:\n  validate: |\n    line one\n    line: two\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
+                "pr:\n  validate: |\n    line one\n    ---\n    ...\n    line: two\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
                 "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
         self.seed_both("﻿" + text, text)  # a UTF-8 byte order mark is valid YAML
         r = self.policy()
