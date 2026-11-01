@@ -4183,6 +4183,12 @@ class Policy(PolicyBase):
             with self.subTest(esc=esc):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: \"" + esc + "\"\n", 6)
 
+    def test_colon_or_question_mark_led_flow_scalar_is_unknown(self):
+        """PR #160 security review: `{a: :b}` passed, but Psych reads a leading `:` (or `?`) in a flow collection as an indicator."""
+        for extra in ("unrelated: {a: :b}\n", "unrelated: [:b]\n", "unrelated: [?b]\n", "unrelated: {?a: b}\n"):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+
     def test_invalid_flow_entries_are_unknown(self):
         """PR #160 security review: `{ role: required,, }` is not YAML, and a trailing comma reads as an extra entry."""
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n"

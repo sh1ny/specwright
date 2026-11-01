@@ -537,7 +537,8 @@ def plain_ok(v, flow, key=False):
     """Raise YamlBad unless v is a plain scalar that parse_yaml reads as YAML does."""
     if not v:
         raise YamlBad("an empty entry")
-    if v[0] in PLAIN_START_BAD or (v[0] in "-?:" and (len(v) == 1 or v[1] in " \t" or (flow and v[1] in FLOW_CHARS))):
+    if v[0] in PLAIN_START_BAD or (v[0] in "-?:" and (len(v) == 1 or v[1] in " \t" or (flow and v[1] in FLOW_CHARS))) \
+            or (flow and v[0] in "?:"):  # in a flow collection YAML 1.1 parsers (Psych) read a leading `?` or `:` as an indicator
         raise YamlBad(f"`{v[0]}` cannot start a plain value (anchors, tags, aliases and directives are not read)")
     if " #" in v or "\t#" in v:
         raise YamlBad("a comment the reader would keep as text")
