@@ -23,7 +23,7 @@ This change sets `skip_specs: true` and has no spec deltas, so no `#### Scenario
 
 ## 3. Schema line from upstream
 
-- [ ] 3.1 Add upstream 1.16.0's line ("Every scenario MUST have a WHEN/GIVEN step (its trigger) and a THEN step (its outcome). …") to the specs artifact in `schemas/specwright/schema.yaml`, after the "Each THEN MUST be an assertable outcome" bullet and before the description-length bullet (design D3); verify `openspec schema validate specwright` passes against a copy installed with the change and `openspec validate --all --strict` still passes.
+- [x] 3.1 Add upstream 1.16.0's line ("Every scenario MUST have a WHEN/GIVEN step (its trigger) and a THEN step (its outcome). …") to the specs artifact in `schemas/specwright/schema.yaml`, after the "Each THEN MUST be an assertable outcome" bullet and before the description-length bullet (design D3); verify `openspec schema validate specwright` passes against a copy installed with the change and `openspec validate --all --strict` still passes.
 
 ## 4. Roadmap and release
 
