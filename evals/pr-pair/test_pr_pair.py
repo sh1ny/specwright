@@ -4190,6 +4190,18 @@ class Policy(PolicyBase):
             with self.subTest(extra=extra):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
 
+    def test_colon_tab_in_a_plain_value_is_unknown(self):
+        """PR #160 security review: `foo:<TAB>bar` is not YAML; only `: ` with a space used to be caught."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: foo:\tbar\n", 6)
+
+    def test_integer_is_not_a_boolean_in_drift(self):
+        """PR #160 review: 1 == True in Python, so `delete_branch: 1` against the default true read as no drift."""
+        for main_v, head_v in (("", "  delete_branch: 1\n"), ("  delete_branch: false\n", "  delete_branch: 0\n")):
+            with self.subTest(head=head_v):
+                self.seed_both(self.AGENT + main_v, self.AGENT + head_v)
+                r = self.policy()
+                self.assertIn("pr.delete_branch", self.keys(r), r)
+
     def test_valid_yaml_forms_still_read(self):
         text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n"
                 "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n"

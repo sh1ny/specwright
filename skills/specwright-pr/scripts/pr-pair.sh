@@ -537,8 +537,8 @@ def plain_ok(v, flow, key=False):
         raise YamlBad(f"`{v[0]}` cannot start a plain value (anchors, tags, aliases and directives are not read)")
     if " #" in v or "\t#" in v:
         raise YamlBad("a comment the reader would keep as text")
-    if ": " in v or v.endswith(":"):
-        raise YamlBad("a plain value holds `: `")
+    if re.search(r":[ 	]", v) or v.endswith(":"):
+        raise YamlBad("a plain value holds `:` before a space or tab")
     if flow and (set(v) & (FLOW_CHARS | {"'", '"'})):
         raise YamlBad("a flow entry holds `,`, a bracket or a quote outside quotes")
     if key and ":" in v:
@@ -2616,6 +2616,11 @@ def policy_side(s, with_store):
     return side, note, pr, invalid
 
 
+def same_setting(a, b):
+    """Equal by type as well as value: Python has 1 == True and 0 == False, but `delete_branch: 1` is not `true`."""
+    return json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
+
+
 def has_required(reviewers):
     return any(r["role"] == "required" for r in reviewers.values())
 
@@ -2682,7 +2687,7 @@ def cmd_policy(argv):
         policy_unknown(f"no openspec/specwright.yaml readable at {head}")
     main, note, main_pr, main_bad = policy_side(main_s, with_store)
     head_side, _, _, head_bad = policy_side(head_s, with_store)
-    drift = [{"key": k, "main": main[k], "head": head_side[k]} for k in main if main[k] != head_side[k]]
+    drift = [{"key": k, "main": main[k], "head": head_side[k]} for k in main if not same_setting(main[k], head_side[k])]
     out = {"ok": True, "repo": repo, "default_branch": default, "main": main, "head": head_side, "drift": drift,
            "invalid": [dict(side=w, **b) for w, bad in (("main", main_bad), ("head", head_bad)) for b in bad],
            "merge": main["pr.merge"], "merge_method": "merge", "delete_branch": True}
