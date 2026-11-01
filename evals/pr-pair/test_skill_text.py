@@ -665,6 +665,9 @@ class AgentMerge(unittest.TestCase):
         d = self.sub_bullet("**Drift**")
         self.assertRegex(d, r"(?is)`agent` but `reported\.head` not `ok`[^.]*list the drift and the `missing` reviewers[^.]*merge nothing",
                          "a head set short of reviewers is not reported with its missing reviewers")
+        # Pre-ship round 2: no wait may restart with the head's set before a yes, so this case must end the pass.
+        self.assertRegex(d, r"(?is)`agent` but `reported\.head` not `ok`[^.]*report ready and stop",
+                         "a head set short of reviewers does not report ready and stop")
 
     def test_drift_answer_covers_one_head(self):
         d = self.sub_bullet("**Drift**")
