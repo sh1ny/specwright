@@ -4219,6 +4219,12 @@ class Policy(PolicyBase):
             with self.subTest(extra=extra):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
 
+    def test_c1_controls_and_noncharacters_are_unknown(self):
+        """PR #160 security review: U+0080 passed (only U+0085 was listed); YAML allows printable characters only."""
+        for ch in ("\x80", "\x84", "\x86", "\x9f", "￾", "￿"):
+            with self.subTest(ch=hex(ord(ch))):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: a" + ch + "b\n", 6)
+
     def test_tab_on_a_blank_or_comment_line_is_unknown(self):
         """PR #160 security review: a tab-only line was dropped before the indentation check; YAML rejects it."""
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t\nx: 1\n", 6)

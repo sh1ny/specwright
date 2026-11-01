@@ -662,7 +662,8 @@ def yaml_problem(text):
     is unknown there (ADR 0020 D4). This checks the YAML subset the reader reads as YAML does: block mappings, flow
     collections, quoted and plain scalars, `|`/`>` blocks. What it would read otherwise (block sequences, anchors, tags,
     aliases, tabs in indentation, duplicate keys, explicit indentation indicators) is a problem too, so it fails closed."""
-    odd = re.search("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x85  ﻿]", text)
+    # YAML allows tab, LF, CR and printable characters; U+0085, U+2028, U+2029 and U+FEFF are excluded too
+    odd = re.search("[^\t\n\r\x20-\x7e\xa0-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]|[\u2028\u2029\ufeff]", text)
     if odd:  # str.splitlines breaks at some of these where YAML does not, and YAML forbids the controls
         row = len(re.split(r"\r\n|\r|\n", text[:odd.start()]))
         return f"line {row}: a control character or line separator (U+{ord(odd.group()):04X})"
