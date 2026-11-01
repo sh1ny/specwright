@@ -630,7 +630,8 @@ def flow_node(v, i, key=False, depth=0):
     if c in "\"'":
         return quoted_end(v, i)
     j = i
-    while j < len(v) and v[j] not in FLOW_CHARS and not (v[j] == ":" and (j + 1 == len(v) or v[j + 1] in " \t,[]{}")):
+    # libyaml ends a flow plain scalar at `:` before a space or any of `,?[]{}`
+    while j < len(v) and v[j] not in FLOW_CHARS and not (v[j] == ":" and (j + 1 == len(v) or v[j + 1] in " \t,?[]{}")):
         j += 1
     plain_ok(v[i:j].rstrip(), True, key)
     return j
