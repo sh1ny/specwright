@@ -2187,18 +2187,69 @@ class GitButlerSkillText(unittest.TestCase):
         self.assertRegex(t, r"`backend` \(`git`, `jj` or `gitbutler`\)", "debug does not list gitbutler as a backend")
         self.assertRegex(t, r"(?is)### Stash \(Git backend only\)", "the stash section is no longer Git-only")
 
-    def test_branch_gate_loads_only_an_unchanged_repo_copy(self):
-        # an applied branch can rewrite a copy of the skill inside the shared working tree; `but skill check` compares
-        # versions only, so the gate checks the copy against main before it loads it
+    def test_branch_gate_loads_gitbutler_skill_without_copy_check(self):
+        """gitbutler-in-repo-install D3: no unchanged-copy check; `but skill check --local --json` still runs."""
         t = flat(read(BRANCH_SKILL))
-        self.assertRegex(t, r"(?is)`gitbutler` skill.{0,600}outside the (code )?(repo|checkout)",
-                         "the gate does not prefer a copy outside the repo")
-        self.assertRegex(t, r"(?is)`git diff --quiet <main> HEAD -- <dir>`", "a repo copy is not compared with main")
-        self.assertRegex(t, r"(?is)`git status --porcelain -- <dir>`", "a repo copy is not checked for uncommitted edits")
-        self.assertRegex(t, r"(?is)(otherwise|else|when either fails).{0,80}(do not|never) load (that|the) copy",
-                         "a changed repo copy is still loaded")
-        self.assertRegex(t, r"(?is)`but skill check`[^.]{0,200}(version|versions) only",
-                         "the gate does not say `but skill check` cannot authenticate the copy")
+        self.assertNotRegex(t, r"git diff --quiet", "the gate still compares a skill copy with main")
+        self.assertNotRegex(t, r"git status --porcelain -- <dir>", "the gate still checks a skill copy for uncommitted edits")
+        self.assertNotRegex(t, r"(?i)do not load that copy", "the gate still refuses a changed copy")
+        self.assertRegex(t, r"(?is)`gitbutler` skill", "the gate does not point the agent to GitButler's own skill")
+        self.assertRegex(t, r"`but skill check --local --json`", "the gate no longer runs `but skill check --local --json`")
+
+    def test_readme_offers_both_locations_with_warnings(self):
+        """gitbutler-in-repo-install D2: Step 2 offers in-repo and user-level targets everywhere; the note carries the warnings."""
+        text = read(README)
+        s2 = flat(step(text, "Step 2"))
+        self.assertRegex(s2, r"(?<![~/\w])\.claude/skills/", "Step 2 does not offer the in-repo skills directory")
+        self.assertRegex(s2, r"(?<![~/\w])\.agents/skills/", "Step 2 does not offer the in-repo Codex skills directory")
+        for target in ("~/.claude/skills/", "~/.claude/agents/", "~/.agents/skills/", "~/.omp/agents/"):
+            self.assertIn(target, s2, "Step 2 does not offer the user-level target " + target)
+        self.assertRegex(s2, r"(?is)user-level.{0,200}shared by every project on the machine",
+                         "Step 2 does not warn that a user-level install is shared by every project")
+        self.assertRegex(s2, r"(?is)vcs: gitbutler.{0,400}every applied branch shares the work tree.{0,300}in-repo skills.{0,300}the user's job",
+                         "Step 2 does not warn that applied GitButler branches share in-repo skills")
+        self.assertRegex(s2, r"(?is)Claude Code.{0,100}user-level `specwright-\*` skill.{0,60}in-repo",
+                         "Step 2 does not say a user-level skill overrides the in-repo one in Claude Code")
+        self.assertRegex(s2, r"(?is)0\.14\.0 or later.{0,200}no other project.{0,200}restart.{0,200}`scripts_in_workspace`",
+                         "Step 2 does not say how to move from user level to in repo, with the old copy's symptom")
+        note = section(text, "Where the skills live")
+        self.assertIsNotNone(note, "the README has no 'Where the skills live' note")
+        n = flat(note)
+        self.assertRegex(n, r"(?is)user-level install is shared by every project on the machine",
+                         "the note does not say a user-level install is shared")
+        self.assertRegex(n, r"(?is)Claude Code.{0,200}user-level.{0,100}overrides? .{0,60}in-repo.{0,200}(project over user|agents resolve project)",
+                         "the note does not give the Claude Code precedence")
+        self.assertRegex(n, r"(?is)mixed install.{0,100}(runs|run) the user-level skills", "the note does not say a mixed install runs the user-level skills")
+        self.assertRegex(n, r"(?is)(update|updating).{0,120}0\.14\.0 or later.{0,200}(remove|removing).{0,200}no other project.{0,200}restart",
+                         "the note does not say how to move from user level to in repo")
+        self.assertRegex(n, r"(?is)`scripts_in_workspace`.{0,100}(older|symptom)|(older|symptom).{0,200}`scripts_in_workspace`",
+                         "the note does not name scripts_in_workspace as the symptom of an older copy")
+        self.assertRegex(n, r"(?is)`openspec-\*` skills and `/opsx:\*` commands.{0,100}always in the repo.{0,150}`openspec init`",
+                         "the note does not say OpenSpec's own skills are always in the repo")
+        self.assertRegex(n, r"(?is)GitButler.{0,500}unassigned changes.{0,200}(branch of your own|your own branch).{0,200}commit on main.{0,60}does not apply",
+                         "the note does not say how in-repo install files are committed on GitButler")
+        self.assertRegex(n, r"(?is)(only|just) a warning|no detection|neither detects nor refuses",
+                         "the note does not say it is a warning only")
+
+    def test_no_user_level_only_wording_left(self):
+        """gitbutler-in-repo-install: neither refusal code is documented as live, and nothing says GitButler needs user level."""
+        arch = "\n".join(l for l in read(ROOT / "openspec" / "architecture.md").splitlines() if not l.startswith("| [0019]"))
+        readme_rest = read(README)
+        note = section(readme_rest, "Where the skills live")
+        if note:
+            readme_rest = readme_rest.replace(note, "")
+        # Step 2's migration warning may name the old copy's symptom; nothing else outside the note may.
+        readme_rest = re.sub(r"older user-level copy stops every `vcs\.sh` call with\s+`scripts_in_workspace`", "", readme_rest)
+        for name, text in (("README", readme_rest), ("specwright-branch", read(BRANCH_SKILL)), ("architecture", arch)):
+            for code in ("scripts_in_workspace", "target_in_workspace"):
+                self.assertNotIn(code, text, f"{name} still names {code}")
+        self.assertIn("`scripts_in_workspace`", note or "", "the migration note does not name the old copy's symptom")
+        self.assertNotIn("target_in_workspace", note or "", "the note names target_in_workspace")
+        for name, text in (("README", read(README)), ("specwright-branch", read(BRANCH_SKILL)), ("architecture", arch)):
+            f = flat(text)
+            self.assertNotRegex(f, r"(?i)user level on this backend|user-level only|only at user level|must be installed at user level"
+                                   r"|installed at user level on this backend|outside the repo, never into it",
+                                f"{name} still says GitButler needs a user-level install")
 
     def test_branch_gate_notes_missing_but_skill(self):
         t = flat(read(BRANCH_SKILL))
@@ -2231,30 +2282,6 @@ class GitButlerSkillText(unittest.TestCase):
         self.assertRegex(s7, r"(?is)gitbutler", "the verify step does not allow the GitButler skill directory beside the Specwright skills")
         r = flat(read(README))
         self.assertRegex(r, r"(?is)GitButler.{0,3000}`but skill install --path", "the README GitButler section does not name the offer")
-
-    def test_readme_gitbutler_choice_names_user_level_targets(self):
-        """fix-m5-gaps D7 (#150): Specwright's own skills and agents go outside the repo on GitButler; GitButler's skill is another rule."""
-        text = read(README)
-        s2 = flat(step(text, "Step 2"))
-        self.assertRegex(s2, r"(?is)vcs: gitbutler", "Step 2 does not cover the GitButler choice")
-        for target in ("~/.claude/skills/", "~/.claude/agents/", "~/.agents/skills/", "~/.omp/agents/"):
-            self.assertIn(target, s2, "the GitButler choice does not name the user-level target " + target)
-        self.assertRegex(s2, r"(?is)vcs: gitbutler.{0,600}(outside the repo|never into it)",
-                         "the GitButler choice does not say the targets are outside the repo")
-        self.assertRegex(s2, r"target_in_workspace", "the GitButler choice does not name the plan refusal")
-        s6 = flat(step(text, "Step 6"))
-        self.assertNotRegex(s6, r"(?i)into a global directory",
-                            "the GitButler skill rule still says global, which reads as Specwright's own install rule")
-        self.assertRegex(s6, r"(?is)`but skill install.{0,900}GitButler's skill only.{0,300}Specwright's\s+own\s+skills\s+and\s+agents",
-                         "the GitButler skill rule does not separate itself from Specwright's own install")
-        start = text.index("**GitButler (`vcs: gitbutler`).**")
-        settings_part = flat(text[start:text.index("\n## ", start)])
-        self.assertRegex(settings_part, r"(?is)GitButler's skill is offered.{0,900}GitButler's skill only.{0,200}Specwright's own skills and agents.{0,120}user level",
-                         "the Settings section does not separate GitButler's skill from Specwright's own install")
-        self.assertNotRegex(settings_part, r"(?i)no global skill directory", "the Settings section still says no global directory is touched")
-        branch = flat(read(BRANCH_SKILL))
-        self.assertRegex(branch, r"(?is)GitButler's skill only.{0,300}Specwright's own skills and agents.{0,120}user level.{0,300}scripts_in_workspace",
-                         "the branch gate does not say Specwright installs at user level on GitButler")
 
     def test_gitbutler_validate_read_from_pinned_context(self):
         """fix-m5-gaps D8 (#151): on GitButler the settings are read only through `pr-pair.sh context --branch`, right before use."""

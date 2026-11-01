@@ -8,7 +8,7 @@
 | vcs-backends → On GitButler Specwright runs from wherever it was installed | Skills installed at user level beside an in-repo copy | evals/vcs/test_gitbutler_probe.py | TestInstallLocation.test_user_level_scripts_with_in_repo_copy_probe_passes | green |
 | install-update → Every backend takes in-repo and user-level targets | In-repo target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_in_repo_target | green |
 | install-update → Every backend takes in-repo and user-level targets | User-level target for a GitButler project | evals/update/test_update.py | TestGitButlerTargets.test_gitbutler_project_accepts_user_level_target | green |
-| install-update → The install prompt explains what a user-level install shares | The install prompt on GitButler | evals/git-workflow/test_instructions.py | GitButlerSkillText.test_readme_offers_both_locations_with_warnings | red |
+| install-update → The install prompt explains what a user-level install shares | The install prompt on GitButler | evals/git-workflow/test_instructions.py | GitButlerSkillText.test_readme_offers_both_locations_with_warnings | green |
 
 Extra tests (no scenario row):
 - `GitButlerSkillText.test_branch_gate_loads_gitbutler_skill_without_copy_check` replaces `test_branch_gate_loads_only_an_unchanged_repo_copy` (design D3).
@@ -31,7 +31,7 @@ Extra tests (no scenario row):
 
 ## 4. Skill text and README
 
-- [ ] 4.1 In `evals/git-workflow/test_instructions.py` `GitButlerSkillText`, write the failing tests:
+- [x] 4.1 In `evals/git-workflow/test_instructions.py` `GitButlerSkillText`, write the failing tests:
   - `test_readme_offers_both_locations_with_warnings` (row 5). Step 2 offers in-repo and user-level targets on every backend and, for GitButler, warns that applied branches share in-repo skills. A "Where the skills live" note says that:
     - a user-level install is shared by every project on the machine and, in Claude Code, overrides in-repo skills of the same name (agents resolve project over user);
     - moving to an in-repo install means updating or removing the user-level copies and restarting sessions, with `scripts_in_workspace` from an older copy as the symptom;
@@ -41,14 +41,14 @@ Extra tests (no scenario row):
   - `test_no_user_level_only_wording_left`: README, `skills/specwright-branch/SKILL.md` and `openspec/architecture.md` name neither refusal code outside the 0019 superseded marking and the migration symptom.
 
   Remove `test_readme_gitbutler_choice_names_user_level_targets` and the user-level assertions it and the GitButler skill-offer test make. Verify they fail: `python -m unittest evals/git-workflow/test_instructions.py -k GitButlerSkillText`.
-- [ ] 4.2 Rewrite the README:
+- [x] 4.2 Rewrite the README:
   - install prompt Step 2's GitButler bullet (both locations, the GitButler warning);
   - Step 6's GitButler skill offer (drop "user level on this backend");
   - the GitButler section's skill bullet;
   - add the "Where the skills live" note with the points in 4.1. Keep it a warning only (ADR 0021).
 
   Verify: row 5 flips green.
-- [ ] 4.3 Rewrite `skills/specwright-branch/SKILL.md`: drop `scripts_in_workspace` from step 1's error list; in the GitButler tool guidance, drop the unchanged-copy check and the user-level requirement, keeping the `but skill check --local --json` note (D3). Verify: `test_branch_gate_loads_gitbutler_skill_without_copy_check` and `test_no_user_level_only_wording_left` pass, and the whole `GitButlerSkillText` class passes.
+- [x] 4.3 Rewrite `skills/specwright-branch/SKILL.md`: drop `scripts_in_workspace` from step 1's error list; in the GitButler tool guidance, drop the unchanged-copy check and the user-level requirement, keeping the `but skill check --local --json` note (D3). Verify: `test_branch_gate_loads_gitbutler_skill_without_copy_check` and `test_no_user_level_only_wording_left` pass, and the whole `GitButlerSkillText` class passes.
 
 ## 5. Roadmap and release
 
