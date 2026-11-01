@@ -4177,6 +4177,12 @@ class Policy(PolicyBase):
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: [\"\\xZZ\"]\n", 6)
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\"\\q\": x\n", 6)
 
+    def test_surrogate_and_out_of_range_escapes_are_unknown(self):
+        """PR #160 security review: `"\\uD800"` passed as four hex digits, but YAML has no surrogate or post-U+10FFFF code point."""
+        for esc in ("\\uD800", "\\uDFFF", "\\uD83D\\uDE00", "\\U0000D800", "\\U00110000"):
+            with self.subTest(esc=esc):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: \"" + esc + "\"\n", 6)
+
     def test_invalid_flow_entries_are_unknown(self):
         """PR #160 security review: `{ role: required,, }` is not YAML, and a trailing comma reads as an extra entry."""
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n"

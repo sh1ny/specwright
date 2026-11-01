@@ -517,7 +517,11 @@ def escape_len(s, i):
     c = s[i + 1:i + 2]
     if c in ("x", "u", "U"):
         n = {"x": 2, "u": 4, "U": 8}[c]
-        return 2 + n if re.fullmatch(r"[0-9a-fA-F]{%d}" % n, s[i + 2:i + 2 + n]) else 0
+        h = s[i + 2:i + 2 + n]
+        if not re.fullmatch(r"[0-9a-fA-F]{%d}" % n, h):
+            return 0
+        v = int(h, 16)  # YAML rejects a surrogate (a pair too) and a code point past U+10FFFF
+        return 0 if 0xD800 <= v <= 0xDFFF or v > 0x10FFFF else 2 + n
     return 2 if c and c in YAML_ESCAPES else 0
 
 
