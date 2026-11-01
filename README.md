@@ -1,6 +1,6 @@
 # Specwright
 
-![version](https://img.shields.io/badge/version-0.13.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
+![version](https://img.shields.io/badge/version-0.14.0-blue) ![OpenSpec](https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2) ![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555)
 
 A lightweight spec-driven development bundle for AI coding agents, built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). It keeps OpenSpec's small artifact set and adds what OpenSpec leaves out — **architecture reasoning scaled to the change**, test discipline, a git and GitHub PR workflow, and project-level planning — as one custom schema plus a handful of auto-activating skills. No OpenSpec core changes.
 
@@ -102,14 +102,23 @@ Ask which agents this project uses (several may apply) and confirm the paths:
 - OMP: skills → `.claude/skills/` (OMP reads it), agents → `.omp/agents/`
 - Codex: skills → `.agents/skills/`
 - Other: ask for the skills directory.
+- On every backend, offer the in-repo directories above or the user-level ones:
+  `~/.claude/skills/` and `~/.claude/agents/` (Claude Code; OMP skills),
+  `~/.agents/skills/` (Codex), `~/.omp/agents/` (OMP agents). Warn once that a
+  user-level install is shared by every project on the machine (one Specwright
+  version; an update from one project updates all) and that Claude Code runs a
+  user-level `specwright-*` skill instead of an in-repo one of the same name.
+  When the user moves a project from user level to in repo, say to update the
+  user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no
+  other project on the machine relies on them, and to restart agent sessions;
+  an older user-level copy stops every `vcs.sh` call with
+  `scripts_in_workspace` once in-repo copies exist.
+  This is a warning only: install where the user chooses.
 - GitButler (`vcs: gitbutler`, already set in `openspec/specwright.yaml` or
   chosen now; ask when unsure): every applied branch shares the work tree, so
-  Specwright's own skills and agents go to user-level directories outside the
-  repo, never into it: `~/.claude/skills/` and `~/.claude/agents/` (Claude Code;
-  OMP skills), `~/.agents/skills/` (Codex), `~/.omp/agents/` (OMP agents).
-  Offer only these. `update.sh plan` refuses an in-repo target
-  (`target_in_workspace`), and `vcs.sh` stops with `scripts_in_workspace` when
-  Specwright is in the work tree.
+  a branch that changes in-repo skills changes them for every applied branch.
+  Warn once that keeping them consistent is the user's job, and that a
+  user-level install avoids it.
 
 Step 3 - Choose the version, download and compare versions
 - Choose the ref to install. This prompt needs release 0.6.0 as its minimum
@@ -315,8 +324,8 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   (without a terminal `but` picks a directory of its own), and never install it
   silently or anywhere but a skills directory the user chose in Step 2. This
   rule is about GitButler's skill only; it does not change where Specwright's
-  own skills and agents go (user level on this backend, Step 2). With `but`
-  not on PATH, skip the offer and say so.
+  own skills and agents go (Step 2). With `but` not on PATH, skip the offer and
+  say so.
 
 Step 7 - Verify, stamp the version, finish, clean up
 - Run `openspec schema validate specwright` inside `<root>`.
@@ -374,6 +383,15 @@ recorded a missing PR prerequisite, add the line
 `PR workflow not ready: <missing>` (for example
 `PR workflow not ready: gh 2.40+`).
 ```
+
+### Where the skills live
+
+Step 2 offers the repo (`.claude/skills/`, `.agents/skills/`) or your user directory (`~/.claude/skills/`, `~/.agents/skills/`, and the matching agents directories), on every backend. Specwright installs where you choose and never refuses to run because of it. It is a warning, not a check: Specwright neither detects nor refuses a mixed install.
+
+- **User level.** A user-level install is shared by every project on the machine: one Specwright version, and an update from one project updates all. In Claude Code a user-level `specwright-*` skill overrides an in-repo skill of the same name (personal over project), while agents resolve project over user. For Claude Code the skills' location is in effect a per-machine choice, and a mixed install runs the user-level skills.
+- **Moving to an in-repo install.** Update the user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no other project on the machine relies on them, then restart your agent sessions. An older user-level copy stops every `vcs.sh` call with `scripts_in_workspace` once in-repo copies exist; that message is the symptom.
+- **OpenSpec's own files.** OpenSpec's `openspec-*` skills and `/opsx:*` commands are always in the repo: `openspec init` has no user-level option.
+- **GitButler.** Every applied branch shares the work tree, so a branch that changes in-repo skills changes them for every applied branch, and keeping them consistent is your job. An in-repo install leaves its files as unassigned changes in that tree: commit them through a GitButler branch of your own. The branch gate's "commit on main" offer does not apply there.
 
 ## ⚡ First Steps After Install
 
@@ -519,7 +537,7 @@ release:                        # opt-in; refused with pr.merge_method: rebase
 - **Only code repo, only PR.** `planning_store.vcs: gitbutler` stops with `unsupported_vcs` (a store accepts `git` or `jj`), and `vcs: gitbutler` without `finish: pr` (an absent `finish` counts as `local`) stops with `unsupported_combination`.
 - **Git backend in a GitButler repo.** With `vcs` unset or `git`, a repo that GitButler manages stops with `gitbutler_workspace`, whatever HEAD is: set `vcs: gitbutler`, or take the repo out of GitButler first. The Git backend never writes in a GitButler workspace.
 - **Commits and hooks.** Each commit names its paths and goes in with `but commit -b <branch>`, which runs no `pre-commit` or `commit-msg` hook; Specwright writes its trailers into the message itself, and `pr.validate` still runs before each push. A path another applied branch owns stops the commit with `path_owned_elsewhere`; edits you did not name stay uncommitted, and a file that two agents edit unassigned is committed whole.
-- **GitButler's skill is offered, never installed silently.** Specwright ships no GitButler skill; GitButler's own is the tool guidance. With `vcs: gitbutler` the install prompt offers `but skill install --path <skills dir>/gitbutler` for each skills directory you chose and runs it only on your yes (a no changes nothing, and no directory you did not choose is touched). This is about GitButler's skill only: Specwright's own skills and agents must be installed at user level on this backend, outside the repo. The branch gate runs `but skill check` and adds a note, never a stop, when the skill is missing or out of date in the project.
+- **GitButler's skill is offered, never installed silently.** Specwright ships no GitButler skill; GitButler's own is the tool guidance. With `vcs: gitbutler` the install prompt offers `but skill install --path <skills dir>/gitbutler` for each skills directory you chose and runs it only on your yes (a no changes nothing, and no directory you did not choose is touched). This is about GitButler's skill only: Specwright's own skills and agents go where you chose in Step 2, in the repo or at user level (see "Where the skills live"). The branch gate runs `but skill check` and adds a note, never a stop, when the skill is missing or out of date in the project.
 - **What the skills do differently.** Commits, pushes and the PR are for the change branch alone, and cleanup pulls only when no other branch is applied (`pull_skipped` otherwise), so a merge that main already holds is read on the fetched main. `specwright-debug` never stashes on GitButler: it shows the changed paths and asks you to set your edits aside. A deferred archive's undo script moves the archive back, rewrites the main specs from `git cat-file --filters` and commits exactly those paths with `but commit -b <branch>`, with no Git write.
 - **Limits.** With `core.autocrlf=true` (the Git for Windows default), GitButler checkouts can conflict on line endings: `but branch delete` has been seen failing, and `but pull` is untested.
 

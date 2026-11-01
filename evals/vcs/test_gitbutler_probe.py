@@ -116,67 +116,35 @@ class TestGitButlerProbe(GitButlerCase):
                 self.assertEqual(result["error"], error)
 
 
-class TestScriptsOutsideWorkspace(GitButlerCase):
-    """fix-m5-gaps D7 (#150): the probe stops before any `but` command when Specwright is in the work tree."""
+class TestInstallLocation(GitButlerCase):
+    """gitbutler-in-repo-install: the probe passes wherever Specwright is installed, in the work tree or outside it."""
 
-    def test_scripts_in_work_tree_stop_before_but(self):
-        require_but()
-        with Scratch() as scratch:
-            repo = scratch.tracked_repo().path
-            self.settings(repo)
-            _, log = self.stub_but()
-            script = self.copy_scripts(repo / "tools" / "flow" / "scripts")
-            before = self.snapshot(repo)
-            result = self.run_copy(script, scratch, repo, expected=1)
-            self.assertEqual(result["error"], "scripts_in_workspace")
-            self.assertIn("tools/flow/scripts", result["message"])
-            self.assertIn("user level", result["message"])
-            self.assertIn("by hand", result["message"])
-            self.assertIn("GitButler", result["message"])
-            self.assertFalse(log.exists(), "but ran although the scripts are in the work tree")
-            self.assertEqual(self.snapshot(repo), before)
+    def passes(self, script, scratch, repo, log):
+        result = self.run_copy(script, scratch, repo, expected=0)
+        self.assertIs(result["ok"], True)
+        self.assertEqual((result["backend"], result["main"]), ("gitbutler", "main"))
+        self.assertTrue(log.exists() and log.read_text(encoding="utf-8").split(), "the probe never reached but")
 
-    def test_scripts_outside_work_tree_probe_continues(self):
+    def test_in_repo_scripts_probe_passes(self):
         require_but()
         with Scratch() as scratch:
             repo = scratch.tracked_repo().path
             self.settings(repo)
             _, log = self.stub_but()
             self.git(repo, "config", "gitbutler.project.targetRef", "refs/heads/main")
-            script = self.copy_scripts(self.root / "user-level" / "specwright-pr" / "scripts")
-            result = self.run_copy(script, scratch, repo, expected=0)
-            self.assertEqual((result["backend"], result["main"]), ("gitbutler", "main"))
-            self.assertTrue(log.exists() and log.read_text(encoding="utf-8").split(), "the probe never reached but")
+            script = self.copy_scripts(repo / ".claude" / "skills" / "specwright-pr" / "scripts")
+            self.passes(script, scratch, repo, log)
 
-    def test_specwright_copy_in_work_tree_stops(self):
+    def test_user_level_scripts_with_in_repo_copy_probe_passes(self):
         require_but()
         with Scratch() as scratch:
             repo = scratch.tracked_repo().path
             self.settings(repo)
             _, log = self.stub_but()
+            self.git(repo, "config", "gitbutler.project.targetRef", "refs/heads/main")
+            (repo / ".claude" / "skills" / "specwright-pr").mkdir(parents=True)
             script = self.copy_scripts(self.root / "user-level" / "specwright-pr" / "scripts")
-            for rel, is_dir in ((".claude/skills/specwright-pr", True), (".agents/skills/specwright-branch", True),
-                                (".claude/agents/specwright-reviewer.md", False),
-                                (".omp/agents/specwright-implementer.md", False)):
-                with self.subTest(rel):
-                    copy = repo / rel
-                    copy.parent.mkdir(parents=True, exist_ok=True)
-                    if is_dir:
-                        copy.mkdir()
-                    else:
-                        copy.write_text("copy\n", encoding="utf-8")
-                    try:
-                        result = self.run_copy(script, scratch, repo, expected=1)
-                    finally:
-                        if is_dir:
-                            shutil.rmtree(copy)
-                        else:
-                            copy.unlink()
-                    self.assertEqual(result["error"], "scripts_in_workspace")
-                    self.assertIn(rel, result["message"])
-                    self.assertIn("user level", result["message"])
-                    self.assertIn("by hand", result["message"])
-                    self.assertFalse(log.exists(), "but ran although a Specwright copy is in the work tree")
+            self.passes(script, scratch, repo, log)
 
 
 class TestGitBackendRefusesWorkspace(GitButlerCase):
