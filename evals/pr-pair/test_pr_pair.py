@@ -4212,6 +4212,16 @@ class Policy(PolicyBase):
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t\nx: 1\n", 6)
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t# note\nx: 1\n", 6)
 
+    def test_overlong_keys_are_unknown(self):
+        """PR #160 security review: YAML ends a simple key within 1024 characters; the reader read any length."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x" * 1025 + ": y\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: {" + "k" * 1025 + ": v}\n", 6)
+
+    def test_tab_led_line_in_a_folded_block_is_unknown(self):
+        """A tab after the indentation is text in a `|` block, but in a `>` block YAML keeps the line break."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n  \tb\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: |\n  a\n \tb\n", 6)
+
     def test_deep_nesting_is_unknown_not_a_crash(self):
         """PR #160 Kody review: ~1000 nested `[` exhausted the recursion limit, an internal error rather than exit 3."""
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: " + "[" * 2000 + "]" * 2000 + "\n", 6)
@@ -4233,7 +4243,7 @@ class Policy(PolicyBase):
     def test_valid_yaml_forms_still_read(self):
         text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n"
                 "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n  \"q\\\"k\": 1\n"
-                "pr:\n  validate: |\n    line one\n    ---\n    ...\n    line: two\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
+                "pr:\n  validate: |\n    line one\n    ---\n    ...\n    line: two\n    \tline three\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
                 "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
         self.seed_both("﻿" + text, text)  # a UTF-8 byte order mark is valid YAML
         r = self.policy()

@@ -564,6 +564,11 @@ def quoted_end(v, i):
     raise YamlBad("unterminated quote")
 
 
+def key_too_long(k):
+    """YAML ends a simple (implicit) key within 1024 characters; the reader has no limit."""
+    return "a key of 1024 characters or more (YAML's simple-key limit)" if len(k.strip()) >= 1024 else None
+
+
 MAX_DEPTH = 32  # nesting the validator accepts; deeper would exhaust Python's recursion limit here or in parse_yaml
 
 
@@ -590,6 +595,9 @@ def flow_node(v, i, key=False, depth=0):
             j = flow_node(v, j, key=c == "{", depth=depth + 1)
             j = skip_ws(v, j)
             if c == "{":
+                why = key_too_long(v[start:j].strip())
+                if why:
+                    raise YamlBad(why)
                 key = unquote(v[start:j].strip())
                 if v[start:j].strip() == "<<":
                     raise YamlBad("a `<<` merge key (YAML merges it in, the reader does not)")
@@ -654,9 +662,16 @@ def yaml_problem(text):
         row = len(re.split(r"\r\n|\r|\n", text[:odd.start()]))
         return f"line {row}: a control character or line separator (U+{ord(odd.group()):04X})"
     raw = text.splitlines()
+    key_re = re.compile(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
     lines = []
+    block = None  # the key's indentation while inside a `|`/`>` block, whose text mapping() checks from the raw lines
     for n, r in enumerate(raw):
-        if "\t" in r[:len(r) - len(r.lstrip())]:  # blank and comment-only lines too: YAML rejects them, the reader drops them
+        if not r.strip() and "\t" in r:  # blank lines too, in a block or not: YAML rejects or keeps them, the reader drops them
+            return f"line {n + 1}: a tab in the indentation"
+        if block is not None and (not r.strip() or len(r) - len(r.lstrip(" ")) > block):
+            continue  # block text: a tab after its space indentation is text
+        block = None
+        if "\t" in r[:len(r) - len(r.lstrip())]:
             return f"line {n + 1}: a tab in the indentation"
         s = strip_comment(r).rstrip()
         if s.strip():
@@ -666,7 +681,9 @@ def yaml_problem(text):
                     return f"line {n + 1}: a document marker the reader does not read (only `---` alone, first, at column 0)"
                 continue
             lines.append((len(lead), s.strip(), n))
-    key_re = re.compile(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
+            m = key_re.match(s.strip())
+            if m and m.group(2) and m.group(2).strip()[0] in "|>":
+                block = len(lead)
 
     def bad(i, why):
         raise YamlBad(f"line {lines[i][2] + 1}: {why}")
@@ -683,7 +700,7 @@ def yaml_problem(text):
             if not m:
                 bad(i, "not a `key: value` line")
             k = m.group(1)
-            why = value_problem(k)
+            why = value_problem(k) or key_too_long(k)
             if why:
                 bad(i, why)
             key = unquote(k.strip())
@@ -705,10 +722,10 @@ def yaml_problem(text):
                             break
                         if len(r) > pad:
                             bad(i, "a blank line before a block scalar's text with more spaces than the text")
-                    if any(len(r) - len(r.lstrip(" ")) < pad or "\t" in r[:len(r) - len(r.lstrip())] for r in body_rows):
-                        bad(i, "a block scalar line indented less than its first line, or with a tab")
-                    if val.strip()[0] == ">" and any(len(r) - len(r.lstrip(" ")) > pad for r in body_rows):
-                        bad(i, "a more-indented line in a `>` block (YAML keeps its line breaks, the reader folds them)")
+                    if any(len(r) - len(r.lstrip(" ")) < pad for r in body_rows):
+                        bad(i, "a block scalar line indented less than its first line")
+                    if val.strip()[0] == ">" and any(len(r) - len(r.lstrip(" ")) > pad or r[pad] == "\t" for r in body_rows):
+                        bad(i, "a more-indented or tab-led line in a `>` block (YAML keeps its line breaks, the reader folds them)")
                 i += 1
                 while i < len(lines) and lines[i][2] < end:
                     i += 1
