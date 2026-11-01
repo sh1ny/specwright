@@ -526,7 +526,20 @@ class ContextPin(Base):
         r = self.ctx("--branch", BRANCH)
         self.assertEqual((r["ok"], r["code"]["validate"]), (True, "make test"))
 
+    def test_vcs_line_edit_cannot_turn_the_pin_off(self):
+        # the repo is GitButler-managed (gitbutler.project.targetRef): an unpinned edit of the vcs line itself still stops
+        for vcs in ("", "vcs: git\n", "vcs: jj\n"):
+            self.edit(vcs + "pr:\n  validate: \"echo pwned\"\n  merge: agent\n")
+            for extra in (("--branch", BRANCH), ("--after-merge", "--branch", BRANCH), ("--only", "repos", "--branch", BRANCH)):
+                with self.subTest(vcs=vcs, extra=extra):
+                    r = self.ctx(*extra, expect=1)
+                    self.assertEqual(r["error"], "settings_not_pinned")
+                    self.assertNotIn("code", r)
+            with self.subTest(vcs=vcs, extra="no branch"):
+                self.assertEqual(self.ctx(expect=2)["error"], "usage")
+
     def test_git_backend_never_pins(self):
+        self.git(self.code, "config", "--unset", "gitbutler.project.targetRef")  # a plain Git repo, not GitButler-managed
         for vcs in ("", "vcs: git\n", "vcs: jj\n"):
             self.edit(vcs + "pr:\n  validate: \"echo edited\"\n  merge: agent\n")  # never committed
             for extra in ((), ("--branch", BRANCH), ("--after-merge", "--branch", BRANCH)):

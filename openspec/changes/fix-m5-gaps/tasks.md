@@ -25,6 +25,7 @@
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | A sibling branch adds a skill copy | evals/vcs/test_gitbutler_probe.py | test_specwright_copy_in_work_tree_stops | green |
 | vcs-backends → On GitButler Specwright's scripts run from outside the work tree | Git project with in-repo skills | evals/vcs/test_probe.py | test_git_backend_ignores_in_repo_scripts | green |
 | vcs-backends → On GitButler the settings are those the change branch committed | Unassigned edit before ship | evals/pr-pair/test_pr_pair.py | ContextPin.test_unassigned_settings_edit_stops_context | green |
+| vcs-backends → On GitButler the settings are those the change branch committed | Unassigned edit before ship (the edit changes the `vcs:` line; pre-ship F1) | evals/pr-pair/test_pr_pair.py | ContextPin.test_vcs_line_edit_cannot_turn_the_pin_off | green |
 | vcs-backends → On GitButler the settings are those the change branch committed | Watch reads merge settings | evals/pr-pair/test_pr_pair.py | ContextPin.test_merge_settings_not_reported_when_unpinned | green |
 | vcs-backends → On GitButler the settings are those the change branch committed | Push with an unpinned edit | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push | green |
 | vcs-backends → On GitButler the settings are those the change branch committed | Context without the branch | evals/pr-pair/test_pr_pair.py | ContextPin.test_gitbutler_context_without_branch_is_usage_error | green |

@@ -18,7 +18,9 @@
 #                                     compares with the tip of refs/heads/b while that branch exists (pull skipped or left applied), else
 #                                     with gitbutler.project.targetRef; its message names that ref and says to run `but pull` or undo the
 #                                     work-tree edit. A merge-settings call (anything but --only repos) without --branch is exit 2 usage
-#                                     on GitButler. The Git and jj backends never pin; they accept and ignore --branch.
+#                                     on GitButler. GitButler here means `vcs: gitbutler` in the work-tree file or a GitButler-managed
+#                                     repo (gitbutler.project.targetRef set), so an unpinned edit of the vcs line cannot turn the
+#                                     check off. Other Git and jj repos never pin; they accept and ignore --branch.
 #   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj|gitbutler","store":"git|jj"};
 #                                     absent settings default independently to git; unknown values stop with unknown_vcs; gitbutler is code-repo only and needs finish: pr
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
@@ -780,6 +782,16 @@ def settings_pinned(code, ref, branch, after_merge=False):
                file=rel, ref=ref)
 
 
+def gitbutler_pins(code):
+    """Whether `context` pins the settings: `vcs: gitbutler` in the work-tree file, or a GitButler-managed repo
+    (gitbutler.project.targetRef set). The second does not come from the file being checked, so an unpinned edit of the
+    `vcs:` line cannot turn the check off."""
+    if load_settings(code).get("vcs") == "gitbutler":
+        return True
+    r = git(code, "config", "--get", "gitbutler.project.targetRef")
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
 def pin_ref(code, branch, after_merge):
     if not after_merge:
         return f"refs/heads/{branch}"
@@ -801,7 +813,7 @@ def cmd_context(argv):
         usage("--only takes repos")
     if after_merge and not a.get("branch"):
         usage("--after-merge needs --branch")
-    if load_settings(a["code"]).get("vcs") == "gitbutler":
+    if gitbutler_pins(a["code"]):
         if a.get("only") != "repos" and not a.get("branch"):
             usage("with vcs: gitbutler, context for the merge settings needs --branch <branch>")
         if a.get("branch"):
