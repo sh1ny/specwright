@@ -564,7 +564,10 @@ def quoted_end(v, i):
     raise YamlBad("unterminated quote")
 
 
-def flow_node(v, i, key=False):
+MAX_DEPTH = 32  # nesting the validator accepts; deeper would exhaust Python's recursion limit here or in parse_yaml
+
+
+def flow_node(v, i, key=False, depth=0):
     """Index after one flow node at v[i] (i already past spaces): a collection, a quoted or a plain scalar."""
     if i >= len(v):
         raise YamlBad("an empty entry")
@@ -572,6 +575,8 @@ def flow_node(v, i, key=False):
     if key and c in "[{":
         raise YamlBad("a flow key that is a collection")
     if c == "[" or c == "{":
+        if depth >= MAX_DEPTH:
+            raise YamlBad(f"flow collections nested more than {MAX_DEPTH} deep")
         close, j, keys = ("]" if c == "[" else "}"), i + 1, set()
         while True:
             j = skip_ws(v, j)
@@ -582,7 +587,7 @@ def flow_node(v, i, key=False):
             if v[j] == ",":
                 raise YamlBad("an empty entry")
             start = j
-            j = flow_node(v, j, key=c == "{")
+            j = flow_node(v, j, key=c == "{", depth=depth + 1)
             j = skip_ws(v, j)
             if c == "{":
                 key = unquote(v[start:j].strip())
@@ -594,7 +599,7 @@ def flow_node(v, i, key=False):
                 if j < len(v) and v[j] == ":":
                     j = skip_ws(v, j + 1)
                     if j < len(v) and v[j] not in ",}":
-                        j = skip_ws(v, flow_node(v, j))
+                        j = skip_ws(v, flow_node(v, j, depth=depth + 1))
             elif j < len(v) and v[j] == ":":
                 raise YamlBad("a `key: value` pair inside `[...]` is read as text")
             if j >= len(v):
@@ -666,7 +671,9 @@ def yaml_problem(text):
     def bad(i, why):
         raise YamlBad(f"line {lines[i][2] + 1}: {why}")
 
-    def mapping(i, indent):
+    def mapping(i, indent, depth=0):
+        if depth >= MAX_DEPTH:
+            bad(i, f"mappings nested more than {MAX_DEPTH} deep")
         keys = set()
         while i < len(lines) and lines[i][0] == indent:
             body, row = lines[i][1], lines[i][2]
@@ -708,7 +715,7 @@ def yaml_problem(text):
             elif val is None or val.strip() == "":
                 i += 1
                 if i < len(lines) and lines[i][0] > indent:
-                    i = mapping(i, lines[i][0])
+                    i = mapping(i, lines[i][0], depth + 1)
             else:
                 why = value_problem(val)
                 if why:

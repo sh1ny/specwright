@@ -4212,6 +4212,12 @@ class Policy(PolicyBase):
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t\nx: 1\n", 6)
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t# note\nx: 1\n", 6)
 
+    def test_deep_nesting_is_unknown_not_a_crash(self):
+        """PR #160 Kody review: ~1000 nested `[` exhausted the recursion limit, an internal error rather than exit 3."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: " + "[" * 2000 + "]" * 2000 + "\n", 6)
+        deep = "".join(" " * n + f"k{n}:\n" for n in range(1000)) + " " * 1000 + "v: 1\n"
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + deep, 38)
+
     def test_folded_block_with_more_indented_lines_is_unknown(self):
         """YAML keeps the line breaks around more-indented lines of a `>` block; the reader folds them."""
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n    b\n  c\n", 6)
