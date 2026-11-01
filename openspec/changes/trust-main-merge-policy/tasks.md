@@ -40,8 +40,8 @@ Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's cont
 
 ## 2. Fake gh contents endpoint
 
-- [ ] 2.1 Write `Contents` tests in `evals/pr-pair/test_fake_gh.py`: `repos/<o>/<n>/contents/<path>?ref=<branch or sha>` returns `{type: file, encoding: base64, content}` from seeded state, 404 (`(HTTP 404)` on stderr) for a missing path, a JSON list for a directory, and `repos/<o>/<n>` returns the seeded `default_branch`. Run `python -m unittest evals/pr-pair/test_fake_gh.py` and see them fail.
-- [ ] 2.2 Add the endpoint and its seed shape to `evals/fakes/gh.py` (state written as the fake already writes it); verify the `Contents` tests pass.
+- [x] 2.1 Write `Contents` tests in `evals/pr-pair/test_fake_gh.py`: `repos/<o>/<n>/contents/<path>?ref=<branch or sha>` returns `{type: file, encoding: base64, content}` from seeded state, 404 (`(HTTP 404)` on stderr) for a missing path, a JSON list for a directory, and `repos/<o>/<n>` returns the seeded `default_branch`. Run `python -m unittest evals/pr-pair/test_fake_gh.py` and see them fail.
+- [x] 2.2 Add the endpoint and its seed shape to `evals/fakes/gh.py` (state written as the fake already writes it); verify the `Contents` tests pass.
 
 ## 3. `pr-pair.sh policy`: reads, drift and unknown
 
