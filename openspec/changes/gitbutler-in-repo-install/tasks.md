@@ -52,14 +52,14 @@ Extra tests (no scenario row):
 
 ## 5. Roadmap and release
 
-- [ ] 5.1 Edit `openspec/roadmap.md` as design D5 states:
+- [x] 5.1 Edit `openspec/roadmap.md` as design D5 states:
   - this change becomes M6 item 4 at 0.14.0;
   - `pack-mechanism` moves to item 5 at 0.15.0, and `gamedev-pack` to item 6 at 0.16.0;
   - the releases criterion ends at 0.16.0;
   - the Later gamedev dogfood check waits for 0.16.0.
 
   Verify: `grep -n -E "0\.1[4-6]\.0" openspec/roadmap.md` shows exactly those entries.
-- [ ] 5.2 Run `release.sh bump --to 0.14.0`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/gitbutler-in-repo-install/proposal.md`.
+- [x] 5.2 Run `release.sh bump --to 0.14.0`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/gitbutler-in-repo-install/proposal.md`.
 
 ## Workflow follow-up
 

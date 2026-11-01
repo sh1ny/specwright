@@ -50,7 +50,7 @@ None.
 
 ## Release Notes
 
-GitButler projects can install Specwright's skills and agents in the repo again. The user-level install is now an option rather than a requirement, and the README explains what each location means. Managing installed skills after the install is the user's responsibility, so Specwright warns and no longer refuses.
+GitButler projects can install Specwright's skills and agents in the repo again, so each project keeps its own Specwright version and, from the next release, its own packs. A user-level install is an option on every backend, and the install prompt and a new README note explain what each location shares, how Claude Code picks between them, and how to move a project to an in-repo install. Managing installed skills is the user's responsibility (ADR 0021): Specwright warns and no longer refuses. GitButler settings pinning is unchanged.
 
 ### Changed
 
