@@ -511,17 +511,28 @@ def parse_yaml(text):
     return block(0, lines[0][0])[0] if lines else {}
 
 
+def escape_len(s, i):
+    """Length of the double-quoted escape at s[i] (a backslash) as YAML defines it, or 0 when YAML has no such escape."""
+    c = s[i + 1:i + 2]
+    if c in ("x", "u", "U"):
+        n = {"x": 2, "u": 4, "U": 8}[c]
+        return 2 + n if re.fullmatch(r"[0-9a-fA-F]{%d}" % n, s[i + 2:i + 2 + n]) else 0
+    return 2 if c and c in YAML_ESCAPES else 0
+
+
 def value_problem(v):
     """Why a `key: value` value is not YAML that parse_yaml reads as written, or None. Flow values must close, quotes end."""
     v = v.strip()
     if v[0] in "[{":
-        stack, q, esc = [], None, False
-        for i, ch in enumerate(v):
-            if esc:
-                esc = False
-            elif q:
+        stack, q, i = [], None, 0
+        while i < len(v):
+            ch = v[i]
+            if q:
                 if q == '"' and ch == "\\":
-                    esc = True
+                    n = escape_len(v, i)
+                    if not n:
+                        return f"unknown escape `{v[i:i + 2]}`"
+                    i += n - 1
                 elif ch == q:
                     q = None
             elif ch in "\"'":
@@ -533,14 +544,16 @@ def value_problem(v):
                     return f"unbalanced `{ch}`"
                 if not stack and v[i + 1:].strip():
                     return "text after the closing bracket"
+            i += 1
         return "unterminated quote" if q else (f"unterminated `{v[0]}`" if stack else None)
     if v[0] in "\"'":
-        i, esc = 1, False
+        i = 1
         while i < len(v):
-            if esc:
-                esc = False
-            elif v[0] == '"' and v[i] == "\\":
-                esc = True
+            if v[0] == '"' and v[i] == "\\":
+                n = escape_len(v, i)
+                if not n:
+                    return f"unknown escape `{v[i:i + 2]}`"
+                i += n - 1
             elif v[i] == v[0]:
                 if v[0] == "'" and v[i + 1:i + 2] == "'":
                     i += 1
@@ -583,6 +596,9 @@ def yaml_problem(text):
             m = key_re.match(body)
             if not m:
                 return i, f"line {row + 1}: not a `key: value` line"
+            why = value_problem(m.group(1)) if m.group(1).startswith('"') else None
+            if why:
+                return i, f"line {row + 1}: {why}"
             val = m.group(2)
             i += 1
             if val and BLOCK_HEADER.match(val.strip()):

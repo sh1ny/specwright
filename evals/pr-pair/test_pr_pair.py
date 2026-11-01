@@ -4171,9 +4171,15 @@ class Policy(PolicyBase):
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: \"agent\n", 2)
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent: now\n", 2)
 
+    def test_unknown_double_quote_escape_is_unknown(self):
+        """PR #160 security review: `"\\q"` is not YAML, but any character after a backslash used to pass."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: \"\\q\"\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: [\"\\xZZ\"]\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "\"\\q\": x\n", 6)
+
     def test_valid_yaml_forms_still_read(self):
         text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n  extra:\n    - a\n    - b\n"
-                "pr:\n  validate: |\n    line one\n    line: two\n  merge: 'agent'\n  merge_method: squash\n"
+                "pr:\n  validate: |\n    line one\n    line: two\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
                 "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
         self.seed_both(text, text)
         r = self.policy()
