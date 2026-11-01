@@ -1215,6 +1215,12 @@ def openspec_pin():
     return pin
 
 
+def next_patch(pin):
+    """The patch release after `pin` (1.16.0 -> 1.16.1): Step 3's newer-patch example."""
+    major, minor, patch = pin.split(".")
+    return f"{major}.{minor}.{int(patch) + 1}"
+
+
 def pin_drift(readme, contributing, pin, extra=(), badge=True):
     """The README and CONTRIBUTING lines (and `extra` (name, text) pairs) that disagree with the OpenSpec pin, as `file:line: text`."""
     out = []
@@ -1327,18 +1333,22 @@ class TestOpenSpecPin(unittest.TestCase):
         _, check = self.s3_check()
         self.assertRegex(check, r"(?is)whole token.{0,80}pre-release|pre-release.{0,80}whole token",
                          "the check does not compare the whole token, pre-release included")
-        self.assertRegex(check, r"(?s)1\.14\.1-beta\.1.{0,80}mismatch|mismatch.{0,80}1\.14\.1-beta\.1",
-                         "a pre-release of the pin is not named as a mismatch")
-        self.assertRegex(check, r"1\.14\.2", "a newer patch release is not named as a mismatch")
+        pin = openspec_pin()
+        v = re.escape(pin)
+        self.assertRegex(check, rf"(?s){v}-beta\.1.{{0,80}}mismatch|mismatch.{{0,80}}{v}-beta\.1",
+                         f"a pre-release of the pin ({pin}-beta.1) is not named as a mismatch")
+        self.assertIn(next_patch(pin), check, f"a newer patch release ({next_patch(pin)}) is not named as a mismatch")
 
     def test_exact_match_counts_build_metadata_as_mismatch(self):
-        # A token cut before `+build` would turn 1.14.1+vendor.1 into 1.14.1 and pass.
+        # A token cut before `+build` would turn <pin>+vendor.1 into <pin> and pass.
         token = r"`\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`"
         _, check = self.s3_check()
         self.assertIn(token, check, "the Step 3 token drops build metadata")
         self.assertRegex(check, r"(?is)whole token.{0,80}build metadata", "the check does not keep build metadata in the token")
-        self.assertRegex(check, r"(?s)1\.14\.1\+vendor\.1.{0,80}mismatch|mismatch.{0,80}1\.14\.1\+vendor\.1",
-                         "a build of the pin is not named as a mismatch")
+        pin = openspec_pin()
+        v = re.escape(pin)
+        self.assertRegex(check, rf"(?s){v}\+vendor\.1.{{0,80}}mismatch|mismatch.{{0,80}}{v}\+vendor\.1",
+                         f"a build of the pin ({pin}+vendor.1) is not named as a mismatch")
         root = install_bullet(step(read(README), "Step 1"), r"openspec list --json")
         self.assertIn(token, root or "", "the Step 1 token drops build metadata")
 
@@ -1380,8 +1390,9 @@ class TestOpenSpecPin(unittest.TestCase):
         _, check = self.s3_check()
         self.assertRegex(check, r"(?is)directly\s+followed\s+by\s+a\s+digit,\s+(a\s+)?letter,\s+`\.`,\s+`\+`\s+or\s+`-`.{0,120}unreadable",
                          "Step 3 does not call a run-on token unreadable output")
-        self.assertIn("1.14.1.0", check, "Step 3 does not give 1.14.1.0 as an example")
-        self.assertIn("1.14.1vendor", check, "Step 3 does not give 1.14.1vendor as an example")
+        pin = openspec_pin()
+        self.assertIn(f"{pin}.0", check, f"Step 3 does not give {pin}.0 as an example")
+        self.assertIn(f"{pin}vendor", check, f"Step 3 does not give {pin}vendor as an example")
         self.assertNotIn("(?!", check, "Step 3 uses a negative lookahead")
 
     def test_step1_run_on_token_is_unreadable(self):
@@ -1410,8 +1421,9 @@ class TestOpenSpecPin(unittest.TestCase):
                 return "unreadable"
             return t.group(0)
 
-        for out, want in (("1.14.1", "1.14.1"), ("openspec 1.14.1\n", "1.14.1"), ("1.14.1+vendor.1", "1.14.1+vendor.1"),
-                          ("1.14.1.0", "unreadable"), ("1.14.1vendor", "unreadable")):
+        p = openspec_pin()
+        for out, want in ((p, p), (f"openspec {p}\n", p), (f"{p}+vendor.1", f"{p}+vendor.1"),
+                          (f"{p}.0", "unreadable"), (f"{p}vendor", "unreadable")):
             self.assertEqual(read_version(out), want, f"the README rule reads {out!r} wrongly")
 
     def test_eval_scaffolding_matches_pin(self):

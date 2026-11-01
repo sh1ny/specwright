@@ -12,7 +12,7 @@ This change sets `skip_specs: true` and has no spec deltas, so no `#### Scenario
 
 ## 1. Pin-derived Step 3 tests
 
-- [ ] 1.1 In `evals/git-workflow/test_instructions.py`, make `test_exact_match_counts_prerelease_as_mismatch`, `test_exact_match_counts_build_metadata_as_mismatch`, `test_step3_run_on_token_is_unreadable` and `test_readme_token_rule_on_sample_outputs` build their example versions from `openspec_pin()` (`<pin>-beta.1`, `<pin>+vendor.1`, `<pin>.0`, `<pin>vendor`, the next patch), per design D5; verify `python -m unittest evals/git-workflow/test_instructions.py` still passes on the current pin 1.14.1.
+- [x] 1.1 In `evals/git-workflow/test_instructions.py`, make `test_exact_match_counts_prerelease_as_mismatch`, `test_exact_match_counts_build_metadata_as_mismatch`, `test_step3_run_on_token_is_unreadable` and `test_readme_token_rule_on_sample_outputs` build their example versions from `openspec_pin()` (`<pin>-beta.1`, `<pin>+vendor.1`, `<pin>.0`, `<pin>vendor`, the next patch), per design D5; verify `python -m unittest evals/git-workflow/test_instructions.py` still passes on the current pin 1.14.1.
 
 ## 2. Move the pin to 1.16.0
 
