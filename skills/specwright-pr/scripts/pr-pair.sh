@@ -31,6 +31,15 @@
 #                                     one PUT repos/o/n/pulls/N/merge (merge_method, sha), then always a read-back: merged (also when a
 #                                     person merged first), refused (reason head_changed on 409, else refused; exit 1) or, when the state
 #                                     cannot be read or the PUT got a 5xx, unknown (exit 3). Never a second PUT, auto-merge or a queue call; bad input = exit 2
+#   policy --repo o/n --head sha [--store]
+#                                     the merge policy from GitHub, never the work tree: default_branch (repos/o/n), then openspec/specwright.yaml
+#                                     read through the contents API at the default branch and at the PR head, both as the run login. Prints
+#                                     main and head (pr.merge, pr.merge_method, pr.delete_branch, pr.reviewers; with --store also
+#                                     planning_store.reviewers), compared normalized, never as bytes, drift [{key, main, head}] and, from
+#                                     main alone: merge, merge_method, delete_branch, merge_ready {code[, store]}, merge_reason, merge_note.
+#                                     No file on main is user mode; a bad merge_method/delete_branch on main with merge: agent is exit 2
+#                                     bad_setting (a bad head value is only drift). A failed, cut-off or unreadable read (not a file, not
+#                                     base64, not YAML), or no file at the head, is exit 3 lookup_failed "merge policy unknown: <reason>"
 #   delete-remote --repo o/n --branch b --head sha
 #                                     delete the remote branch only when it is still at the full 40-hex merged head and no open PR is
 #                                     based on it: deleted | gone (404, or 422 gone meanwhile) | moved (sha) | based_on (prs) |
@@ -97,6 +106,7 @@ if command -v cygpath >/dev/null 2>&1; then PR_PAIR_DIR=$(cygpath -m "$PR_PAIR_D
 export PR_PAIR_DIR
 
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
+import base64
 import contextlib
 import datetime
 import errno
@@ -601,6 +611,28 @@ def setting_text(m, key):
     return str(v).lower() if isinstance(v, bool) else str(v)
 
 
+def merge_mode(pr):
+    """pr.merge as the policy reads it: (user|agent, note). Anything else is user, with a note naming the value as written."""
+    merge = pr.get("merge")
+    note = None
+    if merge not in (None, "") and merge not in ("user", "agent"):
+        note = f"pr.merge: {setting_text(pr, 'merge')} is not user or agent; treated as user"
+    return (merge if merge in ("user", "agent") else "user"), note
+
+
+def merge_options(pr):
+    """pr.merge_method and pr.delete_branch with their defaults; a bad value is exit 2 bad_setting."""
+    method = pr.get("merge_method")
+    method = "merge" if method is None else method
+    if method not in ("merge", "squash", "rebase"):
+        raise Stop("bad_setting", f"pr.merge_method: {setting_text(pr, 'merge_method')} must be merge, squash or rebase", code=2)
+    delete = pr.get("delete_branch")
+    delete = True if delete is None else delete
+    if not isinstance(delete, bool):
+        raise Stop("bad_setting", f"pr.delete_branch: {setting_text(pr, 'delete_branch')} must be true or false", code=2)
+    return method, delete
+
+
 def contexts(code, store, check_merge=True):
     s = load_settings(code)
     pr = s.get("pr") or {}
@@ -608,23 +640,13 @@ def contexts(code, store, check_merge=True):
            "finish": str(s.get("finish") or ""), "max_fix_rounds": int(pr.get("max_fix_rounds") if isinstance(pr.get("max_fix_rounds"), int) else 2),
            "after_limit": str(pr.get("after_limit") or "ask"), "react": bool(pr.get("react")),
            "poll_interval": duration(pr.get("poll_interval"), 300)}
-    merge = pr.get("merge")
-    out["merge"] = merge if merge in ("user", "agent") else "user"
-    if merge not in (None, "") and merge not in ("user", "agent"):
-        out["merge_note"] = f"pr.merge: {setting_text(pr, 'merge')} is not user or agent; treated as user"
+    out["merge"], note = merge_mode(pr)
+    if note:
+        out["merge_note"] = note
     out["merge_method"], out["delete_branch"] = "merge", True
     if out["merge"] != "agent" or not check_merge:  # only the agent merge reads them: user mode keeps today's behaviour
         return out
-    method = pr.get("merge_method")
-    method = "merge" if method is None else method
-    if method not in ("merge", "squash", "rebase"):
-        raise Stop("bad_setting", f"pr.merge_method: {setting_text(pr, 'merge_method')} must be merge, squash or rebase", code=2)
-    out["merge_method"] = method
-    delete = pr.get("delete_branch")
-    delete = True if delete is None else delete
-    if not isinstance(delete, bool):
-        raise Stop("bad_setting", f"pr.delete_branch: {setting_text(pr, 'delete_branch')} must be true or false", code=2)
-    out["delete_branch"] = delete
+    out["merge_method"], out["delete_branch"] = merge_options(pr)
     return out
 
 
@@ -2325,6 +2347,102 @@ def reply_message(r):
     return message or (r.stderr or r.stdout).strip() or f"gh exited {r.returncode}"
 
 
+def policy_unknown(reason):
+    raise Stop("lookup_failed", f"merge policy unknown: {reason}", code=3, unknown=True)
+
+
+def policy_gh(*args):
+    """One fenced, bounded gh read for `policy`; a failure or a limit is unknown with the policy wording; a 404 is None."""
+    try:
+        r = gh(*args)
+    except Stop as e:
+        if e.extra.get("unknown"):
+            policy_unknown(re.sub(r"^GitHub state unknown: ", "", e.message))
+        raise
+    if r.returncode != 0:
+        if http_status(r) == 404:
+            return None
+        policy_unknown(reply_message(r))
+    return r.stdout
+
+
+def policy_file(repo, ref):
+    """The parsed specwright.yaml at `ref` from GitHub's contents API: a mapping, or None when the file is not there (404)."""
+    out = policy_gh("api", f"repos/{repo}/contents/openspec/specwright.yaml?ref={quote(ref, safe='')}")
+    if out is None:
+        return None
+    try:
+        body = json.loads(out)
+        if not isinstance(body, dict) or body.get("type") != "file" or body.get("encoding") != "base64":
+            raise ValueError("not a base64 file")
+        text = base64.b64decode("".join(str(body.get("content", "")).split()), validate=True).decode("utf-8")
+        s = parse_yaml(text) or {}
+        if not isinstance(s, dict):
+            raise ValueError("not a mapping")
+    except (ValueError, TypeError) as e:  # binascii.Error and UnicodeDecodeError are ValueErrors
+        policy_unknown(f"unreadable openspec/specwright.yaml at {ref}: {e}")
+    return s
+
+
+def policy_side(s, with_store):
+    """The policy keys of one settings file, normalized so only a real difference compares unequal. Keys are the setting names."""
+    def sect(src, name):
+        v = src.get(name)
+        return v if isinstance(v, dict) else {}
+    pr = sect(s, "pr")
+    merge, note = merge_mode(pr)
+    method, delete = pr.get("merge_method"), pr.get("delete_branch")
+    side = {"pr.merge": merge, "pr.merge_method": "merge" if method is None else method,
+            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(pr.get("reviewers"))}
+    if with_store:
+        own = sect(s, "planning_store").get("reviewers")
+        side["planning_store.reviewers"] = reviewers_of(own) if isinstance(own, dict) else None  # None: the store inherits pr.reviewers
+    return side, note, pr
+
+
+def has_required(reviewers):
+    return any(r["role"] == "required" for r in reviewers.values())
+
+
+def cmd_policy(argv):
+    """The merge policy as the default branch holds it, and where the PR head's copy differs (trust-main-merge-policy D1-D3)."""
+    with_store = "--store" in argv
+    a, _ = parse_args([t for t in argv if t != "--store"], {"--repo": "repo", "--head": "head"})
+    need(a, "repo", "head")
+    repo, head = a["repo"], a["head"]
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", head):
+        usage(f"--head must be a commit id of 7 to 40 hex digits, got {head!r}")
+    body = policy_gh("api", f"repos/{repo}")
+    try:
+        default = json.loads(body or "")["default_branch"]
+        if not isinstance(default, str) or not default:
+            raise ValueError("no default branch")
+    except (ValueError, KeyError, TypeError):
+        policy_unknown(f"cannot read the default branch of {repo}")
+    main_s = policy_file(repo, default)
+    if main_s is None:
+        main_s = {}  # no settings file on the default branch: user mode
+    head_s = policy_file(repo, head)
+    if head_s is None:
+        policy_unknown(f"no openspec/specwright.yaml readable at {head}")
+    main, note, main_pr = policy_side(main_s, with_store)
+    head_side = policy_side(head_s, with_store)[0]
+    drift = [{"key": k, "main": main[k], "head": head_side[k]} for k in main if main[k] != head_side[k]]
+    out = {"ok": True, "repo": repo, "default_branch": default, "main": main, "head": head_side, "drift": drift,
+           "merge": main["pr.merge"], "merge_method": "merge", "delete_branch": True}
+    if out["merge"] == "agent":  # only the agent merge reads them, as context does; a bad value on main stops here
+        out["merge_method"], out["delete_branch"] = merge_options(main_pr)
+    ready = {"code": has_required(main["pr.reviewers"])}
+    if with_store:
+        own = main["planning_store.reviewers"]
+        ready["store"] = ready["code"] if own is None else has_required(own)
+    out["merge_ready"] = ready
+    out["merge_reason"] = {k: None if v else "no_required_reviewer" for k, v in ready.items()}
+    if note:
+        out["merge_note"] = note
+    return out
+
+
 def cmd_delete_remote(argv):
     """Delete the remote branch only at the merged head with no open PR based on it; a failed read is unknown, never a delete."""
     a, _ = parse_args(argv, {"--repo": "repo", "--branch": "branch", "--head": "head"})
@@ -2392,7 +2510,7 @@ COMMANDS = {"identity": cmd_identity, "context": cmd_context, "tier": cmd_tier, 
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
             "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,
-            "delete-remote": cmd_delete_remote, "item-issues": cmd_item_issues}
+            "delete-remote": cmd_delete_remote, "policy": cmd_policy, "item-issues": cmd_item_issues}
 
 args = sys.argv[1:]
 try:

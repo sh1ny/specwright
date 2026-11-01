@@ -4,29 +4,29 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| pr-merge → The merge policy comes from main | Policy unchanged by the PR | evals/pr-pair/test_pr_pair.py | Policy.test_same_policy_no_drift_main_values | red |
-| pr-merge → The merge policy comes from main | Branch turns on agent merge | evals/pr-pair/test_pr_pair.py | Policy.test_head_turns_on_agent_merge_drifts | red |
-| pr-merge → The merge policy comes from main | Local checkout edited, remote unchanged | evals/pr-pair/test_pr_pair.py | Policy.test_work_tree_settings_are_ignored | red |
-| pr-merge → The merge policy comes from main | No settings file on main | evals/pr-pair/test_pr_pair.py | Policy.test_missing_file_on_main_is_user_mode | red |
-| pr-merge → The merge policy comes from main | Invalid method on main | evals/pr-pair/test_pr_pair.py | Policy.test_bad_method_on_main_is_bad_setting | red |
-| pr-merge → The merge policy comes from main | Main branch renamed in the PR | evals/pr-pair/test_pr_pair.py | Policy.test_default_branch_from_github_not_main_branch | red |
+| pr-merge → The merge policy comes from main | Policy unchanged by the PR | evals/pr-pair/test_pr_pair.py | Policy.test_same_policy_no_drift_main_values | green |
+| pr-merge → The merge policy comes from main | Branch turns on agent merge | evals/pr-pair/test_pr_pair.py | Policy.test_head_turns_on_agent_merge_drifts | green |
+| pr-merge → The merge policy comes from main | Local checkout edited, remote unchanged | evals/pr-pair/test_pr_pair.py | Policy.test_work_tree_settings_are_ignored | green |
+| pr-merge → The merge policy comes from main | No settings file on main | evals/pr-pair/test_pr_pair.py | Policy.test_missing_file_on_main_is_user_mode | green |
+| pr-merge → The merge policy comes from main | Invalid method on main | evals/pr-pair/test_pr_pair.py | Policy.test_bad_method_on_main_is_bad_setting | green |
+| pr-merge → The merge policy comes from main | Main branch renamed in the PR | evals/pr-pair/test_pr_pair.py | Policy.test_default_branch_from_github_not_main_branch | green |
 | pr-merge → Required reviewers are those of the authorizing set | Wait started with an edited set | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_snapshot_without_main_required_reviewer_not_ok | red |
 | pr-merge → Required reviewers are those of the authorizing set | Authorizing reviewer reported | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_main_required_reviewer_reported_ok | red |
 | pr-merge → Required reviewers are those of the authorizing set | Archive head carry-over | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_reviewed_head_carry_over_checks_main_set | red |
 | pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_store_snapshot_checked_against_store_head | red |
-| pr-merge → A policy difference needs the user | Required reviewer replaced | evals/pr-pair/test_pr_pair.py | Policy.test_reviewer_set_difference_listed | red |
+| pr-merge → A policy difference needs the user | Required reviewer replaced | evals/pr-pair/test_pr_pair.py | Policy.test_reviewer_set_difference_listed | green |
 | pr-merge → A policy difference needs the user | User confirms the difference | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_yes_merges_with_head_method | red |
 | pr-merge → A policy difference needs the user | User declines | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_no_reports_ready_without_merge | red |
 | pr-merge → A policy difference needs the user | Neither copy opts in | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_without_head_agent_asks_nothing | red |
-| pr-merge → A policy difference needs the user | PR turns agent merge off | evals/pr-pair/test_pr_pair.py | Policy.test_head_turns_agent_merge_off_drifts_and_main_stays_agent | red |
+| pr-merge → A policy difference needs the user | PR turns agent merge off | evals/pr-pair/test_pr_pair.py | Policy.test_head_turns_agent_merge_off_drifts_and_main_stays_agent | green |
 | pr-merge → A policy difference needs the user | Head moves after the answer | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_answer_covers_one_head | red |
-| pr-merge → A policy difference needs the user | Formatting only | evals/pr-pair/test_pr_pair.py | Policy.test_formatting_only_difference_is_no_drift | red |
-| pr-merge → An unknown policy merges nothing | Read fails | evals/pr-pair/test_pr_pair.py | Policy.test_failed_read_is_unknown_exit_3 | red |
-| pr-merge → An unknown policy merges nothing | No settings file at the head | evals/pr-pair/test_pr_pair.py | Policy.test_missing_file_at_head_is_unknown | red |
-| pr-merge → An unknown policy merges nothing | Read succeeds after a failure | evals/pr-pair/test_pr_pair.py | Policy.test_read_after_failure_succeeds | red |
-| pr-merge → Merging is opt-in | Default project never merges | evals/pr-pair/test_pr_pair.py | Policy.test_no_merge_key_anywhere_is_user | red |
+| pr-merge → A policy difference needs the user | Formatting only | evals/pr-pair/test_pr_pair.py | Policy.test_formatting_only_difference_is_no_drift | green |
+| pr-merge → An unknown policy merges nothing | Read fails | evals/pr-pair/test_pr_pair.py | Policy.test_failed_read_is_unknown_exit_3 | green |
+| pr-merge → An unknown policy merges nothing | No settings file at the head | evals/pr-pair/test_pr_pair.py | Policy.test_missing_file_at_head_is_unknown | green |
+| pr-merge → An unknown policy merges nothing | Read succeeds after a failure | evals/pr-pair/test_pr_pair.py | Policy.test_read_after_failure_succeeds | green |
+| pr-merge → Merging is opt-in | Default project never merges | evals/pr-pair/test_pr_pair.py | Policy.test_no_merge_key_anywhere_is_user | green |
 | pr-merge → Merging is opt-in | Opted-in project merges | evals/pr-pair/test_skill_text.py | AgentMerge.test_merge_decided_by_policy_not_context | red |
-| pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | Policy.test_unrecognised_merge_value_noted_as_user | red |
+| pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | Policy.test_unrecognised_merge_value_noted_as_user | green |
 | pr-merge → Merging is opt-in | Local finish ignores the setting | evals/pr-pair/test_skill_text.py | AgentMerge.test_watch_merges_only_with_pr_merge_agent (existing) | green |
 | pr-merge → Agent mode archives before merging without asking | Ready change, not archived | evals/pr-pair/test_skill_text.py | AgentMerge.test_archive_without_asking_needs_policy_from_main | red |
 | pr-merge → Agent mode archives before merging without asking | Archive fails | evals/pr-pair/test_skill_text.py | AgentMerge.test_agent_mode_archive_failure_stops_no_merge (existing) | green |
@@ -45,8 +45,8 @@ Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's cont
 
 ## 3. `pr-pair.sh policy`: reads, drift and unknown
 
-- [ ] 3.1 Write the `Policy` tests in `evals/pr-pair/test_pr_pair.py` for every `Policy.*` row of the test map, against the fake `gh` (main and head copies seeded through the contents endpoint, a work-tree copy that differs). Run the module and see them fail for the missing subcommand.
-- [ ] 3.2 Implement `policy --repo --head [--store]` in `skills/specwright-pr/scripts/pr-pair.sh`: `default_branch` from `repos/<o>/<n>`, the two contents reads through `gh` (fenced, bounded), base64 decode and `parse_yaml`, the shared normalization with `contexts`/`reviewers_of` (factor it out so `context` keeps its output byte for byte), `drift`, the main-side effective values with `bad_setting` (exit 2), and exit 3 `lookup_failed` with `merge policy unknown: ...` for a failed, cut-off, non-file or unparseable read and for a 404 at the head; a 404 on main is an empty file. Document it in the script header. Verify the `Policy` rows turn green and the existing `Context` and `ContextPin` tests still pass; flip the rows green.
+- [x] 3.1 Write the `Policy` tests in `evals/pr-pair/test_pr_pair.py` for every `Policy.*` row of the test map, against the fake `gh` (main and head copies seeded through the contents endpoint, a work-tree copy that differs). Run the module and see them fail for the missing subcommand.
+- [x] 3.2 Implement `policy --repo --head [--store]` in `skills/specwright-pr/scripts/pr-pair.sh`: `default_branch` from `repos/<o>/<n>`, the two contents reads through `gh` (fenced, bounded), base64 decode and `parse_yaml`, the shared normalization with `contexts`/`reviewers_of` (factor it out so `context` keeps its output byte for byte), `drift`, the main-side effective values with `bad_setting` (exit 2), and exit 3 `lookup_failed` with `merge policy unknown: ...` for a failed, cut-off, non-file or unparseable read and for a 404 at the head; a 404 on main is an empty file. Document it in the script header. Verify the `Policy` rows turn green and the existing `Context` and `ContextPin` tests still pass; flip the rows green.
 
 ## 4. `policy` reviewer check
 

@@ -3958,5 +3958,166 @@ class TestTier(Base):
         self.assertEqual(self.pp("context", "--code", self.code, expect=2)["error"], "bad_setting")
 
 
+class Policy(Base):
+    """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
+
+    HEAD = f"{9:040x}"
+    TOKEN = {"GH_TOKEN": "tok-k"}
+    PATH = "openspec/specwright.yaml"
+    AGENT = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
+    USER = "pr:\n  merge: user\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
+
+    def seed(self, ref, text):
+        st = self.gh()
+        fake_gh.set_file(st, CODE, ref, self.PATH, text)
+        self.save_gh(st)
+
+    def seed_both(self, main, head):
+        """main / head: the settings text, or None for a ref that holds another file only (the settings file is a 404)."""
+        st = self.gh()
+        for ref, text in (("main", main), (self.HEAD, head)):
+            if text is None:
+                fake_gh.set_file(st, CODE, ref, "README.md", "x")
+            else:
+                fake_gh.set_file(st, CODE, ref, self.PATH, text)
+        self.save_gh(st)
+
+    def policy(self, *extra, expect=0, **kw):
+        return self.pp("policy", "--repo", CODE, "--head", self.HEAD, *extra, env=self.TOKEN, expect=expect, **kw)
+
+    def inject(self, *entries):
+        st = self.gh()
+        st["fail"] = list(entries)
+        self.save_gh(st)
+
+    def keys(self, r):
+        return {d["key"]: d for d in r["drift"]}
+
+    def test_same_policy_no_drift_main_values(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["drift"], [])
+        self.assertEqual((r["ok"], r["default_branch"], r["merge"], r["merge_method"], r["delete_branch"]),
+                         (True, "main", "agent", "squash", True))
+        self.assertEqual(r["main"], r["head"])
+        self.assertIs(r["merge_ready"]["code"], True)
+        calls = [c for c in self.gh_calls() if any("contents/" in x for x in c["argv"])]
+        self.assertEqual(len(calls), 2)
+        for c in calls:
+            self.assertEqual((c.get("env") or {}).get("GH_TOKEN"), "tok-k", "every read runs as the run login")
+
+    def test_head_turns_on_agent_merge_drifts(self):
+        self.seed_both(self.USER, self.AGENT)
+        r = self.policy()
+        self.assertIn({"key": "pr.merge", "main": "user", "head": "agent"}, r["drift"])
+        self.assertEqual(r["merge"], "user")
+
+    def test_work_tree_settings_are_ignored(self):
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write("code/" + self.PATH, self.AGENT)
+        self.seed_both(self.USER, self.USER)
+        r = self.policy(cwd=code)
+        self.assertEqual((r["merge"], r["drift"]), ("user", []))
+
+    def test_missing_file_on_main_is_user_mode(self):
+        self.seed_both(None, self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["merge"], "user")
+        self.assertEqual(self.keys(r)["pr.merge"], {"key": "pr.merge", "main": "user", "head": "agent"})
+        self.assertEqual(r["_rc"], 0)
+
+    def test_bad_method_on_main_is_bad_setting(self):
+        self.seed_both("pr:\n  merge: agent\n  merge_method: fast-forward\n", self.AGENT)
+        r = self.policy(expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+        self.assertIn("fast-forward", r["message"])
+        self.assertIn("must be merge, squash or rebase", r["message"])
+
+    def test_default_branch_from_github_not_main_branch(self):
+        st = self.gh()
+        fake_gh.set_default_branch(st, CODE, "trunk")
+        self.save_gh(st)
+        self.seed("trunk", self.USER)
+        self.seed("attacker-branch", self.AGENT)
+        self.seed(self.HEAD, "main_branch: attacker-branch\n" + self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["default_branch"], "trunk")
+        self.assertEqual(r["merge"], "user")
+        self.assertEqual(self.keys(r)["pr.merge"]["main"], "user")
+        refs = [x for c in self.gh_calls() for x in c["argv"] if "contents/" in x]
+        self.assertTrue(all("attacker-branch" not in x for x in refs), refs)
+
+    def test_reviewer_set_difference_listed(self):
+        self.seed_both(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    someone-else: { role: required }\n")
+        r = self.policy()
+        d = self.keys(r)["pr.reviewers"]
+        self.assertEqual(set(d["main"]), {"chatgpt-codex-connector"})
+        self.assertEqual(set(d["head"]), {"someone-else"})
+        self.assertEqual(d["main"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": ""})
+
+    def test_head_turns_agent_merge_off_drifts_and_main_stays_agent(self):
+        self.seed_both(self.AGENT, self.USER)
+        r = self.policy()
+        self.assertEqual(self.keys(r)["pr.merge"]["head"], "user")
+        self.assertEqual(r["merge"], "agent")
+
+    def test_formatting_only_difference_is_no_drift(self):
+        head = ("# the policy\npr:\n  reviewers:\n    chatgpt-codex-connector: { timeout: 20m, role: 'required' }  # codex\n"
+                "  merge_method: \"squash\"\n  merge: 'agent'\n")
+        main = ("pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector:\n      role: required\n"
+                "      timeout: 1200\n")
+        self.seed_both(main, head)
+        self.assertEqual(self.policy()["drift"], [])
+
+    def test_failed_read_is_unknown_exit_3(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        self.inject({"match": "ref=main", "stderr": "dial tcp: connection reset"})
+        r = self.policy(expect=3)
+        self.assertEqual((r["ok"], r["error"]), (False, "lookup_failed"))
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+        self.assertIn("connection reset", r["message"])
+
+    def test_missing_file_at_head_is_unknown(self):
+        self.seed_both(self.AGENT, None)
+        r = self.policy(expect=3)
+        self.assertEqual(r["error"], "lookup_failed")
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+        self.assertIn(f"no {self.PATH} readable at {self.HEAD}", r["message"])
+
+    def test_read_after_failure_succeeds(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        self.inject({"match": "ref=main", "once": True, "stderr": "dial tcp: connection reset"})
+        self.assertEqual(self.policy(expect=3)["error"], "lookup_failed")
+        r = self.policy()
+        self.assertEqual((r["ok"], r["drift"], r["merge"]), (True, [], "agent"))
+
+    def test_no_merge_key_anywhere_is_user(self):
+        self.seed_both("pr:\n  validate: x\n", "pr:\n  validate: x\n")
+        r = self.policy()
+        self.assertEqual((r["merge"], r["drift"]), ("user", []))
+        self.assertNotIn("merge_note", r)
+
+    def test_unrecognised_merge_value_noted_as_user(self):
+        self.seed_both("pr:\n  merge: yes\n", "pr:\n  merge: yes\n")
+        r = self.policy()
+        self.assertEqual(r["merge"], "user")
+        self.assertIn("pr.merge: yes is not user or agent; treated as user", r["merge_note"])
+        self.assertEqual(r["drift"], [])
+
+    def test_directory_at_the_path_is_unknown(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        st = self.gh()
+        st["repos"][CODE]["contents"]["main"] = {self.PATH + "/inner.yaml": "x"}
+        self.save_gh(st)
+        r = self.policy(expect=3)
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+
+    def test_store_adds_the_store_reviewers_side(self):
+        self.seed_both(self.AGENT + "planning_store:\n  reviewers: {}\n", self.AGENT)
+        r = self.policy("--store")
+        self.assertEqual(r["merge_ready"], {"code": True, "store": False})
+        self.assertIn("planning_store.reviewers", self.keys(r))
+
+
 if __name__ == "__main__":
     unittest.main()
