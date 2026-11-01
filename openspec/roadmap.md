@@ -15,15 +15,16 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 - A project opts in to a pack in `openspec/specwright.yaml`. Install, update and remove add and remove only that pack's files, and a project with no packs installs nothing extra and carries no pack descriptions. (agent)
 - The installer rejects a pack that removes a step or relaxes the triage, review or verify gate where it can detect it, and names the rule. (agent)
 - An eval installs the gamedev pack in a fixture project and shows its additions (the GDD document and its rules for proposal, design and tasks) in the instructions OpenSpec gives for a change. (agent)
-- Each change ships as its own release: 0.12.1 (#156), 0.12.2, 0.12.3, 0.13.0, 0.14.0, 0.15.0 and 0.16.0. (agent)
+- Each change ships as its own release: 0.12.1 (#156), 0.12.2, 0.12.3, 0.13.0, 0.14.0, 0.14.1 (#164), 0.15.0 and 0.16.0. (agent)
 
 **Changes** (in order; each about one PR):
 1. `ci-os-matrix` (0.12.2) - #145: every eval suite runs in CI on Linux, Windows and macOS (`fail-fast: false`), with a pinned, checksummed jj per OS and `but` on Linux only (#154), so platform-specific code (MSYS argv quoting, `cygpath`, CRLF) is exercised on every PR and local eval runs stop. It also shows whether the three Windows-only `test_git_backend` crashes come from this machine or are real.
 2. `fix-m5-gaps` (0.12.3) - known gaps filed during M5: #133 the release skill hardcodes a repo-local proposal path; #134 the fake `gh` state file can be read half-written; #136 nested bounded sessions survive a timed-out test file on POSIX; #143 a duplicate task id shadows the ticked entry's coverage; #144 the code-half pair evidence omits its trailers; #146 live finish evals with no recorded rendering for the fixture PR body; #150 GitButler checks Specwright's repo-local skills before running them from the shared work tree; #151 an unassigned settings edit is read as the change's settings.
 3. `trust-main-merge-policy` (0.13.0) - #141: agent merge reads `pr.merge`, `merge_method`, `delete_branch` and `pr.reviewers` from main, and a branch whose policy differs is never merged without the user.
 4. `gitbutler-in-repo-install` (0.14.0) - #150 follow-up: GitButler projects may install Specwright's skills and agents in the repo again; `scripts_in_workspace` and `target_in_workspace` are removed, the install prompt and README warn instead, and ADR 0021 supersedes ADR 0019's install half. It lands before `pack-mechanism` so GitButler projects with an in-repo install can use packs.
-5. `pack-mechanism` (0.15.0) - #68: the pack format, opt-in in `openspec/specwright.yaml`, install, update and remove through `update.sh`, and the additive-only check. A pack adds init questions, project documents, per-artifact `rules:` and `context:`, skills and tasks; it never removes or relaxes a core gate.
-6. `gamedev-pack` (0.16.0) - #68: the first pack, from the gamedev skills prototyped in Tower of Lament (GDD, game design, narrative, game UI/UX, engine), attached at the points those skills recorded.
+5. `bump-openspec-1-16` (0.14.1) - #164: OpenSpec is pinned at 1.16.0 instead of 1.14.1, the install lines name the Node.js 22.12 the npm package needs, and the schema gains upstream's rule that every scenario has a WHEN/GIVEN and a THEN step.
+6. `pack-mechanism` (0.15.0) - #68: the pack format, opt-in in `openspec/specwright.yaml`, install, update and remove through `update.sh`, and the additive-only check. A pack adds init questions, project documents, per-artifact `rules:` and `context:`, skills and tasks; it never removes or relaxes a core gate.
+7. `gamedev-pack` (0.16.0) - #68: the first pack, from the gamedev skills prototyped in Tower of Lament (GDD, game design, narrative, game UI/UX, engine), attached at the points those skills recorded.
 
 ## Next: M7 - Native CLI
 

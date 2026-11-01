@@ -27,8 +27,8 @@ This change sets `skip_specs: true` and has no spec deltas, so no `#### Scenario
 
 ## 4. Roadmap and release
 
-- [ ] 4.1 Record `bump-openspec-1-16` (0.14.1, #164) in the M6 section of `openspec/roadmap.md` (changes list and the release list in the exit criteria); verify by reading the M6 section.
-- [ ] 4.2 Run `release.sh bump --to 0.14.1`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release; verify with `release.sh check` and `release.sh notes --proposal openspec/changes/bump-openspec-1-16/proposal.md`.
+- [x] 4.1 Record `bump-openspec-1-16` (0.14.1, #164) in the M6 section of `openspec/roadmap.md` (changes list and the release list in the exit criteria); verify by reading the M6 section.
+- [x] 4.2 Run `release.sh bump --to 0.14.1`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release; verify with `release.sh check` and `release.sh notes --proposal openspec/changes/bump-openspec-1-16/proposal.md`.
 
 ## Workflow follow-up
 
