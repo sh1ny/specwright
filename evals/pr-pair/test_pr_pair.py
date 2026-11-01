@@ -4194,6 +4194,19 @@ class Policy(PolicyBase):
         """PR #160 security review: `foo:<TAB>bar` is not YAML; only `: ` with a space used to be caught."""
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: foo:\tbar\n", 6)
 
+    def test_document_markers_only_at_column_zero_first(self):
+        """PR #160 security review: an indented `---` used to be dropped, and the reader then read the file as empty."""
+        self.assert_malformed_unknown(self.AGENT, "  ---\n" + self.AGENT, 1)
+        self.assert_malformed_unknown(self.AGENT, "--- pr:\n  merge: agent\n", 1)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "---\nx: 1\n", 6)
+
+    def test_breaks_controls_and_merge_keys_are_unknown(self):
+        """Forms the reader splits or keeps differently from YAML: unicode line breaks, control characters, `<<`."""
+        for extra, line in (("x: a y: b\n", 6), ("x: a\x00\n", 6), ("<<: {pr: {merge: user}}\n", 6),
+                            ("x: |\n      \n  y\n", 6)):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
+
     def test_integer_is_not_a_boolean_in_drift(self):
         """PR #160 review: 1 == True in Python, so `delete_branch: 1` against the default true read as no drift."""
         for main_v, head_v in (("", "  delete_branch: 1\n"), ("  delete_branch: false\n", "  delete_branch: 0\n")):
@@ -4204,7 +4217,7 @@ class Policy(PolicyBase):
 
     def test_valid_yaml_forms_still_read(self):
         text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n"
-                "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n"
+                "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n  \"q\\\"k\": 1\n"
                 "pr:\n  validate: |\n    line one\n    line: two\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
                 "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
         self.seed_both("﻿" + text, text)  # a UTF-8 byte order mark is valid YAML

@@ -537,7 +537,7 @@ def plain_ok(v, flow, key=False):
         raise YamlBad(f"`{v[0]}` cannot start a plain value (anchors, tags, aliases and directives are not read)")
     if " #" in v or "\t#" in v:
         raise YamlBad("a comment the reader would keep as text")
-    if re.search(r":[ 	]", v) or v.endswith(":"):
+    if re.search(r":[ \t]", v) or v.endswith(":"):
         raise YamlBad("a plain value holds `:` before a space or tab")
     if flow and (set(v) & (FLOW_CHARS | {"'", '"'})):
         raise YamlBad("a flow entry holds `,`, a bracket or a quote outside quotes")
@@ -586,6 +586,8 @@ def flow_node(v, i, key=False):
             j = skip_ws(v, j)
             if c == "{":
                 key = unquote(v[start:j].strip())
+                if v[start:j].strip() == "<<":
+                    raise YamlBad("a `<<` merge key (YAML merges it in, the reader does not)")
                 if key in keys:
                     raise YamlBad(f"duplicate key `{key}`")
                 keys.add(key)
@@ -642,6 +644,10 @@ def yaml_problem(text):
     is unknown there (ADR 0020 D4). This checks the YAML subset the reader reads as YAML does: block mappings, flow
     collections, quoted and plain scalars, `|`/`>` blocks. What it would read otherwise (block sequences, anchors, tags,
     aliases, tabs in indentation, duplicate keys, explicit indentation indicators) is a problem too, so it fails closed."""
+    odd = re.search("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x85  ﻿]", text)
+    if odd:  # str.splitlines breaks at some of these where YAML does not, and YAML forbids the controls
+        row = len(re.split(r"\r\n|\r|\n", text[:odd.start()]))
+        return f"line {row}: a control character or line separator (U+{ord(odd.group()):04X})"
     raw = text.splitlines()
     lines = []
     for n, r in enumerate(raw):
@@ -650,10 +656,12 @@ def yaml_problem(text):
             lead = s[:len(s) - len(s.lstrip())]
             if "\t" in lead:
                 return f"line {n + 1}: a tab in the indentation"
+            if re.match(r"(---|\.\.\.)(\s|$)", s.strip()):
+                if lines or lead or s.strip() != "---":
+                    return f"line {n + 1}: a document marker the reader does not read (only `---` alone, first, at column 0)"
+                continue
             lines.append((len(lead), s.strip(), n))
-    if lines and lines[0][1] == "---":
-        lines = lines[1:]
-    key_re = re.compile(r"^((?:\"(?:[^\"\]|\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
+    key_re = re.compile(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
 
     def bad(i, why):
         raise YamlBad(f"line {lines[i][2] + 1}: {why}")
@@ -672,6 +680,8 @@ def yaml_problem(text):
             if why:
                 bad(i, why)
             key = unquote(k.strip())
+            if k.strip() == "<<":
+                bad(i, "a `<<` merge key (YAML merges it in, the reader does not)")
             if key in keys:
                 bad(i, f"duplicate key `{key}`")
             keys.add(key)
@@ -683,6 +693,11 @@ def yaml_problem(text):
                 body_rows = [r for r in raw[row + 1:end] if r.strip()]
                 if body_rows:
                     pad = len(body_rows[0]) - len(body_rows[0].lstrip(" "))
+                    for r in raw[row + 1:end]:
+                        if r.strip():
+                            break
+                        if len(r) > pad:
+                            bad(i, "a blank line before a block scalar's text with more spaces than the text")
                     if any(len(r) - len(r.lstrip(" ")) < pad or "\t" in r[:len(r) - len(r.lstrip())] for r in body_rows):
                         bad(i, "a block scalar line indented less than its first line, or with a tab")
                 i += 1
