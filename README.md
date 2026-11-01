@@ -109,7 +109,7 @@ Ask which agents this project uses (several may apply) and confirm the paths:
   version; an update from one project updates all) and that Claude Code runs a
   user-level `specwright-*` skill instead of an in-repo one of the same name.
   When the user moves a project from user level to in repo, say to update the
-  user-level `specwright-*` copies to 0.14.0 or later, or remove them once no
+  user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no
   other project on the machine relies on them, and to restart agent sessions;
   an older user-level copy stops every `vcs.sh` call with
   `scripts_in_workspace` once in-repo copies exist.
@@ -389,7 +389,7 @@ recorded a missing PR prerequisite, add the line
 Step 2 offers the repo (`.claude/skills/`, `.agents/skills/`) or your user directory (`~/.claude/skills/`, `~/.agents/skills/`, and the matching agents directories), on every backend. Specwright installs where you choose and never refuses to run because of it. It is a warning, not a check: Specwright neither detects nor refuses a mixed install.
 
 - **User level.** A user-level install is shared by every project on the machine: one Specwright version, and an update from one project updates all. In Claude Code a user-level `specwright-*` skill overrides an in-repo skill of the same name (personal over project), while agents resolve project over user. For Claude Code the skills' location is in effect a per-machine choice, and a mixed install runs the user-level skills.
-- **Moving to an in-repo install.** Update the user-level `specwright-*` copies to 0.14.0 or later, or remove them once no other project on the machine relies on them, then restart your agent sessions. An older user-level copy stops every `vcs.sh` call with `scripts_in_workspace` once in-repo copies exist; that message is the symptom.
+- **Moving to an in-repo install.** Update the user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no other project on the machine relies on them, then restart your agent sessions. An older user-level copy stops every `vcs.sh` call with `scripts_in_workspace` once in-repo copies exist; that message is the symptom.
 - **OpenSpec's own files.** OpenSpec's `openspec-*` skills and `/opsx:*` commands are always in the repo: `openspec init` has no user-level option.
 - **GitButler.** Every applied branch shares the work tree, so a branch that changes in-repo skills changes them for every applied branch, and keeping them consistent is your job. An in-repo install leaves its files as unassigned changes in that tree: commit them through a GitButler branch of your own. The branch gate's "commit on main" offer does not apply there.
 

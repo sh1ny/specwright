@@ -2210,7 +2210,7 @@ class GitButlerSkillText(unittest.TestCase):
                          "Step 2 does not warn that applied GitButler branches share in-repo skills")
         self.assertRegex(s2, r"(?is)Claude Code.{0,100}user-level `specwright-\*` skill.{0,60}in-repo",
                          "Step 2 does not say a user-level skill overrides the in-repo one in Claude Code")
-        self.assertRegex(s2, r"(?is)0\.14\.0 or later.{0,200}no other project.{0,200}restart.{0,200}`scripts_in_workspace`",
+        self.assertRegex(s2, r"(?is)0\.14\.0 or newer.{0,200}no other project.{0,200}restart.{0,200}`scripts_in_workspace`",
                          "Step 2 does not say how to move from user level to in repo, with the old copy's symptom")
         note = section(text, "Where the skills live")
         self.assertIsNotNone(note, "the README has no 'Where the skills live' note")
@@ -2220,7 +2220,7 @@ class GitButlerSkillText(unittest.TestCase):
         self.assertRegex(n, r"(?is)Claude Code.{0,200}user-level.{0,100}overrides? .{0,60}in-repo.{0,200}(project over user|agents resolve project)",
                          "the note does not give the Claude Code precedence")
         self.assertRegex(n, r"(?is)mixed install.{0,100}(runs|run) the user-level skills", "the note does not say a mixed install runs the user-level skills")
-        self.assertRegex(n, r"(?is)(update|updating).{0,120}0\.14\.0 or later.{0,200}(remove|removing).{0,200}no other project.{0,200}restart",
+        self.assertRegex(n, r"(?is)(update|updating).{0,120}0\.14\.0 or newer.{0,200}(remove|removing).{0,200}no other project.{0,200}restart",
                          "the note does not say how to move from user level to in repo")
         self.assertRegex(n, r"(?is)`scripts_in_workspace`.{0,100}(older|symptom)|(older|symptom).{0,200}`scripts_in_workspace`",
                          "the note does not name scripts_in_workspace as the symptom of an older copy")
