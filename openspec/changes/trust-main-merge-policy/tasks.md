@@ -15,22 +15,22 @@
 | pr-merge → Required reviewers are those of the authorizing set | Archive head carry-over | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_reviewed_head_carry_over_checks_main_set | green |
 | pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | evals/pr-pair/test_pr_pair.py | PolicyReviewers.test_store_snapshot_checked_against_store_head | green |
 | pr-merge → A policy difference needs the user | Required reviewer replaced | evals/pr-pair/test_pr_pair.py | Policy.test_reviewer_set_difference_listed | green |
-| pr-merge → A policy difference needs the user | User confirms the difference | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_yes_merges_with_head_method | red |
-| pr-merge → A policy difference needs the user | User declines | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_no_reports_ready_without_merge | red |
-| pr-merge → A policy difference needs the user | Neither copy opts in | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_without_head_agent_asks_nothing | red |
+| pr-merge → A policy difference needs the user | User confirms the difference | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_yes_merges_with_head_method | green |
+| pr-merge → A policy difference needs the user | User declines | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_no_reports_ready_without_merge | green |
+| pr-merge → A policy difference needs the user | Neither copy opts in | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_without_head_agent_asks_nothing | green |
 | pr-merge → A policy difference needs the user | PR turns agent merge off | evals/pr-pair/test_pr_pair.py | Policy.test_head_turns_agent_merge_off_drifts_and_main_stays_agent | green |
-| pr-merge → A policy difference needs the user | Head moves after the answer | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_answer_covers_one_head | red |
+| pr-merge → A policy difference needs the user | Head moves after the answer | evals/pr-pair/test_skill_text.py | AgentMerge.test_drift_answer_covers_one_head | green |
 | pr-merge → A policy difference needs the user | Formatting only | evals/pr-pair/test_pr_pair.py | Policy.test_formatting_only_difference_is_no_drift | green |
 | pr-merge → An unknown policy merges nothing | Read fails | evals/pr-pair/test_pr_pair.py | Policy.test_failed_read_is_unknown_exit_3 | green |
 | pr-merge → An unknown policy merges nothing | No settings file at the head | evals/pr-pair/test_pr_pair.py | Policy.test_missing_file_at_head_is_unknown | green |
 | pr-merge → An unknown policy merges nothing | Read succeeds after a failure | evals/pr-pair/test_pr_pair.py | Policy.test_read_after_failure_succeeds | green |
 | pr-merge → Merging is opt-in | Default project never merges | evals/pr-pair/test_pr_pair.py | Policy.test_no_merge_key_anywhere_is_user | green |
-| pr-merge → Merging is opt-in | Opted-in project merges | evals/pr-pair/test_skill_text.py | AgentMerge.test_merge_decided_by_policy_not_context | red |
+| pr-merge → Merging is opt-in | Opted-in project merges | evals/pr-pair/test_skill_text.py | AgentMerge.test_merge_decided_by_policy_not_context | green |
 | pr-merge → Merging is opt-in | Unrecognised value | evals/pr-pair/test_pr_pair.py | Policy.test_unrecognised_merge_value_noted_as_user | green |
 | pr-merge → Merging is opt-in | Local finish ignores the setting | evals/pr-pair/test_skill_text.py | AgentMerge.test_watch_merges_only_with_pr_merge_agent (existing) | green |
-| pr-merge → Agent mode archives before merging without asking | Ready change, not archived | evals/pr-pair/test_skill_text.py | AgentMerge.test_archive_without_asking_needs_policy_from_main | red |
+| pr-merge → Agent mode archives before merging without asking | Ready change, not archived | evals/pr-pair/test_skill_text.py | AgentMerge.test_archive_without_asking_needs_policy_from_main | green |
 | pr-merge → Agent mode archives before merging without asking | Archive fails | evals/pr-pair/test_skill_text.py | AgentMerge.test_agent_mode_archive_failure_stops_no_merge (existing) | green |
-| pr-merge → Agent mode archives before merging without asking | Branch-only agent mode asks first | evals/pr-pair/test_skill_text.py | AgentMerge.test_archive_without_asking_needs_policy_from_main | red |
+| pr-merge → Agent mode archives before merging without asking | Branch-only agent mode asks first | evals/pr-pair/test_skill_text.py | AgentMerge.test_archive_without_asking_needs_policy_from_main | green |
 
 Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's contents endpoint: file, 404, non-file, ref by branch and by sha).
 
@@ -55,8 +55,8 @@ Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's cont
 
 ## 5. Watch reads the policy
 
-- [ ] 5.1 Write the `AgentMerge` skill-text tests for every `AgentMerge.*` red row in `evals/pr-pair/test_skill_text.py`: watch runs `pr-pair.sh policy` with the snapshot(s) at the archive decision and again after the Version check before each merge request, archives without asking only on main's `agent`, no drift and `reported.main` ok, lists drift and asks only for a head with `pr.merge: agent` and `reported.head` ok, merges on yes with the head's `merge_method` at that head only, restarts the wait with `reviewer_args` of the authorizing set (never the head's before a yes) when it is not ok, and reports `merge policy unknown` and merges nothing on exit 3. Run the module and see them fail.
-- [ ] 5.2 Update `skills/specwright-pr/SKILL.md`: the Agent merge paragraph and settings block (main decides; `context`'s `merge` is the start-of-watch read only), watch's merge-settings paragraph, **Archive before merge**, the archive-only carry-over (`--reviewed-head <repo>=<R>`), **Merge** and the store pair. Verify the `AgentMerge` rows turn green, the existing `SkillText`, `RunLogin` and `AgentMerge` tests pass, and flip the rows green.
+- [x] 5.1 Write the `AgentMerge` skill-text tests for every `AgentMerge.*` red row in `evals/pr-pair/test_skill_text.py`: watch runs `pr-pair.sh policy` with the snapshot(s) at the archive decision and again after the Version check before each merge request, archives without asking only on main's `agent`, no drift and `reported.main` ok, lists drift and asks only for a head with `pr.merge: agent` and `reported.head` ok, merges on yes with the head's `merge_method` at that head only, restarts the wait with `reviewer_args` of the authorizing set (never the head's before a yes) when it is not ok, and reports `merge policy unknown` and merges nothing on exit 3. Run the module and see them fail.
+- [x] 5.2 Update `skills/specwright-pr/SKILL.md`: the Agent merge paragraph and settings block (main decides; `context`'s `merge` is the start-of-watch read only), watch's merge-settings paragraph, **Archive before merge**, the archive-only carry-over (`--reviewed-head <repo>=<R>`), **Merge** and the store pair. Verify the `AgentMerge` rows turn green, the existing `SkillText`, `RunLogin` and `AgentMerge` tests pass, and flip the rows green.
 
 ## 6. Release 0.13.0
 
