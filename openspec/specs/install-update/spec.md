@@ -247,21 +247,20 @@ The `git ls-remote --tags` that `update.sh` runs to name the highest release tag
 - **WHEN** the download's origin answers `git ls-remote` with more than 32 MiB
 - **THEN** the `store_version` refusal names `response_too_large` and `git ls-remote` as the reason, and no tag is named from a partial list
 
-### Requirement: A GitButler project takes no in-repo skill or agent target
-When the installed `openspec/specwright.yaml` selects `vcs: gitbutler`, `update.sh plan` (and `stage`, which runs it first) SHALL refuse, before any write, each `--skills` or `--agents` directory inside the code work tree: exit 1, error `refused`, a `target_in_workspace` refusal naming it. The install prompt SHALL offer only user-level targets with `vcs: gitbutler`. Other projects keep in-repo targets.
+### Requirement: Every backend takes in-repo and user-level targets
+`update.sh plan` SHALL accept a `--skills` or `--agents` directory inside or outside the code work tree, whatever `vcs` selects. The install prompt SHALL offer both locations on every backend. With `vcs: gitbutler` it SHALL warn before the user chooses that every applied branch shares the work tree, so a branch that changes in-repo skills changes them for every applied branch.
 
 #### Scenario: In-repo target for a GitButler project
 - **WHEN** `update.sh plan` runs with `--skills <code>/.claude/skills` and `<code>/openspec/specwright.yaml` has `vcs: gitbutler`
-- **THEN** it exits 1 with error `refused` and a `target_in_workspace` refusal naming `<code>/.claude/skills`, and no file outside the plan's scratch directory is written
+- **THEN** `plan` and `stage` each exit 0 with no refusal naming that directory, and `stage` stages the skills for that directory
 
-#### Scenario: User-level target
+#### Scenario: User-level target for a GitButler project
 - **WHEN** the same project's update names `--skills ~/.claude/skills`
-- **THEN** the plan has no `target_in_workspace` refusal
+- **THEN** the plan holds no refusal for that directory
 
-#### Scenario: Git project
-- **WHEN** `vcs` is `git` and the target is `<code>/.claude/skills`
-- **THEN** the plan has no `target_in_workspace` refusal
+### Requirement: The install prompt explains what a user-level install shares
+With any backend the install prompt SHALL say that a user-level install is shared by every project on the machine. It SHALL say that moving to an in-repo install means updating or removing the old user-level `specwright-*` copies, which serve every project on the machine, and restarting agent sessions first, and that in Claude Code a user-level skill overrides the in-repo one of the same name.
 
-#### Scenario: Fresh install with no settings yet
-- **WHEN** `<code>/openspec/specwright.yaml` does not exist and the target is `<code>/.claude/skills`
-- **THEN** the plan has no `target_in_workspace` refusal, and the README install prompt's GitButler choice says the targets must be outside the repo
+#### Scenario: The install prompt on GitButler
+- **WHEN** the install prompt asks for targets and `vcs: gitbutler` is set or chosen
+- **THEN** it offers the in-repo directories and the user-level ones, warns that applied branches share in-repo skills, says that a user-level install is shared by every project on the machine and, in Claude Code, overrides in-repo skills of the same name, and says that moving to an in-repo install means removing the user-level `specwright-*` copies once no other project relies on them, or updating them to 0.14.0 or later, and restarting agent sessions, with `scripts_in_workspace` from an older user-level copy as the symptom

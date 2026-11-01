@@ -534,24 +534,16 @@ With `vcs: gitbutler`, Specwright SHALL use GitButler's own agent skill as the t
 - **WHEN** the install runs with `vcs: gitbutler` and the user declines the skill offer
 - **THEN** no `but skill install` runs and no global skill directory changes
 
-### Requirement: On GitButler Specwright's scripts run from outside the work tree
-With `vcs: gitbutler`, every `vcs.sh` subcommand SHALL stop with `scripts_in_workspace` before any `but` command or write when its own scripts directory lies inside the code work tree, or a Specwright skill or agent copy (`specwright-*` under `.claude/skills`, `.agents/skills`, `.claude/agents`, `.omp/agents`) exists there. The message SHALL name each path, say to install outside the repo, and say to remove committed copies by hand through GitButler. Git and jj are unaffected.
+### Requirement: On GitButler Specwright runs from wherever it was installed
+With `vcs: gitbutler`, `vcs.sh` SHALL run the same way whether its scripts directory and the Specwright skill and agent copies are inside the code work tree or outside it. Neither location SHALL be refused or reported as an error.
 
 #### Scenario: Skills installed in the repo
-- **WHEN** `vcs` is `gitbutler` and `vcs.sh state` runs from `<repo>/.claude/skills/specwright-pr/scripts/`
-- **THEN** it exits 1 with `error: scripts_in_workspace` naming that directory, and no `but` command ran
+- **WHEN** `vcs` is `gitbutler`, GitButler manages the repo with main as its target, and `vcs.sh probe` runs from `<repo>/.claude/skills/specwright-pr/scripts/`
+- **THEN** it exits 0 with `ok: true` and `backend: gitbutler`
 
-#### Scenario: Skills installed at user level
-- **WHEN** `vcs` is `gitbutler`, `vcs.sh` runs from a directory outside the repo and the work tree holds no `specwright-*` skill or agent copy
-- **THEN** the probe continues as before
-
-#### Scenario: A sibling branch adds a skill copy
-- **WHEN** `vcs` is `gitbutler`, `vcs.sh` runs from outside the repo, and an applied sibling branch has added `.claude/skills/specwright-pr/`
-- **THEN** it exits 1 with `scripts_in_workspace` naming `.claude/skills/specwright-pr`, and no `but` command ran
-
-#### Scenario: Git project with in-repo skills
-- **WHEN** `vcs` is `git` and `vcs.sh` runs from `<repo>/.claude/skills/specwright-pr/scripts/`
-- **THEN** it runs as before
+#### Scenario: Skills installed at user level beside an in-repo copy
+- **WHEN** `vcs` is `gitbutler`, GitButler manages the repo with main as its target, `vcs.sh probe` runs from a directory outside the repo, and the work tree also holds `.claude/skills/specwright-pr/`
+- **THEN** it exits 0 with `ok: true` and `backend: gitbutler`
 
 ### Requirement: On GitButler the settings are those the change branch committed
 With `vcs: gitbutler`, the settings SHALL be read only from `pr-pair.sh context --branch <b>` right before each use (each `pr.validate` run, the merge settings), and `vcs.sh push` SHALL check again. Each SHALL stop with `settings_not_pinned` when the work-tree `openspec/specwright.yaml` differs from the file at the tip of `<b>` (after the merge, with `--after-merge`: that tip while `<b>` exists, else GitButler's target ref), or exists on one side only. Branch reads and commits are not pinned.
