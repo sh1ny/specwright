@@ -36,7 +36,7 @@ Extra tests, no row: `evals/pr-pair/test_fake_gh.py` `Contents` (the fake's cont
 
 ## 1. ADR 0020
 
-- [ ] 1.1 Write `docs/adr/0020-agent-merge-takes-its-policy-from-the-default-branch.md` (Status: accepted, today's date, "adds to 0009"), recording design D1-D6: the policy keys, read from GitHub's default branch and at the ready head before the archive decision and each merge request, normalized comparison, a yes only for a head with `pr.merge: agent` whose required reviewers reported, reviewer reports checked against the authorizing set per repository, unknown merges nothing. Add its row to the in-force index in `openspec/architecture.md`. Verify the index row links the file and `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 1.1 Write `docs/adr/0020-agent-merge-takes-its-policy-from-the-default-branch.md` (Status: accepted, today's date, "adds to 0009"), recording design D1-D6: the policy keys, read from GitHub's default branch and at the ready head before the archive decision and each merge request, normalized comparison, a yes only for a head with `pr.merge: agent` whose required reviewers reported, reviewer reports checked against the authorizing set per repository, unknown merges nothing. Add its row to the in-force index in `openspec/architecture.md`. Verify the index row links the file and `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 2. Fake gh contents endpoint
 
