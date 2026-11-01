@@ -1124,6 +1124,8 @@ def references_base(dest, registered=True, ref_id="team-plans"):
 
 
 MERGED_CLOSES = 12  # the issue the merged PR's description closes, already closed in the fake gh
+# The merged PR bodies the finish fixtures seed. Each needs a recorded rendering (evals/pr-pair/closing_bodies.py collects them).
+MERGED_PR_BODIES = (f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",)
 
 
 def origin_with_main(repo, ref):
@@ -1276,7 +1278,7 @@ def build_finish_resume_merged(repo, squash, release=None):
     else:
         origin_shim(repo)
     pr = gh_pull(7, "add-greeting", merged=True)
-    pr.update({"title": title, "body": f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",
+    pr.update({"title": title, "body": MERGED_PR_BODIES[0],
                "closing_refs": [{"number": MERGED_CLOSES, "repo": PR_SLUG}]})
     st = {"user": "eval-bot", "tokens": {"eval-bot": "eval-token"},
           "repos": {PR_SLUG: {"default_branch": "main", "pulls": [pr],
@@ -1318,7 +1320,7 @@ def build_finish_resume_stale_main(repo):
     env_file(repo, GIT_TRACE=posix(repo / "git-trace.log"))
     origin_shim(repo)
     pr = gh_pull(7, "add-greeting", merged=True)
-    pr.update({"title": "feat(add-greeting): add greet and farewell", "body": f"Adds greet and farewell.\n\nCloses #{MERGED_CLOSES}",
+    pr.update({"title": "feat(add-greeting): add greet and farewell", "body": MERGED_PR_BODIES[0],
                "closing_refs": [{"number": MERGED_CLOSES, "repo": PR_SLUG}]})
     st = {"user": "eval-bot", "tokens": {"eval-bot": "eval-token"},
           "repos": {PR_SLUG: {"default_branch": "main", "pulls": [pr],

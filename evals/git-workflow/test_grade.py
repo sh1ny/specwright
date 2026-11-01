@@ -1750,6 +1750,20 @@ class StoreGroupRecovery(GroupGraderCase):
         commit_paths(code, msg, *fixtures.group_code(code, 1))
         commit_paths(store, msg, CHANGE_TASKS)
         self.assert_fails(CH_PAIR)
+        subject = msg.splitlines()[0]
+        ev = self.results()[CH_PAIR][1]
+        self.assertIn(f"code={[(subject, [])]} store={[(subject, [])]}", ev)  # the evidence shows the missing trailers
+
+    def test_store_group_pair_evidence_lists_tasks(self):
+        want = ["1.1", "1.2", "1.3"]
+        self.fixture("eval-store-group-code-half", "Verified 1.1 to 1.3 again, committed group 1 in the code repo, then in the store.\n")
+        code, store = self.repo / "code", self.repo / "store"
+        fixtures.commit_group(code, store, "groups", 1)
+        subject = fixtures.group_msg("groups", 1).splitlines()[0]
+        self.assertIn(f"code={[(subject, want)]} store={[(subject, want)]}", self.results()[CH_PAIR][1])
+        self.fixture("eval-store-group-store-half", "Group 1's code commit existed; committed its ticks in the store with the same message.\n")
+        commit_paths(self.repo / "store", fixtures.group_msg("groups", 1), CHANGE_TASKS)
+        self.assertIn(f"code={[(subject, want)]} store={[(subject, want)]}", self.results()[SH_STORE][1])
 
     def test_store_group_code_half_lost_tick_fails(self):
         self.fixture("eval-store-group-code-half", "Committed group 1.\n")

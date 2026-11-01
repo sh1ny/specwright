@@ -3,8 +3,11 @@
 Fixtures are real: a managed repo is a scratch clone `but` has opened (butenv). A stub `but` on PATH records where it
 ran, to prove no `but` command runs in the repo (any `but` command there would set the repo up).
 """
+import json
+import shutil
+
 from butenv import Scratch, require_but
-from vcs_test_support import VcsTestCase, bash_path_env
+from vcs_test_support import ROOT, VcsTestCase, bash_path_env, bash_run
 
 
 class GitButlerCase(VcsTestCase):
@@ -32,6 +35,19 @@ class GitButlerCase(VcsTestCase):
 
     def settings(self, repo, text="vcs: gitbutler\nfinish: pr\n"):
         self.set_settings(repo, text)
+
+    def copy_scripts(self, destination):
+        """A copy of the shipped specwright-pr scripts at `destination`; returns its vcs.sh."""
+        shutil.copytree(ROOT / "skills" / "specwright-pr" / "scripts", destination,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        return destination / "vcs.sh"
+
+    def run_copy(self, script, scratch, repo, expected):
+        """`probe` through the vcs.sh at `script`, with the stub `but` (stub_but() first) on PATH."""
+        result = bash_run([script.as_posix(), "probe", "--repo", str(repo), "--role", "code"], cwd=repo,
+                          env=self.isolated(scratch), shim=self.root / "stub-bin")
+        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+        return json.loads(result.stdout)
 
 
 class TestGitButlerProbe(GitButlerCase):
@@ -98,6 +114,69 @@ class TestGitButlerProbe(GitButlerCase):
                 stub_env, _ = self.stub_but(version)
                 result, _ = self.invoke("probe", repo=repo, env={**stub_env, **self.isolated(scratch)}, expected=1)
                 self.assertEqual(result["error"], error)
+
+
+class TestScriptsOutsideWorkspace(GitButlerCase):
+    """fix-m5-gaps D7 (#150): the probe stops before any `but` command when Specwright is in the work tree."""
+
+    def test_scripts_in_work_tree_stop_before_but(self):
+        require_but()
+        with Scratch() as scratch:
+            repo = scratch.tracked_repo().path
+            self.settings(repo)
+            _, log = self.stub_but()
+            script = self.copy_scripts(repo / "tools" / "flow" / "scripts")
+            before = self.snapshot(repo)
+            result = self.run_copy(script, scratch, repo, expected=1)
+            self.assertEqual(result["error"], "scripts_in_workspace")
+            self.assertIn("tools/flow/scripts", result["message"])
+            self.assertIn("user level", result["message"])
+            self.assertIn("by hand", result["message"])
+            self.assertIn("GitButler", result["message"])
+            self.assertFalse(log.exists(), "but ran although the scripts are in the work tree")
+            self.assertEqual(self.snapshot(repo), before)
+
+    def test_scripts_outside_work_tree_probe_continues(self):
+        require_but()
+        with Scratch() as scratch:
+            repo = scratch.tracked_repo().path
+            self.settings(repo)
+            _, log = self.stub_but()
+            self.git(repo, "config", "gitbutler.project.targetRef", "refs/heads/main")
+            script = self.copy_scripts(self.root / "user-level" / "specwright-pr" / "scripts")
+            result = self.run_copy(script, scratch, repo, expected=0)
+            self.assertEqual((result["backend"], result["main"]), ("gitbutler", "main"))
+            self.assertTrue(log.exists() and log.read_text(encoding="utf-8").split(), "the probe never reached but")
+
+    def test_specwright_copy_in_work_tree_stops(self):
+        require_but()
+        with Scratch() as scratch:
+            repo = scratch.tracked_repo().path
+            self.settings(repo)
+            _, log = self.stub_but()
+            script = self.copy_scripts(self.root / "user-level" / "specwright-pr" / "scripts")
+            for rel, is_dir in ((".claude/skills/specwright-pr", True), (".agents/skills/specwright-branch", True),
+                                (".claude/agents/specwright-reviewer.md", False),
+                                (".omp/agents/specwright-implementer.md", False)):
+                with self.subTest(rel):
+                    copy = repo / rel
+                    copy.parent.mkdir(parents=True, exist_ok=True)
+                    if is_dir:
+                        copy.mkdir()
+                    else:
+                        copy.write_text("copy\n", encoding="utf-8")
+                    try:
+                        result = self.run_copy(script, scratch, repo, expected=1)
+                    finally:
+                        if is_dir:
+                            shutil.rmtree(copy)
+                        else:
+                            copy.unlink()
+                    self.assertEqual(result["error"], "scripts_in_workspace")
+                    self.assertIn(rel, result["message"])
+                    self.assertIn("user level", result["message"])
+                    self.assertIn("by hand", result["message"])
+                    self.assertFalse(log.exists(), "but ran although a Specwright copy is in the work tree")
 
 
 class TestGitBackendRefusesWorkspace(GitButlerCase):

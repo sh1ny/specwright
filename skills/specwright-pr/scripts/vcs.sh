@@ -168,8 +168,33 @@ def gitbutler_managed(root):
     return target.stdout.strip() if target.returncode == 0 and target.stdout.strip() else None
 
 
+WORKSPACE_COPIES = (".claude/skills/specwright-*", ".agents/skills/specwright-*",
+                    ".claude/agents/specwright-*.md", ".omp/agents/specwright-*.md")
+
+
+def workspace_install(root):
+    """Paths that put Specwright in the work tree every applied branch shares: this script's own directory when it lies
+    under the repo root, and any specwright-* skill or agent copy in the work tree."""
+    found = []
+    try:
+        VCS_DIR.resolve().relative_to(root)
+        found.append(path_text(VCS_DIR))
+    except ValueError:
+        pass
+    for pattern in WORKSPACE_COPIES:
+        found.extend(path_text(path) for path in sorted(root.glob(pattern)))
+    return found
+
+
 def probe_gitbutler(repo, configured_main, settings):
     root = git_root(repo)
+    found = workspace_install(root)
+    if found:  # before any `but` command: a sibling branch can replace these files
+        raise Stop("scripts_in_workspace", "vcs: gitbutler runs Specwright only from outside the work tree, which every "
+                   "applied branch shares and a sibling branch can change; found in the work tree: " + ", ".join(found) +
+                   ". Install Specwright at user level (skills in ~/.claude/skills or ~/.agents/skills, agents in "
+                   "~/.claude/agents or ~/.omp/agents). Copies committed on main stop every call, so remove them by hand "
+                   "through GitButler (a branch made in the GitButler app, not through Specwright)")
     main = detect_main(root, configured_main)
     target = gitbutler_managed(root)
     if target is None:
@@ -676,6 +701,15 @@ def gitbutler_push(root, info, opts, login):
     branch = require_branch(opts)
     require_applied(root, branch)
     require_settings_pinned(root, branch)
+    pinned = bash_script(None, PR_PAIR, "context", "--code", str(opts["code"]), "--only", "repos", "--branch", branch)
+    if pinned.returncode:  # D8: the single comparison lives in pr-pair.sh; its error and message pass through
+        try:
+            data = json.loads(pinned.stdout)
+        except ValueError:
+            data = {"error": "settings_error", "message": pinned.stderr.strip() or pinned.stdout.strip()}
+        extra = {k: v for k, v in data.items() if k in ("file", "ref")}
+        raise Stop(data.get("error", "settings_error"), data.get("message", "could not check the settings"),
+                   min(pinned.returncode, 3), **extra)
     refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
     try:
         network_git(root, ["push", "--no-follow-tags", "origin", refspec], login)

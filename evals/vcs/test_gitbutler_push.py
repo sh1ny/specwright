@@ -67,7 +67,6 @@ class TestGitButlerPush(GitButlerNetworkCase):
             wrap = self.prepare(scratch)
             repo = self.workspace(scratch, ["feat/b", "feat/add-c"])
             self.github_view()
-            (repo.path / ".git" / "info" / "exclude").write_text("", encoding="utf-8")  # the fixture hides the settings
             settings = repo.path / "openspec" / "specwright.yaml"
             settings.write_text(settings.read_text(encoding="utf-8") + "pr:\n  validate: \"echo pwned\"\n", encoding="utf-8")
             repo.but("commit", "-b", "feat/b", "-m", "settings", "--json", "openspec/specwright.yaml")
@@ -82,6 +81,30 @@ class TestGitButlerPush(GitButlerNetworkCase):
             self.assertEqual(self.pushes(), [])
             # feat/b itself is not stopped: the settings are its own
             self.assertTrue(self.vcs(scratch, wrap, "state", "--branch", "feat/b")["ok"])
+
+    def test_unassigned_settings_edit_stops_push(self):
+        # an unassigned work-tree edit of the settings is not the change branch's committed copy (fix-m5-gaps D8, #151)
+        require_but()
+        with Scratch() as scratch:
+            wrap = self.prepare(scratch)
+            repo = self.workspace(scratch, ["feat/b", "feat/add-c"])
+            self.github_view()
+            settings = repo.path / "openspec" / "specwright.yaml"
+            settings.write_text(settings.read_text(encoding="utf-8") + "pr:\n  validate: \"echo pwned\"\n", encoding="utf-8")
+            initial = self.origin_refs(scratch)
+
+            push =self.vcs(scratch, wrap, "push", "--branch", "feat/add-c", "--login", LOGIN, expected=1)
+
+            self.assertEqual(push["error"], "settings_not_pinned", push)
+            self.assertIn("openspec/specwright.yaml", push["message"])
+            self.assertEqual(self.origin_refs(scratch), initial)
+            self.assertEqual(self.pushes(), [])
+            # branch reads are not pinned: the change can still commit its own edit
+            self.assertTrue(self.vcs(scratch, wrap, "state", "--branch", "feat/add-c")["ok"])
+            # putting the file back lets the push through
+            self.set_settings(repo.path, "vcs: gitbutler\nfinish: pr\n")
+            pushed = self.vcs(scratch, wrap, "push", "--branch", "feat/add-c", "--login", LOGIN)
+            self.assertTrue(pushed["ok"], pushed)
 
     def test_push_unapplied_stops(self):
         require_but()

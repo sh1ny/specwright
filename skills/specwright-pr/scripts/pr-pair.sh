@@ -5,10 +5,23 @@
 #
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
-#   context --code <dir> [--store <dir>] [--only repos]
+#   context --code <dir> [--store <dir>] [--only repos] [--branch b [--after-merge]]
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
 #                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting;
 #                                     --only repos skips that check, for callers that never merge, such as vcs.sh)
+#                                     With `vcs: gitbutler` the settings must be those the change branch committed (the shared work tree
+#                                     can hold a sibling branch's or an unassigned edit): --branch b compares git hash-object
+#                                     --path=openspec/specwright.yaml <work-tree file> (the repo's clean and eol filters apply, so CRLF
+#                                     checkouts compare equal) with refs/heads/b:openspec/specwright.yaml. A difference, or the file on one
+#                                     side only, is exit 1 settings_not_pinned (names the file and the ref; commit the edit on b); a git
+#                                     failure is exit 1 git_error. --after-merge --branch b, for cleanup after its pull and delete,
+#                                     compares with the tip of refs/heads/b while that branch exists (pull skipped or left applied), else
+#                                     with gitbutler.project.targetRef; its message names that ref and says to run `but pull` or undo the
+#                                     work-tree edit. A merge-settings call (anything but --only repos) without --branch is exit 2 usage
+#                                     on GitButler. GitButler here means `vcs: gitbutler` in the work-tree file or a GitButler-managed
+#                                     repo (gitbutler/ in the common git dir and gitbutler.project.targetRef set, as vcs.sh decides),
+#                                     so an unpinned edit of the vcs line cannot turn the check off. Other Git and jj repos (a leftover
+#                                     target ref alone included) never pin; they accept and ignore --branch.
 #   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj|gitbutler","store":"git|jj"};
 #                                     absent settings default independently to git; unknown values stop with unknown_vcs; gitbutler is code-repo only and needs finish: pr
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
@@ -723,11 +736,99 @@ def cmd_identity(argv):
     return identity(pos[0])
 
 
+def settings_path(code):
+    """The settings file load_settings reads, or None."""
+    for base in (code, toplevel(code)):
+        p = Path(base) / "openspec" / "specwright.yaml"
+        if p.is_file():
+            return p.resolve()  # absolute: git runs with cwd=toplevel, so a path relative to the caller would miss
+    return None
+
+
+def settings_pinned(code, ref, branch, after_merge=False):
+    """GitButler: the work-tree settings file must equal the one at `ref` (hash-object applies the repo's clean and eol
+    filters, so a CRLF checkout compares equal). Raises settings_not_pinned (a difference, or a file on one side only) or git_error."""
+    top = toplevel(code)
+    path = settings_path(code)
+    rel = "openspec/specwright.yaml"
+    if path is not None:
+        try:
+            rel = path.resolve().relative_to(Path(top).resolve()).as_posix()
+        except ValueError:
+            pass
+    work = None
+    if path is not None:
+        r = git(top, "hash-object", f"--path={rel}", str(path))
+        if r.returncode != 0:
+            raise Stop("git_error", f"git hash-object {rel} failed: {r.stderr.strip()}")
+        work = r.stdout.strip()
+    r = git(top, "ls-tree", ref, "--", rel)
+    if r.returncode != 0:
+        raise Stop("git_error", f"git ls-tree {ref} -- {rel} failed: {r.stderr.strip()}")
+    parts = r.stdout.split()
+    tip = parts[2] if len(parts) >= 3 else None
+    if work == tip:
+        return
+    if after_merge:
+        how = f"run `but pull` or undo the edit of {rel} in the work tree before acting on it"
+    else:
+        how = f"commit the edit on {branch}, or undo it, before this step"
+    if work is None:
+        state = f"{rel} is missing from the work tree but present at {ref}"
+    elif tip is None:
+        state = f"{rel} exists in the work tree but not at {ref}"
+    else:
+        state = f"{rel} in the work tree differs from the copy at {ref}"
+    raise Stop("settings_not_pinned", f"{state}; with vcs: gitbutler the settings are those the change branch committed: {how}",
+               file=rel, ref=ref)
+
+
+def gitbutler_pins(code):
+    """Whether `context` pins the settings: `vcs: gitbutler` in the work-tree file, or a GitButler-managed repo as vcs.sh
+    `gitbutler_managed` sees it (`gitbutler/` in the common git dir and gitbutler.project.targetRef set). The second does not
+    come from the file being checked, so an unpinned edit of the `vcs:` line cannot turn the check off; a leftover target ref
+    without the metadata dir is a Git or jj checkout and does not pin."""
+    if load_settings(code).get("vcs") == "gitbutler":
+        return True
+    # no --path-format (git 2.31+): on an older git it would fail and turn the check off; a relative answer is
+    # relative to `code`, as vcs.sh gitbutler_managed resolves it
+    r = git(code, "rev-parse", "--git-common-dir")
+    common = r.stdout.strip()
+    if r.returncode != 0 or not common:
+        return False
+    common_dir = Path(common) if Path(common).is_absolute() else Path(code) / common
+    if not (common_dir / "gitbutler").is_dir():
+        return False
+    r = git(code, "config", "--get", "gitbutler.project.targetRef")
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def pin_ref(code, branch, after_merge):
+    if not after_merge:
+        return f"refs/heads/{branch}"
+    if has_ref(code, f"refs/heads/{branch}"):
+        return f"refs/heads/{branch}"
+    r = git(code, "config", "--get", "gitbutler.project.targetRef")
+    target = r.stdout.strip() if r.returncode == 0 else ""
+    if not target:
+        raise Stop("git_error", "gitbutler.project.targetRef is not set, so there is no target to compare the settings with")
+    return target
+
+
 def cmd_context(argv):
-    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--only": "only"})
+    after_merge = "--after-merge" in argv
+    argv = [t for t in argv if t != "--after-merge"]
+    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--only": "only", "--branch": "branch"})
     need(a, "code")
     if a.get("only") not in (None, "repos"):
         usage("--only takes repos")
+    if after_merge and not a.get("branch"):
+        usage("--after-merge needs --branch")
+    if gitbutler_pins(a["code"]):
+        if a.get("only") != "repos" and not a.get("branch"):
+            usage("with vcs: gitbutler, context for the merge settings needs --branch <branch>")
+        if a.get("branch"):
+            settings_pinned(a["code"], pin_ref(a["code"], a["branch"], after_merge), a["branch"], after_merge)
     c = contexts(a["code"], a.get("store"), check_merge=a.get("only") != "repos")
     for k, d in (("code", a["code"]), ("store", a.get("store"))):
         if c[k] is not None:

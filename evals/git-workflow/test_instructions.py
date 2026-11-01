@@ -2232,6 +2232,58 @@ class GitButlerSkillText(unittest.TestCase):
         r = flat(read(README))
         self.assertRegex(r, r"(?is)GitButler.{0,3000}`but skill install --path", "the README GitButler section does not name the offer")
 
+    def test_readme_gitbutler_choice_names_user_level_targets(self):
+        """fix-m5-gaps D7 (#150): Specwright's own skills and agents go outside the repo on GitButler; GitButler's skill is another rule."""
+        text = read(README)
+        s2 = flat(step(text, "Step 2"))
+        self.assertRegex(s2, r"(?is)vcs: gitbutler", "Step 2 does not cover the GitButler choice")
+        for target in ("~/.claude/skills/", "~/.claude/agents/", "~/.agents/skills/", "~/.omp/agents/"):
+            self.assertIn(target, s2, "the GitButler choice does not name the user-level target " + target)
+        self.assertRegex(s2, r"(?is)vcs: gitbutler.{0,600}(outside the repo|never into it)",
+                         "the GitButler choice does not say the targets are outside the repo")
+        self.assertRegex(s2, r"target_in_workspace", "the GitButler choice does not name the plan refusal")
+        s6 = flat(step(text, "Step 6"))
+        self.assertNotRegex(s6, r"(?i)into a global directory",
+                            "the GitButler skill rule still says global, which reads as Specwright's own install rule")
+        self.assertRegex(s6, r"(?is)`but skill install.{0,900}GitButler's skill only.{0,300}Specwright's\s+own\s+skills\s+and\s+agents",
+                         "the GitButler skill rule does not separate itself from Specwright's own install")
+        start = text.index("**GitButler (`vcs: gitbutler`).**")
+        settings_part = flat(text[start:text.index("\n## ", start)])
+        self.assertRegex(settings_part, r"(?is)GitButler's skill is offered.{0,900}GitButler's skill only.{0,200}Specwright's own skills and agents.{0,120}user level",
+                         "the Settings section does not separate GitButler's skill from Specwright's own install")
+        self.assertNotRegex(settings_part, r"(?i)no global skill directory", "the Settings section still says no global directory is touched")
+        branch = flat(read(BRANCH_SKILL))
+        self.assertRegex(branch, r"(?is)GitButler's skill only.{0,300}Specwright's own skills and agents.{0,120}user level.{0,300}scripts_in_workspace",
+                         "the branch gate does not say Specwright installs at user level on GitButler")
+
+    def test_gitbutler_validate_read_from_pinned_context(self):
+        """fix-m5-gaps D8 (#151): on GitButler the settings are read only through `pr-pair.sh context --branch`, right before use."""
+        pr = flat(read(PR_SKILL))
+        self.assertRegex(pr, r"(?is)Before any push, run `pr\.validate`.{0,500}On GitButler.{0,200}read `validate` from "
+                             r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>` right before each run, "
+                             r"never from the settings file and never from an earlier read.{0,300}`settings_not_pinned`.{0,200}"
+                             r"stops before the command runs",
+                         "the push rule does not read validate from the pinned context right before each run on GitButler")
+        self.assertRegex(pr, r"(?is)Settings per repo:.{0,1200}On GitButler the call \(repo-local too\) is "
+                             r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`"
+                             r".{0,60}stops ship", "ship does not pass --branch <branch> to context on GitButler")
+        watch = flat(section(read(PR_SKILL), "watch"))
+        self.assertRegex(watch, r"(?is)Before the first wait, read the merge settings.{0,900}On GitButler the call is "
+                                r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`",
+                         "watch does not pass --branch <branch> to context on GitButler")
+        cleanup = flat(section(read(PR_SKILL), "Cleanup after merge"))
+        self.assertRegex(cleanup, r"(?is)`\[vcs\] delete-branch --branch <branch> --force --merged-commit.{0,400}after that pull and "
+                                  r"delete, read `merge` and `delete_branch` from `bash scripts/pr-pair\.sh context --code <code toplevel> "
+                                  r"--after-merge --branch <branch>`.{0,500}`settings_not_pinned`.{0,60}`but pull`",
+                         "cleanup does not read the merge settings with --after-merge --branch after its pull and delete")
+        finish = flat(read(FINISH))
+        self.assertRegex(finish, r"(?is)read `merge` from `bash scripts/pr-pair\.sh context` \(on GitButler: "
+                                 r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`",
+                         "finish does not pass --branch <branch> to context on GitButler")
+        self.assertRegex(finish, r"(?is)on GitButler from `bash scripts/pr-pair\.sh context --code <code toplevel> --after-merge "
+                                 r"--branch <branch>` run after the pull and the delete",
+                         "finish cleanup does not use --after-merge --branch <branch> after its pull and delete")
+
 
 if __name__ == "__main__":
     unittest.main()

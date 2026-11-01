@@ -75,6 +75,31 @@ class TestGitButlerCommit(GitButlerWorkspaceCase):
             self.assertEqual(commits[0][-1], "src/x.py")
             self.assertIn("--json", commits[0])
 
+    def test_own_settings_edit_commits_then_context_passes(self):
+        # fix-m5-gaps D8 (#151): state and commit are not pinned, so the change can commit its own settings edit; the
+        # pin (pr-pair.sh context --branch) stops until that commit and passes after it
+        require_but()
+        with Scratch() as scratch:
+            repo, wrap = self.workspace(scratch)
+            settings = repo.path / "openspec" / "specwright.yaml"
+            settings.write_text(settings.read_text(encoding="utf-8") + "pr:\n  validate: \"echo own\"\n", encoding="utf-8")
+            context = ("context", "--code", repo.path, "--branch", "feat/add-c")
+            env = wrap.env(scratch)
+
+            stopped = self.pr_pair(repo.path, *context, env=env, expected=1)
+            self.assertEqual(stopped["error"], "settings_not_pinned", stopped)
+            self.assertIn("openspec/specwright.yaml", stopped["message"])
+
+            state, _ = self.invoke("state", "--branch", "feat/add-c", repo=repo.path, env=env)
+            self.assertTrue(state["ok"], state)
+            result = self.commit(scratch, repo, wrap, "chore(add-c): settings\n", "openspec/specwright.yaml")
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(self.files(repo, self.tip(repo, "feat/add-c")), ["openspec/specwright.yaml"])
+
+            passed = self.pr_pair(repo.path, *context, env=env)
+            self.assertTrue(passed["ok"], passed)
+            self.assertEqual(passed["code"]["validate"], "echo own")
+
     def test_commit_path_owned_elsewhere_stops(self):
         require_but()
         with Scratch() as scratch:

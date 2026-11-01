@@ -74,6 +74,23 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertIn("`--no-tags`", text)  # tagOpt=--tags would otherwise fetch every tag
 
 
+    def test_notes_check_names_proposal_in_planning_repo(self):
+        text = read(SKILLS / "specwright-release" / "SKILL.md")
+        self.assertTrue(text, "skills/specwright-release/SKILL.md is missing")
+        notes = sections(text).get("release notes", "")
+        self.assertTrue(notes, "no `## Release notes` section")
+        self.assertIn("release.sh notes --proposal <proposal.md>", notes)
+        self.assertNotIn("openspec/changes/<change>/proposal.md", notes)
+        check = paragraph(notes, r"^.*release\.sh notes --proposal", "the notes check")
+        self.assertRegex(check, r"(?i)planning repo", "the notes check does not say the proposal is in the planning repo")
+        self.assertRegex(check, r"(?i)store", "the notes check does not name the store")
+
+    def test_no_skill_passes_a_fixed_proposal_path(self):
+        bad = [str(p.relative_to(ROOT)) for p in sorted(SKILLS.glob("*/SKILL.md"))
+               if "--proposal openspec/" in read(p)]
+        self.assertEqual(bad, [], f"skill text passes a fixed proposal path: {bad}")
+
+
 class TestFinishText(unittest.TestCase):
     def setUp(self):
         self.text = read(SKILLS / "specwright-finish" / "SKILL.md")

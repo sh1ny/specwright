@@ -30,8 +30,7 @@ NIT = {"summary": "one nit", "findings": [{"id": "F1", "priority": "P2", "catego
 class GitButlerRangeCase(GitButlerNetworkCase):
     def pair(self, scratch, settings="vcs: gitbutler\nfinish: pr\n"):
         """`feat/b` (b.txt) and `feat/add-c` (c.txt) applied; the settings sit in the repo's own openspec/specwright.yaml."""
-        repo = self.managed(scratch)
-        self.settings(repo.path, settings)
+        repo = self.managed(scratch, settings)
         self.repo_path = repo.path
         for branch in ("feat/b", BRANCH):
             repo.but("branch", "new", branch)
@@ -256,9 +255,8 @@ class TestGitButlerRanges(GitButlerRangeCase):
     def test_release_check_reads_branch_tip(self):
         require_but()
         with Scratch() as scratch:
-            repo = self.managed(scratch)
-            self.settings(repo.path, "vcs: gitbutler\nfinish: pr\nrelease:\n  enabled: true\n  version_files:\n"
-                                     "    VERSION: '^(\\d+\\.\\d+\\.\\d+)$'\n")
+            repo = self.managed(scratch, "vcs: gitbutler\nfinish: pr\nrelease:\n  enabled: true\n  version_files:\n"
+                                         "    VERSION: '^(\\d+\\.\\d+\\.\\d+)$'\n")
             self.repo_path = repo.path
             side = self.clone_of_origin(scratch)  # main already holds version 0.1.0
             (side / "VERSION").write_text("0.1.0\n", encoding="utf-8")

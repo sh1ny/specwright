@@ -44,6 +44,11 @@
   "context": "sh1ny/specwright",
   "html": "<p dir=\"auto\">Fixes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5767521930\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/21\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/21/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/21\">#21</a></p>"
  },
+ "3d0b29e2b5bff9f7f1ef39fd620c539440076bad1c0f3fab60d0873a5414c035": {
+  "mode": "gfm",
+  "context": "sh1ny/specwright",
+  "html": "<p dir=\"auto\">Adds greet and farewell.</p>\n<p dir=\"auto\">Closes <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5753188645\" data-permission-text=\"Title is private\" data-url=\"https://github.com/sh1ny/specwright/issues/12\" data-hovercard-type=\"issue\" data-hovercard-url=\"/sh1ny/specwright/issues/12/hovercard\" href=\"https://github.com/sh1ny/specwright/issues/12\">#12</a></p>"
+ },
  "49ecf7f622b0fa3403750f3a60741450cbf597c2d9211b31a827bd17f8c57e30": {
   "mode": "gfm",
   "context": "sh1ny/specwright",

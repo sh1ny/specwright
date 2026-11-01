@@ -34,6 +34,11 @@
 #            stamped); an unreadable journal (journal_unreadable) is no proof of a started swap, so it stays true.
 #            --root in another worktree of the code repo (same git common dir, different toplevel) is a refusal (code
 #            root_other_worktree) naming both worktrees: it is not a store, and stage (which runs plan first) writes nothing.
+#            GitButler (fix-m5-gaps D7): when <code>/openspec/specwright.yaml selects `vcs: gitbutler`, every --skills or
+#            --agents directory under the code checkout's toplevel is a refusal (code target_in_workspace, one per
+#            directory, naming it): the work tree is shared by every applied branch, so Specwright's skills and agents
+#            must sit at user level (for example ~/.claude/skills). No settings file (a fresh install), or any other vcs,
+#            keeps in-repo targets.
 #            Changes in flight (design D4), on a workflow update only (no installed VERSION, or a different major
 #            or minor; a patch update, a reinstall and a same-minor downgrade skip it: inflight_checked false):
 #              - collected: every change directory in <root>/openspec/changes/ other than archive/, and every local
@@ -1081,6 +1086,29 @@ def configured_main(o):
     return yaml_setting(text, ("planning_store", "main_branch") if is_store(o) else ("main_branch",))
 
 
+def workspace_targets(o):
+    """target_in_workspace refusals: with `vcs: gitbutler` in the code repo's openspec/specwright.yaml, each --skills or
+    --agents directory under the code toplevel. No settings file (a fresh install) or another vcs: none."""
+    try:
+        text = (Path(o["code"]) / "openspec" / "specwright.yaml").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if yaml_setting(text, ("vcs",)) != "gitbutler":
+        return []
+    top = code_top(o)
+    found = []
+    for flag, directory in [("--skills", d) for d in o["skills"]] + [("--agents", a.partition("=")[2]) for a in o["agents"]]:
+        try:
+            Path(directory).resolve().relative_to(top)
+        except ValueError:
+            continue
+        found.append({"code": "target_in_workspace", "dir": directory, "message": (
+            f"{flag} {directory} is inside the code work tree {top.as_posix()}, and vcs: gitbutler is set: the work tree is "
+            "shared by every applied branch, so a sibling branch could change Specwright's skills and agents there. "
+            "Nothing was written. Choose a user-level directory (for example ~/.claude/skills or ~/.claude/agents) outside the repo")})
+    return found
+
+
 def planning_main(top, o):
     """The planning main: the configured one first, else origin/main, main, origin/master, master. The ref
     (origin/<main> when present, else the local branch), or None."""
@@ -1799,6 +1827,7 @@ def make_plan(o, check=False):
             f"--root is in the worktree {wt[0].as_posix()}, another worktree of the code repo's worktree {wt[1].as_posix()}; "
             "commits there would land on that worktree's branch. Nothing was written. Run the update from the worktree "
             "that holds --root, or give a --root in this worktree or in a separate planning repo")})
+    refusals.extend(workspace_targets(o))
     groups, orphans = build_groups(o, refusals, with_schema=role != "other", store=role in ("claim", "owner"))
     inflight, checked = [], False
     if check and to and not refusals and workflow_update(inst, to) and role != "other":

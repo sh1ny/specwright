@@ -439,7 +439,7 @@ def check_store_groups(name, repo, code, store, rep):
         want = GROUPS_TASKS[1]
         R.append(("The code repo gets one group 1 commit, then the store one with the same message and the trailers 1.1, 1.2 and 1.3, and the store's tasks.md diff ticks exactly those tasks",
                   same(1) and c[0].tasks == s[0].tasks == want and s[0].ct >= c[0].ct and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [want],
-                  f"code={[x.subject for x in c]} store={[x.subject for x in s]} ticks={st_ticks(1)}"))
+                  f"code={[(x.subject, x.tasks) for x in c]} store={[(x.subject, x.tasks) for x in s]} ticks={st_ticks(1)}"))
         R.append(("No tick is lost: 1.1, 1.2 and 1.3 are ticked in the store, and both trees are clean",
                   set(want) <= set(ticked_tasks(store)) and clean[0], f"ticked={ticked_tasks(store)} {clean[1]}"))
         R.append(suite)
@@ -448,7 +448,7 @@ def check_store_groups(name, repo, code, store, rep):
         c, s = pair(1)
         R.append(("The store gets one commit with the code commit's subject and trailers, and its tasks.md diff ticks exactly 1.1, 1.2 and 1.3",
                   len(s) == 1 and bool(c) and s[0].msg == c[0].msg and files_of(store, s[0].sha) == [TASKS_MD] and st_ticks(1) == [GROUPS_TASKS[1]],
-                  f"code={[x.subject for x in c]} store={[x.subject for x in s]} ticks={st_ticks(1)}"))
+                  f"code={[(x.subject, x.tasks) for x in c]} store={[(x.subject, x.tasks) for x in s]} ticks={st_ticks(1)}"))
         R.append(("The code repo has exactly one group 1 commit", len(c) == 1, f"code group 1 commits={[x.sha for x in c]}"))
         R.append(("Both working trees are clean", *clean))
         R.append(no_amend)
