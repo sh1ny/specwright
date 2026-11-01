@@ -46,7 +46,9 @@
 #                                     side's authorizing set (store: planning_store.reviewers, else pr.reviewers) is reported in it; a set
 #                                     with no required reviewer is never ok. Heads match when equal or one is a prefix of the other.
 #                                     reviewer_args.{main,head}.{code[,store]}: login:role:seconds per reviewer, for pr-snapshot.sh --reviewer.
-#                                     --store without --snapshot store= and --reviewed-head store= is exit 2; an unreadable snapshot exits 2
+#                                     --store without --snapshot store= and --reviewed-head store= is exit 2; an unreadable snapshot exits 2.
+#                                     A pr.reviewers that is not a mapping (a string, a list) reads as no reviewers, so it authorizes
+#                                     nothing, and is listed in invalid [{side, key, value}]
 #   delete-remote --repo o/n --branch b --head sha
 #                                     delete the remote branch only when it is still at the full 40-hex merged head and no open PR is
 #                                     based on it: deleted | gone (404, or 422 gone meanwhile) | moved (sha) | based_on (prs) |
@@ -2399,12 +2401,16 @@ def policy_side(s, with_store):
     pr = sect(s, "pr")
     merge, note = merge_mode(pr)
     method, delete = pr.get("merge_method"), pr.get("delete_branch")
+    raw, invalid = pr.get("reviewers"), []
+    if raw is not None and not isinstance(raw, dict):  # a string or a list: no reviewers, so it authorizes nothing
+        invalid.append({"key": "pr.reviewers", "value": setting_text(pr, "reviewers")})
+        raw = None
     side = {"pr.merge": merge, "pr.merge_method": "merge" if method is None else method,
-            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(pr.get("reviewers"))}
+            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(raw)}
     if with_store:
         own = sect(s, "planning_store").get("reviewers")
         side["planning_store.reviewers"] = reviewers_of(own) if isinstance(own, dict) else None  # None: the store inherits pr.reviewers
-    return side, note, pr
+    return side, note, pr, invalid
 
 
 def has_required(reviewers):
@@ -2471,10 +2477,11 @@ def cmd_policy(argv):
     head_s = policy_file(repo, head)
     if head_s is None:
         policy_unknown(f"no openspec/specwright.yaml readable at {head}")
-    main, note, main_pr = policy_side(main_s, with_store)
-    head_side = policy_side(head_s, with_store)[0]
+    main, note, main_pr, main_bad = policy_side(main_s, with_store)
+    head_side, _, _, head_bad = policy_side(head_s, with_store)
     drift = [{"key": k, "main": main[k], "head": head_side[k]} for k in main if main[k] != head_side[k]]
     out = {"ok": True, "repo": repo, "default_branch": default, "main": main, "head": head_side, "drift": drift,
+           "invalid": [dict(side=w, **b) for w, bad in (("main", main_bad), ("head", head_bad)) for b in bad],
            "merge": main["pr.merge"], "merge_method": "merge", "delete_branch": True}
     if out["merge"] == "agent":  # only the agent merge reads them, as context does; a bad value on main stops here
         out["merge_method"], out["delete_branch"] = merge_options(main_pr)

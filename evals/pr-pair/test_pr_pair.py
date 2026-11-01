@@ -4072,6 +4072,27 @@ class Policy(PolicyBase):
         self.assertEqual(set(d["head"]), {"someone-else"})
         self.assertEqual(d["main"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": ""})
 
+    def test_non_mapping_reviewers_at_head_is_drift_not_a_crash(self):
+        # Pre-ship F1: the PR branch controls this value; a string or a list must not crash `policy`.
+        for value, shown in (("foo", "foo"), ("[a, b]", "[a, b]")):
+            with self.subTest(value=value):
+                self.seed_both(self.AGENT, f"pr:\n  merge: agent\n  merge_method: squash\n  reviewers: {value}\n")
+                r = self.policy()
+                d = self.keys(r)["pr.reviewers"]
+                self.assertEqual(set(d["main"]), {"chatgpt-codex-connector"})
+                self.assertEqual(d["head"], {})
+                self.assertIn({"side": "head", "key": "pr.reviewers", "value": shown}, r["invalid"])
+                self.assertFalse(r["reported"]["head"]["code"]["ok"])
+
+    def test_non_mapping_reviewers_on_main_authorizes_nothing(self):
+        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers: foo\n"
+        self.seed_both(bad, bad)
+        r = self.policy()
+        self.assertEqual(r["drift"], [])
+        self.assertFalse(r["merge_ready"]["code"])
+        self.assertFalse(r["reported"]["main"]["code"]["ok"])
+        self.assertIn({"side": "main", "key": "pr.reviewers", "value": "foo"}, r["invalid"])
+
     def test_head_turns_agent_merge_off_drifts_and_main_stays_agent(self):
         self.seed_both(self.AGENT, self.USER)
         r = self.policy()
