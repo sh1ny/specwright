@@ -1040,11 +1040,11 @@
       "name": "eval-install-openspec-mismatch",
       "skills": [],
       "prompt": "Install Specwright into this project by following the Install / Update prompt in F:/Dev/specwright/README.md (the text block under \"Install / Update\"). Use the local checkout at F:/Dev/specwright as the downloaded copy instead of cloning from GitHub. I use Claude Code only: skills go in .claude/skills/ and agents in .claude/agents/. For Step 6: finish mode local, no GitHub login, no review-request comment, review.cross_model off, no pre-push command, and keep the default project: paths. The current directory is the project's code checkout.",
-      "expected_output": "The fake openspec on PATH reports 1.15.0; the downloaded OPENSPEC_VERSION is 1.14.1. Step 3's check finds the mismatch and stops before Step 4: it writes no skill, agent, schema, config.yaml or specwright.yaml in either repo, does not stamp openspec/.specwright/VERSION, deletes the temporary copy if it made one, and reports 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1. It may mention the documented override but does not recommend or apply it, and never says the install completed.",
+      "expected_output": "The fake openspec on PATH reports 1.15.0; the downloaded OPENSPEC_VERSION is 1.16.0. Step 3's check finds the mismatch and stops before Step 4: it writes no skill, agent, schema, config.yaml or specwright.yaml in either repo, does not stamp openspec/.specwright/VERSION, deletes the temporary copy if it made one, and reports 1.15.0, 1.16.0 and npm i -g @fission-ai/openspec@1.16.0. It may mention the documented override but does not recommend or apply it, and never says the install completed.",
       "assertions": [
         "No skill, agent, schema or specwright.yaml was written in either repo, and both trees are unchanged",
         "openspec/.specwright/VERSION is absent",
-        "The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1",
+        "The report names 1.15.0, 1.16.0 and npm i -g @fission-ai/openspec@1.16.0",
         "The report does not say the install completed",
         "Nothing was committed, branched, stashed or pushed in either repo, and no gh call was made",
         "The code repo has no openspec/specs, openspec/changes or openspec/schemas directory",
@@ -1056,7 +1056,7 @@
       "name": "eval-install-openspec-override",
       "skills": [],
       "prompt": "Install Specwright into this project by following the Install / Update prompt in F:/Dev/specwright/README.md (the text block under \"Install / Update\"). Use the local checkout at F:/Dev/specwright as the downloaded copy instead of cloning from GitHub. I use Claude Code only: skills go in .claude/skills/ and agents in .claude/agents/. For Step 6: finish mode local, no GitHub login, no review-request comment, review.cross_model off, no pre-push command, and keep the default project: paths. The current directory is the project's code checkout. The installed OpenSpec is not the pinned version: continue with OpenSpec 1.15.0.",
-      "expected_output": "The fake openspec on PATH reports 1.15.0; the downloaded OPENSPEC_VERSION is 1.14.1. The request states the override naming the found version, so the install continues exactly as eval-install-store does, and the report shows OpenSpec 1.15.0 (pinned 1.14.1, override).",
+      "expected_output": "The fake openspec on PATH reports 1.15.0; the downloaded OPENSPEC_VERSION is 1.16.0. The request states the override naming the found version, so the install continues exactly as eval-install-store does, and the report shows OpenSpec 1.15.0 (pinned 1.16.0, override).",
       "assertions": [
         "The store has openspec/schemas/specwright/ identical to the downloaded schemas/specwright/",
         "The store's openspec/config.yaml has schema: specwright and every Specwright context line exactly once",
@@ -1069,7 +1069,7 @@
         "The code repo's openspec/config.yaml still points at the store (store: team-plans) and holds no Specwright context",
         "The report lists the store's uncommitted files (schemas/specwright and config.yaml) and says they are not committed",
         "The report says openspec schema validate specwright was run in the store and passed",
-        "The report shows OpenSpec 1.15.0 (pinned 1.14.1, override)"
+        "The report shows OpenSpec 1.15.0 (pinned 1.16.0, override)"
       ]
     },
     {

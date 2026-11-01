@@ -813,8 +813,8 @@ class InstallOpenSpecPin(unittest.TestCase):
     def test_refusal_that_writes_nothing_passes_every_check(self):
         repo = self.fixture("eval-install-openspec-mismatch")
         res = self.results("eval-install-openspec-mismatch", repo,
-                           "Stopped before Step 4: OpenSpec 1.15.0 is installed, but this release is pinned to 1.14.1. "
-                           "Run npm i -g @fission-ai/openspec@1.14.1 and rerun the prompt. No file was written.")
+                           "Stopped before Step 4: OpenSpec 1.15.0 is installed, but this release is pinned to 1.16.0. "
+                           "Run npm i -g @fission-ai/openspec@1.16.0 and rerun the prompt. No file was written.")
         self.assertEqual(sorted(res), sorted(self.assertions("eval-install-openspec-mismatch")))
         self.assertTrue(all(res.values()), [t for t, ok in res.items() if not ok])
 
@@ -824,18 +824,18 @@ class InstallOpenSpecPin(unittest.TestCase):
         fixtures.write(repo / "code", "openspec/.specwright/VERSION", "0.4.2\n")
         res = self.results("eval-install-openspec-mismatch", repo, "Installation complete. Specwright 0.4.2 installed.")
         for t in ("No skill, agent, schema or specwright.yaml was written in either repo, and both trees are unchanged",
-                  "openspec/.specwright/VERSION is absent", "The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1",
+                  "openspec/.specwright/VERSION is absent", "The report names 1.15.0, 1.16.0 and npm i -g @fission-ai/openspec@1.16.0",
                   "The report does not say the install completed"):
             self.assertFalse(res[t], t)
 
     def test_override_report_line_is_checked(self):
         repo = self.fixture("eval-install-openspec-override")
-        name, line = "eval-install-openspec-override", "The report shows OpenSpec 1.15.0 (pinned 1.14.1, override)"
+        name, line = "eval-install-openspec-override", "The report shows OpenSpec 1.15.0 (pinned 1.16.0, override)"
         # the install-store checks plus the override line (evals.json words the inherited ones as eval-install-store does)
         self.assertEqual(sorted(self.results(name, repo, "")), sorted([*self.results("eval-install-store", repo, ""), line]))
         self.assertEqual(self.assertions(name), [*self.assertions("eval-install-store"), line])
         self.assertFalse(self.results(name, repo, "OpenSpec 1.15.0 (pinned)")[line])
-        self.assertTrue(self.results(name, repo, "OpenSpec 1.15.0 (pinned 1.14.1, override)")[line])
+        self.assertTrue(self.results(name, repo, "OpenSpec 1.15.0 (pinned 1.16.0, override)")[line])
 
 
 RELEASE_SH = fixtures.posix(fixtures.ROOT) + "/skills/specwright-release/scripts/release.sh"
