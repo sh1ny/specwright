@@ -4150,6 +4150,36 @@ class Policy(PolicyBase):
         r = self.policy(expect=3)
         self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
 
+    def assert_malformed_unknown(self, main, head, line):
+        self.seed_both(main, head)
+        r = self.policy(expect=3)
+        self.assertEqual(r["error"], "lookup_failed")
+        self.assertTrue(r["message"].startswith("merge policy unknown: unreadable openspec/specwright.yaml at "), r["message"])
+        self.assertIn(f"line {line}", r["message"])
+
+    def test_unterminated_flow_value_at_head_is_unknown(self):
+        """PR #160 review: `invalid: [unterminated` used to parse as a string, so the head read as unchanged and agent merged."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "invalid: [unterminated\n", 6)
+
+    def test_line_without_a_key_on_main_is_unknown(self):
+        self.assert_malformed_unknown("pr:\n  merge agent\n", self.AGENT, 2)
+
+    def test_misindented_line_is_unknown_not_dropped(self):
+        self.assert_malformed_unknown("pr:\n  merge: user\n merge_method: squash\n", self.AGENT, 3)
+
+    def test_unterminated_quote_and_nested_colon_are_unknown(self):
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: \"agent\n", 2)
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent: now\n", 2)
+
+    def test_valid_yaml_forms_still_read(self):
+        text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n  extra:\n    - a\n    - b\n"
+                "pr:\n  validate: |\n    line one\n    line: two\n  merge: 'agent'\n  merge_method: squash\n"
+                "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
+        self.seed_both(text, text)
+        r = self.policy()
+        self.assertEqual((r["merge"], r["merge_method"], r["drift"]), ("agent", "squash", []))
+        self.assertIs(r["merge_ready"]["code"], True)
+
     def test_store_adds_the_store_reviewers_side(self):
         self.seed_both(self.AGENT + "planning_store:\n  reviewers: {}\n", self.AGENT)
         r = self.policy("--store")

@@ -39,7 +39,8 @@
 #                                     main alone: merge, merge_method, delete_branch, merge_ready {code[, store]}, merge_reason, merge_note.
 #                                     No file on main is user mode; a bad merge_method/delete_branch on main with merge: agent is exit 2
 #                                     bad_setting (a bad head value is only drift). A failed, cut-off or unreadable read (not a file, not
-#                                     base64, not YAML), or no file at the head, is exit 3 lookup_failed "merge policy unknown: <reason>".
+#                                     base64, or YAML with a line the reader would skip or misread), or no file at the head, is exit 3
+#                                     lookup_failed "merge policy unknown: <reason>"; a malformed file names its first bad line.
 #                                     Also reported.{main,head}.{code[,store]} {ok, missing, head_mismatch, snapshot_head, reviewed_head}:
 #                                     ok when the snapshot is of that repository's reviewed head (code: --head, or --reviewed-head code= for
 #                                     the archive carry-over; store: --reviewed-head store=, required) and every required reviewer of that
@@ -508,6 +509,103 @@ def parse_yaml(text):
         return d, i
 
     return block(0, lines[0][0])[0] if lines else {}
+
+
+def value_problem(v):
+    """Why a `key: value` value is not YAML that parse_yaml reads as written, or None. Flow values must close, quotes end."""
+    v = v.strip()
+    if v[0] in "[{":
+        stack, q, esc = [], None, False
+        for i, ch in enumerate(v):
+            if esc:
+                esc = False
+            elif q:
+                if q == '"' and ch == "\\":
+                    esc = True
+                elif ch == q:
+                    q = None
+            elif ch in "\"'":
+                q = ch
+            elif ch in "[{":
+                stack.append("]" if ch == "[" else "}")
+            elif ch in "]}":
+                if not stack or stack.pop() != ch:
+                    return f"unbalanced `{ch}`"
+                if not stack and v[i + 1:].strip():
+                    return "text after the closing bracket"
+        return "unterminated quote" if q else (f"unterminated `{v[0]}`" if stack else None)
+    if v[0] in "\"'":
+        i, esc = 1, False
+        while i < len(v):
+            if esc:
+                esc = False
+            elif v[0] == '"' and v[i] == "\\":
+                esc = True
+            elif v[i] == v[0]:
+                if v[0] == "'" and v[i + 1:i + 2] == "'":
+                    i += 1
+                elif v[i + 1:].strip():
+                    return "text after the closing quote"
+                else:
+                    return None
+            i += 1
+        return "unterminated quote"
+    if v[0] in "]}":
+        return f"unbalanced `{v[0]}`"
+    if ": " in v or v.endswith(":"):
+        return "a plain value holds `: `"
+    return None
+
+
+def yaml_problem(text):
+    """The first line parse_yaml would skip, drop or misread, as `line N: why`, or None.
+
+    parse_yaml is lenient for local settings; `policy` authorizes a merge from a remote file, so a file it cannot read whole
+    is unknown there (ADR 0020 D4). Block sequences (`- item`) are valid YAML this reader keeps as no value; they pass."""
+    raw = text.splitlines()
+    lines = []
+    for n, r in enumerate(raw):
+        s = strip_comment(r).rstrip()
+        if s.strip():
+            lines.append((len(s) - len(s.lstrip(" ")), s.strip(), n))
+    if lines and lines[0][1] == "---":
+        lines = lines[1:]
+    key_re = re.compile(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
+
+    def block(i, indent):
+        while i < len(lines) and lines[i][0] == indent:
+            body, row = lines[i][1], lines[i][2]
+            if body == "-" or body.startswith("- "):
+                i += 1
+                while i < len(lines) and lines[i][0] > indent:
+                    i += 1
+                continue
+            m = key_re.match(body)
+            if not m:
+                return i, f"line {row + 1}: not a `key: value` line"
+            val = m.group(2)
+            i += 1
+            if val and BLOCK_HEADER.match(val.strip()):
+                end = block_scalar(raw, row + 1, indent, "|", "")[1]
+                while i < len(lines) and lines[i][2] < end:
+                    i += 1
+            elif val is None or val.strip() == "":
+                if i < len(lines) and lines[i][0] > indent:
+                    i, why = block(i, lines[i][0])
+                    if why:
+                        return i, why
+            else:
+                why = value_problem(val)
+                if why:
+                    return i, f"line {row + 1}: {why}"
+        return i, None
+
+    if not lines:
+        return None
+    i, why = block(0, lines[0][0])
+    if why:
+        return why
+    return f"line {lines[i][2] + 1}: unexpected indentation" if i < len(lines) else None
 
 
 def duration(v, default):
@@ -2385,6 +2483,9 @@ def policy_file(repo, ref):
         if not isinstance(body, dict) or body.get("type") != "file" or body.get("encoding") != "base64":
             raise ValueError("not a base64 file")
         text = base64.b64decode("".join(str(body.get("content", "")).split()), validate=True).decode("utf-8")
+        why = yaml_problem(text)
+        if why:
+            raise ValueError(why)
         s = parse_yaml(text) or {}
         if not isinstance(s, dict):
             raise ValueError("not a mapping")
