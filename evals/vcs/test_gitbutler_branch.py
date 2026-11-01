@@ -1,5 +1,7 @@
 """The GitButler gate creates the change branch beside the other applied branches, or stops when the name is taken."""
 import json
+import tempfile
+from pathlib import Path
 
 from butenv import Scratch, require_but
 from butwrap import ButWrap
@@ -18,7 +20,8 @@ class GitButlerWorkspaceCase(GitButlerCase):
         tree then equals the one every change branch starts from, so the settings pin passes until a test edits it. The commit goes
         to origin's main through a side clone and `but pull` brings it into the workspace base before any branch exists."""
         repo = scratch.tracked_repo()
-        side = self.root / "settings-side"
+        # a fresh empty dir per call: a test can make several workspaces in one case, so a fixed name collides on the second
+        side = Path(tempfile.mkdtemp(prefix="settings-side-", dir=self.root))
         for args in (("clone", "-q", str(scratch.origin), str(side)), ("-C", str(side), "config", "user.name", "Settings"),
                      ("-C", str(side), "config", "user.email", "settings@example.invalid"),
                      ("-C", str(side), "config", "core.autocrlf", "false")):
