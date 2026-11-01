@@ -4217,6 +4217,7 @@ class Policy(PolicyBase):
         self.assert_malformed_unknown(self.AGENT, "  ---\n" + self.AGENT, 1)
         self.assert_malformed_unknown(self.AGENT, "--- pr:\n  merge: agent\n", 1)
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "---\nx: 1\n", 6)
+        self.assert_malformed_unknown(self.AGENT, "---\n---\n" + self.AGENT, 2)  # PR #160 Kody review: a second leading `---`
 
     def test_breaks_controls_and_merge_keys_are_unknown(self):
         """Forms the reader splits or keeps differently from YAML: unicode line breaks, control characters, `<<`."""
@@ -4230,6 +4231,12 @@ class Policy(PolicyBase):
         for ch in ("\x80", "\x84", "\x86", "\x9f", "￾", "￿"):
             with self.subTest(ch=hex(ord(ch))):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: a" + ch + "b\n", 6)
+
+    def test_unicode_spaces_are_unknown(self):
+        """PR #160 security review: `merge:<NBSP>agent` passed, since Python's `\\s` and strip() take NBSP as space; YAML does not."""
+        for extra in ("x:\u00a0y\n", "x: y\u00a0\n", "\u00a0x: y\n", "x: a\u3000b\n", "x: \"a\u2003b\"\n"):
+            with self.subTest(extra=ascii(extra)):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
 
     def test_tab_on_a_blank_or_comment_line_is_unknown(self):
         """PR #160 security review: a tab-only line was dropped before the indentation check; YAML rejects it."""

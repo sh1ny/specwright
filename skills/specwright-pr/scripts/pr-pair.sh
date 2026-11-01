@@ -669,9 +669,14 @@ def yaml_problem(text):
     if odd:  # str.splitlines breaks at some of these where YAML does not, and YAML forbids the controls
         row = len(re.split(r"\r\n|\r|\n", text[:odd.start()]))
         return f"line {row}: a control character or line separator (U+{ord(odd.group()):04X})"
+    odd = re.search(r"[^\S \t\r\n]", text)  # Python's \s and strip() take these as space, YAML takes them as text
+    if odd:
+        row = len(re.split(r"\r\n|\r|\n", text[:odd.start()]))
+        return f"line {row}: a space character YAML does not separate with (U+{ord(odd.group()):04X})"
     raw = text.splitlines()
     key_re = re.compile(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
     lines = []
+    marker = False  # the one `---` allowed, before any key
     block = None  # the key's indentation while inside a `|`/`>` block, whose text mapping() checks from the raw lines
     for n, r in enumerate(raw):
         if not r.strip() and "\t" in r:  # blank lines too, in a block or not: YAML rejects or keeps them, the reader drops them
@@ -685,8 +690,9 @@ def yaml_problem(text):
         if s.strip():
             lead = s[:len(s) - len(s.lstrip())]
             if not lead and re.match(r"(---|\.\.\.)(\s|$)", s):  # indented: block text, or not a `key: value` line below
-                if lines or s != "---":
+                if marker or lines or s != "---":
                     return f"line {n + 1}: a document marker the reader does not read (only `---` alone, first, at column 0)"
+                marker = True
                 continue
             lines.append((len(lead), s.strip(), n))
             m = key_re.match(s.strip())
