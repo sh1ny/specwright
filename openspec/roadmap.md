@@ -6,7 +6,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 
 ## Now: M6 - Packs
 
-**Outcome:** a project can opt in to a domain pack and get its skills, documents and rules without changing Specwright's flow. Packs are additive only: a pack adds phases, checks and skills and never relaxes a gate. The first pack is gamedev, built from the skills prototyped in Tower of Lament. Before that, every eval suite runs in CI on Linux, Windows and macOS, the gaps found during M5 are closed, and agent merge takes its policy from main, not from the PR branch.
+**Outcome:** a project can opt in to a domain pack and get its skills, documents and rules without changing Specwright's flow. Packs are additive only: a pack adds phases, checks and skills and never relaxes a gate. The first packs are ui-prototyping, gamedev and godot, built from the skills prototyped in Tower of Lament; tasks only the user can tick (a playtest verdict, a UX sign-off) go into core first, because every domain needs them. Before that, every eval suite runs in CI on Linux, Windows and macOS, the gaps found during M5 are closed, and agent merge takes its policy from main, not from the PR branch.
 
 **Exit criteria:**
 - Every issue in the changes below is closed by a merged PR, and each code fix has a regression test in `evals/`. (agent)
@@ -14,8 +14,9 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 - With `pr.merge: agent`, a PR branch whose `pr.merge`, `merge_method`, `delete_branch` or `pr.reviewers` differ from main's is not merged by watch: it reports the difference and asks the user. With no difference, the agent merge is unchanged. (agent)
 - A project opts in to a pack in `openspec/specwright.yaml`. Install, update and remove add and remove only that pack's files, and a project with no packs installs nothing extra and carries no pack descriptions. (agent)
 - The installer rejects a pack that removes a step or relaxes the triage, review or verify gate where it can detect it, and names the rule. (agent)
+- A task marked as the user's is never ticked by an agent, and verify and archive wait until the user ticks it. (agent)
 - An eval installs the gamedev pack in a fixture project and shows its additions (the GDD document and its rules for proposal, design and tasks) in the instructions OpenSpec gives for a change. (agent)
-- Each change ships as its own release: 0.12.1 (#156), 0.12.2, 0.12.3, 0.13.0, 0.14.0, 0.14.1 (#164), 0.15.0 (#166), 0.16.0 and 0.17.0. (agent)
+- Each change ships as its own release: 0.12.1 (#156), 0.12.2, 0.12.3, 0.13.0, 0.14.0, 0.14.1 (#164), 0.15.0 (#166), 0.16.0, 0.17.0 and 0.18.0. (agent)
 
 **Changes** (in order; each about one PR):
 1. `ci-os-matrix` (0.12.2) - #145: every eval suite runs in CI on Linux, Windows and macOS (`fail-fast: false`), with a pinned, checksummed jj per OS and `but` on Linux only (#154), so platform-specific code (MSYS argv quoting, `cygpath`, CRLF) is exercised on every PR and local eval runs stop. It also shows whether the three Windows-only `test_git_backend` crashes come from this machine or are real.
@@ -24,8 +25,9 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 4. `gitbutler-in-repo-install` (0.14.0) - #150 follow-up: GitButler projects may install Specwright's skills and agents in the repo again; `scripts_in_workspace` and `target_in_workspace` are removed, the install prompt and README warn instead, and ADR 0021 supersedes ADR 0019's install half. It lands before `pack-mechanism` so GitButler projects with an in-repo install can use packs.
 5. `bump-openspec-1-16` (0.14.1) - #164: OpenSpec is pinned at 1.16.0 instead of 1.14.1, the install lines name the Node.js 22.12 the npm package needs, and the schema gains upstream's rule that every scenario has a WHEN/GIVEN and a THEN step.
 6. `generic-reviewer-detection` (0.15.0) - #166: watch detects reviewers by generic rules (a review on the head commit, output after the push) and the scripts name no bot; `pr.reviewers.<login>.report` describes how a bot signals a finished review, a merge counts only reports judged under main's rules (ADR 0022), `pr.settle` sets the quiet window, and an archive-only push skips `pr.validate` and merges `pr.settle` after the push. It lands before the packs because other teams cannot use watch while it relies on our own bots.
-7. `pack-mechanism` (0.16.0) - #68: the pack format, opt-in in `openspec/specwright.yaml`, install, update and remove through `update.sh`, and the additive-only check. A pack adds init questions, project documents, per-artifact `rules:` and `context:`, skills and tasks; it never removes or relaxes a core gate.
-8. `gamedev-pack` (0.17.0) - #68: the first pack, from the gamedev skills prototyped in Tower of Lament (GDD, game design, narrative, game UI/UX, engine), attached at the points those skills recorded.
+7. `pack-mechanism` (0.16.0) - #68: the pack format (`packs/<name>/pack.json`, shipped in the Specwright release), opt-in in `openspec/specwright.yaml`, composition through `requires`, install, update and remove through `update.sh`, and the additive-only check. A pack adds init questions, project documents, per-artifact `rules:` and `context:`, operations guidance and skills; it never removes or relaxes a core gate. Packs on a planning store are refused for now.
+8. `user-verified-tasks` (0.17.0) - core support for tasks only the user ticks (a playtest verdict, a UX sign-off) and for evidence tasks, which every domain pack needs; verify and archive wait for the user's tick.
+9. `gamedev-pack` (0.18.0) - #68: the first packs, from the skills prototyped in Tower of Lament: `ui-prototyping` (shared UI/UX prototyping), `gamedev` (GDD, game design, narrative, playtest; requires ui-prototyping) and `godot` (engine checks and data-resource tunables), attached at the points those skills recorded.
 
 ## Next: M7 - Native CLI
 
@@ -34,7 +36,7 @@ Replace the shipped bash and embedded Python scripts with one native CLI, `sw`, 
 ## Later
 
 - Unplanned features, placed at a later **close**: #42 stealth mode; #72 a configurable report signal per reviewer in `pr.reviewers`; #140 implementer agents can use the project's MCP servers.
-- Deferred dogfood check, run when a dogfood project is at a convenient point; it does not block a milestone: #98 (M3) an update with a change in flight; the gamedev pack used for a real change in Tower of Lament once 0.17.0 is out (M6). (#86, the M2 agent-merge check, passed in sh1ny/blackgrid#44.)
+- Deferred dogfood check, run when a dogfood project is at a convenient point; it does not block a milestone: #98 (M3) an update with a change in flight; the gamedev pack used for a real change in Tower of Lament once 0.18.0 is out (M6). (#86, the M2 agent-merge check, passed in sh1ny/blackgrid#44.)
 - Unscheduled `known-gap` issues filed after a milestone is planned are placed into a milestone at the next **close**, or into an earlier change that touches the same code.
 - Parked: #9 snapshot pagination beyond 100 items; revisit if large PRs become routine.
 - Parked: #118 the codex route on Windows (`fix-codex-windows-route`, moved out of M5 on 2026-10-28). It could not be reproduced: on 2026-10-28 an exact replay of the failed review (same codex-cli 0.163.0, `elevated` sandbox, Specwright 0.7.2, the original prompt) passed, and so did four codex reviews in a dogfood project, so the 2026-10-21 failure was most likely transient. Revisit if it fails again; the fix then starts by reading codex's own error from its `--json` event stream and keeping that stream when a run fails.
