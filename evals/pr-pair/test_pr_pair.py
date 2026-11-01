@@ -4177,11 +4177,25 @@ class Policy(PolicyBase):
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: [\"\\xZZ\"]\n", 6)
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "\"\\q\": x\n", 6)
 
+    def test_invalid_flow_entries_are_unknown(self):
+        """PR #160 security review: `{ role: required,, }` is not YAML, and a trailing comma reads as an extra entry."""
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n"
+                                      "    chatgpt-codex-connector: { role: required,, }\n", 5)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "review:\n  order: [codex, claude,]\n", 7)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: {a:b: 1}\n", 6)
+
+    def test_yaml_the_reader_misreads_is_unknown(self):
+        """Valid YAML parse_yaml does not read as written fails closed: block sequences, anchors, duplicates, tabs."""
+        for extra, line in (("x:\n  - a\n", 7), ("x: &a 1\n", 6), ("pr:\n  merge: user\n", 6), ("x:\n\ty: 1\n", 7)):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
+
     def test_valid_yaml_forms_still_read(self):
-        text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n  extra:\n    - a\n    - b\n"
+        text = ("---\n# comment\nfinish: pr  # trailing comment\nreview:\n  order: [codex, claude]\n"
+                "  extra: {a: [b, \"c, d\"], e: 'f''g', url: http://x.y/z}\n  none: []\n"
                 "pr:\n  validate: |\n    line one\n    line: two\n  note: \"tab\\there \\u00e9 \\x41 \\\\ \\\"\"\n  merge: 'agent'\n  merge_method: squash\n"
                 "  reviewers:\n    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n")
-        self.seed_both(text, text)
+        self.seed_both("﻿" + text, text)  # a UTF-8 byte order mark is valid YAML
         r = self.policy()
         self.assertEqual((r["merge"], r["merge_method"], r["drift"]), ("agent", "squash", []))
         self.assertIs(r["merge_ready"]["code"], True)

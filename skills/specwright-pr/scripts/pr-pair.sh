@@ -39,8 +39,9 @@
 #                                     main alone: merge, merge_method, delete_branch, merge_ready {code[, store]}, merge_reason, merge_note.
 #                                     No file on main is user mode; a bad merge_method/delete_branch on main with merge: agent is exit 2
 #                                     bad_setting (a bad head value is only drift). A failed, cut-off or unreadable read (not a file, not
-#                                     base64, or YAML with a line the reader would skip or misread), or no file at the head, is exit 3
-#                                     lookup_failed "merge policy unknown: <reason>"; a malformed file names its first bad line.
+#                                     base64, or YAML the reader would skip or misread: block sequences, anchors, tags, duplicate keys,
+#                                     tabs in indentation), or no file at the head, is exit 3 lookup_failed "merge policy unknown:
+#                                     <reason>"; a malformed file names its first bad line.
 #                                     Also reported.{main,head}.{code[,store]} {ok, missing, head_mismatch, snapshot_head, reviewed_head}:
 #                                     ok when the snapshot is of that repository's reviewed head (code: --head, or --reviewed-head code= for
 #                                     the archive carry-over; store: --reviewed-head store=, required) and every required reviewer of that
@@ -520,53 +521,117 @@ def escape_len(s, i):
     return 2 if c and c in YAML_ESCAPES else 0
 
 
-def value_problem(v):
-    """Why a `key: value` value is not YAML that parse_yaml reads as written, or None. Flow values must close, quotes end."""
-    v = v.strip()
-    if v[0] in "[{":
-        stack, q, i = [], None, 0
-        while i < len(v):
-            ch = v[i]
-            if q:
-                if q == '"' and ch == "\\":
-                    n = escape_len(v, i)
-                    if not n:
-                        return f"unknown escape `{v[i:i + 2]}`"
-                    i += n - 1
-                elif ch == q:
-                    q = None
-            elif ch in "\"'":
-                q = ch
-            elif ch in "[{":
-                stack.append("]" if ch == "[" else "}")
-            elif ch in "]}":
-                if not stack or stack.pop() != ch:
-                    return f"unbalanced `{ch}`"
-                if not stack and v[i + 1:].strip():
-                    return "text after the closing bracket"
-            i += 1
-        return "unterminated quote" if q else (f"unterminated `{v[0]}`" if stack else None)
-    if v[0] in "\"'":
-        i = 1
-        while i < len(v):
-            if v[0] == '"' and v[i] == "\\":
-                n = escape_len(v, i)
-                if not n:
-                    return f"unknown escape `{v[i:i + 2]}`"
-                i += n - 1
-            elif v[i] == v[0]:
-                if v[0] == "'" and v[i + 1:i + 2] == "'":
-                    i += 1
-                elif v[i + 1:].strip():
-                    return "text after the closing quote"
-                else:
-                    return None
-            i += 1
-        return "unterminated quote"
-    if v[0] in "]}":
-        return f"unbalanced `{v[0]}`"
+class YamlBad(ValueError):
+    pass
+
+
+PLAIN_START_BAD = set("[]{},#&*!|>'\"%@`")
+FLOW_CHARS = set(",[]{}")
+
+
+def plain_ok(v, flow, key=False):
+    """Raise YamlBad unless v is a plain scalar that parse_yaml reads as YAML does."""
+    if not v:
+        raise YamlBad("an empty entry")
+    if v[0] in PLAIN_START_BAD or (v[0] in "-?:" and (len(v) == 1 or v[1] in " \t" or (flow and v[1] in FLOW_CHARS))):
+        raise YamlBad(f"`{v[0]}` cannot start a plain value (anchors, tags, aliases and directives are not read)")
+    if " #" in v or "\t#" in v:
+        raise YamlBad("a comment the reader would keep as text")
     if ": " in v or v.endswith(":"):
-        return "a plain value holds `: `"
+        raise YamlBad("a plain value holds `: `")
+    if flow and (set(v) & (FLOW_CHARS | {"'", '"'})):
+        raise YamlBad("a flow entry holds `,`, a bracket or a quote outside quotes")
+    if key and ":" in v:
+        raise YamlBad("a flow key holds `:` (the reader splits at the first one)")
+
+
+def quoted_end(v, i):
+    """Index after the quoted scalar starting at v[i]; raises YamlBad on an unknown escape or a missing closing quote."""
+    q, j = v[i], i + 1
+    while j < len(v):
+        if q == '"' and v[j] == "\\":
+            n = escape_len(v, j)
+            if not n:
+                raise YamlBad(f"unknown escape `{v[j:j + 2]}`")
+            j += n
+            continue
+        if v[j] == q:
+            if q == "'" and v[j + 1:j + 2] == "'":
+                j += 2
+                continue
+            return j + 1
+        j += 1
+    raise YamlBad("unterminated quote")
+
+
+def flow_node(v, i, key=False):
+    """Index after one flow node at v[i] (i already past spaces): a collection, a quoted or a plain scalar."""
+    if i >= len(v):
+        raise YamlBad("an empty entry")
+    c = v[i]
+    if key and c in "[{":
+        raise YamlBad("a flow key that is a collection")
+    if c == "[" or c == "{":
+        close, j, keys = ("]" if c == "[" else "}"), i + 1, set()
+        while True:
+            j = skip_ws(v, j)
+            if j >= len(v):
+                raise YamlBad(f"unterminated `{c}`")
+            if v[j] == close:
+                return j + 1
+            if v[j] == ",":
+                raise YamlBad("an empty entry")
+            start = j
+            j = flow_node(v, j, key=c == "{")
+            j = skip_ws(v, j)
+            if c == "{":
+                key = unquote(v[start:j].strip())
+                if key in keys:
+                    raise YamlBad(f"duplicate key `{key}`")
+                keys.add(key)
+                if j < len(v) and v[j] == ":":
+                    j = skip_ws(v, j + 1)
+                    if j < len(v) and v[j] not in ",}":
+                        j = skip_ws(v, flow_node(v, j))
+            elif j < len(v) and v[j] == ":":
+                raise YamlBad("a `key: value` pair inside `[...]` is read as text")
+            if j >= len(v):
+                raise YamlBad(f"unterminated `{c}`")
+            if v[j] == ",":
+                j = skip_ws(v, j + 1)
+                if j < len(v) and v[j] == close:
+                    raise YamlBad("a trailing comma (the reader keeps it as an empty entry)")
+            elif v[j] != close:
+                raise YamlBad(f"`{v[j]}` where `,` or `{close}` belongs")
+    if c in "]}":
+        raise YamlBad(f"unbalanced `{c}`")
+    if c in "\"'":
+        return quoted_end(v, i)
+    j = i
+    while j < len(v) and v[j] not in FLOW_CHARS and not (v[j] == ":" and (j + 1 == len(v) or v[j + 1] in " \t,[]{}")):
+        j += 1
+    plain_ok(v[i:j].rstrip(), True, key)
+    return j
+
+
+def skip_ws(v, i):
+    while i < len(v) and v[i] in " \t":
+        i += 1
+    return i
+
+
+def value_problem(v):
+    """Why a value (or a quoted key) is not YAML that parse_yaml reads as written, or None."""
+    v = v.strip()
+    try:
+        if v[0] in "[{\"'":
+            j = flow_node(v, 0) if v[0] in "[{" else quoted_end(v, 0)
+            if v[j:].strip():
+                raise YamlBad("text after the closing " + ("bracket" if v[0] in "[{" else "quote"))
+        else:
+            plain_ok(v, False)
+    except YamlBad as e:
+        return str(e)
     return None
 
 
@@ -574,54 +639,75 @@ def yaml_problem(text):
     """The first line parse_yaml would skip, drop or misread, as `line N: why`, or None.
 
     parse_yaml is lenient for local settings; `policy` authorizes a merge from a remote file, so a file it cannot read whole
-    is unknown there (ADR 0020 D4). Block sequences (`- item`) are valid YAML this reader keeps as no value; they pass."""
+    is unknown there (ADR 0020 D4). This checks the YAML subset the reader reads as YAML does: block mappings, flow
+    collections, quoted and plain scalars, `|`/`>` blocks. What it would read otherwise (block sequences, anchors, tags,
+    aliases, tabs in indentation, duplicate keys, explicit indentation indicators) is a problem too, so it fails closed."""
     raw = text.splitlines()
     lines = []
     for n, r in enumerate(raw):
         s = strip_comment(r).rstrip()
         if s.strip():
-            lines.append((len(s) - len(s.lstrip(" ")), s.strip(), n))
+            lead = s[:len(s) - len(s.lstrip())]
+            if "\t" in lead:
+                return f"line {n + 1}: a tab in the indentation"
+            lines.append((len(lead), s.strip(), n))
     if lines and lines[0][1] == "---":
         lines = lines[1:]
-    key_re = re.compile(r"^((?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
+    key_re = re.compile(r"^((?:\"(?:[^\"\]|\.)*\"|'(?:[^']|'')*'|[^:\s][^:]*?)):(?:\s+(.*))?$")
 
-    def block(i, indent):
+    def bad(i, why):
+        raise YamlBad(f"line {lines[i][2] + 1}: {why}")
+
+    def mapping(i, indent):
+        keys = set()
         while i < len(lines) and lines[i][0] == indent:
             body, row = lines[i][1], lines[i][2]
             if body == "-" or body.startswith("- "):
-                i += 1
-                while i < len(lines) and lines[i][0] > indent:
-                    i += 1
-                continue
+                bad(i, "a block sequence (`- item`) is not read; write it as `[a, b]`")
             m = key_re.match(body)
             if not m:
-                return i, f"line {row + 1}: not a `key: value` line"
-            why = value_problem(m.group(1)) if m.group(1).startswith('"') else None
+                bad(i, "not a `key: value` line")
+            k = m.group(1)
+            why = value_problem(k)
             if why:
-                return i, f"line {row + 1}: {why}"
+                bad(i, why)
+            key = unquote(k.strip())
+            if key in keys:
+                bad(i, f"duplicate key `{key}`")
+            keys.add(key)
             val = m.group(2)
-            i += 1
-            if val and BLOCK_HEADER.match(val.strip()):
+            if val and val.strip()[0] in "|>":
+                if not BLOCK_HEADER.match(val.strip()) or re.search(r"\d", val):
+                    bad(i, "a block scalar header the reader does not read (only |, >, with + or -)")
                 end = block_scalar(raw, row + 1, indent, "|", "")[1]
+                body_rows = [r for r in raw[row + 1:end] if r.strip()]
+                if body_rows:
+                    pad = len(body_rows[0]) - len(body_rows[0].lstrip(" "))
+                    if any(len(r) - len(r.lstrip(" ")) < pad or "\t" in r[:len(r) - len(r.lstrip())] for r in body_rows):
+                        bad(i, "a block scalar line indented less than its first line, or with a tab")
+                i += 1
                 while i < len(lines) and lines[i][2] < end:
                     i += 1
             elif val is None or val.strip() == "":
+                i += 1
                 if i < len(lines) and lines[i][0] > indent:
-                    i, why = block(i, lines[i][0])
-                    if why:
-                        return i, why
+                    i = mapping(i, lines[i][0])
             else:
                 why = value_problem(val)
                 if why:
-                    return i, f"line {row + 1}: {why}"
-        return i, None
+                    bad(i, why)
+                i += 1
+        return i
 
     if not lines:
         return None
-    i, why = block(0, lines[0][0])
-    if why:
-        return why
-    return f"line {lines[i][2] + 1}: unexpected indentation" if i < len(lines) else None
+    try:
+        i = mapping(0, lines[0][0])
+        if i < len(lines):
+            bad(i, "unexpected indentation")
+    except YamlBad as e:
+        return str(e)
+    return None
 
 
 def duration(v, default):
@@ -2498,7 +2584,7 @@ def policy_file(repo, ref):
         body = json.loads(out)
         if not isinstance(body, dict) or body.get("type") != "file" or body.get("encoding") != "base64":
             raise ValueError("not a base64 file")
-        text = base64.b64decode("".join(str(body.get("content", "")).split()), validate=True).decode("utf-8")
+        text = base64.b64decode("".join(str(body.get("content", "")).split()), validate=True).decode("utf-8-sig")
         why = yaml_problem(text)
         if why:
             raise ValueError(why)
