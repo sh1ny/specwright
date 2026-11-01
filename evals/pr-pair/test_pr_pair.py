@@ -4207,6 +4207,15 @@ class Policy(PolicyBase):
             with self.subTest(extra=extra):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
 
+    def test_tab_on_a_blank_or_comment_line_is_unknown(self):
+        """PR #160 security review: a tab-only line was dropped before the indentation check; YAML rejects it."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t\nx: 1\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "\t# note\nx: 1\n", 6)
+
+    def test_folded_block_with_more_indented_lines_is_unknown(self):
+        """YAML keeps the line breaks around more-indented lines of a `>` block; the reader folds them."""
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n    b\n  c\n", 6)
+
     def test_integer_is_not_a_boolean_in_drift(self):
         """PR #160 review: 1 == True in Python, so `delete_branch: 1` against the default true read as no drift."""
         for main_v, head_v in (("", "  delete_branch: 1\n"), ("  delete_branch: false\n", "  delete_branch: 0\n")):

@@ -651,11 +651,11 @@ def yaml_problem(text):
     raw = text.splitlines()
     lines = []
     for n, r in enumerate(raw):
+        if "\t" in r[:len(r) - len(r.lstrip())]:  # blank and comment-only lines too: YAML rejects them, the reader drops them
+            return f"line {n + 1}: a tab in the indentation"
         s = strip_comment(r).rstrip()
         if s.strip():
             lead = s[:len(s) - len(s.lstrip())]
-            if "\t" in lead:
-                return f"line {n + 1}: a tab in the indentation"
             if re.match(r"(---|\.\.\.)(\s|$)", s.strip()):
                 if lines or lead or s.strip() != "---":
                     return f"line {n + 1}: a document marker the reader does not read (only `---` alone, first, at column 0)"
@@ -700,6 +700,8 @@ def yaml_problem(text):
                             bad(i, "a blank line before a block scalar's text with more spaces than the text")
                     if any(len(r) - len(r.lstrip(" ")) < pad or "\t" in r[:len(r) - len(r.lstrip())] for r in body_rows):
                         bad(i, "a block scalar line indented less than its first line, or with a tab")
+                    if val.strip()[0] == ">" and any(len(r) - len(r.lstrip(" ")) > pad for r in body_rows):
+                        bad(i, "a more-indented line in a `>` block (YAML keeps its line breaks, the reader folds them)")
                 i += 1
                 while i < len(lines) and lines[i][2] < end:
                     i += 1
