@@ -702,6 +702,21 @@ class AgentMerge(unittest.TestCase):
                          "the carry-over does not pass the pre-archive ready head for the repository that got the archive commit")
         self.assertRegex(self.merge(), r"(?is)--reviewed-head <repo>=<ready head before the archive>", "the merge step does not pass --reviewed-head on the carry-over")
 
+    def test_archive_keeps_the_pre_archive_snapshot_for_the_carry_over(self):
+        # Pre-ship round 3 F2: step 1 keeps only the latest snapshot, so the ready head's must be saved before archiving.
+        a = self.archive()
+        self.assertRegex(a, r"(?is)before (it )?archiv\w*[^.]*copy[^.]*latest snapshot[^.]*own file",
+                         "the ready head's snapshot is not kept before the archive replaces it")
+        self.assertRegex(a, r"(?is)--reviewed-head <repo>=<ready head before the archive>[^.]*that saved snapshot",
+                         "the carry-over read does not pass the saved pre-archive snapshot")
+
+    def test_policy_store_flag_only_with_a_store_pr(self):
+        # Pre-ship round 3 F1: no store PR (shared by hand) or no code PR (store-only) must not end in a usage error.
+        p = self.policy_read()
+        self.assertRegex(p, r"(?is)`--store`[^.]*only when a store PR is expected", "`--store` is not limited to an expected store PR")
+        self.assertRegex(p, r"(?is)shared by hand[^.]*without `--store`", "a store shared by hand is not read without `--store`")
+        self.assertRegex(p, r"(?is)no code PR[^.]*report ready[^.]*merge nothing", "a store-only change has no defined policy outcome")
+
 
 DESCRIPTION = SKILL.parent / "references" / "description.md"
 
