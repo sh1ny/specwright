@@ -610,6 +610,8 @@ def flow_node(v, i, key=False, depth=0):
                     raise YamlBad(f"duplicate key `{key}`")
                 keys.add(key)
                 if j < len(v) and v[j] == ":":
+                    if v[j + 1:j + 2] not in (" ", "\t"):  # `{a:[]}`, `{"a":1}`, `{a:}`: YAML 1.1 parsers want the space
+                        raise YamlBad("a flow key's `:` not followed by a space")
                     j = skip_ws(v, j + 1)
                     if j < len(v) and v[j] not in ",}":
                         j = skip_ws(v, flow_node(v, j, depth=depth + 1))

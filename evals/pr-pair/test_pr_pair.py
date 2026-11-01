@@ -4189,6 +4189,12 @@ class Policy(PolicyBase):
             with self.subTest(extra=extra):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
 
+    def test_flow_key_colon_without_a_space_is_unknown(self):
+        """PR #160 security review: `{a:[]}` passed, but Psych wants a space between a flow key's `:` and its value."""
+        for extra in ("unrelated: {a:[]}\n", "unrelated: {a:{}}\n", "unrelated: {\"a\":1}\n", "unrelated: {a:}\n"):
+            with self.subTest(extra=extra):
+                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+
     def test_invalid_flow_entries_are_unknown(self):
         """PR #160 security review: `{ role: required,, }` is not YAML, and a trailing comma reads as an extra entry."""
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n"
