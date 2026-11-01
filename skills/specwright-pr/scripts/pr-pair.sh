@@ -790,9 +790,14 @@ def gitbutler_pins(code):
     without the metadata dir is a Git or jj checkout and does not pin."""
     if load_settings(code).get("vcs") == "gitbutler":
         return True
-    r = git(code, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    # no --path-format (git 2.31+): on an older git it would fail and turn the check off; a relative answer is
+    # relative to `code`, as vcs.sh gitbutler_managed resolves it
+    r = git(code, "rev-parse", "--git-common-dir")
     common = r.stdout.strip()
-    if r.returncode != 0 or not common or not (Path(common) / "gitbutler").is_dir():
+    if r.returncode != 0 or not common:
+        return False
+    common_dir = Path(common) if Path(common).is_absolute() else Path(code) / common
+    if not (common_dir / "gitbutler").is_dir():
         return False
     r = git(code, "config", "--get", "gitbutler.project.targetRef")
     return r.returncode == 0 and bool(r.stdout.strip())
