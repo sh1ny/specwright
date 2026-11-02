@@ -256,6 +256,29 @@ artifacts:
         sequencing, integration pattern - not cosmetically), why it lost, and
         its reversal cost (low/medium/high). High reversal cost on weak
         evidence is a risk: name the evidence that would settle it.
+
+        Each Decisions entry also records `Important: yes|no` and
+        `Chosen by: agent|user`. Important is yes when any one of four
+        criteria is met, and the entry names the criterion: high reversal
+        cost; binds future changes (contract, data format, config key,
+        boundary); changes behaviour or settings users see; chosen on weak
+        evidence. Otherwise it is no. A config key decision is therefore
+        always `Important: yes`.
+
+        Chosen by is `user` when the user chose or stated the decision, in
+        any mode, else `agent`. A choice the user stated before planning began
+        (in the conversation, or in the issue they approved) is recorded
+        `Chosen by: user` without asking again; it is not a question.
+
+        Wording of a message, the order of tasks and the layout of a test are
+        not decisions: they get no Decisions entry.
+
+        Decision summary: after the last decision, write a `### Decision
+        summary` table with columns #, Decision, Choice, Rejected, Reversal
+        cost, Important, Chosen by. It has one row per decision: one row per
+        scope decision from proposal.md (S1...) and per design decision
+        (D1...). Whenever an entry is added, removed or changed, update the
+        table in the same edit, so the rows match the entries one to one.
       - Diagrams (FULL): at least one mermaid diagram per applying trigger
         among T1-T4 (component graph, state machine, sequence, data flow).
         Token cost is not a reason to omit one.
@@ -467,6 +490,10 @@ artifacts:
 
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
+
+      At the end of planning, before apply, show the user the Decision
+      summary table from design.md. In `autonomous` mode planning does not
+      wait for an answer to it: show it and continue, with no question.
 
       **IMPORTANT: Follow the template below for tracked tasks.** The apply phase parses
       checkbox format to track progress. A box holding only `x` counts as done,

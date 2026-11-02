@@ -12,12 +12,12 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 | decision-making → A user instruction overrides the mode for one change | Session resumes after the proposal, without the conversation | evals/git-workflow/test_decision_making.py | test_resumed_session_reads_mode_from_proposal | green |
 | decision-making → A user instruction overrides the mode for one change | Next change after an override | evals/git-workflow/test_decision_making.py | test_override_is_for_one_change_only | green |
 | decision-making → A user instruction overrides the mode for one change | Change planned before this feature | evals/git-workflow/test_decision_making.py | test_missing_mode_line_falls_back_to_setting | green |
-| decision-making → Every decision records its importance and who chose it | Config key decision | evals/git-workflow/test_decision_making.py | test_importance_criteria_listed | red |
-| decision-making → Every decision records its importance and who chose it | Tactical decision | evals/git-workflow/test_decision_making.py | test_design_template_has_important_and_chosen_by | red |
-| decision-making → Every decision records its importance and who chose it | Not a decision | evals/git-workflow/test_decision_making.py | test_wording_order_layout_not_decisions | red |
-| decision-making → Every change carries a decision summary | Autonomous planning ends | evals/git-workflow/test_decision_making.py | test_summary_shown_at_end_without_waiting | red |
-| decision-making → Every change carries a decision summary | Autonomous with a choice the user stated | evals/git-workflow/test_decision_making.py | test_stated_choice_is_user_without_asking | red |
-| decision-making → Every change carries a decision summary | Summary out of step with the decisions | evals/git-workflow/test_decision_making.py | test_summary_rows_match_entries | red |
+| decision-making → Every decision records its importance and who chose it | Config key decision | evals/git-workflow/test_decision_making.py | test_importance_criteria_listed | green |
+| decision-making → Every decision records its importance and who chose it | Tactical decision | evals/git-workflow/test_decision_making.py | test_design_template_has_important_and_chosen_by | green |
+| decision-making → Every decision records its importance and who chose it | Not a decision | evals/git-workflow/test_decision_making.py | test_wording_order_layout_not_decisions | green |
+| decision-making → Every change carries a decision summary | Autonomous planning ends | evals/git-workflow/test_decision_making.py | test_summary_shown_at_end_without_waiting | green |
+| decision-making → Every change carries a decision summary | Autonomous with a choice the user stated | evals/git-workflow/test_decision_making.py | test_stated_choice_is_user_without_asking | green |
+| decision-making → Every change carries a decision summary | Summary out of step with the decisions | evals/git-workflow/test_decision_making.py | test_summary_rows_match_entries | green |
 | decision-making → Decisions go to the user per the mode | Important mode | evals/git-workflow/test_decision_making.py | test_important_mode_asks_important_only | red |
 | decision-making → Decisions go to the user per the mode | All mode | evals/git-workflow/test_decision_making.py | test_all_mode_asks_every_decision | red |
 | decision-making → Decisions go to the user per the mode | Ask tool that takes four questions | evals/git-workflow/test_decision_making.py | test_batches_of_at_most_four_through_ask_tool | red |
@@ -42,8 +42,8 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 
 ## 2. Decision fields and the summary
 
-- [ ] 2.1 Add tests for rows 7-12 and confirm they fail for the right reason.
-- [ ] 2.2 In the design instruction and `schemas/specwright/templates/design.md`, add per-decision `Important: yes|no` with the criterion met (the four criteria from design D4) and `Chosen by: agent|user` (user when the user chose or stated it, in any mode). State that wording, task order and test layout are not decisions. Add the `### Decision summary` table after the last decision, with one row per `S` and `D` entry, updated in the same edit as any entry. In the tasks instruction, show the summary table to the user at the end of planning, with no wait in `autonomous` mode. Verify that rows 7-12 pass, flip them green, and that `openspec schema validate specwright` passes.
+- [x] 2.1 Add tests for rows 7-12 and confirm they fail for the right reason.
+- [x] 2.2 In the design instruction and `schemas/specwright/templates/design.md`, add per-decision `Important: yes|no` with the criterion met (the four criteria from design D4) and `Chosen by: agent|user` (user when the user chose or stated it, in any mode). State that wording, task order and test layout are not decisions. Add the `### Decision summary` table after the last decision, with one row per `S` and `D` entry, updated in the same edit as any entry. In the tasks instruction, show the summary table to the user at the end of planning, with no wait in `autonomous` mode. Verify that rows 7-12 pass, flip them green, and that `openspec schema validate specwright` passes.
 
 ## 3. Putting decisions to the user
 
