@@ -33,7 +33,7 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-evidence → Reviewer settings reach the snapshot as a file | Unwritable state directory | pair | test_context_config_falls_back_to_temp_dir (plus snap test_snapshot_with_fallback_config_reports_reviewers) | green |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Regex characters in a rule | pair | test_config_pattern_byte_for_byte | green |
 | pr-evidence → Reviewer settings are read strictly everywhere | Double-quoted escape | pair | test_context_prints_settings_problem_without_exiting (plus text test_watch_stops_on_settings_problem) | green |
-| pr-evidence → Reviewer settings are read strictly everywhere | Single-quoted pattern | pair | test_readme_and_template_report_examples_pass_both_readers | red |
+| pr-evidence → Reviewer settings are read strictly everywhere | Single-quoted pattern | pair | test_readme_and_template_report_examples_pass_both_readers | green |
 | pr-evidence → A snapshot names the reviewer rules it used | Wait started with the work tree's rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | green |
 | pr-evidence → A snapshot names the reviewer rules it used | Same rules | pair | test_reported_check_equal_digest_ok | green |
 | pr-merge → Agent mode archives before merging without asking | Ready change, not archived | text | test_agent_mode_archives_without_asking | green |
@@ -116,8 +116,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 6. Template and README
 
-- [ ] 6.1 Update `templates/openspec/specwright.yaml` and the README reviewer section: generic placeholder bot names, `report:` keys, single-quoted copyable examples for the three former built-in formats without naming any tool the design came from, `pr.settle`, and the migration note for `--reviewer`. Verify: `test_readme_and_template_report_examples_pass_both_readers` passes; `grep -n "Code review in progress\|mira-walkthrough" README.md templates/` finds nothing outside the examples.
-- [ ] 6.2 Confirm the `report:` blocks for the dogfood projects' bots against live PRs of mythspine and blackgrid (design Open Question), and correct the README examples if a format differs. Verify: each example matches one real comment or check, noted in the PR description.
+- [x] 6.1 Update `templates/openspec/specwright.yaml` and the README reviewer section: generic placeholder bot names, `report:` keys, single-quoted copyable examples for the three former built-in formats without naming any tool the design came from, `pr.settle`, and the migration note for `--reviewer`. Verify: `test_readme_and_template_report_examples_pass_both_readers` passes; `grep -n "Code review in progress\|mira-walkthrough" README.md templates/` finds nothing outside the examples.
+- [x] 6.2 Confirm the `report:` blocks for the dogfood projects' bots against live PRs of mythspine and blackgrid (design Open Question), and correct the README examples if a format differs. Verify: each example matches one real comment or check, noted in the PR description.
 
 ## 7. Release
 

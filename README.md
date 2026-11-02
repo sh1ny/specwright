@@ -510,8 +510,9 @@ pr:
   react: true                   # 👍/👎 on every finding answered (right / wrong); default false
   poll_interval: 5m             # how often watch polls GitHub; default 5m
   review_after_archive: false   # true = re-request review on the archive head too; false = reviews of the head before it carry over
+  settle: 5m                    # quiet window before a PR that is otherwise ready counts as ready; 1m to 1h, default 5m
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
-    chatgpt-codex-connector: { role: required, request: "@codex review" }   # example: a reviewer that runs only when tagged
+    tagged-bot: { role: required, request: "@tagged-bot review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
   # request_as: my-account      # posts the requests; default review_request.login, else github.login, else the run login
   merge: user                   # user = you merge on GitHub; agent = watch merges a ready PR (finish: pr, a required reviewer)
@@ -550,7 +551,39 @@ release:                        # opt-in; refused with pr.merge_method: rebase
 - **What the skills do differently.** Commits, pushes and the PR are for the change branch alone, and cleanup pulls only when no other branch is applied (`pull_skipped` otherwise), so a merge that main already holds is read on the fetched main. `specwright-debug` never stashes on GitButler: it shows the changed paths and asks you to set your edits aside. A deferred archive's undo script moves the archive back, rewrites the main specs from `git cat-file --filters` and commits exactly those paths with `but commit -b <branch>`, with no Git write.
 - **Limits.** With `core.autocrlf=true` (the Git for Windows default), GitButler checkouts can conflict on line endings: `but branch delete` has been seen failing, and `but pull` is untested.
 
-Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one, and its pending check, stops blocking once it has reported or timed out. A reviewer counts as reported once it posts on the PR after the push; for a few bots Specwright reads a more precise signal instead, such as the reviewed commit or a check run.
+Reviewers: `role` is `required` (default) or `advisory`, `timeout` defaults to 20m. Watch waits until every reviewer has reported on the head or timed out before a fix round, so one round covers all their findings. Ready needs every required reviewer to have reported; an advisory one stops blocking once it has reported or timed out. Once a PR meets every other ready condition, watch waits `pr.settle` (default 5m) with nothing new before it reports it ready.
+
+Specwright names no review bot in its scripts. A reviewer counts as reported on the head by a review it submitted on the head commit, else by anything it posts after the push. Check runs never count on their own, because CI and a review action can share an app. For a bot whose finished review needs a more exact signal, add `report:` to its entry; with any of `sha_pattern`, `check` or `marker` set, only those (and a review on the head commit) count for that bot:
+
+- `sha_pattern`: a regular expression (Python, case-sensitive) whose first group is the reviewed commit, 7 to 40 hex digits; it counts when that commit is the head.
+- `check`: the exact name of the check run the bot completes. That check stops holding up an advisory bot's PR once the bot has reported or timed out; every other pending check counts as CI.
+- `marker`: literal text in a comment the bot edits in place; it counts when that comment was last edited after the push.
+- `ignore`: a regular expression; comments and review bodies it matches never count, for bots that post an in-progress note first.
+
+Write patterns in single quotes so backslashes stay as written. Three common shapes to copy, with placeholder logins:
+
+```yaml
+pr:
+  reviewers:
+    sha-bot:                    # posts "**Reviewed commit:** `<sha>`" when done
+      role: required
+      report:
+        sha_pattern: 'Reviewed commit:\*\* `([0-9a-f]{7,40})`'
+    check-bot:                  # finishes a check run named after itself
+      role: advisory
+      timeout: 15m
+      report:
+        check: 'Bot Code Review'
+    marker-bot:                 # edits one walkthrough comment, first with an in-progress note
+      role: advisory
+      report:
+        marker: '<!-- bot-walkthrough -->'
+        ignore: 'Reviewing this PR|Code review in progress'
+```
+
+`report` is part of the merge policy (ADR 0020, 0022): a PR that changes it needs your yes before an agent merge, and a merge counts only reports judged under the default branch's rules. Each snapshot shows every reviewer's `by` (the rule that matched) and `evidence`, so watch can keep waiting for a bot whose only output reads as an announcement, until its timeout.
+
+**Upgrading from 0.14.** `pr-snapshot.sh --reviewer login:role:seconds` is gone: the snapshot reads `--reviewer-config <file>`, which `pr-pair.sh context` and `policy` write from your settings. Bots that relied on the built-in rules of earlier versions get the generic rule above unless you add a `report:` block like those shown.
 
 **Agent merge (0.4.0).** With `pr.merge: agent` and `finish: pr`, **watch** finishes the job you used to do by hand: once the PR is ready it archives the change without asking, waits for the archive head, merges the PR through GitHub's REST merge at the head it reported ready (a push in between makes GitHub refuse), reads the PR back, then cleans up: main pulled, the local branch deleted under the usual check, the remote branch deleted with `pr.delete_branch` while it is still at the merged head and no open PR is based on it, and the roadmap **next** or **close** offered (ADR 0009). It needs at least one `required` reviewer, else it reports ready and merges nothing. A refusal (branch protection, a merge queue, a disallowed method) stops with GitHub's message; Specwright never uses admin rights, auto-merge, a merge queue, another method or a review dismissal. GitHub records the run login as the merger. The default, `user`, keeps the earlier behaviour.
 
