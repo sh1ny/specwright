@@ -2187,8 +2187,9 @@ def _term_re(term, flags=0):
 GATE_RES = [_term_re(t, re.I) for t in GATE_TERMS] + [_term_re(t) for t in GATE_TERMS_CAPITALS]
 RELAX_RES = [_term_re(t, re.I) for t in RELAXING_TERMS]
 for _t in NEGATED_ONLY_TERMS:  # `trip` relaxes only after a negator: "must trip T4" passes, "do not trip T2" does not
-    _neg = "|".join(re.escape(n).replace("'", "['’]") for n in NEGATORS)
-    RELAX_RES.append(re.compile(r"(?<![A-Za-z0-9_])(?:" + _neg + r")\s+" + re.escape(_t) + r"(?![A-Za-z0-9_])", re.I))
+    # whole-word negators (`not`, `never`) need a word boundary before them; `n't` attaches to the word before it
+    _neg = "|".join(("" if n.startswith("n'") else r"(?<![A-Za-z0-9_])") + re.escape(n).replace("'", "['’]") for n in NEGATORS)
+    RELAX_RES.append(re.compile(r"(?:" + _neg + r")\s+" + re.escape(_t) + r"(?![A-Za-z0-9_])", re.I))
 
 
 def relaxes_gate(line):

@@ -2346,6 +2346,12 @@ class Packs(unittest.TestCase):
         self.assertRegex(s3, r"(?is)STOP before Step 4.{0,300}predates packs.{0,200}0\.16\.0.{0,200}interfaces? 1 and 2",
                          "Step 3 does not stop on interface 1 with packs, naming interfaces 1 and 2")
 
+    def test_readme_step3_interface_check_omits_pack_options(self):
+        # an older update.sh refuses --pack as a usage error and reports no interface, so the interface check must not
+        # pass the pack options, or the "predates packs" stop can never be reached
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?is)without (the )?`--pack` and `--pack-doc`", "Step 3's interface check passes the pack options")
+
     def test_readme_step2_packs_need_in_repo_skills(self):
         s2 = self.s(2)
         self.assertRegex(s2, r"(?is)`packs:`.{0,200}in-repo skills directories.{0,200}`packs_user_level`", "Step 2 does not state the in-repo rule")

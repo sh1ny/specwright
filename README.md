@@ -206,8 +206,9 @@ Step 3 - Choose the version, download and compare versions
   it, record `OpenSpec <found> (pinned <pin>, override)` for Step 8.
 - Check the update script, before Step 4 stages anything: the download must
   hold `scripts/update.sh`, and `bash <download>/scripts/update.sh plan`
-  (the options of Step 4; it writes nothing, except that it first recovers a
-  pending journal, see Step 4) must report `interface` 2. Accept interface 2, and interface 1
+  (the options of Step 4, without the `--pack` and `--pack-doc` options, which
+  an older script refuses as a usage error; it writes nothing, except that it
+  first recovers a pending journal, see Step 4) must report `interface` 2. Accept interface 2, and interface 1
   only when `openspec/specwright.yaml` enables no pack and the installed
   `openspec/.specwright/packs.json`, if there is one, lists no enabled pack;
   the install then continues as before packs and writes no pack state. If the

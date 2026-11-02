@@ -189,6 +189,21 @@ class PackCheck(unittest.TestCase):
         self.assertEqual((r["field"], r["index"]), ("rules.design", 0))
         self.assertEqual(r["line"], "Actor-local state machines do not trip T2 on their own.")
 
+    def test_contracted_negator_trip_refused(self):
+        # `n't` attaches to the word before it ("don't", "doesn't"), unlike `not` and `never`
+        for line in ("Actor-local state machines don't trip T2 on their own.",
+                     "A cosmetic tweak doesn’t trip the T4 trigger.",
+                     "Actor-local state machines never trip T2."):
+            dl = self.download("bad-relaxes-gate")
+            path = dl / "packs" / "bad-relaxes-gate" / "pack.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["rules"]["design"] = [line]
+            path.write_text(json.dumps(data), encoding="utf-8")
+            code, doc = self.check(dl)
+            self.assertEqual(code, 1, line)
+            self.assertEqual([r["code"] for r in doc["refusals"]], ["relaxes_gate"], line)
+            shutil.rmtree(dl)
+
     def test_strict_wording_passes(self):
         code, doc = self.check(self.download("strict-wording"))
         self.assertEqual((code, doc["refusals"]), (0, []))
