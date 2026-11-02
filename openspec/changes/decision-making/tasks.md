@@ -27,11 +27,11 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 | decision-making → Decisions go to the user per the mode | Harness without an ask tool | evals/git-workflow/test_decision_making.py | test_plain_text_only_as_fallback | green |
 | decision-making → Decisions go to the user per the mode | User asks to discuss | evals/git-workflow/test_decision_making.py | test_discuss_option_holds_the_decision | green |
 | decision-making → Decisions go to the user per the mode | User hands the decision back | evals/git-workflow/test_decision_making.py | test_you_decide_records_agent | green |
-| decision-making → A user-chosen decision changes only with the user | Reviewer asks to change a user choice | evals/git-workflow/test_decision_making.py | test_review_change_to_user_choice_asks_first | red |
-| decision-making → A user-chosen decision changes only with the user | Autonomous mode, review or drift would replace a user choice | evals/git-workflow/test_decision_making.py | test_user_choice_protected_in_every_mode | red |
-| decision-making → A user-chosen decision changes only with the user | Reviewer changes only agent choices | evals/git-workflow/test_decision_making.py | test_agent_choices_applied_without_asking_in_autonomous | red |
-| decision-making → Decisions changed after planning follow the mode | Drift in important mode | evals/git-workflow/test_decision_making.py | test_apply_drift_follows_mode | red |
-| decision-making → Decisions changed after planning follow the mode | Drift in autonomous mode | evals/git-workflow/test_decision_making.py | test_autonomous_drift_amends_agent_choice_and_rereviews | red |
+| decision-making → A user-chosen decision changes only with the user | Reviewer asks to change a user choice | evals/git-workflow/test_decision_making.py | test_review_change_to_user_choice_asks_first | green |
+| decision-making → A user-chosen decision changes only with the user | Autonomous mode, review or drift would replace a user choice | evals/git-workflow/test_decision_making.py | test_user_choice_protected_in_every_mode | green |
+| decision-making → A user-chosen decision changes only with the user | Reviewer changes only agent choices | evals/git-workflow/test_decision_making.py | test_agent_choices_applied_without_asking_in_autonomous | green |
+| decision-making → Decisions changed after planning follow the mode | Drift in important mode | evals/git-workflow/test_decision_making.py | test_apply_drift_follows_mode | green |
+| decision-making → Decisions changed after planning follow the mode | Drift in autonomous mode | evals/git-workflow/test_decision_making.py | test_autonomous_drift_amends_agent_choice_and_rereviews | green |
 | decision-making → The setting is documented where it is set | Fresh install | evals/git-workflow/test_decision_making.py | test_template_names_setting_and_values | red |
 | decision-making → The setting is documented where it is set | Existing project updated | evals/git-workflow/test_decision_making.py | test_readme_documents_setting_default | red |
 
@@ -52,8 +52,8 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 
 ## 4. Protecting user choices and later changes
 
-- [ ] 4.1 Add tests for rows 22-26 and confirm they fail for the right reason.
-- [ ] 4.2 In the review instruction (Required Changes applied by the author), a change that reverses a `Chosen by: user` decision goes to the user first, in any mode. Its entry and summary row stay unchanged until the user answers; agent choices are applied per the mode. In the apply instruction's drift rule, a replacement decision follows the change's recorded mode, and a user choice always goes to the user. Verify that rows 22-26 pass, flip them green, and that `openspec schema validate specwright` passes.
+- [x] 4.1 Add tests for rows 22-26 and confirm they fail for the right reason.
+- [x] 4.2 In the review instruction (Required Changes applied by the author), a change that reverses a `Chosen by: user` decision goes to the user first, in any mode. Its entry and summary row stay unchanged until the user answers; agent choices are applied per the mode. In the apply instruction's drift rule, a replacement decision follows the change's recorded mode, and a user choice always goes to the user. Verify that rows 22-26 pass, flip them green, and that `openspec schema validate specwright` passes.
 
 ## 5. Settings, docs and the contract
 

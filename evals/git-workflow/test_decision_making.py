@@ -228,5 +228,47 @@ class PuttingDecisionsToTheUser(unittest.TestCase):
             self.assertRegex(p, r"(?i)handed")
 
 
+def apply_instruction():
+    """The `apply:` section of the schema (it is not an artifact)."""
+    text = read(SCHEMA)
+    m = re.search(r"^apply:\s*$", text, re.M)
+    assert m, "schema.yaml has no apply section"
+    return text[m.start():]
+
+
+class ProtectingUserChoices(unittest.TestCase):
+    """Requirements: A user-chosen decision changes only with the user; decisions changed after planning follow the mode."""
+
+    def test_review_change_to_user_choice_asks_first(self):
+        p = find_block(schema_block("review"), r"Required\s+Changes", r"revers\w+", r"Chosen by: `?user", r"user\s+first|to\s+the\s+user\s+before|before\s+(applying|editing)")
+        self.assertIsNotNone(p, "review instruction does not send a required change reversing a user choice to the user first")
+        self.assertRegex(p, r"(?i)options")
+        self.assertRegex(p, r"(?i)recommended")
+        self.assertRegex(p, r"(?i)until\s+(the\s+user|they)\s+answers?")
+
+    def test_user_choice_protected_in_every_mode(self):
+        p = find_block(schema_block("review"), r"Chosen by: `?user", r"any\s+mode|every\s+mode", r"autonomous", r"summary\s+row", r"unchanged")
+        self.assertIsNotNone(p, "review instruction does not protect a user choice, entry and summary row, in every mode")
+        d = find_block(apply_instruction(), r"SPEC OR DESIGN DRIFT", r"Chosen by: `?user", r"user")
+        self.assertIsNotNone(d, "apply drift rule does not send a change to a user choice to the user")
+        self.assertRegex(d, r"(?i)(any|every)\s+mode|always")
+
+    def test_agent_choices_applied_without_asking_in_autonomous(self):
+        p = find_block(schema_block("review"), r"Chosen by: `?agent", r"autonomous", r"without\s+asking", r"summary\s+table")
+        self.assertIsNotNone(p, "review instruction does not apply agent-chosen required changes per the mode and update the summary table")
+        self.assertRegex(p, r"(?i)mode")
+
+    def test_apply_drift_follows_mode(self):
+        d = find_block(apply_instruction(), r"SPEC OR DESIGN DRIFT", r"replacement\s+decision", r"DECISION_MAKING", r"setting", r"important")
+        self.assertIsNotNone(d, "apply drift rule does not make a replacement decision follow the recorded mode")
+        self.assertRegex(d, r"(?i)to\s+the\s+user")
+        self.assertRegex(d, r"(?i)before\s+(amending|the\s+(design|artifact))")
+
+    def test_autonomous_drift_amends_agent_choice_and_rereviews(self):
+        d = find_block(apply_instruction(), r"SPEC OR DESIGN DRIFT", r"autonomous", r"Chosen by: `?agent", r"summary\s+table", r"re-run\s+the\s+review")
+        self.assertIsNotNone(d, "apply drift rule does not amend an agent choice in autonomous mode, update the summary table and re-review")
+        self.assertRegex(d, r"(?i)without\s+asking")
+
+
 if __name__ == "__main__":
     unittest.main()

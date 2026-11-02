@@ -477,6 +477,16 @@ artifacts:
       anyway: record it with `CHANGES_APPLIED: n/a`, the user's words and the
       open findings. A deferral or waiver is never recorded as USER_OVERRIDE.
 
+      Required Changes and decisions: before applying a Required Change that
+      reverses a `Chosen by: user` decision, put it to the user, in any mode
+      (autonomous included), with options and a recommended one. Until the user
+      answers, that decision's entry and its summary row stay unchanged. A
+      Required Change that touches only `Chosen by: agent` decisions is
+      applied per the change's decision mode (the `DECISION_MAKING:` line in
+      proposal.md, else the setting): in autonomous mode without asking, in
+      `important` and `all` mode put to the user as the mode requires. Each
+      applied change updates the Decisions entry and the summary table.
+
       Two more verdicts exist only on the user's word; reviewers never produce
       them (`review-run.sh` refuses both):
       - `VERDICT: DEFERRED`: only when the user declared a FULL-tier change a
@@ -641,6 +651,13 @@ apply:
       around it. Amend the artifact and re-run the review step, whatever the
       tier (the old verdict is void; LIGHT re-checks its triage and may become
       FULL), commit the amendments, update tasks and the test map, then
-      resume.
+      resume. A replacement decision follows the change's recorded mode (the
+      `DECISION_MAKING:` line in proposal.md, else the setting): in `all` mode,
+      or in `important` mode when it is important, put it to the user before
+      amending the design; otherwise the agent takes it without asking. In
+      autonomous mode an amended `Chosen by: agent` decision keeps
+      `Chosen by: agent`. Either way update the Decisions entry and the
+      summary table. A `Chosen by: user` decision is always put to the user,
+      in any mode, and stays as it is until they answer.
     - Do not claim a task complete without a fresh run of its verification.
     Pause if you hit blockers or need clarification.
