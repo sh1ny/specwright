@@ -39,7 +39,7 @@ Milestone: M6 - Packs, inserted before `pack-mechanism` because other teams cann
 
 ## Release Notes
 
-Watch now detects reviewers generically, so Specwright works with any review bots, and the archive step no longer re-runs validation or waits a full watch cycle.
+0.15.0 makes reviewer detection generic: the scripts name no review bot, each project describes how its bots report in `pr.reviewers.<login>.report`, and a PR that is otherwise ready, or holds only the archive commit, waits the `pr.settle` quiet window instead of another 30-minute watch cycle and skips re-running validation. Projects that call `pr-snapshot.sh --reviewer` directly must switch to `--reviewer-config`.
 
 ### Added
 - `pr.reviewers.<login>.report` (`sha_pattern`, `check`, `marker`, `ignore`) describes how a bot signals a finished review, and `pr.settle` (default 5m) sets the quiet window before a PR counts as ready. (#166)

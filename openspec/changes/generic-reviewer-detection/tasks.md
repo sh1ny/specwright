@@ -121,8 +121,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 7. Release
 
-- [ ] 7.1 `bash skills/specwright-release/scripts/release.sh bump --to 0.15.0`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/generic-reviewer-detection/proposal.md` pass.
-- [ ] 7.2 Integration check: `openspec validate --all --strict` passes, and the PR's CI (`.github/workflows/evals.yml`) is green on Linux, Windows and macOS. Verify: the CI run link in the PR.
+- [x] 7.1 `bash skills/specwright-release/scripts/release.sh bump --to 0.15.0`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/generic-reviewer-detection/proposal.md` pass.
+- [x] 7.2 Integration check: `openspec validate --all --strict` passes, and the PR's CI (`.github/workflows/evals.yml`) is green on Linux, Windows and macOS. Verify: the CI run link in the PR.
 
 ## Workflow follow-up
 
