@@ -32,24 +32,24 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-evidence → Reviewer settings reach the snapshot as a file | Missing file | snap | test_missing_reviewer_config_exits_2_without_gh | green |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Unwritable state directory | pair | test_context_config_falls_back_to_temp_dir (plus snap test_snapshot_with_fallback_config_reports_reviewers) | green |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Regex characters in a rule | pair | test_config_pattern_byte_for_byte | green |
-| pr-evidence → Reviewer settings are read strictly everywhere | Double-quoted escape | pair | test_context_prints_settings_problem_without_exiting (plus text test_watch_stops_on_settings_problem) | red |
+| pr-evidence → Reviewer settings are read strictly everywhere | Double-quoted escape | pair | test_context_prints_settings_problem_without_exiting (plus text test_watch_stops_on_settings_problem) | green |
 | pr-evidence → Reviewer settings are read strictly everywhere | Single-quoted pattern | pair | test_readme_and_template_report_examples_pass_both_readers | red |
 | pr-evidence → A snapshot names the reviewer rules it used | Wait started with the work tree's rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | green |
 | pr-evidence → A snapshot names the reviewer rules it used | Same rules | pair | test_reported_check_equal_digest_ok | green |
 | pr-merge → Agent mode archives before merging without asking | Ready change, not archived | text | test_agent_mode_archives_without_asking | green |
 | pr-merge → Agent mode archives before merging without asking | Archive fails | text | test_agent_mode_archive_failure_stops_no_merge | green |
 | pr-merge → Agent mode archives before merging without asking | Branch-only agent mode asks first | text | test_drift_without_head_agent_asks_nothing | green |
-| pr-merge → Agent mode archives before merging without asking | Looser rules at the archive decision | text | test_archive_decision_rules_mismatch_waits_without_asking | red |
+| pr-merge → Agent mode archives before merging without asking | Looser rules at the archive decision | text | test_archive_decision_rules_mismatch_waits_without_asking | green |
 | pr-merge → Only the ready head is merged | Merge with the configured method | pair | test_merge_sends_method_and_head_sha_fenced | green |
 | pr-merge → Only the ready head is merged | Head moved after ready | pair | test_merge_head_changed_409_reports_head_changed | green |
-| pr-merge → Only the ready head is merged | Commit after the archive head | text | test_reviewerless_archive_head_merged_only_if_unchanged (reworded to the carry-over) | red |
+| pr-merge → Only the ready head is merged | Commit after the archive head | text | test_reviewerless_archive_head_merged_only_if_unchanged (reworded to the carry-over) | green |
 | pr-merge → Only the ready head is merged | Invalid method | pair | test_merge_invalid_method_usage_no_request | green |
 | pr-merge → Required reviewers are those of the authorizing set | Wait started with an edited set | pair | test_snapshot_without_main_required_reviewer_not_ok | green |
 | pr-merge → Required reviewers are those of the authorizing set | Authorizing reviewer reported | pair | test_main_required_reviewer_reported_ok (with matching digest) | green |
 | pr-merge → Required reviewers are those of the authorizing set | Wait started with looser rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | green |
 | pr-merge → Required reviewers are those of the authorizing set | Archive head carry-over | pair | test_reviewed_head_carry_over_checks_main_set | green |
 | pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | pair | test_store_adds_the_store_reviewers_side (with digests) | green |
-| pr-watch → The archive head gets no new review round | Archive pushed after a clean review | text | test_watch_archive_head_no_request_no_reviewers (reworded: carry-over, `--reviewer-config`) | red |
+| pr-watch → The archive head gets no new review round | Archive pushed after a clean review | text | test_watch_archive_head_no_request_no_reviewers (reworded: carry-over, `--reviewer-config`) | green |
 | pr-watch → The archive head gets no new review round | Setting turned on | text | test_watch_review_after_archive_true_rerequests | green |
 | pr-watch → The archive head gets no new review round | Archive commit touches other files | route | test_archive_only_false_outside_paths | green |
 | pr-watch → The archive head gets no new review round | Another commit after the reviewed head | route | test_archive_only_false_two_commits | green |
@@ -63,29 +63,29 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-watch → A wait can skip wakes that are only check progress | Feedback arrives during check progress | snap | test_feedback_during_checks_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | A conflict appears | snap | test_dirty_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | Unknown mode or no wait | snap | test_bad_until_exits_2_without_gh | green |
-| pr-watch → Watch waits for attention | Watch's wait command | text | test_watch_waits_until_attention (three timeouts and conditions) | red |
-| pr-watch → Watch waits for attention | Ready after a quiet wait with a check re-run | snap | test_rerun_back_to_baseline_times_out (plus text test_watch_timeout_wake_is_quiet_window) | red |
+| pr-watch → Watch waits for attention | Watch's wait command | text | test_watch_waits_until_attention (three timeouts and conditions) | green |
+| pr-watch → Watch waits for attention | Ready after a quiet wait with a check re-run | snap | test_rerun_back_to_baseline_times_out (plus text test_watch_timeout_wake_is_quiet_window) | green |
 | pr-watch → Watch waits for attention | Default settle window | pair | test_context_settle_default_300 | green |
-| pr-watch → Watch waits for attention | Long wait ends quiet | text | test_watch_timeout_wake_is_quiet_window | red |
-| pr-watch → Watch waits for attention | Pending check makes the merge state unstable | text | test_watch_ready_accepts_unstable_without_ci_pending | red |
-| pr-watch → Watch waits for attention | Not yet ready | text | test_watch_uses_1800_until_otherwise_ready | red |
+| pr-watch → Watch waits for attention | Long wait ends quiet | text | test_watch_timeout_wake_is_quiet_window | green |
+| pr-watch → Watch waits for attention | Pending check makes the merge state unstable | text | test_watch_ready_accepts_unstable_without_ci_pending | green |
+| pr-watch → Watch waits for attention | Not yet ready | text | test_watch_uses_1800_until_otherwise_ready | green |
 | pr-watch → Watch waits for attention | Bad settle value | pair | test_context_bad_settle_is_settings_problem | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Advisory reviewer timed out with its check pending | rev | test_advisory_timed_out_check_moves_to_advisory_pending | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Required reviewer's check pending | rev | test_required_reviewer_check_pending_not_ci | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Shared app | rev | test_shared_app_checks_stay_ci | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Bot that is not configured | rev | test_unconfigured_app_check_is_ci | green |
-| pr-watch → An archive-only head needs no further quiet window | CI already green | text | test_archive_head_ready_after_settle_unstable | red |
-| pr-watch → An archive-only head needs no further quiet window | Snapshot before CI exists | text | test_archive_head_waits_rest_of_settle_before_judging | red |
-| pr-watch → An archive-only head needs no further quiet window | CI still running | text | test_archive_head_ready_on_ci_pending_zero_wake | red |
-| pr-watch → An archive-only head needs no further quiet window | Feedback on the archive head | text | test_archive_head_feedback_runs_feedback | red |
-| pr-watch → An archive-only head needs no further quiet window | Failing CI on the archive head | text | test_archive_head_ci_failure_handled_as_any_head | red |
-| pr-watch → An announced review can extend the wait | Announcement only | text | test_watch_announcement_only_waits | red |
-| pr-watch → An announced review can extend the wait | Timeout passed after an announcement | text | test_watch_announcement_timeout_reports_and_asks | red |
-| change-finish → An archive-only push skips the code validate | Archive of a reviewed head | text | test_ship_skips_validate_for_archive_only_push | red |
-| change-finish → An archive-only push skips the code validate | Store-backed archive | text | test_ship_store_archive_runs_store_validate_only | red |
-| change-finish → An archive-only push skips the code validate | Archive commit with other files | text | test_ship_runs_validate_when_not_archive_only | red |
-| change-finish → An archive-only push skips the code validate | No ready head | text | test_ship_runs_validate_without_ready_head | red |
-| change-finish → An archive-only push skips the code validate | Check fails to run | text | test_ship_runs_validate_and_names_archive_only_error | red |
+| pr-watch → An archive-only head needs no further quiet window | CI already green | text | test_archive_head_ready_after_settle_unstable | green |
+| pr-watch → An archive-only head needs no further quiet window | Snapshot before CI exists | text | test_archive_head_waits_rest_of_settle_before_judging | green |
+| pr-watch → An archive-only head needs no further quiet window | CI still running | text | test_archive_head_ready_on_ci_pending_zero_wake | green |
+| pr-watch → An archive-only head needs no further quiet window | Feedback on the archive head | text | test_archive_head_feedback_runs_feedback | green |
+| pr-watch → An archive-only head needs no further quiet window | Failing CI on the archive head | text | test_archive_head_ci_failure_handled_as_any_head | green |
+| pr-watch → An announced review can extend the wait | Announcement only | text | test_watch_announcement_only_waits | green |
+| pr-watch → An announced review can extend the wait | Timeout passed after an announcement | text | test_watch_announcement_timeout_reports_and_asks | green |
+| change-finish → An archive-only push skips the code validate | Archive of a reviewed head | text | test_ship_skips_validate_for_archive_only_push | green |
+| change-finish → An archive-only push skips the code validate | Store-backed archive | text | test_ship_store_archive_runs_store_validate_only | green |
+| change-finish → An archive-only push skips the code validate | Archive commit with other files | text | test_ship_runs_validate_when_not_archive_only | green |
+| change-finish → An archive-only push skips the code validate | No ready head | text | test_ship_runs_validate_without_ready_head | green |
+| change-finish → An archive-only push skips the code validate | Check fails to run | text | test_ship_runs_validate_and_names_archive_only_error | green |
 
 ## 1. Records: ADR, architecture, roadmap
 
@@ -111,8 +111,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 5. Skill text: watch, merge, ship, finish
 
-- [ ] 5.1 Write failing `text` tests for the red `text` rows: three wait timeouts with conditions, any `timeout` wake as the quiet window, CLEAN or UNSTABLE ready rule, `settings_problem` stops watch, announced-review rule, archive head judged once `pr.settle` has passed since the push, `rules_mismatch` at the archive decision waits without asking, the carry-over wording, `ready head:` hand-off and ship's archive-only validate skip. Verify red: `python -m unittest evals/pr-pair/test_skill_text.py` fails on the new names only.
-- [ ] 5.2 Edit `skills/specwright-pr/SKILL.md` (Reviewers section without built-in bots, settings block with `report` and `pr.settle`, ship validate, watch steps 1 and 3, archive step, merge reviewer check with `--reviewer-config`) and `skills/specwright-finish/SKILL.md` `## pr` (passes `ready head:` on to ship). Update `evals/git-workflow/test_grade.py` if it greps `--reviewer`. Verify: `test_skill_text.py` green; re-run the `green` `text` rows; flip the red ones green; `grep -rn "\-\-reviewer " skills/` finds nothing.
+- [x] 5.1 Write failing `text` tests for the red `text` rows: three wait timeouts with conditions, any `timeout` wake as the quiet window, CLEAN or UNSTABLE ready rule, `settings_problem` stops watch, announced-review rule, archive head judged once `pr.settle` has passed since the push, `rules_mismatch` at the archive decision waits without asking, the carry-over wording, `ready head:` hand-off and ship's archive-only validate skip. Verify red: `python -m unittest evals/pr-pair/test_skill_text.py` fails on the new names only.
+- [x] 5.2 Edit `skills/specwright-pr/SKILL.md` (Reviewers section without built-in bots, settings block with `report` and `pr.settle`, ship validate, watch steps 1 and 3, archive step, merge reviewer check with `--reviewer-config`) and `skills/specwright-finish/SKILL.md` `## pr` (passes `ready head:` on to ship). Update `evals/git-workflow/test_grade.py` if it greps `--reviewer`. Verify: `test_skill_text.py` green; re-run the `green` `text` rows; flip the red ones green; `grep -rn "\-\-reviewer " skills/` finds nothing.
 
 ## 6. Template and README
 

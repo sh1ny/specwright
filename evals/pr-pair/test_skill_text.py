@@ -41,6 +41,24 @@ PUSH = re.compile(r"Push each repo once its validate passed")
 NEGATION = re.compile(r"\b(not|never|instead|rather than|without|no longer|don't|do not)\b", re.I)
 
 
+def watch_step1():
+    w = SECTIONS["watch"][1]
+    return w[w.index("1. Wait in the background"):w.index("\n2. On wake")]
+
+
+def watch_step3():
+    w = SECTIONS["watch"][1]
+    return w[w.index("\n3. Ready, per PR"):w.index("\n4. Stop and report")]
+
+
+def step3_bullet(start):
+    step = watch_step3()
+    at = step.find("\n   - " + start)
+    assert at != -1, f"watch step 3 has no '- {start}' bullet"
+    end = step.find("\n   - ", at + 1)
+    return step[at:end if end != -1 else len(step)]
+
+
 def positions(pattern, text=TEXT):
     return [m.start() for m in pattern.finditer(text)]
 
@@ -119,13 +137,63 @@ class SkillText(unittest.TestCase):
         cmd = next((c for c in re.findall(r"`([^`]*pr-snapshot\.sh[^`]*)`", step1) if "--wait" in c), "")
         self.assertTrue(cmd, "watch step 1 has no `pr-snapshot.sh ... --wait` command")
         self.assertIn("--until attention", cmd, "the watch wait is not run with `--until attention`")
+        self.assertIn("--reviewer-config", cmd, "the watch wait is not given `--reviewer-config`")
         self.assertIn("filtered", step1, "step 1 does not name the `filtered` field of the wake")
+        for token, cond in (("--timeout 1800", r"short of ready[^.]*but the quiet window"),
+                            ("--timeout <pr.settle in seconds>", r"every ready condition[^.]*but the quiet window"),
+                            ("--timeout <rest of pr.settle since the push>", r"archive head[^.]*carry-over[^.]*before it is judged")):
+            self.assertIn(token, step1, f"step 1 does not name `{token}`")
+            ats = [m.start() for m in re.finditer(re.escape(token), step1)]
+            self.assertTrue(any(re.search("(?is)" + cond, step1[at:at + 420]) for at in ats),
+                            f"step 1 does not give the condition for `{token}`")
 
-    def test_watch_timeout_counts_as_full_wait(self):
-        watch = self.section("watch")
-        ready = watch[watch.index("\n3. Ready"):]
-        self.assertRegex(ready, r"(?is)`timeout` wake[^.]*full wait[^.]*filtered",
-                         "the ready rule does not count a `timeout` wake as a full wait even with filtered polls")
+    def test_watch_timeout_wake_is_quiet_window(self):
+        ready = watch_step3()
+        self.assertRegex(ready, r"(?is)`timeout` wake[^.]*quiet window[^.]*filtered",
+                         "the ready rule does not count any `timeout` wake as the quiet window, even with filtered polls")
+        self.assertRegex(ready, r"(?is)1800 wait[^.]*wakes `timeout`.{0,300}without a further `pr\.settle` wait",
+                         "a 1800 wait that wakes `timeout` with every other condition met is not ready without a further wait")
+        self.assertNotRegex(ready, r"full wait", "the ready rule still says 'full wait'")
+
+    def test_watch_ready_accepts_unstable_without_ci_pending(self):
+        self.assertRegex(watch_step3(), r"(?is)`merge_state` CLEAN, or UNSTABLE when no check fails and `checks\.ci_pending` is 0",
+                         "ready does not accept UNSTABLE when no check fails and ci_pending is 0")
+
+    def test_watch_uses_1800_until_otherwise_ready(self):
+        self.assertRegex(watch_step1(), r"(?is)CI running, a required reviewer waiting[^.]*1800, not `?pr\.settle",
+                         "step 1 does not say a not-yet-ready PR (CI running, a required reviewer waiting) waits 1800, not pr.settle")
+
+    def test_watch_stops_on_settings_problem(self):
+        w = self.section("watch")
+        start = w[:w.index("--wait")]
+        self.assertIn("`settings_problem`", start, "the start of watch never reads `settings_problem`")
+        self.assertIn("line N: why", start, "`settings_problem` is not described as `line N: why`")
+        self.assertRegex(start, r"(?is)`pr\.settle`.{0,100}too many reviewers|too many reviewers.{0,100}`pr\.settle`",
+                         "`settings_problem` does not name `pr.settle` and too many reviewers")
+        self.assertRegex(start, r"(?is)`settings_problem`.{0,700}before its first wait", "`settings_problem` does not stop watch before its first wait")
+        self.assertRegex(start, r"(?is)ship, finish and cleanup ignore it", "ship, finish and cleanup are not said to ignore `settings_problem`")
+
+    def announce(self):
+        step = watch_step3()
+        at = step.find("\n   - **Announced review")
+        self.assertNotEqual(at, -1, "watch step 3 has no '- **Announced review' bullet")
+        end = step.find("\n   - ", at + 1)
+        return step[at:end if end != -1 else len(step)]
+
+    def test_watch_announcement_only_waits(self):
+        a = self.announce()
+        self.assertRegex(a, r"(?is)`reported` only `by: output`", "an output-only report is not the case")
+        self.assertRegex(a, r"(?is)`evidence` reads as an announcement", "the judgment is not made from `evidence`")
+        self.assertRegex(a, r"(?is)treated as `waiting` until its `timeout` has passed by the snapshot's `now`", "an announcement does not wait until its timeout by `now`")
+        self.assertRegex(a, r"(?is)never treats? a `waiting` or `timed_out` reviewer as reported", "watch may treat waiting or timed_out as reported")
+
+    def test_watch_announcement_timeout_reports_and_asks(self):
+        a = self.announce()
+        self.assertRegex(a, r"(?is)then as `timed_out`", "after the timeout the reviewer is not treated as timed out")
+        self.assertIn("`<login> announced a review on <head> but posted no result`", a)
+        self.assertRegex(a, r"(?is)a required one[^.]*not ready", "a required announcer that timed out is not 'not ready'")
+        self.assertRegex(a, r"(?is)\bask\b", "watch does not ask")
+        self.assertRegex(a, r"(?is)no merge request", "a merge request may still be sent")
 
     def refresh_bullet(self):
         watch = self.section("watch")
@@ -510,7 +578,9 @@ class AgentMerge(unittest.TestCase):
 
     def test_reviewerless_archive_head_merged_only_if_unchanged(self):
         m = self.merge()
-        self.assertRegex(m, r"(?is)only when the ready head is the archive head", "a reviewer-less merge is not limited to the archive head")
+        self.assertRegex(m, r"(?is)head judged under the archive carry-over[^.]*merged only when the ready head is the archive head `archive-only` judged",
+                         "a carry-over head is not merged only when it is the archive head `archive-only` judged")
+        self.assertNotRegex(m, r"(?i)watched without reviewers", "the merge step still says 'watched without reviewers'")
         self.assertRegex(m, r"(?is)archive-only --base <ready head[^`]*> --head <current head>", "another head is not sent back through `archive-only`")
         self.assertRegex(m, r"(?is)archive_only: true", "the re-run's `archive_only` result is not read")
         self.assertRegex(m, r"(?is)returns? to watching with (the )?reviewers", "another head does not go back to watching with reviewers")
@@ -673,11 +743,13 @@ class AgentMerge(unittest.TestCase):
         d = self.sub_bullet("**Drift**")
         self.assertRegex(d, r"(?is)a yes covers that head only[^.]*new head[^.]*`policy` again[^.]*ask(ed)? again", "a yes is not limited to one head")
 
-    def test_unsatisfied_reviewer_set_restarts_the_wait_with_its_reviewer_args(self):
+    def test_unsatisfied_reviewer_set_restarts_the_wait_with_its_reviewer_config(self):
         r = self.sub_bullet("**Reviewer check.**")
+        self.assertIn("`rules_mismatch`", r, "the Reviewer check never names `rules_mismatch`")
+        self.assertNotIn("reviewer_args", r)
         self.assertRegex(r, r"(?is)main's \(no drift\) or the head's \(after a yes\), never the head's before a yes", "the authorizing set is not main's or the head's after a yes")
         self.assertRegex(r, r"(?is)not `ok`[^.]*merge nothing", "a set that is not ok may still merge")
-        self.assertRegex(r, r"(?is)restart that PR's wait with that set's `reviewer_args`", "the wait is not restarted with the set's `reviewer_args`")
+        self.assertRegex(r, r"(?is)restart that PR's wait with that set's `reviewer_config` \(`--reviewer-config`\)", "the wait is not restarted with the set's `reviewer_config`")
         self.assertRegex(r, r"(?is)post the requests that set names[^.]*re-request review", "the set's requests are not posted as on a re-request")
 
     def test_store_pair_reads_policy_once_with_both_snapshots(self):
@@ -695,6 +767,46 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(a, r"(?is)otherwise.{0,300}Ready\. Archive <change-name> on this branch now\?", "anything else does not ask")
         self.assertRegex(a, r"(?is)exit 3[^.]*ask", "an unknown policy does not ask before archiving")
         self.assertLess(a.index("`policy`"), a.index("without asking"), "the archive decision comes before the policy read")
+
+    def test_archive_decision_rules_mismatch_waits_without_asking(self):
+        a = self.archive()
+        self.assertRegex(a, r"(?is)`rules_mismatch`[^.]*archive nothing, ask nothing and wait on the ready head with main's reviewer config",
+                         "a rules_mismatch at the archive decision does not archive nothing, ask nothing and wait with main's config")
+        self.assertRegex(a, r"(?is)`rules_mismatch`.{0,400}`reviewer_config\.main", "the wait is not restarted with main's `reviewer_config`")
+        self.assertRegex(a, r"(?is)not `ok`[^.]*other than `rules_mismatch`", "the generic 'not ok' case still asks even for a rules_mismatch")
+
+    def test_policy_read_gives_reviewer_config_not_reviewer_args(self):
+        p = self.policy_read()
+        self.assertNotIn("reviewer_args", p, "the policy read still names `reviewer_args`")
+        self.assertIn("`reviewer_config.{main,head}.{code[,store]}`", p, "the policy read does not name its `reviewer_config`")
+        self.assertIn("`rules_mismatch`", p, "the policy read never names `rules_mismatch`")
+        self.assertRegex(p, r"(?is)`rules_mismatch`[^.]*other rules", "`rules_mismatch` is not explained")
+
+    def test_snapshot_commands_take_reviewer_config(self):
+        self.assertNotRegex(TEXT, r"--reviewer\b(?!-)", "SKILL.md still names the removed `--reviewer` argument")
+        self.assertNotIn("<reviewers>", TEXT, "SKILL.md still uses the `<reviewers>` placeholder")
+        calls = [m.group(1) for m in re.finditer(r"`([^`]*pr-snapshot\.sh <pr>[^`]*)`", TEXT) if "--full" not in m.group(1)]
+        self.assertGreaterEqual(len(calls), 2, "found too few snapshot commands")
+        for c in calls:
+            self.assertIn("--reviewer-config", c, f"a snapshot command lacks `--reviewer-config`: {c[:90]!r}")
+        fb1 = re.search(r"^1\. \*\*Snapshots\.\*\*.*$", SECTIONS["feedback"][1], re.M).group(0)
+        self.assertIn("--reviewer-config <config file>", fb1, "feedback step 1 does not pass its repo's `--reviewer-config`")
+
+    def test_reviewers_paragraph_is_generic(self):
+        m = re.search(r"^\*\*Reviewers\.\*\*.*$", TEXT, re.M)
+        self.assertTrue(m, "no **Reviewers** paragraph")
+        p = m.group(0)
+        for key in ("report", "sha_pattern", "check", "marker", "ignore", "by", "evidence", "now", "reviewer_config", "pr.settle"):
+            self.assertIn(f"`{key}`", p, f"the Reviewers paragraph never names `{key}`")
+        self.assertRegex(p, r"(?i)review on the head commit", "generic detection by a review on the head commit is not described")
+        self.assertRegex(TEXT, r"(?i)single quotes", "patterns in YAML single quotes are not mentioned")
+        self.assertNotRegex(TEXT, r"(?i)\b(codex|kody|mira)\b", "SKILL.md still names a review bot")
+
+    def test_settings_block_has_report_example_and_settle(self):
+        block = TEXT[TEXT.index("```yaml"):TEXT.index("```", TEXT.index("```yaml") + 8)]
+        self.assertRegex(block, r"(?m)^\s+report:", "the settings block has no `report:` example")
+        self.assertRegex(block, r"(?m)^\s+settle:", "the settings block has no `settle:`")
+        self.assertRegex(block, r"sha_pattern: '", "the example pattern is not in YAML single quotes")
 
     def test_archive_only_carry_over_checks_the_snapshot_against_the_ready_head(self):
         a = self.archive()
@@ -999,8 +1111,11 @@ class ArchiveHeadReview(unittest.TestCase):
         rule = self.archive_rule()
         self.assertRegex(rule, r"review-run\.sh[`\"']?\s+archive-only", "watch does not run `review-run.sh archive-only`")
         self.assertRegex(rule, r"(?is)archive_only: true.{0,400}no review request", "an archive-only head still gets a review request")
-        self.assertRegex(rule, r"(?is)archive_only: true.{0,600}(no|without) `--reviewer`",
-                         "an archive-only head is still watched with --reviewer arguments")
+        self.assertRegex(rule, r"(?is)archive_only: true.{0,600}`--reviewer-config`", "the archive head is not watched with `--reviewer-config`")
+        self.assertRegex(rule, r"(?is)archive_only: true.{0,900}carry-over", "the archive head is not said to be under the carry-over")
+        self.assertRegex(rule, r"(?is)does not wait for the carried-over reviewers, only CI, mergeability and new feedback",
+                         "readiness still waits for the carried-over reviewers")
+        self.assertNotRegex(rule, r"--reviewer\b(?!-)", "the archive rule still names `--reviewer` arguments")
         self.assertRegex(rule, r"(?i)ready head", "the archive-only base is not the head watch last reported ready")
         self.assertRegex(rule, r"(?is)archive_only: false.{0,300}re-request", "a non-archive-only head is not re-requested")
 
@@ -1016,6 +1131,83 @@ class ArchiveHeadReview(unittest.TestCase):
         self.assertRegex(rule, r"(?is)REVIEW_REQUIRED.{0,400}ask(s)? once", "watch does not ask once")
         self.assertRegex(rule, r"(?is)(on no|no →|declin).{0,200}(ready.{0,20}except|stop)",
                          "a declined request does not end in a ready-except-approval report")
+
+
+class ArchiveCarryOverReady(unittest.TestCase):
+    """An archive head under the carry-over is judged ready without a further quiet window (D7)."""
+
+    def bullet(self):
+        return step3_bullet("**Archive head under the carry-over")
+
+    def test_archive_head_ready_after_settle_unstable(self):
+        b = self.bullet()
+        self.assertRegex(b, r"(?is)`now` is at least `pr\.settle` after the head's cutoff \(`head_cutoff\.at`\)", "the settle test is not `now` against `head_cutoff.at`")
+        self.assertRegex(b, r"(?is)mergeable.{0,40}CLEAN or UNSTABLE.{0,80}`checks\.ci_pending` 0.{0,80}no check fails.{0,80}no feedback is new",
+                         "the ready conditions are incomplete")
+        self.assertRegex(b, r"(?is)ready and start no further wait", "a ready archive head starts a further wait")
+        self.assertRegex(b, r"(?is)no further quiet window", "the archive head still has a quiet window")
+
+    def test_archive_head_waits_rest_of_settle_before_judging(self):
+        self.assertRegex(self.bullet(), r"(?is)before `now` reaches[^`]*wait `--until attention --timeout <rest of pr\.settle since the push>`, then judge",
+                         "the wait for the rest of pr.settle is missing")
+
+    def test_archive_head_ready_on_ci_pending_zero_wake(self):
+        b = self.bullet()
+        self.assertRegex(b, r"(?is)CI is still pending after `pr\.settle`[^.]*wait \(`--timeout 1800`\)", "pending CI after pr.settle does not wait 1800")
+        self.assertRegex(b, r"(?is)ready on the wake where `ci_pending` reached 0 with no failure and no new feedback", "the ci_pending 0 wake is not ready")
+        self.assertRegex(b, r"(?is)judging each wake, `timeout` included, by (this|the same) rule", "each wake is not judged by the same rule")
+
+    def test_archive_head_feedback_runs_feedback(self):
+        self.assertRegex(self.bullet(), r"(?is)new feedback[^.]*not ready[^.]*run \*\*feedback\*\* as for any head", "feedback on the archive head does not run feedback")
+
+    def test_archive_head_ci_failure_handled_as_any_head(self):
+        self.assertRegex(self.bullet(), r"(?is)failing check[^.]*not ready[^.]*as for any head", "a CI failure on the archive head is not handled as for any head")
+
+
+class ShipArchiveOnly(unittest.TestCase):
+    """Ship skips pr.validate for an archive-only push of a handed ready head (D8, change-finish)."""
+
+    def s4a(self):
+        ship = SECTIONS["ship"][1]
+        a, b = re.search(r"^4a\. ", ship, re.M), re.search(r"^4b\. ", ship, re.M)
+        return ship[a.start():b.start()]
+
+    def test_ship_skips_validate_for_archive_only_push(self):
+        a = self.s4a()
+        self.assertIn("ready head: <repo>=<sha>", a, "ship never reads the handed `ready head: <repo>=<sha>`")
+        run = re.search(r"review-run\.sh[`\"']?\s+archive-only", a)
+        self.assertTrue(run, "ship never runs `review-run.sh archive-only`")
+        self.assertRegex(a, r"(?is)archive-only.{0,300}planning repo", "archive-only is not run in the planning repo")
+        self.assertLess(run.start(), positions(PUSH, a)[0], "archive-only runs after the push")
+        self.assertRegex(a, r"(?is)`archive_only: true`.{0,40}skip `pr\.validate` for the planning repo and for a code repo[^.]*still (at|its)[^.]*ready head",
+                         "archive_only true does not skip pr.validate for the planning repo and an unchanged code repo")
+        self.assertRegex(a, r"(?is)validate was skipped for an archive-only push", "the skip is not reported")
+
+    def test_ship_store_archive_runs_store_validate_only(self):
+        a = self.s4a()
+        self.assertRegex(a, r"(?is)`planning_store\.validate` still runs[^.]*store", "planning_store.validate does not still run in the store")
+        self.assertRegex(a, r"(?is)`planning_store\.validate` still runs.{0,120}failure stops the push", "a failing store validate does not stop the push")
+        self.assertRegex(a, r"(?is)store-backed[^.]*both repos", "a store-backed change does not carry both ready heads")
+
+    def test_ship_runs_validate_when_not_archive_only(self):
+        self.assertRegex(self.s4a(), r"(?is)`archive_only: false`.{0,200}`pr\.validate` runs", "archive_only false does not run pr.validate")
+
+    def test_ship_runs_validate_without_ready_head(self):
+        self.assertRegex(self.s4a(), r"(?is)no ready head.{0,200}`pr\.validate` runs", "no ready head does not run pr.validate")
+
+    def test_ship_runs_validate_and_names_archive_only_error(self):
+        a = self.s4a()
+        self.assertRegex(a, r"(?is)exit 3.{0,200}`pr\.validate` runs", "an archive-only error does not run pr.validate")
+        self.assertRegex(a, r"(?is)names? the `archive-only` error", "the report does not name the archive-only error")
+
+    def test_watch_and_finish_hand_the_ready_head_on(self):
+        archive = step3_bullet("**Archive before merge:**")
+        self.assertRegex(archive, r"(?is)`ready head: <repo>=<sha>`[^.]*both repos when store-backed", "watch does not hand `ready head: <repo>=<sha>` to finish")
+        fin = FINISH.read_text(encoding="utf-8")
+        pr = fin[fin.index("\n## pr\n"):fin.index("\n**Release.**")]
+        self.assertIn("ready head: <repo>=<sha>", pr, "finish never passes `ready head: <repo>=<sha>` on to ship")
+        self.assertRegex(pr, r"(?is)both repos when store-backed", "finish does not hand both repos' ready heads when store-backed")
+        self.assertRegex(pr, r"(?is)ship.{0,300}ready head", "finish does not hand the ready head to ship")
 
 
 class DescriptionReviewSection(unittest.TestCase):
