@@ -496,7 +496,11 @@ artifacts:
       applied per the change's decision mode (the `DECISION_MAKING:` line in
       proposal.md, else the setting): in autonomous mode without asking, in
       `important` and `all` mode put to the user as the mode requires. Each
-      applied change updates the Decisions entry and the summary table.
+      applied change updates the Decisions entry and the summary table. The
+      same holds for a fix round
+      after `REVISE` or any other verdict: a decision added or changed
+      while addressing review findings follows the decision mode, and a
+      `Chosen by: user` decision goes to the user first, in any mode.
 
       Two more verdicts exist only on the user's word; reviewers never produce
       them (`review-run.sh` refuses both):

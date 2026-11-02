@@ -274,6 +274,14 @@ class ProtectingUserChoices(unittest.TestCase):
         self.assertRegex(p, r"(?i)recommended")
         self.assertRegex(p, r"(?i)until\s+(the\s+user|they)\s+answers?")
 
+    def test_review_protection_covers_every_verdict(self):
+        # PR #183 review: Required Changes exist only after APPROVE_WITH_CHANGES, so the guard must
+        # also cover a decision changed in a REVISE fix round.
+        p = find_block(schema_block("review"), r"Chosen by: `?user", r"REVISE")
+        self.assertIsNotNone(p, "review instruction does not protect user choices in a REVISE fix round")
+        self.assertRegex(p, r"(?is)after\s+`REVISE`\s+or\s+any\s+other\s+verdict")
+        self.assertRegex(p, r"(?is)decision\s+mode")
+
     def test_user_choice_protected_in_every_mode(self):
         p = find_block(schema_block("review"), r"Chosen by: `?user", r"any\s+mode|every\s+mode", r"autonomous", r"summary\s+row", r"unchanged")
         self.assertIsNotNone(p, "review instruction does not protect a user choice, entry and summary row, in every mode")
