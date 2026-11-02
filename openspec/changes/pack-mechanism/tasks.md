@@ -58,16 +58,16 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | install-update → Pack documents are created by an idempotent step | Interrupted document creation | PD | test_pack_docs_rerun_completes | red |
 | install-update → The previously enabled packs come from the start | An uninterrupted update that removes a pack | UP | test_packs_previous_from_record | red |
 | install-update → The previously enabled packs come from the start | No previous record | UP | test_packs_previous_empty_without_record | red |
-| project-planning → Roadmap init suggests packs | A Godot project is offered the game packs | TI | test_roadmap_init_offers_packs_with_requirements | red |
-| project-planning → Roadmap init suggests packs | The user declines | TI | test_roadmap_init_enables_only_on_yes | red |
-| project-planning → Roadmap init's pack offer names the in-repo install need | A pack offer in a project that installs at user level | TI | test_roadmap_init_offer_names_in_repo_need | red |
-| project-planning → Roadmap init offers no pack where refused | A project where packs cannot be installed | TI | test_roadmap_init_no_packs_on_store | red |
-| project-planning → Roadmap init offers no pack where refused | A repo-local Git project | TI | test_roadmap_init_offers_packs_repo_local | red |
-| project-planning → Roadmap init includes enabled packs | Pack questions join the interview | TI | test_roadmap_init_asks_pack_questions_in_two_rounds | red |
-| project-planning → Roadmap init includes enabled packs | A pack document edited after the baseline passed | TI | test_pack_documents_are_not_gated | red |
-| project-planning → Roadmap init includes enabled packs | A pack document is missing at init | TI | test_roadmap_init_missing_pack_document | red |
-| project-planning → Roadmap pack mode | Setting up a pack after the baseline | TI | test_roadmap_pack_mode_commits_on_docs_branch | red |
-| project-planning → Roadmap pack mode | The pack is not installed | TI | test_roadmap_pack_mode_needs_installed_pack | red |
+| project-planning → Roadmap init suggests packs | A Godot project is offered the game packs | TI | test_roadmap_init_offers_packs_with_requirements | green |
+| project-planning → Roadmap init suggests packs | The user declines | TI | test_roadmap_init_enables_only_on_yes | green |
+| project-planning → Roadmap init's pack offer names the in-repo install need | A pack offer in a project that installs at user level | TI | test_roadmap_init_offer_names_in_repo_need | green |
+| project-planning → Roadmap init offers no pack where refused | A project where packs cannot be installed | TI | test_roadmap_init_no_packs_on_store | green |
+| project-planning → Roadmap init offers no pack where refused | A repo-local Git project | TI | test_roadmap_init_offers_packs_repo_local | green |
+| project-planning → Roadmap init includes enabled packs | Pack questions join the interview | TI | test_roadmap_init_asks_pack_questions_in_two_rounds | green |
+| project-planning → Roadmap init includes enabled packs | A pack document edited after the baseline passed | TI | test_pack_documents_are_not_gated | green |
+| project-planning → Roadmap init includes enabled packs | A pack document is missing at init | TI | test_roadmap_init_missing_pack_document | green |
+| project-planning → Roadmap pack mode | Setting up a pack after the baseline | TI | test_roadmap_pack_mode_commits_on_docs_branch | green |
+| project-planning → Roadmap pack mode | The pack is not installed | TI | test_roadmap_pack_mode_needs_installed_pack | green |
 
 ## 1. ADR, architecture and follow-up issues
 
@@ -102,8 +102,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 7. Roadmap init and pack mode
 
-- [ ] 7.1 Write the TI roadmap tests (init matches signals over tracked and untracked files from the `packs.json` catalogue, offers a pack with its requirements and says packs install only into in-repo skills directories (a user-level install refuses them), enables only on yes and then says to rerun the install and run **pack**; offers none on a store; asks enabled packs' questions within the two batched rounds; names pack documents as context, never gated; missing document → rerun the install; **pack** mode asks one round, commits on `docs/pack-<name>`, runs no review, needs an installed pack); verify they fail.
-- [ ] 7.2 Edit `skills/specwright-roadmap/SKILL.md`: init steps 1-2 and 5, a new **pack** section, and the "Committing project files" procedure covering **pack**. Verify: the 7.1 tests pass; flip the rows green.
+- [x] 7.1 Write the TI roadmap tests (init matches signals over tracked and untracked files from the `packs.json` catalogue, offers a pack with its requirements and says packs install only into in-repo skills directories (a user-level install refuses them), enables only on yes and then says to rerun the install and run **pack**; offers none on a store; asks enabled packs' questions within the two batched rounds; names pack documents as context, never gated; missing document → rerun the install; **pack** mode asks one round, commits on `docs/pack-<name>`, runs no review, needs an installed pack); verify they fail.
+- [x] 7.2 Edit `skills/specwright-roadmap/SKILL.md`: init steps 1-2 and 5, a new **pack** section, and the "Committing project files" procedure covering **pack**. Verify: the 7.1 tests pass; flip the rows green.
 
 ## 8. End-to-end and release
 

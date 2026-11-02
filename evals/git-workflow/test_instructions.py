@@ -2415,6 +2415,82 @@ class Packs(unittest.TestCase):
         self.assertIn("packs/README.md", sec)
         self.assertIn("0.18.0", sec)
 
+    # group 7: roadmap init and the pack mode
+
+    def init_step(self, n):
+        t = mode_step("init", n)
+        self.assertTrue(t, "roadmap init has no step %d" % n)
+        return flat(t)
+
+    def pack_mode(self):
+        sec = section(read(ROADMAP), r"pack\b")
+        self.assertTrue(sec, "roadmap SKILL.md has no ## pack")
+        return flat(sec)
+
+    def test_roadmap_init_offers_packs_with_requirements(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)`openspec/\.specwright/packs\.json`.{0,300}`signals`", "init step 2 does not match the catalogue signals")
+        self.assertIn("git ls-files --cached --others --exclude-standard", s2, "init step 2 does not list tracked and untracked files")
+        self.assertRegex(s2, r"(?is)not enabled.{0,300}`requires`|`requires`.{0,300}not enabled", "init step 2 does not offer not-enabled packs with their requirements")
+        self.assertRegex(s2, r"(?is)as one offer", "init step 2 does not make one offer per pack set")
+
+    def test_roadmap_init_enables_only_on_yes(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)only on (the user's )?yes.{0,300}`packs:`.{0,100}`openspec/specwright\.yaml`", "init step 2 does not add packs only on yes")
+        self.assertRegex(s2, r"(?is)rerun the install prompt.{0,100}\*\*pack\*\* `<name>`", "init step 2 does not tell the user to rerun the install and run pack")
+        self.assertRegex(s2, r"(?is)declin\w+.{0,100}`packs:` (is )?unchanged", "init step 2 does not leave packs: unchanged on a decline")
+
+    def test_roadmap_init_offer_names_in_repo_need(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)in-repo skills directories.{0,200}user-level install refuses.{0,60}`packs_user_level`",
+                         "the pack offer does not name the in-repo install need")
+
+    def test_roadmap_init_no_packs_on_store(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)planning root is a store.{0,200}offer\w* no pack.{0,200}not supported there yet",
+                         "init step 2 does not withhold packs on a store")
+
+    def test_roadmap_init_offers_packs_repo_local(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)repo-local.{0,200}offer", "init step 2 does not offer packs for a repo-local planning root")
+        self.assertRegex(s2, r"(?is)uncommitted", "init step 2 does not count an uncommitted signal file")
+
+    def test_roadmap_init_asks_pack_questions_in_two_rounds(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)enabled packs?.{0,200}`init`.{0,40}`questions`.{0,300}two batched rounds.{0,200}no third round",
+                         "init step 2 does not fold pack questions into the two rounds")
+        self.assertRegex(s2, r"(?is)recommended default", "pack questions have no recommended default")
+        self.assertRegex(s2, r"(?is)write.{0,40}answers into (each|the) pack document", "init does not write answers into the pack documents")
+
+    def test_pack_documents_are_not_gated(self):
+        s5 = self.init_step(5)
+        self.assertRegex(s5, r"(?is)pack documents.{0,200}context", "the baseline review request does not name pack documents as context")
+        self.assertRegex(s5, r"(?is)pack documents? (is|are) never gated.{0,200}never voids", "step 5 does not say editing a pack document never voids the verdict")
+
+    def test_roadmap_init_missing_pack_document(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)document.{0,80}missing.{0,200}rerun the install prompt.{0,200}(not|never)[^.]{0,20}from memory",
+                         "init does not send a missing pack document to the install prompt")
+
+    def test_roadmap_pack_mode_commits_on_docs_branch(self):
+        p = self.pack_mode()
+        self.assertIn("`docs/pack-<name>`", p)
+        self.assertRegex(p, r"(?is)Committing project files.{0,300}never on (main|`main`|<main>)|never on (main|<main>).{0,300}Committing project files",
+                         "pack mode does not commit through the procedure, off main")
+        self.assertRegex(p, r"(?is)one batched round.{0,60}recommended default", "pack mode does not ask one round with defaults")
+        self.assertRegex(p, r"(?is)without removing user content", "pack mode may remove user content")
+        self.assertRegex(p, r"(?is)no review.{0,200}`openspec/architecture-review\.md`.{0,60}unchanged", "pack mode runs a review or changes the verdict")
+        self.assertRegex(p, r"(?is)`finish`", "pack mode is not finished per the finish setting")
+        self.assertIn("docs/pack-<name>", committing_project_files(), "Committing project files does not cover pack")
+
+    def test_roadmap_pack_mode_needs_installed_pack(self):
+        p = self.pack_mode()
+        self.assertRegex(p, r"(?is)enabled and installed.{0,200}packs\.json", "pack mode does not need the pack installed")
+        self.assertRegex(p, r"(?is)not listed.{0,200}writes? nothing.{0,200}under `packs:`.{0,100}rerun the install prompt",
+                         "pack mode does not stop with the fix when the pack is not installed")
+        fm, _ = frontmatter(read(ROADMAP))
+        self.assertRegex(fm, r"pack", "the skill description does not list the pack mode")
+
 
 if __name__ == "__main__":
     unittest.main()
