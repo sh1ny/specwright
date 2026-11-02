@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.14.0-blue">
-  <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.14.1-8A2BE2">
+  <img alt="version" src="https://img.shields.io/badge/version-0.14.1-blue">
+  <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
@@ -51,9 +51,9 @@ flowchart LR
 
 ## ⚡ Install / Update
 
-> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.14.1`), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
+> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
 
-> **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.14.1) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.14.1, override)`.
+> **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.16.0) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.16.0, override)`.
 
 > **Releases and interruptions:** the update installs the latest release tag (`v<version>`) unless you name a version or ask for `main`, and reports the ref it installed. It stages the new files, swaps them in with a journal (`openspec/.specwright/update.json`) and stamps `VERSION` last, so an interrupted run is resumed or rolled back by the next one. The staging directories are named `.specwright-update-*/` (next to the skills, agents and schema they replace) and are removed when the update finishes. You may add `.specwright-update-*/` to your `.gitignore` so an interrupted update never shows up in a commit.
 
@@ -70,7 +70,7 @@ also repairs an interrupted or partial install.
 Step 1 - Check prerequisites
 - Run `openspec --version` and record its output (Step 3 checks it). If
   it fails, tell the user to install the pinned version
-  (`npm i -g @fission-ai/openspec@1.14.1`) and STOP.
+  (`npm i -g @fission-ai/openspec@1.16.0`) and STOP.
 - Core: run `git --version` and `bash -c 'command -v awk sed grep'`. If
   either fails, tell the user to install git, or bash with a POSIX userland
   (Git Bash on Windows), and STOP.
@@ -87,10 +87,10 @@ Step 1 - Check prerequisites
     its message and fix and STOP. Otherwise, if the version recorded
     above (the first
     `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?` token in
-    the output, as Step 3 takes it) is not 1.14.1 (the pin this prompt
+    the output, as Step 3 takes it) is not 1.16.0 (the pin this prompt
     installs) or is unreadable by Step 3's rule, an unpinned OpenSpec may
     not resolve a store: name the version found (or unreadable), tell the user to run
-    `npm i -g @fission-ai/openspec@1.14.1` and rerun this prompt, write
+    `npm i -g @fission-ai/openspec@1.16.0` and rerun this prompt, write
     no file, and STOP. Do not suggest `openspec init` then:
     in a store-backed project it would create a root that overrides the
     store. Only with the pinned version, tell the user to run
@@ -162,10 +162,10 @@ Step 3 - Choose the version, download and compare versions
   output matching `\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`.
   Compare the whole token, pre-release suffix and build metadata included,
   with `<pin>` as strings: only an exact match passes.
-  Against a pin of 1.14.1, 1.14.2, 1.14.1-beta.1 and 1.14.1+vendor.1 are
+  Against a pin of 1.16.0, 1.16.1, 1.16.0-beta.1 and 1.16.0+vendor.1 are
   each a mismatch.
   A token directly followed by a digit, letter, `.`, `+` or `-` (for
-  example `1.14.1.0` or `1.14.1vendor`) is unreadable output, not a match on
+  example `1.16.0.0` or `1.16.0vendor`) is unreadable output, not a match on
   its first part.
   - Exact match: record `OpenSpec <found> (pinned)` for Step 8 and
     continue.
@@ -424,7 +424,7 @@ Step 2 offers the repo (`.claude/skills/`, `.agents/skills/`) or your user direc
 
 ### Schema
 
-[`schemas/specwright/`](schemas/specwright/schema.yaml) — forked from OpenSpec's `spec-driven` (1.14.1). `proposal` and `specs` stay close to upstream so archive and validate keep working.
+[`schemas/specwright/`](schemas/specwright/schema.yaml) — forked from OpenSpec's `spec-driven` (1.16.0). `proposal` and `specs` stay close to upstream so archive and validate keep working.
 
 | Artifact | Template | Adds over `spec-driven` |
 |---|---|---|
@@ -569,7 +569,7 @@ Since 0.13.0 the default branch decides (ADR 0020). Before it archives and befor
 
 ## 🗄️ Stores
 
-Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) (with the pinned OpenSpec, 1.14.1): planning kept in a standalone repo registered on the machine (`openspec store setup` / `openspec store register <path> --id <id>`), while the code lives in its own repo.
+Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) (with the pinned OpenSpec, 1.16.0): planning kept in a standalone repo registered on the machine (`openspec store setup` / `openspec store register <path> --id <id>`), while the code lives in its own repo.
 
 - **Which root is used.** Every skill reads `root.path` from `openspec list --json` and never assumes `./openspec/`. OpenSpec resolves it from a `store: <id>` pointer in the code repo's `openspec/config.yaml`, the global `defaultStore` (`openspec config set defaultStore <id>`), or `--store <id>` on a command. Prefer the pointer or `defaultStore`: a `--store`-only session is not seen by a later session without the flag. A root in another git repository is a store; a root in the code repo (top level or a nested folder) is repo-local and works as before.
 - **One change in progress per store per machine.** OpenSpec registers one checkout per store, so a store on another change's branch is busy: the branch gate stops and names that branch. Finish or archive that change first. The gate itself holds a lock (`specwright-gate.lock` in the store's git dir) while it creates both branches; a lock left by an interrupted session is removed only after you confirm no other session is in its gate.

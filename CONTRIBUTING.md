@@ -4,7 +4,7 @@ Specwright is built with Specwright: changes to it go through the same branch â†
 
 ## Setup
 
-1. Install the OpenSpec CLI at the version in the README badge (`npm i -g @fission-ai/openspec@1.14.1`), plus `git`, `bash` with a POSIX userland (Git Bash on Windows), `gh` 2.40 or later and Python 3.8 or later.
+1. Install the OpenSpec CLI at the version in the README badge (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), plus `git`, `bash` with a POSIX userland (Git Bash on Windows), `gh` 2.40 or later and Python 3.8 or later.
 2. Clone the repository and run `openspec init` in it.
 3. Run the [install prompt](README.md#-install--update) from the README in the clone. It installs Specwright into the repo's own `openspec/` and asks for this repo's settings; `finish: pr` fits here.
 4. Start a new agent session: installed skills and agent definitions load only in a session started after the install.
@@ -56,7 +56,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 - Every user-visible change bumps the version. The last task of the change runs `bash skills/specwright-release/scripts/release.sh bump --to <version>`, which rewrites `VERSION`, the README badge and `metadata.version` in every `skills/*/SKILL.md` together (the files are listed in `release.version_files`); verify with `release.sh check`. After the change is merged, `publish` (through the `specwright-release` skill) tags the merged main commit `v<version>`.
 - Before 1.0: bump the minor version (0.x.0) for a new feature, configuration key or workflow change, and the patch version (0.x.y) for a fix. 1.0 is the maintainer's call.
 - Any change to the install prompt is a release, because users copy it from the README of `main`. Keep the prompt safe to re-run over every earlier version.
-- An OpenSpec upgrade updates `OPENSPEC_VERSION`, the badge, the pinned version above, the versioned install commands in the README (prerequisites and install Step 1), the README's "forked from `spec-driven` (1.14.1)" note and every other README line that spells out the pinned version (the OpenSpec version note, Step 1's comparison, Step 3's example and the Stores note), and the expected versions in the two OpenSpec-pin evals (`grade.py`, `test_grade.py`, `evals.json` in `evals/git-workflow/`; the fake `openspec` in `fixtures.py` must report a version other than the pin) in the same change. `TestOpenSpecPin` in `evals/git-workflow/test_instructions.py` fails while any of them disagrees with `OPENSPEC_VERSION`.
+- An OpenSpec upgrade updates `OPENSPEC_VERSION`, the badge, the pinned version above, the versioned install commands in the README (prerequisites and install Step 1), the README's "forked from `spec-driven` (<version>)" note and every other README line that spells out the pinned version (the OpenSpec version note, Step 1's comparison, Step 3's example with its edge-case versions, and the Stores note), the Node.js version the npm package needs next to each install command, and the expected versions in the two OpenSpec-pin evals (`grade.py`, `test_grade.py`, `evals.json` in `evals/git-workflow/`; the fake `openspec` in `fixtures.py` must report a version other than the pin) in the same change. `TestOpenSpecPin` in `evals/git-workflow/test_instructions.py` fails while any of them disagrees with `OPENSPEC_VERSION`.
 
 ## Reviews
 

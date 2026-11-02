@@ -31,4 +31,4 @@ Specwright is a spec-driven development bundle for AI coding agents, built on un
 ## Assumptions
 - Versions follow pre-1.0 semver: minor for a feature, a config key or a workflow change; patch for a fix. 1.0.0 is the maintainer's deliberate call (see sh1ny/specwright#28).
 - GitHub is the only forge supported.
-- OpenSpec stays pinned (1.14.1 today) and is upgraded deliberately, in its own change.
+- OpenSpec stays pinned (1.16.0 today) and is upgraded deliberately, in its own change.

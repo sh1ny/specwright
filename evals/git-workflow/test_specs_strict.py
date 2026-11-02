@@ -34,6 +34,12 @@ def validate_after_archive(changes):
     tmp = Path(tempfile.mkdtemp(prefix="specwright-strict-"))
     try:
         shutil.copytree(ROOT / "openspec", tmp / "openspec")
+        # Install the source schema as the install prompt does: openspec/schemas/specwright/ is git-ignored, so a
+        # CI checkout has none, and OpenSpec 1.16.0 ignores a change's skip_specs when its schema is unknown.
+        installed = tmp / "openspec" / "schemas" / "specwright"
+        if installed.exists():
+            rmtree(installed)
+        shutil.copytree(ROOT / "schemas" / "specwright", installed)
         for name in changes:
             code, out = run(tmp, "archive", name, "--yes")
             if code != 0:

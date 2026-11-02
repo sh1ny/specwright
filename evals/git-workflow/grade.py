@@ -1622,7 +1622,7 @@ def check_install(name, repo, code, store, rep):
     nested = name == "eval-install-nested-store"
     other = name == "eval-install-store-other-schema"
     stale_tag = name == "eval-install-latest-tag-predates-script"  # the highest release tag is v0.5.0, below the minimum release 0.6.0
-    refused = name == "eval-install-openspec-mismatch" or stale_tag  # the fake openspec reports 1.15.0 against the 1.14.1 pin
+    refused = name == "eval-install-openspec-mismatch" or stale_tag  # the fake openspec reports 1.15.0 against the 1.16.0 pin
     root = store / "planning" if nested else store
     rel = "planning/openspec/" if nested else "openspec/"
     cfg_p = root / "openspec" / "config.yaml"
@@ -1645,8 +1645,8 @@ def check_install(name, repo, code, store, rep):
         if stale_tag:
             R.extend(check_stale_tag(repo, code, store, rep))
         else:
-            named = [x for x in ("1.15.0", "1.14.1", "npm i -g @fission-ai/openspec@1.14.1") if x not in rep]
-            R.append(("The report names 1.15.0, 1.14.1 and npm i -g @fission-ai/openspec@1.14.1", bool(rep) and not named, f"missing={named}"))
+            named = [x for x in ("1.15.0", "1.16.0", "npm i -g @fission-ai/openspec@1.16.0") if x not in rep]
+            R.append(("The report names 1.15.0, 1.16.0 and npm i -g @fission-ai/openspec@1.16.0", bool(rep) and not named, f"missing={named}"))
         claims = [x for x in sentences(rep)
                   if re.search(r"install(ation)? (is |was )?(complete|done|finished|successful)|successfully installed|specwright (is )?installed", x)
                   and not re.search(NEGATION, x)]
@@ -1736,8 +1736,8 @@ def check_install(name, repo, code, store, rep):
            and re.search(r"\bpass(ed|es)?\b|\bvalid\b|success|\bok\b|no errors", x) and not re.search(r"\bfail|\berror[^s]|not valid|invalid", x)]
     R.append((f"The report says openspec schema validate specwright was run in {place} and passed", bool(val), f"matching sentences={val[:2]}"))
     if name == "eval-install-openspec-override":
-        line = "openspec 1.15.0 (pinned 1.14.1, override)"  # report() lowercases
-        R.append(("The report shows OpenSpec 1.15.0 (pinned 1.14.1, override)", line in rep, f"found={line in rep}"))
+        line = "openspec 1.15.0 (pinned 1.16.0, override)"  # report() lowercases
+        R.append(("The report shows OpenSpec 1.15.0 (pinned 1.16.0, override)", line in rep, f"found={line in rep}"))
     return R
 
 
