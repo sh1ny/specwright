@@ -31,6 +31,14 @@ JQ_NAME = Path(JQ).stem if JQ else None
 T0 = "2026-10-10T10:00:00Z"
 
 
+def rev(login, role="required", timeout=3600, **report):
+    """One reviewer entry of a --reviewer-config file; `report` holds its rules (sha_pattern, check, marker, ignore)."""
+    out = {"login": login, "role": role, "timeout": timeout}
+    if report:
+        out["report"] = report
+    return out
+
+
 def banner():
     """Name the filter evaluator in the test output (call from setUpModule)."""
     print(f"\n[snapfix] --jq evaluator: {JQ_NAME or 'none (tests skipped)'}{' = ' + JQ if JQ else ''}", file=sys.stderr)
@@ -111,6 +119,17 @@ class SnapCase(unittest.TestCase):
     def add_activity(self, oid, timestamp, ref="refs/heads/feat/x"):
         self.mutate(lambda st: st["repos"][self.SLUG].setdefault("activity", []).append(
             {"ref": ref, "after": oid, "timestamp": timestamp}))
+
+    def write_config(self, *reviewers, name="reviewers.json", where=None):
+        """Write a reviewer config as pr-pair.sh does (canonical JSON, logins sorted) and return its path for bash."""
+        doc = {"format": 1, "reviewers": sorted(reviewers, key=lambda r: r["login"])}
+        path = Path(where or self.tmp) / name
+        path.write_text(json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False), encoding="utf-8", newline="\n")
+        return fixtures.posix(path)
+
+    def cfg(self, *reviewers):
+        """The arguments that hand `reviewers` to pr-snapshot.sh."""
+        return ["--reviewer-config", self.write_config(*reviewers)]
 
     def gh_calls(self):
         if not self.gh_log.exists():

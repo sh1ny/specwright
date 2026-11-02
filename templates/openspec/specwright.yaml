@@ -85,9 +85,33 @@ pr:
   # Reviewers keyed by login (without [bot]). role: required | advisory,
   # timeout: wait per head (default 20m), request: comment that triggers a
   # reviewer that only runs when tagged. Replaces github.review_request.
+  # A reviewer counts as reported on the head by its review of the head
+  # commit, else by anything it posts after the push. report: (optional)
+  # says how a bot signals a finished review instead; any of sha_pattern,
+  # check, marker replaces the default for that reviewer:
+  #   sha_pattern - regex; its first group is the reviewed commit (7-40 hex)
+  #   check       - exact name of the check run the bot finishes
+  #   marker      - literal text in a comment the bot edits when done
+  #   ignore      - regex; comments and reviews it matches never count
+  # Write patterns in single quotes so backslashes stay as written.
   # reviewers:
-  #   chatgpt-codex-connector: { role: required, request: "@codex review" }
-  #   my-review-bot: { role: advisory, timeout: 15m }
+  #   tagged-bot: { role: required, request: "@tagged-bot review" }
+  #   sha-bot:
+  #     role: required
+  #     report:
+  #       sha_pattern: 'Reviewed commit:\*\* `([0-9a-f]{7,40})`'
+  #   check-bot:
+  #     role: advisory
+  #     timeout: 15m
+  #     report:
+  #       check: 'Bot Code Review'
+  #   marker-bot:
+  #     role: advisory
+  #     report:
+  #       marker: '<!-- bot-walkthrough -->'
+  #       ignore: 'Reviewing this PR|Code review in progress'
+  # Quiet window before a PR counts as ready (1m to 1h; default 5m).
+  # settle: 5m
   # Account that posts the requests. Default: review_request.login, else
   # github.login.
   # request_as: ""
