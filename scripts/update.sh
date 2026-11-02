@@ -91,7 +91,8 @@
 #                a malformed value: pack_doc_invalid. packs[].documents lists {id, path, exists} (the manifest's path
 #                when no --pack-doc names the id).
 #              - packs: [{name, version, requires, skills, adopted, documents}] in install order. packs_previous: the packs
-#                enabled before this update: a pending journal's prev_packs when it has one, else the names in packs.json, else [].
+#                enabled before this update: a pending journal's prev_packs when it has one (also one plan's recovery just
+#                finished), else the names in packs.json, else [].
 #              - packs.json (openspec/.specwright/packs.json, written by the swap): {"format": 1, "packs": {<name>: {"version",
 #                "skills": [...], "documents": {<id>: <path>}, "init": {"questions": [...]}}}, "catalogue": [{"name",
 #                "description", "requires", "signals"}]}. Missing = no record; unreadable = refusal packs_record_unreadable.
@@ -716,16 +717,20 @@ do_recover() {
 do_plan() {
   if [ -f "$journal" ] && pyx journal-check "${PYARGS[@]}" >/dev/null 2>&1; then  # an unreadable journal is left to plan's refusal
     jload_raw
-    local ph lx
+    local ph lx pp ppx
     ph=$(jfield phase)
     if [ "$(jfield format)" = 1 ] || [ "$(jfield format)" = 2 ]; then
       case "$ph" in
         staging|staged|swapping|swapped)
+          pp=$(pyx journal-prev "${PYARGS[@]}" 2>/dev/null) || pp=null
           acquire_lock
           recover_core
           release_lock
           lx=$(lock_extra_members)
-          pyx plan "${PYARGS[@]}" --extra "{\"recovered\": $(rec_json)${lx:+, $lx}}"
+          # a recovery that finished the swap (the journal is gone) still owes Step 5 the packs enabled before it
+          pp=${pp//$'\r'/} ppx=""
+          case "$REC_ACTION/$pp" in finished/\[*|resumed/\[*) [ -f "$journal" ] || ppx=", \"packs_previous\": $pp" ;; esac
+          pyx plan "${PYARGS[@]}" --extra "{\"recovered\": $(rec_json)${lx:+, $lx}$ppx}"
           return 0 ;;
       esac
     fi
@@ -1728,6 +1733,14 @@ def cmd_journal_check(o, pos):
         raise ValueError("update.json does not exist")
 
 
+def cmd_journal_prev(o, pos):
+    """Print the journal's prev_packs as a JSON list (null without one). plan reads it before a recovery that may delete
+    the journal: a same-version reinstall is finished by recovery as soon as it swapped, before Step 5 has used them."""
+    j = load_journal(o)
+    prev = j.get("prev_packs") if isinstance(j, dict) else None
+    print(json.dumps([n for n in prev if isinstance(n, str)] if isinstance(prev, list) else None))
+
+
 def cmd_journal_drop_store(o, pos):
     """Write to pos[0] the journal without the store targets and the STORE record (a busy store, schema unchanged)."""
     j = load_journal(o)
@@ -2475,10 +2488,17 @@ def pack_record_bytes(o, version, pk):
     """The content of the new packs.json (design D4): every enabled pack with the download's version, its skills, its resolved
     document paths and its init questions, then the catalogue of every pack in the download. Written on every install."""
     pdir = Path(o["download"]) / "packs"
+    rec = (pk["record"] or {}).get("packs", {})
+    top = code_top(o)
     packs = {}
     for pn in pk["order"]:
         m = pk["manifests"][pn]
-        packs[pn] = {"version": version, "skills": list(m.get("skills", [])), "documents": {d["id"]: d["path"] for d in pk["documents"].get(pn, [])},
+        skills = list(m.get("skills", []))
+        # a recorded skill the download no longer ships, still on disk (an orphan the user kept), stays the pack's, so it
+        # is reported again and removed with the pack
+        skills += [s for s in (rec.get(pn) or {}).get("skills", []) if s not in skills and s.startswith(pn + "-")
+                   and any(within(sd, top) and (Path(sd) / s).is_dir() for sd in o["skills"])]
+        packs[pn] = {"version": version, "skills": skills, "documents": {d["id"]: d["path"] for d in pk["documents"].get(pn, [])},
                      "init": {"questions": list((m.get("init") or {}).get("questions", []))}}
     catalogue = []
     for d in sorted(p.name for p in pdir.iterdir() if p.is_dir()) if pdir.is_dir() else []:

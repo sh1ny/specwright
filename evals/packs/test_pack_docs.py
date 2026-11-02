@@ -98,7 +98,7 @@ class PackDocs(unittest.TestCase):
         third = self.docs()
         self.assertEqual([d["status"] for d in third["documents"]], ["kept", "kept"])
 
-    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs an unreadable file (POSIX, not root)")
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "platform: needs an unreadable file (POSIX, not root)")
     def test_failed_write_leaves_no_partial_document(self):
         # a template that cannot be read must not leave an empty document that a rerun would then keep
         self.project()

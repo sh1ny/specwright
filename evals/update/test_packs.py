@@ -659,6 +659,31 @@ class TestPackInstall(Base):
         self.assertEqual(os.readlink(link), rel)
         self.assertEqual(self.leftovers(co), [])
 
+    def test_same_version_recovery_keeps_packs_previous(self):
+        # a reinstall of the installed version that removes a pack and stops after swap: plan's recovery finishes the
+        # journal (VERSION already reads the target), and packs_previous must still name the removed pack for Step 5
+        co = self.checkout()
+        self.download(version="0.5.0", name="dl-same")
+        self.preinstall(co, (BASE, BASE_SKILL))
+        self.swapped(co, *self.packs(WEB))
+        code, doc = self.plan(*self.packs(WEB), co=co)
+        self.assertEqual(code, 0, doc)
+        self.assertIn(BASE, doc["packs_previous"])
+
+    def test_kept_orphan_stays_recorded(self):
+        # a recorded skill the download no longer ships stays the pack's while it is kept, so disabling the pack removes it
+        co = self.checkout()
+        self.download()
+        self.preinstall(co, (BASE, BASE_SKILL))
+        self.put_record(record(**{BASE: [BASE_SKILL, "valid-ui-base-gone"]}), co=co)
+        fx.write(co.skills[0], "valid-ui-base-gone/SKILL.md", "# gone upstream\n")
+        self.finished(co, *self.packs(BASE))
+        self.assertEqual(self.record_of(co)["packs"][BASE]["skills"], [BASE_SKILL, "valid-ui-base-gone"])
+        code, doc = self.plan(*self.packs(WEB), co=co)
+        self.assertEqual(code, 0, doc)
+        removes = sorted((t["group"], t["name"]) for t in doc["targets"] if t.get("type") == "remove")
+        self.assertIn(("skills-1", "valid-ui-base-gone"), removes)
+
     def test_removing_pack_removes_skills(self):
         co = self.checkout()
         self.download()
