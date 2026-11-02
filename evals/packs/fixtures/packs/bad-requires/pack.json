@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "name": "bad-requires",
+  "description": "Fixture pack bad-requires.",
+  "requires": [
+    "no-such-pack"
+  ]
+}

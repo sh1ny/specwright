@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "name": "cycle-b",
+  "description": "Fixture pack cycle-b.",
+  "requires": [
+    "cycle-a"
+  ]
+}

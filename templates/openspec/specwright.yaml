@@ -182,3 +182,13 @@ release:
   version_files:
     VERSION: '^(\d+\.\d+\.\d+)$'
     # package.json: '^  "version": "(\d+\.\d+\.\d+)",$'
+
+# Packs (opt-in bundles of skills, config lines and documents). Keyed by pack
+# name; documents.<id> optionally overrides a document's path. Packs need
+# in-repo skills directories (a user-level install is refused). See
+# packs/README.md.
+# packs:
+#   gamedev:
+#     documents:
+#       gdd: docs/game/gdd.md
+#   ui-prototyping: {}

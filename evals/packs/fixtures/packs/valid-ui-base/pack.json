@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "name": "valid-ui-base",
+  "description": "Fixture pack valid-ui-base.",
+  "skills": [
+    "valid-ui-base-kit"
+  ],
+  "rules": {
+    "design": [
+      "A new screen names its states: empty, loading, error."
+    ]
+  }
+}

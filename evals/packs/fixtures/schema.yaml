@@ -1,0 +1,15 @@
+name: specwright
+version: 1
+description: Fixture schema for the pack-check evals; only the artifact ids matter.
+
+artifacts:
+  - id: proposal
+    generates: proposal.md
+  - id: specs
+    generates: specs/**/*.md
+  - id: design
+    generates: design.md
+  - id: review
+    generates: review.md
+  - id: tasks
+    generates: tasks.md

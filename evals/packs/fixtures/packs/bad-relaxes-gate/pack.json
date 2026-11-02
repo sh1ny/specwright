@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "bad-relaxes-gate",
+  "description": "Fixture pack bad-relaxes-gate.",
+  "rules": {
+    "design": [
+      "Actor-local state machines do not trip T2 on their own."
+    ]
+  }
+}

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.15.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.16.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -127,11 +127,17 @@ Ask which agents this project uses (several may apply) and confirm the paths:
   chosen now; ask when unsure): every applied branch shares the work tree, so
   a branch that changes in-repo skills changes them for every applied branch.
   Warn once that keeping them consistent is the user's job, and that a
-  user-level install avoids it.
+  user-level install avoids it (not for packs: when `packs:` in
+  `openspec/specwright.yaml` enables a pack, `plan` refuses a user-level
+  target with `packs_user_level`).
+- Packs: when `packs:` in `openspec/specwright.yaml` enables a pack, packs need
+  in-repo skills directories, and `plan` refuses a user-level target with
+  `packs_user_level`. Say so before the user chooses. The core install location
+  stays the user's choice (ADR 0021); only packs narrow it (ADR 0023).
 
 Step 3 - Choose the version, download and compare versions
 - Choose the ref to install. This prompt needs release 0.6.0 as its minimum
-  and drives update-script interface 1 (Step 4).
+  and drives update-script interface 2 (Step 4).
   - Default: the latest release tag. Run
     `git ls-remote --tags --refs https://github.com/sh1ny/specwright 'v*'`,
     keep the tags of the form `v<major>.<minor>.<patch>` and take the highest
@@ -200,12 +206,19 @@ Step 3 - Choose the version, download and compare versions
   it, record `OpenSpec <found> (pinned <pin>, override)` for Step 8.
 - Check the update script, before Step 4 stages anything: the download must
   hold `scripts/update.sh`, and `bash <download>/scripts/update.sh plan`
-  (the options of Step 4; it writes nothing, except that it first recovers a
-  pending journal, see Step 4) must report `interface` 1. If the
+  (the options of Step 4, without the `--pack` and `--pack-doc` options, which
+  an older script refuses as a usage error; it writes nothing, except that it
+  first recovers a pending journal, see Step 4) must report `interface` 2. Accept interface 2, and interface 1
+  only when `openspec/specwright.yaml` enables no pack and the installed
+  `openspec/.specwright/packs.json`, if there is one, lists no enabled pack;
+  the install then continues as before packs and writes no pack state. If the
   download has no `scripts/update.sh`, or `plan` reports another interface,
   STOP before Step 4: name the ref, the interface found (or that there is
-  none) and interface 1 (the one this prompt drives), delete the temporary
-  directory and write no file.
+  none) and interface 2 (the one this prompt drives), delete the temporary
+  directory and write no file. When `plan` reports interface 1 and a pack is
+  enabled or still listed in `packs.json`, STOP before `stage` in the same way,
+  say that download predates packs (remove the packs with a 0.16.0 or newer
+  release first), and name interfaces 1 and 2.
 
 Step 4 - Install files (the update script stages, then swaps)
 `update.sh` below is the downloaded `<download>/scripts/update.sh`, run from the
@@ -213,14 +226,20 @@ download with `bash`, never an installed copy. Every call takes the same
 options: `--code <code checkout>`, `--root <root.path>`, `--skills <dir>` for
 each chosen skills directory, `--agents claude=<dir>` and `--agents omp=<dir>`
 for each chosen agents directory, `--download <download>` and `--ref <ref>`.
-It prints one JSON document; `"ok": false` with an `error` is a stop. The
+Pass each pack that `packs:` enables as `--pack <name>`, and each of its
+documents as `--pack-doc <pack>.<id>=<path>`, where `<path>` is the
+`packs.<name>.documents.<id>` override in `openspec/specwright.yaml`, else the
+manifest's default path. It prints one JSON document; `"ok": false` with an `error` is a stop. The
 script replaces every `specwright-*` skill directory, the agent files and
 `<root>/openspec/schemas/specwright/` with the downloaded ones, so files
 removed upstream do not linger, and keeps the user's `model:` value in an
 installed agent file (say so in Step 8).
 - Run `update.sh` `plan`. Read `from`, `to`, `kind` (fresh, patch,
   workflow, reinstall or downgrade), `role`, `orphans`, `journal`, `warnings`,
-  the changes in flight with their validation result, and `refusals`.
+  the changes in flight with their validation result, `refusals`, the adopted
+  pack skills and `packs_previous` (the packs enabled before this update,
+  from a pending journal, else from `packs.json`; Step 5 and `pack-verify`
+  use it, never the `packs.json` the swap wrote).
   - An earlier update that did not finish: the first `plan` of this run (the
     Step 3 check) runs `recover` on its journal before anything else and
     reports a `recovered` object. Tell the user its `message`:
@@ -233,7 +252,10 @@ installed agent file (say so in Step 8).
   - A refusal (exit 1, `"error": "refused"`, listed in `refusals`): a change
     in flight that fails validation against the new schema, a store another
     project owns, a busy store, and so on. Tell the user each refusal as the
-    script words it and STOP.
+    script words it and STOP. Pack refusals are `pack_unknown`,
+    `pack_requires`, `pack_cycle`, `packs_on_store`, `packs_user_level`,
+    `unmanaged_skill`, `pack_doc_path` and the pack-check codes: report each
+    one; no installed file changes.
     - With `"unchanged": true`, report that the installed version is
       unchanged (Step 8). Nothing was changed, so only the temporary directory
       is left to delete.
@@ -247,6 +269,8 @@ installed agent file (say so in Step 8).
     removing them, and remove only those the user agrees to, after `swap`.
   - Keep `warnings` for Step 8 (a change in flight found only on a remote
     branch is not validated), and the changes validated against `<to>`.
+  - Keep the adopted pack skills (an identical hand copy that the install now
+    records) for Step 8.
 - Run `update.sh` `stage`: it copies every new skill directory, agent file and
   the schema into a staging directory next to its target
   (`.specwright-update-*/`) and verifies the copy. On `verification_failed`
@@ -287,12 +311,29 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
     each downloaded context line once. Remove any line naming `openspec-git-branch`, `openspec-git-commit` or
     `openspec-git-merge`. Leave every other line alone, including the
     project's own lines that mention Specwright.
+- Pack lines, after the copy or the merge above (a copied template has none
+  yet): remove each line starting `[pack:<name>] ` from `context:`,
+  from every `rules.<artifact>` list and from every
+  `operations.<op>.guidance` list, only for a `<name>` enabled now or in
+  `packs_previous` (never decided from the current `packs.json`). Keep
+  every other `[pack:` line and report it as not managed (enable the pack to
+  have it managed). Then append each enabled pack's lines, prefixed
+  `[pack:<name>] `, in pack order (dependencies first, then by name) and in
+  manifest order. Write each list entry as a double-quoted YAML scalar
+  (escape `"` and backslash): an unquoted entry starting `[` is a YAML flow
+  sequence, and OpenSpec 1.16.0 then drops that artifact's whole rules list.
+  `context:` stays a block scalar.
 - After the merge (or the copy), run `update.sh` `note-config`: it records the
   merged config.yaml's hash in the journal, so a later rollback knows what this
   install wrote. On `"ok": false` (or if it was interrupted), report it and
   stop: run `note-config` again once its error is resolved, and go on only
   when it reports `"ok": true`. Without that record a later rollback cannot
   tell the merged config.yaml from the user's own.
+- Then, when `plan` reported interface 2, run `update.sh` `pack-verify`, with
+  `--previous <name>` for each name in `packs_previous`. On failure (`missing`,
+  `duplicate` or `not_enabled`), report each line and do not stamp `VERSION`.
+  An interface-1 download has no `pack-verify` (Step 3 accepts it only with no
+  pack enabled): skip it.
 
 Step 6 - Settings (openspec/specwright.yaml in the code checkout)
 - If it does not exist, copy the downloaded
@@ -319,6 +360,8 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   - Entries under `pr.reviewers.` and `planning_store.reviewers.` are
     user data (one per reviewer login): never compared, added or listed as
     removed.
+  - Every key under `packs.` is user data too: never compared, added or
+    listed as removed. The template holds only a commented `packs:` example.
   List each added key with its default and its comment from the downloaded
   `templates/openspec/specwright.yaml`, and ask whether to keep the default.
   If the user's file has keys the downloaded file no longer has (uncommented
@@ -342,6 +385,11 @@ Step 7 - Verify, stamp the version, finish, clean up
   with the same content, in every chosen skills directory, and nothing else
   is in them (a `gitbutler` directory that `but skill install` created at the
   user's yes in Step 6 is not Specwright's: leave it and do not count it).
+- The pack skills of every enabled pack exist in every chosen skills
+  directory, and `update.sh` `pack-verify` passes. Skip the `pack-verify`
+  check for an interface-1 download (it has no `pack-verify` and no pack is
+  enabled) and when Step 5 was skipped (no pack is enabled on a store, and the
+  config.yaml is another project's).
 - Every downloaded agent file exists in each chosen agents directory (the
   `model:` line may differ, per Step 4).
 - `<root>/openspec/config.yaml` has `schema: specwright` (or the schema the user
@@ -356,6 +404,11 @@ Step 7 - Verify, stamp the version, finish, clean up
 - If every check passes, copy `VERSION` to `openspec/.specwright/VERSION` (the
   stamp), then run `update.sh` `finish`: it removes the previous copies, the
   staging directories and the journal (run it again if it was interrupted).
+  After the stamp, when `plan` reported interface 2, run `update.sh`
+  `pack-docs`: it creates each missing pack
+  document from its template, never overwrites one, and reports each as
+  `created` or `kept`. It needs no journal, so run it again if it was
+  interrupted.
   If any check fails, do not write the stamp: report each failed check and how
   to fix it, and never claim success. Say the update is swapped but not
   stamped: after the fix, rerun this prompt (it goes straight to Steps 5-7),
@@ -371,7 +424,8 @@ orphans removed or kept, config and settings created/merged/unchanged (keys
 added or removed), legacy files removed, and the result of each Step 7 check
 (the config.yaml check may read `store config managed by owner <id>`). In a
 workflow update, list each change in flight that `plan` validated against
-<new>. Give the store role (none, claim, owner or other) and, in a store, the
+<new>. Report the packs installed or removed, the adopted skills, the
+`[pack:` lines not managed and the documents created or kept. Give the store role (none, claim, owner or other) and, in a store, the
 owner (after a claim: this project now owns the store's schema), and list each
 `warnings` entry: a change in flight found only on a remote branch (name and
 ref) is in flight elsewhere, not validated. When `<root>` is a store, list the
@@ -392,6 +446,8 @@ recorded a missing PR prerequisite, add the line
 `PR workflow not ready: <missing>` (for example
 `PR workflow not ready: gh 2.40+`).
 ```
+
+Treat `openspec/.specwright/packs.json` like `VERSION`: commit both or ignore both.
 
 ### Where the skills live
 
@@ -599,6 +655,10 @@ Since 0.13.0 the default branch decides (ADR 0020). Before it archives and befor
 `openspec/config.yaml` (template: [`templates/openspec/config.yaml`](templates/openspec/config.yaml)) carries the `context:` lines that make the git skills fire at the right phase.
 
 ---
+
+## 📦 Packs
+
+A pack is an optional bundle of skills, config lines and documents that ships in the Specwright release and adds to the core workflow without relaxing a gate. You opt in under `packs:` in `openspec/specwright.yaml`, keyed by pack name, with optional document path overrides. No pack ships yet; the first ones come in 0.18.0. In v1 packs are refused on a planning store and for skills directories outside the project (user-level). See [packs/README.md](packs/README.md).
 
 ## 🗄️ Stores
 

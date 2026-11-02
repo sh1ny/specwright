@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "bad-signals",
+  "description": "Fixture pack bad-signals.",
+  "signals": [
+    "package.json",
+    ""
+  ]
+}

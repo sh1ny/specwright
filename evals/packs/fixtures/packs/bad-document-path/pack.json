@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "name": "bad-document-path",
+  "description": "Fixture pack bad-document-path.",
+  "documents": {
+    "abs": {
+      "path": "/etc/gdd.md",
+      "template": "documents/t.md"
+    },
+    "up": {
+      "path": "../shared/gdd.md",
+      "template": "documents/t.md"
+    }
+  }
+}

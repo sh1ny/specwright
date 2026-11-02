@@ -16,18 +16,18 @@ github:
   login: "KintsugiBot"
   # Comment posted once on each new PR to request a review. Empty = none.
   review_request:
-    body: ""
-    login: ""
+    body: "@codex review"
+    login: "sh1ny"
     # true = post it again after each fix round the agent pushes, for
     # reviewers that only run when tagged (for example Codex). At most once
     # per head.
-    after_fixes: false
+    after_fixes: true
 
 review:
   # Design and pre-ship reviews prefer a reviewer CLI other than the harness
   # you run in (routes below). false = always use the fresh-context
   # specwright-reviewer agent instead.
-  cross_model: false
+  cross_model: true
   # Reviewer CLIs tried in order; the current harness is skipped, and the
   # first one installed (OMP: whose model resolves) runs the review.
   order: [codex, claude, omp]
@@ -74,7 +74,7 @@ pr:
   after_limit: ask
   # true = put a thumbs up (finding right) or down (wrong) on every finding
   # answered, alongside the one reply.
-  react: false
+  react: true
   # How often watch polls GitHub (s/m/h). Each poll spends GraphQL points
   # from the account's hourly budget, shared with every tool using it.
   poll_interval: 5m

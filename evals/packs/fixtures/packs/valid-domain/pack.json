@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "name": "valid-domain",
+  "description": "Fixture pack valid-domain.",
+  "requires": [
+    "valid-ui-base"
+  ],
+  "skills": [
+    "valid-domain-design"
+  ],
+  "context": [
+    "Domain work keeps its design document current."
+  ],
+  "rules": {
+    "design": [
+      "Never skip the playtest task."
+    ],
+    "tasks": [
+      "Player-visible work ends with a playtest task."
+    ]
+  },
+  "operations": {
+    "archive": {
+      "guidance": [
+        "Name the design document sections the change touched."
+      ]
+    }
+  },
+  "documents": {
+    "gdd": {
+      "path": "docs/domain/gdd.md",
+      "template": "documents/gdd.md"
+    }
+  },
+  "init": {
+    "questions": [
+      "Which platforms ship first?",
+      "Is there a fixed frame budget?"
+    ]
+  },
+  "signals": [
+    "project.godot"
+  ]
+}

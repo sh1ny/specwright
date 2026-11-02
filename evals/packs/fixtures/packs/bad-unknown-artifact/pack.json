@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "bad-unknown-artifact",
+  "description": "Fixture pack bad-unknown-artifact.",
+  "rules": {
+    "playtest": [
+      "Playtest."
+    ]
+  }
+}

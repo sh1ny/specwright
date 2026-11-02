@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "name": "bad-source",
+  "description": "Fixture pack bad-source.",
+  "source": "https://example.invalid/pack.git"
+}

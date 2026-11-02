@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "name": "valid-web",
+  "description": "Fixture pack valid-web.",
+  "context": [
+    "Web changes name the browsers they were checked in."
+  ],
+  "rules": {
+    "proposal": [
+      "A change to a page states which routes it touches."
+    ],
+    "review": [
+      "The review checks contrast ratios."
+    ],
+    "tasks": [
+      "Browser-visible work ends with a manual check task."
+    ]
+  },
+  "operations": {
+    "apply": {
+      "guidance": [
+        "Run the linter before marking a web task done."
+      ]
+    }
+  },
+  "signals": [
+    "package.json",
+    "src/**/*.tsx"
+  ]
+}

@@ -2323,6 +2323,197 @@ class GitButlerSkillText(unittest.TestCase):
                                  r"--branch <branch>` run after the pull and the delete",
                          "finish cleanup does not use --after-merge --branch <branch> after its pull and delete")
 
+class Packs(unittest.TestCase):
+    """pack-mechanism group 6: the install prompt drives packs."""
+
+    def s(self, n):
+        t = step(read(README), "Step %d" % n)
+        self.assertTrue(t, "README has no install Step %d" % n)
+        return flat(t)
+
+    def test_readme_accepts_interface_2(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?i)drives update-script interface 2", "Step 3 does not drive interface 2")
+        self.assertRegex(s3, r"(?is)accept\w* interface 2", "Step 3 does not accept interface 2")
+
+    def test_readme_accepts_interface_1_without_packs(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?is)interface 1.{0,200}only when.{0,200}enables no pack.{0,200}packs\.json`.{0,120}no enabled pack",
+                         "Step 3 does not accept interface 1 only without enabled packs")
+
+    def test_readme_refuses_interface_1_with_packs(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?is)STOP before Step 4.{0,300}predates packs.{0,200}0\.16\.0.{0,200}interfaces? 1 and 2",
+                         "Step 3 does not stop on interface 1 with packs, naming interfaces 1 and 2")
+
+    def test_readme_step3_interface_check_omits_pack_options(self):
+        # an older update.sh refuses --pack as a usage error and reports no interface, so the interface check must not
+        # pass the pack options, or the "predates packs" stop can never be reached
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?is)without (the )?`--pack` and `--pack-doc`", "Step 3's interface check passes the pack options")
+
+    def test_readme_step5_pack_lines_follow_the_copy_too(self):
+        # a project with no config.yaml gets the template copied; its pack lines must still be merged, or pack-verify fails
+        raw = step(read(README), "Step 5")
+        self.assertRegex(raw, r"(?m)^- Pack lines, after the copy or the merge above",
+                         "Step 5 merges pack lines only under 'Otherwise' (an existing config.yaml)")
+
+    def test_readme_step2_packs_need_in_repo_skills(self):
+        s2 = self.s(2)
+        self.assertRegex(s2, r"(?is)`packs:`.{0,200}in-repo skills directories.{0,200}`packs_user_level`", "Step 2 does not state the in-repo rule")
+        gb = s2[s2.index("GitButler"):]
+        self.assertRegex(gb, r"`packs_user_level`", "Step 2's GitButler bullet does not repeat the user-level pack refusal")
+        self.assertRegex(s2, r"0023", "Step 2 does not cite ADR 0023")
+
+    def test_readme_step4_passes_pack_options_and_reports_refusals(self):
+        s4 = self.s(4)
+        for tok in ("--pack <name>", "--pack-doc <pack>.<id>=<path>", "packs_previous", "documents", "adopted"):
+            self.assertIn(tok, s4, "Step 4 lacks " + tok)
+        for code in ("pack_unknown", "pack_requires", "pack_cycle", "packs_on_store", "packs_user_level", "unmanaged_skill", "pack_doc_path"):
+            self.assertIn(code, s4, "Step 4 does not report " + code)
+
+    def test_readme_step5_removes_previous_pack_lines(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)`\[pack:<name>\] `.{0,400}`context:`.{0,200}`rules\.<artifact>`.{0,200}`operations\.<op>\.guidance`",
+                         "Step 5 does not remove [pack:<name>] lines from context, rules and operations")
+        self.assertRegex(s5, r"(?is)enabled now or in `packs_previous`", "Step 5 does not limit removal to packs enabled now or previously")
+        self.assertRegex(s5, r"(?is)never.{0,80}current `packs\.json`", "Step 5 does not rule out the current packs.json")
+
+    def test_readme_step5_keeps_unmanaged_pack_lines(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)keep every other `\[pack:` line.{0,200}not managed.{0,120}enable the pack",
+                         "Step 5 does not keep and report other [pack: lines")
+
+    def test_readme_step5_writes_quoted_entries_and_verifies(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)double-quoted.{0,300}flow sequence", "Step 5 does not require double-quoted entries")
+        self.assertRegex(s5, r"(?is)dependencies first.{0,80}name.{0,80}manifest order", "Step 5 does not give the pack and line order")
+        self.assertRegex(s5, r"(?is)`pack-verify`.{0,120}`--previous <name>`.{0,200}`packs_previous`", "Step 5 does not run pack-verify with --previous")
+        self.assertRegex(s5, r"(?is)missing.{0,40}duplicate.{0,40}not_enabled.{0,120}(do not|never) stamp", "Step 5 does not withhold the stamp on a pack-verify failure")
+
+    def test_readme_step6_packs_are_user_data(self):
+        s6 = self.s(6)
+        self.assertRegex(s6, r"(?is)`packs\.`.{0,300}user data.{0,200}never compared, added or listed as removed",
+                         "Step 6 does not treat packs. as user data")
+
+    def test_readme_step6_never_adds_packs_keys(self):
+        t = read(ROOT / "templates" / "openspec" / "specwright.yaml")
+        self.assertRegex(t, r"(?m)^# packs:\s*$", "the template has no commented packs: example")
+        self.assertNotRegex(t, r"(?m)^packs:", "the template enables packs: uncommented")
+        self.assertRegex(t, r"(?m)^#\s+gamedev:", "the packs example does not show a pack")
+        self.assertRegex(t, r"(?is)packs/README\.md", "the packs example does not point at packs/README.md")
+        self.assertRegex(self.s(6), r"(?is)never.{0,40}add", "Step 6 does not say packs keys are never added")
+
+    def test_readme_step7_checks_packs_and_creates_documents(self):
+        s7 = self.s(7)
+        self.assertRegex(s7, r"(?is)pack skills.{0,200}every chosen skills dir", "Step 7 does not check pack skills")
+        self.assertRegex(s7, r"(?is)`pack-verify`.{0,20}passes", "Step 7 does not require a passing pack-verify")
+        self.assertRegex(s7, r"(?is)stamp.{0,400}`pack-docs`.{0,300}never overwrites.{0,100}created.{0,40}kept",
+                         "Step 7 does not run pack-docs after the stamp")
+
+    def test_readme_pack_steps_only_with_interface_2_and_step5(self):
+        # an interface-1 download has no pack-verify or pack-docs, and a skipped Step 5 leaves another project's
+        # config.yaml: neither may block the stamp
+        s5, s7 = self.s(5), self.s(7)
+        self.assertRegex(s5, r"(?is)interface 2.{0,200}`pack-verify`|`pack-verify`.{0,200}interface 2",
+                         "Step 5 does not run pack-verify only for an interface-2 download")
+        self.assertRegex(s7, r"(?is)`pack-verify`.{0,300}interface[- ]1.{0,300}Step 5 was skipped",
+                         "Step 7 does not exempt the pack-verify check for an interface-1 download and a skipped Step 5")
+        self.assertRegex(s7, r"(?is)`pack-docs`.{0,300}interface 2|interface 2.{0,300}`pack-docs`",
+                         "Step 7 does not run pack-docs only for an interface-2 download")
+
+    def test_readme_step8_reports_packs(self):
+        s8 = self.s(8)
+        self.assertRegex(s8, r"(?is)packs installed or removed.{0,200}adopted skills.{0,200}`\[pack:` lines.{0,200}documents created or kept",
+                         "Step 8 does not report packs, adopted skills, unmanaged lines and documents")
+
+    def test_readme_treats_packs_json_like_version(self):
+        r = flat(read(README))
+        self.assertRegex(r, r"(?is)`openspec/\.specwright/packs\.json`.{0,120}like `VERSION`.{0,120}(commit both|ignore both)",
+                         "the README does not say to treat packs.json like VERSION")
+
+    def test_readme_has_packs_section(self):
+        sec = section(read(README), r".*Packs")
+        self.assertTrue(sec, "README has no Packs section")
+        self.assertIn("packs/README.md", sec)
+        self.assertIn("0.18.0", sec)
+
+    # group 7: roadmap init and the pack mode
+
+    def init_step(self, n):
+        t = mode_step("init", n)
+        self.assertTrue(t, "roadmap init has no step %d" % n)
+        return flat(t)
+
+    def pack_mode(self):
+        sec = section(read(ROADMAP), r"pack\b")
+        self.assertTrue(sec, "roadmap SKILL.md has no ## pack")
+        return flat(sec)
+
+    def test_roadmap_init_offers_packs_with_requirements(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)`openspec/\.specwright/packs\.json`.{0,300}`signals`", "init step 2 does not match the catalogue signals")
+        self.assertIn("git ls-files --cached --others --exclude-standard", s2, "init step 2 does not list tracked and untracked files")
+        self.assertRegex(s2, r"(?is)not enabled.{0,300}`requires`|`requires`.{0,300}not enabled", "init step 2 does not offer not-enabled packs with their requirements")
+        self.assertRegex(s2, r"(?is)as one offer", "init step 2 does not make one offer per pack set")
+
+    def test_roadmap_init_enables_only_on_yes(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)only on (the user's )?yes.{0,300}`packs:`.{0,100}`openspec/specwright\.yaml`", "init step 2 does not add packs only on yes")
+        self.assertRegex(s2, r"(?is)rerun the install prompt.{0,100}\*\*pack\*\* `<name>`", "init step 2 does not tell the user to rerun the install and run pack")
+        self.assertRegex(s2, r"(?is)declin\w+.{0,100}`packs:` (is )?unchanged", "init step 2 does not leave packs: unchanged on a decline")
+
+    def test_roadmap_init_offer_names_in_repo_need(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)in-repo skills directories.{0,200}user-level install refuses.{0,60}`packs_user_level`",
+                         "the pack offer does not name the in-repo install need")
+
+    def test_roadmap_init_no_packs_on_store(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)planning root is a store.{0,200}offer\w* no pack.{0,200}not supported there yet",
+                         "init step 2 does not withhold packs on a store")
+
+    def test_roadmap_init_offers_packs_repo_local(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)repo-local.{0,200}offer", "init step 2 does not offer packs for a repo-local planning root")
+        self.assertRegex(s2, r"(?is)uncommitted", "init step 2 does not count an uncommitted signal file")
+
+    def test_roadmap_init_asks_pack_questions_in_two_rounds(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)enabled packs?.{0,200}`init`.{0,40}`questions`.{0,300}two batched rounds.{0,200}no third round",
+                         "init step 2 does not fold pack questions into the two rounds")
+        self.assertRegex(s2, r"(?is)recommended default", "pack questions have no recommended default")
+        self.assertRegex(s2, r"(?is)write.{0,40}answers into (each|the) pack document", "init does not write answers into the pack documents")
+
+    def test_pack_documents_are_not_gated(self):
+        s5 = self.init_step(5)
+        self.assertRegex(s5, r"(?is)pack documents.{0,200}context", "the baseline review request does not name pack documents as context")
+        self.assertRegex(s5, r"(?is)pack documents? (is|are) never gated.{0,200}never voids", "step 5 does not say editing a pack document never voids the verdict")
+
+    def test_roadmap_init_missing_pack_document(self):
+        s2 = self.init_step(2)
+        self.assertRegex(s2, r"(?is)document.{0,80}missing.{0,200}rerun the install prompt.{0,200}(not|never)[^.]{0,20}from memory",
+                         "init does not send a missing pack document to the install prompt")
+
+    def test_roadmap_pack_mode_commits_on_docs_branch(self):
+        p = self.pack_mode()
+        self.assertIn("`docs/pack-<name>`", p)
+        self.assertRegex(p, r"(?is)Committing project files.{0,300}never on (main|`main`|<main>)|never on (main|<main>).{0,300}Committing project files",
+                         "pack mode does not commit through the procedure, off main")
+        self.assertRegex(p, r"(?is)one batched round.{0,60}recommended default", "pack mode does not ask one round with defaults")
+        self.assertRegex(p, r"(?is)without removing user content", "pack mode may remove user content")
+        self.assertRegex(p, r"(?is)no review.{0,200}`openspec/architecture-review\.md`.{0,60}unchanged", "pack mode runs a review or changes the verdict")
+        self.assertRegex(p, r"(?is)`finish`", "pack mode is not finished per the finish setting")
+        self.assertIn("docs/pack-<name>", committing_project_files(), "Committing project files does not cover pack")
+
+    def test_roadmap_pack_mode_needs_installed_pack(self):
+        p = self.pack_mode()
+        self.assertRegex(p, r"(?is)enabled and installed.{0,200}packs\.json", "pack mode does not need the pack installed")
+        self.assertRegex(p, r"(?is)not listed.{0,200}writes? nothing.{0,200}under `packs:`.{0,100}rerun the install prompt",
+                         "pack mode does not stop with the fix when the pack is not installed")
+        fm, _ = frontmatter(read(ROADMAP))
+        self.assertRegex(fm, r"pack", "the skill description does not list the pack mode")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "name": "bad-init",
+  "description": "Fixture pack bad-init.",
+  "init": {
+    "questions": [
+      "Fine?",
+      "two\nlines"
+    ]
+  }
+}

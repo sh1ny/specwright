@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "name": "strict-wording",
+  "description": "Fixture pack strict-wording.",
+  "rules": {
+    "design": [
+      "Never skip the playtest task.",
+      "The review checks contrast ratios.",
+      "A change to the save format must trip T4.",
+      "Skip full-screen effects on the title screen."
+    ]
+  }
+}

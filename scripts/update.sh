@@ -18,14 +18,19 @@
 #                     from the download) or omp (agents/omp/*.md); repeat for each one. Only specwright-*.md files
 #   --download DIR    the download tree (default: the directory above this script). Its VERSION is the target version
 #   --ref REF         the ref the download came from (e.g. v0.6.0 or main); recorded in the journal and the reports
+#   --pack NAME       a pack enabled in openspec/specwright.yaml (repeat for several). plan: the packs it checks and installs
+#                     (design D3-D9 of the pack-mechanism change); pack-check: check only these packs of the download's
+#                     packs/ (default: all)
+#   --pack-doc P.ID=PATH  plan: the path of document ID of enabled pack P, relative to the code toplevel (the specwright.yaml
+#                     override, else the manifest's default); repeat for each document the prompt resolved
 #   --rollback        recover only: roll the swapped update back instead of resuming it (the prompt's Step 7 failed)
 # The installed version is read from <code>/openspec/.specwright/VERSION (missing = a fresh install).
 #
 # Subcommands:
-#   plan     read only. Prints interface (1), from, to, ref, kind (fresh | patch | workflow | reinstall | downgrade),
+#   plan     read only. Prints interface (2), from, to, ref, kind (fresh | patch | workflow | reinstall | downgrade),
 #            role, store, inflight_checked, inflight, targets (every directory or file that stage will replace), orphans
 #            (installed specwright-* names with no downloaded counterpart; never touched), journal (a pending
-#            update.json: {from, to, phase, format} or null), refusals and warnings. Writes nothing outside
+#            update.json: {from, to, phase, format} or null), packs, packs_previous, refusals and warnings. Writes nothing outside
 #            <download>/.update-scratch/ (removed before plan returns), with one exception: when a journal is pending, plan
 #            first runs recover (below) and adds recovered: {action, message, from, to, store_written} to its document; journal then
 #            shows what is left. A journal that is not format 1 is not recovered (plan refuses it as unreadable).
@@ -67,11 +72,37 @@
 #            attributed: it is this project's when the code repo has a local branch <prefix>/<name> (feat, bugfix,
 #            refactor, docs, chore); otherwise it is another project's and refuses the update (code other_project_change,
 #            the change named). This project's changes are validated as above.
+#            Packs (design D3-D9 of the pack-mechanism change; none of it applies without --pack, a packs.json that lists
+#            no pack, or recorded skills):
+#              - the enabled packs (--pack) run through the pack-check checks; their refusals are plan's. A required pack that
+#                is not enabled too is a refusal {code pack_requires, pack, requires}, a cycle pack_cycle, a pack the
+#                download lacks pack_unknown (with available[]). Install order: dependencies first, then by name.
+#              - role claim, owner or other with any pack: packs_on_store. Any --skills directory outside the code
+#                checkout's toplevel (identity, symlinks resolved, case-insensitive file systems): packs_user_level {dir}.
+#              - each enabled pack's skills (<download>/packs/<pack>/skills/<skill>) are items of every skills group, after
+#                the specwright-* ones; targets then carry "pack". A skill directory of that name which packs.json does not
+#                record for the pack is adopted when it equals the download's byte for byte (listed in packs[].adopted
+#                {group, dir, name, path}), else refusal unmanaged_skill {pack, skill, group, path}. Unrecorded directories of
+#                packs that are not enabled, and any other directory, are never listed or touched. A recorded skill of an
+#                enabled pack that the download no longer ships is an orphan. A recorded skill of a pack that is not
+#                enabled (packs.json lists it) is a target {type remove, pack} in each skills group whose directory holds it.
+#              - --pack-doc P.ID=PATH: PATH absolute, with .., leaving the code toplevel or naming a directory is refusal
+#                pack_doc_path {pack, document, path}; an id the pack does not declare, or a pack not enabled: pack_doc_unknown;
+#                a malformed value: pack_doc_invalid. packs[].documents lists {id, path, exists} (the manifest's path
+#                when no --pack-doc names the id).
+#              - packs: [{name, version, requires, skills, adopted, documents}] in install order. packs_previous: the packs
+#                enabled before this update: a pending journal's prev_packs when it has one (also one plan's recovery just
+#                finished), else the names in packs.json, else [].
+#              - packs.json (openspec/.specwright/packs.json, written by the swap): {"format": 1, "packs": {<name>: {"version",
+#                "skills": [...], "documents": {<id>: <path>}, "init": {"questions": [...]}}}, "catalogue": [{"name",
+#                "description", "requires", "signals"}]}. Missing = no record; unreadable = refusal packs_record_unreadable.
 #            The planning main of the collection is the configured one first: planning_store.main_branch (a store) or
 #            main_branch (repo-local) in <code>/openspec/specwright.yaml, else the detection above.
 #   stage    copies every new skill directory, agent file and the schema into a staging directory beside its target
 #            (D2): <parent>/.specwright-update-<basename>/new/. Agent files carry the user's `model:` line over.
-#            Writes the journal (format 1) first, verifies the staged copy against a SHA-256 manifest and stops with
+#            Also stages the new openspec/.specwright/packs.json (the record, written on every install; with no --pack it
+#            lists no pack) as the file item of the last group, `record` (staging openspec/.specwright-update-record), and writes the enabled packs of the record as it is now
+#            into the journal as prev_packs. Writes the journal (format 2) first, verifies the staged copy against a SHA-256 manifest and stops with
 #            error verification_failed (naming each file, staging and journal removed) when a file differs. Installed
 #            files are untouched. Refuses while a journal is pending (run recover first). Runs plan first (so a
 #            failing change refuses it) and records the collected set and results in the journal (inflight).
@@ -79,7 +110,9 @@
 #            again against the staged schema; any difference from the journal's record (a new, removed or now
 #            failing change) stops it before the first rename with error inflight_changed, naming the changes
 #            (differences[]), and changes no installed file. Then replaces each target with two renames: target -> old/<name>, then
-#            new/<name> -> target. The journal records each step before it runs. Prints store_written and a restart
+#            new/<name> -> target. A `remove` target (a recorded skill of a pack that is no longer enabled) has one rename,
+#            target -> old/<name>, and nothing is put back. The record group comes last, so packs.json is replaced after
+#            every skill rename, in the same journal. The journal records each step before it runs. Prints store_written and a restart
 #            notice. A swap that was started and interrupted is finished or undone by recover, not by swap.
 #            For claim and owner, before its first rename, swap takes the store's gate lock (the lock of
 #            skills/specwright-branch: $(git -C <store> rev-parse --path-format=absolute --git-common-dir)/specwright-gate.lock)
@@ -123,16 +156,18 @@
 #   finish   once VERSION reads the target version (the prompt's Step 7 stamp): removes old/, the staging directories
 #            and the journal. Rerunning it is safe.
 #   recover  decides from the journal and the disk (design D3), and prints action, message, from, to and store_written:
-#              - swap not started (no target old-moved or swapped)  -> discarded: staging and journal removed;
+#              - swap not started (no target old-moved or swapped; a removal that left pending counts as started)  -> discarded: staging and journal removed;
 #                message `discarded unfinished update to <to>`
 #              - phase swapped and VERSION already reads <to>        -> finished: staging and journal removed
 #              - every staged file (in new/ or already swapped in) matches the manifest -> resumed: the rest of the
-#                swap runs; message `resumed update to <to>`. The journal stays (phase swapped) for the prompt's
+#                swap runs (a remove target whose old/<name> is there and whose target is gone counts as done, and is skipped);
+#                message `resumed update to <to>`. The journal stays (phase swapped) for the prompt's
 #                Step 7 stamp and finish, unless the update is not the download's own version (the download's VERSION
 #                differs from <to>) or VERSION already reads <to>: then VERSION is written as <to> and the update is
 #                finished, so that the download's own update can start from it
 #              - otherwise -> rolled back: each old/ is moved back, each swapped-in new copy is removed, staging and
-#                journal removed, VERSION untouched; message `rolled back to <from>`. recover --rollback chooses this outcome
+#                journal removed, VERSION untouched, packs.json back to its previous content (or removed when there was none),
+#                a removed skill back from old/; message `rolled back to <from>`. recover --rollback chooses this outcome
 #                for a swap that completed (the prompt's Step 7 failed), unless VERSION already reads <to> (error
 #                rollback_stamped).
 #            Store gate lock (claim and owner): in every outcome recover releases the lock when its owner file names
@@ -151,11 +186,33 @@
 #            when it was absent, unless the file differs from what note-config recorded (config_sha) and from the saved
 #            copy: then it is kept and the recover message says so.
 #            Also removes a leftover update.json.tmp. With no journal it reports action none. plan calls it first.
-# Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 1, from, to, ref, kind,
+#   pack-check  read only, no write (design D6 of the pack-mechanism change). Reads every pack of <download>/packs/ (or only
+#            those named with --pack) against <download>/schemas/specwright/schema.yaml and prints {ok, packs: [{name, ok}],
+#            refusals: [{code, pack, field?, index?, message, ...}]}; exit 0 when every pack passes, 1 otherwise. Codes:
+#            manifest_invalid, format_unsupported, name_mismatch, external_pack_unsupported, document_invalid, init_invalid,
+#            signals_invalid, skill_name, skill_missing, skill_unlisted, unknown_artifact, unknown_operation, line_invalid,
+#            too_many_lines, context_too_large, relaxes_gate, pack_requires, pack_cycle, pack_unknown. Needs no code checkout.
+#   pack-verify  after the prompt's Step 5 (design D5 of the pack-mechanism change): proves through real `openspec instructions` in a
+#            scratch root <download>/.update-scratch/pack-verify/ (removed before it returns; nothing else is written) that the merged
+#            <root>/openspec/config.yaml delivers each enabled pack's lines once. Enabled packs: the record packs.json (the swap wrote
+#            it) with their manifests in the download. --previous NAME (repeat; plan's packs_previous) names the packs enabled before
+#            the update. Runs 5 artifacts + apply + archive (each with a 120 s deadline). Prints {ok, interface, subcommand, checked:
+#            {packs, previous, lines, core_lines, runs}, problems: [{code, pack, line, target, message}]}; exit 0 / 1. Codes: missing,
+#            duplicate (target rules.<artifact>, operations.<op> or context), not_enabled (a `[pack:x] ` line of a --previous pack
+#            that is not enabled; other `[pack:` lines pass), core_context_missing (a context line of the download's
+#            templates/openspec/config.yaml is not delivered, e.g. context over 50 KB), openspec_failed, pack_unreadable. Errors
+#            (exit 1): config_missing, schema_missing, packs_record_unreadable.
+#   pack-docs  after the stamp: creates each enabled pack's missing document (path from the record packs.json, template from
+#            <download>/packs/<name>/), never overwrites one, needs no journal or lock (a rerun completes an interrupted run).
+#            Prints {ok, interface, subcommand, documents: [{pack, id, path, status: created | kept}]}. An unsafe path (as in plan's
+#            pack_doc_path) or a template the download lacks is error refused (exit 1, refusals[], nothing written).
+# Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 2 (1 is still read and recovered;
+# a download that knows only format 1 refuses a format 2 journal as unreadable), from, to, ref, kind,
 # role, code, root, inflight, owner_id, store_owner, store_version, store_record, store_lock, store_staging,
-# store_state (none | pending | written | current), token, prev_config, prev_store, config_sha, phase (staging | staged |
-# swapping | swapped), groups, targets (state pending | staged | old-moved | swapped), manifest ({group, path, sha256}
-# for every staged file).
+# store_state (none | pending | written | current), token, prev_config, prev_store, config_sha, prev_packs (the names in
+# packs.json when the update was staged; plan reports them as packs_previous while the journal is pending), phase (staging |
+# staged | swapping | swapped), groups, targets (type dir | file | remove; state pending | staged | old-moved | swapped),
+# manifest ({group, path, sha256} for every staged file).
 # Lock: openspec/.specwright/update.lock (a directory made with mkdir) holds `pid:` and `host:`. A lock held by a dead pid
 # on this host is replaced and reported as lock_replaced; so is a lock with no complete owner file (pid and host) once
 # the lock directory is older than 60 s (reason lock_without_owner); any other holder stops the run (error locked).
@@ -193,20 +250,23 @@ native SELF "${BASH_SOURCE[0]}"
 UPDATE_BASH=${BASH:-bash}  # the shell that runs the downloaded vcs.sh for a jj store (a Windows path under Git Bash)
 if command -v cygpath >/dev/null 2>&1; then UPDATE_BASH=$(cygpath -w "$UPDATE_BASH"); fi
 export UPDATE_BASH
-pyx() { "$py" -I -X utf8 -c "$PYLOAD" "$SELF" "$@"; }
+pyx() { MSYS2_ARG_CONV_EXCL='*' "$py" -I -X utf8 -c "$PYLOAD" "$SELF" "$@"; }  # Git Bash must not rewrite an argument like pack.id=/tmp/x into a drive path
 
 code="" root="" download="" ref="" sub="" ROLLBACK=0
-skills=() agents=()
+skills=() agents=() packs=() packdocs=() previous=()
 usage() { echo "{\"ok\":false,\"error\":\"usage\",\"message\":\"$1\"}"; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --code|--root|--download|--ref|--skills|--agents)
+    --code|--root|--download|--ref|--skills|--agents|--pack|--pack-doc|--previous)
       [ $# -ge 2 ] || usage "$1 needs a value"
       case "$1" in
         --code) native code "$2" ;;
         --root) native root "$2" ;;
         --download) native download "$2" ;;
         --ref) ref=$2 ;;
+        --pack) packs+=("$2") ;;
+        --pack-doc) packdocs+=("$2") ;;
+        --previous) previous+=("$2") ;;
         --skills) native tmp "$2"; skills+=("$tmp") ;;
         --agents)
           case "$2" in *=*) ;; *) usage "--agents needs KIND=DIR" ;; esac
@@ -218,7 +278,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$sub" ] || usage "one subcommand only"; sub=$1; shift ;;
   esac
 done
-[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish or recover"
+[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish, recover, pack-check, pack-verify or pack-docs"
 [ "$ROLLBACK" = 0 ] || [ "$sub" = recover ] || usage "--rollback belongs to the recover subcommand"
 [ -n "$code" ] || native code "$PWD"
 [ -n "$root" ] || root=$code
@@ -235,6 +295,9 @@ PYARGS=(--code "$code" --root "$root" --download "$download")
 [ -z "$ref" ] || PYARGS+=(--ref "$ref")
 for s in ${skills[@]+"${skills[@]}"}; do PYARGS+=(--skills "$s"); done
 for a in ${agents[@]+"${agents[@]}"}; do PYARGS+=(--agents "$a"); done
+for a in ${packs[@]+"${packs[@]}"}; do PYARGS+=(--pack "$a"); done
+for a in ${packdocs[@]+"${packdocs[@]}"}; do PYARGS+=(--pack-doc "$a"); done
+for a in ${previous[@]+"${previous[@]}"}; do PYARGS+=(--previous "$a"); done
 
 state_dir="$code/openspec/.specwright"
 journal="$state_dir/update.json"
@@ -341,6 +404,10 @@ jfield() {  # jfield KEY: the top-level string or number value of KEY ("" when m
   for l in "${JL[@]}"; do
     if [[ "$l" =~ ^\ \ \"$1\":\ \"?([^\",]*)\"?,?$ ]]; then printf '%s' "${BASH_REMATCH[1]}"; return 0; fi
   done
+}
+
+journal_format_ok() {  # format 2 adds remove targets and prev_packs; format 1 is still recovered
+  case "$(jfield format)" in 1|2) ;; *) die journal_unreadable "update.json has format '$(jfield format)', not 1 or 2" ;; esac
 }
 
 jstr() {  # jstr KEY: a top-level member as text; "" when null or missing. Unlike jfield it keeps commas and quotes inside
@@ -553,11 +620,11 @@ recover_rollback() {
     IFS='|' read -r gid name type dir staging state inst <<< "$l"
     [ "$gid" != schema ] || sstaging=$staging
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
-    if [ -e "$old" ]; then  # the old copy was moved aside: put it back, dropping a new copy that was swapped in
+    if [ -e "$old" ] || [ -L "$old" ]; then  # the old copy was moved aside (a relative symlink may dangle there): put it back, dropping a new copy that was swapped in
       if [ -e "$tgt" ]; then rm -rf "$tgt" || die rename_failed "could not remove $tgt"; fi
       mkdir -p "$dir"
       mv "$old" "$tgt" || die rename_failed "could not move $old back to $tgt (a directory held open by another program?)"
-    elif [ "$inst" = false ] && [ ! -e "$new" ] && [ -e "$tgt" ]; then  # first install: the swapped-in copy goes
+    elif [ "$type" != remove ] && [ "$inst" = false ] && [ ! -e "$new" ] && [ -e "$tgt" ]; then  # first install: the swapped-in copy goes
       rm -rf "$tgt" || die rename_failed "could not remove $tgt"
     fi
   done
@@ -571,7 +638,7 @@ recover_core() {
   REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
   if [ ! -f "$journal" ]; then rm -f "$jtmp"; return 0; fi
   jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  journal_format_ok
   local phase to from now="" dlv="" l started=0 vrc=0 storeful=0 sst
   phase=$(jfield phase)
   case "$phase" in staging|staged|swapping|swapped) ;; *) die journal_unreadable "update.json has phase '$phase'" ;; esac
@@ -641,7 +708,7 @@ do_recover() {
   [ ! -f "$state_dir/VERSION" ] || read -r now < "$state_dir/VERSION" || true
   now=${now//$'\r'/}
   lx=$(lock_extra_members)
-  printf '{"ok": true, "interface": 1, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s%s}\n' \
+  printf '{"ok": true, "interface": 2, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s%s}\n' \
     "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "${lx:+, $lx}"
 }
 
@@ -650,16 +717,20 @@ do_recover() {
 do_plan() {
   if [ -f "$journal" ] && pyx journal-check "${PYARGS[@]}" >/dev/null 2>&1; then  # an unreadable journal is left to plan's refusal
     jload_raw
-    local ph lx
+    local ph lx pp ppx
     ph=$(jfield phase)
-    if [ "$(jfield format)" = 1 ]; then
+    if [ "$(jfield format)" = 1 ] || [ "$(jfield format)" = 2 ]; then
       case "$ph" in
         staging|staged|swapping|swapped)
+          pp=$(pyx journal-prev "${PYARGS[@]}" 2>/dev/null) || pp=null
           acquire_lock
           recover_core
           release_lock
           lx=$(lock_extra_members)
-          pyx plan "${PYARGS[@]}" --extra "{\"recovered\": $(rec_json)${lx:+, $lx}}"
+          # a recovery that finished the swap (the journal is gone) still owes Step 5 the packs enabled before it
+          pp=${pp//$'\r'/} ppx=""
+          case "$REC_ACTION/$pp" in finished/\[*|resumed/\[*) [ -f "$journal" ] || ppx=", \"packs_previous\": $pp" ;; esac
+          pyx plan "${PYARGS[@]}" --extra "{\"recovered\": $(rec_json)${lx:+, $lx}$ppx}"
           return 0 ;;
       esac
     fi
@@ -726,13 +797,23 @@ swap_loop() {  # the renames of every target, from the journal in JL and the dis
   for l in "${TARGETS[@]}"; do
     IFS='|' read -r gid name type dir staging state inst <<< "$l"
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
+    if [ "$type" = remove ]; then  # a pack's skill that is no longer enabled: target -> old/<name>, nothing put back
+      if [ -e "$tgt" ] || [ -L "$tgt" ]; then
+        { [ ! -e "$old" ] && [ ! -L "$old" ]; } || die inconsistent "$name: $tgt and $old both exist"
+        jwrite_target "$gid" "$name" old-moved
+        case "$made" in *" $staging/old "*) ;; *) mkdir -p "$staging/old"; made="$made$staging/old " ;; esac
+        mv "$tgt" "$old" || die rename_failed "could not move $tgt to $old (a directory held open by another program?)"
+      fi  # no target and an old/<name>: the removal was done before an interruption (no old/<name> either: nothing to remove)
+      [ "$state" = swapped ] && [ ! -e "$tgt" ] || jwrite_target "$gid" "$name" swapped
+      continue
+    fi
     if [ ! -e "$new" ]; then  # already swapped (a rerun after an interruption)
       [ -e "$tgt" ] || die inconsistent "$name: neither $new nor $tgt exists"
       [ "$state" = swapped ] || jwrite_target "$gid" "$name" swapped
       continue
     fi
     if [ -e "$tgt" ]; then
-      [ ! -e "$old" ] || die inconsistent "$name: $tgt, $new and $old all exist"
+      { [ ! -e "$old" ] && [ ! -L "$old" ]; } || die inconsistent "$name: $tgt, $new and $old all exist"
       jwrite_target "$gid" "$name" old-moved
       case "$made" in *" $staging/old "*) ;; *) mkdir -p "$staging/old"; made="$made$staging/old " ;; esac
       mv "$tgt" "$old" || die rename_failed "could not move $tgt to $old (a directory held open by another program?)"
@@ -809,7 +890,7 @@ do_swap() {
   acquire_lock
   [ -f "$journal" ] || die no_journal "no staged update is recorded in $journal; run stage first"
   jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  journal_format_ok
   local phase storeful=0
   phase=$(jfield phase)
   case "$phase" in
@@ -846,7 +927,7 @@ do_note_config() {  # right after the prompt's Step 5: record the merged config.
   acquire_lock
   [ -f "$journal" ] || die no_journal "no update is recorded in $journal; run stage and swap first"
   jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  journal_format_ok
   [ "$(jfield phase)" = swapped ] || die not_swapped "the recorded update is in phase '$(jfield phase)', not swapped; note-config runs after swap, right after Step 5"
   local cfg="$root/openspec/config.yaml" sum
   [ -f "$cfg" ] || die config_missing "$cfg does not exist; run Step 5 first"
@@ -859,7 +940,7 @@ do_note_config() {  # right after the prompt's Step 5: record the merged config.
 do_finish() {
   acquire_lock
   if [ ! -f "$journal" ]; then
-    printf '{"ok": true, "interface": 1, "subcommand": "finish", "state": "done", "finished": false, "message": "no update is in progress"}\n'
+    printf '{"ok": true, "interface": 2, "subcommand": "finish", "state": "done", "finished": false, "message": "no update is in progress"}\n'
     return 0
   fi
   jload
@@ -878,18 +959,22 @@ do_finish() {
 }
 
 case "$sub" in
+  pack-check) pyx pack-check "${PYARGS[@]}"; exit "$?" ;;  # read only: no lock, no journal, no code checkout
+  pack-verify) pyx pack-verify "${PYARGS[@]}"; exit "$?" ;;  # writes only under <download>/.update-scratch/, removed before it returns
+  pack-docs) pyx pack-docs "${PYARGS[@]}"; exit "$?" ;;  # no lock and no journal: a rerun completes an interrupted run
   plan) do_plan ;;
   stage) do_stage ;;
   swap) do_swap ;;
   note-config) do_note_config ;;
   finish) do_finish ;;
   recover) do_recover ;;
-  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover)" ;;
+  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover, pack-check, pack-verify, pack-docs)" ;;
 esac
 exit "$?"
 
 : <<'PYSRC_EOF'
 #---PYSRC---
+import errno
 import hashlib
 import importlib.util
 import io
@@ -903,7 +988,7 @@ import tarfile
 from pathlib import Path
 
 sys.stdout.reconfigure(newline="\n")  # no CRLF on Windows: the shell reads these lines
-INTERFACE = 1
+INTERFACE = 2
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 STATE_REL = "openspec/.specwright"
 VALUE_OPTS = ("code", "root", "download", "ref", "error", "message", "extra", "plan", "mode")
@@ -912,10 +997,10 @@ SCRATCH = ".update-scratch"
 
 
 def parse(argv):
-    o, pos, i = {"skills": [], "agents": []}, [], 0
+    o, pos, i = {"skills": [], "agents": [], "pack": [], "pack-doc": [], "previous": []}, [], 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--skills", "--agents"):
+        if a in ("--skills", "--agents", "--pack", "--pack-doc", "--previous"):
             o[a[2:]].append(argv[i + 1])
             i += 2
         elif a.startswith("--") and a[2:] in VALUE_OPTS:
@@ -975,7 +1060,8 @@ def workflow_update(frm, to):
 
 
 def load_journal(o):
-    """The parsed journal, None when absent; ValueError when unreadable or of another format."""
+    """The parsed journal, None when absent; ValueError when unreadable or of another format (1, or 2: it adds `remove`
+    targets and prev_packs)."""
     p = journal_path(o)
     if not p.exists():
         return None
@@ -983,8 +1069,8 @@ def load_journal(o):
         j = json.loads(p.read_text(encoding="utf-8"))
     except ValueError as e:
         raise ValueError(f"update.json is not readable JSON ({e})")
-    if not isinstance(j, dict) or j.get("format") != 1:
-        raise ValueError(f"update.json has format {j.get('format') if isinstance(j, dict) else None!r}, not 1")
+    if not isinstance(j, dict) or isinstance(j.get("format"), bool) or j.get("format") not in (1, 2):
+        raise ValueError(f"update.json has format {j.get('format') if isinstance(j, dict) else None!r}, not 1 or 2")
     return j
 
 
@@ -1156,12 +1242,16 @@ def extract_branch(o, item, scratch):
                 dest.write_bytes(tar.extractfile(m).read())
 
 
-def run_openspec(args, cwd):
+def run_openspec(args, cwd, timeout=None):
+    """(exit code, stdout, stderr) of one `openspec` run; 127 when the CLI is not on PATH, 124 after `timeout` seconds."""
     exe = shutil.which("openspec")
     if not exe:
         return 127, "", "the openspec CLI is not on PATH"
-    r = subprocess.run([exe, *args], cwd=str(cwd), env={**os.environ, "OPENSPEC_TELEMETRY": "0"}, capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
+    try:
+        r = subprocess.run([exe, *args], cwd=str(cwd), env={**os.environ, "OPENSPEC_TELEMETRY": "0"}, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, "", f"openspec {' '.join(args)} did not finish in {timeout} s"
     return r.returncode, r.stdout, r.stderr
 
 
@@ -1638,10 +1728,18 @@ def cmd_store_check(o, pos):
 
 
 def cmd_journal_check(o, pos):
-    """The whole journal must parse as a JSON object of format 1 (the shell reads it line by line, so a damaged file
+    """The whole journal must parse as a JSON object of format 1 or 2 (the shell reads it line by line, so a damaged file
     whose formatted lines survive must not pass). Silent exit 0 when it does; a ValueError is journal_unreadable."""
     if load_journal(o) is None:
         raise ValueError("update.json does not exist")
+
+
+def cmd_journal_prev(o, pos):
+    """Print the journal's prev_packs as a JSON list (null without one). plan reads it before a recovery that may delete
+    the journal: a same-version reinstall is finished by recovery as soon as it swapped, before Step 5 has used them."""
+    j = load_journal(o)
+    prev = j.get("prev_packs") if isinstance(j, dict) else None
+    print(json.dumps([n for n in prev if isinstance(n, str)] if isinstance(prev, list) else None))
 
 
 def cmd_journal_drop_store(o, pos):
@@ -1725,7 +1823,7 @@ def mk_group(gid, kind, d, items, suffix=""):
     return g
 
 
-def build_groups(o, refusals, with_schema=True, store=False):
+def build_groups(o, refusals, with_schema=True, store=False, pk=None, record=None):
     dl = Path(o["download"])
     groups, orphans = [], []
     names = sorted(p.name for p in (dl / "skills").glob("specwright-*") if p.is_dir())
@@ -1741,6 +1839,8 @@ def build_groups(o, refusals, with_schema=True, store=False):
         for p in sorted(Path(g["dir"]).glob("specwright-*")):
             if p.is_dir() and p.name not in names:
                 orphans.append({"group": g["id"], "dir": g["dir"], "name": p.name})
+        if pk is not None:
+            pack_skill_items(o, g, pk, refusals, orphans)
     for i, spec in enumerate(o["agents"], 1):
         kind, _, d = spec.partition("=")
         adir = dl / "agents" / kind
@@ -1757,6 +1857,11 @@ def build_groups(o, refusals, with_schema=True, store=False):
     if with_schema:  # another project's update leaves the store's schema alone
         groups.append(mk_group("schema", "schema", f"{o['root']}/openspec/schemas", [("specwright", "dir", dl / "schemas" / "specwright")],
                                suffix="-" + checkout_id(o["code"]) if store else ""))  # a store is shared by checkouts (D7)
+    if record is not None:  # packs.json: the last group, so the swap writes it after every skill rename (design D4)
+        g = mk_group("record", "record", str(state_dir(o)), [(RECORD_NAME, "file", None)])
+        g["items"][0]["data"] = record
+        g["staging"] = f"{state_dir(o).parent.as_posix()}/.specwright-update-record"
+        groups.append(g)
     return groups, orphans
 
 
@@ -1799,7 +1904,9 @@ def make_plan(o, check=False):
             f"--root is in the worktree {wt[0].as_posix()}, another worktree of the code repo's worktree {wt[1].as_posix()}; "
             "commits there would land on that worktree's branch. Nothing was written. Run the update from the worktree "
             "that holds --root, or give a --root in this worktree or in a separate planning repo")})
-    groups, orphans = build_groups(o, refusals, with_schema=role != "other", store=role in ("claim", "owner"))
+    pk = pack_plan(o, role, refusals)
+    groups, orphans = build_groups(o, refusals, with_schema=role != "other", store=role in ("claim", "owner"), pk=pk,
+                                   record=pack_record_bytes(o, to, pk) if to else None)
     inflight, checked = [], False
     if check and to and not refusals and workflow_update(inst, to) and role != "other":
         checked = True
@@ -1818,8 +1925,13 @@ def make_plan(o, check=False):
                 inflight.append(e)
     doc = base_doc(o, not refusals)
     doc.update({"from": inst, "to": to, "ref": o.get("ref"), "kind": kind_of(inst, to) if to else None, "role": role,
-                "targets": [{"group": g["id"], "kind": g["kind"], "dir": g["dir"], "name": it["name"], "installed": it["installed"]}
+                "targets": [{"group": g["id"], "kind": g["kind"], "dir": g["dir"], "name": it["name"], "installed": it["installed"],
+                             **({"pack": it["pack"]} if it.get("pack") else {}), **({"type": "remove"} if it["type"] == "remove" else {})}
                             for g in groups for it in g["items"]],
+                "packs": [{"name": pn, "version": to, "requires": pk["manifests"][pn].get("requires", []),
+                           "skills": pk["manifests"][pn].get("skills", []), "adopted": pk["adopted"].get(pn, []),
+                           "documents": pk["documents"].get(pn, [])} for pn in pk["order"]],
+                "packs_previous": pk["previous"],
                 "orphans": orphans, "journal": journal, "inflight_checked": checked, "inflight": inflight,
                 "refusals": refusals, "warnings": warnings})
     if role in ("claim", "owner", "other"):
@@ -1839,10 +1951,19 @@ def cmd_plan(o, pos):
     emit(doc, 0 if doc["ok"] else 1)
 
 
+def stage_items(g):
+    """The items stage copies. `remove` items (the recorded skills of a pack that is no longer enabled) have no source: they
+    are journal targets the swap moves to old/, and nothing is staged for them."""
+    return [it for it in g["items"] if it["type"] != "remove"]
+
+
 def expected_manifest(groups):
     out = []
     for g in groups:
-        for it in g["items"]:
+        for it in stage_items(g):
+            if it.get("data") is not None:  # the record: its content is the item's
+                out.append({"group": g["id"], "path": it["name"], "sha256": sha(it["data"])})
+                continue
             src = Path(it["src"])
             if it["type"] == "dir":
                 for f in sorted(p for p in src.rglob("*") if p.is_file()):
@@ -1878,14 +1999,14 @@ def cmd_journal_new(o, pos):
     role = doc["role"]
     storeful = role in ("owner", "claim")
     store = doc.get("store") or {}
-    head = {"format": 1, "from": doc["from"], "to": doc["to"], "ref": o.get("ref"), "kind": doc["kind"], "role": role,
+    head = {"format": 2, "from": doc["from"], "to": doc["to"], "ref": o.get("ref"), "kind": doc["kind"], "role": role,
             "code": o["code"], "root": o["root"], "inflight": inflight,
             "owner_id": store.get("id"), "store_owner": store.get("owner"), "store_version": store.get("version"),
             "store_record": record_path(o).as_posix() if storeful else None,
             "store_lock": gate_lock_path(o) if storeful else None,
             "store_staging": next((g["staging"] for g in groups if g["kind"] == "schema"), None) if storeful else None,
             "store_state": "pending" if storeful else "none", "token": None, "prev_config": None, "prev_store": None,
-            "config_sha": None, "phase": "staging"}
+            "config_sha": None, "prev_packs": doc["packs_previous"], "phase": "staging"}
     groups_j = [{k: v for k, v in g.items() if k != "items"} for g in groups]
     targets = [{"gid": g["id"], "name": it["name"], "type": it["type"], "dir": g["dir"], "staging": g["staging"],
                 "installed": it["installed"], "state": "pending"} for g in groups for it in g["items"]]
@@ -1901,7 +2022,11 @@ def cmd_ops(o, pos):
     for g in groups:
         new = g["staging"] + "/new"
         print(f"mkdir\t{new}")
-        for it in g["items"]:
+        for it in stage_items(g):
+            if it.get("data") is not None:  # the record has no source to copy: it is written straight into staging
+                Path(new).mkdir(parents=True, exist_ok=True)
+                (Path(new) / it["name"]).write_bytes(it["data"])
+                continue
             print(f"cp\t{'-R' if it['type'] == 'dir' else '-'}\t{it['src'].as_posix()}\t{new}")
 
 
@@ -2048,6 +2173,740 @@ def cmd_store_recheck(o, pos):
         f"{why}, which is not the {to[0]}.{to[1]} line this project's update to {j['to']} was planned for, and only the owner "
         "replaces the store's schema. Nothing was written. Rerun the update to plan it again")})
     emit(doc, 1)
+
+
+# --- pack-check (design D6): the structural checks are the guarantee; the term lists are a deliberately crude second net.
+# packs/README.md lists the same terms; evals/packs/test_pack_check.py keeps the two equal (it reads these tuples as literals).
+GATE_TERMS = ("triage", "t1", "t2", "t3", "t4", "t5", "t6", "tier", "verdict", "review", "verify", "verification", "gate",
+              "pre-ship", "preship", "test-first")
+GATE_TERMS_CAPITALS = ("LIGHT", "FULL")
+RELAXING_TERMS = ("skip", "skips", "skipped", "waive", "waived", "relax", "bypass", "exempt", "ignore", "omit", "downgrade",
+                  "optional", "not required", "need not", "no need")
+NEGATED_ONLY_TERMS = ("trip",)
+NEGATORS = ("not", "never", "n't")
+RESERVED_PACK_NAMES = ("specwright", "openspec", "opsx")
+PACK_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+PACK_FIELDS = ("format", "name", "description", "requires", "skills", "context", "rules", "operations", "documents", "init",
+               "signals")
+OPERATIONS = ("apply", "archive")
+MAX_LINE_CHARS, MAX_PACK_LINES, MAX_CONTEXT_BYTES = 500, 40, 2048
+LINE_PREFIX = "[pack:"
+UNSAFE_PATH = re.compile(r"^([/\\]|[A-Za-z]:)")
+
+
+def _term_re(term, flags=0):
+    return re.compile(r"(?<![A-Za-z0-9_])" + re.escape(term).replace(r"\ ", r"\s+") + r"(?![A-Za-z0-9_])", flags)
+
+
+GATE_RES = [_term_re(t, re.I) for t in GATE_TERMS] + [_term_re(t) for t in GATE_TERMS_CAPITALS]
+RELAX_RES = [_term_re(t, re.I) for t in RELAXING_TERMS]
+for _t in NEGATED_ONLY_TERMS:  # `trip` relaxes only after a negator: "must trip T4" passes, "do not trip T2" does not
+    # whole-word negators (`not`, `never`) need a word boundary before them; `n't` attaches to the word before it
+    _neg = "|".join(("" if n.startswith("n'") else r"(?<![A-Za-z0-9_])") + re.escape(n).replace("'", "['’]") for n in NEGATORS)
+    RELAX_RES.append(re.compile(r"(?:" + _neg + r")\s+" + re.escape(_t) + r"(?![A-Za-z0-9_])", re.I))
+
+
+def relaxes_gate(line):
+    return any(r.search(line) for r in GATE_RES) and any(r.search(line) for r in RELAX_RES)
+
+
+def one_line(v):
+    return isinstance(v, str) and bool(v.strip()) and "\n" not in v and "\r" not in v
+
+
+def schema_artifact_ids(download):
+    f = Path(download) / "schemas" / "specwright" / "schema.yaml"
+    if not f.is_file():
+        return None
+    return [m.group(1) for m in re.finditer(r"^  - id: (\S+)\s*$", f.read_text(encoding="utf-8"), re.M)]
+
+
+def read_manifest(pdir):
+    """(manifest or None, problem or None) of packs/<name>/pack.json."""
+    f = pdir / "pack.json"
+    if not f.is_file():
+        return None, f"{f.name} is missing"
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return None, f"{f.name} is not valid JSON: {e}"
+    if not isinstance(data, dict):
+        return None, f"{f.name} must be a JSON object"
+    return data, None
+
+
+def check_pack(name, pdir, data, all_names, artifacts):
+    """The refusals of one pack, in a stable order. `all_names` is every pack directory of the download."""
+    out = []
+
+    def refuse(code, message, **extra):
+        out.append({"code": code, "pack": name, **extra, "message": message})
+
+    def is_list(field, v):
+        if not isinstance(v, list):
+            refuse("manifest_invalid", f"{field} must be a list", field=field)
+        return isinstance(v, list)
+
+    if "source" in data:
+        refuse("external_pack_unsupported", "source is not supported: v1 installs only packs shipped in the Specwright download", field="source")
+    for k in data:
+        if k not in PACK_FIELDS and k != "source":
+            refuse("manifest_invalid", f"unknown field {k}", field=k)
+    fmt = data.get("format")
+    if "format" not in data:
+        refuse("manifest_invalid", "format is missing", field="format")
+    elif isinstance(fmt, bool) or fmt != 1:
+        refuse("format_unsupported", f"format {json.dumps(fmt)} is not supported; this Specwright reads format 1", field="format")
+    if not isinstance(data.get("name"), str):
+        refuse("manifest_invalid", "name is missing or not a string", field="name")
+    elif data["name"] != name:
+        refuse("name_mismatch", f"name {data['name']!r} does not equal the directory name {name!r}", field="name")
+    if not PACK_NAME.match(name) or any(name == r or name.startswith(r + "-") for r in RESERVED_PACK_NAMES):
+        refuse("manifest_invalid", f"pack name {name!r} must match ^[a-z][a-z0-9-]*$ and not be or start with "
+               + ", ".join(r + "-" for r in RESERVED_PACK_NAMES), field="name")
+    if not one_line(data.get("description")):
+        refuse("manifest_invalid", "description is missing or not a non-empty single-line string", field="description")
+
+    if "requires" in data and is_list("requires", data["requires"]):
+        for i, r in enumerate(data["requires"]):
+            if not isinstance(r, str) or not PACK_NAME.match(r):
+                refuse("manifest_invalid", f"requires[{i}] must be a pack name", field="requires", index=i)
+            elif r not in all_names:
+                refuse("pack_requires", f"{name} requires {r}, which the download does not have", field="requires", index=i, requires=r)
+
+    listed = []
+    if "skills" in data and is_list("skills", data["skills"]):
+        for i, s in enumerate(data["skills"]):
+            if not isinstance(s, str) or not PACK_NAME.match(s):
+                refuse("skill_name", f"skills[{i}] must be a skill name (^[a-z][a-z0-9-]*$)", field="skills", index=i)
+                continue
+            listed.append(s)
+            owners = [p for p in all_names if s.startswith(p + "-")]
+            owner = max(owners, key=len) if owners else None
+            if not s.startswith(name + "-"):
+                refuse("skill_name", f"skill {s} does not start with {name}-" + (f"; it belongs to pack {owner}" if owner else ""),
+                       field="skills", index=i, skill=s, **({"owner": owner} if owner else {}))
+            elif owner != name:
+                refuse("skill_name", f"skill {s} belongs to pack {owner}, whose prefix {owner}- is longer than {name}-",
+                       field="skills", index=i, skill=s, owner=owner)
+            elif not (pdir / "skills" / s / "SKILL.md").is_file():
+                refuse("skill_missing", f"skill {s} has no skills/{s}/SKILL.md", field="skills", index=i, skill=s)
+    sdir = pdir / "skills"
+    for d in sorted(sdir.iterdir(), key=lambda p: p.name) if sdir.is_dir() else []:
+        if d.is_dir() and d.name not in listed:
+            refuse("skill_unlisted", f"skills/{d.name} is not listed in skills", field="skills", skill=d.name)
+
+    lines = []  # (field, index, text) of every well-formed entry, for the count and the gate check
+
+    def take(field, v):
+        if not isinstance(v, list):
+            refuse("manifest_invalid", f"{field} must be a list of lines", field=field)
+            return
+        for i, text in enumerate(v):
+            why = None
+            if not isinstance(text, str):
+                why = "is not a string"
+            elif not text.strip():
+                why = "is empty"
+            elif "\n" in text or "\r" in text:
+                why = "holds a newline"
+            elif len(text) > MAX_LINE_CHARS:
+                why = f"is {len(text)} characters long (at most {MAX_LINE_CHARS})"
+            elif text.lstrip().startswith(LINE_PREFIX):
+                why = f"starts with {LINE_PREFIX} (the installer adds the prefix)"
+            if why:
+                refuse("line_invalid", f"{field}[{i}] {why}", field=field, index=i)
+            else:
+                lines.append((field, i, text))
+
+    if "context" in data:
+        take("context", data["context"])
+    if "rules" in data:
+        if not isinstance(data["rules"], dict):
+            refuse("manifest_invalid", "rules must be an object of artifact id -> list of lines", field="rules")
+        else:
+            for k, v in data["rules"].items():
+                if k not in artifacts:
+                    refuse("unknown_artifact", f"rules.{k}: the schema has no artifact {k} (it has {', '.join(artifacts)})", field=f"rules.{k}")
+                else:
+                    take(f"rules.{k}", v)
+    if "operations" in data:
+        if not isinstance(data["operations"], dict):
+            refuse("manifest_invalid", "operations must be an object of apply|archive -> {guidance: [lines]}", field="operations")
+        else:
+            for k, v in data["operations"].items():
+                if k not in OPERATIONS:
+                    refuse("unknown_operation", f"operations.{k}: only {' and '.join(OPERATIONS)} take guidance", field=f"operations.{k}")
+                elif not isinstance(v, dict) or set(v) != {"guidance"}:
+                    refuse("manifest_invalid", f"operations.{k} must be an object holding only guidance", field=f"operations.{k}")
+                else:
+                    take(f"operations.{k}", v["guidance"])
+    if len(lines) > MAX_PACK_LINES:
+        refuse("too_many_lines", f"{len(lines)} lines across context, rules and operations (at most {MAX_PACK_LINES})", count=len(lines))
+    ctx = sum(len(t.encode("utf-8")) for f, _, t in lines if f == "context")
+    if ctx > MAX_CONTEXT_BYTES:
+        refuse("context_too_large", f"context holds {ctx} bytes in UTF-8 (at most {MAX_CONTEXT_BYTES})", field="context", count=ctx)
+    for f, i, t in lines:
+        if relaxes_gate(t):
+            refuse("relaxes_gate", f"{f}[{i}] pairs a gate term with a relaxing term: {t}", field=f, index=i, line=t)
+
+    if "documents" in data:
+        docs = data["documents"]
+        if not isinstance(docs, dict):
+            refuse("document_invalid", "documents must be an object of id -> {path, template}", field="documents")
+        else:
+            for k, v in docs.items():
+                path, tpl = (v.get("path"), v.get("template")) if isinstance(v, dict) else (None, None)
+                if not re.match(r"^[a-z][a-z0-9_-]*$", k):
+                    why = "the id must match ^[a-z][a-z0-9_-]*$"
+                elif not isinstance(v, dict) or set(v) != {"path", "template"}:
+                    why = "an entry holds exactly path and template"
+                elif not one_line(path) or UNSAFE_PATH.match(path) or ".." in re.split(r"[/\\]", path) or path.endswith(("/", "\\")):
+                    why = f"path {path!r} must be a relative file path without .."
+                elif not one_line(tpl) or UNSAFE_PATH.match(tpl) or ".." in re.split(r"[/\\]", tpl):
+                    why = f"template {tpl!r} must be a relative path inside the pack"
+                elif not (pdir / tpl).is_file():
+                    why = f"template {tpl} does not exist in the pack"
+                else:
+                    continue
+                refuse("document_invalid", f"documents.{k}: {why}", field=f"documents.{k}")
+    if "init" in data:
+        init = data["init"]
+        if not isinstance(init, dict) or set(init) != {"questions"} or not isinstance(init["questions"], list):
+            refuse("init_invalid", "init must be an object holding only questions, a list of single-line strings", field="init")
+        else:
+            for i, t in enumerate(init["questions"]):
+                if not one_line(t):
+                    refuse("init_invalid", f"init.questions[{i}] must be a non-empty single-line string", field="init.questions", index=i)
+    if "signals" in data:
+        if not isinstance(data["signals"], list):
+            refuse("signals_invalid", "signals must be a list of non-empty single-line strings", field="signals")
+        else:
+            for i, t in enumerate(data["signals"]):
+                if not one_line(t):
+                    refuse("signals_invalid", f"signals[{i}] must be a non-empty single-line string", field="signals", index=i)
+    return out
+
+
+def requires_cycle(start, graph):
+    """The cycle through `start` as a list of pack names (start first), or None."""
+    def walk(node, path):
+        for nxt in graph.get(node, []):
+            if nxt == start:
+                return path
+            if nxt in graph and nxt not in path:
+                found = walk(nxt, path + [nxt])
+                if found:
+                    return found
+        return None
+    return walk(start, [start])
+
+
+def check_packs(download, wanted):
+    """(packs, refusals) of the download's packs named in `wanted` (every pack when empty); (None, None) when the
+    download has no schema. One pass for pack-check and for plan, so a pack is judged the same way in both."""
+    download = Path(download)
+    artifacts = schema_artifact_ids(download)
+    if artifacts is None:
+        return None, None
+    pdir = download / "packs"
+    all_names = sorted(d.name for d in pdir.iterdir() if d.is_dir()) if pdir.is_dir() else []
+    manifests = {n: read_manifest(pdir / n)[0] or {} for n in all_names}
+    graph = {n: [r for r in m["requires"] if isinstance(r, str)] if isinstance(m.get("requires"), list) else []
+             for n, m in manifests.items()}
+    packs, refusals = [], []
+    for n in sorted(set(wanted)) or all_names:
+        if n not in all_names:
+            found = [{"code": "pack_unknown", "pack": n, "available": all_names, "message":
+                      f"the download has no pack {n}; it has: {', '.join(all_names) if all_names else 'none'}"}]
+        else:
+            data, problem = read_manifest(pdir / n)
+            if data is None:
+                found = [{"code": "manifest_invalid", "pack": n, "message": problem}]
+            else:
+                found = check_pack(n, pdir / n, data, all_names, artifacts)
+                cycle = requires_cycle(n, graph)
+                if cycle:
+                    found.append({"code": "pack_cycle", "pack": n, "cycle": cycle, "message":
+                                  "requires form a cycle: " + " -> ".join(cycle + [n])})
+        packs.append({"name": n, "ok": not found})
+        refusals.extend(found)
+    return packs, refusals
+
+
+def cmd_pack_check(o, pos):
+    """Check the download's packs (all, or those named with --pack). One JSON document; exit 1 on any refusal; no write."""
+    packs, refusals = check_packs(o["download"], o["pack"])
+    if packs is None:
+        emit({"ok": False, "subcommand": "pack-check", "packs": [], "refusals": [{"code": "schema_missing", "pack": None, "message":
+              f"{(Path(o['download']) / 'schemas' / 'specwright' / 'schema.yaml').as_posix()} does not exist"}]}, 1)
+    emit({"ok": not refusals, "subcommand": "pack-check", "packs": packs, "refusals": refusals}, 1 if refusals else 0)
+
+
+# --- packs in plan (design D3, D4, D7, D8, D9 of the pack-mechanism change) ------------------------------------------
+# `plan --pack NAME ...` runs the pack checks on the enabled packs, adds their skill directories to every skills group, and
+# decides who owns each skill directory from the record openspec/.specwright/packs.json (format 1, written by the swap):
+#   {"format": 1, "packs": {<name>: {"version", "skills": [...], "documents": {<id>: <path>}, "init": {"questions": [...]}}},
+#    "catalogue": [{"name", "description", "requires", "signals"}]}
+# plan reads only the pack names and their skills; a missing file is no record, an unreadable one a refusal.
+
+def within(path, top):
+    """True when `path` is `top` or below it, judged by identity: symlinks resolved, case-insensitive file systems."""
+    p = Path(os.path.abspath(path)).resolve()
+    for a in (p, *p.parents):
+        try:
+            if a.exists() and os.path.samefile(a, top):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def read_pack_record(o):
+    """({"packs": {name: {"skills": [...]}}} or None, problem or None) of <code>/openspec/.specwright/packs.json."""
+    f = state_dir(o) / "packs.json"
+    if not f.is_file():
+        return None, None
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return None, f"is not readable JSON ({e})"
+    if not isinstance(data, dict) or data.get("format") != 1 or not isinstance(data.get("packs"), dict):
+        return None, "is not a format 1 record with a packs object"
+    packs = {}
+    for n, v in data["packs"].items():
+        if not isinstance(v, dict) or not isinstance(v.get("skills", []), list):
+            return None, f"lists pack {n} without a skills list"
+        if PACK_NAME.match(n):  # a name that could leave the skills directory is never trusted
+            packs[n] = {"skills": sorted({x for x in v.get("skills", []) if isinstance(x, str) and PACK_NAME.match(x)})}
+    return {"packs": packs}, None
+
+
+RECORD_NAME = "packs.json"
+
+
+def pack_record_bytes(o, version, pk):
+    """The content of the new packs.json (design D4): every enabled pack with the download's version, its skills, its resolved
+    document paths and its init questions, then the catalogue of every pack in the download. Written on every install."""
+    pdir = Path(o["download"]) / "packs"
+    rec = (pk["record"] or {}).get("packs", {})
+    top = code_top(o)
+    packs = {}
+    for pn in pk["order"]:
+        m = pk["manifests"][pn]
+        skills = list(m.get("skills", []))
+        # a recorded skill the download no longer ships, still on disk (an orphan the user kept), stays the pack's, so it
+        # is reported again and removed with the pack
+        skills += [s for s in (rec.get(pn) or {}).get("skills", []) if s not in skills and s.startswith(pn + "-")
+                   and any(within(sd, top) and (Path(sd) / s).is_dir() for sd in o["skills"])]
+        packs[pn] = {"version": version, "skills": skills, "documents": {d["id"]: d["path"] for d in pk["documents"].get(pn, [])},
+                     "init": {"questions": list((m.get("init") or {}).get("questions", []))}}
+    catalogue = []
+    for d in sorted(p.name for p in pdir.iterdir() if p.is_dir()) if pdir.is_dir() else []:
+        m, _ = read_manifest(pdir / d)
+        if m is None:  # a pack that cannot be read is not offered
+            continue
+
+        def texts(v):
+            return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+        catalogue.append({"name": d, "description": m["description"] if isinstance(m.get("description"), str) else "",
+                          "requires": texts(m.get("requires")), "signals": texts(m.get("signals"))})
+    doc = {"format": 1, "packs": packs, "catalogue": catalogue}
+    return (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def previous_packs(o, rec):
+    """The packs enabled before this update (design D5): a pending journal's prev_packs, else the record's, else none."""
+    jp = journal_path(o)
+    if jp.is_file():
+        try:
+            j = json.loads(jp.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            j = None
+        if isinstance(j, dict) and isinstance(j.get("prev_packs"), list):
+            return [n for n in j["prev_packs"] if isinstance(n, str)]
+    return sorted(rec["packs"]) if rec else []
+
+
+def install_order(enabled, requires):
+    """Dependencies first, then by name."""
+    order, seen = [], set()
+
+    def visit(n):
+        if n in seen:
+            return
+        seen.add(n)
+        for r in sorted(requires.get(n, [])):
+            if r in enabled:
+                visit(r)
+        order.append(n)
+
+    for n in sorted(enabled):
+        visit(n)
+    return order
+
+
+def doc_path_problem(top, path):
+    """Why a pack document path is refused (design D8), or None."""
+    if not path.strip():
+        return "is empty"
+    if UNSAFE_PATH.match(path):
+        return "is absolute"
+    if ".." in re.split(r"[/\\]", path):
+        return "contains .."
+    if path.endswith(("/", "\\")):
+        return "names a directory"
+    full = Path(top) / path
+    if not within(full, top):
+        return "leaves the code checkout"
+    if full.is_dir():
+        return "names a directory"
+    return None
+
+
+def pack_plan(o, role, refusals):
+    """What `plan` knows about packs: the enabled packs in install order with their manifests, the record, packs_previous,
+    the documents and the adopted skills. Appends every pack refusal; writes nothing."""
+    pk = {"order": [], "manifests": {}, "record": None, "previous": [], "documents": {}, "adopted": {}, "ok": False}
+    rec, problem = read_pack_record(o)
+    if problem:
+        refusals.append({"code": "packs_record_unreadable", "message": f"openspec/.specwright/packs.json {problem}. Nothing was "
+                         "written; fix or remove the file, then rerun the update"})
+    pk["record"], pk["previous"] = rec, previous_packs(o, rec)
+    want = sorted(set(o["pack"]))
+    start = len(refusals)
+    top = code_top(o)
+    if want:
+        if role in ("claim", "owner", "other"):
+            refusals.append({"code": "packs_on_store", "packs": want, "message": (
+                f"packs ({', '.join(want)}) are not supported while the planning root is a store (role {role}): the pack lines "
+                "in the store's config.yaml would apply to every project that uses it. Remove packs: from "
+                "openspec/specwright.yaml or use a repo-local planning root. Nothing was written")})
+        for sd in o["skills"]:
+            if not within(sd, top):
+                refusals.append({"code": "packs_user_level", "dir": sd, "message": (
+                    f"packs ({', '.join(want)}) need skills directories inside the code checkout, and {sd} is outside {top.as_posix()}: "
+                    "several projects would share, and remove, the same pack skills. Choose project-level skills directories or "
+                    "remove packs: from openspec/specwright.yaml. Nothing was written")})
+        packs, found = check_packs(o["download"], want)
+        refusals.extend(f for f in found or [] if f.get("code") != "schema_missing")  # a missing schema is download_incomplete
+        pdir = Path(o["download"]) / "packs"
+        manifests = {p["name"]: read_manifest(pdir / p["name"])[0] for p in packs or [] if p["ok"]}
+        for n in sorted(manifests):
+            for r in manifests[n].get("requires", []):
+                if r not in want and (pdir / r).is_dir():
+                    refusals.append({"code": "pack_requires", "pack": n, "requires": r, "message": (
+                        f"{n} requires {r}, which packs: does not enable; enable {r} too (it is never enabled on its own), "
+                        f"or remove {n}. Nothing was written")})
+        pk["ok"] = len(refusals) == start and packs is not None  # no schema: build_groups refuses it as download_incomplete
+        if pk["ok"]:
+            pk["manifests"] = manifests
+            pk["order"] = install_order(set(want), {n: m.get("requires", []) for n, m in manifests.items()})
+    overrides = {}
+    for spec in o["pack-doc"]:
+        key, eq, path = spec.partition("=")
+        pack, dot, did = key.partition(".")
+        if not (eq and dot and pack and did):
+            refusals.append({"code": "pack_doc_invalid", "message": f"--pack-doc {spec!r} is not <pack>.<id>=<path>"})
+        elif pack not in want:
+            refusals.append({"code": "pack_doc_unknown", "pack": pack, "document": did, "message":
+                             f"--pack-doc {spec}: pack {pack} is not enabled"})
+        elif pk["ok"] and did not in (pk["manifests"][pack].get("documents") or {}):
+            refusals.append({"code": "pack_doc_unknown", "pack": pack, "document": did, "message":
+                             f"--pack-doc {spec}: pack {pack} declares no document {did}"})
+        else:
+            overrides[(pack, did)] = path
+    for pn in pk["order"]:
+        found = []
+        for did, entry in (pk["manifests"][pn].get("documents") or {}).items():
+            path = overrides.get((pn, did), entry["path"])
+            why = doc_path_problem(top, path)
+            if why:
+                refusals.append({"code": "pack_doc_path", "pack": pn, "document": did, "path": path, "message": (
+                    f"document {did} of pack {pn}: the path {path} {why}. Nothing was written")})
+            else:
+                found.append({"id": did, "path": path, "exists": (top / path).is_file()})
+        pk["documents"][pn] = found
+    return pk
+
+
+def tree_files(d):
+    return {p.relative_to(d).as_posix(): p for p in Path(d).rglob("*") if p.is_file()}
+
+
+def same_tree(a, b):
+    """True when directories `a` and `b` hold the same files with the same bytes."""
+    a, b = Path(a), Path(b)
+    if not (a.is_dir() and b.is_dir()):
+        return False
+    fa, fb = tree_files(a), tree_files(b)
+    return fa.keys() == fb.keys() and all(fa[k].read_bytes() == fb[k].read_bytes() for k in fa)
+
+
+def add_item(g, name, typ, src, pack):
+    g["items"].append({"name": name, "type": typ, "src": src, "installed": (Path(g["dir"]) / name).exists(), "pack": pack})
+
+
+def pack_skill_items(o, g, pk, refusals, orphans):
+    """Pack items of one skills group (design D3, D4): the enabled packs' skills (adopted when byte-identical and not
+    recorded, `unmanaged_skill` otherwise), orphans among their recorded skills, and `remove` items for the recorded skills
+    of packs no longer enabled, only where this directory holds them. Unrecorded directories of other packs are never looked at."""
+    dl, d = Path(o["download"]), Path(g["dir"])
+    rec = (pk["record"] or {}).get("packs", {})
+    shipped = set()
+    for pn in pk["order"]:
+        skills = pk["manifests"][pn].get("skills", [])
+        recorded = set(rec.get(pn, {}).get("skills", []))
+        shipped.update(skills)
+        for s in skills:
+            src, tgt = dl / "packs" / pn / "skills" / s, d / s
+            if (tgt.exists() or tgt.is_symlink()) and s not in recorded:
+                if same_tree(tgt, src):
+                    pk["adopted"].setdefault(pn, []).append({"group": g["id"], "dir": g["dir"], "name": s, "path": tgt.as_posix()})
+                else:
+                    refusals.append({"code": "unmanaged_skill", "pack": pn, "skill": s, "group": g["id"], "path": tgt.as_posix(), "message": (
+                        f"{tgt.as_posix()} is a skill directory named like pack {pn}'s skill {s}, but Specwright did not install it "
+                        "and it differs from the download's. Move or remove it, then rerun the update. Nothing was written")})
+            add_item(g, s, "dir", src, pn)
+        for s in sorted(recorded - set(skills)):  # recorded, and the download no longer ships it
+            if (d / s).is_dir():
+                orphans.append({"group": g["id"], "dir": g["dir"], "name": s})
+    enabled = set(o["pack"])
+    if not within(g["dir"], code_top(o)):  # packs install only inside the checkout, so nothing of theirs is outside it
+        return
+    for pn in sorted(rec):
+        if pn in enabled:
+            continue
+        for s in rec[pn]["skills"]:  # only a skill named like its pack: an edited record cannot name an unrelated skill
+            if s not in shipped and s.startswith(pn + "-") and ((d / s).exists() or (d / s).is_symlink()):
+                add_item(g, s, "remove", None, pn)
+
+
+# --- pack-verify and pack-docs (design D5 and D8 of the pack-mechanism change) ---------------------------------------
+# pack-verify reads <root>/openspec/config.yaml (the prompt's Step 5 merge), the enabled packs from the record in
+# <code>/openspec/.specwright/packs.json (the swap wrote it before Step 5) with their manifests from <download>/packs/, and
+# --previous NAME (repeat; plan's packs_previous). It copies the config.yaml, the download's schema and an empty change into a
+# scratch root <download>/.update-scratch/pack-verify/ (removed before return) and asks OpenSpec what an agent would be told:
+# `openspec instructions <artifact> --change c --json` for every artifact of the download's schema (rules, context) and for
+# apply and archive (operationGuidance): 5 + 2 runs of the specwright schema whatever the pack count, each with a deadline.
+# Problems {code, pack, line, target, message}: missing and duplicate (an enabled pack's `[pack:<name>] <line>` found less or
+# more often than its manifest lists it, in rules.<artifact>, operations.<op> or context), not_enabled (a `[pack:<x>] ` line of a
+# pack in --previous and not enabled, anywhere), core_context_missing (a context line of the download's
+# templates/openspec/config.yaml that OpenSpec does not deliver, as when a context over 50 KB is dropped whole), openspec_failed,
+# pack_unreadable. A `[pack:` line of any other pack is nobody's to manage and passes. Output: {ok, interface, subcommand,
+# checked: {packs, previous, lines, core_lines, runs}, problems}; exit 0 when there is none, else 1. Nothing else is written.
+# pack-docs reads the enabled packs' resolved document paths from the same record and the templates from the download
+# (<download>/packs/<name>/<template>), creates each missing document (parents too), never overwrites one and prints
+# {ok, interface, subcommand, documents: [{pack, id, path, status: created | kept}]}. It needs no journal and no lock. A path
+# that is absolute, has .., leaves the code toplevel or names a directory, or a template the download lacks, is a refusal
+# (error refused, exit 1) found before the first write.
+
+OPENSPEC_DEADLINE = 120  # seconds for one `openspec instructions` run
+VERIFY_CHANGE = "pack-verify"
+
+
+def template_context_lines(download):
+    """The lines of `context: |` in the download's templates/openspec/config.yaml: the core lines every install delivers."""
+    f = Path(download) / "templates" / "openspec" / "config.yaml"
+    out, inside = [], False
+    for ln in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else []):
+        if re.match(r"^context:\s*\|", ln):
+            inside = True
+        elif inside and ln.startswith("  "):
+            if ln.strip() and not ln.strip().startswith("#"):
+                out.append(ln.strip())
+        elif inside and ln.strip():
+            break
+    return out
+
+
+def manifest_targets(data):
+    """{target: [lines]} of a manifest: context, rules.<artifact>, operations.<op>; non-lists and non-strings are skipped."""
+    def texts(v):
+        return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+    t = {"context": texts(data.get("context"))}
+    for k, v in (data.get("rules") if isinstance(data.get("rules"), dict) else {}).items():
+        t[f"rules.{k}"] = texts(v)
+    for k, v in (data.get("operations") if isinstance(data.get("operations"), dict) else {}).items():
+        t[f"operations.{k}"] = texts(v.get("guidance") if isinstance(v, dict) else None)
+    return {k: v for k, v in t.items() if v}
+
+
+def verify_error(code, message):
+    emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-verify", "error": code, "message": message, "problems": []}, 1)
+
+
+def cmd_pack_verify(o, pos):
+    download, problems = Path(o["download"]), []
+    previous = sorted(set(o["previous"]))
+
+    def problem(code, pack, line, target, message):
+        problems.append({"code": code, "pack": pack, "line": line, "target": target, "message": message})
+
+    artifacts = schema_artifact_ids(download)
+    if artifacts is None:
+        verify_error("schema_missing", f"{(download / 'schemas' / 'specwright' / 'schema.yaml').as_posix()} does not exist")
+    cfg = Path(o["root"]) / "openspec" / "config.yaml"
+    if not cfg.is_file():
+        verify_error("config_missing", f"{cfg.as_posix()} does not exist; run Step 5 first")
+    rec, why = read_pack_record(o)
+    if why:
+        verify_error("packs_record_unreadable", f"openspec/.specwright/packs.json {why}")
+    enabled = sorted(rec["packs"]) if rec else []
+    expected = {}  # (target, "[pack:<n>] <line>") -> (pack, line, how often the manifest lists it)
+    for n in enabled:
+        data, bad = read_manifest(download / "packs" / n)
+        if data is None:
+            problem("pack_unreadable", n, None, None, f"pack {n} is enabled but its manifest in the download is unreadable: {bad}")
+            continue
+        for target, lines in manifest_targets(data).items():
+            for t in lines:
+                key = (target, f"[pack:{n}] {t}".strip())  # trimmed like the delivered lines below
+                expected[key] = (n, t, expected[key][2] + 1 if key in expected else 1)
+    core = template_context_lines(download)
+    stale = tuple(f"[pack:{n}] " for n in previous if n not in enabled)
+
+    base = download / SCRATCH
+    runs, delivered, context = 0, {}, None  # delivered: target -> [lines]
+    try:
+        shutil.rmtree(base, ignore_errors=True)
+        scratch = base / VERIFY_CHANGE
+        change = scratch / "openspec" / "changes" / VERIFY_CHANGE
+        change.mkdir(parents=True)
+        (scratch / "openspec" / "specs").mkdir()
+        shutil.copytree(download / "schemas" / "specwright", scratch / "openspec" / "schemas" / "specwright")
+        (change / ".openspec.yaml").write_text("schema: specwright\n", encoding="utf-8", newline="\n")
+        shutil.copyfile(cfg, scratch / "openspec" / "config.yaml")
+        asks = [(a, "rules", f"rules.{a}") for a in artifacts] + [(op, "operationGuidance", f"operations.{op}") for op in OPERATIONS]
+        for what, field, target in asks:
+            runs += 1
+            rc, out, err = run_openspec(["instructions", what, "--change", VERIFY_CHANGE, "--json"], scratch, OPENSPEC_DEADLINE)
+            try:
+                doc = json.loads(out)
+                got = doc.get(field) or []
+                if rc != 0 or not isinstance(got, list):
+                    raise ValueError("unexpected output")
+            except ValueError:
+                problem("openspec_failed", None, None, target, f"openspec instructions {what}: " + first_error(err + "\n" + out))
+                if rc == 127:
+                    break
+                continue
+            delivered[target] = [x.strip() for x in got if isinstance(x, str)]
+            if context is None and what in artifacts:
+                context = [x.strip() for x in str(doc.get("context") or "").splitlines()]
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    if context is not None:
+        delivered["context"] = context
+    for (target, full), (n, line, count) in sorted(expected.items()):
+        if target not in delivered:
+            continue  # its run failed: that run is already a problem
+        have = delivered[target].count(full)
+        if have < count:
+            problem("missing", n, line, target, f"{full!r} is expected {count} time(s) in {target} and {have} reached OpenSpec")
+        elif have > count:
+            problem("duplicate", n, line, target, f"{full!r} reaches OpenSpec {have} times in {target}; expected {count}")
+    for target, lines in sorted(delivered.items()):
+        for ln in lines:
+            if stale and ln.startswith(stale):
+                pn = ln[len("[pack:"):ln.index("] ")]
+                problem("not_enabled", pn, ln[len(f"[pack:{pn}] "):], target, f"{ln!r} in {target} belongs to pack {pn}, which is no longer enabled")
+    if "context" in delivered:
+        for c in core:
+            if c not in delivered["context"]:
+                problem("core_context_missing", None, c, "context", "a Specwright context line does not reach OpenSpec (is context over 50 KB?)")
+    emit({"ok": not problems, "interface": INTERFACE, "subcommand": "pack-verify",
+          "checked": {"packs": enabled, "previous": previous, "lines": sum(v[2] for v in expected.values()), "core_lines": len(core), "runs": runs},
+          "problems": problems}, 1 if problems else 0)
+
+
+def cmd_pack_docs(o, pos):
+    download, top = Path(o["download"]), code_top(o)
+    rec_file = state_dir(o) / "packs.json"
+    data = {}
+    if rec_file.is_file():
+        try:
+            data = json.loads(rec_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("packs"), dict):
+                raise ValueError("not a record with a packs object")
+        except (ValueError, OSError) as e:
+            emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "packs_record_unreadable", "message":
+                  f"openspec/.specwright/packs.json is not readable ({e})", "documents": []}, 1)
+    refusals, work = [], []
+    for n, entry in data.get("packs", {}).items():
+        docs = entry.get("documents") if isinstance(entry, dict) else None
+        if not PACK_NAME.match(n) or not isinstance(docs, dict) or not docs:
+            continue
+        manifest, _ = read_manifest(download / "packs" / n)
+        for did, path in docs.items():
+            decl = ((manifest or {}).get("documents") or {}).get(did)
+            tpl = decl.get("template") if isinstance(decl, dict) else None
+            why = doc_path_problem(top, path) if isinstance(path, str) else "is not a string"
+            if why:
+                refusals.append({"code": "pack_doc_path", "pack": n, "document": did, "path": path, "message":
+                                 f"document {did} of pack {n}: the path {path} {why}. Nothing was written"})
+            elif not (isinstance(tpl, str) and not UNSAFE_PATH.match(tpl) and ".." not in re.split(r"[/\\]", tpl)
+                      and (download / "packs" / n / tpl).is_file()):
+                refusals.append({"code": "pack_doc_template", "pack": n, "document": did, "path": path, "message":
+                                 f"document {did} of pack {n}: the download has no template for it. Nothing was written"})
+            else:
+                work.append((n, did, path, download / "packs" / n / tpl))
+    if refusals:
+        emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "refused", "message":
+              refusals[0]["message"], "refusals": refusals, "documents": []}, 1)
+    out = []
+    for n, did, path, tpl in work:
+        target, status = top / path, "kept"
+        if not target.exists():
+            # the whole document goes to a temporary file first and is then linked into place, so a failure or an
+            # interruption never leaves a partial document that a rerun would keep; the link never replaces a document
+            # made since the check
+            tmp = target.parent / f".{target.name}.pack-docs-{os.getpid()}.tmp"
+            try:
+                data = tpl.read_bytes()
+                target.parent.mkdir(parents=True, exist_ok=True)  # a regular file in the way raises: a failure, never `kept`
+                with open(tmp, "wb") as f:  # this run's own name; a leftover of a killed run is overwritten
+                    f.write(data)
+                try:  # only a document that exists at the final path by now is `kept`
+                    publish_new(tmp, target, data)
+                    status = "created"
+                except FileExistsError:
+                    pass
+            except OSError as e:
+                emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "pack_doc_write_failed", "message":
+                      f"document {did} of pack {n}: could not write {path} ({e}). No partial document was left; rerun pack-docs "
+                      "once the cause is fixed", "documents": out}, 1)
+            finally:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+        out.append({"pack": n, "id": did, "path": path, "status": status})
+    emit({"ok": True, "interface": INTERFACE, "subcommand": "pack-docs", "documents": out})
+
+
+def publish_new(tmp, target, data):
+    """Put the complete file `tmp` at `target`, never replacing an existing file (FileExistsError). Windows: a rename, which
+    never replaces. POSIX: a hard link (a rename would replace); on a filesystem without hard links (exFAT, some network
+    mounts) an exclusive create of the target instead, removed again if writing it fails."""
+    if os.name == "nt":
+        os.rename(tmp, target)
+        return
+    try:
+        os.link(tmp, target)
+        return
+    except FileExistsError:
+        raise
+    except OSError as e:
+        if e.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK, errno.ENOSYS):
+            raise
+    with open(target, "xb") as f:
+        try:
+            f.write(data)
+        except OSError:
+            f.close()
+            os.unlink(target)
+            raise
 
 
 def cmd_err(o, pos):
