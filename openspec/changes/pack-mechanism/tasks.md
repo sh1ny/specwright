@@ -49,11 +49,11 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | install-update → Pack lines are merged by prefix and verified | A missing, duplicated or stale line | PV | test_missing_duplicate_stale_lines | red |
 | install-update → Pack lines are merged by prefix and verified | A removed pack's lines after a rerun past the swap | UP, PV | test_packs_previous_from_journal_after_swap, test_previous_pack_line_not_enabled | red |
 | install-update → Pack lines are merged by prefix and verified | Hand-written lines of a pack the project never enabled | PV, TI | test_unmanaged_pack_lines_pass, test_readme_step5_keeps_unmanaged_pack_lines | red |
-| install-update → The settings merge treats packs as user data | Enabled packs survive an update | TI | test_readme_step6_packs_are_user_data | red |
-| install-update → The settings merge treats packs as user data | A template key under packs | TI | test_readme_step6_never_adds_packs_keys | red |
+| install-update → The settings merge treats packs as user data | Enabled packs survive an update | TI | test_readme_step6_packs_are_user_data | green |
+| install-update → The settings merge treats packs as user data | A template key under packs | TI | test_readme_step6_never_adds_packs_keys | green |
 | install-update → The install prompt drives update-script interface 2 | Matching interface | UP, TI | test_plan_reports_interface_2, test_readme_accepts_interface_2 | red |
-| install-update → The install prompt drives update-script interface 2 | An older download without packs | TI | test_readme_accepts_interface_1_without_packs | red |
-| install-update → The install prompt drives update-script interface 2 | An older download with packs enabled | TI | test_readme_refuses_interface_1_with_packs | red |
+| install-update → The install prompt drives update-script interface 2 | An older download without packs | TI | test_readme_accepts_interface_1_without_packs | green |
+| install-update → The install prompt drives update-script interface 2 | An older download with packs enabled | TI | test_readme_refuses_interface_1_with_packs | green |
 | install-update → Pack documents are created by an idempotent step | Documents after a finished install | PD | test_pack_docs_creates_after_stamp | red |
 | install-update → Pack documents are created by an idempotent step | Interrupted document creation | PD | test_pack_docs_rerun_completes | red |
 | install-update → The previously enabled packs come from the start | An uninterrupted update that removes a pack | UP | test_packs_previous_from_record | red |
@@ -97,8 +97,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 6. Install prompt and settings template
 
-- [ ] 6.1 Write the TI README tests (Step 3 accepts interface 2, and 1 only with no pack enabled and none in `packs.json`; Step 4 passes `--pack`/`--pack-doc` and reports pack refusals; Step 5 removes only lines of packs enabled now or in `packs_previous`, writes double-quoted entries, keeps and reports other `[pack:` lines, runs pack-verify; Step 6 treats `packs.` as user data; Step 7 checks pack skills and pack-verify; after the stamp `pack-docs`; Step 8 reports packs, adopted skills, unmanaged lines and documents; README says to treat `packs.json` like `VERSION`; Step 2 says, when `packs:` enables a pack, that packs need in-repo skills directories and a user-level target is refused (`packs_user_level`), also in its GitButler bullet); verify they fail.
-- [ ] 6.2 Edit the README install prompt Steps 2-8 accordingly, add a commented `packs:` example to `templates/openspec/specwright.yaml`, and add a short "Packs" section to the README pointing at `packs/README.md`. Verify: the 6.1 tests and `python -m unittest evals/git-workflow/test_instructions.py` pass; flip the rows green.
+- [x] 6.1 Write the TI README tests (Step 3 accepts interface 2, and 1 only with no pack enabled and none in `packs.json`; Step 4 passes `--pack`/`--pack-doc` and reports pack refusals; Step 5 removes only lines of packs enabled now or in `packs_previous`, writes double-quoted entries, keeps and reports other `[pack:` lines, runs pack-verify; Step 6 treats `packs.` as user data; Step 7 checks pack skills and pack-verify; after the stamp `pack-docs`; Step 8 reports packs, adopted skills, unmanaged lines and documents; README says to treat `packs.json` like `VERSION`; Step 2 says, when `packs:` enables a pack, that packs need in-repo skills directories and a user-level target is refused (`packs_user_level`), also in its GitButler bullet); verify they fail.
+- [x] 6.2 Edit the README install prompt Steps 2-8 accordingly, add a commented `packs:` example to `templates/openspec/specwright.yaml`, and add a short "Packs" section to the README pointing at `packs/README.md`. Verify: the 6.1 tests and `python -m unittest evals/git-workflow/test_instructions.py` pass; flip the rows green.
 
 ## 7. Roadmap init and pack mode
 

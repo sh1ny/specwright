@@ -2323,6 +2323,98 @@ class GitButlerSkillText(unittest.TestCase):
                                  r"--branch <branch>` run after the pull and the delete",
                          "finish cleanup does not use --after-merge --branch <branch> after its pull and delete")
 
+class Packs(unittest.TestCase):
+    """pack-mechanism group 6: the install prompt drives packs."""
+
+    def s(self, n):
+        t = step(read(README), "Step %d" % n)
+        self.assertTrue(t, "README has no install Step %d" % n)
+        return flat(t)
+
+    def test_readme_accepts_interface_2(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?i)drives update-script interface 2", "Step 3 does not drive interface 2")
+        self.assertRegex(s3, r"(?is)accept\w* interface 2", "Step 3 does not accept interface 2")
+
+    def test_readme_accepts_interface_1_without_packs(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?is)interface 1.{0,200}only when.{0,200}enables no pack.{0,200}packs\.json`.{0,120}no enabled pack",
+                         "Step 3 does not accept interface 1 only without enabled packs")
+
+    def test_readme_refuses_interface_1_with_packs(self):
+        s3 = self.s(3)
+        self.assertRegex(s3, r"(?is)STOP before Step 4.{0,300}predates packs.{0,200}0\.16\.0.{0,200}interfaces? 1 and 2",
+                         "Step 3 does not stop on interface 1 with packs, naming interfaces 1 and 2")
+
+    def test_readme_step2_packs_need_in_repo_skills(self):
+        s2 = self.s(2)
+        self.assertRegex(s2, r"(?is)`packs:`.{0,200}in-repo skills directories.{0,200}`packs_user_level`", "Step 2 does not state the in-repo rule")
+        gb = s2[s2.index("GitButler"):]
+        self.assertRegex(gb, r"`packs_user_level`", "Step 2's GitButler bullet does not repeat the user-level pack refusal")
+        self.assertRegex(s2, r"0023", "Step 2 does not cite ADR 0023")
+
+    def test_readme_step4_passes_pack_options_and_reports_refusals(self):
+        s4 = self.s(4)
+        for tok in ("--pack <name>", "--pack-doc <pack>.<id>=<path>", "packs_previous", "documents", "adopted"):
+            self.assertIn(tok, s4, "Step 4 lacks " + tok)
+        for code in ("pack_unknown", "pack_requires", "pack_cycle", "packs_on_store", "packs_user_level", "unmanaged_skill", "pack_doc_path"):
+            self.assertIn(code, s4, "Step 4 does not report " + code)
+
+    def test_readme_step5_removes_previous_pack_lines(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)`\[pack:<name>\] `.{0,400}`context:`.{0,200}`rules\.<artifact>`.{0,200}`operations\.<op>\.guidance`",
+                         "Step 5 does not remove [pack:<name>] lines from context, rules and operations")
+        self.assertRegex(s5, r"(?is)enabled now or in `packs_previous`", "Step 5 does not limit removal to packs enabled now or previously")
+        self.assertRegex(s5, r"(?is)never.{0,80}current `packs\.json`", "Step 5 does not rule out the current packs.json")
+
+    def test_readme_step5_keeps_unmanaged_pack_lines(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)keep every other `\[pack:` line.{0,200}not managed.{0,120}enable the pack",
+                         "Step 5 does not keep and report other [pack: lines")
+
+    def test_readme_step5_writes_quoted_entries_and_verifies(self):
+        s5 = self.s(5)
+        self.assertRegex(s5, r"(?is)double-quoted.{0,300}flow sequence", "Step 5 does not require double-quoted entries")
+        self.assertRegex(s5, r"(?is)dependencies first.{0,80}name.{0,80}manifest order", "Step 5 does not give the pack and line order")
+        self.assertRegex(s5, r"(?is)`pack-verify`.{0,120}`--previous <name>`.{0,200}`packs_previous`", "Step 5 does not run pack-verify with --previous")
+        self.assertRegex(s5, r"(?is)missing.{0,40}duplicate.{0,40}not_enabled.{0,120}(do not|never) stamp", "Step 5 does not withhold the stamp on a pack-verify failure")
+
+    def test_readme_step6_packs_are_user_data(self):
+        s6 = self.s(6)
+        self.assertRegex(s6, r"(?is)`packs\.`.{0,300}user data.{0,200}never compared, added or listed as removed",
+                         "Step 6 does not treat packs. as user data")
+
+    def test_readme_step6_never_adds_packs_keys(self):
+        t = read(ROOT / "templates" / "openspec" / "specwright.yaml")
+        self.assertRegex(t, r"(?m)^# packs:\s*$", "the template has no commented packs: example")
+        self.assertNotRegex(t, r"(?m)^packs:", "the template enables packs: uncommented")
+        self.assertRegex(t, r"(?m)^#\s+gamedev:", "the packs example does not show a pack")
+        self.assertRegex(t, r"(?is)packs/README\.md", "the packs example does not point at packs/README.md")
+        self.assertRegex(self.s(6), r"(?is)never.{0,40}add", "Step 6 does not say packs keys are never added")
+
+    def test_readme_step7_checks_packs_and_creates_documents(self):
+        s7 = self.s(7)
+        self.assertRegex(s7, r"(?is)pack skills.{0,200}every chosen skills dir", "Step 7 does not check pack skills")
+        self.assertRegex(s7, r"(?is)`pack-verify`.{0,20}passes", "Step 7 does not require a passing pack-verify")
+        self.assertRegex(s7, r"(?is)stamp.{0,400}`pack-docs`.{0,300}never overwrites.{0,100}created.{0,40}kept",
+                         "Step 7 does not run pack-docs after the stamp")
+
+    def test_readme_step8_reports_packs(self):
+        s8 = self.s(8)
+        self.assertRegex(s8, r"(?is)packs installed or removed.{0,200}adopted skills.{0,200}`\[pack:` lines.{0,200}documents created or kept",
+                         "Step 8 does not report packs, adopted skills, unmanaged lines and documents")
+
+    def test_readme_treats_packs_json_like_version(self):
+        r = flat(read(README))
+        self.assertRegex(r, r"(?is)`openspec/\.specwright/packs\.json`.{0,120}like `VERSION`.{0,120}(commit both|ignore both)",
+                         "the README does not say to treat packs.json like VERSION")
+
+    def test_readme_has_packs_section(self):
+        sec = section(read(README), r".*Packs")
+        self.assertTrue(sec, "README has no Packs section")
+        self.assertIn("packs/README.md", sec)
+        self.assertIn("0.18.0", sec)
+
 
 if __name__ == "__main__":
     unittest.main()
