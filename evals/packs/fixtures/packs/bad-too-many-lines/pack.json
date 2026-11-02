@@ -1,0 +1,54 @@
+{
+  "format": 1,
+  "name": "bad-too-many-lines",
+  "description": "Fixture pack bad-too-many-lines.",
+  "context": [
+    "Context line 0.",
+    "Context line 1.",
+    "Context line 2.",
+    "Context line 3.",
+    "Context line 4.",
+    "Context line 5.",
+    "Context line 6.",
+    "Context line 7.",
+    "Context line 8.",
+    "Context line 9."
+  ],
+  "rules": {
+    "proposal": [
+      "Proposal rule 0.",
+      "Proposal rule 1.",
+      "Proposal rule 2.",
+      "Proposal rule 3.",
+      "Proposal rule 4.",
+      "Proposal rule 5.",
+      "Proposal rule 6.",
+      "Proposal rule 7.",
+      "Proposal rule 8.",
+      "Proposal rule 9.",
+      "Proposal rule 10.",
+      "Proposal rule 11.",
+      "Proposal rule 12.",
+      "Proposal rule 13.",
+      "Proposal rule 14.",
+      "Proposal rule 15.",
+      "Proposal rule 16.",
+      "Proposal rule 17.",
+      "Proposal rule 18.",
+      "Proposal rule 19."
+    ],
+    "tasks": [
+      "Task rule 0.",
+      "Task rule 1.",
+      "Task rule 2.",
+      "Task rule 3.",
+      "Task rule 4.",
+      "Task rule 5.",
+      "Task rule 6.",
+      "Task rule 7.",
+      "Task rule 8.",
+      "Task rule 9.",
+      "Task rule 10."
+    ]
+  }
+}

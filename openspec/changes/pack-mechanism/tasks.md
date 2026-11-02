@@ -6,24 +6,24 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| packs → A pack is a directory with a JSON manifest | A valid manifest is accepted | PC | test_valid_manifest_accepted | red |
-| packs → A pack is a directory with a JSON manifest | Malformed or unsupported manifests are refused | PC | test_malformed_manifests_refused | red |
-| packs → Documents, questions and signals are checked before release | A complete document entry | PC | test_complete_document_entry | red |
-| packs → Documents, questions and signals are checked before release | Broken documents, questions or signals are refused | PC | test_broken_documents_questions_signals | red |
-| packs → Pack and skill names keep packs apart | Prefixed skills are accepted | PC | test_prefixed_skills_accepted | red |
-| packs → Pack and skill names keep packs apart | A core or foreign skill name is refused | PC | test_core_or_foreign_skill_refused | red |
-| packs → Pack and skill names keep packs apart | A skill in a longer pack's namespace | PC | test_longest_prefix_owns_skill | red |
-| packs → Rules and guidance attach only to known artifacts | A known artifact receives rules | PC | test_known_artifacts_accepted | red |
-| packs → Rules and guidance attach only to known artifacts | An unknown artifact or operation is refused | PC | test_unknown_artifact_or_operation | red |
+| packs → A pack is a directory with a JSON manifest | A valid manifest is accepted | PC | test_valid_manifest_accepted | green |
+| packs → A pack is a directory with a JSON manifest | Malformed or unsupported manifests are refused | PC | test_malformed_manifests_refused | green |
+| packs → Documents, questions and signals are checked before release | A complete document entry | PC | test_complete_document_entry | green |
+| packs → Documents, questions and signals are checked before release | Broken documents, questions or signals are refused | PC | test_broken_documents_questions_signals | green |
+| packs → Pack and skill names keep packs apart | Prefixed skills are accepted | PC | test_prefixed_skills_accepted | green |
+| packs → Pack and skill names keep packs apart | A core or foreign skill name is refused | PC | test_core_or_foreign_skill_refused | green |
+| packs → Pack and skill names keep packs apart | A skill in a longer pack's namespace | PC | test_longest_prefix_owns_skill | green |
+| packs → Rules and guidance attach only to known artifacts | A known artifact receives rules | PC | test_known_artifacts_accepted | green |
+| packs → Rules and guidance attach only to known artifacts | An unknown artifact or operation is refused | PC | test_unknown_artifact_or_operation | green |
 | packs → Every pack line is one owned, bounded line | A plain line is accepted | PC, PV | test_plain_line_accepted, test_installed_line_prefixed | red |
-| packs → Every pack line is one owned, bounded line | A multi-line, prefixed or oversized line is refused | PC | test_invalid_lines_refused | red |
-| packs → Every pack line is one owned, bounded line | Too many lines | PC | test_too_many_lines_or_context_bytes | red |
+| packs → Every pack line is one owned, bounded line | A multi-line, prefixed or oversized line is refused | PC | test_invalid_lines_refused | green |
+| packs → Every pack line is one owned, bounded line | Too many lines | PC | test_too_many_lines_or_context_bytes | green |
 | packs → Packs compose through requires | A domain pack with its shared pack enabled | UP | test_requires_both_enabled_installs_both | red |
 | packs → Packs compose through requires | A missing requirement or a cycle is refused | UP | test_missing_requirement_and_cycle_refused | red |
-| packs → Gate-relaxing wording is refused | A line that relaxes a gate is refused | PC | test_relaxing_line_refused | red |
-| packs → Gate-relaxing wording is refused | Strict wording passes | PC | test_strict_wording_passes | red |
-| packs → pack-check reports in one JSON document | All packs pass | PC | test_all_packs_pass_and_shipped_packs_pass | red |
-| packs → pack-check reports in one JSON document | A named pack is missing | PC | test_named_pack_missing | red |
+| packs → Gate-relaxing wording is refused | A line that relaxes a gate is refused | PC | test_relaxing_line_refused | green |
+| packs → Gate-relaxing wording is refused | Strict wording passes | PC | test_strict_wording_passes | green |
+| packs → pack-check reports in one JSON document | All packs pass | PC | test_all_packs_pass_and_shipped_packs_pass | green |
+| packs → pack-check reports in one JSON document | A named pack is missing | PC | test_named_pack_missing | green |
 | packs → A project opts in to packs | A project with no packs | UP | test_no_packs_installs_nothing_extra | red |
 | packs → A project opts in to packs | An unknown pack is named | UP | test_unknown_pack_refused | red |
 | packs → Pack documents are created once | A missing document is created | PD | test_missing_document_created | red |
@@ -76,9 +76,9 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 2. pack-check and the pack format
 
-- [ ] 2.1 Create the `evals/packs` suite with fixture packs (`valid-web`, `valid-ui-base` + `valid-domain` requiring it, and one broken fixture per refusal code), add `packs/**` and `evals/packs/**` rules to `evals/suites.json`, and write the PC tests from the test map; verify they fail (`python -m unittest evals/packs/test_pack_check.py`: no `pack-check` subcommand) and `python -m unittest evals/runner/test_suite_map.py` passes.
-- [ ] 2.2 Implement `update.sh pack-check [--pack <name>]...`: manifest shape and `format`, name rules (reserved `specwright`/`openspec`/`opsx`), longest-prefix skill ownership, skill directories and `SKILL.md`, artifact ids from the download's `schemas/specwright/schema.yaml`, operations `apply`/`archive`, line rules (single line, ≤500 chars, no `[pack:`), 40 lines and 2048 context bytes per pack, documents/init/signals checks, `requires` existence and cycles, and the gate-term × relaxing-term check (capitals-only `LIGHT`/`FULL`, negated `trip`); one JSON document, exit 0/1, no writes. Verify: every PC test passes; flip the PC rows green.
-- [ ] 2.3 Write `packs/README.md` ("Writing a pack"): layout, every `pack.json` field, the prefix and longest-prefix rules, additive-only (structural guarantee, then the two term lists, documented as deliberately crude), conditional wording for rules, bounds, `requires`, documents and init questions, signals, that pack skills never take over Specwright's commit, review or verify ownership, and the v1 refusals (stores, user-level skills). Add a PC test that the README's term lists equal the script's. Verify: `test_readme_term_lists_match_script` passes.
+- [x] 2.1 Create the `evals/packs` suite with fixture packs (`valid-web`, `valid-ui-base` + `valid-domain` requiring it, and one broken fixture per refusal code), add `packs/**` and `evals/packs/**` rules to `evals/suites.json`, and write the PC tests from the test map; verify they fail (`python -m unittest evals/packs/test_pack_check.py`: no `pack-check` subcommand) and `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 2.2 Implement `update.sh pack-check [--pack <name>]...`: manifest shape and `format`, name rules (reserved `specwright`/`openspec`/`opsx`), longest-prefix skill ownership, skill directories and `SKILL.md`, artifact ids from the download's `schemas/specwright/schema.yaml`, operations `apply`/`archive`, line rules (single line, ≤500 chars, no `[pack:`), 40 lines and 2048 context bytes per pack, documents/init/signals checks, `requires` existence and cycles, and the gate-term × relaxing-term check (capitals-only `LIGHT`/`FULL`, negated `trip`); one JSON document, exit 0/1, no writes. Verify: every PC test passes; flip the PC rows green.
+- [x] 2.3 Write `packs/README.md` ("Writing a pack"): layout, every `pack.json` field, the prefix and longest-prefix rules, additive-only (structural guarantee, then the two term lists, documented as deliberately crude), conditional wording for rules, bounds, `requires`, documents and init questions, signals, that pack skills never take over Specwright's commit, review or verify ownership, and the v1 refusals (stores, user-level skills). Add a PC test that the README's term lists equal the script's. Verify: `test_readme_term_lists_match_script` passes.
 
 ## 3. Plan with packs
 

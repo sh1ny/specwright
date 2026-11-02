@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "name": "bad-unknown-operation",
+  "description": "Fixture pack bad-unknown-operation.",
+  "operations": {
+    "verify": {
+      "guidance": [
+        "Verify."
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "bad-skill-name",
+  "description": "Fixture pack bad-skill-name.",
+  "skills": [
+    "specwright-commit",
+    "valid-web-ux"
+  ]
+}

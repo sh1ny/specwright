@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "name": "bad-document-template",
+  "description": "Fixture pack bad-document-template.",
+  "documents": {
+    "gdd": {
+      "path": "docs/gdd.md",
+      "template": "documents/missing.md"
+    }
+  }
+}

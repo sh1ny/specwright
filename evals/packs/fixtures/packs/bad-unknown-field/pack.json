@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "name": "bad-unknown-field",
+  "description": "Fixture pack bad-unknown-field.",
+  "hooks": [
+    "x"
+  ]
+}

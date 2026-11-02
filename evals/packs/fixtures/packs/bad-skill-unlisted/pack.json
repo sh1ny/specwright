@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "name": "bad-skill-unlisted",
+  "description": "Fixture pack bad-skill-unlisted.",
+  "skills": [
+    "bad-skill-unlisted-a"
+  ]
+}

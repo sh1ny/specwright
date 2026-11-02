@@ -18,6 +18,7 @@
 #                     from the download) or omp (agents/omp/*.md); repeat for each one. Only specwright-*.md files
 #   --download DIR    the download tree (default: the directory above this script). Its VERSION is the target version
 #   --ref REF         the ref the download came from (e.g. v0.6.0 or main); recorded in the journal and the reports
+#   --pack NAME       pack-check only: check only this pack of the download's packs/ (repeat for several; default: all)
 #   --rollback        recover only: roll the swapped update back instead of resuming it (the prompt's Step 7 failed)
 # The installed version is read from <code>/openspec/.specwright/VERSION (missing = a fresh install).
 #
@@ -151,6 +152,12 @@
 #            when it was absent, unless the file differs from what note-config recorded (config_sha) and from the saved
 #            copy: then it is kept and the recover message says so.
 #            Also removes a leftover update.json.tmp. With no journal it reports action none. plan calls it first.
+#   pack-check  read only, no write (design D6 of the pack-mechanism change). Reads every pack of <download>/packs/ (or only
+#            those named with --pack) against <download>/schemas/specwright/schema.yaml and prints {ok, packs: [{name, ok}],
+#            refusals: [{code, pack, field?, index?, message, ...}]}; exit 0 when every pack passes, 1 otherwise. Codes:
+#            manifest_invalid, format_unsupported, name_mismatch, external_pack_unsupported, document_invalid, init_invalid,
+#            signals_invalid, skill_name, skill_missing, skill_unlisted, unknown_artifact, unknown_operation, line_invalid,
+#            too_many_lines, context_too_large, relaxes_gate, pack_requires, pack_cycle, pack_unknown. Needs no code checkout.
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 1, from, to, ref, kind,
 # role, code, root, inflight, owner_id, store_owner, store_version, store_record, store_lock, store_staging,
 # store_state (none | pending | written | current), token, prev_config, prev_store, config_sha, phase (staging | staged |
@@ -196,17 +203,18 @@ export UPDATE_BASH
 pyx() { "$py" -I -X utf8 -c "$PYLOAD" "$SELF" "$@"; }
 
 code="" root="" download="" ref="" sub="" ROLLBACK=0
-skills=() agents=()
+skills=() agents=() packs=()
 usage() { echo "{\"ok\":false,\"error\":\"usage\",\"message\":\"$1\"}"; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --code|--root|--download|--ref|--skills|--agents)
+    --code|--root|--download|--ref|--skills|--agents|--pack)
       [ $# -ge 2 ] || usage "$1 needs a value"
       case "$1" in
         --code) native code "$2" ;;
         --root) native root "$2" ;;
         --download) native download "$2" ;;
         --ref) ref=$2 ;;
+        --pack) packs+=("$2") ;;
         --skills) native tmp "$2"; skills+=("$tmp") ;;
         --agents)
           case "$2" in *=*) ;; *) usage "--agents needs KIND=DIR" ;; esac
@@ -218,7 +226,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$sub" ] || usage "one subcommand only"; sub=$1; shift ;;
   esac
 done
-[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish or recover"
+[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish, recover or pack-check"
 [ "$ROLLBACK" = 0 ] || [ "$sub" = recover ] || usage "--rollback belongs to the recover subcommand"
 [ -n "$code" ] || native code "$PWD"
 [ -n "$root" ] || root=$code
@@ -235,6 +243,7 @@ PYARGS=(--code "$code" --root "$root" --download "$download")
 [ -z "$ref" ] || PYARGS+=(--ref "$ref")
 for s in ${skills[@]+"${skills[@]}"}; do PYARGS+=(--skills "$s"); done
 for a in ${agents[@]+"${agents[@]}"}; do PYARGS+=(--agents "$a"); done
+for a in ${packs[@]+"${packs[@]}"}; do PYARGS+=(--pack "$a"); done
 
 state_dir="$code/openspec/.specwright"
 journal="$state_dir/update.json"
@@ -878,13 +887,14 @@ do_finish() {
 }
 
 case "$sub" in
+  pack-check) pyx pack-check "${PYARGS[@]}"; exit "$?" ;;  # read only: no lock, no journal, no code checkout
   plan) do_plan ;;
   stage) do_stage ;;
   swap) do_swap ;;
   note-config) do_note_config ;;
   finish) do_finish ;;
   recover) do_recover ;;
-  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover)" ;;
+  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover, pack-check)" ;;
 esac
 exit "$?"
 
@@ -912,10 +922,10 @@ SCRATCH = ".update-scratch"
 
 
 def parse(argv):
-    o, pos, i = {"skills": [], "agents": []}, [], 0
+    o, pos, i = {"skills": [], "agents": [], "pack": []}, [], 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--skills", "--agents"):
+        if a in ("--skills", "--agents", "--pack"):
             o[a[2:]].append(argv[i + 1])
             i += 2
         elif a.startswith("--") and a[2:] in VALUE_OPTS:
@@ -2048,6 +2058,265 @@ def cmd_store_recheck(o, pos):
         f"{why}, which is not the {to[0]}.{to[1]} line this project's update to {j['to']} was planned for, and only the owner "
         "replaces the store's schema. Nothing was written. Rerun the update to plan it again")})
     emit(doc, 1)
+
+
+# --- pack-check (design D6): the structural checks are the guarantee; the term lists are a deliberately crude second net.
+# packs/README.md lists the same terms; evals/packs/test_pack_check.py keeps the two equal (it reads these tuples as literals).
+GATE_TERMS = ("triage", "t1", "t2", "t3", "t4", "t5", "t6", "tier", "verdict", "review", "verify", "verification", "gate",
+              "pre-ship", "preship", "test-first")
+GATE_TERMS_CAPITALS = ("LIGHT", "FULL")
+RELAXING_TERMS = ("skip", "skips", "skipped", "waive", "waived", "relax", "bypass", "exempt", "ignore", "omit", "downgrade",
+                  "optional", "not required", "need not", "no need")
+NEGATED_ONLY_TERMS = ("trip",)
+NEGATORS = ("not", "never", "n't")
+RESERVED_PACK_NAMES = ("specwright", "openspec", "opsx")
+PACK_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+PACK_FIELDS = ("format", "name", "description", "requires", "skills", "context", "rules", "operations", "documents", "init",
+               "signals")
+OPERATIONS = ("apply", "archive")
+MAX_LINE_CHARS, MAX_PACK_LINES, MAX_CONTEXT_BYTES = 500, 40, 2048
+LINE_PREFIX = "[pack:"
+UNSAFE_PATH = re.compile(r"^([/\\]|[A-Za-z]:)")
+
+
+def _term_re(term, flags=0):
+    return re.compile(r"(?<![A-Za-z0-9_])" + re.escape(term).replace(r"\ ", r"\s+") + r"(?![A-Za-z0-9_])", flags)
+
+
+GATE_RES = [_term_re(t, re.I) for t in GATE_TERMS] + [_term_re(t) for t in GATE_TERMS_CAPITALS]
+RELAX_RES = [_term_re(t, re.I) for t in RELAXING_TERMS]
+for _t in NEGATED_ONLY_TERMS:  # `trip` relaxes only after a negator: "must trip T4" passes, "do not trip T2" does not
+    _neg = "|".join(re.escape(n).replace("'", "['’]") for n in NEGATORS)
+    RELAX_RES.append(re.compile(r"(?<![A-Za-z0-9_])(?:" + _neg + r")\s+" + re.escape(_t) + r"(?![A-Za-z0-9_])", re.I))
+
+
+def relaxes_gate(line):
+    return any(r.search(line) for r in GATE_RES) and any(r.search(line) for r in RELAX_RES)
+
+
+def one_line(v):
+    return isinstance(v, str) and bool(v.strip()) and "\n" not in v and "\r" not in v
+
+
+def schema_artifact_ids(download):
+    f = Path(download) / "schemas" / "specwright" / "schema.yaml"
+    if not f.is_file():
+        return None
+    return [m.group(1) for m in re.finditer(r"^  - id: (\S+)\s*$", f.read_text(encoding="utf-8"), re.M)]
+
+
+def read_manifest(pdir):
+    """(manifest or None, problem or None) of packs/<name>/pack.json."""
+    f = pdir / "pack.json"
+    if not f.is_file():
+        return None, f"{f.name} is missing"
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return None, f"{f.name} is not valid JSON: {e}"
+    if not isinstance(data, dict):
+        return None, f"{f.name} must be a JSON object"
+    return data, None
+
+
+def check_pack(name, pdir, data, all_names, artifacts):
+    """The refusals of one pack, in a stable order. `all_names` is every pack directory of the download."""
+    out = []
+
+    def refuse(code, message, **extra):
+        out.append({"code": code, "pack": name, **extra, "message": message})
+
+    def is_list(field, v):
+        if not isinstance(v, list):
+            refuse("manifest_invalid", f"{field} must be a list", field=field)
+        return isinstance(v, list)
+
+    if "source" in data:
+        refuse("external_pack_unsupported", "source is not supported: v1 installs only packs shipped in the Specwright download", field="source")
+    for k in data:
+        if k not in PACK_FIELDS and k != "source":
+            refuse("manifest_invalid", f"unknown field {k}", field=k)
+    fmt = data.get("format")
+    if "format" not in data:
+        refuse("manifest_invalid", "format is missing", field="format")
+    elif isinstance(fmt, bool) or fmt != 1:
+        refuse("format_unsupported", f"format {json.dumps(fmt)} is not supported; this Specwright reads format 1", field="format")
+    if not isinstance(data.get("name"), str):
+        refuse("manifest_invalid", "name is missing or not a string", field="name")
+    elif data["name"] != name:
+        refuse("name_mismatch", f"name {data['name']!r} does not equal the directory name {name!r}", field="name")
+    if not PACK_NAME.match(name) or any(name == r or name.startswith(r + "-") for r in RESERVED_PACK_NAMES):
+        refuse("manifest_invalid", f"pack name {name!r} must match ^[a-z][a-z0-9-]*$ and not be or start with "
+               + ", ".join(r + "-" for r in RESERVED_PACK_NAMES), field="name")
+    if not one_line(data.get("description")):
+        refuse("manifest_invalid", "description is missing or not a non-empty single-line string", field="description")
+
+    if "requires" in data and is_list("requires", data["requires"]):
+        for i, r in enumerate(data["requires"]):
+            if not isinstance(r, str) or not PACK_NAME.match(r):
+                refuse("manifest_invalid", f"requires[{i}] must be a pack name", field="requires", index=i)
+            elif r not in all_names:
+                refuse("pack_requires", f"{name} requires {r}, which the download does not have", field="requires", index=i, requires=r)
+
+    listed = []
+    if "skills" in data and is_list("skills", data["skills"]):
+        for i, s in enumerate(data["skills"]):
+            if not isinstance(s, str) or not PACK_NAME.match(s):
+                refuse("skill_name", f"skills[{i}] must be a skill name (^[a-z][a-z0-9-]*$)", field="skills", index=i)
+                continue
+            listed.append(s)
+            owners = [p for p in all_names if s.startswith(p + "-")]
+            owner = max(owners, key=len) if owners else None
+            if not s.startswith(name + "-"):
+                refuse("skill_name", f"skill {s} does not start with {name}-" + (f"; it belongs to pack {owner}" if owner else ""),
+                       field="skills", index=i, skill=s, **({"owner": owner} if owner else {}))
+            elif owner != name:
+                refuse("skill_name", f"skill {s} belongs to pack {owner}, whose prefix {owner}- is longer than {name}-",
+                       field="skills", index=i, skill=s, owner=owner)
+            elif not (pdir / "skills" / s / "SKILL.md").is_file():
+                refuse("skill_missing", f"skill {s} has no skills/{s}/SKILL.md", field="skills", index=i, skill=s)
+    sdir = pdir / "skills"
+    for d in sorted(sdir.iterdir(), key=lambda p: p.name) if sdir.is_dir() else []:
+        if d.is_dir() and d.name not in listed:
+            refuse("skill_unlisted", f"skills/{d.name} is not listed in skills", field="skills", skill=d.name)
+
+    lines = []  # (field, index, text) of every well-formed entry, for the count and the gate check
+
+    def take(field, v):
+        if not isinstance(v, list):
+            refuse("manifest_invalid", f"{field} must be a list of lines", field=field)
+            return
+        for i, text in enumerate(v):
+            why = None
+            if not isinstance(text, str):
+                why = "is not a string"
+            elif not text.strip():
+                why = "is empty"
+            elif "\n" in text or "\r" in text:
+                why = "holds a newline"
+            elif len(text) > MAX_LINE_CHARS:
+                why = f"is {len(text)} characters long (at most {MAX_LINE_CHARS})"
+            elif text.lstrip().startswith(LINE_PREFIX):
+                why = f"starts with {LINE_PREFIX} (the installer adds the prefix)"
+            if why:
+                refuse("line_invalid", f"{field}[{i}] {why}", field=field, index=i)
+            else:
+                lines.append((field, i, text))
+
+    if "context" in data:
+        take("context", data["context"])
+    if "rules" in data:
+        if not isinstance(data["rules"], dict):
+            refuse("manifest_invalid", "rules must be an object of artifact id -> list of lines", field="rules")
+        else:
+            for k, v in data["rules"].items():
+                if k not in artifacts:
+                    refuse("unknown_artifact", f"rules.{k}: the schema has no artifact {k} (it has {', '.join(artifacts)})", field=f"rules.{k}")
+                else:
+                    take(f"rules.{k}", v)
+    if "operations" in data:
+        if not isinstance(data["operations"], dict):
+            refuse("manifest_invalid", "operations must be an object of apply|archive -> {guidance: [lines]}", field="operations")
+        else:
+            for k, v in data["operations"].items():
+                if k not in OPERATIONS:
+                    refuse("unknown_operation", f"operations.{k}: only {' and '.join(OPERATIONS)} take guidance", field=f"operations.{k}")
+                elif not isinstance(v, dict) or set(v) != {"guidance"}:
+                    refuse("manifest_invalid", f"operations.{k} must be an object holding only guidance", field=f"operations.{k}")
+                else:
+                    take(f"operations.{k}", v["guidance"])
+    if len(lines) > MAX_PACK_LINES:
+        refuse("too_many_lines", f"{len(lines)} lines across context, rules and operations (at most {MAX_PACK_LINES})", count=len(lines))
+    ctx = sum(len(t.encode("utf-8")) for f, _, t in lines if f == "context")
+    if ctx > MAX_CONTEXT_BYTES:
+        refuse("context_too_large", f"context holds {ctx} bytes in UTF-8 (at most {MAX_CONTEXT_BYTES})", field="context", count=ctx)
+    for f, i, t in lines:
+        if relaxes_gate(t):
+            refuse("relaxes_gate", f"{f}[{i}] pairs a gate term with a relaxing term: {t}", field=f, index=i, line=t)
+
+    if "documents" in data:
+        docs = data["documents"]
+        if not isinstance(docs, dict):
+            refuse("document_invalid", "documents must be an object of id -> {path, template}", field="documents")
+        else:
+            for k, v in docs.items():
+                path, tpl = (v.get("path"), v.get("template")) if isinstance(v, dict) else (None, None)
+                if not re.match(r"^[a-z][a-z0-9_-]*$", k):
+                    why = "the id must match ^[a-z][a-z0-9_-]*$"
+                elif not isinstance(v, dict) or set(v) != {"path", "template"}:
+                    why = "an entry holds exactly path and template"
+                elif not one_line(path) or UNSAFE_PATH.match(path) or ".." in re.split(r"[/\\]", path) or path.endswith(("/", "\\")):
+                    why = f"path {path!r} must be a relative file path without .."
+                elif not one_line(tpl) or UNSAFE_PATH.match(tpl) or ".." in re.split(r"[/\\]", tpl):
+                    why = f"template {tpl!r} must be a relative path inside the pack"
+                elif not (pdir / tpl).is_file():
+                    why = f"template {tpl} does not exist in the pack"
+                else:
+                    continue
+                refuse("document_invalid", f"documents.{k}: {why}", field=f"documents.{k}")
+    if "init" in data:
+        init = data["init"]
+        if not isinstance(init, dict) or set(init) != {"questions"} or not isinstance(init["questions"], list):
+            refuse("init_invalid", "init must be an object holding only questions, a list of single-line strings", field="init")
+        else:
+            for i, t in enumerate(init["questions"]):
+                if not one_line(t):
+                    refuse("init_invalid", f"init.questions[{i}] must be a non-empty single-line string", field="init.questions", index=i)
+    if "signals" in data:
+        if not isinstance(data["signals"], list):
+            refuse("signals_invalid", "signals must be a list of non-empty single-line strings", field="signals")
+        else:
+            for i, t in enumerate(data["signals"]):
+                if not one_line(t):
+                    refuse("signals_invalid", f"signals[{i}] must be a non-empty single-line string", field="signals", index=i)
+    return out
+
+
+def requires_cycle(start, graph):
+    """The cycle through `start` as a list of pack names (start first), or None."""
+    def walk(node, path):
+        for nxt in graph.get(node, []):
+            if nxt == start:
+                return path
+            if nxt in graph and nxt not in path:
+                found = walk(nxt, path + [nxt])
+                if found:
+                    return found
+        return None
+    return walk(start, [start])
+
+
+def cmd_pack_check(o, pos):
+    """Check the download's packs (all, or those named with --pack). One JSON document; exit 1 on any refusal; no write."""
+    download = Path(o["download"])
+    artifacts = schema_artifact_ids(download)
+    if artifacts is None:
+        emit({"ok": False, "subcommand": "pack-check", "packs": [], "refusals": [{"code": "schema_missing", "pack": None, "message":
+              f"{(download / 'schemas' / 'specwright' / 'schema.yaml').as_posix()} does not exist"}]}, 1)
+    pdir = download / "packs"
+    all_names = sorted(d.name for d in pdir.iterdir() if d.is_dir()) if pdir.is_dir() else []
+    manifests = {n: read_manifest(pdir / n)[0] or {} for n in all_names}
+    graph = {n: [r for r in m["requires"] if isinstance(r, str)] if isinstance(m.get("requires"), list) else []
+             for n, m in manifests.items()}
+    wanted = sorted(set(o["pack"])) or all_names
+    packs, refusals = [], []
+    for n in wanted:
+        if n not in all_names:
+            found = [{"code": "pack_unknown", "pack": n, "available": all_names, "message":
+                      f"the download has no pack {n}; it has: {', '.join(all_names) if all_names else 'none'}"}]
+        else:
+            data, problem = read_manifest(pdir / n)
+            if data is None:
+                found = [{"code": "manifest_invalid", "pack": n, "message": problem}]
+            else:
+                found = check_pack(n, pdir / n, data, all_names, artifacts)
+                cycle = requires_cycle(n, graph)
+                if cycle:
+                    found.append({"code": "pack_cycle", "pack": n, "cycle": cycle, "message":
+                                  "requires form a cycle: " + " -> ".join(cycle + [n])})
+        packs.append({"name": n, "ok": not found})
+        refusals.extend(found)
+    emit({"ok": not refusals, "subcommand": "pack-check", "packs": packs, "refusals": refusals}, 1 if refusals else 0)
 
 
 def cmd_err(o, pos):
