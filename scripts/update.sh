@@ -191,6 +191,20 @@
 #            manifest_invalid, format_unsupported, name_mismatch, external_pack_unsupported, document_invalid, init_invalid,
 #            signals_invalid, skill_name, skill_missing, skill_unlisted, unknown_artifact, unknown_operation, line_invalid,
 #            too_many_lines, context_too_large, relaxes_gate, pack_requires, pack_cycle, pack_unknown. Needs no code checkout.
+#   pack-verify  after the prompt's Step 5 (design D5 of the pack-mechanism change): proves through real `openspec instructions` in a
+#            scratch root <download>/.update-scratch/pack-verify/ (removed before it returns; nothing else is written) that the merged
+#            <root>/openspec/config.yaml delivers each enabled pack's lines once. Enabled packs: the record packs.json (the swap wrote
+#            it) with their manifests in the download. --previous NAME (repeat; plan's packs_previous) names the packs enabled before
+#            the update. Runs 5 artifacts + apply + archive (each with a 120 s deadline). Prints {ok, interface, subcommand, checked:
+#            {packs, previous, lines, core_lines, runs}, problems: [{code, pack, line, target, message}]}; exit 0 / 1. Codes: missing,
+#            duplicate (target rules.<artifact>, operations.<op> or context), not_enabled (a `[pack:x] ` line of a --previous pack
+#            that is not enabled; other `[pack:` lines pass), core_context_missing (a context line of the download's
+#            templates/openspec/config.yaml is not delivered, e.g. context over 50 KB), openspec_failed, pack_unreadable. Errors
+#            (exit 1): config_missing, schema_missing, packs_record_unreadable.
+#   pack-docs  after the stamp: creates each enabled pack's missing document (path from the record packs.json, template from
+#            <download>/packs/<name>/), never overwrites one, needs no journal or lock (a rerun completes an interrupted run).
+#            Prints {ok, interface, subcommand, documents: [{pack, id, path, status: created | kept}]}. An unsafe path (as in plan's
+#            pack_doc_path) or a template the download lacks is error refused (exit 1, refusals[], nothing written).
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 2 (1 is still read and recovered;
 # a download that knows only format 1 refuses a format 2 journal as unreadable), from, to, ref, kind,
 # role, code, root, inflight, owner_id, store_owner, store_version, store_record, store_lock, store_staging,
@@ -238,11 +252,11 @@ export UPDATE_BASH
 pyx() { MSYS2_ARG_CONV_EXCL='*' "$py" -I -X utf8 -c "$PYLOAD" "$SELF" "$@"; }  # Git Bash must not rewrite an argument like pack.id=/tmp/x into a drive path
 
 code="" root="" download="" ref="" sub="" ROLLBACK=0
-skills=() agents=() packs=() packdocs=()
+skills=() agents=() packs=() packdocs=() previous=()
 usage() { echo "{\"ok\":false,\"error\":\"usage\",\"message\":\"$1\"}"; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --code|--root|--download|--ref|--skills|--agents|--pack|--pack-doc)
+    --code|--root|--download|--ref|--skills|--agents|--pack|--pack-doc|--previous)
       [ $# -ge 2 ] || usage "$1 needs a value"
       case "$1" in
         --code) native code "$2" ;;
@@ -251,6 +265,7 @@ while [ $# -gt 0 ]; do
         --ref) ref=$2 ;;
         --pack) packs+=("$2") ;;
         --pack-doc) packdocs+=("$2") ;;
+        --previous) previous+=("$2") ;;
         --skills) native tmp "$2"; skills+=("$tmp") ;;
         --agents)
           case "$2" in *=*) ;; *) usage "--agents needs KIND=DIR" ;; esac
@@ -262,7 +277,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$sub" ] || usage "one subcommand only"; sub=$1; shift ;;
   esac
 done
-[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish, recover or pack-check"
+[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish, recover, pack-check, pack-verify or pack-docs"
 [ "$ROLLBACK" = 0 ] || [ "$sub" = recover ] || usage "--rollback belongs to the recover subcommand"
 [ -n "$code" ] || native code "$PWD"
 [ -n "$root" ] || root=$code
@@ -281,6 +296,7 @@ for s in ${skills[@]+"${skills[@]}"}; do PYARGS+=(--skills "$s"); done
 for a in ${agents[@]+"${agents[@]}"}; do PYARGS+=(--agents "$a"); done
 for a in ${packs[@]+"${packs[@]}"}; do PYARGS+=(--pack "$a"); done
 for a in ${packdocs[@]+"${packdocs[@]}"}; do PYARGS+=(--pack-doc "$a"); done
+for a in ${previous[@]+"${previous[@]}"}; do PYARGS+=(--previous "$a"); done
 
 state_dir="$code/openspec/.specwright"
 journal="$state_dir/update.json"
@@ -939,13 +955,15 @@ do_finish() {
 
 case "$sub" in
   pack-check) pyx pack-check "${PYARGS[@]}"; exit "$?" ;;  # read only: no lock, no journal, no code checkout
+  pack-verify) pyx pack-verify "${PYARGS[@]}"; exit "$?" ;;  # writes only under <download>/.update-scratch/, removed before it returns
+  pack-docs) pyx pack-docs "${PYARGS[@]}"; exit "$?" ;;  # no lock and no journal: a rerun completes an interrupted run
   plan) do_plan ;;
   stage) do_stage ;;
   swap) do_swap ;;
   note-config) do_note_config ;;
   finish) do_finish ;;
   recover) do_recover ;;
-  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover, pack-check)" ;;
+  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover, pack-check, pack-verify, pack-docs)" ;;
 esac
 exit "$?"
 
@@ -973,10 +991,10 @@ SCRATCH = ".update-scratch"
 
 
 def parse(argv):
-    o, pos, i = {"skills": [], "agents": [], "pack": [], "pack-doc": []}, [], 0
+    o, pos, i = {"skills": [], "agents": [], "pack": [], "pack-doc": [], "previous": []}, [], 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--skills", "--agents", "--pack", "--pack-doc"):
+        if a in ("--skills", "--agents", "--pack", "--pack-doc", "--previous"):
             o[a[2:]].append(argv[i + 1])
             i += 2
         elif a.startswith("--") and a[2:] in VALUE_OPTS:
@@ -1218,12 +1236,16 @@ def extract_branch(o, item, scratch):
                 dest.write_bytes(tar.extractfile(m).read())
 
 
-def run_openspec(args, cwd):
+def run_openspec(args, cwd, timeout=None):
+    """(exit code, stdout, stderr) of one `openspec` run; 127 when the CLI is not on PATH, 124 after `timeout` seconds."""
     exe = shutil.which("openspec")
     if not exe:
         return 127, "", "the openspec CLI is not on PATH"
-    r = subprocess.run([exe, *args], cwd=str(cwd), env={**os.environ, "OPENSPEC_TELEMETRY": "0"}, capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
+    try:
+        r = subprocess.run([exe, *args], cwd=str(cwd), env={**os.environ, "OPENSPEC_TELEMETRY": "0"}, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, "", f"openspec {' '.join(args)} did not finish in {timeout} s"
     return r.returncode, r.stdout, r.stderr
 
 
@@ -2634,6 +2656,193 @@ def pack_skill_items(o, g, pk, refusals, orphans):
         for s in rec[pn]["skills"]:
             if s not in shipped and ((d / s).exists() or (d / s).is_symlink()):
                 add_item(g, s, "remove", None, pn)
+
+
+# --- pack-verify and pack-docs (design D5 and D8 of the pack-mechanism change) ---------------------------------------
+# pack-verify reads <root>/openspec/config.yaml (the prompt's Step 5 merge), the enabled packs from the record in
+# <code>/openspec/.specwright/packs.json (the swap wrote it before Step 5) with their manifests from <download>/packs/, and
+# --previous NAME (repeat; plan's packs_previous). It copies the config.yaml, the download's schema and an empty change into a
+# scratch root <download>/.update-scratch/pack-verify/ (removed before return) and asks OpenSpec what an agent would be told:
+# `openspec instructions <artifact> --change c --json` for every artifact of the download's schema (rules, context) and for
+# apply and archive (operationGuidance): 5 + 2 runs of the specwright schema whatever the pack count, each with a deadline.
+# Problems {code, pack, line, target, message}: missing and duplicate (an enabled pack's `[pack:<name>] <line>` found less or
+# more often than its manifest lists it, in rules.<artifact>, operations.<op> or context), not_enabled (a `[pack:<x>] ` line of a
+# pack in --previous and not enabled, anywhere), core_context_missing (a context line of the download's
+# templates/openspec/config.yaml that OpenSpec does not deliver, as when a context over 50 KB is dropped whole), openspec_failed,
+# pack_unreadable. A `[pack:` line of any other pack is nobody's to manage and passes. Output: {ok, interface, subcommand,
+# checked: {packs, previous, lines, core_lines, runs}, problems}; exit 0 when there is none, else 1. Nothing else is written.
+# pack-docs reads the enabled packs' resolved document paths from the same record and the templates from the download
+# (<download>/packs/<name>/<template>), creates each missing document (parents too), never overwrites one and prints
+# {ok, interface, subcommand, documents: [{pack, id, path, status: created | kept}]}. It needs no journal and no lock. A path
+# that is absolute, has .., leaves the code toplevel or names a directory, or a template the download lacks, is a refusal
+# (error refused, exit 1) found before the first write.
+
+OPENSPEC_DEADLINE = 120  # seconds for one `openspec instructions` run
+VERIFY_CHANGE = "pack-verify"
+
+
+def template_context_lines(download):
+    """The lines of `context: |` in the download's templates/openspec/config.yaml: the core lines every install delivers."""
+    f = Path(download) / "templates" / "openspec" / "config.yaml"
+    out, inside = [], False
+    for ln in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else []):
+        if re.match(r"^context:\s*\|", ln):
+            inside = True
+        elif inside and ln.startswith("  "):
+            if ln.strip() and not ln.strip().startswith("#"):
+                out.append(ln.strip())
+        elif inside and ln.strip():
+            break
+    return out
+
+
+def manifest_targets(data):
+    """{target: [lines]} of a manifest: context, rules.<artifact>, operations.<op>; non-lists and non-strings are skipped."""
+    def texts(v):
+        return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+    t = {"context": texts(data.get("context"))}
+    for k, v in (data.get("rules") if isinstance(data.get("rules"), dict) else {}).items():
+        t[f"rules.{k}"] = texts(v)
+    for k, v in (data.get("operations") if isinstance(data.get("operations"), dict) else {}).items():
+        t[f"operations.{k}"] = texts(v.get("guidance") if isinstance(v, dict) else None)
+    return {k: v for k, v in t.items() if v}
+
+
+def verify_error(code, message):
+    emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-verify", "error": code, "message": message, "problems": []}, 1)
+
+
+def cmd_pack_verify(o, pos):
+    download, problems = Path(o["download"]), []
+    previous = sorted(set(o["previous"]))
+
+    def problem(code, pack, line, target, message):
+        problems.append({"code": code, "pack": pack, "line": line, "target": target, "message": message})
+
+    artifacts = schema_artifact_ids(download)
+    if artifacts is None:
+        verify_error("schema_missing", f"{(download / 'schemas' / 'specwright' / 'schema.yaml').as_posix()} does not exist")
+    cfg = Path(o["root"]) / "openspec" / "config.yaml"
+    if not cfg.is_file():
+        verify_error("config_missing", f"{cfg.as_posix()} does not exist; run Step 5 first")
+    rec, why = read_pack_record(o)
+    if why:
+        verify_error("packs_record_unreadable", f"openspec/.specwright/packs.json {why}")
+    enabled = sorted(rec["packs"]) if rec else []
+    expected = {}  # (target, "[pack:<n>] <line>") -> (pack, line, how often the manifest lists it)
+    for n in enabled:
+        data, bad = read_manifest(download / "packs" / n)
+        if data is None:
+            problem("pack_unreadable", n, None, None, f"pack {n} is enabled but its manifest in the download is unreadable: {bad}")
+            continue
+        for target, lines in manifest_targets(data).items():
+            for t in lines:
+                key = (target, f"[pack:{n}] {t}")
+                expected[key] = (n, t, expected[key][2] + 1 if key in expected else 1)
+    core = template_context_lines(download)
+    stale = tuple(f"[pack:{n}] " for n in previous if n not in enabled)
+
+    base = download / SCRATCH
+    runs, delivered, context = 0, {}, None  # delivered: target -> [lines]
+    try:
+        shutil.rmtree(base, ignore_errors=True)
+        scratch = base / VERIFY_CHANGE
+        change = scratch / "openspec" / "changes" / VERIFY_CHANGE
+        change.mkdir(parents=True)
+        (scratch / "openspec" / "specs").mkdir()
+        shutil.copytree(download / "schemas" / "specwright", scratch / "openspec" / "schemas" / "specwright")
+        (change / ".openspec.yaml").write_text("schema: specwright\n", encoding="utf-8", newline="\n")
+        shutil.copyfile(cfg, scratch / "openspec" / "config.yaml")
+        asks = [(a, "rules", f"rules.{a}") for a in artifacts] + [(op, "operationGuidance", f"operations.{op}") for op in OPERATIONS]
+        for what, field, target in asks:
+            runs += 1
+            rc, out, err = run_openspec(["instructions", what, "--change", VERIFY_CHANGE, "--json"], scratch, OPENSPEC_DEADLINE)
+            try:
+                doc = json.loads(out)
+                got = doc.get(field) or []
+                if rc != 0 or not isinstance(got, list):
+                    raise ValueError("unexpected output")
+            except ValueError:
+                problem("openspec_failed", None, None, target, f"openspec instructions {what}: " + first_error(err + "\n" + out))
+                if rc == 127:
+                    break
+                continue
+            delivered[target] = [x.strip() for x in got if isinstance(x, str)]
+            if context is None and what in artifacts:
+                context = [x.strip() for x in str(doc.get("context") or "").splitlines()]
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    if context is not None:
+        delivered["context"] = context
+    for (target, full), (n, line, count) in sorted(expected.items()):
+        if target not in delivered:
+            continue  # its run failed: that run is already a problem
+        have = delivered[target].count(full)
+        if have < count:
+            problem("missing", n, line, target, f"{full!r} is expected {count} time(s) in {target} and {have} reached OpenSpec")
+        elif have > count:
+            problem("duplicate", n, line, target, f"{full!r} reaches OpenSpec {have} times in {target}; expected {count}")
+    for target, lines in sorted(delivered.items()):
+        for ln in lines:
+            if stale and ln.startswith(stale):
+                pn = ln[len("[pack:"):ln.index("] ")]
+                problem("not_enabled", pn, ln[len(f"[pack:{pn}] "):], target, f"{ln!r} in {target} belongs to pack {pn}, which is no longer enabled")
+    if "context" in delivered:
+        for c in core:
+            if c not in delivered["context"]:
+                problem("core_context_missing", None, c, "context", "a Specwright context line does not reach OpenSpec (is context over 50 KB?)")
+    emit({"ok": not problems, "interface": INTERFACE, "subcommand": "pack-verify",
+          "checked": {"packs": enabled, "previous": previous, "lines": sum(v[2] for v in expected.values()), "core_lines": len(core), "runs": runs},
+          "problems": problems}, 1 if problems else 0)
+
+
+def cmd_pack_docs(o, pos):
+    download, top = Path(o["download"]), code_top(o)
+    rec_file = state_dir(o) / "packs.json"
+    data = {}
+    if rec_file.is_file():
+        try:
+            data = json.loads(rec_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("packs"), dict):
+                raise ValueError("not a record with a packs object")
+        except (ValueError, OSError) as e:
+            emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "packs_record_unreadable", "message":
+                  f"openspec/.specwright/packs.json is not readable ({e})", "documents": []}, 1)
+    refusals, work = [], []
+    for n, entry in data.get("packs", {}).items():
+        docs = entry.get("documents") if isinstance(entry, dict) else None
+        if not PACK_NAME.match(n) or not isinstance(docs, dict) or not docs:
+            continue
+        manifest, _ = read_manifest(download / "packs" / n)
+        for did, path in docs.items():
+            decl = ((manifest or {}).get("documents") or {}).get(did)
+            tpl = decl.get("template") if isinstance(decl, dict) else None
+            why = doc_path_problem(top, path) if isinstance(path, str) else "is not a string"
+            if why:
+                refusals.append({"code": "pack_doc_path", "pack": n, "document": did, "path": path, "message":
+                                 f"document {did} of pack {n}: the path {path} {why}. Nothing was written"})
+            elif not (isinstance(tpl, str) and not UNSAFE_PATH.match(tpl) and ".." not in re.split(r"[/\\]", tpl)
+                      and (download / "packs" / n / tpl).is_file()):
+                refusals.append({"code": "pack_doc_template", "pack": n, "document": did, "path": path, "message":
+                                 f"document {did} of pack {n}: the download has no template for it. Nothing was written"})
+            else:
+                work.append((n, did, path, download / "packs" / n / tpl))
+    if refusals:
+        emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "refused", "message":
+              refusals[0]["message"], "refusals": refusals, "documents": []}, 1)
+    out = []
+    for n, did, path, tpl in work:
+        target, status = top / path, "kept"
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(target, "xb") as f:  # exclusive: a document made since the check is never overwritten
+                    f.write(tpl.read_bytes())
+                status = "created"
+            except FileExistsError:
+                pass
+        out.append({"pack": n, "id": did, "path": path, "status": status})
+    emit({"ok": True, "interface": INTERFACE, "subcommand": "pack-docs", "documents": out})
 
 
 def cmd_err(o, pos):

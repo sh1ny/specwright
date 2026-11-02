@@ -15,7 +15,7 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | packs → Pack and skill names keep packs apart | A skill in a longer pack's namespace | PC | test_longest_prefix_owns_skill | green |
 | packs → Rules and guidance attach only to known artifacts | A known artifact receives rules | PC | test_known_artifacts_accepted | green |
 | packs → Rules and guidance attach only to known artifacts | An unknown artifact or operation is refused | PC | test_unknown_artifact_or_operation | green |
-| packs → Every pack line is one owned, bounded line | A plain line is accepted | PC, PV | test_plain_line_accepted, test_installed_line_prefixed | red |
+| packs → Every pack line is one owned, bounded line | A plain line is accepted | PC, PV | test_plain_line_accepted, test_installed_line_prefixed | green |
 | packs → Every pack line is one owned, bounded line | A multi-line, prefixed or oversized line is refused | PC | test_invalid_lines_refused | green |
 | packs → Every pack line is one owned, bounded line | Too many lines | PC | test_too_many_lines_or_context_bytes | green |
 | packs → Packs compose through requires | A domain pack with its shared pack enabled | UP | test_requires_both_enabled_installs_both | green |
@@ -26,8 +26,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | packs → pack-check reports in one JSON document | A named pack is missing | PC | test_named_pack_missing | green |
 | packs → A project opts in to packs | A project with no packs | UP | test_no_packs_installs_nothing_extra | green |
 | packs → A project opts in to packs | An unknown pack is named | UP | test_unknown_pack_refused | green |
-| packs → Pack documents are created once | A missing document is created | PD | test_missing_document_created | red |
-| packs → Pack documents are created once | An existing document is kept | PD | test_existing_document_kept | red |
+| packs → Pack documents are created once | A missing document is created | PD | test_missing_document_created | green |
+| packs → Pack documents are created once | An existing document is kept | PD | test_existing_document_kept | green |
 | packs → Pack documents are created once | A document path outside the project | UP | test_pack_doc_path_refused | green |
 | packs → Packs are refused on a planning store | Repo-local project with packs | UP | test_repo_local_packs_allowed | green |
 | packs → Packs are refused on a planning store | Store-backed project with packs | UP | test_store_packs_refused | green |
@@ -45,17 +45,17 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | install-update → The install never touches a skill it did not install | A clone without the record | UP | test_identical_unrecorded_skill_adopted | green |
 | install-update → The install never touches a skill it did not install | A hand copy of a pack that is not enabled | UP | test_hand_copy_of_disabled_pack_untouched | green |
 | install-update → The install never touches a skill it did not install | A user's unrelated skill | UP | test_unrelated_skill_untouched | green |
-| install-update → Pack lines are merged by prefix and verified | Lines reach their artifacts | PV | test_lines_reach_artifacts_and_operations | red |
-| install-update → Pack lines are merged by prefix and verified | A missing, duplicated or stale line | PV | test_missing_duplicate_stale_lines | red |
-| install-update → Pack lines are merged by prefix and verified | A removed pack's lines after a rerun past the swap | UP, PV | test_packs_previous_from_journal_after_swap, test_previous_pack_line_not_enabled | red |
-| install-update → Pack lines are merged by prefix and verified | Hand-written lines of a pack the project never enabled | PV, TI | test_unmanaged_pack_lines_pass, test_readme_step5_keeps_unmanaged_pack_lines | red |
+| install-update → Pack lines are merged by prefix and verified | Lines reach their artifacts | PV | test_lines_reach_artifacts_and_operations | green |
+| install-update → Pack lines are merged by prefix and verified | A missing, duplicated or stale line | PV | test_missing_duplicate_stale_lines | green |
+| install-update → Pack lines are merged by prefix and verified | A removed pack's lines after a rerun past the swap | UP, PV | test_packs_previous_from_journal_after_swap, test_previous_pack_line_not_enabled | green |
+| install-update → Pack lines are merged by prefix and verified | Hand-written lines of a pack the project never enabled | PV, TI | test_unmanaged_pack_lines_pass, test_readme_step5_keeps_unmanaged_pack_lines | green |
 | install-update → The settings merge treats packs as user data | Enabled packs survive an update | TI | test_readme_step6_packs_are_user_data | green |
 | install-update → The settings merge treats packs as user data | A template key under packs | TI | test_readme_step6_never_adds_packs_keys | green |
 | install-update → The install prompt drives update-script interface 2 | Matching interface | UP, TI | test_plan_reports_interface_2, test_readme_accepts_interface_2 | green |
 | install-update → The install prompt drives update-script interface 2 | An older download without packs | TI | test_readme_accepts_interface_1_without_packs | green |
 | install-update → The install prompt drives update-script interface 2 | An older download with packs enabled | TI | test_readme_refuses_interface_1_with_packs | green |
-| install-update → Pack documents are created by an idempotent step | Documents after a finished install | PD | test_pack_docs_creates_after_stamp | red |
-| install-update → Pack documents are created by an idempotent step | Interrupted document creation | PD | test_pack_docs_rerun_completes | red |
+| install-update → Pack documents are created by an idempotent step | Documents after a finished install | PD | test_pack_docs_creates_after_stamp | green |
+| install-update → Pack documents are created by an idempotent step | Interrupted document creation | PD | test_pack_docs_rerun_completes | green |
 | install-update → The previously enabled packs come from the start | An uninterrupted update that removes a pack | UP | test_packs_previous_from_record | green |
 | install-update → The previously enabled packs come from the start | No previous record | UP | test_packs_previous_empty_without_record | green |
 | project-planning → Roadmap init suggests packs | A Godot project is offered the game packs | TI | test_roadmap_init_offers_packs_with_requirements | green |
@@ -92,8 +92,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 5. pack-verify and pack-docs
 
-- [ ] 5.1 Write the PV tests (lines reach rules, apply and archive guidance and context exactly once through real `openspec instructions` in a scratch root; missing, duplicate and `not_enabled` lines with `--previous`; unmanaged `[pack:` lines pass; core context lines still delivered, including a context pushed over 50 KB) and the PD tests (created after stamp, existing kept, rerun completes); verify they fail.
-- [ ] 5.2 Implement `update.sh pack-verify --previous <name>...` (scratch root under `<download>/.update-scratch/` with the merged `config.yaml`, the download's schema and an empty change; uses `run_openspec`'s deadline) and `update.sh pack-docs` (no journal; creates missing documents from templates, reports `created`/`kept`). Verify: PV and PD tests pass; flip the rows green.
+- [x] 5.1 Write the PV tests (lines reach rules, apply and archive guidance and context exactly once through real `openspec instructions` in a scratch root; missing, duplicate and `not_enabled` lines with `--previous`; unmanaged `[pack:` lines pass; core context lines still delivered, including a context pushed over 50 KB) and the PD tests (created after stamp, existing kept, rerun completes); verify they fail.
+- [x] 5.2 Implement `update.sh pack-verify --previous <name>...` (scratch root under `<download>/.update-scratch/` with the merged `config.yaml`, the download's schema and an empty change; uses `run_openspec`'s deadline) and `update.sh pack-docs` (no journal; creates missing documents from templates, reports `created`/`kept`). Verify: PV and PD tests pass; flip the rows green.
 
 ## 6. Install prompt and settings template
 
