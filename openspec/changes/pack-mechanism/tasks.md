@@ -60,7 +60,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | install-update → The previously enabled packs come from the start | No previous record | UP | test_packs_previous_empty_without_record | red |
 | project-planning → Roadmap init suggests packs | A Godot project is offered the game packs | TI | test_roadmap_init_offers_packs_with_requirements | red |
 | project-planning → Roadmap init suggests packs | The user declines | TI | test_roadmap_init_enables_only_on_yes | red |
-| project-planning → Roadmap init offers no pack where refused | A project where packs cannot be installed | TI | test_roadmap_init_no_packs_on_store_or_gitbutler | red |
+| project-planning → Roadmap init's pack offer names the in-repo install need | A pack offer in a project that installs at user level | TI | test_roadmap_init_offer_names_in_repo_need | red |
+| project-planning → Roadmap init offers no pack where refused | A project where packs cannot be installed | TI | test_roadmap_init_no_packs_on_store | red |
 | project-planning → Roadmap init offers no pack where refused | A repo-local Git project | TI | test_roadmap_init_offers_packs_repo_local | red |
 | project-planning → Roadmap init includes enabled packs | Pack questions join the interview | TI | test_roadmap_init_asks_pack_questions_in_two_rounds | red |
 | project-planning → Roadmap init includes enabled packs | A pack document edited after the baseline passed | TI | test_pack_documents_are_not_gated | red |
@@ -70,8 +71,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 1. ADR, architecture and follow-up issues
 
-- [ ] 1.1 Write `docs/adr/0021-packs-are-additive-bundles-in-the-release.md` (MADR short, `Status: accepted`, today's date) from design D1, D2, D4, D5, D6, D9 and D10, naming `packs.json` as a third departure from ADR 0003; add its row to the in-force index in `openspec/architecture.md` and a `packs/` + `pack-check`/`pack-verify`/`pack-docs` note in Components. Verify: `python -m unittest evals/git-workflow/test_specs_strict.py` passes and the index lists 0021.
-- [ ] 1.2 File two GitHub issues as KintsugiBot (fenced per `as.sh`): "Packs on planning stores and user-level skills directories (GitButler)" (D9's refusals, with the design's reasons) and "Spike changes for exploratory work (find the fun)" (from #68); reference both from #68. Verify: `gh issue view` shows each open and linked from #68.
+- [ ] 1.1 Write `docs/adr/0023-packs-are-additive-bundles-in-the-release.md` (MADR short, `Status: accepted`, today's date) from design D1, D2, D4, D5, D6, D9 and D10, naming `packs.json` as a third departure from ADR 0003 and stating that it narrows ADR 0021 for packs only (design D9: a pack-enabled install refuses a user-level skills target; core skills and agents still install where the user chooses); add its row, reading "adds to 0021", to the in-force index in `openspec/architecture.md` and a `packs/` + `pack-check`/`pack-verify`/`pack-docs` note in Components. Verify: `python -m unittest evals/git-workflow/test_specs_strict.py` passes and the index lists 0023.
+- [ ] 1.2 File two GitHub issues as KintsugiBot (fenced per `as.sh`): "Packs on planning stores and user-level skills directories" (D9's refusals, with the design's reasons) and "Spike changes for exploratory work (find the fun)" (from #68); reference both from #68. Verify: `gh issue view` shows each open and linked from #68.
 
 ## 2. pack-check and the pack format
 
@@ -96,20 +97,20 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 6. Install prompt and settings template
 
-- [ ] 6.1 Write the TI README tests (Step 3 accepts interface 2, and 1 only with no pack enabled and none in `packs.json`; Step 4 passes `--pack`/`--pack-doc` and reports pack refusals; Step 5 removes only lines of packs enabled now or in `packs_previous`, writes double-quoted entries, keeps and reports other `[pack:` lines, runs pack-verify; Step 6 treats `packs.` as user data; Step 7 checks pack skills and pack-verify; after the stamp `pack-docs`; Step 8 reports packs, adopted skills, unmanaged lines and documents; README says to treat `packs.json` like `VERSION`); verify they fail.
+- [ ] 6.1 Write the TI README tests (Step 3 accepts interface 2, and 1 only with no pack enabled and none in `packs.json`; Step 4 passes `--pack`/`--pack-doc` and reports pack refusals; Step 5 removes only lines of packs enabled now or in `packs_previous`, writes double-quoted entries, keeps and reports other `[pack:` lines, runs pack-verify; Step 6 treats `packs.` as user data; Step 7 checks pack skills and pack-verify; after the stamp `pack-docs`; Step 8 reports packs, adopted skills, unmanaged lines and documents; README says to treat `packs.json` like `VERSION`; Step 2 says, when `packs:` enables a pack, that packs need in-repo skills directories and a user-level target is refused (`packs_user_level`), also in its GitButler bullet); verify they fail.
 - [ ] 6.2 Edit the README install prompt Steps 2-8 accordingly, add a commented `packs:` example to `templates/openspec/specwright.yaml`, and add a short "Packs" section to the README pointing at `packs/README.md`. Verify: the 6.1 tests and `python -m unittest evals/git-workflow/test_instructions.py` pass; flip the rows green.
 
 ## 7. Roadmap init and pack mode
 
-- [ ] 7.1 Write the TI roadmap tests (init matches signals over tracked and untracked files from the `packs.json` catalogue, offers a pack with its requirements, enables only on yes and then says to rerun the install and run **pack**; offers none on a store or `vcs: gitbutler`; asks enabled packs' questions within the two batched rounds; names pack documents as context, never gated; missing document → rerun the install; **pack** mode asks one round, commits on `docs/pack-<name>`, runs no review, needs an installed pack); verify they fail.
+- [ ] 7.1 Write the TI roadmap tests (init matches signals over tracked and untracked files from the `packs.json` catalogue, offers a pack with its requirements and says packs install only into in-repo skills directories (a user-level install refuses them), enables only on yes and then says to rerun the install and run **pack**; offers none on a store; asks enabled packs' questions within the two batched rounds; names pack documents as context, never gated; missing document → rerun the install; **pack** mode asks one round, commits on `docs/pack-<name>`, runs no review, needs an installed pack); verify they fail.
 - [ ] 7.2 Edit `skills/specwright-roadmap/SKILL.md`: init steps 1-2 and 5, a new **pack** section, and the "Committing project files" procedure covering **pack**. Verify: the 7.1 tests pass; flip the rows green.
 
 ## 8. End-to-end and release
 
 - [ ] 8.1 Add one UP end-to-end test: install the `valid-domain` + `valid-ui-base` fixture packs into a fixture project with `update.sh plan/stage/swap`, merge their lines as Step 5 specifies (test helper), run `pack-verify`, stamp, `finish`, `pack-docs`; then remove both and verify the skills, lines and record are gone and the documents kept. Verify: the test passes on this machine; CI runs it on all three OSes.
-- [ ] 8.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.14.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/pack-mechanism/proposal.md` pass.
+- [ ] 8.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.16.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/pack-mechanism/proposal.md` pass.
 
 ## Workflow follow-up
 
 - Ship through the PR flow; CI runs every suite on Linux, Windows and macOS (no local full suite runs).
-- After merge and archive, publish v0.14.0 and offer roadmap **next** (`user-verified-tasks`).
+- After merge and archive, publish v0.16.0 and offer roadmap **next** (`user-verified-tasks`).

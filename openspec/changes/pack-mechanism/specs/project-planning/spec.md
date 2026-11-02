@@ -7,17 +7,24 @@ Roadmap **init** SHALL compare the code checkout's tracked and untracked, non-ig
 
 #### Scenario: A Godot project is offered the game packs
 - **WHEN** init runs in a checkout holding `project.godot` and no pack is enabled
-- **THEN** init offers `gamedev` and `godot`, naming `project.godot` as the signal and `ui-prototyping` as required by `gamedev`, even when `project.godot` is not committed yet, and `specwright.yaml` is unchanged until the user answers
+- **THEN** init offers `gamedev` and `godot`, naming `project.godot` as the signal and `ui-prototyping` as required by `gamedev`, even when `project.godot` is not committed yet, says that packs install only into in-repo skills directories and that a user-level install refuses them, and `specwright.yaml` is unchanged until the user answers
 
 #### Scenario: The user declines
 - **WHEN** the user declines an offered pack
 - **THEN** `packs:` is unchanged and init continues with its core interview
 
+### Requirement: Roadmap init's pack offer names the in-repo install need
+Every pack offer roadmap **init** makes SHALL say that packs install only into in-repo skills directories and that an install at user level refuses them (`packs_user_level`).
+
+#### Scenario: A pack offer in a project that installs at user level
+- **WHEN** init offers any catalogued pack whose signal matches the checkout
+- **THEN** the offer says that packs install only into in-repo skills directories and that a user-level install refuses them with `packs_user_level`
+
 ### Requirement: Roadmap init offers no pack where the install refuses packs
-Roadmap **init** SHALL offer no pack when the planning root is a store or `openspec/specwright.yaml` selects `vcs: gitbutler`, where the install refuses packs in v1, and SHALL say that packs are not supported there yet.
+Roadmap **init** SHALL offer no pack when the planning root is a store, where the install refuses packs in v1, and SHALL say that packs are not supported there yet.
 
 #### Scenario: A project where packs cannot be installed
-- **WHEN** init runs with `vcs: gitbutler` or a store-backed planning root, in a checkout holding `project.godot`
+- **WHEN** init runs with a store-backed planning root, in a checkout holding `project.godot`
 - **THEN** init offers no pack, says that packs are not supported there yet, and `specwright.yaml` gains no `packs:` key
 
 #### Scenario: A repo-local Git project

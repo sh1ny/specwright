@@ -25,8 +25,8 @@ The install SHALL pass each pack enabled in `specwright.yaml` to `update.sh` (`-
 A finished install SHALL leave `openspec/.specwright/packs.json` in the code checkout listing each enabled pack with the Specwright version, its skill names, document paths and init questions, plus a catalogue (name, description, requires, signals) of every pack in the download. It SHALL be written in the swap, after the skill renames and under the journal, and a rollback SHALL restore the previous record or its absence.
 
 #### Scenario: The record matches the installed packs
-- **WHEN** an install enables `gamedev` and `ui-prototyping` at 0.16.0
-- **THEN** `packs.json` lists both packs with version `0.16.0` and each pack's skill names, and no other pack
+- **WHEN** an install enables `gamedev` and `ui-prototyping` at 0.18.0
+- **THEN** `packs.json` lists both packs with version `0.18.0` and each pack's skill names, and no other pack
 
 #### Scenario: A rollback restores the old record
 - **WHEN** an update that enables `web` is rolled back with `recover --rollback`
@@ -105,7 +105,7 @@ The install's settings merge SHALL treat every key under `packs.` in `openspec/s
 
 #### Scenario: An older download with packs enabled
 - **WHEN** the prompt runs a download whose `plan` reports `interface: 1`, and `packs:` enables `web` or the installed `packs.json` still lists `web` as enabled
-- **THEN** the prompt stops before `stage`, says that download predates packs (remove the packs with a 0.14.0 or later release first) and names interfaces 1 and 2, and no file changes
+- **THEN** the prompt stops before `stage`, says that download predates packs (remove the packs with a 0.16.0 or later release first) and names interfaces 1 and 2, and no file changes
 
 ### Requirement: Pack documents are created by an idempotent step after the stamp
 `update.sh pack-docs` SHALL create each missing pack document from its template, never overwrite one, and report each as `created` or `kept`. It SHALL depend on no journal, so a rerun after an interruption completes it; the prompt SHALL run it after the stamp.

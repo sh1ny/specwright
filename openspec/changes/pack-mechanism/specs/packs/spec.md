@@ -140,7 +140,7 @@ When the planning root is a store (update.sh role `claim`, `owner` or `other`), 
 - **THEN** plan exits 1 with refusal `packs_on_store`, and no installed file changes
 
 ### Requirement: Packs are refused for skills directories outside the project in v1
-When any chosen skills directory is outside the code checkout's toplevel (a user-level directory, as GitButler projects require), an install with any pack enabled SHALL stop before any write with refusal `packs_user_level` naming the directory, because several projects would then share, and remove, the same pack skills.
+When any chosen skills directory is outside the code checkout's toplevel (a user-level directory, on any backend), an install with any pack enabled SHALL stop before any write with refusal `packs_user_level` naming the directory, because several projects would then share, and remove, the same pack skills.
 
 #### Scenario: Project-level skills directories
 - **WHEN** the only skills directory is `<code>/.claude/skills` and `packs:` enables `web`
