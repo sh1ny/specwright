@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.16.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.17.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -46,6 +46,8 @@ flowchart LR
 | Archive | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive commit, then local `--no-ff` merge or push to the PR |
 | Release (opt-in) | [`specwright-release`](skills/specwright-release/SKILL.md) | Version bump as the last task, tag and GitHub release after merge |
 | Across changes | [`specwright-roadmap`](skills/specwright-roadmap/SKILL.md) | Strategy, architecture baseline, milestones |
+
+**Decisions while planning.** `decision_making` chooses how far you are kept in the loop. With `autonomous` (the default, and what an unset key means) the agent decides and shows a decision summary table at the end of planning without waiting. With `important` it puts the important decisions to you, each with options and a recommended one: those that are costly to reverse, bind future changes, change what users see, or rest on weak evidence. With `all` it puts every decision to you. Questions go through the harness's ask tool, at most 4 at a time. An instruction you give when a change starts overrides the setting for that change and is recorded in the proposal's Decision Making section. A decision you chose is never changed without you.
 
 ---
 
@@ -535,6 +537,7 @@ The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scr
 finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
 # commit_granularity: task      # task (default) = one commit per task; group = one commit per task group, evidence in Specwright-Task trailers; any other value stops apply
+decision_making: autonomous     # autonomous (default; unset means autonomous) = the agent decides and shows a decision summary | important = important decisions are put to you with options | all = every decision is
 # vcs: git                      # git (default) | jj = branch reads and writes go through a colocated Jujutsu repo | gitbutler = GitButler (code repo, finish: pr only); never inferred from .jj/ or .git/gitbutler/
 
 github:
