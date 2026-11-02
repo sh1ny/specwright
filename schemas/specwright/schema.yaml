@@ -68,9 +68,10 @@ artifacts:
       the mode for this change only. It does not change
       openspec/specwright.yaml. An instruction given mid-planning applies
       from then on; decisions already written stay unless the user asks to
-      revisit them. Once proposal.md exists, update the `DECISION_MAKING:`
-      and `Source:` lines there in the same turn the override is given, so
-      later sessions, review fix rounds and apply read the mode in force.
+      revisit them. Once proposal.md exists,
+      update the `DECISION_MAKING:` and `Source:` lines there in the same
+      turn the override is given, so later sessions, review fix rounds and
+      apply read the mode in force.
 
       Record the mode in force in a `## Decision Making` section of
       proposal.md, the first artifact written: a `DECISION_MAKING: <mode>`
