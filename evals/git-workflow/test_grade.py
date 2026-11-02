@@ -101,8 +101,14 @@ class WatchMerge(unittest.TestCase):
 
     def test_fixture_is_ready_and_pull_waits_for_the_merge(self):
         run_dir, repo = self.fixture("eval-watch-agent-merge")
+        # the fixture's reviewer posted "**Reviewed commit:** `<tip>`": a sha_pattern rule recognises that report
+        config = run_dir / "reviewers.json"
+        config.write_text(json.dumps({"format": 1, "reviewers": [{
+            "login": "chatgpt-codex-connector", "role": "required", "timeout": 1200,
+            "report": {"sha_pattern": "Reviewed commit:\\*\\* `([0-9a-f]{7,40})`"}}]},
+            sort_keys=True, separators=(",", ":")), encoding="utf-8", newline="\n")
         snap = json.loads(self.sh(repo, "bash ../../../skills/specwright-pr/scripts/pr-snapshot.sh 7 --repo acme/greeter "
-                                        "--reviewer chatgpt-codex-connector:required:1200".replace("../../../", fixtures.posix(fixtures.ROOT) + "/")))
+                                        f"--reviewer-config {fixtures.posix(config)}".replace("../../../", fixtures.posix(fixtures.ROOT) + "/")))
         self.assertEqual((snap["mergeable"], snap["merge_state"], snap["checks"]["pending"], snap["reviewers"][0]["state"]),
                          ("MERGEABLE", "CLEAN", 0, "reported"))
         before = subprocess.run([bashexe.bash(), "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)

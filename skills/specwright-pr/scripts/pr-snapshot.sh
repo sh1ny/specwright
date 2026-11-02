@@ -3,14 +3,24 @@
 # and reviews, as one JSON line. Needs gh (uses gh's built-in --jq) and Python 3.8+:
 # bounded.py gives every gh call a deadline and a size bound, so a hung call ends as
 # `deadline_exceeded` on stderr (exit 1 in a watch); without Python, exit 2 `no_python`.
+# The same bound runs the reviewer evaluator (reviewers.py, see below).
 #
 # Usage: bash pr-snapshot.sh [PR-number|PR-url] [--repo owner/name] [--logs]
-#                            [--reviewer LOGIN:ROLE:SECONDS]...
+#                            [--reviewer-config FILE]
 #                            [--wait [--timeout SECONDS] [--interval SECONDS] [--until attention]]
 #        bash pr-snapshot.sh --full NODE_ID [--repo owner/name]
 #   (no PR)   the PR for the current branch
-#   --reviewer  report whether LOGIN (required|advisory, timeout in seconds)
-#             has reported on the current head: "reviewers" in the output
+#   --reviewer-config  the reviewer config file pr-pair.sh writes (context / policy):
+#             which logins to watch, their role and timeout, and how each one's report
+#             is recognised. The file is checked by `reviewers.py --check-config` before
+#             any gh call: a missing file, bad JSON, a bad key or pattern exits 2 with one
+#             line naming the file or `<login>: report.<key>`. This script knows no
+#             reviewer by name: it gathers what the configured logins wrote, in full, into
+#             a system-temp file (removed on exit, also when the evaluator is stopped at its
+#             deadline) and reviewers.py decides, then adds "reviewers" (login, role,
+#             timeout, state, by, evidence), "reviewer_config" (the file's digest) and "now".
+#             Without the flag there are no reviewers ("reviewers": [], "reviewer_config":
+#             null). The removed flag '--reviewer' (LOGIN:ROLE:SECONDS) exits 2 naming the new flag.
 #   --logs    append the last 80 lines of each failing run's failed-step log
 #   --full    read one item whole: the NODE_ID of a thread comment, PR comment or review
 #             (the snapshot's "id"). Prints {"ok":true,"id","kind","body","rev","url"}
@@ -38,9 +48,11 @@
 #             on stderr.
 #   --until attention  (with --wait only; "quiet" or any other mode exits 2 before any gh
 #             call) keep waiting while a poll differs from the first good snapshot only
-#             in checks or merge state, a check is still pending, no check fails that
+#             in checks or merge state, a CI check ("checks":{"ci_pending"} above 0: a
+#             check that is not a reviewer's own) is still pending, no check fails that
 #             was not failing in that snapshot, and the merge state is not DIRTY. Any
-#             other difference wakes "changed". Skipped polls add no polls and no gh
+#             other difference wakes "changed", a reviewer's state change included. Skipped
+#             polls add no polls and no gh
 #             calls; the wake JSON counts them as "filtered" (always present with
 #             --wait, 0 without --until). A "timeout" wake still means nothing else
 #             changed, filtered polls included. The snapshot's "attn" is "sig" without
@@ -71,16 +83,12 @@ SW_BASH=${BASH:-bash}
 if command -v cygpath >/dev/null 2>&1; then SW_DIR=$(cygpath -m "$SW_DIR"); SW_BASH=$(cygpath -w "$SW_BASH"); fi
 gh() { "$py" -I "$SW_DIR/bounded.py" ${SW_PAGED:+--paged} ${SW_SECRET:+--secret} -- "$SW_BASH" -c 'exec gh "$@"' gh "$@"; }
 
-pr= repo= full= logs=0 wait=0 timeout=1800 interval=300 reviewers= until=
+pr= repo= full= logs=0 wait=0 timeout=1800 interval=300 rcfg= rcfg_set=0 until=
 while [ $# -gt 0 ]; do
   case $1 in
     --repo) repo=${2:?--repo needs owner/name}; shift 2 ;;
-    --reviewer)
-      r=${2:?--reviewer needs LOGIN:ROLE:SECONDS}; r=${r/\[bot\]:/:}
-      printf '%s' "$r" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9-]*:(required|advisory):[0-9]+$' \
-        || { echo "pr-snapshot: bad --reviewer '$2' (want LOGIN:required|advisory:SECONDS)" >&2; exit 2; }
-      IFS=: read -r rl rr rt <<<"$r"
-      reviewers="$reviewers${reviewers:+,}{\"login\":\"$rl\",\"role\":\"$rr\",\"timeout\":$rt}"; shift 2 ;;
+    --reviewer) echo "pr-snapshot: '--reviewer' is gone; pass the reviewers as --reviewer-config FILE (pr-pair.sh context writes it)" >&2; exit 2 ;;
+    --reviewer-config) rcfg=${2:?--reviewer-config needs a file}; rcfg_set=1; shift 2 ;;
     --logs) logs=1; shift ;;
     --full) full=${2:?--full needs a node id}; shift 2 ;;
     --wait) wait=1; shift ;;
@@ -119,6 +127,15 @@ if [ -n "$full" ]; then
   # key order depends on the evaluator, so look for the error member, not a prefix
   case $out in *'"error":"not_found"'*) exit 1 ;; *) exit 0 ;; esac
 fi
+# The reviewer config is checked before any gh call. reviewers.py names the file or `<login>: report.<key>` on one stderr
+# line; that line goes through and the exit is 2. logins: the configured logins as a JSON list body ("a","b").
+rcfg_arg= logins=
+if [ "$rcfg_set" = 1 ]; then
+  rcfg_arg=$rcfg
+  if command -v cygpath >/dev/null 2>&1; then rcfg_arg=$(cygpath -m "$rcfg"); fi
+  chk=$("$py" -I "$SW_DIR/reviewers.py" --check-config "$rcfg_arg") || exit 2
+  logins=$(printf '%s' "$chk" | sed -n 's/.*"logins":\[\([^]]*\)\].*/\1/p')
+fi
 [ -n "$repo" ] || repo=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')
 [ -n "$pr" ] || pr=$(gh pr view --json number --jq .number)
 owner=${repo%%/*} name=${repo#*/}
@@ -156,7 +173,6 @@ claim_watch() {
   claim_no=$((top + 1)) claim_nonce=$(printf '%d.%05d%05d' "$$" "$RANDOM" "$RANDOM")
   owner_file="$claim_dir/$claim_no-$claim_nonce"
   if ! (set -C; : > "$owner_file") 2>/dev/null; then owner_file= claim_dir=; ownership_off; return 0; fi
-  trap 'release_watch' EXIT
   while read -r n s b; do
     [ "$b" = "${owner_file##*/}" ] || claim_above "$n" "$s" || rm -f "$claim_dir/$b" 2>/dev/null || true
   done < <(claim_list)
@@ -175,6 +191,14 @@ still_owner() {
   return 0
 }
 
+# One exit trap: the watch claim and the evaluator's material file (set by evaluate()) are both removed on any exit.
+mat_file=
+cleanup() {
+  if [ -n "$mat_file" ]; then rm -f "$mat_file" 2>/dev/null || true; fi
+  release_watch
+}
+trap cleanup EXIT
+
 read -r -d '' QUERY <<'GQL' || true
 query($owner:String!, $name:String!, $pr:Int!) {
   viewer { login }
@@ -183,8 +207,8 @@ query($owner:String!, $name:String!, $pr:Int!) {
     headRefName headRefOid baseRefName author { login }
     commits(last:1) { nodes { commit { statusCheckRollup { state contexts(first:100) { pageInfo { hasNextPage } nodes {
       __typename
-      ... on CheckRun { name status conclusion detailsUrl checkSuite { app { slug } workflowRun { databaseId } } }
-      ... on StatusContext { context state targetUrl }
+      ... on CheckRun { name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { databaseId } } }
+      ... on StatusContext { context state targetUrl createdAt }
     } } } } } }
     reviewThreads(first:100) { pageInfo { hasNextPage } nodes {
       id isResolved isOutdated path line originalLine
@@ -194,6 +218,7 @@ query($owner:String!, $name:String!, $pr:Int!) {
     comments(last:100) { pageInfo { hasPreviousPage } nodes { id author { login } body createdAt lastEditedAt url
                                                               reactionGroups { content viewerHasReacted } } }
     reviews(last:100) { pageInfo { hasPreviousPage } nodes { id author { login } body state submittedAt lastEditedAt url
+                                                             commit { oid }
                                                              reactionGroups { content viewerHasReacted } } }
   } }
 }
@@ -258,10 +283,11 @@ def norm: sub("\\[bot\\]$"; "");
 | ([ $p.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]? |
      if .__typename == "CheckRun" then
        { name, url: .detailsUrl, run_id: .checkSuite.workflowRun.databaseId, app: .checkSuite.app.slug,
+         at: (.completedAt // .startedAt // null),
          state: (if .status != "COMPLETED" then "pending"
                  elif (.conclusion | IN("SUCCESS","NEUTRAL","SKIPPED")) then "pass" else "fail" end) }
      else
-       { name: .context, url: .targetUrl, run_id: null, app: null,
+       { name: .context, url: .targetUrl, run_id: null, app: null, at: (.createdAt // null),
          state: (if .state == "SUCCESS" then "pass"
                  elif (.state | IN("PENDING","EXPECTED")) then "pending" else "fail" end) }
      end ]) as $checks
@@ -330,46 +356,23 @@ def norm: sub("\\[bot\\]$"; "");
    | map(select(.state == "CHANGES_REQUESTED") | (.author.login // "ghost") as $a
          | select([ $threads[] | select((.resolved | not) and .comments[0].author == $a) ] | length == 0)
          | { author: $a, review_id: .id, at: .submittedAt })) as $stale_verdicts
-# Has each configured reviewer reported on the current head? cfg (prepended by
-# the script) gives the reviewers, the head's push time and GitHub's "now".
-# Bots that are known get a precise signal; any other login counts as reported
-# once it posts anything at or after the push.
+# What did the configured logins write? cfg (prepended by the script) gives the
+# configured logins, the head's push time and GitHub's "now". This script names no
+# reviewer and knows no format: it hands each login's items whole (full raw body)
+# to reviewers.py, which decides who reported.
 | (if cfg.head == $p.headRefOid then cfg.pushed else null end) as $pushed
 # Output counts as a report from $since on: the push time, or when the push is
 # unknown the time a snapshot first saw the head (never the commit date).
 | (if cfg.head == $p.headRefOid then cfg.since else null end) as $since
-| $p.headRefOid as $head
-| ([ ($p.comments.nodes[]), ($p.reviews.nodes[]), ($p.reviewThreads.nodes[].comments.nodes[]) ]) as $all
-| ([ cfg.reviewers[] | . as $r
-     | [ $all[] | select((.author.login // "" | norm) == $r.login) ] as $by
-     | (if $r.login == "chatgpt-codex-connector" then
-          # every result, findings or not, says "**Reviewed commit:** `<sha>`"
-          [ $by[] | (.body // "") | scan("Reviewed commit:\\*\\* `([0-9a-f]{7,40})`") | .[0]
-            | select(. as $s | $head | startswith($s)) ] | length > 0
-        elif $r.login == "kody-ai" then
-          # its check run is created on the commit it reviews
-          [ $checks[] | select(.name == "Kody Code Review" and .state != "pending") ] | length > 0
-        elif $since == null then false
-        elif $r.login == "kintsugimira" then
-          # one walkthrough comment, edited in place; no SHA anywhere
-          ([ $by[] | select(((.body // "") | contains("<!-- mira-walkthrough -->"))
-               and (.lastEditedAt // .createdAt // "") >= $since
-               and ((.body // "") | test("Reviewing this PR|Code review in progress") | not)) ] | length > 0)
-          or ([ $by[] | select(.state != null and (.submittedAt // "") >= $since) ] | length > 0)
-        else
-          [ $by[] | select((.lastEditedAt // .createdAt // .submittedAt // "") >= $since) ] | length > 0
-        end) as $done
-     | { login: $r.login, role: $r.role, timeout: $r.timeout,
-         state: (if $done then "reported"
-                 elif $pushed != null and (cfg.now - ($pushed | fromdateiso8601)) >= $r.timeout then "timed_out"
-                 else "waiting" end) } ]) as $reviewers
-# The review check of an advisory reviewer stops blocking once that reviewer
-# reported or timed out. Only known review checks: other checks of the same
-# app (tests, analysis) keep blocking.
-| { "kody-ai": "Kody Code Review" } as $review_check
-| ([ $reviewers[] | select(.role == "advisory" and .state != "waiting") | $review_check[.login] // empty ]) as $quiet
-| ([ $checks[] | select(.state == "pending" and (.name as $n | any($quiet[]; . == $n))) ]
-   | length) as $quiet_pending
+| def mine($l): ((.author.login // "") | norm | ascii_downcase) == ($l | ascii_downcase);
+  (cfg.logins | map(. as $l | { key: $l, value: ([
+      ($p.comments.nodes[] | select(mine($l))
+        | { kind: "comment", id, body: (.body // ""), created: .createdAt, edited: .lastEditedAt, state: null, commit: null }),
+      ($p.reviews.nodes[] | select(mine($l))
+        | { kind: "review", id, body: (.body // ""), created: .submittedAt, edited: .lastEditedAt, state: .state, commit: (.commit.oid // null) }),
+      ($p.reviewThreads.nodes[].comments.nodes[] | select(mine($l))
+        | { kind: "thread_comment", id, body: (.body // ""), created: .createdAt, edited: .lastEditedAt, state: null, commit: null })
+    ]) }) | from_entries) as $material
 | ([ (if $p.reviewThreads.pageInfo.hasNextPage then "threads" else empty end),
      ($p.reviewThreads.nodes[] | select(.comments.totalCount > 100) | "thread " + .id + " comments"),
      (if $p.comments.pageInfo.hasPreviousPage then "comments" else empty end),
@@ -381,35 +384,36 @@ def norm: sub("\\[bot\\]$"; "");
     mergeable: $p.mergeable, merge_state: $p.mergeStateStatus, review_decision: $p.reviewDecision,
     head: $p.headRefName, head_oid: $p.headRefOid, base: $p.baseRefName, author: $p.author.login,
     pending_review: ([ $p.reviews.nodes[] | select(.state == "PENDING" and (.author.login // "") == $me) ] | length > 0),
-    checks: { total: ($checks | length),
-              pending: (([ $checks[] | select(.state == "pending") ] | length) - $quiet_pending),
-              advisory_pending: $quiet_pending,
-              failing: [ $checks[] | select(.state == "fail") ] },
+    # pending, advisory_pending and ci_pending come from reviewers.py, which knows which checks are a reviewer's own
+    checks: { total: ($checks | length), failing: [ $checks[] | select(.state == "fail") | del(.at) ] },
     fail_run_ids: ([ $checks[] | select(.state == "fail" and .run_id != null) | .run_id ] | unique),
     threads: $threads, comments: $comments, reviews: $reviews, stale_verdicts: $stale_verdicts,
-    reviewers: $reviewers, head_pushed_at: $pushed,
+    head_pushed_at: $pushed,
     head_cutoff: (if cfg.head == $p.headRefOid then cfg.cutoff else null end),
     recheck: [ ($p.comments.nodes[], $p.reviews.nodes[], $p.reviewThreads.nodes[].comments.nodes[])
                | select(thumbs and .lastEditedAt != null and rtimes[.id] == null) | .id ],
     complete: ($truncated | length == 0), truncated: $truncated,
-    # base64 keeps the signature free of quotes, so sig_of can cut it out safely
     fail_names: [ $checks[] | select(.state == "fail") | .name | @base64 ],
-    # attn: sig without the checks and merge state (what --until attention compares)
-    attn: ([ $p.state, $p.headRefOid,
+    # the raw material for reviewers.py; it drops these members and adds reviewers, now, reviewer_config, sig and attn
+    cfg: { since: $since, now: cfg.now },
+    checks_all: [ $checks[] | { name, state, app, at } ],
+    material: $material,
+    # sig_base / attn_base: the signature without the reviewers' states, which reviewers.py appends before it base64s them
+    # (base64 keeps sig free of quotes, so sig_of can cut it out safely). attn: sig without the checks and merge state
+    # (what --until attention compares).
+    attn_base: ([ $p.state, $p.headRefOid,
             ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end) + (if .resolved then ":resolved" else "" end)) | join(",")),
             ($comments | map(.id + ":" + .rev) | join(",")),
             ($reviews | map(.id + ":" + .rev) | join(",")),
             ($stale_verdicts | map(.author + ":" + .review_id) | join(",")),
-            ($reviewers | map(.login + ":" + .state) | join(",")),
-            ($truncated | sort | join(",")) ] | join("|") | @base64),
-    sig: ([ $p.state, $p.headRefOid, $p.mergeStateStatus,
+            ($truncated | sort | join(",")) ] | join("|")),
+    sig_base: ([ $p.state, $p.headRefOid, $p.mergeStateStatus,
             ($checks | map(.name + "=" + .state) | sort | join(",")),
             ($threads | map(.id + ":" + .rev + (if .rebound then ":rebound" else "" end) + (if .resolved then ":resolved" else "" end)) | join(",")),
             ($comments | map(.id + ":" + .rev) | join(",")),
             ($reviews | map(.id + ":" + .rev) | join(",")),
             ($stale_verdicts | map(.author + ":" + .review_id) | join(",")),
-            ($reviewers | map(.login + ":" + .state) | join(",")),
-            ($truncated | sort | join(",")) ] | join("|") | @base64)
+            ($truncated | sort | join(",")) ] | join("|"))
   }
 | tojson
 JQ
@@ -428,7 +432,7 @@ JQ
 # be neither published nor read (or does not parse), this process's own first
 # sighting is used and kept across polls ("first_seen_unsaved").
 # Sets CFG in the current shell; call it outside $(...).
-CFG='def cfg: {reviewers: [], head: null, pushed: null, since: null, cutoff: null, now: 0};' pushed_oid= pushed_at= first_seen= seen_src= seen_date=
+CFG='def cfg: {logins: [], head: null, pushed: null, since: null, cutoff: null, now: (now | floor)};' pushed_oid= pushed_at= first_seen= seen_src= seen_date=
 DATE_RE='^[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT$'
 # Sets seen_date (an HTTP date) and seen_src (first_seen | first_seen_unsaved).
 resolve_first_seen() {
@@ -454,12 +458,12 @@ resolve_first_seen() {
 limit_hit() {  # <rc> <command>
   case $1 in 124) echo "bounded: deadline_exceeded: $2" >&2 ;; 125) echo "bounded: response_too_large: $2" >&2 ;; *) return 1 ;; esac
 }
-# A snapshot without --reviewer only records its sighting of the head (so a
-# later reviewer check counts from it), and never fails over it: any error
+# A snapshot without a configured reviewer still sets the head's cutoff (watch
+# times pr.settle on an archive head from it), and never fails over it: any error
 # there but a named limit returns 0 and leaves cfg unset.
 prepare_cfg() {
   local info raw oid branch hrepo date pushed cutoff fail=1 rc
-  [ -n "$reviewers" ] || fail=0
+  [ -n "$logins" ] || fail=0
   info=$(gh api graphql -f owner="$owner" -f name="$name" -F pr="$pr" -f query='
     query($owner:String!,$name:String!,$pr:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$pr){
       headRefOid headRefName headRepository { nameWithOwner } } } }' \
@@ -471,7 +475,6 @@ prepare_cfg() {
   printf '%s' "$oid" | grep -Eq '^[0-9a-f]{40}$' || return $fail
   printf '%s' "$date" | grep -Eq "$DATE_RE" || return $fail
   [ "$oid" = "$pushed_oid" ] || { pushed_oid=$oid pushed_at= first_seen=$date seen_src= seen_date=; }
-  if [ -z "$reviewers" ]; then [ -n "$seen_src" ] || resolve_first_seen; return 0; fi
   # look the push up until found; it can reach the log after the first poll
   if [ -z "$pushed_at" ] && [ "$hrepo" != - ]; then
     pushed_at=$(gh api "repos/$hrepo/activity?ref=refs/heads/$branch&per_page=100" \
@@ -487,13 +490,24 @@ prepare_cfg() {
     pushed="(\"$seen_date\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime | todate)"
     cutoff="{source: \"$seen_src\", at: $pushed}"
   fi
-  CFG="def cfg: {reviewers: [$reviewers], head: \"$oid\", pushed: $pushed, since: $pushed, cutoff: $cutoff,
+  CFG="def cfg: {logins: [$logins], head: \"$oid\", pushed: $pushed, since: $pushed, cutoff: $cutoff,
     now: (\"$date\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime)};"
 }
 query_pr() {  # <rtimes def>
   gh api graphql -f query="$QUERY" -f owner="$owner" -f name="$name" -F pr="$pr" --jq "$CFG
 $1
 $SHAPE"
+}
+# The finished snapshot of the material $1 (the jq output): reviewers.py decides the reviewers and appends their states to
+# sig and attn. It runs under the same deadline and byte bound as gh; a limit or any other failure fails the poll. The
+# material goes through $mat_file (made once, in the main shell, so the exit trap removes it), never through an argument.
+evaluate() {
+  local oid
+  oid=$(printf '%s' "$1" | grep -o '"head_oid":"[0-9a-f]*"' | sed -n '1s/.*:"\(.*\)"/\1/p') || oid=
+  printf '%s\n' "$1" > "$mat_file" || return 1
+  # `bash -c 'exec "$@"' reviewers.py ...` names reviewers.py in bounded.py's limit message (it names cmd[0] cmd[1] otherwise)
+  "$py" -I "$SW_DIR/bounded.py" -- "$SW_BASH" -c 'exec "$@"' reviewers.py "$py" -I "$SW_DIR/reviewers.py" \
+    ${rcfg_arg:+--config "$rcfg_arg"} --material "$mat_arg" --head "$oid"
 }
 # One query (~1 point); more only when an item you reacted to was edited
 # since: its reaction times, 100 ids per query (1-2 points each), then the PR
@@ -505,7 +519,7 @@ snapshot() {
   batches=$(printf '%s' "$out" | grep -o '"recheck":\[[^]]*\]' | sed 's/^"recheck"://' \
     | grep -oE '"[A-Za-z0-9_=-]+"' | paste -d, - - - - - - - - - - - - - - - - - - - - - - - - - \
     | paste -d, - - - - | sed 's/,*$//') || batches=
-  [ -n "$batches" ] || { printf '%s\n' "$out"; return 0; }
+  [ -n "$batches" ] || { evaluate "$out"; return; }
   while read -r ids; do
     [ -n "$ids" ] || continue
     part=$(gh api graphql -f query="query{ viewer { login } nodes(ids:[$ids]) { id ... on Reactable {
@@ -516,7 +530,7 @@ snapshot() {
     rt="$rt${rt:+ + }$part"
   done <<<"$batches"
   out=$(query_pr "def rtimes: ($rt);") || return 1
-  printf '%s\n' "$out"
+  evaluate "$out"
 }
 sig_of() { printf '%s' "$1" | grep -o '"sig":"[^"]*"' || true; }
 attn_of() { printf '%s' "$1" | grep -o '"attn":"[^"]*"' || true; }
@@ -526,13 +540,19 @@ only_progress() {
   local f
   [ "$(attn_of "$1")" = "$(attn_of "$base")" ] || return 1
   case $1 in *'"merge_state":"DIRTY"'*) return 1 ;; esac
-  printf '%s' "$1" | grep -Eq '"pending":[1-9]' || return 1
+  printf '%s' "$1" | grep -Eq '"ci_pending":[1-9]' || return 1
   while read -r f; do
     [ -n "$f" ] || continue
     fails_of "$base" | grep -qxF -- "$f" || return 1
   done < <(fails_of "$1")
   return 0
 }
+
+# The evaluator's material file, in the system temp dir (mktemp with no directory), made here and not in snapshot() because
+# that runs in a $(...) subshell; the exit trap removes it. Native Windows python is handed a Windows path.
+mat_file=$(mktemp 2>/dev/null) && [ -n "$mat_file" ] || { mat_file=; echo 'pr-snapshot: cannot create a temp file for the reviewer evaluator' >&2; exit 1; }
+mat_arg=$mat_file
+if command -v cygpath >/dev/null 2>&1; then mat_arg=$(cygpath -m "$mat_file"); fi
 
 if [ "$wait" = 1 ]; then
   claim_watch

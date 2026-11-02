@@ -6,7 +6,17 @@
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
 #   context --code <dir> [--store <dir>] [--only repos] [--branch b [--after-merge]]
-#                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
+#                                     per-repo login, main, validate, reviewers (role, timeout, request, report), reviewer_config,
+#                                     merge_ready (specwright.yaml + planning_store:); settle (pr.settle in seconds, default 300, strictly
+#                                     <int><s|m|h>, 1m to 1h);
+#                                     reviewer_config is the path of the repo's reviewer set written as canonical JSON
+#                                     {"format":1,"reviewers":[{login,role,timeout,report}]} (sorted keys and logins, no request) to
+#                                     <state dir>/reviewers/<sha256 of the bytes>.json, else <system temp>/specwright/reviewers/ when the
+#                                     state dir is unwritable (null only if neither is); equal settings give the same file, so the name
+#                                     is the digest of the rules;
+#                                     settings_problem (only when set; the first one, never an exit): the strict reader's `line N: why`
+#                                     for the whole settings file, else a bad pr.settle, a reviewer `report` that is not a mapping of
+#                                     strings, or more than 20 reviewers in a set (too_many_reviewers), each naming its key;
 #                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting;
 #                                     --only repos skips that check, for callers that never merge, such as vcs.sh)
 #                                     With `vcs: gitbutler` the settings must be those the change branch committed (the shared work tree
@@ -42,12 +52,19 @@
 #                                     base64, or YAML the reader would skip or misread: block sequences, anchors, tags, duplicate keys,
 #                                     tabs in indentation), or no file at the head, is exit 3 lookup_failed "merge policy unknown:
 #                                     <reason>"; a malformed file names its first bad line.
-#                                     Also reported.{main,head}.{code[,store]} {ok, missing, head_mismatch, snapshot_head, reviewed_head}:
+#                                     Also reported.{main,head}.{code[,store]} {ok, missing, head_mismatch, rules_mismatch, snapshot_head, reviewed_head}:
 #                                     ok when the snapshot is of that repository's reviewed head (code: --head, or --reviewed-head code= for
 #                                     the archive carry-over; store: --reviewed-head store=, required) and every required reviewer of that
 #                                     side's authorizing set (store: planning_store.reviewers, else pr.reviewers) is reported in it; a set
 #                                     with no required reviewer is never ok. Heads match when equal or one is a prefix of the other.
-#                                     reviewer_args.{main,head}.{code[,store]}: login:role:seconds per reviewer, for pr-snapshot.sh --reviewer.
+#                                     rules_mismatch is true when the snapshot's reviewer_config digest differs from the digest of that
+#                                     set's config (the wait ran with other rules); then ok is false. Each side's snapshot is checked
+#                                     against that side's set; digests are compared, never paths.
+#                                     reviewer_config.{main,head}.{code[,store]}: the path of each set's config file, written as for
+#                                     `context` (null if no place is writable), for pr-snapshot.sh --reviewer-config. A reviewer's
+#                                     report is part of the pr.reviewers value, so a changed rule is drift.
+#                                     On main, a bad pr.settle, a reviewer report that is not a mapping of strings (exit 2 bad_setting)
+#                                     and more than 20 reviewers in a set (exit 2 too_many_reviewers) stop the call; the head's go to invalid.
 #                                     --store without --snapshot store= and --reviewed-head store= is exit 2; an unreadable snapshot exits 2.
 #                                     A pr.reviewers that is not a mapping (a string, a list) reads as no reviewers, so it authorizes
 #                                     nothing, and is listed in invalid [{side, key, value}]
@@ -70,7 +87,9 @@
 #   link --repo o/n --pr N --kind store|code --peer-url URL [--login L]
 #                                     one marker comment <!-- specwright:link KIND URL -->; edits its own on a new peer
 #   pair-state --code d --store d --branch b [--snapshot code=f] [--snapshot store=f] [--dropped id@rev]...
-#                                     watch action: ship | wait | ready | split_hand_off | cleanup | no_watch
+#              [--carry-over code|store]...
+#                                     watch action: ship | wait | ready | split_hand_off | cleanup | no_watch;
+#                                     --carry-over: that side is an archive head whose reviewers' reports carry over
 #   rounds --code d [--store d] --branch b
 #                                     highest Feedback-Round across both branches (+ legacy subject count, unpushed)
 #   pass write --code d [--store d] --code-repo o/n --change c --intent file [--store-prefix openspec]
@@ -825,25 +844,112 @@ def toplevel(d):
 
 
 # ---- settings --------------------------------------------------------------------------------------------------
-def load_settings(code_dir):
+def settings_text(code_dir):
+    """The text of openspec/specwright.yaml in the work tree (the directory, else its top level), or None when there is none."""
     for base in (code_dir, toplevel(code_dir)):
         p = Path(base) / "openspec" / "specwright.yaml"
         if p.is_file():
-            return parse_yaml(p.read_text(encoding="utf-8", errors="replace")) or {}
-    return {}
+            return p.read_text(encoding="utf-8", errors="replace")
+    return None
 
 
-def reviewers_of(raw):
+def load_settings(code_dir):
+    text = settings_text(code_dir)
+    return (parse_yaml(text) or {}) if text is not None else {}
+
+
+MAX_REVIEWERS = 20  # per set: a bigger set is too_many_reviewers
+MAX_CONFIG_BYTES = 64 * 1024  # a reviewer-config file stays under this
+
+
+def problem(key, why, error="bad_setting"):
+    return {"error": error, "key": key, "why": why}
+
+
+def problem_text(p):
+    return f"{p['key']}: {p['why']}"
+
+
+def report_of(v):
+    """A reviewer's `report` normalized: (dict of each key to its string value, None), or ({}, why) when it is not a mapping of
+    strings. Unknown keys stay as read: the snapshot's evaluator validates keys and patterns and names an unknown key."""
+    if v is None or v == "":
+        return {}, None
+    if not isinstance(v, dict):
+        return {}, "must be a mapping of keys to strings"
+    for k, x in v.items():
+        if not isinstance(x, str):
+            return {}, f"{k} must be a string (quote it if it looks like a number or a boolean)"
+    return {str(k): x for k, x in v.items()}, None
+
+
+def reviewers_of(raw, problems=None, where="pr.reviewers"):
+    """The reviewer set of a settings map. A set or a `report` the settings get wrong is appended to `problems` (when given)."""
     out = {}
+    if problems is not None and isinstance(raw, dict) and len(raw) > MAX_REVIEWERS:
+        problems.append(problem(where, f"{len(raw)} reviewers is too_many_reviewers (at most {MAX_REVIEWERS})", "too_many_reviewers"))
     for login, cfg in (raw or {}).items():
         cfg = cfg if isinstance(cfg, dict) else {}
-        out[re.sub(r"\[bot\]$", "", str(login))] = {
+        name = re.sub(r"\[bot\]$", "", str(login))
+        report, why = report_of(cfg.get("report"))
+        if why and problems is not None:
+            problems.append(problem(f"{where}.{name}.report", why))
+        out[name] = {
             "role": str(cfg.get("role") or "required"), "timeout": duration(cfg.get("timeout"), 1200),
-            "request": str(cfg.get("request") or "")}
+            "request": str(cfg.get("request") or ""), "report": report}
     return out
 
 
-def repo_ctx(s, d, which):
+def settle_of(pr):
+    """pr.settle as (seconds, None); strictly <int><s|m|h>, 1m to 1h. Unset is 300. A bad value is (300, problem)."""
+    v = pr.get("settle")
+    if v is None or v == "":
+        return 300, None
+    m = re.fullmatch(r"([0-9]+)([smh])", v) if isinstance(v, str) else None
+    seconds = int(m.group(1)) * {"s": 1, "m": 60, "h": 3600}[m.group(2)] if m else None
+    if seconds is None or not 60 <= seconds <= 3600:
+        return 300, problem("pr.settle", f"{setting_text(pr, 'settle')} must be a duration of 1m to 1h written as <number>s, <number>m or <number>h")
+    return seconds, None
+
+
+def reviewer_config_bytes(reviewers):
+    """The canonical bytes of a reviewer-config file: sorted keys, compact, UTF-8, reviewers by login, no `request`."""
+    entries = [{"login": l, "role": r["role"], "timeout": r["timeout"], "report": r["report"]} for l, r in sorted(reviewers.items())]
+    obj = {"format": 1, "reviewers": entries}
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8", errors="replace")
+
+
+def write_reviewer_config(reviewers):
+    """Write the set as a content-addressed file: (path or None, sha256 hex of its bytes, problem or None). The file lives in
+    <state dir>/reviewers/<digest>.json, else under the system temp dir; an existing file of that name with the same bytes is
+    reused. The location never stops the caller: with no writable place the path is None."""
+    data = reviewer_config_bytes(reviewers)
+    digest = hashlib.sha256(data).hexdigest()
+    why = problem("reviewer config", f"{len(data)} bytes is over the {MAX_CONFIG_BYTES // 1024} KB limit") if len(data) >= MAX_CONFIG_BYTES else None
+    state = Path(os.environ.get("SPECWRIGHT_STATE_DIR") or str(Path.home() / ".cache" / "specwright"))
+    for base in (state, Path(tempfile.gettempdir()) / "specwright"):
+        target = base / "reviewers" / f"{digest}.json"
+        tmp = None
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_file() and target.read_bytes() == data:
+                return norm(target), digest, why
+            fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp-", suffix=".json")
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp, target)
+            return norm(target), digest, why
+        except OSError:
+            if tmp:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
+            with contextlib.suppress(OSError):  # a concurrent writer of the same rules may have won the rename
+                if target.read_bytes() == data:
+                    return norm(target), digest, why
+    return None, digest, why
+
+
+def repo_ctx(s, d, which, problems=None):
     g, pr, ps = s.get("github") or {}, s.get("pr") or {}, s.get("planning_store") or {}
     rr = g.get("review_request") or {}
     c = {"dir": norm(d), "review_request": {"body": str(rr.get("body") or ""), "login": str(rr.get("login") or ""),
@@ -854,13 +960,16 @@ def repo_ctx(s, d, which):
         c["main"] = str(ps.get("main_branch") or detect_main(d))
         c["validate"] = str(ps.get("validate") or "")
         own = ps.get("reviewers")
-        c["reviewers"] = reviewers_of(own if isinstance(own, dict) else pr.get("reviewers"))
+        if isinstance(own, dict):
+            c["reviewers"] = reviewers_of(own, problems, "planning_store.reviewers")
+        else:
+            c["reviewers"] = reviewers_of(pr.get("reviewers"), problems)
         c["requests_disabled"] = isinstance(own, dict) and not own
     else:
         c["login"] = str(g.get("login") or "")
         c["main"] = str(s.get("main_branch") or detect_main(d))
         c["validate"] = str(pr.get("validate") or "")
-        c["reviewers"] = reviewers_of(pr.get("reviewers"))
+        c["reviewers"] = reviewers_of(pr.get("reviewers"), problems)
         c["requests_disabled"] = False
     ready = any(r["role"] == "required" for r in c["reviewers"].values())
     c["merge_ready"], c["merge_reason"] = ready, None if ready else "no_required_reviewer"
@@ -898,13 +1007,17 @@ def merge_options(pr):
     return method, delete
 
 
-def contexts(code, store, check_merge=True):
+def contexts(code, store, check_merge=True, problems=None):
+    """Both repos' contexts. `problems` (a list) collects what the settings get wrong in the reviewer sets and pr.settle."""
     s = load_settings(code)
     pr = s.get("pr") or {}
-    out = {"code": repo_ctx(s, code, "code"), "store": repo_ctx(s, store, "store") if store else None,
+    settle, bad = settle_of(pr)
+    if bad and problems is not None:
+        problems.append(bad)
+    out = {"code": repo_ctx(s, code, "code", problems), "store": repo_ctx(s, store, "store", problems) if store else None,
            "finish": str(s.get("finish") or ""), "max_fix_rounds": int(pr.get("max_fix_rounds") if isinstance(pr.get("max_fix_rounds"), int) else 2),
            "after_limit": str(pr.get("after_limit") or "ask"), "react": bool(pr.get("react")),
-           "poll_interval": duration(pr.get("poll_interval"), 300)}
+           "poll_interval": duration(pr.get("poll_interval"), 300), "settle": settle}
     out["merge"], note = merge_mode(pr)
     if note:
         out["merge_note"] = note
@@ -1116,14 +1229,24 @@ def cmd_context(argv):
             usage("with vcs: gitbutler, context for the merge settings needs --branch <branch>")
         if a.get("branch"):
             settings_pinned(a["code"], pin_ref(a["code"], a["branch"], after_merge), a["branch"], after_merge)
-    c = contexts(a["code"], a.get("store"), check_merge=a.get("only") != "repos")
+    text = settings_text(a["code"])
+    problems = []
+    strict = yaml_problem(text) if text is not None else None
+    c = contexts(a["code"], a.get("store"), check_merge=a.get("only") != "repos", problems=problems)
     for k, d in (("code", a["code"]), ("store", a.get("store"))):
         if c[k] is not None:
             try:
                 c[k]["repo"] = identity(d)["repo"]
             except Stop:
                 c[k]["repo"] = None
-    return {"ok": True, **c}
+            c[k]["reviewer_config"], _, big = write_reviewer_config(c[k]["reviewers"])
+            if big:
+                problems.append(big)
+    out = {"ok": True, **c}
+    first = strict or (problem_text(problems[0]) if problems else None)  # the first problem found, not exit 1: the lenient read went on
+    if first:
+        out["settings_problem"] = first
+    return out
 
 
 def cmd_tier(argv):
@@ -1544,8 +1667,11 @@ def cmd_link(argv):
     return {"ok": True, "action": action, "comment_id": cid}
 
 
-def readiness(s, dropped):
-    """The existing readiness test of SKILL.md watch step 3, minus 'no new activity for one full wait'."""
+def readiness(s, dropped, carry_over=False):
+    """The readiness test of SKILL.md watch step 3, minus 'no new activity for one full wait'. `merge_state` UNSTABLE
+    passes when no check fails and `checks.ci_pending` is 0 (a reviewer's own check may still run). `carry_over` is an
+    archive head whose reviewers' reports carry over from the ready head before it (watch, archive_only true): its
+    reviewers' states and their checks do not count, only CI (`ci_pending`), mergeability and feedback."""
     if s is None:
         return False, ["no_snapshot"], False
     b = []
@@ -1557,17 +1683,18 @@ def readiness(s, dropped):
         b.append("not_open")
     if s.get("mergeable") != "MERGEABLE":
         b.append("not_mergeable")
-    if s.get("merge_state") != "CLEAN":
-        b.append(f"merge_state:{s.get('merge_state')}")
     ck = s.get("checks") or {}
-    if ck.get("pending"):
+    ci_done = ck.get("ci_pending") == 0 and not ck.get("failing")
+    if not (s.get("merge_state") == "CLEAN" or (s.get("merge_state") == "UNSTABLE" and ci_done)):
+        b.append(f"merge_state:{s.get('merge_state')}")
+    if (ck.get("ci_pending") if carry_over else ck.get("pending")):
         b.append("checks_pending")
     if ck.get("failing"):
         b.append("checks_failing")
     for kind in ("threads", "comments", "reviews"):
         if [i for i in s.get(kind) or [] if f"{i.get('id')}@{i.get('rev')}" not in dropped]:
             b.append(kind)
-    for r in s.get("reviewers") or []:
+    for r in ([] if carry_over else s.get("reviewers") or []):
         if r.get("role", "required") == "required" and r.get("state") != "reported":
             b.append(f"reviewer:{r.get('login')}:{r.get('state')}")
         elif r.get("role") == "advisory" and r.get("state") == "waiting":
@@ -1607,8 +1734,12 @@ def snapshot_refresh(s, pr):
 
 
 def cmd_pair_state(argv):
-    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch", "--snapshot": "+snapshot", "--dropped": "+dropped"})
+    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch", "--snapshot": "+snapshot", "--dropped": "+dropped",
+                             "--carry-over": "+carry"})
     need(a, "code", "store", "branch")
+    carry = set(a.get("carry", []))
+    if carry - {"code", "store"}:
+        usage("--carry-over is code or store: the side whose archive head carries its reviewers' reports over")
     e = expected_set(a["code"], a["store"], a["branch"])
     snaps, dropped = read_snapshots(a), set(a.get("dropped", []))
     members = e["set"]
@@ -1631,7 +1762,7 @@ def cmd_pair_state(argv):
     if ended:
         return {**r, "action": "cleanup", "stop_waits": True}
     for k in members:
-        ok, blockers, stale_only = readiness(snaps.get(k), dropped)
+        ok, blockers, stale_only = readiness(snaps.get(k), dropped, k in carry)
         stale = snapshot_refresh(snaps[k], e[k]["pr"]) if snaps.get(k) is not None else None
         if stale:
             ok, blockers, stale_only = False, [stale] + blockers, False
@@ -2660,16 +2791,17 @@ def policy_side(s, with_store):
     pr = sect(s, "pr")
     merge, note = merge_mode(pr)
     method, delete = pr.get("merge_method"), pr.get("delete_branch")
-    raw, invalid = pr.get("reviewers"), []
+    raw, invalid, probs = pr.get("reviewers"), [], []
     if raw is not None and not isinstance(raw, dict):  # a string or a list: no reviewers, so it authorizes nothing
         invalid.append({"key": "pr.reviewers", "value": setting_text(pr, "reviewers")})
         raw = None
     side = {"pr.merge": merge, "pr.merge_method": "merge" if method is None else method,
-            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(raw)}
+            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(raw, probs)}
     if with_store:
         own = sect(s, "planning_store").get("reviewers")
-        side["planning_store.reviewers"] = reviewers_of(own) if isinstance(own, dict) else None  # None: the store inherits pr.reviewers
-    return side, note, pr, invalid
+        side["planning_store.reviewers"] = (  # None: the store inherits pr.reviewers
+            reviewers_of(own, probs, "planning_store.reviewers") if isinstance(own, dict) else None)
+    return side, note, pr, invalid, probs
 
 
 def same_setting(a, b):
@@ -2687,9 +2819,9 @@ def same_commit(a, b):
     return bool(re.fullmatch(r"[0-9a-f]{7,40}", a) and re.fullmatch(r"[0-9a-f]{7,40}", b)) and (a.startswith(b) or b.startswith(a))
 
 
-def reported_check(snapshot, reviewed, reviewers):
-    """Whether the snapshot is of the reviewed head and every required reviewer of the authorizing set reported in it.
-    A set with no required reviewer authorizes nothing: not ok."""
+def reported_check(snapshot, reviewed, reviewers, digest):
+    """Whether the snapshot is of the reviewed head, ran with the rules of this set (its `reviewer_config` digest equals the
+    set's) and every required reviewer of the set reported in it. A set with no required reviewer authorizes nothing: not ok."""
     got = snapshot.get("head_oid") if isinstance(snapshot, dict) else None
     mismatch = not same_commit(got, reviewed)
     state = {}
@@ -2699,8 +2831,9 @@ def reported_check(snapshot, reviewed, reviewers):
             state[login] = state.get(login, False) or r.get("state") == "reported"
     required = [l for l, r in reviewers.items() if r["role"] == "required"]
     missing = [l for l in required if not state.get(l.lower())]
-    return {"ok": bool(required) and not missing and not mismatch, "missing": missing, "head_mismatch": mismatch,
-            "snapshot_head": got, "reviewed_head": reviewed}
+    rules = not (isinstance(snapshot, dict) and snapshot.get("reviewer_config") == digest)
+    return {"ok": bool(required) and not missing and not mismatch and not rules, "missing": missing, "head_mismatch": mismatch,
+            "rules_mismatch": rules, "snapshot_head": got, "reviewed_head": reviewed}
 
 
 def cmd_policy(argv):
@@ -2741,11 +2874,16 @@ def cmd_policy(argv):
     head_s = policy_file(repo, head)
     if head_s is None:
         policy_unknown(f"no openspec/specwright.yaml readable at {head}")
-    main, note, main_pr, main_bad = policy_side(main_s, with_store)
-    head_side, _, _, head_bad = policy_side(head_s, with_store)
+    main, note, main_pr, main_bad, main_probs = policy_side(main_s, with_store)
+    head_side, _, _, head_bad, head_probs = policy_side(head_s, with_store)
+    settle_bad = settle_of(main_pr)[1]  # main's policy: a bad value stops here, a bad head value is only the head's
+    for bad in ([settle_bad] if settle_bad else []) + main_probs:
+        raise Stop(bad["error"], problem_text(bad), code=2)
     drift = [{"key": k, "main": main[k], "head": head_side[k]} for k in main if not same_setting(main[k], head_side[k])]
     out = {"ok": True, "repo": repo, "default_branch": default, "main": main, "head": head_side, "drift": drift,
-           "invalid": [dict(side=w, **b) for w, bad in (("main", main_bad), ("head", head_bad)) for b in bad],
+           "invalid": [dict(side=w, **b) for w, bad in (("main", main_bad), ("head", head_bad)) for b in bad]
+           + [{"side": "head", "key": b["key"], "value": b["error"] if b["error"] == "too_many_reviewers" else b["why"]}
+              for b in head_probs],
            "merge": main["pr.merge"], "merge_method": "merge", "delete_branch": True}
     if out["merge"] == "agent":  # only the agent merge reads them, as context does; a bad value on main stops here
         out["merge_method"], out["delete_branch"] = merge_options(main_pr)
@@ -2754,14 +2892,21 @@ def cmd_policy(argv):
         own = main["planning_store.reviewers"]
         ready["store"] = ready["code"] if own is None else has_required(own)
     out["merge_ready"] = ready
-    out["reported"], out["reviewer_args"] = {}, {}
+    out["reported"], out["reviewer_config"] = {}, {}
     for which, side in (("main", main), ("head", head_side)):
         sets = {"code": side["pr.reviewers"]}
         if with_store:
             own = side["planning_store.reviewers"]
             sets["store"] = side["pr.reviewers"] if own is None else own
-        out["reported"][which] = {k: reported_check(snaps[k], reviewed[k], v) for k, v in sets.items()}
-        out["reviewer_args"][which] = {k: [f"{l}:{r['role']}:{r['timeout']}" for l, r in v.items()] for k, v in sets.items()}
+        out["reported"][which], out["reviewer_config"][which] = {}, {}
+        for k, v in sets.items():
+            path, digest, big = write_reviewer_config(v)
+            if big and which == "main":
+                raise Stop("bad_setting", problem_text(big), code=2)
+            if big:
+                out["invalid"].append({"side": "head", "key": big["key"], "value": big["why"]})
+            out["reviewer_config"][which][k] = path
+            out["reported"][which][k] = reported_check(snaps[k], reviewed[k], v, digest)
     out["merge_reason"] = {k: None if v else "no_required_reviewer" for k, v in ready.items()}
     if note:
         out["merge_note"] = note

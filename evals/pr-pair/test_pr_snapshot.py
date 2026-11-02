@@ -7,11 +7,13 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
 import snapfix
-from snapfix import SnapCase, T0
+from snapfix import SnapCase, T0, rev
 import bashexe  # noqa: E402
 
 
@@ -52,10 +54,10 @@ class Smoke(SnapCase):
     def test_reviewer_state_uses_the_fake_date_header(self):
         self.add_activity("a" * 40, T0)
         self.advance(30)
-        snap = self.snapshot("--reviewer", "slowbot:required:60")
+        snap = self.snapshot(*self.cfg(rev("slowbot", timeout=60)))
         self.assertEqual(snap["reviewers"][0]["state"], "waiting")
         self.advance(40)
-        snap = self.snapshot("--reviewer", "slowbot:required:60")
+        snap = self.snapshot(*self.cfg(rev("slowbot", timeout=60)))
         self.assertEqual((snap["reviewers"][0]["state"], snap["head_pushed_at"]), ("timed_out", T0))
 
     def test_reply_posts_a_marked_reply_and_resolves(self):
@@ -198,8 +200,10 @@ class MarkerBinding(SnapCase):
 
 
 A, B = "a" * 40, "b" * 40
-MIRA = "kintsugimira"
-WALK = "<!-- mira-walkthrough -->\nWalkthrough: looks fine"
+MARK = "markbot"  # a reviewer with a marker rule: one comment, edited in place
+MARKER = "<!-- walkthrough -->"
+WALK = f"{MARKER}\nWalkthrough: looks fine"
+SHA_PATTERN = "Reviewed commit:\\*\\* `([0-9a-f]{7,40})`"
 D = "2026-10-10T"
 
 
@@ -213,34 +217,37 @@ class HeadCutoff(SnapCase):
         return {r["login"]: r["state"] for r in snap["reviewers"]}
 
     def both(self, timeout=3600):
-        return ["--reviewer", f"{MIRA}:required:{timeout}", "--reviewer", f"genrev:required:{timeout}"]
+        """A marker reviewer and a reviewer with no report rule."""
+        return self.cfg(rev(MARK, timeout=timeout, marker=MARKER), rev("genrev", timeout=timeout))
 
     def test_snapshot_cutoff_uses_push_time(self):
         self.head_b()
         self.add_activity(B, f"{D}11:00:00Z")
-        self.add_comment(MIRA, WALK, at=f"{D}11:30:00Z")
+        c = self.add_comment(MARK, WALK, at=f"{D}10:00:00Z")  # posted for the old head, edited in place after the push
+        self.edit(c["node_id"], WALK + " (B)", at=f"{D}11:30:00Z")
         self.set_clock(f"{D}12:00:00Z")
-        snap = self.snapshot("--reviewer", f"{MIRA}:required:3600")
-        self.assertEqual(self.revs(snap), {MIRA: "reported"})
+        snap = self.snapshot(*self.cfg(rev(MARK, marker=MARKER)))
+        self.assertEqual(self.revs(snap), {MARK: "reported"})
+        self.assertEqual(snap["reviewers"][0]["by"], "marker")
         self.assertEqual(snap["head_cutoff"], {"source": "push", "at": f"{D}11:00:00Z"})
 
     def test_snapshot_rejects_previous_head_reports_without_push_activity(self):
         self.head_b()
-        self.add_comment(MIRA, WALK, at=f"{D}10:00:00Z")
+        self.add_comment(MARK, WALK, at=f"{D}10:00:00Z")
         self.add_comment("genrev", "looks good", at=f"{D}10:00:00Z")
         self.set_clock(f"{D}12:00:00Z")
         snap = self.snapshot(*self.both())
-        self.assertEqual(self.revs(snap), {MIRA: "waiting", "genrev": "waiting"})
+        self.assertEqual(self.revs(snap), {MARK: "waiting", "genrev": "waiting"})
         self.assertEqual(snap["head_cutoff"], {"source": "first_seen", "at": f"{D}12:00:00Z"})
 
     def test_snapshot_counts_report_after_first_seen(self):
         self.head_b()
         self.set_clock(f"{D}12:00:00Z")
-        self.assertEqual(self.revs(self.snapshot(*self.both())), {MIRA: "waiting", "genrev": "waiting"})
+        self.assertEqual(self.revs(self.snapshot(*self.both())), {MARK: "waiting", "genrev": "waiting"})
         self.add_comment("genrev", "looks good", at=f"{D}12:10:00Z")
         self.set_clock(f"{D}12:10:00Z")
         snap = self.snapshot(*self.both())
-        self.assertEqual(self.revs(snap), {MIRA: "waiting", "genrev": "reported"})
+        self.assertEqual(self.revs(snap), {MARK: "waiting", "genrev": "reported"})
         self.assertEqual(snap["head_cutoff"], {"source": "first_seen", "at": f"{D}12:00:00Z"})
 
     def test_snapshot_first_seen_persists_across_processes(self):
@@ -252,7 +259,7 @@ class HeadCutoff(SnapCase):
         snap = self.snapshot(*self.both(1800))  # a new process, 40 minutes later
         self.assertEqual(snap["head_cutoff"], {"source": "first_seen", "at": f"{D}12:00:00Z"})
         # 12:00 is the cutoff (the 12:20 comment counts) and the timeout start (30 minutes are over)
-        self.assertEqual(self.revs(snap), {MIRA: "timed_out", "genrev": "reported"})
+        self.assertEqual(self.revs(snap), {MARK: "timed_out", "genrev": "reported"})
         rec = self.state_dir / "heads" / "o" / "n" / "7" / B
         self.assertTrue(rec.is_file(), "the record is <state>/heads/<owner>/<name>/<pr>/<oid>")
         self.assertEqual([p.name for p in rec.parent.iterdir()], [B], "no temp file is left behind")
@@ -271,7 +278,16 @@ class HeadCutoff(SnapCase):
         self.head_b()
         self.state_dir.write_text("a file, not a directory")
         snap = self.snapshot()
-        self.assertEqual((snap["head_cutoff"], snap["reviewers"]), (None, []))
+        self.assertEqual(snap["reviewers"], [])
+        self.assertEqual(snap["head_cutoff"]["source"], "first_seen_unsaved")
+
+    def test_snapshot_without_reviewers_still_has_the_head_cutoff(self):
+        """The archive-head rule times pr.settle from head_cutoff.at, also for a project with no reviewers."""
+        self.head_b()
+        self.add_activity(B, f"{D}11:00:00Z")
+        self.set_clock(f"{D}12:00:00Z")
+        snap = self.snapshot()
+        self.assertEqual((snap["reviewers"], snap["head_cutoff"]), ([], {"source": "push", "at": f"{D}11:00:00Z"}))
 
     def test_snapshot_removes_sibling_heads_once_the_record_is_published(self):
         d = self.state_dir / "heads" / "o" / "n" / "7"
@@ -296,16 +312,92 @@ class HeadCutoff(SnapCase):
                     d.mkdir(parents=True)
                     (d / B).write_text("not a date\n")
                 snap = self.snapshot(*self.both())
-                self.assertEqual(self.revs(snap), {MIRA: "waiting", "genrev": "waiting"})
+                self.assertEqual(self.revs(snap), {MARK: "waiting", "genrev": "waiting"})
                 self.assertEqual(snap["head_cutoff"], {"source": "first_seen_unsaved", "at": f"{D}12:00:00Z"})
 
-    def test_snapshot_codex_sha_counts_without_push_activity(self):
+    def test_snapshot_sha_pattern_counts_without_push_activity(self):
         self.head_b()
-        self.add_comment("chatgpt-codex-connector[bot]", f"**Reviewed commit:** `{B[:10]}`\nNo findings", at=f"{D}10:30:00Z")
+        self.add_comment("shabot[bot]", f"**Reviewed commit:** `{B[:10]}`\nNo findings", at=f"{D}10:30:00Z")
         self.set_clock(f"{D}12:00:00Z")
-        snap = self.snapshot("--reviewer", "chatgpt-codex-connector:required:3600")
-        self.assertEqual(self.revs(snap), {"chatgpt-codex-connector": "reported"})
+        snap = self.snapshot(*self.cfg(rev("shabot", sha_pattern=SHA_PATTERN)))
+        self.assertEqual(self.revs(snap), {"shabot": "reported"})
+        self.assertEqual(snap["reviewers"][0]["by"], "sha_pattern")
         self.assertEqual(snap["head_cutoff"]["source"], "first_seen")
+
+
+class ReviewerConfig(SnapCase):
+    """--reviewer-config FILE: validated before any gh call; the evaluator (reviewers.py) decides, the script names no bot."""
+
+    def refuse(self, *args, names=()):
+        r = self.snapshot_run(*args)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "", "no snapshot printed")
+        for n in names:
+            self.assertIn(n, r.stderr)
+        self.assertEqual(self.gh_calls(), [], "no gh call")
+
+    def raw_config(self, reviewer, name="bad.json"):
+        doc = {"format": 1, "reviewers": [reviewer]}
+        path = self.tmp / name
+        path.write_text(json.dumps(doc, sort_keys=True, separators=(",", ":")), encoding="utf-8", newline="\n")
+        return snapfix.fixtures.posix(path)
+
+    def test_bad_pattern_exits_2_without_gh(self):
+        path = self.raw_config(rev("badbot", sha_pattern="([0-9a-f"))
+        self.refuse("--reviewer-config", path, names=("badbot", "sha_pattern"))
+
+    def test_unknown_report_key_exits_2_without_gh(self):
+        path = self.raw_config(rev("keybot", checks="Bot Code Review"))
+        self.refuse("--reviewer-config", path, names=("keybot", "checks"))
+
+    def test_reviewer_flag_exits_2_naming_reviewer_config(self):
+        self.refuse("--reviewer", "some-bot:required:1200", names=("--reviewer-config",))
+
+    def test_missing_reviewer_config_exits_2_without_gh(self):
+        self.refuse("--reviewer-config", snapfix.fixtures.posix(self.tmp / "nope.json"), names=("nope.json",))
+
+    def test_snapshot_applies_config_check_rule(self):
+        self.set_checks([run("tests"), run("Bot Code Review", app="checkbot"),
+                         run("Other Review", state="IN_PROGRESS", app="quietbot")])
+        snap = self.snapshot(*self.cfg(rev("checkbot", check="Bot Code Review"), rev("quietbot", check="Other Review")))
+        by = {r["login"]: r for r in snap["reviewers"]}
+        self.assertEqual(sorted(by), ["checkbot", "quietbot"], "only config reviewers appear")
+        self.assertEqual((by["checkbot"]["state"], by["checkbot"]["by"]), ("reported", "check"))
+        self.assertEqual((by["quietbot"]["state"], by["quietbot"]["by"]), ("waiting", None))
+        self.assertEqual(snap["checks"], {"total": 3, "pending": 1, "advisory_pending": 0, "ci_pending": 0, "failing": []})
+        self.assertRegex(snap["reviewer_config"], "^[0-9a-f]{64}$")
+        self.assertEqual(snap["now"], T0)
+        self.assertEqual(by["checkbot"]["evidence"][0]["kind"], "check")
+
+    def test_snapshot_without_a_config_has_no_reviewers(self):
+        self.set_checks([run("tests", state="IN_PROGRESS")])
+        snap = self.snapshot()
+        self.assertEqual((snap["reviewers"], snap["reviewer_config"]), ([], None))
+        self.assertEqual(snap["checks"]["ci_pending"], 1)
+
+    def test_snapshot_with_fallback_config_reports_reviewers(self):
+        # pr-pair.sh writes the config under the system temp dir when its state dir is unwritable; the snapshot reads it
+        # from there while its own state dir is unwritable too
+        self.head_b()
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(snapfix.fixtures.rmtree, d)
+        path = self.write_config(rev("shabot", sha_pattern=SHA_PATTERN), rev("genrev"), where=d)
+        self.state_dir.write_text("a file, not a directory")
+        self.add_activity(B, f"{D}11:00:00Z")
+        self.add_comment("shabot", f"**Reviewed commit:** `{B}`", at=f"{D}12:00:00Z")
+        self.add_comment("genrev", "looks good", at=f"{D}12:05:00Z")
+        self.set_clock(f"{D}12:10:00Z")
+        snap = self.snapshot("--reviewer-config", path)
+        self.assertEqual({r["login"]: r["state"] for r in snap["reviewers"]}, {"genrev": "reported", "shabot": "reported"})
+
+    def test_material_temp_file_is_removed(self):
+        scratch = self.tmp / "scratch"
+        scratch.mkdir()
+        self.snapshot(*self.cfg(rev("genrev")), env={"TMPDIR": snapfix.fixtures.posix(scratch)})
+        self.assertEqual(list(scratch.iterdir()), [])
+
+    def head_b(self):
+        self.set_head(B, f"{D}09:00:00Z")
 
 
 class WaitUnwritable(SnapCase):
@@ -341,8 +433,8 @@ class WaitUnwritable(SnapCase):
 
     def wait(self, events=()):
         env = {"FAKE_SLEEP_STEP": str(self.STEP), "FAKE_SLEEP_EVENTS": json.dumps(list(events))}
-        r = self.snapshot_run("--wait", "--interval", "1", "--timeout", "7200", "--reviewer", "genrev:required:3600",
-                              "--reviewer", "silent:required:1200", env=env)
+        r = self.snapshot_run("--wait", "--interval", "1", "--timeout", "7200",
+                              *self.cfg(rev("genrev"), rev("silent", timeout=1200)), env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout.strip().splitlines()[-1])
         return out, {x["login"]: x["state"] for x in out["snapshot"]["reviewers"]}
@@ -694,10 +786,14 @@ class WatchElapsed(SnapCase):
         self.assertLess(took, 90, "woke at once, not at the timeout")
 
 
-def run(name, state="COMPLETED", conclusion="SUCCESS"):
-    """A raw CheckRun node for the fake's statusCheckRollup (state IN_PROGRESS has no conclusion)."""
-    return {"__typename": "CheckRun", "name": name, "status": state,
+def run(name, state="COMPLETED", conclusion="SUCCESS", app=None):
+    """A raw CheckRun node for the fake's statusCheckRollup (state IN_PROGRESS has no conclusion); `app` is the slug of
+    the GitHub App that made it."""
+    node = {"__typename": "CheckRun", "name": name, "status": state,
             "conclusion": None if state != "COMPLETED" else conclusion}
+    if app is not None:
+        node["checkSuite"] = {"app": {"slug": app}}
+    return node
 
 
 PASS, PEND, FAIL = {}, {"state": "IN_PROGRESS"}, {"conclusion": "FAILURE"}
@@ -784,6 +880,44 @@ class TestUntilAttention(SnapCase):
         self.assertEqual(doc["wake"], "timeout")
         self.assertGreaterEqual(doc["filtered"], 1)
 
+    def test_ci_done_wakes_while_reviewer_check_pending(self):
+        # the last CI check passes while a reviewer's own check still runs: nothing but that check is pending, so wake
+        doc = self.wait(checks(a=PEND, bot=PEND), [{"checks": checks(a=PASS, bot=PEND)}],
+                        *self.cfg(rev("checkbot", check="bot")))
+        self.assertEqual((doc["wake"], doc["filtered"]), ("changed", 0))
+        self.assertEqual(doc["snapshot"]["checks"]["ci_pending"], 0)
+        self.assertEqual(doc["snapshot"]["checks"]["pending"], 1)
+
+    def test_reviewer_check_progress_alone_wakes(self):
+        # no CI check pending; the reviewer's check is the only difference from the baseline
+        doc = self.wait(checks(a=PASS, bot=PEND), [{"checks": checks(a=PASS, bot=PASS)}],
+                        *self.cfg(rev("checkbot", check="bot")))
+        self.assertEqual((doc["wake"], doc["filtered"]), ("changed", 0))
+        self.assertEqual([r["state"] for r in doc["snapshot"]["reviewers"]], ["reported"])
+
+    def test_ci_progress_with_a_reviewer_config_is_filtered(self):
+        doc = self.wait(checks(a=PEND, b=PEND, bot=PEND), [{"checks": checks(a=PASS, b=PEND, bot=PEND)}],
+                        *self.cfg(rev("checkbot", check="bot")), timeout=12)
+        self.assertEqual(doc["wake"], "timeout")
+        self.assertGreaterEqual(doc["filtered"], 1)
+
+    def test_wake_works_on_compact_evaluator_output(self):
+        r_args = self.cfg(rev("checkbot", check="bot"))
+        self.set_checks(checks(a=PEND, bot=PEND))
+        r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", 120, *r_args,
+                              env={"FAKE_STEPS": json.dumps([{"comment": ["rev", "please change this"]}])})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line = r.stdout.strip().splitlines()[-1]
+        self.assertNotIn('": ', line, "compact JSON, no spaces after the colons")
+        doc = json.loads(line)
+        self.assertEqual(doc["wake"], "changed")
+        snap = doc["snapshot"]
+        self.assertEqual(len(snap["comments"]), 1)
+        self.assertRegex(snap["reviewer_config"], "^[0-9a-f]{64}$")
+        self.assertEqual(set(snap["checks"]), {"total", "pending", "advisory_pending", "ci_pending", "failing"})
+        self.assertTrue({"reviewers", "now", "reviewer_config", "sig", "attn"} <= set(snap))
+        self.assertEqual(line.count('"sig":"'), 1)
+
     def test_without_until_a_check_passing_wakes(self):
         self.set_checks(checks(a=PEND, b=PEND))
         r = self.snapshot_run("--wait", "--interval", "1", "--timeout", 120,
@@ -825,10 +959,10 @@ class LookupLimits(SnapCase):
         self.assertEqual([p for p in heads.rglob("*") if p.is_file()] if heads.exists() else [], [], "no first_seen record")
 
     def test_activity_lookup_limit_fails_the_snapshot(self):
-        self.assert_failed(self.hung("activity", "--reviewer", f"{MIRA}:required:3600"), "gh api")
+        self.assert_failed(self.hung("activity", *self.cfg(rev(MARK, marker=MARKER))), "gh api")
 
     def test_clock_lookup_limit_fails_the_snapshot(self):
-        self.assert_failed(self.hung("rate_limit", "--reviewer", f"{MIRA}:required:3600"), "gh api")
+        self.assert_failed(self.hung("rate_limit", *self.cfg(rev(MARK, marker=MARKER))), "gh api")
 
     def test_clock_lookup_limit_fails_a_snapshot_without_reviewers(self):
         self.assert_failed(self.hung("rate_limit"), "gh api")
