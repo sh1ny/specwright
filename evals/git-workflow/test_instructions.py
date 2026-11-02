@@ -2352,6 +2352,12 @@ class Packs(unittest.TestCase):
         s3 = self.s(3)
         self.assertRegex(s3, r"(?is)without (the )?`--pack` and `--pack-doc`", "Step 3's interface check passes the pack options")
 
+    def test_readme_step5_pack_lines_follow_the_copy_too(self):
+        # a project with no config.yaml gets the template copied; its pack lines must still be merged, or pack-verify fails
+        raw = step(read(README), "Step 5")
+        self.assertRegex(raw, r"(?m)^- Pack lines, after the copy or the merge above",
+                         "Step 5 merges pack lines only under 'Otherwise' (an existing config.yaml)")
+
     def test_readme_step2_packs_need_in_repo_skills(self):
         s2 = self.s(2)
         self.assertRegex(s2, r"(?is)`packs:`.{0,200}in-repo skills directories.{0,200}`packs_user_level`", "Step 2 does not state the in-repo rule")

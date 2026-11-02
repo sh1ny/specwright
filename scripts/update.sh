@@ -619,7 +619,7 @@ recover_rollback() {
     IFS='|' read -r gid name type dir staging state inst <<< "$l"
     [ "$gid" != schema ] || sstaging=$staging
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
-    if [ -e "$old" ]; then  # the old copy was moved aside: put it back, dropping a new copy that was swapped in
+    if [ -e "$old" ] || [ -L "$old" ]; then  # the old copy was moved aside (a relative symlink may dangle there): put it back, dropping a new copy that was swapped in
       if [ -e "$tgt" ]; then rm -rf "$tgt" || die rename_failed "could not remove $tgt"; fi
       mkdir -p "$dir"
       mv "$old" "$tgt" || die rename_failed "could not move $old back to $tgt (a directory held open by another program?)"
@@ -794,7 +794,7 @@ swap_loop() {  # the renames of every target, from the journal in JL and the dis
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
     if [ "$type" = remove ]; then  # a pack's skill that is no longer enabled: target -> old/<name>, nothing put back
       if [ -e "$tgt" ] || [ -L "$tgt" ]; then
-        [ ! -e "$old" ] || die inconsistent "$name: $tgt and $old both exist"
+        { [ ! -e "$old" ] && [ ! -L "$old" ]; } || die inconsistent "$name: $tgt and $old both exist"
         jwrite_target "$gid" "$name" old-moved
         case "$made" in *" $staging/old "*) ;; *) mkdir -p "$staging/old"; made="$made$staging/old " ;; esac
         mv "$tgt" "$old" || die rename_failed "could not move $tgt to $old (a directory held open by another program?)"
@@ -808,7 +808,7 @@ swap_loop() {  # the renames of every target, from the journal in JL and the dis
       continue
     fi
     if [ -e "$tgt" ]; then
-      [ ! -e "$old" ] || die inconsistent "$name: $tgt, $new and $old all exist"
+      { [ ! -e "$old" ] && [ ! -L "$old" ]; } || die inconsistent "$name: $tgt, $new and $old all exist"
       jwrite_target "$gid" "$name" old-moved
       case "$made" in *" $staging/old "*) ;; *) mkdir -p "$staging/old"; made="$made$staging/old " ;; esac
       mv "$tgt" "$old" || die rename_failed "could not move $tgt to $old (a directory held open by another program?)"
@@ -2577,7 +2577,7 @@ def pack_plan(o, role, refusals):
                     refusals.append({"code": "pack_requires", "pack": n, "requires": r, "message": (
                         f"{n} requires {r}, which packs: does not enable; enable {r} too (it is never enabled on its own), "
                         f"or remove {n}. Nothing was written")})
-        pk["ok"] = len(refusals) == start
+        pk["ok"] = len(refusals) == start and packs is not None  # no schema: build_groups refuses it as download_incomplete
         if pk["ok"]:
             pk["manifests"] = manifests
             pk["order"] = install_order(set(want), {n: m.get("requires", []) for n, m in manifests.items()})
@@ -2651,11 +2651,13 @@ def pack_skill_items(o, g, pk, refusals, orphans):
             if (d / s).is_dir():
                 orphans.append({"group": g["id"], "dir": g["dir"], "name": s})
     enabled = set(o["pack"])
+    if not within(g["dir"], code_top(o)):  # packs install only inside the checkout, so nothing of theirs is outside it
+        return
     for pn in sorted(rec):
         if pn in enabled:
             continue
-        for s in rec[pn]["skills"]:
-            if s not in shipped and ((d / s).exists() or (d / s).is_symlink()):
+        for s in rec[pn]["skills"]:  # only a skill named like its pack: an edited record cannot name an unrelated skill
+            if s not in shipped and s.startswith(pn + "-") and ((d / s).exists() or (d / s).is_symlink()):
                 add_item(g, s, "remove", None, pn)
 
 
@@ -2835,13 +2837,31 @@ def cmd_pack_docs(o, pos):
     for n, did, path, tpl in work:
         target, status = top / path, "kept"
         if not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
+            # the whole document goes to a temporary file first and is then linked into place, so a failure or an
+            # interruption never leaves a partial document that a rerun would keep; the link never replaces a document
+            # made since the check
+            tmp = target.parent / f".{target.name}.pack-docs-{os.getpid()}.tmp"
             try:
-                with open(target, "xb") as f:  # exclusive: a document made since the check is never overwritten
-                    f.write(tpl.read_bytes())
+                data = tpl.read_bytes()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with open(tmp, "xb") as f:
+                    f.write(data)
+                if os.name == "nt":
+                    os.rename(tmp, target)  # Windows: a rename never replaces an existing file (FileExistsError)
+                else:
+                    os.link(tmp, target)  # POSIX rename would replace; a hard link fails on an existing file
                 status = "created"
             except FileExistsError:
                 pass
+            except OSError as e:
+                emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "pack_doc_write_failed", "message":
+                      f"document {did} of pack {n}: could not write {path} ({e}). No partial document was left; rerun pack-docs "
+                      "once the cause is fixed", "documents": out}, 1)
+            finally:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
         out.append({"pack": n, "id": did, "path": path, "status": status})
     emit({"ok": True, "interface": INTERFACE, "subcommand": "pack-docs", "documents": out})
 

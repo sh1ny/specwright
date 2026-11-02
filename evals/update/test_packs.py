@@ -10,6 +10,7 @@ and the recovery of a swap killed at a chosen mv (the mechanism of evals/update/
 Run: python -m unittest evals/update/test_packs.py
 """
 import importlib.util
+import os
 import json
 import shutil
 import tempfile
@@ -390,6 +391,34 @@ class TestPackPlan(Base):
         self.assertTrue(dst.is_dir())
         self.assertEqual(fx.snapshot(self.co.code), before)
 
+    def test_missing_schema_with_pack_refused_as_incomplete(self):
+        # a download with no schema.yaml cannot judge a pack: plan refuses it as incomplete instead of crashing
+        self.checkout()
+        self.download()
+        (self.dl / "schemas" / "specwright" / "schema.yaml").unlink()
+        before = fx.snapshot(self.co.code)
+        code, doc = self.plan("--pack", BASE)
+        self.assertEqual(code, 1, doc)
+        self.assertTrue(any("schema.yaml" in r["message"] for r in self.refusals(doc, "download_incomplete")), doc["refusals"])
+        self.assertEqual(doc["packs"], [])
+        self.assertEqual(fx.snapshot(self.co.code), before)
+
+    def test_removal_only_of_own_skills_inside_checkout(self):
+        # a recorded skill is removed only where packs may live (inside the checkout) and only when named like its pack,
+        # so an edited packs.json cannot remove a user-level or unrelated skill
+        self.checkout()
+        self.download()
+        home = self.tmp / "home" / ".claude" / "skills"
+        fx.write(home, f"{BASE_SKILL}/SKILL.md", "# a user-level copy\n")
+        self.co.skills.append(home)
+        fx.write(self.co.skills[0], "my-tool/SKILL.md", "# mine\n")
+        self.put_record(record(**{BASE: [BASE_SKILL, "my-tool"]}))
+        code, doc = self.plan()
+        self.assertEqual(code, 0, doc)
+        removes = sorted((t["group"], t["name"]) for t in doc["targets"] if t.get("type") == "remove")
+        self.assertEqual(removes, [])
+        self.assertTrue((home / BASE_SKILL).is_dir())
+
     def test_recorded_skill_no_longer_shipped_is_orphan(self):
         self.checkout()
         self.download()
@@ -609,6 +638,26 @@ class TestPackInstall(Base):
         self.recover(co2, "rollback")
         self.assertFalse(self.record_file(co2).exists())  # absent before, absent after
         self.assertEqual(self.leftovers(co2), [])
+
+    def test_rollback_restores_removed_skill_symlink(self):
+        # a recorded pack skill that is a relative symlink dangles once moved to old/: the rollback must still put it back
+        co = self.checkout()
+        self.download()
+        shared = co.code / "shared" / BASE_SKILL
+        shutil.copytree(self.dl / "packs" / BASE / "skills" / BASE_SKILL, shared)
+        link = co.skills[0] / BASE_SKILL
+        rel = os.path.relpath(shared, co.skills[0])
+        try:
+            os.symlink(rel, link, target_is_directory=True)
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"no symlinks here: {e}")
+        self.put_record(record(**{BASE: [BASE_SKILL]}))
+        self.swapped(co, *self.packs(WEB))
+        self.assertFalse(os.path.lexists(link))
+        self.recover(co, "rollback")
+        self.assertTrue(link.is_symlink(), "the removed symlink was not restored")
+        self.assertEqual(os.readlink(link), rel)
+        self.assertEqual(self.leftovers(co), [])
 
     def test_removing_pack_removes_skills(self):
         co = self.checkout()

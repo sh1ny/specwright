@@ -311,17 +311,18 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
     each downloaded context line once. Remove any line naming `openspec-git-branch`, `openspec-git-commit` or
     `openspec-git-merge`. Leave every other line alone, including the
     project's own lines that mention Specwright.
-  - Pack lines: remove each line starting `[pack:<name>] ` from `context:`,
-    from every `rules.<artifact>` list and from every
-    `operations.<op>.guidance` list, only for a `<name>` enabled now or in
-    `packs_previous` (never decided from the current `packs.json`). Keep
-    every other `[pack:` line and report it as not managed (enable the pack to
-    have it managed). Then append each enabled pack's lines, prefixed
-    `[pack:<name>] `, in pack order (dependencies first, then by name) and in
-    manifest order. Write each list entry as a double-quoted YAML scalar
-    (escape `"` and backslash): an unquoted entry starting `[` is a YAML flow
-    sequence, and OpenSpec 1.16.0 then drops that artifact's whole rules list.
-    `context:` stays a block scalar.
+- Pack lines, after the copy or the merge above (a copied template has none
+  yet): remove each line starting `[pack:<name>] ` from `context:`,
+  from every `rules.<artifact>` list and from every
+  `operations.<op>.guidance` list, only for a `<name>` enabled now or in
+  `packs_previous` (never decided from the current `packs.json`). Keep
+  every other `[pack:` line and report it as not managed (enable the pack to
+  have it managed). Then append each enabled pack's lines, prefixed
+  `[pack:<name>] `, in pack order (dependencies first, then by name) and in
+  manifest order. Write each list entry as a double-quoted YAML scalar
+  (escape `"` and backslash): an unquoted entry starting `[` is a YAML flow
+  sequence, and OpenSpec 1.16.0 then drops that artifact's whole rules list.
+  `context:` stays a block scalar.
 - After the merge (or the copy), run `update.sh` `note-config`: it records the
   merged config.yaml's hash in the journal, so a later rollback knows what this
   install wrote. On `"ok": false` (or if it was interrupted), report it and

@@ -6,6 +6,7 @@ from the download's packs/. The step needs no journal and no lock, so a rerun co
 Run: python -m unittest discover evals/packs -p "test_pack_docs.py"
 """
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -96,6 +97,23 @@ class PackDocs(unittest.TestCase):
         self.assertEqual((self.proj / "docs" / "domain" / "levels.md").read_text(encoding="utf-8"), "# Levels\n\nFill in.\n")
         third = self.docs()
         self.assertEqual([d["status"] for d in third["documents"]], ["kept", "kept"])
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs an unreadable file (POSIX, not root)")
+    def test_failed_write_leaves_no_partial_document(self):
+        # a template that cannot be read must not leave an empty document that a rerun would then keep
+        self.project()
+        tpl = self.dl / "packs" / DOMAIN / "documents" / "gdd.md"
+        tpl.chmod(0)
+        self.addCleanup(tpl.chmod, 0o644)
+        doc = self.docs(expect=1)
+        self.assertFalse(doc["ok"])
+        self.assertEqual(doc["error"], "pack_doc_write_failed")
+        self.assertFalse((self.proj / GDD).exists(), "a partial document was left at the final path")
+        self.assertEqual([p.name for p in (self.proj / "docs" / "domain").glob("*")] if (self.proj / "docs" / "domain").exists() else [], [])
+        tpl.chmod(0o644)
+        again = self.docs()
+        self.assertEqual([d["status"] for d in again["documents"]], ["created"])
+        self.assertEqual((self.proj / GDD).read_bytes(), self.template)
 
     def project_record_both(self):
         (self.proj / "openspec" / ".specwright" / "packs.json").write_text(
