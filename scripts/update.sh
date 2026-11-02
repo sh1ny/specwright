@@ -974,6 +974,7 @@ exit "$?"
 
 : <<'PYSRC_EOF'
 #---PYSRC---
+import errno
 import hashlib
 import importlib.util
 import io
@@ -2863,16 +2864,14 @@ def cmd_pack_docs(o, pos):
             tmp = target.parent / f".{target.name}.pack-docs-{os.getpid()}.tmp"
             try:
                 data = tpl.read_bytes()
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with open(tmp, "xb") as f:
+                target.parent.mkdir(parents=True, exist_ok=True)  # a regular file in the way raises: a failure, never `kept`
+                with open(tmp, "wb") as f:  # this run's own name; a leftover of a killed run is overwritten
                     f.write(data)
-                if os.name == "nt":
-                    os.rename(tmp, target)  # Windows: a rename never replaces an existing file (FileExistsError)
-                else:
-                    os.link(tmp, target)  # POSIX rename would replace; a hard link fails on an existing file
-                status = "created"
-            except FileExistsError:
-                pass
+                try:  # only a document that exists at the final path by now is `kept`
+                    publish_new(tmp, target, data)
+                    status = "created"
+                except FileExistsError:
+                    pass
             except OSError as e:
                 emit({"ok": False, "interface": INTERFACE, "subcommand": "pack-docs", "error": "pack_doc_write_failed", "message":
                       f"document {did} of pack {n}: could not write {path} ({e}). No partial document was left; rerun pack-docs "
@@ -2884,6 +2883,30 @@ def cmd_pack_docs(o, pos):
                     pass
         out.append({"pack": n, "id": did, "path": path, "status": status})
     emit({"ok": True, "interface": INTERFACE, "subcommand": "pack-docs", "documents": out})
+
+
+def publish_new(tmp, target, data):
+    """Put the complete file `tmp` at `target`, never replacing an existing file (FileExistsError). Windows: a rename, which
+    never replaces. POSIX: a hard link (a rename would replace); on a filesystem without hard links (exFAT, some network
+    mounts) an exclusive create of the target instead, removed again if writing it fails."""
+    if os.name == "nt":
+        os.rename(tmp, target)
+        return
+    try:
+        os.link(tmp, target)
+        return
+    except FileExistsError:
+        raise
+    except OSError as e:
+        if e.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK, errno.ENOSYS):
+            raise
+    with open(target, "xb") as f:
+        try:
+            f.write(data)
+        except OSError:
+            f.close()
+            os.unlink(target)
+            raise
 
 
 def cmd_err(o, pos):

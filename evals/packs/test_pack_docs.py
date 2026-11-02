@@ -115,6 +115,17 @@ class PackDocs(unittest.TestCase):
         self.assertEqual([d["status"] for d in again["documents"]], ["created"])
         self.assertEqual((self.proj / GDD).read_bytes(), self.template)
 
+    def test_blocked_parent_is_a_failure_not_kept(self):
+        # a regular file where a parent directory of the document must go: nothing can be created, so it is no success
+        self.project()
+        (self.proj / "docs").mkdir()
+        (self.proj / "docs" / "domain").write_text("not a directory\n", encoding="utf-8")
+        doc = self.docs(expect=1)
+        self.assertFalse(doc["ok"])
+        self.assertEqual(doc["error"], "pack_doc_write_failed")
+        self.assertIn(GDD, doc["message"])
+        self.assertEqual(sorted(p.name for p in (self.proj / "docs").iterdir()), ["domain"])
+
     def project_record_both(self):
         (self.proj / "openspec" / ".specwright" / "packs.json").write_text(
             packenv.record_text((BASE, DOMAIN), {DOMAIN: {"gdd": GDD, "levels": "docs/domain/levels.md"}}), encoding="utf-8")
