@@ -6,12 +6,12 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| decision-making → The decision mode comes from the setting | Setting unset | evals/git-workflow/test_decision_making.py | test_setting_unset_means_autonomous | red |
-| decision-making → The decision mode comes from the setting | Setting has an unknown value | evals/git-workflow/test_decision_making.py | test_unknown_value_stops_naming_valid_values | red |
-| decision-making → A user instruction overrides the mode for one change | Override recorded | evals/git-workflow/test_decision_making.py | test_override_recorded_in_proposal_with_words | red |
-| decision-making → A user instruction overrides the mode for one change | Session resumes after the proposal, without the conversation | evals/git-workflow/test_decision_making.py | test_resumed_session_reads_mode_from_proposal | red |
-| decision-making → A user instruction overrides the mode for one change | Next change after an override | evals/git-workflow/test_decision_making.py | test_override_is_for_one_change_only | red |
-| decision-making → A user instruction overrides the mode for one change | Change planned before this feature | evals/git-workflow/test_decision_making.py | test_missing_mode_line_falls_back_to_setting | red |
+| decision-making → The decision mode comes from the setting | Setting unset | evals/git-workflow/test_decision_making.py | test_setting_unset_means_autonomous | green |
+| decision-making → The decision mode comes from the setting | Setting has an unknown value | evals/git-workflow/test_decision_making.py | test_unknown_value_stops_naming_valid_values | green |
+| decision-making → A user instruction overrides the mode for one change | Override recorded | evals/git-workflow/test_decision_making.py | test_override_recorded_in_proposal_with_words | green |
+| decision-making → A user instruction overrides the mode for one change | Session resumes after the proposal, without the conversation | evals/git-workflow/test_decision_making.py | test_resumed_session_reads_mode_from_proposal | green |
+| decision-making → A user instruction overrides the mode for one change | Next change after an override | evals/git-workflow/test_decision_making.py | test_override_is_for_one_change_only | green |
+| decision-making → A user instruction overrides the mode for one change | Change planned before this feature | evals/git-workflow/test_decision_making.py | test_missing_mode_line_falls_back_to_setting | green |
 | decision-making → Every decision records its importance and who chose it | Config key decision | evals/git-workflow/test_decision_making.py | test_importance_criteria_listed | red |
 | decision-making → Every decision records its importance and who chose it | Tactical decision | evals/git-workflow/test_decision_making.py | test_design_template_has_important_and_chosen_by | red |
 | decision-making → Every decision records its importance and who chose it | Not a decision | evals/git-workflow/test_decision_making.py | test_wording_order_layout_not_decisions | red |
@@ -37,8 +37,8 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 
 ## 1. Mode resolution and the proposal record
 
-- [ ] 1.1 Create `evals/git-workflow/test_decision_making.py` with the tests for the first two requirements (test map rows 1-6). Run `python -m unittest evals/git-workflow/test_decision_making.py` and confirm each fails because the rule is missing, not because of an import or path error.
-- [ ] 1.2 In `schemas/specwright/schema.yaml`'s proposal instruction, add the decision mode: read `decision_making` from the code repo's `openspec/specwright.yaml` (unset = `autonomous`, unknown value stops before any decision is written and names the value and the three valid ones), a user instruction at change start sets the mode for this change only, and the mode is resolved before `proposal.md` is written. Add the `## Decision Making` section to `schemas/specwright/templates/proposal.md` (before `## Release Notes`): `DECISION_MAKING: <mode>`, `Source:` (`setting`, or `user` with the quoted words), and scope decisions `S1`... with Choice, Rejected, Reversal cost, Important, Chosen by. Later steps read the mode there, and a proposal without the line uses the setting. Verify that rows 1-6 pass, flip them green, and that `openspec schema validate specwright` passes.
+- [x] 1.1 Create `evals/git-workflow/test_decision_making.py` with the tests for the first two requirements (test map rows 1-6). Run `python -m unittest evals/git-workflow/test_decision_making.py` and confirm each fails because the rule is missing, not because of an import or path error.
+- [x] 1.2 In `schemas/specwright/schema.yaml`'s proposal instruction, add the decision mode: read `decision_making` from the code repo's `openspec/specwright.yaml` (unset = `autonomous`, unknown value stops before any decision is written and names the value and the three valid ones), a user instruction at change start sets the mode for this change only, and the mode is resolved before `proposal.md` is written. Add the `## Decision Making` section to `schemas/specwright/templates/proposal.md` (before `## Release Notes`): `DECISION_MAKING: <mode>`, `Source:` (`setting`, or `user` with the quoted words), and scope decisions `S1`... with Choice, Rejected, Reversal cost, Important, Chosen by. Later steps read the mode there, and a proposal without the line uses the setting. Verify that rows 1-6 pass, flip them green, and that `openspec schema validate specwright` passes.
 
 ## 2. Decision fields and the summary
 

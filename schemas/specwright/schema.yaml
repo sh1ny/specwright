@@ -54,6 +54,34 @@ artifacts:
       openspec/specwright.yaml, default openspec/roadmap.md), name the
       milestone this change serves and the exit criteria it advances in Why.
 
+      Decision mode. Before you write proposal.md, resolve the mode for this
+      change. Read `decision_making` from the code repo's
+      openspec/specwright.yaml: `autonomous`, `important` or `all`; unset
+      means `autonomous`, and no decision is put to the user for it.
+
+      If `decision_making` is anything else (an unknown value such as
+      `ask`), stop before any decision is written. Name the value you found
+      and the three valid values: `autonomous`, `important`, `all`.
+
+      An instruction from the user when the change starts, naming a mode or
+      saying how much to be asked ("ask me everything for this one"), sets
+      the mode for this change only. It does not change
+      openspec/specwright.yaml. An instruction given mid-planning applies
+      from then on; decisions already written stay unless the user asks to
+      revisit them.
+
+      Record the mode in force in a `## Decision Making` section of
+      proposal.md, the first artifact written: a `DECISION_MAKING: <mode>`
+      line, a `Source:` line (`setting`, or `user` with the user's quoted
+      words), then the scope decisions of this change as `S1`, `S2`... each
+      with Choice, Rejected, Reversal cost, Important and Chosen by.
+
+      Later sessions of the change, review fix rounds and apply read the mode
+      from the `DECISION_MAKING:` line in proposal.md, not from the
+      conversation. A proposal with no mode line (planned before this
+      existed) uses the setting; do not rewrite or edit an artifact for the
+      missing line.
+
       Keep it concise (1-2 pages). Focus on the "why" not the "how" -
       implementation details belong in design.md.
 
