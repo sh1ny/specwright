@@ -70,6 +70,21 @@ class PackVerify(unittest.TestCase):
         self.assertNotEqual(text, new, "the edit changed nothing")
         self.config_path().write_text(new, encoding="utf-8", newline="\n")
 
+    def test_lines_with_outer_spaces_are_found(self):
+        # pack-check accepts a line with a leading or trailing space; OpenSpec's output is compared trimmed, so the
+        # expected line must be trimmed the same way or it is reported missing on every install.
+        path = self.dl / "packs" / WEB / "pack.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["rules"]["proposal"].append("A trailing space stays the pack's line. ")
+        data["context"].append("A context line with a trailing space.  ")
+        data["operations"]["apply"]["guidance"].append(" A leading space too.")
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+        code, check, out, err = packenv.run_script(self.dl, self.tmp, "pack-check")
+        self.assertEqual(code, 0, out)
+        self.project([WEB])
+        doc = self.verify(expect=0)
+        self.assertEqual(doc["problems"], [])
+
     def test_installed_line_prefixed(self):
         self.project([WEB])
         text = self.config_path().read_text(encoding="utf-8")

@@ -327,9 +327,11 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
   stop: run `note-config` again once its error is resolved, and go on only
   when it reports `"ok": true`. Without that record a later rollback cannot
   tell the merged config.yaml from the user's own.
-- Then run `update.sh` `pack-verify`, with `--previous <name>` for each name in
-  `packs_previous`. On failure (`missing`, `duplicate` or `not_enabled`), report
-  each line and do not stamp `VERSION`.
+- Then, when `plan` reported interface 2, run `update.sh` `pack-verify`, with
+  `--previous <name>` for each name in `packs_previous`. On failure (`missing`,
+  `duplicate` or `not_enabled`), report each line and do not stamp `VERSION`.
+  An interface-1 download has no `pack-verify` (Step 3 accepts it only with no
+  pack enabled): skip it.
 
 Step 6 - Settings (openspec/specwright.yaml in the code checkout)
 - If it does not exist, copy the downloaded
@@ -382,7 +384,10 @@ Step 7 - Verify, stamp the version, finish, clean up
   is in them (a `gitbutler` directory that `but skill install` created at the
   user's yes in Step 6 is not Specwright's: leave it and do not count it).
 - The pack skills of every enabled pack exist in every chosen skills
-  directory, and `update.sh` `pack-verify` passes.
+  directory, and `update.sh` `pack-verify` passes. Skip the `pack-verify`
+  check for an interface-1 download (it has no `pack-verify` and no pack is
+  enabled) and when Step 5 was skipped (no pack is enabled on a store, and the
+  config.yaml is another project's).
 - Every downloaded agent file exists in each chosen agents directory (the
   `model:` line may differ, per Step 4).
 - `<root>/openspec/config.yaml` has `schema: specwright` (or the schema the user
@@ -397,7 +402,8 @@ Step 7 - Verify, stamp the version, finish, clean up
 - If every check passes, copy `VERSION` to `openspec/.specwright/VERSION` (the
   stamp), then run `update.sh` `finish`: it removes the previous copies, the
   staging directories and the journal (run it again if it was interrupted).
-  After the stamp, run `update.sh` `pack-docs`: it creates each missing pack
+  After the stamp, when `plan` reported interface 2, run `update.sh`
+  `pack-docs`: it creates each missing pack
   document from its template, never overwrites one, and reports each as
   `created` or `kept`. It needs no journal, so run it again if it was
   interrupted.

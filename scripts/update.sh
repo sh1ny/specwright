@@ -707,7 +707,7 @@ do_recover() {
   [ ! -f "$state_dir/VERSION" ] || read -r now < "$state_dir/VERSION" || true
   now=${now//$'\r'/}
   lx=$(lock_extra_members)
-  printf '{"ok": true, "interface": 1, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s%s}\n' \
+  printf '{"ok": true, "interface": 2, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s%s}\n' \
     "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "${lx:+, $lx}"
 }
 
@@ -935,7 +935,7 @@ do_note_config() {  # right after the prompt's Step 5: record the merged config.
 do_finish() {
   acquire_lock
   if [ ! -f "$journal" ]; then
-    printf '{"ok": true, "interface": 1, "subcommand": "finish", "state": "done", "finished": false, "message": "no update is in progress"}\n'
+    printf '{"ok": true, "interface": 2, "subcommand": "finish", "state": "done", "finished": false, "message": "no update is in progress"}\n'
     return 0
   fi
   jload
@@ -2737,7 +2737,7 @@ def cmd_pack_verify(o, pos):
             continue
         for target, lines in manifest_targets(data).items():
             for t in lines:
-                key = (target, f"[pack:{n}] {t}")
+                key = (target, f"[pack:{n}] {t}".strip())  # trimmed like the delivered lines below
                 expected[key] = (n, t, expected[key][2] + 1 if key in expected else 1)
     core = template_context_lines(download)
     stale = tuple(f"[pack:{n}] " for n in previous if n not in enabled)

@@ -350,6 +350,16 @@ class TestPackPlan(Base):
             self.assertEqual(code, 0, doc)
             self.assertEqual(doc["interface"], 2)
 
+    def test_recover_and_finish_report_interface_2(self):
+        # with no journal, recover and finish answer from the shell; they must report the same interface as plan
+        self.checkout()
+        self.download()
+        for sub in ("recover", "finish"):
+            code, doc, out, err = fx.run_update(self.dl, [*self.co.args(), sub])
+            self.assertIsNotNone(doc, f"{sub}: no JSON (exit {code}).\nstdout: {out}\nstderr: {err}")
+            self.assertEqual(code, 0, doc)
+            self.assertEqual(doc["interface"], 2, sub)
+
     def test_packs_previous_from_record(self):
         self.checkout()
         self.download()

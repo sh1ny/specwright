@@ -2399,6 +2399,17 @@ class Packs(unittest.TestCase):
         self.assertRegex(s7, r"(?is)stamp.{0,400}`pack-docs`.{0,300}never overwrites.{0,100}created.{0,40}kept",
                          "Step 7 does not run pack-docs after the stamp")
 
+    def test_readme_pack_steps_only_with_interface_2_and_step5(self):
+        # an interface-1 download has no pack-verify or pack-docs, and a skipped Step 5 leaves another project's
+        # config.yaml: neither may block the stamp
+        s5, s7 = self.s(5), self.s(7)
+        self.assertRegex(s5, r"(?is)interface 2.{0,200}`pack-verify`|`pack-verify`.{0,200}interface 2",
+                         "Step 5 does not run pack-verify only for an interface-2 download")
+        self.assertRegex(s7, r"(?is)`pack-verify`.{0,300}interface[- ]1.{0,300}Step 5 was skipped",
+                         "Step 7 does not exempt the pack-verify check for an interface-1 download and a skipped Step 5")
+        self.assertRegex(s7, r"(?is)`pack-docs`.{0,300}interface 2|interface 2.{0,300}`pack-docs`",
+                         "Step 7 does not run pack-docs only for an interface-2 download")
+
     def test_readme_step8_reports_packs(self):
         s8 = self.s(8)
         self.assertRegex(s8, r"(?is)packs installed or removed.{0,200}adopted skills.{0,200}`\[pack:` lines.{0,200}documents created or kept",
