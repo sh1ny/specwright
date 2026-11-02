@@ -31,11 +31,11 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-evidence → Reviewer settings reach the snapshot as a file | Old flag | snap | test_reviewer_flag_exits_2_naming_reviewer_config | red |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Missing file | snap | test_missing_reviewer_config_exits_2_without_gh | red |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Unwritable state directory | pair | test_context_config_falls_back_to_temp_dir (plus snap test_snapshot_with_fallback_config_reports_reviewers) | red |
-| pr-evidence → Reviewer settings reach the snapshot as a file | Regex characters in a rule | pair | test_config_pattern_byte_for_byte | red |
+| pr-evidence → Reviewer settings reach the snapshot as a file | Regex characters in a rule | pair | test_config_pattern_byte_for_byte | green |
 | pr-evidence → Reviewer settings are read strictly everywhere | Double-quoted escape | pair | test_context_prints_settings_problem_without_exiting (plus text test_watch_stops_on_settings_problem) | red |
 | pr-evidence → Reviewer settings are read strictly everywhere | Single-quoted pattern | pair | test_readme_and_template_report_examples_pass_both_readers | red |
-| pr-evidence → A snapshot names the reviewer rules it used | Wait started with the work tree's rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | red |
-| pr-evidence → A snapshot names the reviewer rules it used | Same rules | pair | test_reported_check_equal_digest_ok | red |
+| pr-evidence → A snapshot names the reviewer rules it used | Wait started with the work tree's rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | green |
+| pr-evidence → A snapshot names the reviewer rules it used | Same rules | pair | test_reported_check_equal_digest_ok | green |
 | pr-merge → Agent mode archives before merging without asking | Ready change, not archived | text | test_agent_mode_archives_without_asking | green |
 | pr-merge → Agent mode archives before merging without asking | Archive fails | text | test_agent_mode_archive_failure_stops_no_merge | green |
 | pr-merge → Agent mode archives before merging without asking | Branch-only agent mode asks first | text | test_drift_without_head_agent_asks_nothing | green |
@@ -45,10 +45,10 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-merge → Only the ready head is merged | Commit after the archive head | text | test_reviewerless_archive_head_merged_only_if_unchanged (reworded to the carry-over) | red |
 | pr-merge → Only the ready head is merged | Invalid method | pair | test_merge_invalid_method_usage_no_request | green |
 | pr-merge → Required reviewers are those of the authorizing set | Wait started with an edited set | pair | test_snapshot_without_main_required_reviewer_not_ok | green |
-| pr-merge → Required reviewers are those of the authorizing set | Authorizing reviewer reported | pair | test_main_required_reviewer_reported_ok (with matching digest) | red |
-| pr-merge → Required reviewers are those of the authorizing set | Wait started with looser rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | red |
+| pr-merge → Required reviewers are those of the authorizing set | Authorizing reviewer reported | pair | test_main_required_reviewer_reported_ok (with matching digest) | green |
+| pr-merge → Required reviewers are those of the authorizing set | Wait started with looser rules | pair | test_reported_check_digest_mismatch_is_rules_mismatch | green |
 | pr-merge → Required reviewers are those of the authorizing set | Archive head carry-over | pair | test_reviewed_head_carry_over_checks_main_set | green |
-| pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | pair | test_store_adds_the_store_reviewers_side (with digests) | red |
+| pr-merge → Required reviewers are those of the authorizing set | Store-backed pair with main's reviewers | pair | test_store_adds_the_store_reviewers_side (with digests) | green |
 | pr-watch → The archive head gets no new review round | Archive pushed after a clean review | text | test_watch_archive_head_no_request_no_reviewers (reworded: carry-over, `--reviewer-config`) | red |
 | pr-watch → The archive head gets no new review round | Setting turned on | text | test_watch_review_after_archive_true_rerequests | green |
 | pr-watch → The archive head gets no new review round | Archive commit touches other files | route | test_archive_only_false_outside_paths | green |
@@ -65,11 +65,11 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-watch → A wait can skip wakes that are only check progress | Unknown mode or no wait | snap | test_bad_until_exits_2_without_gh | green |
 | pr-watch → Watch waits for attention | Watch's wait command | text | test_watch_waits_until_attention (three timeouts and conditions) | red |
 | pr-watch → Watch waits for attention | Ready after a quiet wait with a check re-run | snap | test_rerun_back_to_baseline_times_out (plus text test_watch_timeout_wake_is_quiet_window) | red |
-| pr-watch → Watch waits for attention | Default settle window | pair | test_context_settle_default_300 | red |
+| pr-watch → Watch waits for attention | Default settle window | pair | test_context_settle_default_300 | green |
 | pr-watch → Watch waits for attention | Long wait ends quiet | text | test_watch_timeout_wake_is_quiet_window | red |
 | pr-watch → Watch waits for attention | Pending check makes the merge state unstable | text | test_watch_ready_accepts_unstable_without_ci_pending | red |
 | pr-watch → Watch waits for attention | Not yet ready | text | test_watch_uses_1800_until_otherwise_ready | red |
-| pr-watch → Watch waits for attention | Bad settle value | pair | test_context_bad_settle_is_settings_problem | red |
+| pr-watch → Watch waits for attention | Bad settle value | pair | test_context_bad_settle_is_settings_problem | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Advisory reviewer timed out with its check pending | rev | test_advisory_timed_out_check_moves_to_advisory_pending | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Required reviewer's check pending | rev | test_required_reviewer_check_pending_not_ci | green |
 | pr-watch → An advisory reviewer's named check stops blocking once it reported | Shared app | rev | test_shared_app_checks_stay_ci | green |
@@ -101,8 +101,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 3. Reviewer config and settings in `pr-pair.sh`
 
-- [ ] 3.1 Write failing tests in `pair`: `reviewers_of` keeps a normalized `report`, and drift covers it; `context` and `policy` write canonical content-addressed configs (`reviewer_config`, `reviewer_config.{main,head}.{code[,store]}`), fall back to the temp dir when the state dir is unwritable, keep patterns byte-for-byte; `policy` drops `reviewer_args`; `reported_check` compares digests and returns `rules_mismatch`; `pr.settle` default 300 and a bad value or `too_many_reviewers` as `settings_problem` in `context` (exit 2 in `policy`); `context` prints `settings_problem` for a strict-reader problem without exiting; README and template `report:` examples pass both readers. Verify red: `python -m unittest evals/pr-pair/test_pr_pair.py -k <each new name>` fails for the right reason.
-- [ ] 3.2 Implement in `skills/specwright-pr/scripts/pr-pair.sh` (D2, D4, D5, D6, D10) and update existing `pair` tests that read `reviewer_args`. Verify: the new and touched `pair` tests pass; flip their rows green; re-run the `green` `pair` rows (`test_merge_sends_method_and_head_sha_fenced`, `test_merge_head_changed_409_reports_head_changed`, `test_merge_invalid_method_usage_no_request`, `test_snapshot_without_main_required_reviewer_not_ok`, `test_reviewed_head_carry_over_checks_main_set`).
+- [x] 3.1 Write failing tests in `pair`: `reviewers_of` keeps a normalized `report`, and drift covers it; `context` and `policy` write canonical content-addressed configs (`reviewer_config`, `reviewer_config.{main,head}.{code[,store]}`), fall back to the temp dir when the state dir is unwritable, keep patterns byte-for-byte; `policy` drops `reviewer_args`; `reported_check` compares digests and returns `rules_mismatch`; `pr.settle` default 300 and a bad value or `too_many_reviewers` as `settings_problem` in `context` (exit 2 in `policy`); `context` prints `settings_problem` for a strict-reader problem without exiting; README and template `report:` examples pass both readers. Verify red: `python -m unittest evals/pr-pair/test_pr_pair.py -k <each new name>` fails for the right reason.
+- [x] 3.2 Implement in `skills/specwright-pr/scripts/pr-pair.sh` (D2, D4, D5, D6, D10) and update existing `pair` tests that read `reviewer_args`. Verify: the new and touched `pair` tests pass; flip their rows green; re-run the `green` `pair` rows (`test_merge_sends_method_and_head_sha_fenced`, `test_merge_head_changed_409_reports_head_changed`, `test_merge_invalid_method_usage_no_request`, `test_snapshot_without_main_required_reviewer_not_ok`, `test_reviewed_head_carry_over_checks_main_set`).
 
 ## 4. Snapshot: config file, generic detection, CI-only filter
 

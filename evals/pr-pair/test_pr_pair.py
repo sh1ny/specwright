@@ -238,6 +238,28 @@ def thread(tid="T1", rev=REV0, root_id=11, awaiting=False, resolved=False, resol
             "comments": comments or [{"id": "C11", "author": "chatgpt-codex-connector", "at": T0, "edited": None}]}
 
 
+CODEX = "chatgpt-codex-connector"
+
+
+def rv(login, role="required", timeout=1200, report=None):
+    """One reviewer entry of a reviewer-config file (generic-reviewer-detection D2): no `request`."""
+    return {"login": login, "role": role, "timeout": timeout, "report": report or {}}
+
+
+def config_bytes(*entries):
+    """The canonical bytes of a reviewer-config file for these entries."""
+    obj = {"format": 1, "reviewers": sorted(entries, key=lambda e: e["login"])}
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def config_digest(*entries):
+    return hashlib.sha256(config_bytes(*entries)).hexdigest()
+
+
+def read_config(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def _safe(t):
     return re.sub(r"[^A-Za-z0-9._-]", "_", t)
 
@@ -317,8 +339,9 @@ class Context(Base):
         self.assertEqual(c["code"]["validate"], "python -m unittest")
         self.assertEqual(c["store"]["validate"], "openspec validate --all --strict")
         self.assertEqual(c["store"]["reviewers"], {})
-        self.assertEqual(c["code"]["reviewers"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": "@codex review"})
-        self.assertEqual(c["code"]["reviewers"]["kody-ai"], {"role": "advisory", "timeout": 900, "request": ""})
+        self.assertEqual(c["code"]["reviewers"]["chatgpt-codex-connector"],
+                         {"role": "required", "timeout": 1200, "request": "@codex review", "report": {}})
+        self.assertEqual(c["code"]["reviewers"]["kody-ai"], {"role": "advisory", "timeout": 900, "request": "", "report": {}})
         self.assertEqual((c["max_fix_rounds"], c["react"]), (3, True))
 
     def test_context_store_inherits_defaults(self):
@@ -426,6 +449,193 @@ class Context(Base):
             self.settings("pr:\n" + merge + "  merge_method: fast-forward\n  delete_branch: maybe\n")
             c = self.pp("context", "--code", self.code)
             self.assertEqual((c["merge"], c["merge_method"], c["delete_branch"]), ("user", "merge", True), merge)
+
+    # ---- generic-reviewer-detection: reviewer configs, report rules, settle, settings_problem ----------------
+    def rules(self, report_lines="", extra=""):
+        """Settings with one required reviewer `rev-bot`; report_lines are the (already indented) lines under `report:`."""
+        report = f"      report:\n{report_lines}" if report_lines else ""
+        return f"pr:\n{extra}  reviewers:\n    rev-bot:\n      role: required\n{report}"
+
+    def test_context_reviewers_keep_a_normalized_report(self):
+        self.settings("pr:\n  reviewers:\n    a-bot:\n      report:\n        check: Bot Code Review\n        checks: x\n"
+                      "    b-bot: { role: advisory }\n    c-bot: { report: }\n")
+        c = self.pp("context", "--code", self.code)
+        rs = c["code"]["reviewers"]
+        self.assertEqual(rs["a-bot"]["report"], {"check": "Bot Code Review", "checks": "x"}, "unknown keys are kept as read")
+        self.assertEqual(rs["b-bot"]["report"], {})
+        self.assertEqual(rs["c-bot"]["report"], {})
+        self.assertNotIn("settings_problem", c)
+
+    def test_context_reads_nested_block_and_flow_report_maps(self):
+        self.settings("pr:\n  reviewers:\n    a-bot:\n      report:\n        check: Bot Code Review\n"
+                      "        marker: '<!-- walkthrough -->'\n"
+                      "    b-bot: { role: advisory, report: { sha_pattern: 'x: ([0-9a-f]+)', ignore: in progress } }\n")
+        c = self.pp("context", "--code", self.code)
+        rs = c["code"]["reviewers"]
+        self.assertEqual(rs["a-bot"]["report"], {"check": "Bot Code Review", "marker": "<!-- walkthrough -->"})
+        self.assertEqual(rs["b-bot"]["report"], {"sha_pattern": "x: ([0-9a-f]+)", "ignore": "in progress"})
+        self.assertNotIn("settings_problem", c)
+
+    def test_context_bad_report_is_settings_problem(self):
+        for text, want in (("      report: foo\n", "rev-bot"), ("      report: [a, b]\n", "rev-bot"),
+                           ("      report:\n        marker: 5\n", "marker"), ("      report:\n        check: true\n", "check")):
+            with self.subTest(text=text):
+                self.settings(f"pr:\n  reviewers:\n    rev-bot:\n      role: required\n{text}")
+                c = self.pp("context", "--code", self.code)
+                self.assertEqual(c["_rc"], 0)
+                self.assertIn(want, c["settings_problem"])
+                self.assertIn("rev-bot", c["settings_problem"])
+                self.assertIn("report", c["settings_problem"])
+                self.assertEqual(c["code"]["reviewers"]["rev-bot"]["report"], {}, "a report the reader cannot use reads as none")
+
+    def test_context_config_canonical_and_content_addressed(self):
+        self.settings("pr:\n  reviewers:\n    kody-ai: { role: advisory, timeout: 15m, request: \"@kody review\" }\n"
+                      "    chatgpt-codex-connector: { role: required, request: \"@codex review\" }\n"
+                      "    check-bot[bot]:\n      report:\n        check: Bot Code Review\n")
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        want = config_bytes(rv(CODEX), rv("kody-ai", "advisory", 900), rv("check-bot", report={"check": "Bot Code Review"}))
+        path = Path(c["code"]["reviewer_config"])
+        self.assertEqual(path.read_bytes(), want, "sorted by login, compact, no request, [bot] dropped")
+        self.assertEqual(path.name, hashlib.sha256(want).hexdigest() + ".json")
+        self.assertEqual(path.parent, self.state_dir / "reviewers")
+        self.assertLess(len(want), 64 * 1024)
+        self.assertEqual(c["store"]["reviewer_config"], c["code"]["reviewer_config"], "the store inherits pr.reviewers")
+        again = self.pp("context", "--code", self.code)
+        self.assertEqual(again["code"]["reviewer_config"], c["code"]["reviewer_config"], "equal settings, same path")
+        self.assertEqual(path.read_bytes(), want)
+        self.assertEqual([p.name for p in path.parent.iterdir()], [path.name], "no temp file is left behind")
+
+    def test_context_store_config_follows_the_stores_own_set(self):
+        self.settings("planning_store:\n  reviewers:\n    store-bot: { role: required }\n"
+                      "pr:\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n")
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        self.assertEqual(Path(c["code"]["reviewer_config"]).read_bytes(), config_bytes(rv(CODEX)))
+        self.assertEqual(Path(c["store"]["reviewer_config"]).read_bytes(), config_bytes(rv("store-bot")))
+        self.settings("planning_store:\n  reviewers: {}\npr:\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n")
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        self.assertEqual(Path(c["store"]["reviewer_config"]).read_bytes(), config_bytes())
+
+    def test_context_config_falls_back_to_temp_dir(self):
+        blocker = self.write("blocker", "a file, so nothing can be created below it")
+        systmp = self.tmp / "systmp"
+        systmp.mkdir()
+        self.settings(self.rules("        marker: x\n"))
+        env = {"SPECWRIGHT_STATE_DIR": str(blocker / "state"), "TMP": str(systmp), "TEMP": str(systmp), "TMPDIR": str(systmp)}
+        c = self.pp("context", "--code", self.code, env=env)
+        path = Path(c["code"]["reviewer_config"])
+        self.assertTrue(path.is_file(), c)
+        self.assertEqual(os.path.normcase(os.path.realpath(path.parent)),
+                         os.path.normcase(os.path.realpath(systmp / "specwright" / "reviewers")))
+        self.assertEqual(path.read_bytes(), config_bytes(rv("rev-bot", report={"marker": "x"})))
+        self.assertNotIn("settings_problem", c)
+
+    def test_config_pattern_byte_for_byte(self):
+        pattern = "Reviewed commit: `([0-9a-f]{7,40})` \\\\ \"quoted\" it's: done\\*"
+        self.settings(self.rules("        sha_pattern: '" + pattern.replace("'", "''") + "'\n"))
+        c = self.pp("context", "--code", self.code)
+        self.assertNotIn("settings_problem", c)
+        self.assertEqual(c["code"]["reviewers"]["rev-bot"]["report"]["sha_pattern"], pattern)
+        got = read_config(c["code"]["reviewer_config"])["reviewers"][0]["report"]["sha_pattern"]
+        self.assertEqual(got, pattern)
+        self.assertEqual(Path(c["code"]["reviewer_config"]).read_bytes(),
+                         config_bytes(rv("rev-bot", report={"sha_pattern": pattern})))
+
+    def test_context_prints_settings_problem_without_exiting(self):
+        self.settings(self.rules('        sha_pattern: "Reviewed commit:\\*\\*"\n'))
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual(c["_rc"], 0)
+        self.assertTrue(c["settings_problem"].startswith("line 6:"), c["settings_problem"])
+        self.assertIn("escape", c["settings_problem"])
+        self.assertTrue(Path(c["code"]["reviewer_config"]).is_file(), "it goes on with the lenient read")
+        self.settings(self.rules("        sha_pattern: 'Reviewed commit:\\*\\*'\n"))
+        c = self.pp("context", "--code", self.code)
+        self.assertNotIn("settings_problem", c)
+        self.assertEqual(c["code"]["reviewers"]["rev-bot"]["report"], {"sha_pattern": "Reviewed commit:\\*\\*"})
+
+    def test_context_settle_default_300(self):
+        self.settings("pr:\n  validate: x\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual(c["settle"], 300)
+        self.assertNotIn("settings_problem", c)
+        for written, seconds in (("1m", 60), ("10m", 600), ("90s", 90), ("1h", 3600), ("45m", 2700)):
+            with self.subTest(settle=written):
+                self.settings(f"pr:\n  settle: {written}\n")
+                c = self.pp("context", "--code", self.code)
+                self.assertEqual((c["settle"], c.get("settings_problem")), (seconds, None))
+
+    def test_context_bad_settle_is_settings_problem(self):
+        for bad in ("soon", "30s", "2h", "59s", "61m", "0m", "5", "5 m", "1.5m"):
+            with self.subTest(settle=bad):
+                self.settings(f"pr:\n  settle: {bad}\n")
+                c = self.pp("context", "--code", self.code)
+                self.assertEqual(c["_rc"], 0)
+                self.assertIn("pr.settle", c["settings_problem"])
+                self.assertEqual(c["settle"], 300)
+
+    def test_context_too_many_reviewers_is_settings_problem(self):
+        many = "".join(f"    bot-{n:02d}: {{ role: advisory }}\n" for n in range(21))
+        self.settings("pr:\n  reviewers:\n" + many)
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual(c["_rc"], 0)
+        self.assertIn("too_many_reviewers", c["settings_problem"])
+        self.assertIn("pr.reviewers", c["settings_problem"])
+        self.settings("pr:\n  reviewers:\n" + many.replace("    bot-20: { role: advisory }\n", ""))
+        c = self.pp("context", "--code", self.code)
+        self.assertNotIn("settings_problem", c)
+        self.settings("planning_store:\n  reviewers:\n" + many)
+        c = self.pp("context", "--code", self.code, "--store", self.store)
+        self.assertIn("too_many_reviewers", c["settings_problem"])
+        self.assertIn("planning_store.reviewers", c["settings_problem"])
+
+    def test_context_prints_only_the_first_problem(self):
+        self.settings("pr:\n  settle: soon\n  reviewers:\n    rev-bot:\n      report: foo\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertIsInstance(c["settings_problem"], str)
+        self.assertIn("pr.settle", c["settings_problem"])
+
+    def test_readme_and_template_report_examples_pass_both_readers(self):
+        import textwrap
+        ns = PublishFallback.namespace()
+        examples = {"README.md": [], "templates/openspec/specwright.yaml": []}
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for m in re.finditer(r"^[ \t]*```(?:yaml|yml)[^\n]*\n(.*?)^[ \t]*```", readme, re.S | re.M):
+            if "report:" in m.group(1):
+                examples["README.md"].append(textwrap.dedent(m.group(1)))
+        tpl = (ROOT / "templates" / "openspec" / "specwright.yaml").read_text(encoding="utf-8").splitlines()
+        body = [re.sub(r"^\s*# ?", "", l, count=1) for l in tpl if l.lstrip().startswith("#")]
+        for i, line in enumerate(body):  # a commented `key:` and the more-indented comment lines after it
+            if re.fullmatch(r"[A-Za-z_][\w.-]*:\s*", line):
+                block = [line]
+                for nxt in body[i + 1:]:
+                    if not nxt.startswith(" "):
+                        break
+                    block.append(nxt)
+                if "report:" in "\n".join(block):
+                    examples["templates/openspec/specwright.yaml"].append("\n".join(block) + "\n")
+        for name, found in examples.items():
+            self.assertTrue(found, f"{name} needs at least one `report:` example")
+            for text in found:
+                with self.subTest(file=name, example=text):
+                    self.assertIsNone(ns["yaml_problem"](text))
+                    tree = ns["parse_yaml"](text)
+                    reports = []
+
+                    def walk(node):
+                        if isinstance(node, dict):
+                            for k, v in node.items():
+                                if k == "report":
+                                    reports.append(v)
+                                walk(v)
+
+                    walk(tree)
+                    self.assertTrue(reports, text)
+                    for rep in reports:
+                        self.assertIsInstance(rep, dict, text)
+                        for key, value in rep.items():
+                            self.assertIsInstance(value, str, f"{key} in {text}")
+                            single = re.search(r"^\s*" + re.escape(key) + r":\s*'((?:[^']|'')*)'\s*$", text, re.M)
+                            if single:  # single-quoted as written: the lenient value is the text between the quotes
+                                self.assertEqual(value, single.group(1).replace("''", "'"))
 
 
 class ContextPin(Base):
@@ -3992,11 +4202,16 @@ class PolicyBase(Base):
                       "--reviewed-head", "store=" + self.HEAD]
         return self.pp("policy", "--repo", CODE, "--head", self.HEAD, *extra, env=self.TOKEN, expect=expect, **kw)
 
-    def psnap(self, name, head, reported=(), waiting=()):
-        """A snapshot file shaped as pr-snapshot.sh writes it: the head and the reviewers with their state."""
+    def psnap(self, name, head, reported=(), waiting=(), config=None):
+        """A snapshot file shaped as pr-snapshot.sh writes it: the head, the reviewers with their state and `reviewer_config`,
+        the digest of the config the wait ran with. config: a list of reviewer entries (rv) whose digest it carries, a digest
+        string, or False for a snapshot without one. Default: the set of the default settings, codex alone."""
         rs = [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in reported]
         rs += [{"login": l, "role": "required", "timeout": 1200, "state": "waiting"} for l in waiting]
-        return self.write_json(f"{name}.json", {"head_oid": head, "number": 1, "url": f"https://github.com/{CODE}/pull/1", "reviewers": rs})
+        obj = {"head_oid": head, "number": 1, "url": f"https://github.com/{CODE}/pull/1", "reviewers": rs}
+        if config is not False:
+            obj["reviewer_config"] = config if isinstance(config, str) else config_digest(*(config if config is not None else [rv(CODEX)]))
+        return self.write_json(f"{name}.json", obj)
 
     def inject(self, *entries):
         st = self.gh()
@@ -4070,7 +4285,7 @@ class Policy(PolicyBase):
         d = self.keys(r)["pr.reviewers"]
         self.assertEqual(set(d["main"]), {"chatgpt-codex-connector"})
         self.assertEqual(set(d["head"]), {"someone-else"})
-        self.assertEqual(d["main"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": ""})
+        self.assertEqual(d["main"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": "", "report": {}})
 
     def test_non_mapping_reviewers_at_head_is_drift_not_a_crash(self):
         # Pre-ship F1: the PR branch controls this value; a string or a list must not crash `policy`.
@@ -4287,6 +4502,15 @@ class Policy(PolicyBase):
         r = self.policy("--store")
         self.assertEqual(r["merge_ready"], {"code": True, "store": False})
         self.assertIn("planning_store.reviewers", self.keys(r))
+        # the store side is checked against the store set's own digest: the default store snapshot ran with codex's rules
+        store = r["reported"]["main"]["store"]
+        self.assertEqual((store["ok"], store["rules_mismatch"]), (False, True))
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+        own = "store=" + str(self.psnap("own", self.HEAD, [], config=[]))
+        r = self.policy("--store", "--snapshot", own, "--reviewed-head", "store=" + self.HEAD)
+        store = r["reported"]["main"]["store"]
+        self.assertEqual((store["ok"], store["rules_mismatch"]), (False, False), "an empty set has no required reviewer")
+        self.assertEqual(read_config(r["reviewer_config"]["main"]["store"]), {"format": 1, "reviewers": []})
 
 
 class PolicyReviewers(PolicyBase):
@@ -4302,16 +4526,17 @@ class PolicyReviewers(PolicyBase):
         self.seed_both(self.AGENT, self.AGENT)
         r = self.policy("--snapshot", self.snap("s", self.HEAD, ["someone-else"]))
         c = r["reported"]["main"]["code"]
-        self.assertEqual((c["ok"], c["missing"], c["head_mismatch"]), (False, [self.CODEX], False))
-        self.assertIn(f"{self.CODEX}:required:1200", r["reviewer_args"]["main"]["code"])
+        self.assertEqual((c["ok"], c["missing"], c["head_mismatch"], c["rules_mismatch"]), (False, [self.CODEX], False, False))
+        self.assertEqual(read_config(r["reviewer_config"]["main"]["code"])["reviewers"][0]["login"], self.CODEX)
 
     def test_main_required_reviewer_reported_ok(self):
         self.seed_both(self.AGENT, self.OTHER)
         r = self.policy("--snapshot", self.snap("s", self.HEAD, [self.CODEX]))
         self.assertTrue(r["reported"]["main"]["code"]["ok"])
         self.assertEqual(r["reported"]["main"]["code"]["missing"], [])
-        self.assertEqual(r["reviewer_args"]["head"]["code"], ["someone-else:required:1200"])
+        self.assertEqual([x["login"] for x in read_config(r["reviewer_config"]["head"]["code"])["reviewers"]], ["someone-else"])
         self.assertFalse(r["reported"]["head"]["code"]["ok"])
+        self.assertTrue(r["reported"]["head"]["code"]["rules_mismatch"], "the snapshot ran with main's rules, not the head's")
 
     def test_reviewed_head_carry_over_checks_main_set(self):
         self.seed_both(self.AGENT, self.AGENT)
@@ -4329,11 +4554,13 @@ class PolicyReviewers(PolicyBase):
         main = self.AGENT.replace("reviewers:", "reviewers:\n    code-bot: { role: required }") + "planning_store:\n  reviewers:\n    store-bot: { role: required }\n"
         self.seed_both(main, self.AGENT)
         st = f"{7:040x}"
-        r = self.policy("--store", "--snapshot", self.snap("c", self.HEAD, [self.CODEX, "code-bot"]),
-                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"])), "--reviewed-head", f"store={st}")
+        code_set = [rv(CODEX), rv("code-bot")]
+        r = self.policy("--store", "--snapshot", "code=" + str(self.psnap("c", self.HEAD, [self.CODEX, "code-bot"], config=code_set)),
+                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"], config=[rv("store-bot")])),
+                        "--reviewed-head", f"store={st}")
         self.assertTrue(r["reported"]["main"]["store"]["ok"], r["reported"])
         self.assertTrue(r["reported"]["main"]["code"]["ok"], r["reported"])
-        self.assertEqual(r["reviewer_args"]["main"]["store"], ["store-bot:required:1200"])
+        self.assertEqual([x["login"] for x in read_config(r["reviewer_config"]["main"]["store"])["reviewers"]], ["store-bot"])
 
     def test_store_requires_store_snapshot_and_reviewed_head(self):
         self.seed_both(self.AGENT, self.AGENT)
@@ -4342,6 +4569,153 @@ class PolicyReviewers(PolicyBase):
         self.pp(*base, env=self.TOKEN, expect=2)
         self.pp(*base, "--reviewed-head", f"store={self.HEAD}", env=self.TOKEN, expect=2)
         self.pp(*base, "--snapshot", "store=" + str(self.psnap("s", self.HEAD, [self.CODEX])), env=self.TOKEN, expect=2)
+
+    # ---- generic-reviewer-detection: reviewer configs, digests, report drift ----------------------------------
+    MAIN_CHECK = ("pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n"
+                  "    check-bot:\n      role: advisory\n      timeout: 15m\n      report:\n        check: Bot Code Review\n")
+
+    def test_policy_config_carries_main_check_rule(self):
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write("code/" + self.PATH, "pr:\n  merge: agent\n  reviewers:\n    tree-bot: { role: required }\n")
+        self.seed_both(self.MAIN_CHECK, self.OTHER)
+        r = self.policy(cwd=code)
+        want = config_bytes(rv(self.CODEX), rv("check-bot", "advisory", 900, {"check": "Bot Code Review"}))
+        path = Path(r["reviewer_config"]["main"]["code"])
+        self.assertEqual(path.read_bytes(), want)
+        self.assertEqual(path.name, hashlib.sha256(want).hexdigest() + ".json")
+        self.assertEqual(path.parent, self.state_dir / "reviewers")
+        head = read_config(r["reviewer_config"]["head"]["code"])
+        self.assertEqual([x["login"] for x in head["reviewers"]], ["someone-else"])
+        for p in r["reviewer_config"]["main"].values():
+            self.assertNotIn("tree-bot", Path(p).read_text(encoding="utf-8"), "never the work tree's reviewers")
+        self.assertEqual(set(r["reviewer_config"]), {"main", "head"})
+
+    def test_policy_has_no_reviewer_args(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        self.assertNotIn("reviewer_args", self.policy())
+
+    def test_policy_store_writes_a_config_per_side(self):
+        main = self.AGENT + "planning_store:\n  reviewers:\n    store-bot: { role: required, report: { marker: m } }\n"
+        self.seed_both(main, self.AGENT)
+        r = self.policy("--store")
+        self.assertEqual(set(r["reviewer_config"]["main"]), {"code", "store"})
+        self.assertEqual(set(r["reviewer_config"]["head"]), {"code", "store"})
+        self.assertEqual(Path(r["reviewer_config"]["main"]["store"]).read_bytes(), config_bytes(rv("store-bot", report={"marker": "m"})))
+        self.assertEqual(Path(r["reviewer_config"]["head"]["store"]).read_bytes(), config_bytes(rv(self.CODEX)),
+                         "a store without its own set uses pr.reviewers")
+
+    def test_policy_lists_a_report_only_change_as_drift(self):
+        base = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector:\n      role: required\n"
+        self.seed_both(base + "      report:\n        check: A\n", base + "      report:\n        check: B\n")
+        r = self.policy()
+        d = self.keys(r)["pr.reviewers"]
+        self.assertEqual(d["main"][self.CODEX]["report"], {"check": "A"})
+        self.assertEqual(d["head"][self.CODEX]["report"], {"check": "B"})
+        self.seed_both(base + "      report:\n        check: A\n", base + "      report: { check: A }\n")
+        self.assertEqual(self.policy()["drift"], [], "formatting alone is no drift")
+        self.seed_both(base, base + "      report: {}\n")
+        self.assertEqual(self.policy()["drift"], [], "a missing report and an empty one are the same")
+
+    def test_config_files_are_written_once_whatever_the_side(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        r = self.policy()
+        self.assertEqual(r["reviewer_config"]["main"]["code"], r["reviewer_config"]["head"]["code"], "equal settings, one file")
+        self.assertEqual([p.name for p in (self.state_dir / "reviewers").iterdir()], [Path(r["reviewer_config"]["main"]["code"]).name])
+
+    def test_policy_config_falls_back_to_temp_dir(self):
+        blocker = self.write("blocker", "a file")
+        systmp = self.tmp / "systmp"
+        systmp.mkdir()
+        self.seed_both(self.AGENT, self.AGENT)
+        env = {"SPECWRIGHT_STATE_DIR": str(blocker / "state"), "TMP": str(systmp), "TEMP": str(systmp), "TMPDIR": str(systmp)}
+        r = self.pp("policy", "--repo", CODE, "--head", self.HEAD, "--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX])),
+                    env={**self.TOKEN, **env})
+        path = Path(r["reviewer_config"]["main"]["code"])
+        self.assertEqual(path.read_bytes(), config_bytes(rv(self.CODEX)))
+        self.assertEqual(os.path.normcase(os.path.realpath(path.parent)),
+                         os.path.normcase(os.path.realpath(systmp / "specwright" / "reviewers")))
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+
+    def test_context_and_policy_write_the_same_digest(self):
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        text = ("pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev-bot:\n      role: required\n      timeout: 10m\n"
+                "      report:\n        sha_pattern: 'Reviewed commit:\\*\\*'\n        ignore: 'it''s `x`'\n    kody-ai: { role: advisory }\n")
+        self.write("code/" + self.PATH, text)
+        self.seed_both(text, text)
+        c = self.pp("context", "--code", code, env=self.TOKEN)
+        self.assertNotIn("settings_problem", c)
+        r = self.policy(cwd=code)
+        self.assertEqual(c["code"]["reviewer_config"], r["reviewer_config"]["main"]["code"])
+        got = read_config(r["reviewer_config"]["main"]["code"])["reviewers"]
+        rev = [x for x in got if x["login"] == "rev-bot"][0]
+        self.assertEqual(rev["report"], {"sha_pattern": "Reviewed commit:\\*\\*", "ignore": "it's `x`"})
+        self.assertEqual(rev["timeout"], 600)
+
+    def test_config_pattern_byte_for_byte_in_policy(self):
+        pattern = "Reviewed commit: `([0-9a-f]{7,40})` \\\\ \"quoted\" it's: done\\*"
+        text = self.AGENT.replace("{ role: required }", "{ role: required, report: { sha_pattern: '" + pattern.replace("'", "''") + "' } }")
+        self.seed_both(text, text)
+        r = self.policy()
+        self.assertEqual(read_config(r["reviewer_config"]["main"]["code"])["reviewers"][0]["report"], {"sha_pattern": pattern})
+
+    def test_reported_check_digest_mismatch_is_rules_mismatch(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        for config in ("0" * 64, [rv(self.CODEX, report={"marker": "m"})], False):
+            with self.subTest(config=config if isinstance(config, str) else bool(config)):
+                r = self.policy("--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX], config=config)))
+                c = r["reported"]["main"]["code"]
+                self.assertEqual((c["ok"], c["rules_mismatch"], c["missing"], c["head_mismatch"]), (False, True, [], False))
+                self.assertEqual((c["snapshot_head"], c["reviewed_head"]), (self.HEAD, self.HEAD), "the other fields stay")
+
+    def test_reported_check_equal_digest_ok(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        r = self.policy("--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX], config=[rv(self.CODEX)])))
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["rules_mismatch"], c["missing"]), (True, False, []))
+        self.assertEqual(c["ok"], r["reported"]["head"]["code"]["ok"])
+
+    def test_wait_started_with_the_work_trees_rules_is_rules_mismatch(self):
+        main = self.AGENT.replace("{ role: required }", "{ role: required, report: { marker: m } }")
+        self.seed_both(main, main)
+        tree_set = [rv(self.CODEX)]  # the wait ran with a work-tree config where the bot has no report rule
+        r = self.policy("--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX], config=tree_set)))
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["rules_mismatch"]), (False, True))
+        same = [rv(self.CODEX, report={"marker": "m"})]
+        r = self.policy("--snapshot", "code=" + str(self.psnap("s2", self.HEAD, [self.CODEX], config=same)))
+        self.assertTrue(r["reported"]["main"]["code"]["ok"])
+
+    def test_policy_bad_settle_on_main_is_bad_setting(self):
+        for bad in ("soon", "30s", "2h"):
+            with self.subTest(settle=bad):
+                self.seed_both(self.AGENT + f"  settle: {bad}\n", self.AGENT)
+                r = self.policy(expect=2)
+                self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+                self.assertIn("pr.settle", r["message"])
+        self.seed_both(self.AGENT + "  settle: 10m\n", self.AGENT + "  settle: soon\n")
+        self.assertEqual(self.policy()["_rc"], 0)  # a bad head value is not main's policy
+
+    def test_policy_too_many_reviewers_exit_2(self):
+        many = "".join(f"    bot-{n:02d}: {{ role: advisory }}\n" for n in range(21))
+        self.seed_both("pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n" + many, self.AGENT)
+        r = self.policy(expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "too_many_reviewers"))
+        self.assertIn("pr.reviewers", r["message"])
+        self.seed_both(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n" + many)
+        r = self.policy()
+        self.assertIn({"side": "head", "key": "pr.reviewers", "value": "too_many_reviewers"}, r["invalid"])
+
+    def test_policy_bad_report_on_main_exit_2_and_on_head_listed(self):
+        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector:\n      role: required\n      report: foo\n"
+        self.seed_both(bad, self.AGENT)
+        r = self.policy(expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+        self.assertIn(self.CODEX, r["message"])
+        self.assertIn("report", r["message"])
+        self.seed_both(self.AGENT, bad)
+        r = self.policy()
+        self.assertEqual([i["key"] for i in r["invalid"]], [f"pr.reviewers.{self.CODEX}.report"])
+        self.assertEqual(r["head"]["pr.reviewers"][self.CODEX]["report"], {})
 
 
 if __name__ == "__main__":
