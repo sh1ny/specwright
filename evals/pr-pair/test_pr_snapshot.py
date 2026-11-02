@@ -278,7 +278,16 @@ class HeadCutoff(SnapCase):
         self.head_b()
         self.state_dir.write_text("a file, not a directory")
         snap = self.snapshot()
-        self.assertEqual((snap["head_cutoff"], snap["reviewers"]), (None, []))
+        self.assertEqual(snap["reviewers"], [])
+        self.assertEqual(snap["head_cutoff"]["source"], "first_seen_unsaved")
+
+    def test_snapshot_without_reviewers_still_has_the_head_cutoff(self):
+        """The archive-head rule times pr.settle from head_cutoff.at, also for a project with no reviewers."""
+        self.head_b()
+        self.add_activity(B, f"{D}11:00:00Z")
+        self.set_clock(f"{D}12:00:00Z")
+        snap = self.snapshot()
+        self.assertEqual((snap["reviewers"], snap["head_cutoff"]), ([], {"source": "push", "at": f"{D}11:00:00Z"}))
 
     def test_snapshot_removes_sibling_heads_once_the_record_is_published(self):
         d = self.state_dir / "heads" / "o" / "n" / "7"
@@ -348,7 +357,8 @@ class ReviewerConfig(SnapCase):
         self.refuse("--reviewer-config", snapfix.fixtures.posix(self.tmp / "nope.json"), names=("nope.json",))
 
     def test_snapshot_applies_config_check_rule(self):
-        self.set_checks([run("tests"), run("Bot Code Review"), run("Other Review", state="IN_PROGRESS")])
+        self.set_checks([run("tests"), run("Bot Code Review", app="checkbot"),
+                         run("Other Review", state="IN_PROGRESS", app="quietbot")])
         snap = self.snapshot(*self.cfg(rev("checkbot", check="Bot Code Review"), rev("quietbot", check="Other Review")))
         by = {r["login"]: r for r in snap["reviewers"]}
         self.assertEqual(sorted(by), ["checkbot", "quietbot"], "only config reviewers appear")
@@ -776,10 +786,14 @@ class WatchElapsed(SnapCase):
         self.assertLess(took, 90, "woke at once, not at the timeout")
 
 
-def run(name, state="COMPLETED", conclusion="SUCCESS"):
-    """A raw CheckRun node for the fake's statusCheckRollup (state IN_PROGRESS has no conclusion)."""
-    return {"__typename": "CheckRun", "name": name, "status": state,
+def run(name, state="COMPLETED", conclusion="SUCCESS", app=None):
+    """A raw CheckRun node for the fake's statusCheckRollup (state IN_PROGRESS has no conclusion); `app` is the slug of
+    the GitHub App that made it."""
+    node = {"__typename": "CheckRun", "name": name, "status": state,
             "conclusion": None if state != "COMPLETED" else conclusion}
+    if app is not None:
+        node["checkSuite"] = {"app": {"slug": app}}
+    return node
 
 
 PASS, PEND, FAIL = {}, {"state": "IN_PROGRESS"}, {"conclusion": "FAILURE"}

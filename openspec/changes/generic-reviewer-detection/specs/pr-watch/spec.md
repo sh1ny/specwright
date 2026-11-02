@@ -65,7 +65,7 @@ With `--until attention`, `pr-snapshot.sh --wait` SHALL keep waiting while the s
 - **THEN** `pr-snapshot.sh` exits 2 with a message naming `--until`, and makes no `gh` call
 
 ### Requirement: Watch waits for attention
-Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--timeout 1800`, except when the PR's latest snapshot meets every ready condition but the quiet window: then it SHALL use `pr.settle` in seconds (default `5m`). An archive head under "An archive-only head needs no further quiet window" SHALL first wait for the rest of `pr.settle` since its push. Any `timeout` wake SHALL count as the quiet window for the ready rule, even when it skipped check progress. Ready SHALL accept `merge_state` CLEAN, or UNSTABLE when no check fails and `checks.ci_pending` is 0.
+Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--timeout 1800`, except when the PR's latest snapshot meets every ready condition but the quiet window: then it SHALL use `pr.settle` in seconds (default `5m`). An archive head under "An archive-only head needs no further quiet window" SHALL first wait for the rest of `pr.settle` since its push. Any `timeout` wake SHALL count as the quiet window for the ready rule, even when it skipped check progress.
 
 #### Scenario: Watch's wait command
 - **WHEN** the watch text gives the command for step 1
@@ -83,10 +83,6 @@ Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--
 - **WHEN** a wait with `--timeout 1800` wakes `timeout` and its snapshot meets every other ready condition
 - **THEN** watch reports the PR ready without a further `pr.settle` wait
 
-#### Scenario: Pending check makes the merge state unstable
-- **WHEN** CI passed, the only pending check is an advisory reviewer's named check that timed out, and `merge_state` is UNSTABLE
-- **THEN** that does not keep the PR from ready
-
 #### Scenario: Not yet ready
 - **WHEN** CI is still running and a required reviewer is `waiting`
 - **THEN** watch waits with `--timeout 1800`, not `pr.settle`
@@ -96,6 +92,17 @@ Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--
 - **THEN** `pr-pair.sh context` prints `settings_problem` naming `pr.settle`, and watch starts no wait
 
 ## ADDED Requirements
+
+### Requirement: Ready accepts an unstable merge state once CI is done
+Ready SHALL accept `merge_state` CLEAN, or UNSTABLE when no check fails and `checks.ci_pending` is 0. `pr-pair.sh pair-state` SHALL apply the same rule.
+
+#### Scenario: Pending check makes the merge state unstable
+- **WHEN** CI passed, the only pending check is an advisory reviewer's named check that timed out, and `merge_state` is UNSTABLE
+- **THEN** that does not keep the PR from ready
+
+#### Scenario: Snapshot without ci_pending
+- **WHEN** `merge_state` is UNSTABLE and the snapshot has no `checks.ci_pending`
+- **THEN** the PR is not ready
 
 ### Requirement: An advisory reviewer's named check stops blocking once it reported
 A check SHALL belong to a configured reviewer only when its name is that reviewer's `report.check`. A pending check of an advisory reviewer that reported or timed out SHALL count in `checks.advisory_pending`, not `checks.pending`. The snapshot SHALL also give `checks.ci_pending`: the pending checks that belong to no configured reviewer.
@@ -138,6 +145,10 @@ When reports carry over to an archive head, watch SHALL judge it ready, with no 
 #### Scenario: Failing CI on the archive head
 - **WHEN** a CI check fails on the archive head
 - **THEN** the archive head is not ready, and watch handles the failure as for any head
+
+#### Scenario: Store-backed archive head
+- **WHEN** the store PR's archive head is under the carry-over and its snapshot shows the request-driven required reviewer `waiting`, because no new review was requested
+- **THEN** watch calls `pair-state` with `--carry-over store`, and that reviewer's state does not keep the pair from `ready`
 
 ### Requirement: An announced review can extend the wait
 When a reviewer counts as `reported` only `by: output` and watch judges from its `evidence` that the output only announces a review, watch SHALL treat that reviewer as waiting until its `timeout` has passed by the snapshot's `now`, and after it as `timed_out`. Watch SHALL NOT treat as reported a reviewer the snapshot reports `waiting` or `timed_out`.

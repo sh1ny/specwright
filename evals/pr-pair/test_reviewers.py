@@ -200,14 +200,23 @@ class ReportKeys(Base):
 
     def test_named_check_reports_other_name_does_not(self):
         rev = reviewer("rev-bot", report={"check": "Bot Code Review"})
-        checks = [check("Bot Code Review", "pass", "bot-app")]
+        checks = [check("Bot Code Review", "pass", "rev-bot")]
         r = self.rv(config(rev), material({}, checks_all=checks))
         self.assertEqual((r["state"], r["by"]), ("reported", "check"))
-        other = [check("Other Check", "pass", "bot-app")]
+        other = [check("Other Check", "pass", "rev-bot")]
         r = self.rv(config(rev), material({}, checks_all=other))
         self.assertEqual((r["state"], r["by"]), ("waiting", None))
-        r = self.rv(config(rev), material({}, checks_all=[check("Bot Code Review", "pending", "bot-app")]))
+        r = self.rv(config(rev), material({}, checks_all=[check("Bot Code Review", "pending", "rev-bot")]))
         self.assertEqual(r["state"], "waiting")
+
+    def test_named_check_counts_only_from_the_reviewers_own_app(self):
+        """A same-named check from another app, or a commit status (no app), is not the reviewer's report."""
+        rev = reviewer("rev-bot", report={"check": "Bot Code Review"})
+        for app in ("github-actions", "other-bot", None):
+            r = self.rv(config(rev), material({}, checks_all=[check("Bot Code Review", "pass", app)]))
+            self.assertEqual((r["state"], r["by"], r["evidence"]), ("waiting", None, []), app)
+        r = self.rv(config(rev), material({}, checks_all=[check("Bot Code Review", "pass", "Rev-Bot")]))
+        self.assertEqual(r["by"], "check", "the app slug matches the login case-insensitively")
 
     def test_marker_ignored_until_edited_again(self):
         rev = reviewer("rev-bot", report={"marker": "<!-- walkthrough -->", "ignore": "in progress"})
@@ -266,8 +275,8 @@ class Evidence(Base):
 
     def test_named_check_in_evidence(self):
         rev = reviewer("rev-bot", report={"check": "Bot Code Review"})
-        r = self.rv(config(rev), material({}, checks_all=[check("Bot Code Review", "fail", "bot-app"),
-                                                         check("Other", "pass", "bot-app")]))
+        r = self.rv(config(rev), material({}, checks_all=[check("Bot Code Review", "fail", "rev-bot"),
+                                                         check("Other", "pass", "rev-bot")]))
         self.assertEqual(len(r["evidence"]), 1)
         e = r["evidence"][0]
         self.assertEqual((e["kind"], e["state"], e["excerpt"]), ("check", "fail", "Bot Code Review"))
@@ -283,7 +292,7 @@ class Checks(Base):
 
     def test_advisory_timed_out_check_moves_to_advisory_pending(self):
         rev = reviewer("check-bot", "advisory", 900, self.CHK)
-        checks = [check("Bot Code Review", "pending", "bot-app"), check("build", "pending")]
+        checks = [check("Bot Code Review", "pending", "check-bot"), check("build", "pending")]
         out = self.snap(config(rev), material({}, now_offset=16 * 60, checks_all=checks))
         self.assertEqual(out["reviewers"][0]["state"], "timed_out")
         c = out["checks"]
@@ -292,19 +301,26 @@ class Checks(Base):
 
     def test_advisory_waiting_check_stays_pending(self):
         rev = reviewer("check-bot", "advisory", 900, self.CHK)
-        out = self.snap(config(rev), material({}, now_offset=60, checks_all=[check("Bot Code Review", "pending", "b")]))
+        out = self.snap(config(rev), material({}, now_offset=60, checks_all=[check("Bot Code Review", "pending", "check-bot")]))
         c = out["checks"]
         self.assertEqual((c["pending"], c["advisory_pending"], c["ci_pending"]), (1, 0, 0))
 
     def test_required_reviewer_check_pending_not_ci(self):
         rev = reviewer("check-bot", "required", 900, self.CHK)
-        out = self.snap(config(rev), material({}, now_offset=16 * 60, checks_all=[check("Bot Code Review", "pending", "b")]))
+        out = self.snap(config(rev), material({}, now_offset=16 * 60, checks_all=[check("Bot Code Review", "pending", "check-bot")]))
         c = out["checks"]
         self.assertEqual((c["pending"], c["advisory_pending"], c["ci_pending"]), (1, 0, 0))
 
     def test_shared_app_checks_stay_ci(self):
         out = self.snap(config(reviewer("github-actions", "advisory")),
                         material({}, now_offset=9999, checks_all=[check("a", "pending"), check("b", "pending")]))
+        c = out["checks"]
+        self.assertEqual((c["pending"], c["advisory_pending"], c["ci_pending"]), (2, 0, 2))
+
+    def test_same_named_check_from_another_app_is_ci(self):
+        rev = reviewer("check-bot", "advisory", 900, self.CHK)
+        checks = [check("Bot Code Review", "pending", "other-bot"), check("Bot Code Review", "pending", None)]
+        out = self.snap(config(rev), material({}, now_offset=16 * 60, checks_all=checks))
         c = out["checks"]
         self.assertEqual((c["pending"], c["advisory_pending"], c["ci_pending"]), (2, 0, 2))
 

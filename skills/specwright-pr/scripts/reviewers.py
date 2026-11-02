@@ -186,7 +186,7 @@ def evaluate_reviewer(rev, items, checks_all, head, cutoff, now):
         return i.get("kind") == "review" and i.get("commit") == head
 
     live = [i for i in items if not i["_ignored"]]
-    own_checks = [c for c in checks_all if check_name is not None and c.get("name") == check_name]
+    own_checks = [c for c in checks_all if check_name is not None and owns(rev, c)]
 
     by = None
     if any(on_head(i) for i in live):
@@ -220,6 +220,16 @@ def evaluate_reviewer(rev, items, checks_all, head, cutoff, now):
             "evidence": [e for _, e in ev[:MAX_EVIDENCE]]}
 
 
+def owns(rev, c):
+    """Whether check `c` is reviewer `rev`'s `report.check`: the exact name, from a check run of the reviewer's own GitHub
+    App (its slug equals the login, case-insensitively). A same-named check from another app, or a commit status (no
+    app), can be posted by anyone with access to the head, so it never stands for the reviewer."""
+    name = rev["report"].get("check")
+    app = c.get("app")
+    return (name is not None and c.get("name") == name and isinstance(app, str)
+            and app.lower() == rev["login"].lower())
+
+
 def sha_matches(rx, body, head_l):
     for m in rx.finditer(body):
         g = m.group(1) if m.re.groups >= 1 else None
@@ -243,14 +253,10 @@ def evaluate(mat, reviewers, digest, head):
                for r in reviewers]
     state_of = {r["login"]: x for r, x in zip(reviewers, results)}
 
-    owners = {}
-    for r in reviewers:
-        if "check" in r["report"]:
-            owners.setdefault(r["report"]["check"], []).append(r)
     pending = [c for c in checks_all if c.get("state") == "pending"]
     advisory = ci = 0
     for c in pending:
-        own = owners.get(c.get("name"))
+        own = [r for r in reviewers if owns(r, c)]
         if not own:
             ci += 1
         elif all(r["role"] == "advisory" and state_of[r["login"]]["state"] in ("reported", "timed_out") for r in own):

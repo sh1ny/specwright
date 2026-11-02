@@ -714,7 +714,23 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(d, r"(?is)list each `\{key, main, head\}`", "the drift is not listed")
         self.assertIn("`Merge PR #<n> at <head> with the head's policy (<method>)?`", d)
         self.assertRegex(d, r"(?is)`agent` with `reported\.head` `ok`[^.]*ask", "the question is not tied to a head that is `agent` and reported ok")
-        self.assertRegex(d, r"(?is)on yes merge with the head's `pr\.merge_method` at that head", "a yes does not merge with the head's method at that head")
+        self.assertRegex(d, r"(?is)On yes, merge with the head's `pr\.merge_method` at that head once `reported\.head` is `ok`",
+                         "a yes does not merge with the head's method at that head")
+
+    def test_drift_rules_mismatch_alone_still_reaches_the_question(self):
+        # PR #174 review: a reviewer-setting drift always makes the digests differ, so a head judged under main's rules
+        # must still reach the question, and the yes waits again under the head's rules before merging.
+        d = self.sub_bullet("**Drift**")
+        self.assertRegex(d, r"(?is)not `ok` only through `rules_mismatch` \(no `missing`, no `head_mismatch`", "rules_mismatch alone blocks the question")
+        self.assertRegex(d, r"(?is)on `rules_mismatch` the \*\*Reviewer check\*\* first waits again with the head's `reviewer_config`",
+                         "a yes on a rules_mismatch merges without waiting under the head's rules")
+
+    def test_pair_state_takes_the_archive_carry_over(self):
+        # PR #174 review: a store archive head keeps --reviewer-config, so its request-driven reviewer is waiting;
+        # pair-state must be told about the carry-over or the pair is never ready.
+        w = SECTIONS["watch"][1]
+        self.assertRegex(w, r"(?is)pr-pair\.sh pair-state [^\n]*`--carry-over <side>` for a side whose archive head is under the carry-over",
+                         "watch does not pass --carry-over to pair-state for an archive head under the carry-over")
 
     def test_drift_with_main_user_still_reaches_the_question(self):
         # "Branch turns on agent merge": main `user`, head `agent` -> ask, not stop as for `user`.
@@ -773,7 +789,9 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(a, r"(?is)`rules_mismatch`[^.]*archive nothing, ask nothing and wait on the ready head with main's reviewer config",
                          "a rules_mismatch at the archive decision does not archive nothing, ask nothing and wait with main's config")
         self.assertRegex(a, r"(?is)`rules_mismatch`.{0,400}`reviewer_config\.main", "the wait is not restarted with main's `reviewer_config`")
-        self.assertRegex(a, r"(?is)not `ok`[^.]*other than `rules_mismatch`", "the generic 'not ok' case still asks even for a rules_mismatch")
+        self.assertRegex(a, r"(?is)main's `merge` is `agent` with no `drift` and `policy` reports `rules_mismatch`",
+                         "the rules_mismatch wait is not limited to agent mode with no drift (user mode would wait needlessly)")
+        self.assertRegex(a, r"(?is)not `ok` for another reason", "the generic 'not ok' case still asks even for a rules_mismatch")
 
     def test_policy_read_gives_reviewer_config_not_reviewer_args(self):
         p = self.policy_read()

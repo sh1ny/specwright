@@ -39,13 +39,15 @@ Milestone: M6 - Packs, inserted before `pack-mechanism` because other teams cann
 
 ## Release Notes
 
-0.15.0 makes reviewer detection generic: the scripts name no review bot, each project describes how its bots report in `pr.reviewers.<login>.report`, and a PR that is otherwise ready, or holds only the archive commit, waits the `pr.settle` quiet window instead of another 30-minute watch cycle and skips re-running validation. Projects that call `pr-snapshot.sh --reviewer` directly must switch to `--reviewer-config`.
+0.15.0 makes reviewer detection generic: the scripts name no review bot, each project describes how its bots report in `pr.reviewers.<login>.report`, a PR that is otherwise ready waits the `pr.settle` quiet window instead of another 30-minute watch cycle, and an archive-only push also skips re-running validation. Projects that call `pr-snapshot.sh --reviewer` directly must switch to `--reviewer-config`.
 
 ### Added
 - `pr.reviewers.<login>.report` (`sha_pattern`, `check`, `marker`, `ignore`) describes how a bot signals a finished review, and `pr.settle` (default 5m) sets the quiet window before a PR counts as ready. (#166)
+- Snapshots show each reviewer's `by` (the rule that decided) and `evidence`, GitHub's `now`, and `checks.ci_pending`; watch keeps waiting, up to the reviewer's timeout, while its only output reads as an announcement. (#166)
 
 ### Changed
-- Reviewer detection is generic: a review bound to the head commit or output after the push, plus the rules each project sets, with no bot named in the scripts. An advisory reviewer's named check stops blocking once it reported or timed out. Reviewer settings reach `pr-snapshot.sh` as a `--reviewer-config` file, and a merge counts only reports judged under main's rules. (#166)
+- Reviewer detection is generic: a review bound to the head commit or output after the push, plus the rules each project sets, with no bot named in the scripts. An advisory reviewer's named check stops blocking once it reported or timed out. A `report.check` counts only from a check run of the reviewer's own GitHub App. Reviewer settings reach `pr-snapshot.sh` as a `--reviewer-config` file, and a merge counts only reports judged under main's rules. (#166)
+- `pr-pair.sh context` reads the settings file as strictly as `policy` and prints `settings_problem`; watch stops on it before its first wait, so a settings file earlier versions accepted can now stop watch. (#166)
 - An archive-only push skips `pr.validate`, and its head is merged `pr.settle` after the push instead of after another 30-minute watch cycle. A PR that meets every other ready condition waits `pr.settle` instead of 30 minutes. (#166)
 
 ### Removed

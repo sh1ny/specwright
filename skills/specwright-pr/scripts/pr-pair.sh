@@ -87,7 +87,9 @@
 #   link --repo o/n --pr N --kind store|code --peer-url URL [--login L]
 #                                     one marker comment <!-- specwright:link KIND URL -->; edits its own on a new peer
 #   pair-state --code d --store d --branch b [--snapshot code=f] [--snapshot store=f] [--dropped id@rev]...
-#                                     watch action: ship | wait | ready | split_hand_off | cleanup | no_watch
+#              [--carry-over code|store]...
+#                                     watch action: ship | wait | ready | split_hand_off | cleanup | no_watch;
+#                                     --carry-over: that side is an archive head whose reviewers' reports carry over
 #   rounds --code d [--store d] --branch b
 #                                     highest Feedback-Round across both branches (+ legacy subject count, unpushed)
 #   pass write --code d [--store d] --code-repo o/n --change c --intent file [--store-prefix openspec]
@@ -1665,8 +1667,11 @@ def cmd_link(argv):
     return {"ok": True, "action": action, "comment_id": cid}
 
 
-def readiness(s, dropped):
-    """The existing readiness test of SKILL.md watch step 3, minus 'no new activity for one full wait'."""
+def readiness(s, dropped, carry_over=False):
+    """The readiness test of SKILL.md watch step 3, minus 'no new activity for one full wait'. `merge_state` UNSTABLE
+    passes when no check fails and `checks.ci_pending` is 0 (a reviewer's own check may still run). `carry_over` is an
+    archive head whose reviewers' reports carry over from the ready head before it (watch, archive_only true): its
+    reviewers' states and their checks do not count, only CI (`ci_pending`), mergeability and feedback."""
     if s is None:
         return False, ["no_snapshot"], False
     b = []
@@ -1678,17 +1683,18 @@ def readiness(s, dropped):
         b.append("not_open")
     if s.get("mergeable") != "MERGEABLE":
         b.append("not_mergeable")
-    if s.get("merge_state") != "CLEAN":
-        b.append(f"merge_state:{s.get('merge_state')}")
     ck = s.get("checks") or {}
-    if ck.get("pending"):
+    ci_done = ck.get("ci_pending") == 0 and not ck.get("failing")
+    if not (s.get("merge_state") == "CLEAN" or (s.get("merge_state") == "UNSTABLE" and ci_done)):
+        b.append(f"merge_state:{s.get('merge_state')}")
+    if (ck.get("ci_pending") if carry_over else ck.get("pending")):
         b.append("checks_pending")
     if ck.get("failing"):
         b.append("checks_failing")
     for kind in ("threads", "comments", "reviews"):
         if [i for i in s.get(kind) or [] if f"{i.get('id')}@{i.get('rev')}" not in dropped]:
             b.append(kind)
-    for r in s.get("reviewers") or []:
+    for r in ([] if carry_over else s.get("reviewers") or []):
         if r.get("role", "required") == "required" and r.get("state") != "reported":
             b.append(f"reviewer:{r.get('login')}:{r.get('state')}")
         elif r.get("role") == "advisory" and r.get("state") == "waiting":
@@ -1728,8 +1734,12 @@ def snapshot_refresh(s, pr):
 
 
 def cmd_pair_state(argv):
-    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch", "--snapshot": "+snapshot", "--dropped": "+dropped"})
+    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch", "--snapshot": "+snapshot", "--dropped": "+dropped",
+                             "--carry-over": "+carry"})
     need(a, "code", "store", "branch")
+    carry = set(a.get("carry", []))
+    if carry - {"code", "store"}:
+        usage("--carry-over is code or store: the side whose archive head carries its reviewers' reports over")
     e = expected_set(a["code"], a["store"], a["branch"])
     snaps, dropped = read_snapshots(a), set(a.get("dropped", []))
     members = e["set"]
@@ -1752,7 +1762,7 @@ def cmd_pair_state(argv):
     if ended:
         return {**r, "action": "cleanup", "stop_waits": True}
     for k in members:
-        ok, blockers, stale_only = readiness(snaps.get(k), dropped)
+        ok, blockers, stale_only = readiness(snaps.get(k), dropped, k in carry)
         stale = snapshot_refresh(snaps[k], e[k]["pr"]) if snaps.get(k) is not None else None
         if stale:
             ok, blockers, stale_only = False, [stale] + blockers, False

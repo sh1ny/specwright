@@ -458,8 +458,8 @@ resolve_first_seen() {
 limit_hit() {  # <rc> <command>
   case $1 in 124) echo "bounded: deadline_exceeded: $2" >&2 ;; 125) echo "bounded: response_too_large: $2" >&2 ;; *) return 1 ;; esac
 }
-# A snapshot without a configured reviewer only records its sighting of the head
-# (so a later reviewer check counts from it), and never fails over it: any error
+# A snapshot without a configured reviewer still sets the head's cutoff (watch
+# times pr.settle on an archive head from it), and never fails over it: any error
 # there but a named limit returns 0 and leaves cfg unset.
 prepare_cfg() {
   local info raw oid branch hrepo date pushed cutoff fail=1 rc
@@ -475,12 +475,6 @@ prepare_cfg() {
   printf '%s' "$oid" | grep -Eq '^[0-9a-f]{40}$' || return $fail
   printf '%s' "$date" | grep -Eq "$DATE_RE" || return $fail
   [ "$oid" = "$pushed_oid" ] || { pushed_oid=$oid pushed_at= first_seen=$date seen_src= seen_date=; }
-  if [ -z "$logins" ]; then
-    [ -n "$seen_src" ] || resolve_first_seen
-    CFG="def cfg: {logins: [], head: null, pushed: null, since: null, cutoff: null,
-      now: (\"$date\" | strptime(\"%a, %d %b %Y %H:%M:%S GMT\") | mktime)};"
-    return 0
-  fi
   # look the push up until found; it can reach the log after the first poll
   if [ -z "$pushed_at" ] && [ "$hrepo" != - ]; then
     pushed_at=$(gh api "repos/$hrepo/activity?ref=refs/heads/$branch&per_page=100" \

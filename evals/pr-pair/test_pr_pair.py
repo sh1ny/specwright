@@ -1065,14 +1065,58 @@ class PairState(Base):
         pr = next(p for p in self.pulls(slug) if p["number"] == n)
         return snap(pr=pr, **kw)
 
-    def state(self, code=None, store=None, dropped=(), expect=0):
+    def state(self, code=None, store=None, dropped=(), expect=0, carry_over=()):
         args = ["pair-state", "--code", self.code, "--store", self.store, "--branch", BRANCH]
         for name, s in (("code", code), ("store", store)):
             if s is not None:
                 args += ["--snapshot", f"{name}={self.write_json(f'{name}-snap.json', s)}"]
         for d in dropped:
             args += ["--dropped", d]
+        for side in carry_over:
+            args += ["--carry-over", side]
         return self.pp(*args, expect=expect)
+
+    def archive_head(self, **over):
+        """A store snapshot of an archive head under the carry-over: the request-driven required reviewer was not asked
+        again, so it is waiting; an advisory reviewer's check still runs (UNSTABLE), and CI is done."""
+        s = self.snap(STORE, merge_state="UNSTABLE",
+                      checks={"total": 3, "pending": 1, "advisory_pending": 0, "ci_pending": 0, "failing": []},
+                      reviewers=[{"login": CODEX, "role": "required", "timeout": 1200, "state": "waiting"},
+                                 {"login": "kody-ai", "role": "advisory", "timeout": 900, "state": "waiting"}])
+        s.update(over)
+        return s
+
+    def test_pair_state_carry_over_readies_an_archive_head(self):
+        self.add_pull(STORE, 1)
+        r = self.state(store=self.archive_head())
+        self.assertEqual(r["action"], "wait")
+        self.assertIn(f"reviewer:{CODEX}:waiting", r["blocking"]["store"])
+        r = self.state(store=self.archive_head(), carry_over=["store"])
+        self.assertEqual((r["action"], r["ready"]), ("ready", {"store": True}))
+
+    def test_pair_state_carry_over_still_needs_ci_and_no_feedback(self):
+        self.add_pull(STORE, 1)
+        ci = {"total": 3, "pending": 2, "advisory_pending": 0, "ci_pending": 1, "failing": []}
+        r = self.state(store=self.archive_head(checks=ci), carry_over=["store"])
+        self.assertEqual(r["action"], "wait")
+        self.assertIn("checks_pending", r["blocking"]["store"])
+        r = self.state(store=self.archive_head(threads=[thread()]), carry_over=["store"])
+        self.assertIn("threads", r["blocking"]["store"])
+        r = self.state(store=self.archive_head(checks={**ci, "ci_pending": 0, "failing": [{"name": "x"}]}), carry_over=["store"])
+        self.assertIn("checks_failing", r["blocking"]["store"])
+
+    def test_pair_state_carry_over_is_code_or_store(self):
+        self.add_pull(STORE, 1)
+        r = self.state(store=self.archive_head(), carry_over=["both"], expect=2)
+        self.assertEqual(r["error"], "usage")
+
+    def test_pair_state_accepts_unstable_with_no_ci_pending(self):
+        self.add_pull(STORE, 1)
+        ok = {"total": 3, "pending": 0, "advisory_pending": 1, "ci_pending": 0, "failing": []}
+        r = self.state(store=self.snap(STORE, merge_state="UNSTABLE", checks=ok))
+        self.assertEqual(r["action"], "ready")
+        r = self.state(store=self.snap(STORE, merge_state="UNSTABLE", checks={k: v for k, v in ok.items() if k != "ci_pending"}))
+        self.assertIn("merge_state:UNSTABLE", r["blocking"]["store"], "an old snapshot without ci_pending is not ready")
 
     def test_pair_state_waits_for_both(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")

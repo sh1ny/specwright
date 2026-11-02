@@ -55,7 +55,7 @@ A configured reviewer with no `sha_pattern`, `check` or `marker` rule SHALL coun
 - **THEN** the snapshot reports it `reported` with `by: output`, exactly as for any other login
 
 ### Requirement: A report rule decides for its reviewer
-The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignore` (Python regular expressions, searched, case-sensitive), `marker` (a literal substring) and `check` (an exact check name). With any of `sha_pattern`, `check` or `marker` set, only those and a review on the head commit SHALL decide `reported`. `ignore` SHALL exclude matching comment and review bodies from every rule.
+The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignore` (Python regular expressions, searched, case-sensitive), `marker` (a literal substring) and `check` (an exact check name, counted only from a check run of the reviewer's own GitHub App, whose slug is its login). With any of `sha_pattern`, `check` or `marker` set, only those and a review on the head commit SHALL decide `reported`. `ignore` SHALL exclude matching comment and review bodies from every rule.
 
 #### Scenario: Sha pattern names the head
 - **WHEN** `report.sha_pattern` is `Reviewed commit: ([0-9a-f]{7,40})` and the reviewer comments `Reviewed commit: 1a2b3c4` with head `1a2b3c4d...`
@@ -68,6 +68,10 @@ The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignor
 #### Scenario: Named check
 - **WHEN** `report.check` is `Bot Code Review`, and a check of that name on the head completes
 - **THEN** the reviewer is `reported` with `by: check`, and a completed check of another name from the same app does not count
+
+#### Scenario: Named check from another producer
+- **WHEN** `report.check` is `Bot Code Review`, and the only check of that name on the head is a commit status or a check run of another app
+- **THEN** the reviewer is not `reported` by it, and a pending one counts as CI
 
 #### Scenario: Marker comment in progress
 - **WHEN** `report.marker` is `<!-- walkthrough -->`, `report.ignore` is `in progress`, and the marked comment was edited after the cutoff to say `Review in progress`
