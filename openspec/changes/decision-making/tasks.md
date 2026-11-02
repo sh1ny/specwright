@@ -18,15 +18,15 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 | decision-making → Every change carries a decision summary | Autonomous planning ends | evals/git-workflow/test_decision_making.py | test_summary_shown_at_end_without_waiting | green |
 | decision-making → Every change carries a decision summary | Autonomous with a choice the user stated | evals/git-workflow/test_decision_making.py | test_stated_choice_is_user_without_asking | green |
 | decision-making → Every change carries a decision summary | Summary out of step with the decisions | evals/git-workflow/test_decision_making.py | test_summary_rows_match_entries | green |
-| decision-making → Decisions go to the user per the mode | Important mode | evals/git-workflow/test_decision_making.py | test_important_mode_asks_important_only | red |
-| decision-making → Decisions go to the user per the mode | All mode | evals/git-workflow/test_decision_making.py | test_all_mode_asks_every_decision | red |
-| decision-making → Decisions go to the user per the mode | Ask tool that takes four questions | evals/git-workflow/test_decision_making.py | test_batches_of_at_most_four_through_ask_tool | red |
-| decision-making → Decisions go to the user per the mode | Ask tool that takes three questions | evals/git-workflow/test_decision_making.py | test_batch_shrinks_to_tool_question_limit | red |
-| decision-making → Decisions go to the user per the mode | Ask tool with a smaller option limit | evals/git-workflow/test_decision_making.py | test_options_fit_tool_limit_keeping_recommended_and_discuss | red |
-| decision-making → Decisions go to the user per the mode | Ask tool not usable in the current mode | evals/git-workflow/test_decision_making.py | test_unusable_tool_falls_back_to_plain_text | red |
-| decision-making → Decisions go to the user per the mode | Harness without an ask tool | evals/git-workflow/test_decision_making.py | test_plain_text_only_as_fallback | red |
-| decision-making → Decisions go to the user per the mode | User asks to discuss | evals/git-workflow/test_decision_making.py | test_discuss_option_holds_the_decision | red |
-| decision-making → Decisions go to the user per the mode | User hands the decision back | evals/git-workflow/test_decision_making.py | test_you_decide_records_agent | red |
+| decision-making → Decisions go to the user per the mode | Important mode | evals/git-workflow/test_decision_making.py | test_important_mode_asks_important_only | green |
+| decision-making → Decisions go to the user per the mode | All mode | evals/git-workflow/test_decision_making.py | test_all_mode_asks_every_decision | green |
+| decision-making → Decisions go to the user per the mode | Ask tool that takes four questions | evals/git-workflow/test_decision_making.py | test_batches_of_at_most_four_through_ask_tool | green |
+| decision-making → Decisions go to the user per the mode | Ask tool that takes three questions | evals/git-workflow/test_decision_making.py | test_batch_shrinks_to_tool_question_limit | green |
+| decision-making → Decisions go to the user per the mode | Ask tool with a smaller option limit | evals/git-workflow/test_decision_making.py | test_options_fit_tool_limit_keeping_recommended_and_discuss | green |
+| decision-making → Decisions go to the user per the mode | Ask tool not usable in the current mode | evals/git-workflow/test_decision_making.py | test_unusable_tool_falls_back_to_plain_text | green |
+| decision-making → Decisions go to the user per the mode | Harness without an ask tool | evals/git-workflow/test_decision_making.py | test_plain_text_only_as_fallback | green |
+| decision-making → Decisions go to the user per the mode | User asks to discuss | evals/git-workflow/test_decision_making.py | test_discuss_option_holds_the_decision | green |
+| decision-making → Decisions go to the user per the mode | User hands the decision back | evals/git-workflow/test_decision_making.py | test_you_decide_records_agent | green |
 | decision-making → A user-chosen decision changes only with the user | Reviewer asks to change a user choice | evals/git-workflow/test_decision_making.py | test_review_change_to_user_choice_asks_first | red |
 | decision-making → A user-chosen decision changes only with the user | Autonomous mode, review or drift would replace a user choice | evals/git-workflow/test_decision_making.py | test_user_choice_protected_in_every_mode | red |
 | decision-making → A user-chosen decision changes only with the user | Reviewer changes only agent choices | evals/git-workflow/test_decision_making.py | test_agent_choices_applied_without_asking_in_autonomous | red |
@@ -47,8 +47,8 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 
 ## 3. Putting decisions to the user
 
-- [ ] 3.1 Add tests for rows 13-21 and confirm they fail for the right reason.
-- [ ] 3.2 In the proposal and design instructions, ask before the artifact is written. In `important` mode, ask about each important decision; in `all` mode, ask about every decision. Questions go in batches of at most 4, or the usable ask tool's lower question limit (more decisions: more batches), each with 2-4 options cut to the tool's option limit, always keeping the recommended one marked and a way to discuss (the tool's free-text answer, else a discuss option), put through the harness's own ask tool when it is usable in the current session and mode, so the user picks instead of typing; plain text with lettered options only when no ask tool is usable. A decision under discussion is not written until the user settles it. "You decide" takes the recommended option, recorded `Chosen by: agent` with a note. Verify that rows 13-21 pass and flip them green.
+- [x] 3.1 Add tests for rows 13-21 and confirm they fail for the right reason.
+- [x] 3.2 In the proposal and design instructions, ask before the artifact is written. In `important` mode, ask about each important decision; in `all` mode, ask about every decision. Questions go in batches of at most 4, or the usable ask tool's lower question limit (more decisions: more batches), each with 2-4 options cut to the tool's option limit, always keeping the recommended one marked and a way to discuss (the tool's free-text answer, else a discuss option), put through the harness's own ask tool when it is usable in the current session and mode, so the user picks instead of typing; plain text with lettered options only when no ask tool is usable. A decision under discussion is not written until the user settles it. "You decide" takes the recommended option, recorded `Chosen by: agent` with a note. Verify that rows 13-21 pass and flip them green.
 
 ## 4. Protecting user choices and later changes
 

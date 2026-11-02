@@ -76,6 +76,37 @@ artifacts:
       words), then the scope decisions of this change as `S1`, `S2`... each
       with Choice, Rejected, Reversal cost, Important and Chosen by.
 
+      Asking. The questions are asked before the artifact that holds the
+      decision is written: scope and non-goal choices before proposal.md is
+      written (the proposal is written as soon as they are answered), design
+      decisions before design.md is written. In `important` mode ask the
+      user about each important decision before it is written, and in
+      `all` mode about every decision; each question has a recommended
+      option. The other decisions are taken by the agent and recorded
+      `Chosen by: agent`. In `autonomous` mode nothing is asked.
+
+      Put the questions in batches of at most 4, or fewer when the usable
+      ask tool takes fewer questions per call. More decisions: more batches;
+      every decision is still asked.
+
+      Each question offers 2 to 4 options, cut to the ask tool's option
+      limit by dropping the weakest alternatives. Always keep the
+      recommended option marked, and a way to discuss: the tool's free-text
+      answer when it has one, else a discuss option.
+
+      Put each batch through the harness's own ask tool when it is usable in
+      the current session and mode, so the user picks rather than types.
+      Plain text is the fallback only: when no ask tool is usable (the
+      harness has none, or the session or mode does not allow it), print the
+      batch as plain text with lettered options, the recommended one marked
+      and a discuss option, and wait for the answer before writing the
+      decisions.
+
+      A decision under discussion is not written until the user settles it
+      with a choice, recorded `Chosen by: user`. If the user hands it back
+      ("you decide"), take the recommended option and record
+      `Chosen by: agent`, with a note that the user handed it back.
+
       Later sessions of the change, review fix rounds and apply read the mode
       from the `DECISION_MAKING:` line in proposal.md, not from the
       conversation. A proposal with no mode line (planned before this
@@ -269,6 +300,23 @@ artifacts:
         any mode, else `agent`. A choice the user stated before planning began
         (in the conversation, or in the issue they approved) is recorded
         `Chosen by: user` without asking again; it is not a question.
+
+        Asking: put the decisions to the user before design.md is written,
+        by the same asking rule as the proposal step. In `important` mode
+        ask about each important decision, in `all` mode about every
+        decision, each with a recommended option and 2 to 4 options, cut to
+        the ask tool's option limit by dropping the weakest, keeping the
+        recommended one and a way to discuss (the tool's free-text answer,
+        else a discuss option). Batches of at most 4, fewer when the tool
+        takes fewer; more decisions: more batches, every decision asked.
+        Use the harness's own ask tool when it is usable, so the user picks;
+        plain text with lettered options is the fallback only, when no ask
+        tool is usable (the harness has none, or the session or mode does
+        not allow it), then wait for the answer. The other decisions are
+        `Chosen by: agent`. A decision under discussion is not written until
+        the user settles it, `Chosen by: user`; "you decide" takes the
+        recommended option, `Chosen by: agent`, with a note that the user
+        handed it back.
 
         Wording of a message, the order of tasks and the layout of a test are
         not decisions: they get no Decisions entry.

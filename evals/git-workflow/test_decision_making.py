@@ -158,5 +158,75 @@ class DecisionSummary(unittest.TestCase):
         self.assertIsNotNone(p, "design instruction does not keep the summary in step with the entries in the same edit")
 
 
+TOOL_NAMES = r"AskUserQuestion|request_user_input|ask_user_question|ask_user"
+
+
+def asked_blocks():
+    return {"proposal": proposal_instruction(), "design": schema_block("design")}
+
+
+class PuttingDecisionsToTheUser(unittest.TestCase):
+    """Requirement: Decisions go to the user per the mode."""
+
+    def test_important_mode_asks_important_only(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"`?important`? mode", r"each important decision|important decisions?", r"before", r"written")
+            self.assertIsNotNone(p, f"{name} instruction does not ask about each important decision in important mode before writing")
+            self.assertRegex(p, r"(?i)Chosen by: `?agent")
+            self.assertRegex(p, r"(?i)recommended")
+
+    def test_all_mode_asks_every_decision(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"`?all`? mode", r"every decision", r"before", r"written")
+            self.assertIsNotNone(p, f"{name} instruction does not ask about every decision in all mode before writing")
+
+    def test_batches_of_at_most_four_through_ask_tool(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"batch", r"at\s+most\s+4", r"ask\s+tool", r"more\s+batches|further\s+batch")
+            self.assertIsNotNone(p, f"{name} instruction has no batches of at most 4 through the ask tool")
+            self.assertRegex(p, r"(?i)every\s+decision")
+
+    def test_batch_shrinks_to_tool_question_limit(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"batch", r"at\s+most\s+4", r"fewer|lower|smaller", r"(tool|it)\s+takes|tool'?s? .{0,30}limit")
+            self.assertIsNotNone(p, f"{name} instruction does not shrink a batch to the tool's question limit")
+            self.assertNotRegex(p, r"(?i)(three|3)\s+questions")
+
+    def test_options_fit_tool_limit_keeping_recommended_and_discuss(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"2\s+to\s+4\s+options", r"option\s+limit|options? (limit|cap)", r"recommended", r"discuss")
+            self.assertIsNotNone(p, f"{name} instruction does not fit options to the tool's limit keeping recommended and discuss")
+            self.assertRegex(p, r"(?i)weakest")
+            self.assertRegex(p, r"(?i)free-text")
+            self.assertRegex(p, r"(?i)discuss option")
+        for text in asked_blocks().values():
+            self.assertNotRegex(text, TOOL_NAMES)
+
+    def test_unusable_tool_falls_back_to_plain_text(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"plain\s+text", r"lettered", r"(session|mode).{0,30}(not|no|does not).{0,20}(allow|usable)|not\s+usable|no\s+ask\s+tool\s+is\s+usable", r"wait")
+            self.assertIsNotNone(p, f"{name} instruction has no plain-text fallback when the ask tool is unusable in the session or mode")
+            self.assertRegex(p, r"(?i)recommended")
+            self.assertRegex(p, r"(?i)discuss")
+
+    def test_plain_text_only_as_fallback(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"harness'?s? own ask\s+tool", r"usable", r"user picks|picks (rather|instead)", r"plain\s+text")
+            self.assertIsNotNone(p, f"{name} instruction does not make the harness's ask tool the first route")
+            self.assertRegex(p, r"(?i)(only|fallback)")
+            self.assertRegex(p, r"(?i)(has none|no ask tool|harness without)")
+
+    def test_discuss_option_holds_the_decision(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"discussion|discuss", r"not\s+written", r"settles?", r"Chosen by: `?user")
+            self.assertIsNotNone(p, f"{name} instruction does not hold a decision under discussion unwritten")
+
+    def test_you_decide_records_agent(self):
+        for name, text in asked_blocks().items():
+            p = find_block(text, r"you decide", r"recommended", r"Chosen by: `?agent", r"note|noting")
+            self.assertIsNotNone(p, f"{name} instruction does not record 'you decide' as Chosen by: agent with a note")
+            self.assertRegex(p, r"(?i)handed")
+
+
 if __name__ == "__main__":
     unittest.main()
