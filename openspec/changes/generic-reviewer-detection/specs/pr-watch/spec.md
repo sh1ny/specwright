@@ -93,6 +93,17 @@ Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--
 
 ## ADDED Requirements
 
+### Requirement: The quiet window is main's
+Watch SHALL take `pr.settle` from `pr-pair.sh policy` (the default branch's value), never from the PR branch or the work tree. `policy` SHALL compare `pr.settle` between main and the head like the other policy keys, so a PR that changes it is a difference the user confirms before an agent merge.
+
+#### Scenario: PR shortens the window
+- **WHEN** main has `pr.settle: 30m` and the PR branch sets `pr.settle: 1m`
+- **THEN** watch's settle wait uses 1800 seconds, and `policy` lists `pr.settle` in `drift` with 1800 and 60
+
+#### Scenario: Default written out
+- **WHEN** main has no `pr.settle` and the head sets `pr.settle: 5m`
+- **THEN** `policy` reports no difference
+
 ### Requirement: Ready accepts an unstable merge state once CI is done
 Ready SHALL accept `merge_state` CLEAN, or UNSTABLE when no check fails and `checks.ci_pending` is 0. `pr-pair.sh pair-state` SHALL apply the same rule.
 

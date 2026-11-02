@@ -797,6 +797,8 @@ def run(name, state="COMPLETED", conclusion="SUCCESS", app=None):
 
 
 PASS, PEND, FAIL = {}, {"state": "IN_PROGRESS"}, {"conclusion": "FAILURE"}
+# checkbot's own check run (report.check counts only a run of the reviewer's own GitHub App)
+BOT_PASS, BOT_PEND = {"app": "checkbot"}, {"state": "IN_PROGRESS", "app": "checkbot"}
 
 
 def checks(**by_name):
@@ -882,7 +884,7 @@ class TestUntilAttention(SnapCase):
 
     def test_ci_done_wakes_while_reviewer_check_pending(self):
         # the last CI check passes while a reviewer's own check still runs: nothing but that check is pending, so wake
-        doc = self.wait(checks(a=PEND, bot=PEND), [{"checks": checks(a=PASS, bot=PEND)}],
+        doc = self.wait(checks(a=PEND, bot=BOT_PEND), [{"checks": checks(a=PASS, bot=BOT_PEND)}],
                         *self.cfg(rev("checkbot", check="bot")))
         self.assertEqual((doc["wake"], doc["filtered"]), ("changed", 0))
         self.assertEqual(doc["snapshot"]["checks"]["ci_pending"], 0)
@@ -890,20 +892,20 @@ class TestUntilAttention(SnapCase):
 
     def test_reviewer_check_progress_alone_wakes(self):
         # no CI check pending; the reviewer's check is the only difference from the baseline
-        doc = self.wait(checks(a=PASS, bot=PEND), [{"checks": checks(a=PASS, bot=PASS)}],
+        doc = self.wait(checks(a=PASS, bot=BOT_PEND), [{"checks": checks(a=PASS, bot=BOT_PASS)}],
                         *self.cfg(rev("checkbot", check="bot")))
         self.assertEqual((doc["wake"], doc["filtered"]), ("changed", 0))
         self.assertEqual([r["state"] for r in doc["snapshot"]["reviewers"]], ["reported"])
 
     def test_ci_progress_with_a_reviewer_config_is_filtered(self):
-        doc = self.wait(checks(a=PEND, b=PEND, bot=PEND), [{"checks": checks(a=PASS, b=PEND, bot=PEND)}],
+        doc = self.wait(checks(a=PEND, b=PEND, bot=BOT_PEND), [{"checks": checks(a=PASS, b=PEND, bot=BOT_PEND)}],
                         *self.cfg(rev("checkbot", check="bot")), timeout=12)
         self.assertEqual(doc["wake"], "timeout")
         self.assertGreaterEqual(doc["filtered"], 1)
 
     def test_wake_works_on_compact_evaluator_output(self):
         r_args = self.cfg(rev("checkbot", check="bot"))
-        self.set_checks(checks(a=PEND, bot=PEND))
+        self.set_checks(checks(a=PEND, bot=BOT_PEND))
         r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", 120, *r_args,
                               env={"FAKE_STEPS": json.dumps([{"comment": ["rev", "please change this"]}])})
         self.assertEqual(r.returncode, 0, r.stderr)

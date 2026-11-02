@@ -159,6 +159,13 @@ class SkillText(unittest.TestCase):
         self.assertRegex(watch_step3(), r"(?is)`merge_state` CLEAN, or UNSTABLE when no check fails and `checks\.ci_pending` is 0",
                          "ready does not accept UNSTABLE when no check fails and ci_pending is 0")
 
+    def test_watch_settle_comes_from_main_policy(self):
+        # PR #174 security review: a PR branch must not shorten main's quiet window.
+        self.assertRegex(watch_step1(), r"(?is)`--timeout <pr\.settle in seconds>` \(`settle` from `policy`[^)]*main's value, never the work tree's",
+                         "the settle wait does not take main's value from `policy`")
+        self.assertRegex(TEXT, r"(?is)`pr\.settle`[^.]*merge policy[^.]*main's value from `policy`[^.]*drift",
+                         "the Reviewers settings text does not make pr.settle merge policy")
+
     def test_watch_uses_1800_until_otherwise_ready(self):
         self.assertRegex(watch_step1(), r"(?is)CI running, a required reviewer waiting[^.]*1800, not `?pr\.settle",
                          "step 1 does not say a not-yet-ready PR (CI running, a required reviewer waiting) waits 1800, not pr.settle")

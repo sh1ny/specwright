@@ -2796,7 +2796,8 @@ def policy_side(s, with_store):
         invalid.append({"key": "pr.reviewers", "value": setting_text(pr, "reviewers")})
         raw = None
     side = {"pr.merge": merge, "pr.merge_method": "merge" if method is None else method,
-            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(raw, probs)}
+            "pr.delete_branch": True if delete is None else delete, "pr.reviewers": reviewers_of(raw, probs),
+            "pr.settle": settle_of(pr)[0]}  # seconds; a bad value counts as the default, and main's stops `policy`
     if with_store:
         own = sect(s, "planning_store").get("reviewers")
         side["planning_store.reviewers"] = (  # None: the store inherits pr.reviewers
@@ -2884,7 +2885,7 @@ def cmd_policy(argv):
            "invalid": [dict(side=w, **b) for w, bad in (("main", main_bad), ("head", head_bad)) for b in bad]
            + [{"side": "head", "key": b["key"], "value": b["error"] if b["error"] == "too_many_reviewers" else b["why"]}
               for b in head_probs],
-           "merge": main["pr.merge"], "merge_method": "merge", "delete_branch": True}
+           "merge": main["pr.merge"], "merge_method": "merge", "delete_branch": True, "settle": main["pr.settle"]}
     if out["merge"] == "agent":  # only the agent merge reads them, as context does; a bad value on main stops here
         out["merge_method"], out["delete_branch"] = merge_options(main_pr)
     ready = {"code": has_required(main["pr.reviewers"])}

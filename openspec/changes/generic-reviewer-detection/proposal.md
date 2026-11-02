@@ -42,7 +42,7 @@ Milestone: M6 - Packs, inserted before `pack-mechanism` because other teams cann
 0.15.0 makes reviewer detection generic: the scripts name no review bot, each project describes how its bots report in `pr.reviewers.<login>.report`, a PR that is otherwise ready waits the `pr.settle` quiet window instead of another 30-minute watch cycle, and an archive-only push also skips re-running validation. Projects that call `pr-snapshot.sh --reviewer` directly must switch to `--reviewer-config`.
 
 ### Added
-- `pr.reviewers.<login>.report` (`sha_pattern`, `check`, `marker`, `ignore`) describes how a bot signals a finished review, and `pr.settle` (default 5m) sets the quiet window before a PR counts as ready. (#166)
+- `pr.reviewers.<login>.report` (`sha_pattern`, `check`, `marker`, `ignore`) describes how a bot signals a finished review, and `pr.settle` (default 5m, read from the default branch like the other merge settings) sets the quiet window before a PR counts as ready. (#166)
 - Snapshots show each reviewer's `by` (the rule that decided) and `evidence`, GitHub's `now`, and `checks.ci_pending`; watch keeps waiting, up to the reviewer's timeout, while its only output reads as an announcement. (#166)
 
 ### Changed

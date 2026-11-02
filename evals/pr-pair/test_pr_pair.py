@@ -4739,6 +4739,17 @@ class PolicyReviewers(PolicyBase):
         self.seed_both(self.AGENT + "  settle: 10m\n", self.AGENT + "  settle: soon\n")
         self.assertEqual(self.policy()["_rc"], 0)  # a bad head value is not main's policy
 
+    def test_policy_settle_is_main_policy_and_drifts(self):
+        # PR #174 security review: a PR branch must not shorten the quiet window main's owner set.
+        self.seed_both(self.AGENT + "  settle: 30m\n", self.AGENT + "  settle: 1m\n")
+        r = self.policy()
+        self.assertEqual(r["settle"], 1800, "the quiet window is main's")
+        self.assertEqual((r["main"]["pr.settle"], r["head"]["pr.settle"]), (1800, 60))
+        self.assertIn({"key": "pr.settle", "main": 1800, "head": 60}, r["drift"])
+        self.seed_both(self.AGENT, self.AGENT + "  settle: 5m\n")
+        r = self.policy()
+        self.assertEqual((r["settle"], r["drift"]), (300, []), "an explicit default is no difference")
+
     def test_policy_too_many_reviewers_exit_2(self):
         many = "".join(f"    bot-{n:02d}: {{ role: advisory }}\n" for n in range(21))
         self.seed_both("pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n" + many, self.AGENT)
