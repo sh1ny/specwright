@@ -56,7 +56,7 @@ DECISION_MAKING: autonomous
 
 ## Release Notes
 
-Planning can now keep you in the loop on design decisions. The new `decision_making` setting chooses whether the agent decides and reports a summary table (`autonomous`, the default), puts only important decisions to you (`important`), or puts every decision to you (`all`), each with options and a recommended one.
+Planning can now keep you in the loop on design decisions. The new `decision_making` setting chooses whether the agent decides and reports a summary table (`autonomous`, the default), puts only important decisions to you (`important`), or puts every decision to you (`all`), each with options and a recommended one, through your harness's ask tool. You can override the mode for one change when you start it, and a decision you chose is never changed by a review or during apply without asking you.
 
 ### Added
 - `decision_making: autonomous | important | all` in `openspec/specwright.yaml`, a per-change spoken override recorded in a `## Decision Making` section of `proposal.md`, `Important` and `Chosen by` fields and a decision summary table in `design.md`; a review never changes a user-chosen decision without the user (#182).
