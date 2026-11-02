@@ -41,8 +41,12 @@ No pack is shipped in this change; `gamedev-pack` ships the first ones. This cha
 
 ## Release Notes
 
-0.16.0 adds packs: opt-in bundles of domain skills, rules, project documents and init questions that plug into Specwright without changing its flow. A project lists the packs it wants under `packs:` in `openspec/specwright.yaml`; the install prompt installs, updates and removes them with Specwright's own skills and refuses a pack that tries to relax a gate. No pack ships yet; the first ones (ui-prototyping, gamedev, godot) follow in 0.18.0.
+0.16.0 adds packs: opt-in bundles of domain skills, rules, documents and init questions that add to Specwright's flow. A project lists them under `packs:` in `openspec/specwright.yaml`; the install prompt installs, updates and removes them with Specwright's own skills, records their ownership in `packs.json` and checks their config lines through OpenSpec. A pack that relaxes a gate is refused, as are packs on a planning store or a user-level skills directory. Roadmap init suggests packs from the repo's files. No pack ships yet; the first ones (ui-prototyping, gamedev, godot) follow in 0.18.0.
 
 ### Added
 - Packs: a `pack.json` format, `packs:` in `openspec/specwright.yaml`, pack install, update and remove through the install prompt and `update.sh`, and `update.sh pack-check`, which refuses a pack that names a core skill, targets an unknown artifact or relaxes a gate (#68)
+- `update.sh pack-verify`, which checks the merged pack lines through `openspec instructions`, and `update.sh pack-docs`, which creates missing pack documents after the stamp and never overwrites one (#68)
 - `specwright-roadmap` suggests packs from repo signals during init, asks their questions and reviews their documents with the baseline, and a new **pack** mode sets up a pack enabled later (#68)
+
+### Changed
+- The update script reports interface 2 and writes journal format 2; the install prompt still installs an older release when no pack is enabled, and every install now writes `openspec/.specwright/packs.json`, which is treated like `VERSION` (#68)

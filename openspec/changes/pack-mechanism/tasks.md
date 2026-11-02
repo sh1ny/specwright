@@ -107,8 +107,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 8. End-to-end and release
 
-- [ ] 8.1 Add one UP end-to-end test: install the `valid-domain` + `valid-ui-base` fixture packs into a fixture project with `update.sh plan/stage/swap`, merge their lines as Step 5 specifies (test helper), run `pack-verify`, stamp, `finish`, `pack-docs`; then remove both and verify the skills, lines and record are gone and the documents kept. Verify: the test passes on this machine; CI runs it on all three OSes.
-- [ ] 8.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.16.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/pack-mechanism/proposal.md` pass.
+- [x] 8.1 Add one UP end-to-end test: install the `valid-domain` + `valid-ui-base` fixture packs into a fixture project with `update.sh plan/stage/swap`, merge their lines as Step 5 specifies (test helper), run `pack-verify`, stamp, `finish`, `pack-docs`; then remove both and verify the skills, lines and record are gone and the documents kept. Verify: the test passes on this machine; CI runs it on all three OSes.
+- [x] 8.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.16.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/pack-mechanism/proposal.md` pass.
 
 ## Workflow follow-up
 

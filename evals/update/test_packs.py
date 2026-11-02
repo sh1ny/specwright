@@ -21,6 +21,10 @@ _spec = importlib.util.spec_from_file_location("update_fixtures", HERE / "fixtur
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
 
+_mspec = importlib.util.spec_from_file_location("pack_merge", HERE.parent / "packs" / "merge.py")
+merge = importlib.util.module_from_spec(_mspec)
+_mspec.loader.exec_module(merge)
+
 PACKS = HERE.parents[0] / "packs" / "fixtures" / "packs"
 BASE, DOMAIN, WEB = "valid-ui-base", "valid-domain", "valid-web"
 BASE_SKILL, DOMAIN_SKILL = "valid-ui-base-kit", "valid-domain-design"
@@ -640,6 +644,81 @@ class TestPackInstall(Base):
     def recover_discards(self, co):
         code, doc, out, err = self.upd(co, "recover")
         self.assertEqual((code, doc["action"]), (0, "discarded"), out + err)
+        self.assertEqual(self.leftovers(co), [])
+
+    # --- group 8: the whole life of two packs ------------------------------------------------------------------------
+
+    def config_of(self, co):
+        return (co.root / "openspec" / "config.yaml").read_text(encoding="utf-8")
+
+    def pack_lines(self, text, pack):
+        return [ln for ln in text.splitlines() if f"[pack:{pack}] " in ln]
+
+    def one_run(self, co, *packs):
+        """The README sequence of Steps 4-7 for a repo-local project: plan, stage, swap, the Step 5 merge (test helper),
+        note-config, pack-verify, stamp, finish, pack-docs. Returns (plan document, pack-docs document)."""
+        code, plan = self.plan(*self.packs(*packs), co=co)
+        self.assertEqual(code, 0, plan)
+        for sub in ("stage", "swap"):
+            code, doc, out, err = self.upd(co, sub, *self.packs(*packs))
+            self.assertEqual(code, 0, f"{sub}: {out}{err}")
+        manifests = [(p["name"], json.loads((self.dl / "packs" / p["name"] / "pack.json").read_text(encoding="utf-8")))
+                     for p in plan["packs"]]
+        template = (self.dl / "templates" / "openspec" / "config.yaml").read_text(encoding="utf-8")
+        text, unmanaged = merge.merge_config(self.config_of(co), template, manifests, plan["packs_previous"])
+        self.assertEqual(unmanaged, [])
+        (co.root / "openspec" / "config.yaml").write_text(text, encoding="utf-8", newline="\n")
+        code, doc, out, err = self.upd(co, "note-config")
+        self.assertEqual((code, doc["ok"]), (0, True), out + err)
+        verify = ["pack-verify"] + [x for n in plan["packs_previous"] for x in ("--previous", n)]
+        code, doc, out, err = self.upd(co, *verify)
+        self.assertEqual((code, doc["ok"], doc["problems"]), (0, True, []), out + err)
+        co.version_file.write_text((self.dl / "VERSION").read_text(encoding="utf-8"), encoding="utf-8")
+        code, doc, out, err = self.upd(co, "finish")
+        self.assertEqual(code, 0, out + err)
+        code, docs, out, err = self.upd(co, "pack-docs")
+        self.assertEqual((code, docs["ok"]), (0, True), out + err)
+        return plan, docs
+
+    def test_end_to_end_install_and_remove_packs(self):
+        co = self.checkout()
+        self.download()
+        gdd = co.code / "docs" / "domain" / "gdd.md"
+
+        # install both packs
+        plan, docs = self.one_run(co, DOMAIN, BASE)
+        self.assertEqual([p["name"] for p in plan["packs"]], [BASE, DOMAIN])
+        self.assertEqual(plan["packs_previous"], [])
+        self.assertEqual([(d["pack"], d["id"], d["path"], d["status"]) for d in docs["documents"]],
+                         [(DOMAIN, "gdd", "docs/domain/gdd.md", "created")])
+        self.assert_installed(co, (BASE, BASE_SKILL), (DOMAIN, DOMAIN_SKILL))
+        text = self.config_of(co)
+        self.assertTrue(self.pack_lines(text, BASE))
+        self.assertTrue(self.pack_lines(text, DOMAIN))
+        self.assertEqual(sorted(self.record_of(co)["packs"]), sorted([BASE, DOMAIN]))
+        self.assertEqual(co.version_file.read_text(encoding="utf-8").strip(), "0.6.0")
+        self.assertEqual(self.leftovers(co), [])
+        self.assertTrue(gdd.is_file())
+        template = (self.dl / "packs" / DOMAIN / "documents" / "gdd.md").read_bytes()
+        self.assertEqual(gdd.read_bytes(), template)
+        with open(gdd, "a", encoding="utf-8", newline="") as f:  # the project's own work in the document
+            f.write("\nMy own design notes.\n")
+        mine = gdd.read_bytes()
+
+        # remove both: no --pack at all
+        plan, docs = self.one_run(co)
+        self.assertEqual(plan["packs"], [])
+        self.assertEqual(plan["packs_previous"], sorted([BASE, DOMAIN]))
+        removes = {(t["group"], t["name"]) for t in plan["targets"] if t.get("type") == "remove"}
+        self.assertEqual(removes, {(g, n) for g in ("skills-1", "skills-2") for n in (BASE_SKILL, DOMAIN_SKILL)})
+        self.assertEqual(docs["documents"], [])
+        for d in co.skills:
+            self.assertFalse((d / BASE_SKILL).exists(), d)
+            self.assertFalse((d / DOMAIN_SKILL).exists(), d)
+        self.assert_installed(co)
+        self.assertNotIn("[pack:", self.config_of(co))
+        self.assertEqual(self.record_of(co)["packs"], {})
+        self.assertEqual(gdd.read_bytes(), mine)  # the document is the project's: kept, unchanged
         self.assertEqual(self.leftovers(co), [])
 
 
