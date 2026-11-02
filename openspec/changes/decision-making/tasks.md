@@ -32,8 +32,8 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 | decision-making → A user-chosen decision changes only with the user | Reviewer changes only agent choices | evals/git-workflow/test_decision_making.py | test_agent_choices_applied_without_asking_in_autonomous | green |
 | decision-making → Decisions changed after planning follow the mode | Drift in important mode | evals/git-workflow/test_decision_making.py | test_apply_drift_follows_mode | green |
 | decision-making → Decisions changed after planning follow the mode | Drift in autonomous mode | evals/git-workflow/test_decision_making.py | test_autonomous_drift_amends_agent_choice_and_rereviews | green |
-| decision-making → The setting is documented where it is set | Fresh install | evals/git-workflow/test_decision_making.py | test_template_names_setting_and_values | red |
-| decision-making → The setting is documented where it is set | Existing project updated | evals/git-workflow/test_decision_making.py | test_readme_documents_setting_default | red |
+| decision-making → The setting is documented where it is set | Fresh install | evals/git-workflow/test_decision_making.py | test_template_names_setting_and_values | green |
+| decision-making → The setting is documented where it is set | Existing project updated | evals/git-workflow/test_decision_making.py | test_readme_documents_setting_default | green |
 
 ## 1. Mode resolution and the proposal record
 
@@ -57,9 +57,9 @@ All tests are wording checks in `evals/git-workflow/test_decision_making.py`, in
 
 ## 5. Settings, docs and the contract
 
-- [ ] 5.1 Add tests for rows 27-28 and confirm they fail for the right reason.
-- [ ] 5.2 Add an active `decision_making: autonomous` line with a comment naming `autonomous`, `important` and `all` to `templates/openspec/specwright.yaml`. Add it to the README settings block (default `autonomous`, unset means `autonomous`) and a short paragraph to the README's planning flow. Add a Contracts bullet in `openspec/architecture.md` for the `## Decision Making` section and the `Important`/`Chosen by` fields that later runs parse (a workflow change, minor version). Verify that rows 27-28 pass and flip them green.
-- [ ] 5.3 Run `python -m unittest evals/runner/test_suite_map.py` to confirm the new test module is covered by the suite map. Add a rule to `evals/suites.json` if the test reports it uncovered.
+- [x] 5.1 Add tests for rows 27-28 and confirm they fail for the right reason.
+- [x] 5.2 Add an active `decision_making: autonomous` line with a comment naming `autonomous`, `important` and `all` to `templates/openspec/specwright.yaml`. Add it to the README settings block (default `autonomous`, unset means `autonomous`) and a short paragraph to the README's planning flow. Add a Contracts bullet in `openspec/architecture.md` for the `## Decision Making` section and the `Important`/`Chosen by` fields that later runs parse (a workflow change, minor version). Verify that rows 27-28 pass and flip them green.
+- [x] 5.3 Run `python -m unittest evals/runner/test_suite_map.py` to confirm the new test module is covered by the suite map. Add a rule to `evals/suites.json` if the test reports it uncovered.
 
 ## 6. Release
 

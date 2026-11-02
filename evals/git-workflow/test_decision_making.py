@@ -270,5 +270,31 @@ class ProtectingUserChoices(unittest.TestCase):
         self.assertRegex(d, r"(?i)without\s+asking")
 
 
+class SettingDocumented(unittest.TestCase):
+    """Requirement: The setting is documented where it is set."""
+
+    def test_template_names_setting_and_values(self):
+        text = read(ROOT / "templates" / "openspec" / "specwright.yaml")
+        self.assertRegex(text, r"(?m)^decision_making:\s*autonomous\s*(#.*)?$", "the template has no active `decision_making: autonomous` line")
+        lines = text.splitlines()
+        at = next((n for n, l in enumerate(lines) if l.startswith("decision_making:")), len(lines))
+        start = at
+        while start > 0 and lines[start - 1].startswith("#"):
+            start -= 1
+        comment = " ".join(lines[start:at])
+        for mode in MODES:
+            self.assertIn(mode, comment, f"the comment above decision_making does not name {mode}")
+
+    def test_readme_documents_setting_default(self):
+        text = read(ROOT / "README.md")
+        m = re.search(r"^\s*#?\s*decision_making:.*$", text, re.M)
+        self.assertIsNotNone(m, "the README settings block has no decision_making line")
+        self.assertRegex(m.group(0), r"autonomous")
+        p = find_block(text, r"decision_making", r"unset|not set|missing|no setting", r"autonomous")
+        self.assertIsNotNone(p, "the README does not say an unset decision_making means autonomous")
+        for mode in MODES:
+            self.assertIn(mode, text[m.start():])
+
+
 if __name__ == "__main__":
     unittest.main()
