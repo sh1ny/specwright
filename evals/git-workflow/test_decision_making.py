@@ -102,6 +102,14 @@ class OverrideForOneChange(unittest.TestCase):
         self.assertIsNotNone(p, "proposal instruction does not limit an override to one change")
         self.assertRegex(p, r"(?is)(does not|do not|never|not)\s+(change|write|edit|modify)\b.{0,60}(specwright\.yaml|setting)|setting (is )?(left )?unchanged|specwright\.yaml.{0,40}(unchanged|not)")
 
+    def test_mid_planning_override_updates_the_recorded_mode(self):
+        # PR #183 review: an override given after proposal.md exists must rewrite its mode lines,
+        # or later sessions read the stale mode back.
+        p = find_block(proposal_instruction(), r"mid-planning", r"DECISION_MAKING:", r"Source:")
+        self.assertIsNotNone(p, "proposal instruction does not record a mid-planning override in proposal.md")
+        self.assertRegex(p, r"(?is)updat\w*\s+the\s+`DECISION_MAKING:`\s+and\s+`Source:`\s+lines")
+        self.assertRegex(p, r"(?is)same\s+turn")
+
     def test_missing_mode_line_falls_back_to_setting(self):
         text = proposal_instruction()
         p = find_block(text, r"(no|without|missing|lacks?) .{0,40}(DECISION_MAKING|mode)", r"setting")
@@ -168,6 +176,14 @@ class DecisionSummary(unittest.TestCase):
     def test_summary_rows_match_entries(self):
         p = find_block(schema_block("design"), r"Decision\s+summary", r"same\s+edit", r"one\s+to\s+one|one-to-one|match")
         self.assertIsNotNone(p, "design instruction does not keep the summary in step with the entries in the same edit")
+
+    def test_design_template_places_summary_after_last_decision(self):
+        # PR #183 review: the template must say the decision block repeats and the summary follows
+        # the last one, or a D2 appended at the end lands after the table.
+        tpl = read(DESIGN_TEMPLATE)
+        summary = tpl.index("### Decision summary")
+        self.assertRegex(tpl[summary:summary + 400], r"(?i)after\s+the\s+last\s+decision")
+        self.assertRegex(tpl[:summary], r"(?i)repeat[^\n]*before\s+(the\s+)?(`?###\s+)?Decision\s+summary")
 
 
 TOOL_NAMES = r"AskUserQuestion|request_user_input|ask_user_question|ask_user"

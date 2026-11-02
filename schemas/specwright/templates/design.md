@@ -22,7 +22,7 @@ TIER: <VALUE>
 
 ## Decisions
 
-<!-- Repeat per decision. -->
+<!-- Repeat per decision (D1, D2...), each before the Decision summary. -->
 
 ### D1: <!-- decision -->
 
@@ -34,7 +34,7 @@ TIER: <VALUE>
 
 ### Decision summary
 
-<!-- One row per scope decision (S1...) from proposal.md and per design decision (D1...). Update in the same edit as any entry. -->
+<!-- Goes after the last decision. One row per scope decision (S1...) from proposal.md and per design decision (D1...). Update in the same edit as any entry. -->
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
 |---|---|---|---|---|---|---|
