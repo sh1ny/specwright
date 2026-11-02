@@ -6,13 +6,13 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| pr-evidence → Reviewer reports count only for the current head | Push time known | snap | test_snapshot_cutoff_uses_push_time (moved to a `marker` config) | red |
-| pr-evidence → Reviewer reports count only for the current head | Previous-head report with push activity missing | snap | test_snapshot_rejects_previous_head_reports_without_push_activity (config-driven) | red |
-| pr-evidence → Reviewer reports count only for the current head | Report after the head was first seen | snap | test_snapshot_counts_report_after_first_seen | red |
-| pr-evidence → Reviewer reports count only for the current head | First-seen time survives a new process | snap | test_snapshot_first_seen_persists_across_processes | red |
-| pr-evidence → Reviewer reports count only for the current head | First-seen record cannot be written | snap | test_snapshot_first_seen_unsaved_keeps_process_time | red |
-| pr-evidence → Reviewer reports count only for the current head | Waiting with an unwritable state directory | snap | test_wait_unwritable_state_reports_and_times_out | red |
-| pr-evidence → Reviewer reports count only for the current head | Commit-precise reviewers | snap | test_snapshot_sha_pattern_counts_without_push_activity (renamed from test_snapshot_codex_sha_counts_without_push_activity) | red |
+| pr-evidence → Reviewer reports count only for the current head | Push time known | snap | test_snapshot_cutoff_uses_push_time (moved to a `marker` config) | green |
+| pr-evidence → Reviewer reports count only for the current head | Previous-head report with push activity missing | snap | test_snapshot_rejects_previous_head_reports_without_push_activity (config-driven) | green |
+| pr-evidence → Reviewer reports count only for the current head | Report after the head was first seen | snap | test_snapshot_counts_report_after_first_seen | green |
+| pr-evidence → Reviewer reports count only for the current head | First-seen time survives a new process | snap | test_snapshot_first_seen_persists_across_processes | green |
+| pr-evidence → Reviewer reports count only for the current head | First-seen record cannot be written | snap | test_snapshot_first_seen_unsaved_keeps_process_time | green |
+| pr-evidence → Reviewer reports count only for the current head | Waiting with an unwritable state directory | snap | test_wait_unwritable_state_reports_and_times_out | green |
+| pr-evidence → Reviewer reports count only for the current head | Commit-precise reviewers | snap | test_snapshot_sha_pattern_counts_without_push_activity (renamed from test_snapshot_codex_sha_counts_without_push_activity) | green |
 | pr-evidence → Reviewers are detected by generic rules | Review bound to the head | rev | test_review_on_head_reports_whatever_the_cutoff | green |
 | pr-evidence → Reviewers are detected by generic rules | Review bound to an older commit | rev | test_review_on_older_commit_is_waiting | green |
 | pr-evidence → Reviewers are detected by generic rules | A check of the reviewer's app without a rule | rev | test_app_check_without_rule_does_not_report | green |
@@ -23,14 +23,14 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-evidence → A report rule decides for its reviewer | Marker comment in progress | rev | test_marker_ignored_until_edited_again | green |
 | pr-evidence → A report rule decides for its reviewer | Review on the head under a marker rule | rev | test_review_on_head_counts_under_marker_rule | green |
 | pr-evidence → A report rule decides for its reviewer | Marker with regex characters | rev | test_marker_is_literal | green |
-| pr-evidence → A bad report rule stops the snapshot | Bad rule | snap | test_bad_pattern_exits_2_without_gh | red |
-| pr-evidence → A bad report rule stops the snapshot | Unknown key | snap | test_unknown_report_key_exits_2_without_gh | red |
+| pr-evidence → A bad report rule stops the snapshot | Bad rule | snap | test_bad_pattern_exits_2_without_gh | green |
+| pr-evidence → A bad report rule stops the snapshot | Unknown key | snap | test_unknown_report_key_exits_2_without_gh | green |
 | pr-evidence → The snapshot shows each reviewer's evidence | Announcement and finished review | rev | test_evidence_newest_first_with_excerpts | green |
 | pr-evidence → The snapshot shows each reviewer's evidence | Nothing on the head | rev | test_evidence_empty_for_previous_head_only | green |
-| pr-evidence → Reviewer settings reach the snapshot as a file | Policy writes main's reviewers | pair | test_policy_config_carries_main_check_rule (plus snap test_snapshot_applies_config_check_rule) | red |
-| pr-evidence → Reviewer settings reach the snapshot as a file | Old flag | snap | test_reviewer_flag_exits_2_naming_reviewer_config | red |
-| pr-evidence → Reviewer settings reach the snapshot as a file | Missing file | snap | test_missing_reviewer_config_exits_2_without_gh | red |
-| pr-evidence → Reviewer settings reach the snapshot as a file | Unwritable state directory | pair | test_context_config_falls_back_to_temp_dir (plus snap test_snapshot_with_fallback_config_reports_reviewers) | red |
+| pr-evidence → Reviewer settings reach the snapshot as a file | Policy writes main's reviewers | pair | test_policy_config_carries_main_check_rule (plus snap test_snapshot_applies_config_check_rule) | green |
+| pr-evidence → Reviewer settings reach the snapshot as a file | Old flag | snap | test_reviewer_flag_exits_2_naming_reviewer_config | green |
+| pr-evidence → Reviewer settings reach the snapshot as a file | Missing file | snap | test_missing_reviewer_config_exits_2_without_gh | green |
+| pr-evidence → Reviewer settings reach the snapshot as a file | Unwritable state directory | pair | test_context_config_falls_back_to_temp_dir (plus snap test_snapshot_with_fallback_config_reports_reviewers) | green |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Regex characters in a rule | pair | test_config_pattern_byte_for_byte | green |
 | pr-evidence → Reviewer settings are read strictly everywhere | Double-quoted escape | pair | test_context_prints_settings_problem_without_exiting (plus text test_watch_stops_on_settings_problem) | red |
 | pr-evidence → Reviewer settings are read strictly everywhere | Single-quoted pattern | pair | test_readme_and_template_report_examples_pass_both_readers | red |
@@ -57,8 +57,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-watch → The archive head gets no new review round | Store-backed archive | route | test_archive_only_in_store_dir | green |
 | pr-watch → A wait can skip wakes that are only check progress | A check passes while others run | snap | test_check_progress_is_filtered | green |
 | pr-watch → A wait can skip wakes that are only check progress | The last check finishes | snap | test_last_check_done_wakes | green |
-| pr-watch → A wait can skip wakes that are only check progress | CI finishes before the reviewer's check | snap | test_ci_done_wakes_while_reviewer_check_pending | red |
-| pr-watch → A wait can skip wakes that are only check progress | Only a reviewer's check is pending | snap | test_reviewer_check_progress_alone_wakes | red |
+| pr-watch → A wait can skip wakes that are only check progress | CI finishes before the reviewer's check | snap | test_ci_done_wakes_while_reviewer_check_pending | green |
+| pr-watch → A wait can skip wakes that are only check progress | Only a reviewer's check is pending | snap | test_reviewer_check_progress_alone_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | A check fails | snap | test_new_failure_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | Feedback arrives during check progress | snap | test_feedback_during_checks_wakes | green |
 | pr-watch → A wait can skip wakes that are only check progress | A conflict appears | snap | test_dirty_wakes | green |
@@ -106,8 +106,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 4. Snapshot: config file, generic detection, CI-only filter
 
-- [ ] 4.1 Move `snap` fixtures from `--reviewer` to `--reviewer-config` files, replace the Codex, Kody and Mira cases with `sha_pattern`, `check` and `marker` configs, and add the new `snap` rows (old flag, missing file, bad pattern, unknown key, CI finishes before the reviewer's check, reviewer check progress alone wakes, config check rule applied, fallback config). Verify red: the touched tests fail against the current script.
-- [ ] 4.2 Change `skills/specwright-pr/scripts/pr-snapshot.sh`: remove every bot name and format (lines ~343–372 and `$review_check`); parse `--reviewer-config`, make `--reviewer` exit 2 naming it, validate the config before any `gh` call; emit raw material to a system-temp `mktemp` file (`cygpath -m` where present, trap removal) and run `bounded.py -- python -I reviewers.py`; output carries `now`, `reviewer_config` digest, `evidence`, `by`, `checks.ci_pending`; `only_progress` tests `"ci_pending":[1-9]`. Verify: every `snap` test passes locally for the touched cases (`python -m unittest evals/pr-pair/test_pr_snapshot.py`, this one module only), a compact-JSON wake test included; `grep -nE "codex|kody|mira|kintsugi" skills/specwright-pr/scripts/` finds nothing; flip the `snap` rows green and re-run the `green` `snap` rows.
+- [x] 4.1 Move `snap` fixtures from `--reviewer` to `--reviewer-config` files, replace the Codex, Kody and Mira cases with `sha_pattern`, `check` and `marker` configs, and add the new `snap` rows (old flag, missing file, bad pattern, unknown key, CI finishes before the reviewer's check, reviewer check progress alone wakes, config check rule applied, fallback config). Verify red: the touched tests fail against the current script.
+- [x] 4.2 Change `skills/specwright-pr/scripts/pr-snapshot.sh`: remove every bot name and format (lines ~343–372 and `$review_check`); parse `--reviewer-config`, make `--reviewer` exit 2 naming it, validate the config before any `gh` call; emit raw material to a system-temp `mktemp` file (`cygpath -m` where present, trap removal) and run `bounded.py -- python -I reviewers.py`; output carries `now`, `reviewer_config` digest, `evidence`, `by`, `checks.ci_pending`; `only_progress` tests `"ci_pending":[1-9]`. Verify: every `snap` test passes locally for the touched cases (`python -m unittest evals/pr-pair/test_pr_snapshot.py`, this one module only), a compact-JSON wake test included; `grep -nE "codex|kody|mira|kintsugi" skills/specwright-pr/scripts/` finds nothing; flip the `snap` rows green and re-run the `green` `snap` rows.
 
 ## 5. Skill text: watch, merge, ship, finish
 
