@@ -99,7 +99,9 @@
 #            main_branch (repo-local) in <code>/openspec/specwright.yaml, else the detection above.
 #   stage    copies every new skill directory, agent file and the schema into a staging directory beside its target
 #            (D2): <parent>/.specwright-update-<basename>/new/. Agent files carry the user's `model:` line over.
-#            Writes the journal (format 1) first, verifies the staged copy against a SHA-256 manifest and stops with
+#            Also stages the new openspec/.specwright/packs.json (the record, written on every install; with no --pack it
+#            lists no pack) as the file item of the last group, `record` (staging openspec/.specwright-update-record), and writes the enabled packs of the record as it is now
+#            into the journal as prev_packs. Writes the journal (format 2) first, verifies the staged copy against a SHA-256 manifest and stops with
 #            error verification_failed (naming each file, staging and journal removed) when a file differs. Installed
 #            files are untouched. Refuses while a journal is pending (run recover first). Runs plan first (so a
 #            failing change refuses it) and records the collected set and results in the journal (inflight).
@@ -107,7 +109,9 @@
 #            again against the staged schema; any difference from the journal's record (a new, removed or now
 #            failing change) stops it before the first rename with error inflight_changed, naming the changes
 #            (differences[]), and changes no installed file. Then replaces each target with two renames: target -> old/<name>, then
-#            new/<name> -> target. The journal records each step before it runs. Prints store_written and a restart
+#            new/<name> -> target. A `remove` target (a recorded skill of a pack that is no longer enabled) has one rename,
+#            target -> old/<name>, and nothing is put back. The record group comes last, so packs.json is replaced after
+#            every skill rename, in the same journal. The journal records each step before it runs. Prints store_written and a restart
 #            notice. A swap that was started and interrupted is finished or undone by recover, not by swap.
 #            For claim and owner, before its first rename, swap takes the store's gate lock (the lock of
 #            skills/specwright-branch: $(git -C <store> rev-parse --path-format=absolute --git-common-dir)/specwright-gate.lock)
@@ -151,16 +155,18 @@
 #   finish   once VERSION reads the target version (the prompt's Step 7 stamp): removes old/, the staging directories
 #            and the journal. Rerunning it is safe.
 #   recover  decides from the journal and the disk (design D3), and prints action, message, from, to and store_written:
-#              - swap not started (no target old-moved or swapped)  -> discarded: staging and journal removed;
+#              - swap not started (no target old-moved or swapped; a removal that left pending counts as started)  -> discarded: staging and journal removed;
 #                message `discarded unfinished update to <to>`
 #              - phase swapped and VERSION already reads <to>        -> finished: staging and journal removed
 #              - every staged file (in new/ or already swapped in) matches the manifest -> resumed: the rest of the
-#                swap runs; message `resumed update to <to>`. The journal stays (phase swapped) for the prompt's
+#                swap runs (a remove target whose old/<name> is there and whose target is gone counts as done, and is skipped);
+#                message `resumed update to <to>`. The journal stays (phase swapped) for the prompt's
 #                Step 7 stamp and finish, unless the update is not the download's own version (the download's VERSION
 #                differs from <to>) or VERSION already reads <to>: then VERSION is written as <to> and the update is
 #                finished, so that the download's own update can start from it
 #              - otherwise -> rolled back: each old/ is moved back, each swapped-in new copy is removed, staging and
-#                journal removed, VERSION untouched; message `rolled back to <from>`. recover --rollback chooses this outcome
+#                journal removed, VERSION untouched, packs.json back to its previous content (or removed when there was none),
+#                a removed skill back from old/; message `rolled back to <from>`. recover --rollback chooses this outcome
 #                for a swap that completed (the prompt's Step 7 failed), unless VERSION already reads <to> (error
 #                rollback_stamped).
 #            Store gate lock (claim and owner): in every outcome recover releases the lock when its owner file names
@@ -185,11 +191,13 @@
 #            manifest_invalid, format_unsupported, name_mismatch, external_pack_unsupported, document_invalid, init_invalid,
 #            signals_invalid, skill_name, skill_missing, skill_unlisted, unknown_artifact, unknown_operation, line_invalid,
 #            too_many_lines, context_too_large, relaxes_gate, pack_requires, pack_cycle, pack_unknown. Needs no code checkout.
-# Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 1, from, to, ref, kind,
+# Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 2 (1 is still read and recovered;
+# a download that knows only format 1 refuses a format 2 journal as unreadable), from, to, ref, kind,
 # role, code, root, inflight, owner_id, store_owner, store_version, store_record, store_lock, store_staging,
-# store_state (none | pending | written | current), token, prev_config, prev_store, config_sha, phase (staging | staged |
-# swapping | swapped), groups, targets (state pending | staged | old-moved | swapped), manifest ({group, path, sha256}
-# for every staged file).
+# store_state (none | pending | written | current), token, prev_config, prev_store, config_sha, prev_packs (the names in
+# packs.json when the update was staged; plan reports them as packs_previous while the journal is pending), phase (staging |
+# staged | swapping | swapped), groups, targets (type dir | file | remove; state pending | staged | old-moved | swapped),
+# manifest ({group, path, sha256} for every staged file).
 # Lock: openspec/.specwright/update.lock (a directory made with mkdir) holds `pid:` and `host:`. A lock held by a dead pid
 # on this host is replaced and reported as lock_replaced; so is a lock with no complete owner file (pid and host) once
 # the lock directory is older than 60 s (reason lock_without_owner); any other holder stops the run (error locked).
@@ -379,6 +387,10 @@ jfield() {  # jfield KEY: the top-level string or number value of KEY ("" when m
   for l in "${JL[@]}"; do
     if [[ "$l" =~ ^\ \ \"$1\":\ \"?([^\",]*)\"?,?$ ]]; then printf '%s' "${BASH_REMATCH[1]}"; return 0; fi
   done
+}
+
+journal_format_ok() {  # format 2 adds remove targets and prev_packs; format 1 is still recovered
+  case "$(jfield format)" in 1|2) ;; *) die journal_unreadable "update.json has format '$(jfield format)', not 1 or 2" ;; esac
 }
 
 jstr() {  # jstr KEY: a top-level member as text; "" when null or missing. Unlike jfield it keeps commas and quotes inside
@@ -595,7 +607,7 @@ recover_rollback() {
       if [ -e "$tgt" ]; then rm -rf "$tgt" || die rename_failed "could not remove $tgt"; fi
       mkdir -p "$dir"
       mv "$old" "$tgt" || die rename_failed "could not move $old back to $tgt (a directory held open by another program?)"
-    elif [ "$inst" = false ] && [ ! -e "$new" ] && [ -e "$tgt" ]; then  # first install: the swapped-in copy goes
+    elif [ "$type" != remove ] && [ "$inst" = false ] && [ ! -e "$new" ] && [ -e "$tgt" ]; then  # first install: the swapped-in copy goes
       rm -rf "$tgt" || die rename_failed "could not remove $tgt"
     fi
   done
@@ -609,7 +621,7 @@ recover_core() {
   REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
   if [ ! -f "$journal" ]; then rm -f "$jtmp"; return 0; fi
   jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  journal_format_ok
   local phase to from now="" dlv="" l started=0 vrc=0 storeful=0 sst
   phase=$(jfield phase)
   case "$phase" in staging|staged|swapping|swapped) ;; *) die journal_unreadable "update.json has phase '$phase'" ;; esac
@@ -690,7 +702,7 @@ do_plan() {
     jload_raw
     local ph lx
     ph=$(jfield phase)
-    if [ "$(jfield format)" = 1 ]; then
+    if [ "$(jfield format)" = 1 ] || [ "$(jfield format)" = 2 ]; then
       case "$ph" in
         staging|staged|swapping|swapped)
           acquire_lock
@@ -764,6 +776,16 @@ swap_loop() {  # the renames of every target, from the journal in JL and the dis
   for l in "${TARGETS[@]}"; do
     IFS='|' read -r gid name type dir staging state inst <<< "$l"
     new="$staging/new/$name" old="$staging/old/$name" tgt="$dir/$name"
+    if [ "$type" = remove ]; then  # a pack's skill that is no longer enabled: target -> old/<name>, nothing put back
+      if [ -e "$tgt" ] || [ -L "$tgt" ]; then
+        [ ! -e "$old" ] || die inconsistent "$name: $tgt and $old both exist"
+        jwrite_target "$gid" "$name" old-moved
+        case "$made" in *" $staging/old "*) ;; *) mkdir -p "$staging/old"; made="$made$staging/old " ;; esac
+        mv "$tgt" "$old" || die rename_failed "could not move $tgt to $old (a directory held open by another program?)"
+      fi  # no target and an old/<name>: the removal was done before an interruption (no old/<name> either: nothing to remove)
+      [ "$state" = swapped ] && [ ! -e "$tgt" ] || jwrite_target "$gid" "$name" swapped
+      continue
+    fi
     if [ ! -e "$new" ]; then  # already swapped (a rerun after an interruption)
       [ -e "$tgt" ] || die inconsistent "$name: neither $new nor $tgt exists"
       [ "$state" = swapped ] || jwrite_target "$gid" "$name" swapped
@@ -847,7 +869,7 @@ do_swap() {
   acquire_lock
   [ -f "$journal" ] || die no_journal "no staged update is recorded in $journal; run stage first"
   jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  journal_format_ok
   local phase storeful=0
   phase=$(jfield phase)
   case "$phase" in
@@ -884,7 +906,7 @@ do_note_config() {  # right after the prompt's Step 5: record the merged config.
   acquire_lock
   [ -f "$journal" ] || die no_journal "no update is recorded in $journal; run stage and swap first"
   jload
-  [ "$(jfield format)" = 1 ] || die journal_unreadable "update.json has format '$(jfield format)', not 1"
+  journal_format_ok
   [ "$(jfield phase)" = swapped ] || die not_swapped "the recorded update is in phase '$(jfield phase)', not swapped; note-config runs after swap, right after Step 5"
   local cfg="$root/openspec/config.yaml" sum
   [ -f "$cfg" ] || die config_missing "$cfg does not exist; run Step 5 first"
@@ -1014,7 +1036,8 @@ def workflow_update(frm, to):
 
 
 def load_journal(o):
-    """The parsed journal, None when absent; ValueError when unreadable or of another format."""
+    """The parsed journal, None when absent; ValueError when unreadable or of another format (1, or 2: it adds `remove`
+    targets and prev_packs)."""
     p = journal_path(o)
     if not p.exists():
         return None
@@ -1022,8 +1045,8 @@ def load_journal(o):
         j = json.loads(p.read_text(encoding="utf-8"))
     except ValueError as e:
         raise ValueError(f"update.json is not readable JSON ({e})")
-    if not isinstance(j, dict) or j.get("format") != 1:
-        raise ValueError(f"update.json has format {j.get('format') if isinstance(j, dict) else None!r}, not 1")
+    if not isinstance(j, dict) or isinstance(j.get("format"), bool) or j.get("format") not in (1, 2):
+        raise ValueError(f"update.json has format {j.get('format') if isinstance(j, dict) else None!r}, not 1 or 2")
     return j
 
 
@@ -1677,7 +1700,7 @@ def cmd_store_check(o, pos):
 
 
 def cmd_journal_check(o, pos):
-    """The whole journal must parse as a JSON object of format 1 (the shell reads it line by line, so a damaged file
+    """The whole journal must parse as a JSON object of format 1 or 2 (the shell reads it line by line, so a damaged file
     whose formatted lines survive must not pass). Silent exit 0 when it does; a ValueError is journal_unreadable."""
     if load_journal(o) is None:
         raise ValueError("update.json does not exist")
@@ -1764,7 +1787,7 @@ def mk_group(gid, kind, d, items, suffix=""):
     return g
 
 
-def build_groups(o, refusals, with_schema=True, store=False, pk=None):
+def build_groups(o, refusals, with_schema=True, store=False, pk=None, record=None):
     dl = Path(o["download"])
     groups, orphans = [], []
     names = sorted(p.name for p in (dl / "skills").glob("specwright-*") if p.is_dir())
@@ -1798,6 +1821,11 @@ def build_groups(o, refusals, with_schema=True, store=False, pk=None):
     if with_schema:  # another project's update leaves the store's schema alone
         groups.append(mk_group("schema", "schema", f"{o['root']}/openspec/schemas", [("specwright", "dir", dl / "schemas" / "specwright")],
                                suffix="-" + checkout_id(o["code"]) if store else ""))  # a store is shared by checkouts (D7)
+    if record is not None:  # packs.json: the last group, so the swap writes it after every skill rename (design D4)
+        g = mk_group("record", "record", str(state_dir(o)), [(RECORD_NAME, "file", None)])
+        g["items"][0]["data"] = record
+        g["staging"] = f"{state_dir(o).parent.as_posix()}/.specwright-update-record"
+        groups.append(g)
     return groups, orphans
 
 
@@ -1841,7 +1869,8 @@ def make_plan(o, check=False):
             "commits there would land on that worktree's branch. Nothing was written. Run the update from the worktree "
             "that holds --root, or give a --root in this worktree or in a separate planning repo")})
     pk = pack_plan(o, role, refusals)
-    groups, orphans = build_groups(o, refusals, with_schema=role != "other", store=role in ("claim", "owner"), pk=pk)
+    groups, orphans = build_groups(o, refusals, with_schema=role != "other", store=role in ("claim", "owner"), pk=pk,
+                                   record=pack_record_bytes(o, to, pk) if to else None)
     inflight, checked = [], False
     if check and to and not refusals and workflow_update(inst, to) and role != "other":
         checked = True
@@ -1887,8 +1916,8 @@ def cmd_plan(o, pos):
 
 
 def stage_items(g):
-    """The items stage copies. `remove` items (the recorded skills of a pack that is no longer enabled) have no source: the
-    journal, the swap and recover handle them in the install group of the pack-mechanism change."""
+    """The items stage copies. `remove` items (the recorded skills of a pack that is no longer enabled) have no source: they
+    are journal targets the swap moves to old/, and nothing is staged for them."""
     return [it for it in g["items"] if it["type"] != "remove"]
 
 
@@ -1896,6 +1925,9 @@ def expected_manifest(groups):
     out = []
     for g in groups:
         for it in stage_items(g):
+            if it.get("data") is not None:  # the record: its content is the item's
+                out.append({"group": g["id"], "path": it["name"], "sha256": sha(it["data"])})
+                continue
             src = Path(it["src"])
             if it["type"] == "dir":
                 for f in sorted(p for p in src.rglob("*") if p.is_file()):
@@ -1931,17 +1963,17 @@ def cmd_journal_new(o, pos):
     role = doc["role"]
     storeful = role in ("owner", "claim")
     store = doc.get("store") or {}
-    head = {"format": 1, "from": doc["from"], "to": doc["to"], "ref": o.get("ref"), "kind": doc["kind"], "role": role,
+    head = {"format": 2, "from": doc["from"], "to": doc["to"], "ref": o.get("ref"), "kind": doc["kind"], "role": role,
             "code": o["code"], "root": o["root"], "inflight": inflight,
             "owner_id": store.get("id"), "store_owner": store.get("owner"), "store_version": store.get("version"),
             "store_record": record_path(o).as_posix() if storeful else None,
             "store_lock": gate_lock_path(o) if storeful else None,
             "store_staging": next((g["staging"] for g in groups if g["kind"] == "schema"), None) if storeful else None,
             "store_state": "pending" if storeful else "none", "token": None, "prev_config": None, "prev_store": None,
-            "config_sha": None, "phase": "staging"}
+            "config_sha": None, "prev_packs": doc["packs_previous"], "phase": "staging"}
     groups_j = [{k: v for k, v in g.items() if k != "items"} for g in groups]
     targets = [{"gid": g["id"], "name": it["name"], "type": it["type"], "dir": g["dir"], "staging": g["staging"],
-                "installed": it["installed"], "state": "pending"} for g in groups for it in stage_items(g)]
+                "installed": it["installed"], "state": "pending"} for g in groups for it in g["items"]]
     journal = {**head, "groups": groups_j, "targets": targets, "manifest": expected_manifest(groups)}
     Path(pos[0]).write_text(format_journal(journal), encoding="utf-8", newline="\n")
 
@@ -1955,6 +1987,10 @@ def cmd_ops(o, pos):
         new = g["staging"] + "/new"
         print(f"mkdir\t{new}")
         for it in stage_items(g):
+            if it.get("data") is not None:  # the record has no source to copy: it is written straight into staging
+                Path(new).mkdir(parents=True, exist_ok=True)
+                (Path(new) / it["name"]).write_bytes(it["data"])
+                continue
             print(f"cp\t{'-R' if it['type'] == 'dir' else '-'}\t{it['src'].as_posix()}\t{new}")
 
 
@@ -2407,6 +2443,32 @@ def read_pack_record(o):
         if PACK_NAME.match(n):  # a name that could leave the skills directory is never trusted
             packs[n] = {"skills": sorted({x for x in v.get("skills", []) if isinstance(x, str) and PACK_NAME.match(x)})}
     return {"packs": packs}, None
+
+
+RECORD_NAME = "packs.json"
+
+
+def pack_record_bytes(o, version, pk):
+    """The content of the new packs.json (design D4): every enabled pack with the download's version, its skills, its resolved
+    document paths and its init questions, then the catalogue of every pack in the download. Written on every install."""
+    pdir = Path(o["download"]) / "packs"
+    packs = {}
+    for pn in pk["order"]:
+        m = pk["manifests"][pn]
+        packs[pn] = {"version": version, "skills": list(m.get("skills", [])), "documents": {d["id"]: d["path"] for d in pk["documents"].get(pn, [])},
+                     "init": {"questions": list((m.get("init") or {}).get("questions", []))}}
+    catalogue = []
+    for d in sorted(p.name for p in pdir.iterdir() if p.is_dir()) if pdir.is_dir() else []:
+        m, _ = read_manifest(pdir / d)
+        if m is None:  # a pack that cannot be read is not offered
+            continue
+
+        def texts(v):
+            return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+        catalogue.append({"name": d, "description": m["description"] if isinstance(m.get("description"), str) else "",
+                          "requires": texts(m.get("requires")), "signals": texts(m.get("signals"))})
+    doc = {"format": 1, "packs": packs, "catalogue": catalogue}
+    return (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def previous_packs(o, rec):

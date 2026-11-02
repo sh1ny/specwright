@@ -33,13 +33,13 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | packs → Packs are refused on a planning store | Store-backed project with packs | UP | test_store_packs_refused | green |
 | packs → Packs refused for skills dirs outside the project | Project-level skills directories | UP | test_project_level_skills_allowed | green |
 | packs → Packs refused for skills dirs outside the project | A user-level skills directory | UP | test_user_level_skills_refused | green |
-| install-update → Enabled packs' skills are installed | A pack's skills are installed | UP | test_pack_skills_installed_in_every_dir | red |
-| install-update → Enabled packs' skills are installed | An interrupted pack install is recovered | UP | test_interrupted_pack_install_recovered | red |
-| install-update → Enabled packs' skills are installed | An interrupted pack removal is recovered | UP | test_interrupted_pack_removal_recovered | red |
+| install-update → Enabled packs' skills are installed | A pack's skills are installed | UP | test_pack_skills_installed_in_every_dir | green |
+| install-update → Enabled packs' skills are installed | An interrupted pack install is recovered | UP | test_interrupted_pack_install_recovered | green |
+| install-update → Enabled packs' skills are installed | An interrupted pack removal is recovered | UP | test_interrupted_pack_removal_recovered | green |
 | install-update → Enabled packs' skills are installed | A pack that fails its checks installs nothing | UP | test_failing_pack_installs_nothing | green |
-| install-update → The install records which skills belong to which pack | The record matches the installed packs | UP | test_record_matches_installed_packs | red |
-| install-update → The install records which skills belong to which pack | A rollback restores the old record | UP | test_rollback_restores_record | red |
-| install-update → A pack that is no longer enabled is removed | Removing a pack | UP, TI | test_removing_pack_removes_skills, test_readme_step5_removes_previous_pack_lines | red |
+| install-update → The install records which skills belong to which pack | The record matches the installed packs | UP | test_record_matches_installed_packs | green |
+| install-update → The install records which skills belong to which pack | A rollback restores the old record | UP | test_rollback_restores_record | green |
+| install-update → A pack that is no longer enabled is removed | Removing a pack | UP, TI | test_removing_pack_removes_skills, test_readme_step5_removes_previous_pack_lines | green |
 | install-update → A pack that is no longer enabled is removed | A removal that would break a requirement | UP | test_removal_breaking_requirement_refused | green |
 | install-update → The install never touches a skill it did not install | A hand-copied skill with a pack skill's name | UP | test_unmanaged_skill_refused | green |
 | install-update → The install never touches a skill it did not install | A clone without the record | UP | test_identical_unrecorded_skill_adopted | green |
@@ -87,8 +87,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 4. Stage, swap, recover and the record
 
-- [ ] 4.1 Write the UP tests for installing skills into two skills dirs, an interrupted install, an interrupted removal (resume and rollback), the record's content, a rollback restoring the record or its absence, removing a pack, and `packs_previous` from the journal after the swap; verify they fail.
-- [ ] 4.2 Implement journal format 2 (format 1 still recovered; `prev_packs` written by `stage`), `remove` items in `swap_loop`, `recover_core` (a removal past `pending` means started; `old/<name>` with no target counts as done on resume) and `recover_rollback`, and `openspec/.specwright/packs.json` (format 1: enabled packs with version, skills, document paths, init questions; catalogue of every downloaded pack) staged and swapped as a file item, always written. Verify: the 4.1 tests and the existing `evals/update/test_interrupt.py` pass; flip the rows green.
+- [x] 4.1 Write the UP tests for installing skills into two skills dirs, an interrupted install, an interrupted removal (resume and rollback), the record's content, a rollback restoring the record or its absence, removing a pack, and `packs_previous` from the journal after the swap; verify they fail.
+- [x] 4.2 Implement journal format 2 (format 1 still recovered; `prev_packs` written by `stage`), `remove` items in `swap_loop`, `recover_core` (a removal past `pending` means started; `old/<name>` with no target counts as done on resume) and `recover_rollback`, and `openspec/.specwright/packs.json` (format 1: enabled packs with version, skills, document paths, init questions; catalogue of every downloaded pack) staged and swapped as a file item, always written. Verify: the 4.1 tests and the existing `evals/update/test_interrupt.py` pass; flip the rows green.
 
 ## 5. pack-verify and pack-docs
 

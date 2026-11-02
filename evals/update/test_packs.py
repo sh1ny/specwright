@@ -4,7 +4,8 @@ the document paths, `packs_previous` and update-script interface 2.
 
 Every test runs the real script, from a download tree that holds the fixture packs of evals/packs/fixtures/packs/, against
 a scratch checkout built by fixtures.py. Plan is read only: each refusal test also proves the checkout did not change.
-The install itself (stage, swap, the record, recovery) is group 4 and is not tested here.
+TestPackInstall (group 4) runs the install itself: stage, swap, the record packs.json, the removal of a pack's skills
+and the recovery of a swap killed at a chosen mv (the mechanism of evals/update/test_interrupt.py).
 
 Run: python -m unittest evals/update/test_packs.py
 """
@@ -384,6 +385,262 @@ class TestPackPlan(Base):
         self.assertEqual(code, 0, doc)
         self.assertEqual([(o["group"], o["name"]) for o in doc["orphans"]], [("skills-2", "valid-ui-base-gone")])
         self.assertNotIn("valid-ui-base-gone", self.target_names(doc))
+
+
+class TestPackInstall(Base):
+    """Stage, swap and recover with packs. The fixture packs valid-ui-base and valid-domain each ship one skill."""
+
+    def setUp(self):
+        super().setUp()
+        self.shims = fx.install_shims(self.tmp / "shims")
+        self.counter = self.tmp / "count"
+
+    def checkout(self, *a, **kw):
+        co = super().checkout(*a, **kw)
+        self.dl0 = co.download  # the download the checkout was installed from (version 0.5.0, no pack)
+        return co
+
+    def upd(self, co, sub, *extra, count=False, kill_at=None):
+        return fx.run_update(self.dl, [*co.args(), sub, *extra], shim_dir=self.shims if count else None,
+                             count_file=self.counter if count else None, kill_at=kill_at)
+
+    @staticmethod
+    def packs(*names):
+        return [x for n in names for x in ("--pack", n)]
+
+    def swapped(self, co, *extra):
+        """Stage and swap (not stamped, not finished)."""
+        for sub in ("stage", "swap"):
+            code, doc, out, err = self.upd(co, sub, *extra)
+            self.assertEqual(code, 0, f"{sub}: {out}{err}")
+
+    def finished(self, co, *extra):
+        self.swapped(co, *extra)
+        co.version_file.write_text((self.dl / "VERSION").read_text(encoding="utf-8"), encoding="utf-8")
+        code, doc, out, err = self.upd(co, "finish")
+        self.assertEqual(code, 0, out + err)
+
+    def record_file(self, co):
+        return co.code / "openspec" / ".specwright" / "packs.json"
+
+    def record_of(self, co):
+        return json.loads(self.record_file(co).read_text(encoding="utf-8"))
+
+    def download_skill(self, pack, skill):
+        return fx.tree(self.dl / "packs" / pack / "skills" / skill)
+
+    def core_skill(self):
+        return sorted(p.name for p in (self.dl / "skills").glob("specwright-*"))[0]
+
+    def leftovers(self, co):
+        return sorted(p.relative_to(co.code).as_posix() for p in co.code.rglob(".specwright-update-*")) + \
+            sorted(p.name for p in co.journal.parent.glob("update.*"))
+
+    def tree_of(self, co):
+        return {"skills": [fx.tree(d) for d in co.skills], "agents": fx.tree(co.agents["claude"]), "schema": fx.tree(co.schema),
+                "record": self.record_file(co).read_bytes() if self.record_file(co).exists() else None}
+
+    def assert_installed(self, co, *pairs):
+        """Every skills directory holds the core skill and each (pack, skill) with the download's content."""
+        core = self.core_skill()
+        for d in co.skills:
+            self.assertEqual(fx.tree(d / core), fx.tree(self.dl / "skills" / core), d)
+            for pack, skill in pairs:
+                self.assertEqual(fx.tree(d / skill), self.download_skill(pack, skill), d)
+
+    def preinstall(self, co, *pairs):
+        """The checkout as an earlier install of these (pack, skill) pairs left it: the skills in every directory and the record."""
+        recorded = {}
+        for pack, skill in pairs:
+            recorded.setdefault(pack, []).append(skill)
+            for i in range(len(co.skills)):
+                self.install_pack_skill(pack, skill, skills_dir=i, co=co)
+        text = record(**recorded)
+        self.put_record(text, co=co)
+        return text
+
+    # --- interruption: a counting run lists the swap's mv/cp/rm calls; the killed run stops at the call after a chosen one
+
+    def prepare_kill(self, co, *extra):
+        """Save the checkout, run stage and a counted swap to list the calls, then restore the checkout."""
+        self.pristine = self.tmp / "pristine"
+        shutil.copytree(co.code, self.pristine)
+        code, _, out, err = self.upd(co, "stage", *extra)
+        self.assertEqual(code, 0, out + err)
+        code, _, out, err = self.upd(co, "swap", count=True)
+        self.assertEqual(code, 0, out + err)
+        self.log = [line.split(" ", 2) for line in Path(f"{self.counter}.log").read_text(encoding="utf-8").splitlines()]
+        self.reset(co)
+
+    def reset(self, co):
+        fx.rmtree(co.code)
+        shutil.copytree(self.pristine, co.code)
+        for f in (self.counter, Path(f"{self.counter}.log")):
+            f.unlink(missing_ok=True)
+
+    def mv_call(self, src_end, dst_part):
+        """The number of the first logged mv whose source ends with `src_end` and whose destination contains `dst_part`."""
+        for n, t, args in self.log:
+            a = args.split(" ")
+            if t == "mv" and len(a) == 2 and a[0].endswith(src_end) and dst_part in a[1]:
+                return int(n)
+        self.fail(f"no mv of ...{src_end} to ...{dst_part} in {self.log}")
+
+    def killed_swap(self, co, after_call, *extra):
+        """Restore, stage, and swap with the kill at the call after `after_call` (the journal write that follows it)."""
+        self.reset(co)
+        code, _, out, err = self.upd(co, "stage", *extra)
+        self.assertEqual(code, 0, out + err)
+        code, _, out, err = self.upd(co, "swap", count=True, kill_at=after_call + 1)
+        self.assertNotEqual(code, 0, "the swap was meant to be killed")
+
+    def recover(self, co, how):
+        code, doc, out, err = self.upd(co, "recover", *(["--rollback"] if how == "rollback" else []))
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(doc["action"], "resumed" if how == "resume" else "rolled-back", doc)
+
+    def stamp_and_finish(self, co):
+        co.version_file.write_text("0.6.0\n")
+        code, _, out, err = self.upd(co, "finish")
+        self.assertEqual(code, 0, out + err)
+
+    # --- the tests ---------------------------------------------------------------------------------------------------
+
+    def test_pack_skills_installed_in_every_dir(self):
+        co = self.checkout()
+        self.download()
+        self.finished(co, *self.packs(BASE, DOMAIN))
+        self.assert_installed(co, (BASE, BASE_SKILL), (DOMAIN, DOMAIN_SKILL))
+        self.assertEqual(self.leftovers(co), [])
+
+    def test_interrupted_pack_install_recovered(self):
+        co = self.checkout()
+        self.download()
+        args = self.packs(BASE, DOMAIN)
+        before = self.tree_of(co)
+        self.prepare_kill(co, *args)
+        first = self.mv_call(f"/new/{BASE_SKILL}", fx.posix(co.skills[0] / BASE_SKILL))
+        for how in ("resume", "rollback"):
+            with self.subTest(how):
+                self.killed_swap(co, first, *args)
+                self.assertTrue((co.skills[0] / BASE_SKILL).is_dir())  # the first pack skill is in place ...
+                self.assertFalse((co.skills[0] / DOMAIN_SKILL).exists())  # ... the next one is not
+                self.recover(co, how)
+                if how == "resume":
+                    self.assert_installed(co, (BASE, BASE_SKILL), (DOMAIN, DOMAIN_SKILL))
+                    self.stamp_and_finish(co)
+                    self.assertEqual(sorted(self.record_of(co)["packs"]), sorted([BASE, DOMAIN]))
+                else:
+                    self.assertEqual(self.tree_of(co), before)
+                    self.assertEqual(co.version_file.read_text(), "0.5.0\n")
+                self.assertEqual(self.leftovers(co), [])
+
+    def test_interrupted_pack_removal_recovered(self):
+        co = self.checkout()
+        self.download()
+        old = self.preinstall(co, (BASE, BASE_SKILL))
+        args = self.packs(WEB)  # valid-ui-base was recorded and is no longer enabled
+        before = self.tree_of(co)
+        self.prepare_kill(co, *args)
+        moved = self.mv_call(fx.posix(co.skills[0] / BASE_SKILL), "/old/")
+        for how in ("resume", "rollback"):
+            with self.subTest(how):
+                self.killed_swap(co, moved, *args)
+                self.assertFalse((co.skills[0] / BASE_SKILL).exists())  # the removal is under way in the first directory ...
+                self.assertTrue((co.skills[1] / BASE_SKILL).is_dir())  # ... and not yet in the second
+                self.recover(co, how)
+                if how == "resume":
+                    for d in co.skills:
+                        self.assertFalse((d / BASE_SKILL).exists(), d)
+                    self.assert_installed(co)
+                    self.stamp_and_finish(co)
+                    self.assertEqual(self.record_of(co)["packs"].keys(), {WEB})
+                else:
+                    self.assertEqual(self.tree_of(co), before)
+                    self.assertEqual(self.record_file(co).read_text(encoding="utf-8"), old)
+                    self.assertEqual(co.version_file.read_text(), "0.5.0\n")
+                self.assertEqual(self.leftovers(co), [])
+
+    def test_record_matches_installed_packs(self):
+        co = self.checkout()
+        self.download()
+        manifests = {n: json.loads((self.dl / "packs" / n / "pack.json").read_text(encoding="utf-8")) for n in (BASE, DOMAIN, WEB)}
+        catalogue = [{"name": n, "description": manifests[n]["description"], "requires": manifests[n].get("requires", []),
+                      "signals": manifests[n].get("signals", [])} for n in sorted(manifests)]
+        self.finished(co, *self.packs(DOMAIN, BASE), "--pack-doc", f"{DOMAIN}.gdd=docs/mine.md")
+        self.assertEqual(self.record_of(co), {
+            "format": 1,
+            "packs": {
+                BASE: {"version": "0.6.0", "skills": [BASE_SKILL], "documents": {}, "init": {"questions": []}},
+                DOMAIN: {"version": "0.6.0", "skills": [DOMAIN_SKILL], "documents": {"gdd": "docs/mine.md"},
+                         "init": {"questions": manifests[DOMAIN]["init"]["questions"]}},
+            },
+            "catalogue": catalogue})
+        co2 = fx.make_checkout(self.tmp, "0.5.0", skills_dirs=(".claude/skills",), name="code2", download=self.dl0)
+        self.finished(co2)  # no pack: the record still exists, with no pack enabled and the whole catalogue
+        self.assertEqual(self.record_of(co2), {"format": 1, "packs": {}, "catalogue": catalogue})
+
+    def test_rollback_restores_record(self):
+        co = self.checkout()
+        self.download()
+        old = self.preinstall(co, (BASE, BASE_SKILL))
+        self.swapped(co, *self.packs(WEB))
+        self.assertEqual(self.record_of(co)["packs"].keys(), {WEB})
+        self.recover(co, "rollback")
+        self.assertEqual(self.record_file(co).read_text(encoding="utf-8"), old)
+        self.assertTrue(all((d / BASE_SKILL).is_dir() for d in co.skills))
+        co2 = fx.make_checkout(self.tmp, "0.5.0", skills_dirs=(".claude/skills",), name="code2", download=self.dl0)
+        self.swapped(co2, *self.packs(WEB))
+        self.assertTrue(self.record_file(co2).is_file())
+        self.recover(co2, "rollback")
+        self.assertFalse(self.record_file(co2).exists())  # absent before, absent after
+        self.assertEqual(self.leftovers(co2), [])
+
+    def test_removing_pack_removes_skills(self):
+        co = self.checkout()
+        self.download()
+        self.preinstall(co, (BASE, BASE_SKILL), (DOMAIN, DOMAIN_SKILL))
+        fx.write(co.code, "docs/domain/gdd.md", "# my game design\n")
+        mine = fx.snapshot(co.code / "docs")
+        self.finished(co, *self.packs(WEB))
+        for d in co.skills:
+            self.assertFalse((d / BASE_SKILL).exists(), d)
+            self.assertFalse((d / DOMAIN_SKILL).exists(), d)
+        self.assertEqual(self.record_of(co)["packs"].keys(), {WEB})
+        self.assertEqual(fx.snapshot(co.code / "docs"), mine)  # a pack's documents are the project's
+        self.assertEqual(self.leftovers(co), [])
+
+    def test_packs_previous_from_journal_after_swap(self):
+        co = self.checkout()
+        self.download()
+        self.preinstall(co, (BASE, BASE_SKILL))
+        self.swapped(co, *self.packs(WEB))  # the run stops here: no Step 5, no stamp, no finish
+        self.assertEqual(self.record_of(co)["packs"].keys(), {WEB})
+        self.assertEqual(json.loads(co.journal.read_text(encoding="utf-8"))["prev_packs"], [BASE])
+        code, doc = self.plan(*self.packs(WEB))
+        self.assertEqual(code, 0, doc)
+        self.assertEqual(doc["journal"]["phase"], "swapped")
+        self.assertEqual(doc["packs_previous"], [BASE])  # the journal's, not the new packs.json's
+
+    def test_format_1_journal_still_recovered(self):
+        co = self.checkout()
+        self.download()
+        code, _, out, err = self.upd(co, "stage")
+        self.assertEqual(code, 0, out + err)
+        text = co.journal.read_text(encoding="utf-8")
+        self.assertIn('"format": 2', text)
+        co.journal.write_text(text.replace('"format": 2', '"format": 1'), encoding="utf-8", newline="")  # what a 0.x download wrote
+        self.recover_discards(co)
+        code, _, out, err = self.upd(co, "stage")
+        co.journal.write_text(co.journal.read_text(encoding="utf-8").replace('"format": 2', '"format": 3'), encoding="utf-8", newline="")
+        code, doc, out, err = self.upd(co, "recover")
+        self.assertEqual((code, doc["error"]), (1, "journal_unreadable"), out)
+        self.assertIn("format 3", doc["message"])
+
+    def recover_discards(self, co):
+        code, doc, out, err = self.upd(co, "recover")
+        self.assertEqual((code, doc["action"]), (0, "discarded"), out + err)
+        self.assertEqual(self.leftovers(co), [])
 
 
 if __name__ == "__main__":

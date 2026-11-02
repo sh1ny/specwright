@@ -568,7 +568,7 @@ class TestStagingPerCheckout(Base):
         new.rename(legacy)
         text = self.a.journal.read_text(encoding="utf-8").replace(new.as_posix(), legacy.as_posix())
         self.a.journal.write_text(text, encoding="utf-8", newline="\n")
-        self.assertEqual(self.journal(self.a)["format"], 1)
+        self.assertEqual(self.journal(self.a)["format"], 2)
         self.assertEqual(self.store_staging(self.a), legacy)
         rec = self.ok(self.a, dl, "recover")
         self.assertEqual(rec["action"], "discarded")

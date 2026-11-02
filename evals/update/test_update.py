@@ -175,11 +175,12 @@ class TestStage(Base):
                                                                        "schema": fx.tree(co.schema)}, installed_before)
         self.assertEqual(self.staging_dirs(), [".agents/.specwright-update-skills", ".claude/.specwright-update-agents",
                                                ".claude/.specwright-update-skills",
+                                               "openspec/.specwright-update-record",  # packs.json, the last group
                                                "openspec/.specwright-update-schemas"])
         for sd in co.skills:
             self.assertFalse(list(sd.glob(".specwright-update*")), "staging must never sit inside a skills directory")
         journal = fx.json.loads(co.journal.read_text(encoding="utf-8"))
-        self.assertEqual((journal["format"], journal["from"], journal["to"]), (1, "0.5.0", "0.6.0"))
+        self.assertEqual((journal["format"], journal["from"], journal["to"]), (2, "0.5.0", "0.6.0"))
         self.assertEqual(journal["role"], "none")
         self.assertTrue(journal["manifest"])
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{64}", m["sha256"]) for m in journal["manifest"]))
