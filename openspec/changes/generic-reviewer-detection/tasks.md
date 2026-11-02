@@ -89,10 +89,10 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 1. Records: ADR, architecture, roadmap
 
-- [ ] 1.1 Write `docs/adr/0022-reviewer-detection-is-generic.md` ("Reviewer detection is generic; bot-specific rules live in settings": adds to 0020 that the compared reviewer settings include `report`, a report counts only under the authorizing set's rules by digest, scripts name no reviewer, the agent may only add waiting). Verify: the file exists with Status/Context/Decision/Consequences like 0021.
-- [ ] 1.2 Update `openspec/architecture.md`: the `specwright-pr` component row (`reviewers.py`), a State ownership row for the reviewer-config file, Resource bounds (20 reviewers, 500-character patterns, 10 evidence items), In-force ADRs (0022). Verify: `grep -n "0022\|reviewers.py" openspec/architecture.md` shows each.
-- [ ] 1.3 Update `openspec/roadmap.md`: add `generic-reviewer-detection` (0.15.0, #166) to M6 before the packs, renumber pack-mechanism to 0.16.0 and gamedev-pack to 0.17.0, and update the release exit criterion. Verify: `grep -n "0.15.0\|0.16.0\|0.17.0" openspec/roadmap.md`.
-- [ ] 1.4 Add a `suites.json` rule or `no_eval` entry for every new tracked file (ADR, `reviewers.py`, `evals/pr-pair/test_reviewers.py`). Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 1.1 Write `docs/adr/0022-reviewer-detection-is-generic.md` ("Reviewer detection is generic; bot-specific rules live in settings": adds to 0020 that the compared reviewer settings include `report`, a report counts only under the authorizing set's rules by digest, scripts name no reviewer, the agent may only add waiting). Verify: the file exists with Status/Context/Decision/Consequences like 0021.
+- [x] 1.2 Update `openspec/architecture.md`: the `specwright-pr` component row (`reviewers.py`), a State ownership row for the reviewer-config file, Resource bounds (20 reviewers, 500-character patterns, 10 evidence items), In-force ADRs (0022). Verify: `grep -n "0022\|reviewers.py" openspec/architecture.md` shows each.
+- [x] 1.3 Update `openspec/roadmap.md`: add `generic-reviewer-detection` (0.15.0, #166) to M6 before the packs, renumber pack-mechanism to 0.16.0 and gamedev-pack to 0.17.0, and update the release exit criterion. Verify: `grep -n "0.15.0\|0.16.0\|0.17.0" openspec/roadmap.md`.
+- [x] 1.4 Add a `suites.json` rule or `no_eval` entry for every new tracked file (ADR, `reviewers.py`, `evals/pr-pair/test_reviewers.py`). Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 2. Rule evaluator `reviewers.py`
 
