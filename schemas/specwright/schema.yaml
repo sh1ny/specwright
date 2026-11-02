@@ -76,6 +76,14 @@ artifacts:
       words), then the scope decisions of this change as `S1`, `S2`... each
       with Choice, Rejected, Reversal cost, Important and Chosen by.
 
+      Classify each scope or non-goal decision before asking: `Important:
+      yes` when any one of four criteria is met, naming the criterion: high
+      reversal cost; binds future changes (contract, data format, config
+      key, boundary); changes behaviour or settings users see; chosen on
+      weak evidence. Otherwise `Important: no`. The design step uses the
+      same four criteria. `Chosen by: user` when the user chose or stated
+      it, in any mode, else `agent`.
+
       Asking. The questions are asked before the artifact that holds the
       decision is written: scope and non-goal choices before proposal.md is
       written (the proposal is written as soon as they are answered), design

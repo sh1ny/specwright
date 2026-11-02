@@ -123,6 +123,18 @@ class DecisionFields(unittest.TestCase):
         self.assertRegex(p, r"(?i)weak\s+evidence")
         self.assertRegex(p, r"(?i)any one|one is enough|either")
 
+    def test_proposal_classifies_scope_decisions_by_the_criteria(self):
+        # Pre-ship F1: scope decisions are asked in important mode before the design step runs,
+        # so the proposal step itself must carry the four criteria.
+        p = find_block(proposal_instruction(), r"Important", r"criteri", r"scope")
+        self.assertIsNotNone(p, "proposal instruction does not classify scope decisions by the importance criteria")
+        self.assertRegex(p, r"(?i)reversal\s+cost")
+        self.assertRegex(p, r"(?i)binds?\s+future")
+        self.assertRegex(p, r"(?i)config\s+key")
+        self.assertRegex(p, r"(?i)users\s+see")
+        self.assertRegex(p, r"(?i)weak\s+evidence")
+        self.assertRegex(p, r"(?i)any\s+one")
+
     def test_design_template_has_important_and_chosen_by(self):
         tpl = read(DESIGN_TEMPLATE)
         self.assertRegex(tpl, r"\*\*Important:\*\*.{0,40}yes.{0,5}no")
