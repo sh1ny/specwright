@@ -18,46 +18,46 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 | packs → Every pack line is one owned, bounded line | A plain line is accepted | PC, PV | test_plain_line_accepted, test_installed_line_prefixed | red |
 | packs → Every pack line is one owned, bounded line | A multi-line, prefixed or oversized line is refused | PC | test_invalid_lines_refused | green |
 | packs → Every pack line is one owned, bounded line | Too many lines | PC | test_too_many_lines_or_context_bytes | green |
-| packs → Packs compose through requires | A domain pack with its shared pack enabled | UP | test_requires_both_enabled_installs_both | red |
-| packs → Packs compose through requires | A missing requirement or a cycle is refused | UP | test_missing_requirement_and_cycle_refused | red |
+| packs → Packs compose through requires | A domain pack with its shared pack enabled | UP | test_requires_both_enabled_installs_both | green |
+| packs → Packs compose through requires | A missing requirement or a cycle is refused | UP | test_missing_requirement_and_cycle_refused | green |
 | packs → Gate-relaxing wording is refused | A line that relaxes a gate is refused | PC | test_relaxing_line_refused | green |
 | packs → Gate-relaxing wording is refused | Strict wording passes | PC | test_strict_wording_passes | green |
 | packs → pack-check reports in one JSON document | All packs pass | PC | test_all_packs_pass_and_shipped_packs_pass | green |
 | packs → pack-check reports in one JSON document | A named pack is missing | PC | test_named_pack_missing | green |
-| packs → A project opts in to packs | A project with no packs | UP | test_no_packs_installs_nothing_extra | red |
-| packs → A project opts in to packs | An unknown pack is named | UP | test_unknown_pack_refused | red |
+| packs → A project opts in to packs | A project with no packs | UP | test_no_packs_installs_nothing_extra | green |
+| packs → A project opts in to packs | An unknown pack is named | UP | test_unknown_pack_refused | green |
 | packs → Pack documents are created once | A missing document is created | PD | test_missing_document_created | red |
 | packs → Pack documents are created once | An existing document is kept | PD | test_existing_document_kept | red |
-| packs → Pack documents are created once | A document path outside the project | UP | test_pack_doc_path_refused | red |
-| packs → Packs are refused on a planning store | Repo-local project with packs | UP | test_repo_local_packs_allowed | red |
-| packs → Packs are refused on a planning store | Store-backed project with packs | UP | test_store_packs_refused | red |
-| packs → Packs refused for skills dirs outside the project | Project-level skills directories | UP | test_project_level_skills_allowed | red |
-| packs → Packs refused for skills dirs outside the project | A user-level skills directory | UP | test_user_level_skills_refused | red |
+| packs → Pack documents are created once | A document path outside the project | UP | test_pack_doc_path_refused | green |
+| packs → Packs are refused on a planning store | Repo-local project with packs | UP | test_repo_local_packs_allowed | green |
+| packs → Packs are refused on a planning store | Store-backed project with packs | UP | test_store_packs_refused | green |
+| packs → Packs refused for skills dirs outside the project | Project-level skills directories | UP | test_project_level_skills_allowed | green |
+| packs → Packs refused for skills dirs outside the project | A user-level skills directory | UP | test_user_level_skills_refused | green |
 | install-update → Enabled packs' skills are installed | A pack's skills are installed | UP | test_pack_skills_installed_in_every_dir | red |
 | install-update → Enabled packs' skills are installed | An interrupted pack install is recovered | UP | test_interrupted_pack_install_recovered | red |
 | install-update → Enabled packs' skills are installed | An interrupted pack removal is recovered | UP | test_interrupted_pack_removal_recovered | red |
-| install-update → Enabled packs' skills are installed | A pack that fails its checks installs nothing | UP | test_failing_pack_installs_nothing | red |
+| install-update → Enabled packs' skills are installed | A pack that fails its checks installs nothing | UP | test_failing_pack_installs_nothing | green |
 | install-update → The install records which skills belong to which pack | The record matches the installed packs | UP | test_record_matches_installed_packs | red |
 | install-update → The install records which skills belong to which pack | A rollback restores the old record | UP | test_rollback_restores_record | red |
 | install-update → A pack that is no longer enabled is removed | Removing a pack | UP, TI | test_removing_pack_removes_skills, test_readme_step5_removes_previous_pack_lines | red |
-| install-update → A pack that is no longer enabled is removed | A removal that would break a requirement | UP | test_removal_breaking_requirement_refused | red |
-| install-update → The install never touches a skill it did not install | A hand-copied skill with a pack skill's name | UP | test_unmanaged_skill_refused | red |
-| install-update → The install never touches a skill it did not install | A clone without the record | UP | test_identical_unrecorded_skill_adopted | red |
-| install-update → The install never touches a skill it did not install | A hand copy of a pack that is not enabled | UP | test_hand_copy_of_disabled_pack_untouched | red |
-| install-update → The install never touches a skill it did not install | A user's unrelated skill | UP | test_unrelated_skill_untouched | red |
+| install-update → A pack that is no longer enabled is removed | A removal that would break a requirement | UP | test_removal_breaking_requirement_refused | green |
+| install-update → The install never touches a skill it did not install | A hand-copied skill with a pack skill's name | UP | test_unmanaged_skill_refused | green |
+| install-update → The install never touches a skill it did not install | A clone without the record | UP | test_identical_unrecorded_skill_adopted | green |
+| install-update → The install never touches a skill it did not install | A hand copy of a pack that is not enabled | UP | test_hand_copy_of_disabled_pack_untouched | green |
+| install-update → The install never touches a skill it did not install | A user's unrelated skill | UP | test_unrelated_skill_untouched | green |
 | install-update → Pack lines are merged by prefix and verified | Lines reach their artifacts | PV | test_lines_reach_artifacts_and_operations | red |
 | install-update → Pack lines are merged by prefix and verified | A missing, duplicated or stale line | PV | test_missing_duplicate_stale_lines | red |
 | install-update → Pack lines are merged by prefix and verified | A removed pack's lines after a rerun past the swap | UP, PV | test_packs_previous_from_journal_after_swap, test_previous_pack_line_not_enabled | red |
 | install-update → Pack lines are merged by prefix and verified | Hand-written lines of a pack the project never enabled | PV, TI | test_unmanaged_pack_lines_pass, test_readme_step5_keeps_unmanaged_pack_lines | red |
 | install-update → The settings merge treats packs as user data | Enabled packs survive an update | TI | test_readme_step6_packs_are_user_data | green |
 | install-update → The settings merge treats packs as user data | A template key under packs | TI | test_readme_step6_never_adds_packs_keys | green |
-| install-update → The install prompt drives update-script interface 2 | Matching interface | UP, TI | test_plan_reports_interface_2, test_readme_accepts_interface_2 | red |
+| install-update → The install prompt drives update-script interface 2 | Matching interface | UP, TI | test_plan_reports_interface_2, test_readme_accepts_interface_2 | green |
 | install-update → The install prompt drives update-script interface 2 | An older download without packs | TI | test_readme_accepts_interface_1_without_packs | green |
 | install-update → The install prompt drives update-script interface 2 | An older download with packs enabled | TI | test_readme_refuses_interface_1_with_packs | green |
 | install-update → Pack documents are created by an idempotent step | Documents after a finished install | PD | test_pack_docs_creates_after_stamp | red |
 | install-update → Pack documents are created by an idempotent step | Interrupted document creation | PD | test_pack_docs_rerun_completes | red |
-| install-update → The previously enabled packs come from the start | An uninterrupted update that removes a pack | UP | test_packs_previous_from_record | red |
-| install-update → The previously enabled packs come from the start | No previous record | UP | test_packs_previous_empty_without_record | red |
+| install-update → The previously enabled packs come from the start | An uninterrupted update that removes a pack | UP | test_packs_previous_from_record | green |
+| install-update → The previously enabled packs come from the start | No previous record | UP | test_packs_previous_empty_without_record | green |
 | project-planning → Roadmap init suggests packs | A Godot project is offered the game packs | TI | test_roadmap_init_offers_packs_with_requirements | green |
 | project-planning → Roadmap init suggests packs | The user declines | TI | test_roadmap_init_enables_only_on_yes | green |
 | project-planning → Roadmap init's pack offer names the in-repo install need | A pack offer in a project that installs at user level | TI | test_roadmap_init_offer_names_in_repo_need | green |
@@ -82,8 +82,8 @@ Test files: `evals/packs/test_pack_check.py` (PC), `evals/packs/test_pack_verify
 
 ## 3. Plan with packs
 
-- [ ] 3.1 Write the UP plan tests (no packs, unknown pack, requires, cycle, removal breaking a requirement, store and user-level refusals, project-level allowed, unmanaged/adopted/hand-copy/unrelated skills, `pack_doc_path`, failing pack, interface 2, `packs_previous` from record and empty) against a fixture download holding the fixture packs; verify they fail for the right reason (`python -m unittest evals/update/test_packs.py`).
-- [ ] 3.2 Implement in `update.sh plan`: `--pack` and `--pack-doc <pack>.<id>=<path>` options, pack-check on the enabled packs, requires closure and install order, `packs_on_store` and `packs_user_level`, pack skill items in each skills group, adoption of byte-identical unrecorded skills and `unmanaged_skill` otherwise, recorded-but-unshipped skills as orphans (hand copies of disabled packs neither listed nor touched), `remove` items for recorded skills of packs no longer enabled (only where the target holds them), `pack_doc_path` checks and document existence, `packs_previous`, `packs` and `INTERFACE = 2` in the document. Update the header comment. Verify: the 3.1 tests pass; flip their rows green.
+- [x] 3.1 Write the UP plan tests (no packs, unknown pack, requires, cycle, removal breaking a requirement, store and user-level refusals, project-level allowed, unmanaged/adopted/hand-copy/unrelated skills, `pack_doc_path`, failing pack, interface 2, `packs_previous` from record and empty) against a fixture download holding the fixture packs; verify they fail for the right reason (`python -m unittest evals/update/test_packs.py`).
+- [x] 3.2 Implement in `update.sh plan`: `--pack` and `--pack-doc <pack>.<id>=<path>` options, pack-check on the enabled packs, requires closure and install order, `packs_on_store` and `packs_user_level`, pack skill items in each skills group, adoption of byte-identical unrecorded skills and `unmanaged_skill` otherwise, recorded-but-unshipped skills as orphans (hand copies of disabled packs neither listed nor touched), `remove` items for recorded skills of packs no longer enabled (only where the target holds them), `pack_doc_path` checks and document existence, `packs_previous`, `packs` and `INTERFACE = 2` in the document. Update the header comment. Verify: the 3.1 tests pass; flip their rows green.
 
 ## 4. Stage, swap, recover and the record
 

@@ -57,7 +57,7 @@ class TestPlan(Base):
         code, doc, err = self.run_sub("plan")
         self.assertEqual(code, 0, err)
         self.assertTrue(doc["ok"])
-        self.assertEqual(doc["interface"], 1)
+        self.assertEqual(doc["interface"], 2)
         self.assertEqual((doc["from"], doc["to"], doc["kind"], doc["role"]), ("0.5.0", "0.6.0", "workflow", "none"))
         self.assertEqual(doc["refusals"], [])
         self.assertEqual(doc["journal"], None)
