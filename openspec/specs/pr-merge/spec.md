@@ -41,7 +41,7 @@ With `pr.merge: agent`, the agent SHALL merge a PR only when its repository's re
 - **THEN** neither PR is merged, and the report names the store's reviewer set
 
 ### Requirement: Agent mode archives before merging without asking
-When main's `pr.merge` is `agent`, the ready head's merge policy does not differ from main's and main's required reviewers reported on it, and watch finds a change branch's PR ready and the change is not yet archived on the branch, watch SHALL run the archive workflow without asking, then watch the archive head until it is ready before merging. Otherwise (main's `pr.merge` is `user`, the policy differs or is unknown) watch SHALL keep asking before it archives.
+When main's `pr.merge` is `agent`, the ready head's merge policy does not differ from main's, main's required reviewers reported on it, and a change branch's PR is ready with the change not yet archived, watch SHALL run the archive workflow without asking, then watch the archive head until it is ready before merging. Otherwise (main's `pr.merge` is `user`, the policy differs or is unknown) watch SHALL keep asking before it archives, except under "Looser rules hold the archive decision".
 
 #### Scenario: Ready change, not archived
 - **WHEN** main's `pr.merge` is `agent`, the ready head's policy matches main's, and watch finds `feat/<change>` ready with `openspec/changes/<change>/` still present
@@ -56,7 +56,7 @@ When main's `pr.merge` is `agent`, the ready head's merge policy does not differ
 - **THEN** watch asks `Ready. Archive <change-name> on this branch now?` and archives nothing before the answer
 
 ### Requirement: Only the ready head is merged
-The agent SHALL merge a PR only at the head watch last reported ready, with that head's SHA as a condition of the merge, using `pr.merge_method` (default `merge`), fenced for the PR's repository. A head that changed after ready SHALL NOT be merged. A head watched without reviewers SHALL be merged only when it is the archive head `archive-only` judged.
+The agent SHALL merge a PR only at the head watch last reported ready, with that head's SHA as a condition of the merge, using `pr.merge_method` (default `merge`), fenced for the PR's repository. A head that changed after ready SHALL NOT be merged. A head judged under the archive carry-over SHALL be merged only when it is the archive head `archive-only` judged.
 
 #### Scenario: Merge with the configured method
 - **WHEN** `pr.merge_method` is `squash` and watch reports PR #12 ready at head `abc123`
@@ -67,7 +67,7 @@ The agent SHALL merge a PR only at the head watch last reported ready, with that
 - **THEN** GitHub refuses the merge, the PR stays open, and watch reports that the head changed and watches `def456` instead
 
 #### Scenario: Commit after the archive head
-- **WHEN** `pr.merge` is `agent`, the archive head was watched without reviewers because `archive-only` judged it archive-only, and a commit `def456` lands on the branch after the archive push
+- **WHEN** `pr.merge` is `agent`, the archive head was judged under the archive carry-over because `archive-only` judged it archive-only, and a commit `def456` lands on the branch after the archive push
 - **THEN** no merge request is sent for `def456` until every required reviewer has reported on it
 
 #### Scenario: Invalid method
@@ -222,7 +222,7 @@ The agent merge SHALL take `pr.merge`, `pr.merge_method`, `pr.delete_branch`, `p
 - **THEN** the policy is read from the default branch, the report names `pr.merge` with main's value `user`, and no merge request is sent before the user answers
 
 ### Requirement: Required reviewers are those of the authorizing set
-The agent SHALL merge a head only when every `required` reviewer of the authorizing reviewer set (main's, or the head's after the user confirmed a difference) reported on that head, whatever reviewers watch's wait started with. When they have not, watch SHALL send no merge request and SHALL wait again with the authorizing set.
+The agent SHALL merge a head only when every `required` reviewer of the authorizing reviewer set (main's, or the head's after the user confirmed a difference) reported on that head under that set's report rules, whatever reviewers or rules watch's wait started with. When they have not, watch SHALL send no merge request and SHALL wait again with the authorizing set's reviewer config.
 
 #### Scenario: Wait started with an edited set
 - **WHEN** main and the ready head both require `chatgpt-codex-connector`, the local checkout requires only `someone-else`, and `someone-else` reported on the ready head while `chatgpt-codex-connector` did not
@@ -232,8 +232,12 @@ The agent SHALL merge a head only when every `required` reviewer of the authoriz
 - **WHEN** the wait started with an edited set, was restarted with main's set, and `chatgpt-codex-connector` then reported on the head with nothing else outstanding
 - **THEN** watch merges the PR at that head
 
+#### Scenario: Wait started with looser rules
+- **WHEN** main gives required `rev-bot` a `marker` rule, the wait ran with the work tree's settings where `rev-bot` has no `report`, and its snapshot reports `rev-bot` `reported` `by: output`
+- **THEN** `policy` reports `rules_mismatch`, no merge request is sent, and watch waits on the head with main's reviewer config
+
 #### Scenario: Archive head carry-over
-- **WHEN** the archive head was watched without reviewers because `archive-only` judged it archive-only, and on the ready head before the archive only `someone-else` reported while main requires `chatgpt-codex-connector`
+- **WHEN** the archive head was judged under the archive carry-over because `archive-only` judged it archive-only, and on the ready head before the archive only `someone-else` reported while main requires `chatgpt-codex-connector`
 - **THEN** no merge request is sent for the archive head until `chatgpt-codex-connector` reported
 
 #### Scenario: Store-backed pair with main's reviewers
@@ -241,7 +245,7 @@ The agent SHALL merge a head only when every `required` reviewer of the authoriz
 - **THEN** the store PR is merged at `s1` and then the code PR at `c1`, with no wait restarted
 
 ### Requirement: A policy difference needs the user
-When the ready head's `pr.merge`, `pr.merge_method`, `pr.delete_branch`, `pr.reviewers` or `planning_store.reviewers` differ from main's, watch SHALL list each difference (key, main's value, head's value). It SHALL ask before merging only when the head's `pr.merge` is `agent` and the head's required reviewers reported; a yes merges at the ready head with the head's method. Otherwise, and on no, it SHALL report ready and send no merge request.
+When the ready head's `pr.merge`, `pr.merge_method`, `pr.delete_branch`, `pr.reviewers` or `planning_store.reviewers` differ from main's, watch SHALL list each difference (key, main's value, head's value). It SHALL ask before merging only when the head's `pr.merge` is `agent` and its required reviewers reported under any report rules; a yes merges the ready head with the head's method once they reported under its rules. Otherwise, and on no, it SHALL report ready and send no merge request.
 
 #### Scenario: Required reviewer replaced
 - **WHEN** main's `pr.reviewers` has `chatgpt-codex-connector` as `required`, the ready head's has only `someone-else` as `required`, the head has `pr.merge: agent`, and `someone-else` reported
@@ -271,6 +275,10 @@ When the ready head's `pr.merge`, `pr.merge_method`, `pr.delete_branch`, `pr.rev
 - **WHEN** the head's settings file differs from main's only in comments, key order or quoting, with the same parsed values
 - **THEN** no difference is reported, and the merge goes ahead as when the files are equal
 
+#### Scenario: Reviewer settings differ
+- **WHEN** the head changes a required reviewer's `report`, the head has `pr.merge: agent`, and the wait ran under main's rules, so `reported.head` is not `ok` only through `rules_mismatch`
+- **THEN** watch lists the difference and asks; on yes it waits again with the head's reviewer config and merges once `reported.head` is `ok`
+
 ### Requirement: An unknown policy merges nothing
 When main's or the ready head's settings file cannot be read from GitHub (a failed or cut-off read, a response that is not a file, a file that does not parse), or the head has no settings file, the merge policy SHALL count as unknown: watch SHALL report ready, say the policy could not be read and why, and send no merge request. Only a missing file on main SHALL be read as an empty settings file.
 
@@ -285,3 +293,14 @@ When main's or the ready head's settings file cannot be read from GitHub (a fail
 #### Scenario: Read succeeds after a failure
 - **WHEN** one read failed and watch reaches the merge step again, and both reads now succeed with no difference and the required reviewers reported
 - **THEN** watch merges the PR
+
+### Requirement: Looser rules hold the archive decision
+When main's `pr.merge` is `agent`, the policy does not differ, and `policy` reports `rules_mismatch` for main's set at the archive decision, watch SHALL archive nothing, ask nothing, and wait on the ready head with main's reviewer config.
+
+#### Scenario: Looser rules at the archive decision
+- **WHEN** main's `pr.merge` is `agent`, and at the archive decision `policy` reports `rules_mismatch` for main's set because the wait ran with the work tree's looser report rules
+- **THEN** watch archives nothing yet, asks nothing, and waits on the ready head with main's reviewer config
+
+#### Scenario: User mode keeps asking
+- **WHEN** main's `pr.merge` is `user` and `policy` reports `rules_mismatch` for main's set at the archive decision
+- **THEN** watch asks `Ready. Archive <change-name> on this branch now?` without another wait
