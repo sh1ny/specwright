@@ -13,20 +13,20 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-evidence → Reviewer reports count only for the current head | First-seen record cannot be written | snap | test_snapshot_first_seen_unsaved_keeps_process_time | red |
 | pr-evidence → Reviewer reports count only for the current head | Waiting with an unwritable state directory | snap | test_wait_unwritable_state_reports_and_times_out | red |
 | pr-evidence → Reviewer reports count only for the current head | Commit-precise reviewers | snap | test_snapshot_sha_pattern_counts_without_push_activity (renamed from test_snapshot_codex_sha_counts_without_push_activity) | red |
-| pr-evidence → Reviewers are detected by generic rules | Review bound to the head | rev | test_review_on_head_reports_whatever_the_cutoff | red |
-| pr-evidence → Reviewers are detected by generic rules | Review bound to an older commit | rev | test_review_on_older_commit_is_waiting | red |
-| pr-evidence → Reviewers are detected by generic rules | A check of the reviewer's app without a rule | rev | test_app_check_without_rule_does_not_report | red |
-| pr-evidence → Reviewers are detected by generic rules | Formerly built-in login without a rule | rev | test_former_builtin_login_uses_output_rule | red |
-| pr-evidence → A report rule decides for its reviewer | Sha pattern names the head | rev | test_sha_pattern_prefix_of_head_reports | red |
-| pr-evidence → A report rule decides for its reviewer | Sha pattern names an older commit | rev | test_sha_pattern_older_sha_waits | red |
-| pr-evidence → A report rule decides for its reviewer | Named check | rev | test_named_check_reports_other_name_does_not | red |
-| pr-evidence → A report rule decides for its reviewer | Marker comment in progress | rev | test_marker_ignored_until_edited_again | red |
-| pr-evidence → A report rule decides for its reviewer | Review on the head under a marker rule | rev | test_review_on_head_counts_under_marker_rule | red |
-| pr-evidence → A report rule decides for its reviewer | Marker with regex characters | rev | test_marker_is_literal | red |
+| pr-evidence → Reviewers are detected by generic rules | Review bound to the head | rev | test_review_on_head_reports_whatever_the_cutoff | green |
+| pr-evidence → Reviewers are detected by generic rules | Review bound to an older commit | rev | test_review_on_older_commit_is_waiting | green |
+| pr-evidence → Reviewers are detected by generic rules | A check of the reviewer's app without a rule | rev | test_app_check_without_rule_does_not_report | green |
+| pr-evidence → Reviewers are detected by generic rules | Formerly built-in login without a rule | rev | test_former_builtin_login_uses_output_rule | green |
+| pr-evidence → A report rule decides for its reviewer | Sha pattern names the head | rev | test_sha_pattern_prefix_of_head_reports | green |
+| pr-evidence → A report rule decides for its reviewer | Sha pattern names an older commit | rev | test_sha_pattern_older_sha_waits | green |
+| pr-evidence → A report rule decides for its reviewer | Named check | rev | test_named_check_reports_other_name_does_not | green |
+| pr-evidence → A report rule decides for its reviewer | Marker comment in progress | rev | test_marker_ignored_until_edited_again | green |
+| pr-evidence → A report rule decides for its reviewer | Review on the head under a marker rule | rev | test_review_on_head_counts_under_marker_rule | green |
+| pr-evidence → A report rule decides for its reviewer | Marker with regex characters | rev | test_marker_is_literal | green |
 | pr-evidence → A bad report rule stops the snapshot | Bad rule | snap | test_bad_pattern_exits_2_without_gh | red |
 | pr-evidence → A bad report rule stops the snapshot | Unknown key | snap | test_unknown_report_key_exits_2_without_gh | red |
-| pr-evidence → The snapshot shows each reviewer's evidence | Announcement and finished review | rev | test_evidence_newest_first_with_excerpts | red |
-| pr-evidence → The snapshot shows each reviewer's evidence | Nothing on the head | rev | test_evidence_empty_for_previous_head_only | red |
+| pr-evidence → The snapshot shows each reviewer's evidence | Announcement and finished review | rev | test_evidence_newest_first_with_excerpts | green |
+| pr-evidence → The snapshot shows each reviewer's evidence | Nothing on the head | rev | test_evidence_empty_for_previous_head_only | green |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Policy writes main's reviewers | pair | test_policy_config_carries_main_check_rule (plus snap test_snapshot_applies_config_check_rule) | red |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Old flag | snap | test_reviewer_flag_exits_2_naming_reviewer_config | red |
 | pr-evidence → Reviewer settings reach the snapshot as a file | Missing file | snap | test_missing_reviewer_config_exits_2_without_gh | red |
@@ -70,10 +70,10 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 | pr-watch → Watch waits for attention | Pending check makes the merge state unstable | text | test_watch_ready_accepts_unstable_without_ci_pending | red |
 | pr-watch → Watch waits for attention | Not yet ready | text | test_watch_uses_1800_until_otherwise_ready | red |
 | pr-watch → Watch waits for attention | Bad settle value | pair | test_context_bad_settle_is_settings_problem | red |
-| pr-watch → An advisory reviewer's named check stops blocking once it reported | Advisory reviewer timed out with its check pending | rev | test_advisory_timed_out_check_moves_to_advisory_pending | red |
-| pr-watch → An advisory reviewer's named check stops blocking once it reported | Required reviewer's check pending | rev | test_required_reviewer_check_pending_not_ci | red |
-| pr-watch → An advisory reviewer's named check stops blocking once it reported | Shared app | rev | test_shared_app_checks_stay_ci | red |
-| pr-watch → An advisory reviewer's named check stops blocking once it reported | Bot that is not configured | rev | test_unconfigured_app_check_is_ci | red |
+| pr-watch → An advisory reviewer's named check stops blocking once it reported | Advisory reviewer timed out with its check pending | rev | test_advisory_timed_out_check_moves_to_advisory_pending | green |
+| pr-watch → An advisory reviewer's named check stops blocking once it reported | Required reviewer's check pending | rev | test_required_reviewer_check_pending_not_ci | green |
+| pr-watch → An advisory reviewer's named check stops blocking once it reported | Shared app | rev | test_shared_app_checks_stay_ci | green |
+| pr-watch → An advisory reviewer's named check stops blocking once it reported | Bot that is not configured | rev | test_unconfigured_app_check_is_ci | green |
 | pr-watch → An archive-only head needs no further quiet window | CI already green | text | test_archive_head_ready_after_settle_unstable | red |
 | pr-watch → An archive-only head needs no further quiet window | Snapshot before CI exists | text | test_archive_head_waits_rest_of_settle_before_judging | red |
 | pr-watch → An archive-only head needs no further quiet window | CI still running | text | test_archive_head_ready_on_ci_pending_zero_wake | red |
@@ -96,8 +96,8 @@ Test files, shortened: `snap` = `evals/pr-pair/test_pr_snapshot.py`, `pair` = `e
 
 ## 2. Rule evaluator `reviewers.py`
 
-- [ ] 2.1 Write `evals/pr-pair/test_reviewers.py` with the `rev` rows of the test map: material and config fixtures in, compact snapshot out (generic rules, each `report` key, `ignore`, evidence, `ci_pending`/`advisory_pending`, config validation: format, unknown key, bad regex, bounds of 20 reviewers and 500 characters). Verify red: `python -m unittest evals/pr-pair/test_reviewers.py` fails because the module is missing.
-- [ ] 2.2 Implement `skills/specwright-pr/scripts/reviewers.py` (D1, D3: `--material`, `--config`, `--head`; `re.search`, case-sensitive; sha prefix 7–40 hex; literal marker on the last edit at or after the cutoff; review on the head commit always counts; checks only via `report.check`; evidence 10 items, 300-character excerpts; `json.dumps` compact; exit 2 naming reviewer and key). Verify: `python -m unittest evals/pr-pair/test_reviewers.py` green; flip the `rev` rows green.
+- [x] 2.1 Write `evals/pr-pair/test_reviewers.py` with the `rev` rows of the test map: material and config fixtures in, compact snapshot out (generic rules, each `report` key, `ignore`, evidence, `ci_pending`/`advisory_pending`, config validation: format, unknown key, bad regex, bounds of 20 reviewers and 500 characters). Verify red: `python -m unittest evals/pr-pair/test_reviewers.py` fails because the module is missing.
+- [x] 2.2 Implement `skills/specwright-pr/scripts/reviewers.py` (D1, D3: `--material`, `--config`, `--head`; `re.search`, case-sensitive; sha prefix 7–40 hex; literal marker on the last edit at or after the cutoff; review on the head commit always counts; checks only via `report.check`; evidence 10 items, 300-character excerpts; `json.dumps` compact; exit 2 naming reviewer and key). Verify: `python -m unittest evals/pr-pair/test_reviewers.py` green; flip the `rev` rows green.
 
 ## 3. Reviewer config and settings in `pr-pair.sh`
 
