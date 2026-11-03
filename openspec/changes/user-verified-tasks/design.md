@@ -50,7 +50,7 @@ TIER: FULL
 
 ### D4: `task-cover.sh` is the one reader of kinds
 
-- **Choice:** `task-cover.sh` adds `kind` per task, `waiting_on_user` (unticked user tasks), `user_uncommitted` (ticked user tasks with no `Specwright-User-Task` trailer) and `evidence_missing`, and reads `Specwright-User-Task` trailers as coverage for user tasks only. `pending_groups` and `uncovered` count only agent and evidence tasks, so a user tick never makes its group pending. A new `--rev <sha>` reads `tasks.md` from that commit (`git show`) instead of the working tree, for the merge gate (D6). Commit, finish and watch read these fields instead of re-parsing `tasks.md`.
+- **Choice:** `task-cover.sh` adds `kind` per task, `waiting_on_user` (unticked user tasks), `user_uncommitted` (ticked user tasks with no `Specwright-User-Task` trailer) and `evidence_missing`, and reads `Specwright-User-Task` trailers as coverage for user tasks only. `pending_groups` and `uncovered` count only agent and evidence tasks, so a user tick never makes its group pending. A new `--rev <sha>` reads `tasks.md` from that commit (a regular-file blob only; a symlink or directory there is `no_tasks`) instead of the working tree, for the merge gate (D6). Commit, finish and watch read these fields instead of re-parsing `tasks.md`.
 - **Rejected:** each skill matching the marker in its own prose, because three readers would drift on case and position, which is exactly what the marker-position scenarios pin.
 - **Reversal cost:** low
 - **Important:** no
