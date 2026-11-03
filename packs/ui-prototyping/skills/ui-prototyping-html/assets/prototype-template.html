@@ -559,6 +559,7 @@ p { margin: 0 0 var(--space-3); }
     var target = document.getElementById('screen-' + id);
     if (!target) { note('No screen named ' + id); return; }
     if (current === id) { return; }
+    dismissModals();
     if (push && current) { trail.push(current); }
     screens.forEach(function (s) { s.hidden = s !== target; });
     current = id;
@@ -586,6 +587,7 @@ p { margin: 0 0 var(--space-3); }
   }
   function setState(st) {
     if (S.states.indexOf(st) === -1) { return; }
+    dismissModals();
     stateByScreen[current] = st;
     applyState();
     var has = Array.prototype.some.call(document.getElementById('screen-' + current).querySelectorAll('[data-state]'), function (el) {
@@ -603,6 +605,7 @@ p { margin: 0 0 var(--space-3); }
     var ids = S.options.map(function (o) { return o.id; });
     if (ids.length === 0) { return; }
     if (ids.indexOf(id) === -1) { id = ids[0]; }
+    dismissModals();
     root.setAttribute('data-option', id);
     proto.option = id;
     Array.prototype.forEach.call(stage.querySelectorAll('[data-only]'), function (el) {
@@ -614,20 +617,42 @@ p { margin: 0 0 var(--space-3); }
   }
 
   /* ---------- modals ---------- */
+  // While any modal is open, everything outside the topmost one is inert: the bar, the screens and
+  // lower modals. That keeps pointer, keyboard and assistive tech inside the top modal.
+  function updateInert() {
+    var top = topModal();
+    var open = modals.length > 0;
+    document.getElementById('bar').inert = open;
+    screens.forEach(function (sc) { sc.inert = open; });
+    Array.prototype.forEach.call(stage.querySelectorAll('.modal'), function (m) { m.inert = open && m !== top; });
+  }
   function openModal(id) {
     var el = document.getElementById('modal-' + id);
     if (!el || !el.hidden) { return; }
     modals.push({ el: el, opener: document.activeElement });
     el.hidden = false;
+    updateInert();
     sync();
     focusFirst(el);
   }
-  function closeModal() {
+  // Closes the topmost modal. When a modal is named it must be the topmost one, else nothing happens.
+  function closeModal(which) {
+    if (which && which !== topModal()) { return; }
     var m = modals.pop();
     if (!m) { return; }
     m.el.hidden = true;
+    updateInert();
     sync();
     if (m.opener && m.opener.getClientRects().length > 0) { focusEl(m.opener); } else { focusFirst(container()); }
+  }
+  // A screen, state or option change from outside (hash, script) closes every modal first; the
+  // caller then places focus.
+  function dismissModals() {
+    if (!modals.length) { return; }
+    modals.forEach(function (m) { m.el.hidden = true; });
+    modals.length = 0;
+    updateInert();
+    sync();
   }
 
   /* ---------- stage sizing ---------- */
@@ -663,7 +688,7 @@ p { margin: 0 0 var(--space-3); }
       'touch': 'Large targets; nothing needs hover. Tab and Enter still work.'
     };
     document.getElementById('bar-hints').textContent =
-      'Keys: [ and ] switch screen, S next state, O next option, R reduced motion, G safe-area guide. ' + hints[m];
+      'Keys: [ and ] switch screen, S next state, O next option, R reduced motion, G safe-area guide (shortcuts and the bar are off while a modal is open). ' + hints[m];
   }
   function moveFocus(step) {
     var list = focusables(container());
@@ -736,9 +761,11 @@ p { margin: 0 0 var(--space-3); }
   document.addEventListener('click', function (e) {
     var el = e.target.closest && e.target.closest('[data-goto],[data-back],[data-open-modal],[data-close-modal],[data-set-state]');
     if (!el || !stage.contains(el)) { return; }
+    var top = topModal();
+    if (top && !top.contains(el)) { return; } // fallback guard: only the topmost modal is live
     // Order matters when attributes combine: close the modal, move to the destination screen,
     // then apply the state to that destination, and open any modal last (on the new screen).
-    if (el.hasAttribute('data-close-modal')) { closeModal(); }
+    if (el.hasAttribute('data-close-modal')) { closeModal(el.closest('.modal')); }
     if (el.hasAttribute('data-goto')) { showScreen(el.getAttribute('data-goto'), true); }
     if (el.hasAttribute('data-back')) { back(); }
     if (el.hasAttribute('data-set-state')) { setState(el.getAttribute('data-set-state')); }
