@@ -73,13 +73,41 @@ class TaskCover(unittest.TestCase):
         p.write_bytes(text.encode("utf-8"))
         return p
 
-    def run_script(self, tasks=None, env=None, change=CHANGE):
+    def run_script(self, tasks=None, env=None, change=CHANGE, rev=None):
         tasks = tasks or self.tasks_file()
         e = dict(os.environ, **(env or {}))
+        extra = ["--rev", rev] if rev else []
         return subprocess.run(
             [bashexe.bash(), str(SCRIPT), "--repo", str(self.repo), "--range", self.base + "..HEAD",
-             "--tasks", str(tasks), "--change", change],
+             "--tasks", str(tasks), "--change", change, *extra],
             capture_output=True, env=e)
+
+    def user_commit(self, subject, task_trailers=(), user_trailers=()):
+        """Like commit(), with Specwright-Task and Specwright-User-Task trailers in one block."""
+        self.n += 1
+        (self.repo / ("f%d.txt" % self.n)).write_text(str(self.n))
+        self.git("add", "-A")
+        lines = ["Specwright-Task: " + t for t in task_trailers] + \
+                ["Specwright-User-Task: " + t for t in user_trailers]
+        msg = subject + "\n\nBody.\n" + ("\n" + "\n".join(lines) + "\n" if lines else "")
+        msgfile = self.tmp / "msg.txt"
+        msgfile.write_bytes(msg.encode("utf-8"))
+        self.git("commit", "-q", "-F", str(msgfile))
+        return self.git("rev-parse", "HEAD").strip()
+
+    def repo_tasks(self, text, archived=False):
+        """Write tasks.md inside the repo, in the active or archived change folder; returns its path."""
+        folder = Path("openspec") / "changes" / ("archive/2026-01-01-" + CHANGE if archived else CHANGE)
+        p = self.repo / folder / "tasks.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(text.encode("utf-8"))
+        return p
+
+    def write_evidence(self, name="run.log", text="output\n", base=None):
+        p = (base or self.tmp) / "evidence" / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+        return p
 
     def cover(self, **kw):
         r = self.run_script(**kw)
@@ -217,6 +245,123 @@ class TaskCover(unittest.TestCase):
         self.assertEqual([t["id"] for t in doc["tasks"]], ["1.1"])
         self.assertEqual(self.task(doc, "1.1")["commits"], [{"sha": sha, "form": "subject"}])
         self.assertEqual(doc["uncovered"], [])
+
+    KINDS = ("## 2. Mixed\n\n- [ ] 2.1 Add the parser\n- [ ] 2.2 [evidence] Save the run log → evidence/run.log\n"
+             "- [ ] 2.3 [user] Play the first level\n")
+
+    def test_task_kinds_reported(self):
+        doc = self.cover(tasks=self.tasks_file(self.KINDS))
+        self.assertEqual([(t["id"], t["kind"]) for t in doc["tasks"]],
+                         [("2.1", "agent"), ("2.2", "evidence"), ("2.3", "user")])
+        self.assertEqual(doc["waiting_on_user"], ["2.3"])
+
+    def test_marker_elsewhere_or_other_case_is_agent(self):
+        text = ("## 2. M\n\n- [ ] 2.4 Document the [user] marker\n- [ ] 2.5 [User] Check the menu\n"
+                "- [ ] 2.6 [EVIDENCE] Capture\n- [ ] 2.7 [user]Check glued\n")
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual([t["kind"] for t in doc["tasks"]], ["agent"] * 4)
+        self.assertEqual(doc["waiting_on_user"], [])
+
+    def test_ticked_user_task_not_waiting(self):
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.3 [user] Play the first level\n"))
+        self.assertEqual(self.task(doc, "2.3")["kind"], "user")
+        self.assertEqual(doc["waiting_on_user"], [])
+
+    def test_evidence_present_not_missing(self):
+        self.write_evidence()
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n"))
+        self.assertEqual(doc["evidence_missing"], [])
+
+    def test_evidence_file_missing_reported(self):
+        text = "## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n- [x] 2.3 [evidence] Save b → evidence/b.log\n"
+        self.write_evidence("b.log", "")  # present but empty counts as missing
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["evidence_missing"], ["2.2", "2.3"])
+
+    def test_evidence_without_path_reported(self):
+        text = "## 2. M\n\n- [x] 2.6 [evidence] Capture the frame times\n- [ ] 2.7 [evidence] Unticked, no path\n"
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["evidence_missing"], ["2.6"])
+
+    def test_rev_reads_archived_tasks_at_commit(self):
+        p = self.repo_tasks("## 4. M\n\n- [x] 4.3 [user] Play\n", archived=True)
+        ticked = self.commit("chore: tick")
+        p.write_bytes(b"## 4. M\n\n- [ ] 4.3 [user] Play\n")
+        self.commit("chore: untick")
+        doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
+        self.assertEqual(doc["waiting_on_user"], ["4.3"])
+        doc = self.json_ok(self.run_script(tasks=p, rev=ticked))
+        self.assertEqual(doc["waiting_on_user"], [])
+
+    def test_rev_ignores_working_tree(self):
+        text = "## 4. M\n\n- [ ] 4.3 [user] Play\n- [x] 4.4 [evidence] Log → evidence/run.log\n"
+        p = self.repo_tasks(text)
+        self.commit("chore: planning")
+        p.write_bytes(text.replace("[ ] 4.3", "[x] 4.3").encode("utf-8"))
+        self.write_evidence(base=p.parent)
+        doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
+        self.assertEqual(doc["waiting_on_user"], ["4.3"])
+        self.assertEqual(doc["evidence_missing"], ["4.4"])
+        self.assertEqual(self.json_ok(self.run_script(tasks=p))["waiting_on_user"], [])
+
+    def test_rev_missing_file_exits_2(self):
+        p = self.repo_tasks("## 4. M\n\n- [ ] 4.3 [user] Play\n")  # in the working tree only
+        r = self.run_script(tasks=p, rev="HEAD")
+        self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
+        doc = json.loads(r.stdout)
+        self.assertFalse(doc["ok"])
+        self.assertEqual(doc["error"], "no_tasks")
+
+    def json_ok(self, r):
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        return json.loads(r.stdout.decode("utf-8"))
+
+    def test_user_tick_never_makes_group_pending(self):
+        text = "## 1. A\n\n- [x] 1.1 a\n\n## 2. B\n\n- [x] 2.1 [user] play\n"
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["pending_groups"], [{"group": 1, "tasks": ["1.1"]}])
+        self.assertEqual(doc["uncovered"], ["1.1"])
+        self.assertEqual(doc["user_uncommitted"], ["2.1"])
+
+    def test_all_user_group_never_pending(self):
+        text = "## 5. U\n\n- [x] 5.1 [user] play\n- [ ] 5.2 [user] watch\n"
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["pending_groups"], [])
+        self.assertEqual(doc["uncovered"], [])
+        self.assertEqual(doc["user_uncommitted"], ["5.1"])
+        self.assertEqual(doc["waiting_on_user"], ["5.2"])
+
+    def test_user_task_trailer_covers(self):
+        text = "## 3. U\n\n- [x] 3.1 [user] play\n"
+        sha = self.user_commit("docs(%s): record user checks 3.1" % CHANGE, user_trailers=["3.1"])
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["user_uncommitted"], [])
+        self.assertEqual([c["sha"] for c in self.task(doc, "3.1")["commits"]], [sha])
+
+    def test_two_user_trailers_cover_both(self):
+        text = "## 3. U\n\n- [x] 3.2 [user] a\n\n## 4. V\n\n- [x] 4.3 [user] b\n"
+        self.user_commit("docs(%s): record user checks 3.2, 4.3" % CHANGE, user_trailers=["3.2", "4.3"])
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["user_uncommitted"], [])
+        self.assertEqual(doc["cross_group"], [])
+
+    def test_user_trailer_on_group_commit_not_cross_group(self):
+        text = "## 1. A\n\n- [x] 1.1 a\n- [x] 1.2 b\n\n## 2. B\n\n- [x] 2.1 [user] play\n"
+        sha = self.user_commit("feat(%s): group 1 A" % CHANGE, task_trailers=["1.1", "1.2"], user_trailers=["2.1"])
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["cross_group"], [])
+        self.assertEqual(doc["user_uncommitted"], [])
+        self.assertEqual(doc["pending_groups"], [])
+        self.assertEqual([c["sha"] for c in self.task(doc, "2.1")["commits"]], [sha])
+
+    def test_user_trailer_does_not_cover_agent_task(self):
+        text = "## 1. A\n\n- [x] 1.1 a\n- [x] 1.2 [evidence] log → evidence/x.log\n"
+        self.user_commit("docs(%s): record user checks 1.1" % CHANGE, user_trailers=["1.1", "1.2"])
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual([self.task(doc, i)["kind"] for i in ("1.1", "1.2")], ["agent", "evidence"])
+        self.assertEqual(self.task(doc, "1.1")["commits"], [])
+        self.assertEqual(doc["uncovered"], ["1.1", "1.2"])
+        self.assertEqual(doc["pending_groups"], [{"group": 1, "tasks": ["1.1", "1.2"]}])
 
     def test_missing_tasks_file_exits_2(self):
         r = self.run_script(tasks=self.tmp / "nope.md")
