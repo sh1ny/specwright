@@ -736,10 +736,12 @@ p { margin: 0 0 var(--space-3); }
   document.addEventListener('click', function (e) {
     var el = e.target.closest && e.target.closest('[data-goto],[data-back],[data-open-modal],[data-close-modal],[data-set-state]');
     if (!el || !stage.contains(el)) { return; }
+    // Order matters when attributes combine: close the modal, move to the destination screen,
+    // then apply the state to that destination, and open any modal last (on the new screen).
     if (el.hasAttribute('data-close-modal')) { closeModal(); }
-    if (el.hasAttribute('data-set-state')) { setState(el.getAttribute('data-set-state')); }
     if (el.hasAttribute('data-goto')) { showScreen(el.getAttribute('data-goto'), true); }
     if (el.hasAttribute('data-back')) { back(); }
+    if (el.hasAttribute('data-set-state')) { setState(el.getAttribute('data-set-state')); }
     if (el.hasAttribute('data-open-modal')) { openModal(el.getAttribute('data-open-modal')); }
   });
 
