@@ -156,7 +156,9 @@ The first domain packs ship with Specwright:
 - `gamedev`: GDD, game design, systems and levels, narrative, game UX and playtests;
 - `godot`: in-engine evidence, data-resource tunables and Godot 4 guidance.
 
-Enable them under `packs:` in `openspec/specwright.yaml` and rerun the install prompt. A game project then gets a GDD, design skills, and rules that make gameplay changes cite their design and state their budgets. Each such change ends with an evidence check and your playtest verdict.
+Enable them under `packs:` in `openspec/specwright.yaml` and rerun the install prompt (`gamedev` needs `ui-prototyping`). A game project gets a GDD, design skills, and rules that make gameplay changes cite their design, state their budgets and end with an evidence check and your playtest verdict.
 
 ### Added
 - The `ui-prototyping`, `gamedev` and `godot` packs, with skills written fresh for Specwright (#68).
+- The README lists the shipped packs and how to enable them; `packs/README.md` explains pack layers and how to move a hand-made pack to the managed one.
+- Evals that check the shipped packs: static checks on every skill, the lines delivered through `openspec instructions`, and a real install.

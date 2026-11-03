@@ -145,8 +145,8 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
 
 ## 5. Map and release
 
-- [ ] 5.1 Run `python -m unittest evals/runner/test_suite_map.py` to confirm that `evals/suites.json` covers both new test modules and every new file under `packs/`. Add a rule if it reports one uncovered.
-- [ ] 5.2 Run `release.sh bump --to 0.20.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/gamedev-pack/proposal.md`.
+- [x] 5.1 Run `python -m unittest evals/runner/test_suite_map.py` to confirm that `evals/suites.json` covers both new test modules and every new file under `packs/`. Add a rule if it reports one uncovered.
+- [x] 5.2 Run `release.sh bump --to 0.20.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/gamedev-pack/proposal.md`.
 
 ## Workflow follow-up
 
