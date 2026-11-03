@@ -51,8 +51,8 @@ class TaskCover(unittest.TestCase):
         self.commit("chore: base")
         self.base = self.git("rev-parse", "HEAD").strip()
 
-    def git(self, *args):
-        r = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True)
+    def git(self, *args, input=None):
+        r = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, input=input)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout.decode("utf-8")
 
@@ -317,6 +317,52 @@ class TaskCover(unittest.TestCase):
             self.skipTest("symlinks not available")
         doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
         self.assertEqual(doc["evidence_missing"], ["2.2"])
+
+    def symlink_or_skip(self, target, link):
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not available")
+
+    def test_evidence_symlink_inside_change_rejected(self):
+        # any symlink is refused without following it: its target is never looked up
+        self.write_evidence("real.log")
+        self.symlink_or_skip(self.tmp / "evidence" / "real.log", self.tmp / "evidence" / "x.log")
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
+        self.assertEqual(doc["evidence_missing"], ["2.2"])
+
+    def test_evidence_symlinked_directory_rejected(self):
+        outside = Path(tempfile.mkdtemp(prefix="specwright-outside-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        (outside / "x.log").write_text("output\n")
+        self.symlink_or_skip(outside, self.tmp / "evidence")
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
+        self.assertEqual(doc["evidence_missing"], ["2.2"])
+
+    def test_rev_evidence_directory_is_missing(self):
+        p = self.repo_tasks("## 4. M\n\n- [x] 4.4 [evidence] Log → evidence/run.log\n")
+        self.write_evidence("run.log/other", base=p.parent)
+        self.commit("chore: evidence as a directory")
+        doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
+        self.assertEqual(doc["evidence_missing"], ["4.4"])
+
+    def test_rev_evidence_committed_symlink_is_missing(self):
+        p = self.repo_tasks("## 4. M\n\n- [x] 4.4 [evidence] Log → evidence/run.log\n")
+        self.commit("chore: planning")
+        # stage a symlink entry through plumbing, so the test needs no symlink support from the OS
+        blob = self.git("hash-object", "-w", "--stdin", input=b"../../../outside.log").strip()
+        path = p.parent.relative_to(self.repo).as_posix() + "/evidence/run.log"
+        self.git("update-index", "--add", "--cacheinfo", "120000,%s,%s" % (blob, path))
+        self.git("commit", "-q", "-m", "chore: evidence as a symlink")
+        doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
+        self.assertEqual(doc["evidence_missing"], ["4.4"])
+
+    def test_rev_evidence_regular_file_present(self):
+        p = self.repo_tasks("## 4. M\n\n- [x] 4.4 [evidence] Log → evidence/run.log\n")
+        self.write_evidence(base=p.parent)
+        self.commit("chore: evidence")
+        doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
+        self.assertEqual(doc["evidence_missing"], [])
 
     def test_rev_reads_archived_tasks_at_commit(self):
         p = self.repo_tasks("## 4. M\n\n- [x] 4.3 [user] Play\n", archived=True)

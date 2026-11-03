@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Which tasks of tasks.md are covered by commits on a change branch. Read-only: it only reads
 # tasks.md (and evidence files) and runs `git log`, `git rev-list --count` and, with --rev, `git rev-parse`,
-# `git show` and `git cat-file -s`. Prints ONE JSON document.
+# `git show`, `git ls-tree` and `git cat-file -s`. Prints ONE JSON document. An evidence file counts only as a
+# regular, non-empty file under the change directory, reached without following a symlink.
 #
 # Usage: bash task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> --change <name> [--rev <sha>]
 #   --rev <sha>  read --tasks as committed at <sha> (`git show <sha>:<path>`, the path taken relative to the
@@ -52,6 +53,7 @@ exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
@@ -218,18 +220,29 @@ def evidence_ok(t):
     if "\\" in rel or ":" in rel or any(s in ("", ".", "..") for s in rel.split("/")):
         return False
     if rev:
-        blob = "%s:%s" % (rev, "/".join(p for p in (rel_dir, rel) if p))
-        size = git(repo, "cat-file", "-s", blob, soft=True)
+        # only a regular file entry counts: a tree, symlink (120000) or submodule entry does not
+        path = "/".join(p for p in (rel_dir, rel) if p)
+        entry = git(repo, "ls-tree", "-z", rev, "--", path, soft=True)
+        if not entry:
+            return False
+        meta, _, name = entry.rstrip(b"\0").partition(b"\t")
+        fields = meta.split()
+        if len(fields) != 3 or fields[0] not in (b"100644", b"100755") or name.decode("utf-8", "replace") != path:
+            return False
+        size = git(repo, "cat-file", "-s", fields[2].decode("ascii"), soft=True)
         return size is not None and size.strip() not in (b"", b"0")
-    base = os.path.realpath(os.path.dirname(os.path.abspath(tasks_path)))
-    p = os.path.realpath(os.path.join(base, *rel.split("/")))
-    try:
-        inside = os.path.commonpath([base, p]) == base
-    except ValueError:  # Windows: another drive
-        inside = False
-    if not inside:
-        return False  # a symlink that leaves the change directory
-    return os.path.isfile(p) and os.path.getsize(p) > 0
+    # Walk the components under the change directory with lstat, which never follows a link: a symlink or
+    # reparse point anywhere on the way is refused before its target is looked up.
+    p = os.path.dirname(os.path.abspath(tasks_path))
+    for seg in rel.split("/"):
+        p = os.path.join(p, seg)
+        try:
+            st = os.lstat(p)
+        except OSError:
+            return False
+        if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+            return False
+    return stat.S_ISREG(st.st_mode) and st.st_size > 0
 
 
 uncovered = [t["id"] for t in tasks if work(t)]
