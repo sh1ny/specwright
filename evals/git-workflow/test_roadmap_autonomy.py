@@ -73,6 +73,69 @@ class Override(unittest.TestCase):
         self.assertIsNotNone(p, "SKILL.md does not say the override holds for one run and the next run reads the setting again")
 
 
+def section(text, heading):
+    """The body of a `## heading` section of SKILL.md, up to the next `## `."""
+    m = re.search(r"^## " + re.escape(heading) + r"\s*$", text, re.M)
+    assert m, f"SKILL.md has no section {heading}"
+    nxt = re.search(r"^## ", text[m.end():], re.M)
+    return text[m.end(): m.end() + nxt.start()] if nxt else text[m.end():]
+
+
+class Autonomous(unittest.TestCase):
+    """Requirement: An autonomous roadmap run asks nothing and records every answer."""
+
+    def test_init_asks_nothing_and_records_rows(self):
+        p = find_block(read(SKILL), r"`autonomous`", r"ask(s)? nothing|no question", r"gap", r"ADR",
+                       r"`agent` row", r"decision summary", r"reason", r"without (a )?wait")
+        self.assertIsNotNone(p, "SKILL.md does not say an autonomous run asks nothing, records agent rows with reasons and shows them without a wait")
+
+    def test_pack_mode_autonomous(self):
+        s = section(read(SKILL), "pack")
+        p = find_block(s, r"`autonomous`", r"ask(s)? nothing|no question", r"`agent` row", r"pack document")
+        self.assertIsNotNone(p, "pack mode does not say an autonomous run answers the questions itself and records agent rows")
+
+    def test_pack_offer_pending_not_enabled(self):
+        p = find_block(read(SKILL), r"`autonomous`", r"pack offer", r"`pending` row", r"not enabled",
+                       r"`packs:`.{0,40}unchanged", r"(goes|go) on")
+        self.assertIsNotNone(p, "SKILL.md does not say an autonomous pack offer becomes a pending row, with the pack not enabled")
+
+    def test_pack_questions_autonomous_init(self):
+        s = section(read(SKILL), "init")
+        p = find_block(s, r"`autonomous`", r"pack", r"`init` `questions`|pack questions", r"`agent` row", r"pack document")
+        self.assertIsNotNone(p, "init step 2 does not say an autonomous init answers the pack questions itself into the pack documents")
+
+
+class Rounds(unittest.TestCase):
+    """Requirement: A question round may span several ask-tool calls."""
+
+    def test_round_spans_calls_init(self):
+        p = find_block(read(SKILL), r"round is", r"before any", r"several (ask-tool )?calls|more than one call|several calls",
+                       r"Codex", r"no third round", r"dropped|drop")
+        self.assertIsNotNone(p, "SKILL.md does not say a round may span several ask-tool calls, with init keeping two rounds")
+        self.assertRegex(p, r"(?i)schema.{0,200}proposal|proposal.{0,200}schema")
+
+    def test_round_spans_calls_pack(self):
+        s = section(read(SKILL), "pack")
+        p = find_block(s, r"one (batched )?round", r"several (ask-tool )?calls|more than one call", r"answered|answers")
+        self.assertIsNotNone(p, "pack mode does not say its one round may span several calls, written only after all are answered")
+        self.assertRegex(p, r"(?i)only after|not before|before any")
+
+
+class AllMode(unittest.TestCase):
+    """Requirement: In all mode every roadmap decision goes to the user."""
+
+    def test_adr_and_replan_choices_in_further_batches(self):
+        p = find_block(read(SKILL), r"`all`", r"ADR", r"re-plan", r"batch", r"at most 4",
+                       r"Chosen by: user", r"before step 4")
+        self.assertIsNotNone(p, "SKILL.md does not put ADR and re-plan choices to the user in further batches of at most 4 in all mode")
+        self.assertRegex(p, r"(?i)lower limit|fewer")
+
+    def test_asked_before_file_written(self):
+        p = find_block(read(SKILL), r"`all`", r"before the file", r"session ends|ends before",
+                       r"no ADR", r"next session asks again")
+        self.assertIsNotNone(p, "SKILL.md does not say each batch is asked before its file is written, so an interrupted session leaves no ADR")
+
+
 class Docs(unittest.TestCase):
     """The template and the README name the nested key."""
 

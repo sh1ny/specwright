@@ -11,13 +11,13 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 3 | Roadmap runs read their decision mode from the project setting | Change planning keeps its own setting | test_roadmap_autonomy.py | ModeFromSetting.test_top_level_decision_making_not_read | green |
 | 4 | A user instruction overrides the roadmap mode for one run | Override at init | test_roadmap_autonomy.py | Override.test_override_recorded_with_words_setting_unchanged | green |
 | 5 | A user instruction overrides the roadmap mode for one run | Next run without an instruction | test_roadmap_autonomy.py | Override.test_override_for_one_run_only | green |
-| 6 | An autonomous roadmap run asks nothing and records every answer | Autonomous init | test_roadmap_autonomy.py | Autonomous.test_init_asks_nothing_and_records_rows | red |
-| 7 | An autonomous roadmap run asks nothing and records every answer | Autonomous pack setup | test_roadmap_autonomy.py | Autonomous.test_pack_mode_autonomous | red |
-| 8 | An autonomous roadmap run asks nothing and records every answer | Pack offer at an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_offer_pending_not_enabled | red |
-| 9 | A question round may span several ask-tool calls | Init round larger than the ask tool | test_roadmap_autonomy.py | Rounds.test_round_spans_calls_init | red |
-| 10 | A question round may span several ask-tool calls | Pack round larger than the ask tool | test_roadmap_autonomy.py | Rounds.test_round_spans_calls_pack | red |
-| 11 | In all mode every roadmap decision goes to the user | ADR choices in all mode | test_roadmap_autonomy.py | AllMode.test_adr_and_replan_choices_in_further_batches | red |
-| 12 | In all mode every roadmap decision goes to the user | Session ends before the answers | test_roadmap_autonomy.py | AllMode.test_asked_before_file_written | red |
+| 6 | An autonomous roadmap run asks nothing and records every answer | Autonomous init | test_roadmap_autonomy.py | Autonomous.test_init_asks_nothing_and_records_rows | green |
+| 7 | An autonomous roadmap run asks nothing and records every answer | Autonomous pack setup | test_roadmap_autonomy.py | Autonomous.test_pack_mode_autonomous | green |
+| 8 | An autonomous roadmap run asks nothing and records every answer | Pack offer at an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_offer_pending_not_enabled | green |
+| 9 | A question round may span several ask-tool calls | Init round larger than the ask tool | test_roadmap_autonomy.py | Rounds.test_round_spans_calls_init | green |
+| 10 | A question round may span several ask-tool calls | Pack round larger than the ask tool | test_roadmap_autonomy.py | Rounds.test_round_spans_calls_pack | green |
+| 11 | In all mode every roadmap decision goes to the user | ADR choices in all mode | test_roadmap_autonomy.py | AllMode.test_adr_and_replan_choices_in_further_batches | green |
+| 12 | In all mode every roadmap decision goes to the user | Session ends before the answers | test_roadmap_autonomy.py | AllMode.test_asked_before_file_written | green |
 | 13 | The strategy carries the roadmap's decision summary | Close adds rows after the baseline passed | test_roadmap_autonomy.py | Summary.test_summary_edit_does_not_void_baseline | red |
 | 14 | The strategy carries the roadmap's decision summary | PR feedback fixes only summary rows | test_roadmap_autonomy.py | Summary.test_pr_feedback_summary_only_no_rerun | red |
 | 15 | The strategy carries the roadmap's decision summary | Edit outside the section | test_roadmap_autonomy.py | Summary.test_edit_outside_section_still_voids | red |
@@ -32,7 +32,7 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 24 | Baseline review rounds follow the schema's escalation rule | Round 1 findings kept when round 2 replaces the file | test_roadmap_autonomy.py | Escalation.test_findings_copied_before_next_round | red |
 | 25 | Baseline review rounds follow the schema's escalation rule | Two consecutive revise verdicts in autonomous mode | test_roadmap_autonomy.py | Escalation.test_autonomous_escalation_stops | red |
 | 26 | Roadmap init includes enabled packs' questions and documents | Pack questions join the interview | test_instructions.py | test_roadmap_init_asks_pack_questions_in_two_rounds | green |
-| 27 | Roadmap init includes enabled packs' questions and documents | Pack questions in an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_questions_autonomous_init | red |
+| 27 | Roadmap init includes enabled packs' questions and documents | Pack questions in an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_questions_autonomous_init | green |
 | 28 | Roadmap init includes enabled packs' questions and documents | A pack document edited after the baseline passed | test_instructions.py | test_pack_documents_are_not_gated | green |
 | 29 | Roadmap init includes enabled packs' questions and documents | A pack document is missing at init | test_instructions.py | test_roadmap_init_missing_pack_document | green |
 | 30 | Roadmap pack mode sets up a pack enabled later | Setting up a pack after the baseline | test_instructions.py | test_roadmap_pack_mode_commits_on_docs_branch | green |
@@ -58,8 +58,8 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 ## 2. Asking per mode
 
-- [ ] 2.1 Add the tests for rows 6-12 and 27 and confirm they fail for the right reason.
-- [ ] 2.2 In init step 2, close and pack, make asking depend on the mode:
+- [x] 2.1 Add the tests for rows 6-12 and 27 and confirm they fail for the right reason.
+- [x] 2.2 In init step 2, close and pack, make asking depend on the mode:
   - `autonomous` asks nothing: each gap, pack question, ADR choice and re-plan choice becomes an `agent` row with its reason, a pack offer becomes a `pending` row, `packs:` stays unchanged, and the rows are shown at the end without a wait;
   - `important` keeps today's interview;
   - `all` also puts ADR choices (before step 4 writes them) and close's re-plan choices to the user in further batches;
