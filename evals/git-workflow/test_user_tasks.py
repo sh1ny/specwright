@@ -270,7 +270,9 @@ class ArchiveAndMergeWaitForUser(unittest.TestCase):
 
     def test_watch_unknown_user_check_blocks_merge(self):
         u = pr_bullet("User tasks")
-        self.assertRegex(u, r"(?i)exit 2 or 3", "watch does not handle exit 2 or 3")
+        # pre-ship round 3: exit 1 (range_too_large) carries no waiting_on_user either
+        self.assertRegex(u, r"(?i)any nonzero exit|exit 1, 2 or 3", "watch does not treat every task-cover.sh failure as unknown")
+        self.assertRegex(u, r"(?i)unknown[^.]{0,160}no archive commit", "an unknown check does not block the archive")
         self.assertRegex(u, r"(?i)user-task check as unknown", "watch does not report the user-task check as unknown")
         self.assertRegex(u, r"(?i)unknown[^.]{0,120}send no merge request|send no merge request[^.]{0,60}unknown", "an unknown check does not block the merge request")
 
