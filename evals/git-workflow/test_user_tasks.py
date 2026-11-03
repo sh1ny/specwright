@@ -121,5 +121,67 @@ class ExitCriterionReachesTasks(unittest.TestCase):
                          "the tasks instruction does not accept the proposal saying it is judged at close and why")
 
 
+COMMIT = ROOT / "skills" / "specwright-commit" / "SKILL.md"
+
+
+def section(text, heading_re):
+    """Text from a markdown heading matching heading_re up to the next heading of the same or higher level."""
+    m = re.search(r"^(#+) " + heading_re + r".*$", text, re.M | re.I)
+    assert m, f"specwright-commit SKILL.md has no section {heading_re}"
+    nxt = re.search(r"^#{1,%d} " % len(m.group(1)), text[m.end():], re.M)
+    return flat(text[m.start(): m.end() + nxt.start()] if nxt else text[m.start():])
+
+
+class CommitSkillUserTasks(unittest.TestCase):
+    def test_group_commit_skips_user_tasks(self):
+        g = section(read(COMMIT), r"Group mode")
+        self.assertRegex(g, r"(?i)never ticks? a user task|never tick\w* a `\[user\]` task",
+                         "group mode does not say a user task is never ticked")
+        self.assertRegex(g, r"(?i)`\[user\]`[^.]{0,200}(never|not)[^.]{0,60}(hold|block)\w* (back )?the group|"
+                            r"user tasks? (never|do not|does not)[^.]{0,40}hold\w* (back )?the group",
+                         "group mode does not say a user task never holds the group commit back")
+        self.assertRegex(g, r"(?i)`Specwright-Task`[^.]{0,120}agent and evidence tasks? only|"
+                            r"agent and evidence tasks? only[^.]{0,120}`Specwright-Task`|only[^.]{0,40}agent and evidence tasks",
+                         "group mode does not limit Specwright-Task trailers to agent and evidence tasks")
+        s = flat(read(COMMIT))
+        self.assertRegex(section(read(COMMIT), r"Reconcile"), r"(?i)`user_uncommitted`[^.]{0,200}(apart|separate)\w*[^.]{0,80}pending|"
+                                                            r"(apart|separate)\w*[^.]{0,80}pending[^.]{0,200}`user_uncommitted`",
+                         "Reconcile does not list `user_uncommitted` apart from pending groups")
+        self.assertRegex(section(read(COMMIT), r"Reconcile"), r"(?i)user tick[^.]{0,120}(never|not)[^.]{0,60}(makes?|pending)",
+                         "Reconcile does not say a user tick never makes a group pending")
+
+    def test_completion_reports_waiting_on_user(self):
+        c = section(read(COMMIT), r"3\. When every task")
+        self.assertRegex(c, r"(?i)every (agent and evidence|agent or evidence) task|agent and evidence tasks",
+                         "the completion check does not count agent and evidence tasks only")
+        self.assertRegex(c, r"waiting on the user: <ids>", "the completion check does not report `waiting on the user: <ids>`")
+        self.assertRegex(c, r"`waiting_on_user`", "the completion check does not take the ids from `waiting_on_user`")
+        self.assertRegex(c, r"(?i)user tasks? (still )?open[^.]{0,120}hand\w*|hand\w*[^.]{0,120}user tasks? (still )?open|"
+                            r"open user tasks?[^.]{0,120}hand",
+                         "the completion check does not hand off with user tasks still open")
+
+    def test_commit_stops_on_evidence_missing(self):
+        c = section(read(COMMIT), r"3\. When every task")
+        self.assertRegex(c, r"(?i)`evidence_missing`[^.]{0,200}stop|stop\w*[^.]{0,120}`evidence_missing`",
+                         "the completion check does not stop on `evidence_missing`")
+        s = flat(read(COMMIT))
+        self.assertRegex(s, r"(?i)evidence task[^.]{0,200}`evidence/`[^.]{0,120}non-empty[^.]{0,120}committed|"
+                            r"evidence task[^.]{0,200}non-empty[^.]{0,120}committed",
+                         "the skill does not tick an evidence task only with a present, non-empty, committed evidence file")
+
+    def test_record_user_checks_commit(self):
+        s = flat(read(COMMIT))
+        self.assertRegex(s, r"`Specwright-User-Task: X\.Y`", "the skill does not name the `Specwright-User-Task: X.Y` trailer")
+        self.assertRegex(s, r"(?i)every commit that stages `tasks\.md`[^.]{0,200}`Specwright-User-Task",
+                         "the skill does not put the user-task trailer on every commit that stages tasks.md")
+        self.assertRegex(s, r"`user_uncommitted`", "the skill does not name `user_uncommitted`")
+        self.assertRegex(s, r"<type>\(<change-name>\): record user checks <ids>",
+                         "the skill does not give the `record user checks <ids>` subject")
+        block = section(read(COMMIT), r"Group mode")
+        self.assertRegex(block, r"(?i)no agent work pending[^.]{0,120}`tasks\.md` alone|`tasks\.md` alone[^.]{0,120}no agent work pending",
+                         "the skill does not commit `tasks.md` alone when no agent work is pending")
+        self.assertRegex(s, r"(?i)before (the user's )?`?Co-authored-by", "the trailer is not placed before Co-authored-by")
+
+
 if __name__ == "__main__":
     unittest.main()

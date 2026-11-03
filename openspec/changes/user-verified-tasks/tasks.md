@@ -13,7 +13,7 @@
 | user-tasks → An agent never ticks or delegates a user task | Packet with a user task | evals/git-workflow/test_user_tasks.py | test_implementers_refuse_user_tasks | green |
 | user-tasks → An agent never ticks or delegates a user task | User says it passed in chat | evals/git-workflow/test_user_tasks.py | test_chat_report_asks_user_to_tick | green |
 | user-tasks → An evidence task is ticked only with its evidence | Evidence present | evals/git-workflow/test_task_cover.py | test_evidence_present_not_missing | green |
-| user-tasks → An evidence task is ticked only with its evidence | Evidence file missing | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_evidence_file_missing_reported, test_commit_stops_on_evidence_missing | red |
+| user-tasks → An evidence task is ticked only with its evidence | Evidence file missing | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_evidence_file_missing_reported, test_commit_stops_on_evidence_missing | green |
 | user-tasks → An evidence task is ticked only with its evidence | No evidence path named | evals/git-workflow/test_task_cover.py | test_evidence_without_path_reported | green |
 | user-tasks → The test map can point a scenario at a user task | Person-judged scenario | evals/git-workflow/test_user_tasks.py | test_test_map_user_state | green |
 | user-tasks → The test map can point a scenario at a user task | Testable scenario mapped to a user task | evals/git-workflow/test_user_tasks.py | test_review_flags_testable_scenario_on_user_task | green |
@@ -31,16 +31,16 @@
 | task-commits → A group is committed once at its boundary | Shared file within a group | evals/git-workflow/test_grade.py | test_group_apply_split_group_fails | green |
 | task-commits → A group is committed once at its boundary | Unowned edits present | evals/git-workflow/test_grade.py | test_group_apply_swept_scratch_fails | green |
 | task-commits → A group is committed once at its boundary | Interrupted before the group is complete | evals/git-workflow/test_instructions.py | test_commit_group_waits_for_every_task | green |
-| task-commits → A group is committed once at its boundary | Group with a user task | evals/git-workflow/test_user_tasks.py | test_group_commit_skips_user_tasks | red |
+| task-commits → A group is committed once at its boundary | Group with a user task | evals/git-workflow/test_user_tasks.py | test_group_commit_skips_user_tasks | green |
 | task-commits → End-of-apply check uses task evidence | Group mode complete | evals/git-workflow/test_grade.py | test_completion_accepts_task_work_wording | green |
 | task-commits → End-of-apply check uses task evidence | Lost coverage | evals/git-workflow/test_task_cover.py | test_uncovered_ticked_task_reported | green |
-| task-commits → End-of-apply check uses task evidence | User task still open | evals/git-workflow/test_user_tasks.py | test_completion_reports_waiting_on_user | red |
+| task-commits → End-of-apply check uses task evidence | User task still open | evals/git-workflow/test_user_tasks.py | test_completion_reports_waiting_on_user | green |
 | task-commits → An interrupted group resumes without loss | Resume in a fresh session | evals/git-workflow/test_grade.py | test_group_resume_one_commit_pass | green |
 | task-commits → An interrupted group resumes without loss | Group already partly committed | evals/git-workflow/test_task_cover.py | test_pending_excludes_covered_tasks | green |
 | task-commits → An interrupted group resumes without loss | Two groups pending | evals/git-workflow/test_task_cover.py | test_two_pending_groups_reported | green |
 | task-commits → An interrupted group resumes without loss | Interrupted group plus a user tick | evals/git-workflow/test_task_cover.py | test_user_tick_never_makes_group_pending | green |
 | task-commits → An interrupted group resumes without loss | All-user group | evals/git-workflow/test_task_cover.py | test_all_user_group_never_pending | green |
-| task-commits → User ticks ride the next tasks.md commit | User tick with nothing pending | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_user_task_trailer_covers, test_record_user_checks_commit | red |
+| task-commits → User ticks ride the next tasks.md commit | User tick with nothing pending | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_user_task_trailer_covers, test_record_user_checks_commit | green |
 | task-commits → User ticks ride the next tasks.md commit | Two user ticks at once | evals/git-workflow/test_task_cover.py | test_two_user_trailers_cover_both | green |
 | task-commits → User ticks ride the next tasks.md commit | User tick while a group is pending | evals/git-workflow/test_task_cover.py | test_user_trailer_on_group_commit_not_cross_group | green |
 | task-commits → User ticks ride the next tasks.md commit | Trailer for an agent task | evals/git-workflow/test_task_cover.py | test_user_trailer_does_not_cover_agent_task | green |
@@ -61,8 +61,8 @@
 
 ## 4. Commit rules
 
-- [ ] 4.1 Add the red tests for `test_group_commit_skips_user_tasks`, `test_completion_reports_waiting_on_user`, `test_commit_stops_on_evidence_missing` and `test_record_user_checks_commit` to `evals/git-workflow/test_user_tasks.py` and confirm they fail for the right reason.
-- [ ] 4.2 In `skills/specwright-commit/SKILL.md`: group completeness counts agent and evidence tasks only and never ticks a user task; every commit that stages `tasks.md` carries a `Specwright-User-Task: X.Y` trailer for each tick in `user_uncommitted`; with no agent work pending, `tasks.md` alone is committed as `<type>(<change-name>): record user checks <ids>`; Reconcile lists `user_uncommitted` apart from pending groups; the end-of-apply check stops on `evidence_missing`, reports `waiting on the user: <ids>` and hands off with user tasks open. Verify the four rows pass and flip them green.
+- [x] 4.1 Add the red tests for `test_group_commit_skips_user_tasks`, `test_completion_reports_waiting_on_user`, `test_commit_stops_on_evidence_missing` and `test_record_user_checks_commit` to `evals/git-workflow/test_user_tasks.py` and confirm they fail for the right reason.
+- [x] 4.2 In `skills/specwright-commit/SKILL.md`: group completeness counts agent and evidence tasks only and never ticks a user task; every commit that stages `tasks.md` carries a `Specwright-User-Task: X.Y` trailer for each tick in `user_uncommitted`; with no agent work pending, `tasks.md` alone is committed as `<type>(<change-name>): record user checks <ids>`; Reconcile lists `user_uncommitted` apart from pending groups; the end-of-apply check stops on `evidence_missing`, reports `waiting on the user: <ids>` and hands off with user tasks open. Verify the four rows pass and flip them green.
 
 ## 5. Archive, verify and merge gates
 
