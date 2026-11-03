@@ -91,6 +91,16 @@ Documents are review context, never gated content: editing one never voids a bas
 
 `signals` are glob patterns relative to the code toplevel, matched against the files git lists (tracked, and untracked but not ignored). Roadmap init suggests a pack when a pattern matches, together with the packs it requires. A signal is only a suggestion: the project enables a pack by editing `packs:`, and only on the user's yes.
 
+## Moving a hand-made pack
+
+A project that copied a pack's skills by hand and wrote its own `[pack:<name>]` lines into `openspec/config.yaml` moves to the managed pack like this:
+
+1. Delete the hand-copied skill directories (for example `gamedev-design`) from every skills directory first. Otherwise `plan` stops with `unmanaged_skill`, because the installer never overwrites a skill it does not own (only a copy byte-identical to the shipped skill is adopted).
+2. Enable the pack, and the packs it requires, under `packs:` in `openspec/specwright.yaml`, and rerun the install prompt.
+3. Leave the hand-written lines alone. The install's config merge removes every `[pack:<name>]` line of an enabled pack and adds the pack's managed lines, so nothing is duplicated. Unprefixed lines you wrote stay as they are.
+
+Project documents the hand-made pack already created stay: the install creates a pack document only when its file does not exist.
+
 ## What v1 refuses
 
 - **Planning stores.** When the planning root is a store, an install with any pack enabled stops with `packs_on_store`: pack lines in a store's `config.yaml` would apply to every project that uses the store.

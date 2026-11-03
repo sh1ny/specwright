@@ -19,22 +19,22 @@ Both modules are written in group 1, before any pack content, and run red first.
 | 7 | Files a pack skill names exist in that skill | A reference left behind by the split | P | SkillStatic.test_missing_named_file_fails | red |
 | 8 | Pack skills carry no third-party notice | Clean skill trees | P | SkillStatic.test_no_third_party_markers | red |
 | 9 | Pack skills carry no third-party notice | A leftover credit | P | SkillStatic.test_leftover_credit_fails | red |
-| 10 | gamedev creates the GDD and no other document | GDD created at install | P | ShippedDocs.test_gdd_only_created | red |
-| 11 | gamedev creates the GDD and no other document | An existing GDD | P | ShippedDocs.test_existing_and_overridden_gdd_kept | red |
-| 12 | gamedev creates the GDD and no other document | Templates shipped with their skills | P | SkillStatic.test_document_templates_exist | red |
-| 13 | Only gamedev asks init questions | Questions with a home | P | Questions.test_six_questions_match_gdd_headings | red |
-| 14 | Only gamedev asks init questions | A question with no document | P | Questions.test_question_without_document_fails | red |
-| 15 | gamedev proposal lines | Proposal lines delivered | P | Delivered.test_gamedev_proposal_lines | red |
-| 16 | gamedev proposal lines | No pack enabled | P | Delivered.test_no_packs_no_pack_lines | red |
-| 17 | gamedev specs lines | gamedev specs lines delivered | P | Delivered.test_gamedev_specs_lines | red |
-| 18 | gamedev design lines | gamedev design lines delivered | P | Delivered.test_gamedev_design_lines | red |
-| 19 | gamedev tasks and apply lines | Tasks and apply lines delivered | P | Delivered.test_gamedev_tasks_apply_lines | red |
+| 10 | gamedev creates the GDD and no other document | GDD created at install | P | ShippedDocs.test_gdd_only_created | green |
+| 11 | gamedev creates the GDD and no other document | An existing GDD | P | ShippedDocs.test_existing_and_overridden_gdd_kept | green |
+| 12 | gamedev creates the GDD and no other document | Templates shipped with their skills | P | SkillStatic.test_document_templates_exist | green |
+| 13 | Only gamedev asks init questions | Questions with a home | P | Questions.test_six_questions_match_gdd_headings | green |
+| 14 | Only gamedev asks init questions | A question with no document | P | Questions.test_question_without_document_fails | green |
+| 15 | gamedev proposal lines | Proposal lines delivered | P | Delivered.test_gamedev_proposal_lines | green |
+| 16 | gamedev proposal lines | No pack enabled | P | Delivered.test_no_packs_no_pack_lines | green |
+| 17 | gamedev specs lines | gamedev specs lines delivered | P | Delivered.test_gamedev_specs_lines | green |
+| 18 | gamedev design lines | gamedev design lines delivered | P | Delivered.test_gamedev_design_lines | green |
+| 19 | gamedev tasks and apply lines | Tasks and apply lines delivered | P | Delivered.test_gamedev_tasks_apply_lines | green |
 | 20 | gamedev tasks and apply lines | Engine-neutral wording | P | SkillStatic.test_engine_neutral_lines_and_files | red |
 | 21 | ui-prototyping settles undecided layout with a prototype | Prototype line delivered | P | Delivered.test_ui_prototyping_proposal_line | green |
 | 22 | ui-prototyping settles undecided layout with a prototype | The line's pack is removed | U | ShippedInstall.test_removal_keeps_gdd_drops_lines | red |
 | 23 | ui-prototyping defaults are neutral | Neutral template | P | SkillStatic.test_neutral_prototype_template | green |
-| 24 | ui-prototyping defaults are neutral | Game settings passed | P | SkillStatic.test_gamedev_ux_passes_game_settings | red |
-| 25 | ui-prototyping defaults are neutral | A missing game setting | P | SkillStatic.test_missing_game_setting_fails | red |
+| 24 | ui-prototyping defaults are neutral | Game settings passed | P | SkillStatic.test_gamedev_ux_passes_game_settings | green |
+| 25 | ui-prototyping defaults are neutral | A missing game setting | P | SkillStatic.test_missing_game_setting_fails | green |
 | 26 | godot asks for an in-engine evidence task | godot with gamedev | P | Delivered.test_godot_evidence_line_with_gamedev | red |
 | 27 | godot asks for an in-engine evidence task | Not tied to one tool | P | SkillStatic.test_godot_line_tool_neutral | red |
 | 28 | godot keeps tunables in resources | Design line delivered | P | Delivered.test_godot_design_line | red |
@@ -76,20 +76,20 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
 
 ## 2. gamedev
 
-- [ ] 2.1 Write `packs/gamedev/skills/gamedev-design/` (fresh-context writer). It holds:
+- [x] 2.1 Write `packs/gamedev/skills/gamedev-design/` (fresh-context writer). It holds:
   - `SKILL.md`, with the request classification and the document lookup (D4). The classification sets only the GDD work before the proposal; every class, tuning included, then goes through the normal Specwright change, and the skill never edits data, code or tests;
   - references: the GDD guide (pressure questions per heading), ideation techniques, the genre guide, `systems-and-balance.md`, `levels-and-encounters.md`, `game-architecture.md` and the game code checks;
   - `templates/brief.md` and `templates/decisions.md`.
 
   Verify that its static rows pass and that the files listed above are all present.
-- [ ] 2.2 Write `packs/gamedev/skills/gamedev-narrative/` (fresh-context writer): `SKILL.md`, the story-craft and delivery references, and `templates/narrative.md`, with the light-narrative option (no `narrative.md` at low weight). Verify the same way.
-- [ ] 2.3 Write `packs/gamedev/skills/gamedev-ux/` (fresh-context writer). It holds:
+- [x] 2.2 Write `packs/gamedev/skills/gamedev-narrative/` (fresh-context writer): `SKILL.md`, the story-craft and delivery references, and `templates/narrative.md`, with the light-narrative option (no `narrative.md` at low weight). Verify the same way.
+- [x] 2.3 Write `packs/gamedev/skills/gamedev-ux/` (fresh-context writer). It holds:
   - `SKILL.md`, which hands prototypes to `ui-prototyping-html` with a value for each D9 setting: the game stage and integer scaling, the font, gamepad-first input and `docs/game/prototypes/` as the save folder;
   - the game UX references, including `references/ux-example.md`, a short worked example;
   - `templates/ux.md`.
 
   Verify the same way, including rows 24-25.
-- [ ] 2.4 Write `packs/gamedev/skills/gamedev-playtest/` (fresh-context writer). It covers:
+- [x] 2.4 Write `packs/gamedev/skills/gamedev-playtest/` (fresh-context writer). It covers:
   - the question and its observable signal;
   - the `[user]` task: what to play, what to judge, who plays;
   - the confidence mark for designer-only verdicts;
@@ -99,7 +99,7 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
   - never ticking the task.
 
   Verify the same way.
-- [ ] 2.5 Write `packs/gamedev/pack.json` and `packs/gamedev/documents/gdd.md`:
+- [x] 2.5 Write `packs/gamedev/pack.json` and `packs/gamedev/documents/gdd.md`:
   - `requires: ["ui-prototyping"]`;
   - the four skills;
   - one context line on where the game documents live;
@@ -115,7 +115,7 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
   - the D3 signals, with root forms.
 
   Every line is engine-neutral and conditional. Verify that the gamedev rows of P pass and `bash scripts/update.sh pack-check` exits 0. Flip rows 10-19 and 24-25 green.
-- [ ] 2.6 Add the `gamedev` row to the README packs section. Add "Moving a hand-made pack" to `packs/README.md`: delete hand copies first, or plan stops with `unmanaged_skill`, and the managed lines replace hand-written `[pack:<name>]` lines. Verify by reading both against the refusal code and ADR 0023 D5.
+- [x] 2.6 Add the `gamedev` row to the README packs section. Add "Moving a hand-made pack" to `packs/README.md`: delete hand copies first, or plan stops with `unmanaged_skill`, and the managed lines replace hand-written `[pack:<name>]` lines. Verify by reading both against the refusal code and ADR 0023 D5.
 
 ## 3. godot
 

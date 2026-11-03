@@ -678,6 +678,7 @@ A pack that requires another needs both listed; the install never enables one on
 | Pack | Requires | What it adds |
 |---|---|---|
 | `ui-prototyping` | none | `ui-prototyping-html`: clickable single-file HTML prototypes that settle an undecided layout or flow before it is specified, and visual identity as design tokens. Creates no document. |
+| `gamedev` | `ui-prototyping` | Engine-neutral game development: `gamedev-design` (ideation, the brief, the GDD, genres, systems and balance, levels and encounters, game code checks), `gamedev-narrative`, `gamedev-ux` and `gamedev-playtest`. Creates `docs/game/gdd.md`, asks six init questions, and adds lines that make gameplay changes cite the GDD, state their frame budgets and end with a `[user]` playtest task. |
 
 ## 🗄️ Stores
 
