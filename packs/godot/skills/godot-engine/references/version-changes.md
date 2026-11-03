@@ -37,7 +37,7 @@ The editor's upgrade tool (`--convert-3to4`, described in the engine's migration
 | Version | Change | What to do |
 |---|---|---|
 | 4.4 | `@export_file` stores a `uid://` reference, not a `res://` path, when a value is assigned from the inspector | Expect a mix of `uid://` and `res://` in exported file arrays; do not parse them as plain paths |
-| 4.5 | `duplicate(true)` copies only the sub-resources internal to that file; `duplicate_deep()` is new | `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` for the old full copy |
+| 4.5 | `duplicate(true)` copies only the sub-resources internal to that file, and now also reaches Resources inside Arrays and Dictionaries (4.4 never copied those); `duplicate_deep()` is new | `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` for a full copy; on 4.4 or older, copy collection elements by hand (`data-and-saves.md`) |
 | 4.5 | `@export_file_path` keeps the raw `res://` path | Use it where code needs a path string |
 | 4.6 | Scene files store a unique id per node and no longer write `load_steps` | Do not copy a node block with its id; expect diffs on the first save of an older scene |
 | 4.6 | CSV translation files accept plural forms (a `?plural` column) | PO is no longer needed just for plurals; call `tr_n()` |

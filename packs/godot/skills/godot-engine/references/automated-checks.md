@@ -42,6 +42,8 @@ Save the matching lines into the evidence log (`grep QA_STATE out.log > evidence
 
 A scripted run is a list of steps, each `(actions, frames)`: hold those actions for that many physics frames, then dump the state.
 
+Pick the delivery route by how the game reads input. `Input.action_press()` only changes the polled state read by `Input.is_action_pressed()` and `is_action_just_pressed()`; it never causes `_input()` or `_unhandled_input()` calls, and the engine's docs point to `Input.parse_input_event()` for that. Menus, `Control` nodes and any code that overrides `_input` or `_unhandled_input` need real events, so the runner below sends an `InputEventAction` for each press and release. For code that only polls, `Input.action_press()` / `action_release()` is the intended call; use whichever the game under test listens to, or both when unsure, and confirm in the state dump that the action took effect.
+
 ```gdscript
 const STEPS := [
     {"actions": ["move_right"], "frames": 30},
@@ -49,14 +51,20 @@ const STEPS := [
     {"actions": [], "frames": 60},
 ]
 
+func _send(action: String, pressed: bool) -> void:
+    var ev := InputEventAction.new()
+    ev.action = action
+    ev.pressed = pressed
+    Input.parse_input_event(ev)          # reaches _input / _unhandled_input
+
 func run_script() -> void:
     for i in STEPS.size():
         for a in STEPS[i].actions:
-            Input.action_press(a)
+            _send(a, true)
         for _f in STEPS[i].frames:
             await get_tree().physics_frame
         for a in STEPS[i].actions:
-            Input.action_release(a)
+            _send(a, false)
         dump_state(i)
 ```
 

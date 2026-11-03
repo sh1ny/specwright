@@ -474,7 +474,7 @@ p { margin: 0 0 var(--space-3); }
         </div>
         <div class="actions">
           <button type="button" class="btn" data-close-modal>Keep it</button>
-          <button type="button" class="btn primary" data-close-modal data-goto="list" data-set-state="empty">Delete</button>
+          <button type="button" class="btn primary" data-close-modal data-goto="list" data-replace data-set-state="empty">Delete</button>
         </div>
       </div>
     </div>
@@ -549,7 +549,13 @@ p { margin: 0 0 var(--space-3); }
   }
   function topModal() { return modals.length ? modals[modals.length - 1].el : null; }
   function container() { return topModal() || (current && document.getElementById('screen-' + current)) || stage; }
-  function focusEl(el) { if (el) { el.focus({ preventScroll: true }); } }
+  // Focus without the browser's own jump, then reveal the target with the least scrolling. The
+  // reveal is instant, so it needs no reduced-motion branch. Hover-driven focus skips the reveal.
+  function focusEl(el, quiet) {
+    if (!el) { return; }
+    el.focus({ preventScroll: true });
+    if (!quiet && el.scrollIntoView) { el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); }
+  }
   function focusFirst(c) {
     var list = focusables(c);
     var pick = null;
@@ -571,12 +577,16 @@ p { margin: 0 0 var(--space-3); }
   }
 
   /* ---------- screens ---------- */
-  function showScreen(id, push) {
+  // push: remember the screen being left, so Back returns to it. replace: the screen being left is
+  // not remembered, and if the destination is the one Back would reach, that entry is consumed
+  // instead of leaving the same screen twice in the history.
+  function showScreen(id, push, replace) {
     var target = document.getElementById('screen-' + id);
     if (!target) { note('No screen named ' + id); return; }
     if (current === id) { return; }
     dismissModals();
-    if (push && current) { trail.push(current); }
+    if (replace && trail.length && trail[trail.length - 1] === id) { trail.pop(); }
+    else if (push && !replace && current) { trail.push(current); }
     screens.forEach(function (s) { s.hidden = s !== target; });
     current = id;
     applyState();
@@ -777,7 +787,7 @@ p { margin: 0 0 var(--space-3); }
   stage.addEventListener('mouseover', function (e) {
     if (proto.model !== 'single-focus') { return; }
     var el = e.target.closest && e.target.closest(FOCUSABLE);
-    if (el && container().contains(el) && el !== document.activeElement) { focusEl(el); }
+    if (el && container().contains(el) && el !== document.activeElement) { focusEl(el, true); }
   });
 
   // Click delegation for the data attributes used in the markup.
@@ -786,10 +796,11 @@ p { margin: 0 0 var(--space-3); }
     if (!el || !stage.contains(el)) { return; }
     var top = topModal();
     if (top && !top.contains(el)) { return; } // fallback guard: only the topmost modal is live
+    // data-replace on a data-goto element navigates without remembering the screen being left.
     // Order matters when attributes combine: close the modal, move to the destination screen,
     // then apply the state to that destination, and open any modal last (on the new screen).
     if (el.hasAttribute('data-close-modal')) { closeModal(el.closest('.modal')); }
-    if (el.hasAttribute('data-goto')) { showScreen(el.getAttribute('data-goto'), true); }
+    if (el.hasAttribute('data-goto')) { showScreen(el.getAttribute('data-goto'), true, el.hasAttribute('data-replace')); }
     if (el.hasAttribute('data-back')) { back(); }
     if (el.hasAttribute('data-set-state')) { setState(el.getAttribute('data-set-state')); }
     if (el.hasAttribute('data-open-modal')) { openModal(el.getAttribute('data-open-modal')); }

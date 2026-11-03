@@ -87,6 +87,23 @@ Focus marker: draw it with `outline` and `outline-offset`, not with borders or p
 size on focus shifts grid and flex rows, which makes the marker itself look like a layout bug. The
 template also adds a halo ring so the marker is a shape, not only a colour.
 
+## Click actions in the markup
+
+Controls inside the stage declare what they do with data attributes; the template's single click
+handler runs them in a fixed order: close the modal, go to a screen, go back, set a state, open a
+modal. So a state set on a control that also navigates lands on the destination screen.
+
+| Attribute | Effect |
+|---|---|
+| `data-goto="<screen>"` | Go to the screen; Back returns to the screen you left. |
+| `data-goto="<screen>" data-replace` | Go to the screen without remembering the one you left. Use it when the screen you leave stops making sense, such as a detail view after Delete. If the destination is where Back would have gone, that history entry is consumed, so Back does not bounce between the two. |
+| `data-back` | Same as the back key. |
+| `data-set-state="<state>"` | Set the current screen's state (after any `data-goto`). |
+| `data-open-modal="<id>"` / `data-close-modal` | Open a modal, or close the one holding the control. |
+
+Back with a modal open closes only the modal. Back after a combined close and go-to acts on the
+screen history alone, because the modal is already gone.
+
 ## Modals
 
 - Open modals live inside the stage so they scale with it.
@@ -122,6 +139,9 @@ reduced path can be seen without changing system settings. Remember that a brows
   `safeArea.textInset` in the settings block (any CSS length or `var(--...)`) and turns the guide on;
   the bar and the `G` key toggle both together. Keep text and static overlays inside the inner
   rectangle.
+- Focus moves reveal their target: keyboard moves and screen entry scroll the control into view with
+  the least movement, instantly, so tall screens in short windows never hide the focused control.
+  Hover-driven focus does not scroll.
 - Do not assume small screens or touch. If the caller wants a narrow layout, they pass it.
 
 ## Where the eye lands

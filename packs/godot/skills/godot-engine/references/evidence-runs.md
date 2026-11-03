@@ -86,7 +86,7 @@ timeout 120 "$GODOT" --path <project> --write-movie /abs/path/work/shot.png --qu
 
 Then clean up: keep the last frame, move it to the exact path the task names (`openspec/changes/<change>/evidence/<what>.png`), delete the other frames and the `.wav`. Leftover frames must not end up committed.
 
-Input during a Movie Maker run: it is a normal run, so a scripted input run or a debug flag (see `automated-checks.md`) is how you reach states that need input.
+Input during a Movie Maker run: it is a normal run, so a scripted input run or a debug flag (see `automated-checks.md`) is how you reach states that need input. That runner sends `InputEventAction` events, so menus and other `_input`-driven code respond to it as well as polling code.
 
 ### Frame size
 

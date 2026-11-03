@@ -46,10 +46,23 @@ Everyone who loads the same path gets the same object. Changing a field of one c
 | Call | Result |
 |---|---|
 | `duplicate()` | Shallow: nested sub-resources stay shared with the original |
-| `duplicate(true)` | From 4.5: duplicates only the sub-resources that live inside that same file. In 4.4 it also duplicated external ones |
-| `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` | 4.5 and later: copies every sub-resource |
+| `duplicate(true)` on 4.5 and later | Also copies the Arrays and Dictionaries it holds, but a Resource found inside is copied only if it is local (saved inside that same file or scene). Separate `.tres` files stay shared |
+| `duplicate(true)` on 4.4 | Copies nested sub-resources, with exceptions listed in the 4.4 docs. One of them: **sub-resources inside Array and Dictionary properties are never duplicated** |
+| `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` | 4.5 and later: copies every sub-resource found, including those stored in separate files |
 
-Pick by what the code will change. On 4.4 or older, use `duplicate(true)` for a full copy.
+Pick by what the code will change. Take the `upgrades: Array[UpgradeTuning]` field above as the test case:
+
+- **4.5 and later:** `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the upgrade entries even when each is its own `.tres` file. `duplicate(true)` copies them only when they are saved inside the weapon's own file.
+- **4.4 and older:** `duplicate(true)` does not touch resources held in an Array or Dictionary, so the copy's `upgrades` still point at the originals. Copy the elements yourself:
+
+```gdscript
+var mine: WeaponTuning = shared.duplicate(true)
+mine.upgrades = []
+for u in shared.upgrades:
+    mine.upgrades.append(u.duplicate(true))
+```
+
+Copy only what the code will mutate; sharing a read-only entry is fine and cheaper.
 
 ## Saves and settings: never `.tres` or `.res`
 
