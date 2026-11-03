@@ -531,6 +531,11 @@ p { margin: 0 0 var(--space-3); }
     if (pick) { focusEl(pick); } else if (c.getAttribute('tabindex') !== null) { focusEl(c); }
   }
   function note(msg) { noteEl.textContent = msg || ''; }
+  // If the focused element was hidden (state or option switch), move focus to a sensible control.
+  function rescueFocus() {
+    var a = document.activeElement;
+    if (!a || a === document.body || a.getClientRects().length === 0 || a.closest('[hidden]') || a.closest('.is-off')) { focusFirst(container()); }
+  }
   function indexOfId(list, id) { for (var i = 0; i < list.length; i++) { if (list[i] === id) { return i; } } return -1; }
   function sync() {
     proto.screen = current;
@@ -579,8 +584,7 @@ p { margin: 0 0 var(--space-3); }
     refreshBar();
     sync();
     writeHash();
-    var a = document.activeElement;
-    if (!a || a === document.body || a.getClientRects().length === 0) { focusFirst(container()); }
+    rescueFocus();
   }
 
   /* ---------- options ---------- */
@@ -595,6 +599,7 @@ p { margin: 0 0 var(--space-3); }
     });
     refreshBar();
     writeHash();
+    rescueFocus();
   }
 
   /* ---------- modals ---------- */

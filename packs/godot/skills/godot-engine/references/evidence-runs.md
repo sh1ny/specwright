@@ -20,15 +20,22 @@ timeout 300 "$GODOT" --headless --path <project> --import
 
 Wrap every run in the shell's `timeout` (or the CI step's time limit). Pick a limit a few times longer than a healthy run needs. A timeout hit is a failed run, not a pass.
 
-### Scan the output, ignore the exit code
+### Both checks: exit status and output scan
 
-Capture stdout and stderr, then scan:
+A run passes only when two things hold: the engine command ended with a successful exit status, and the captured output is clean. Neither alone is enough. A zero exit status does not show the log is clean, and a clean log can come from a run that was cut off.
+
+Capture stdout and stderr, keep the exit status, then scan:
 
 ```
-grep -E "ERROR|SCRIPT ERROR|Parse Error|Failed to load" out.log && echo "FAIL" || echo "clean"
+timeout 60 "$GODOT" --headless --path <project> --quit-after 120 > out.log 2>&1
+status=$?
+if [ "$status" -eq 124 ]; then echo "FAIL: timed out"; exit 1; fi
+if [ "$status" -ne 0 ]; then echo "FAIL: engine exited with $status"; exit 1; fi
+if grep -E "ERROR|SCRIPT ERROR|Parse Error|Failed to load" out.log; then echo "FAIL: errors in log"; exit 1; fi
+echo "clean"
 ```
 
-Any hit fails the run. An empty log from a run that should have printed something is also a failure, not a pass. Do not rely on the exit status alone.
+`timeout` returns 124 when it had to stop the command. Any error hit fails the run. An empty log from a run that should have printed something is also a failure, not a pass. Do not rely on the exit status alone, and do not rely on the scan alone.
 
 `--log-file <path>` writes the engine log to a file instead; scan that file the same way. The scan covers what the engine prints, so a state-dump line you expect (see `automated-checks.md`) must also be present.
 
@@ -107,12 +114,15 @@ After capture, open the PNG, then compare it with the task's criteria: what must
 
 ## Main-scene smoke test
 
-The cheapest `[evidence]` log and a good first CI job: run the main scene headless for N frames and fail on any error line from the scan above. After the import step, in CI:
+The cheapest `[evidence]` log and a good first CI job: run the main scene headless for N frames and fail on a bad exit status, a timeout, or any error line from the scan above. In CI, with every step failing explicitly:
 
 ```
-timeout 300 godot --headless --path . --import
+timeout 300 godot --headless --path . --import || { echo "FAIL: import (status $?)"; exit 1; }
 timeout 120 godot --headless --path . --quit-after 120 > smoke.log 2>&1
-! grep -E "ERROR|SCRIPT ERROR|Parse Error|Failed to load" smoke.log
+status=$?
+[ "$status" -eq 0 ] || { echo "FAIL: engine status $status (124 means timeout)"; exit 1; }
+if grep -E "ERROR|SCRIPT ERROR|Parse Error|Failed to load" smoke.log; then echo "FAIL: errors in log"; exit 1; fi
+echo "smoke clean"
 ```
 
 ## Which version and renderer is this?

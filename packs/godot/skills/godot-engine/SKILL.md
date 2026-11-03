@@ -50,7 +50,7 @@ These rules apply to every run in this skill. The full commands are in `referenc
 
 1. **Import first on a fresh clone.** A new checkout has no `.godot/` cache, so class names and imported assets are missing. Run `godot --headless --path . --import` once before any other headless run. `--import` opens the editor, waits for resources to import and quits. Repeat it after adding assets or hand-editing scene or resource files.
 2. **Always run under a timeout** (the shell's `timeout`, or the CI step's limit). A run that hits trouble can wait forever.
-3. **Do not trust the exit code.** Capture the output and scan it for `ERROR`, `SCRIPT ERROR`, `Parse Error` and `Failed to load`. Any hit fails the run.
+3. **Require both an exit status and a clean log.** Keep the command's exit status (`timeout` returns 124 when it stopped the run); a non-zero status fails the run. Also capture the output and scan it for `ERROR`, `SCRIPT ERROR`, `Parse Error` and `Failed to load`; any hit fails the run. A zero status alone proves nothing, because the log is the only place some errors show.
 4. **Cheapest check: parse only.** `godot --headless --path . --check-only --script res://file.gd` parses a script and quits. A script that leans on an autoload or other project classes may report a false error here; treat that as "not assessed" and fall back to a short headless run.
 5. **Leave out `-d`.** It attaches the local command-line debugger, an interactive tool. Pass it only if a test runner's own docs say to.
 6. **Missing inputs mean not assessed:** no binary, no display, no tests found.
@@ -74,7 +74,7 @@ Pick the evidence by the kind of change:
 
 Routes, cheapest first:
 
-1. **Log.** `timeout 60 godot --headless --path <project> --quit-after <N> > out.log 2>&1` runs the main scene with no window. Pass when the error scan is clean and the expected prints or state-dump lines appear.
+1. **Log.** `timeout 60 godot --headless --path <project> --quit-after <N> > out.log 2>&1` runs the main scene with no window. Pass when the exit status is zero (not a timeout), the error scan is clean and the expected prints or state-dump lines appear.
 2. **Screenshot through Movie Maker.** Write frames, keep the last, rename it to the task's path, delete the rest and the `.wav`. Details in `references/evidence-runs.md`.
 3. **In-script capture.** A debug-only helper that waits for `RenderingServer.frame_post_draw` and saves the viewport image. Same display need.
 4. **A configured Godot MCP server,** when the project has one: its run, screenshot and log tools may be used. Never require one, and never name a paid product. Many projects have none.

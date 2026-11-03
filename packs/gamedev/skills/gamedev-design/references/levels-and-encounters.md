@@ -11,7 +11,7 @@ Every spatial measurement comes from the movement numbers, not from taste. Jump 
 - A comfortable gap leaves margin: 2 m is two thirds of the maximum.
 - A hard gap sits near the limit: 2.7 m is 90 per cent of 3 m.
 - A gap above 3 m is impossible without a power-up.
-- A turret that fires with a 0.5 s warning needs at least 0.5 s x 6 m/s = 3 m of cover-to-cover distance for the player to cross after the cue.
+- A turret that fires 0.5 s after its warning cue gives the player at most 0.5 s x 6 m/s = 3 m of travel. Assume 0.25 s to react (a hypothesis): the player then runs for 0.25 s, so cover must be no more than 0.25 s x 6 m/s = 1.5 m away to be reachable. Cover placed farther than that is a trap, not a choice.
 
 Level specs cite the movement values they depend on. When a movement value changes, those specs are flagged for a recheck. A level that has never been cited to a number cannot be rechecked.
 
