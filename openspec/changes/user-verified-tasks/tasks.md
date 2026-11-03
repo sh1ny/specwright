@@ -71,7 +71,7 @@
 
 ## 6. Docs and coverage
 
-- [ ] 6.1 Add a short "Tasks only you can tick" paragraph to `README.md` (markers, what apply, archive and the agent merge do, how to tick), and run `python -m unittest evals/runner/test_suite_map.py`; add a rule to `evals/suites.json` for `evals/git-workflow/test_user_tasks.py` if it is reported uncovered. Verify the map test passes.
+- [x] 6.1 Add a short "Tasks only you can tick" paragraph to `README.md` (markers, what apply, archive and the agent merge do, how to tick), and run `python -m unittest evals/runner/test_suite_map.py`; add a rule to `evals/suites.json` for `evals/git-workflow/test_user_tasks.py` if it is reported uncovered. Verify the map test passes.
 
 ## 7. Release
 

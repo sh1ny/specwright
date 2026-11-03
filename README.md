@@ -735,6 +735,7 @@ A verdict covers only what was reviewed: editing proposal, specs or design after
 | Apply start | `<type>(<change>): add planning artifacts` (`<type>` = branch prefix, `bugfix` → `fix`) |
 | Each task | `<type>(<change>): task X.Y <task text>` (≤ 72 chars) |
 | Each task group (`commit_granularity: group`) | `<type>(<change>): group N <group heading>` (≤ 72 chars), plus one `Specwright-Task: X.Y` trailer per covered task, in the final trailer block before `Co-authored-by` |
+| User ticks with no agent work pending | `<type>(<change>): record user checks <ids>` (≤ 72 chars); every commit that stages `tasks.md` carries a `Specwright-User-Task: X.Y` trailer per user tick it brings in |
 | After archive | `<type>(<change>): archive change` |
 | Local merge | `merge: <change>` |
 
@@ -749,6 +750,17 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 | `ship` | Before the change's first PR, check for a pre-ship review pass on the head; push every repo of the change (store first), then create/update the PRs with `--body-file`, post the review request | Push the default branch; open or update a PR when a push failed |
 | `feedback` | One snapshot → judge all items → fix → validate once → one commit → one reply (and 👍/👎) per finding, resolve; acknowledgement follow-ups get a reaction only (and resolve the thread if it was still open) | Resolve needs-human threads; go past `max_fix_rounds` |
 | `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch (an archive-only head gets no new review requests unless `pr.review_after_archive: true`); report stale `CHANGES_REQUESTED` verdicts; with `pr.merge: agent` on the default branch, archive without asking, merge at the ready head and clean up; a PR that changes the merge policy needs your yes (ADR 0020) | Merge (except the opt-in agent merge), rebase, force-push, approve workflow runs, dismiss reviews |
+</details>
+
+<details>
+<summary><b>Tasks only you can tick</b> — playtests, sign-offs, checks against a real system</summary>
+
+Mark a task as yours with `[user]` right after its id, lowercase: `- [ ] 4.3 [user] Play the first level and judge the jump`. An `[evidence]` task is the agent's: it saves what your check needs to one file under the change's `evidence/` folder (`- [ ] 4.2 [evidence] Save the build note → evidence/build.md`), ticked only once that file is committed (ADR 0024).
+
+- **Apply** never ticks, implements or delegates a `[user]` task. It skips it, lists it as waiting on you, and a group commit does not wait for it. Telling the agent in chat that the check passed is not enough: it asks you to tick the box.
+- **Tick it yourself** in `tasks.md`. The agent commits your tick with a `Specwright-User-Task` trailer.
+- **Verify and archive** wait: verify reports the task as waiting on you, and archive moves nothing while any `[user]` task is unticked.
+- **The agent merge** (`pr.merge: agent`) reads `tasks.md` at the ready head before it archives and before every merge request, reports `ready, waiting on the user: <ids>` and merges nothing until your tick is pushed and the new head is ready.
 </details>
 
 ---
