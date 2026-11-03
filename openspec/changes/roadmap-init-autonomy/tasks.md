@@ -43,6 +43,7 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 35 | Close keeps an agreed Next split | Next without a split | test_instructions.py | test_roadmap_close_keeps_agreed_split | green |
 | 36 | Close keeps an agreed Next split | Next lists changes without a recorded agreement | test_roadmap_autonomy.py | OwnerGates.test_unmarked_split_asked_in_interactive_modes | red |
 | 37 | Close keeps an agreed Next split | Unagreed listing in autonomous mode | test_roadmap_autonomy.py | OwnerGates.test_unagreed_listing_promoted_no_split_line | red |
+| 38 | Autonomy never passes a gate meant for the owner | Owner agrees in an interactive run | test_roadmap_autonomy.py | OwnerGates.test_owner_agreement_still_acts | red |
 
 ## 1. Reading the mode and the override
 
@@ -91,15 +92,16 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 ## 4. Owner gates, close and the escalation
 
-- [ ] 4.1 Add the tests for rows 18-21, 24-25, 33-34 and 36-37, and confirm they fail for the right reason.
+- [ ] 4.1 Add the tests for rows 18-21, 24-25, 33-34 and 36-38, and confirm they fail for the right reason.
 - [ ] 4.2 In close, qualify for the mode (design D4, D5):
   - an agreed split's amendment is asked in `important`/`all` mode and is a `pending` row in `autonomous`;
   - the unmarked-split question is asked in `important`/`all` mode, and in `autonomous` the listing is promoted as it stands with an `agent` row;
   - the new Next never gets a `Split agreed` line from an autonomous run;
-  - an unverified user criterion stays unverified and close stops;
+  - an unverified user criterion stays unverified and close stops; in `autonomous` mode it stops before its `docs/close-*` branch exists, writes nothing and lists the criterion in the run's report (review round 2, finding 2);
+  - each owner gate forbids the action only without the owner's explicit agreement: an interactive run still acts on an agreement the owner gave (review round 2, finding 1);
   - untagged versions become a `pending` row and nothing is published.
 
-  Keep the wording that `test_instructions.py` checks. Verify that rows 18-21, 33-34 and 36-37 pass and flip them green, and re-run `python -m unittest evals/git-workflow/test_instructions.py -k split` for rows 32 and 35.
+  Keep the wording that `test_instructions.py` checks. Verify that rows 18-21, 33-34 and 36-38 pass and flip them green, and re-run `python -m unittest evals/git-workflow/test_instructions.py -k split` for rows 32 and 35.
 - [ ] 4.3 In init step 5, for `autonomous` mode:
   - before a new baseline round replaces `openspec/architecture-review.md`, copy the previous round's findings (severity and one line each) into the summary;
   - after 2 consecutive REVISE rounds, stop without asking: no roadmap, ADRs stay proposed, no `USER_OVERRIDE`, and a `pending` escalation row names round 1's findings.

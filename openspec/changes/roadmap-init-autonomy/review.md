@@ -2,10 +2,12 @@
 
 ## Metadata
 
-- **Round:** 1
-- **Prior round:** none
-- **Reviewer:** cross-model CLI (Codex)
-- **Reviewed:** `openspec/changes/roadmap-init-autonomy/proposal.md`, `design.md`, `specs/project-planning/spec.md`; supporting sources: `openspec/specs/project-planning/spec.md`, `skills/specwright-pr/SKILL.md`, `openspec/architecture.md`, `skills/specwright-review/scripts/review-run.sh`, and `schemas/specwright/templates/review.md`. Fresh re-check limited to round 1’s four Required Changes; no new full review.
+- **Round:** 2
+- **Prior round:** Round 1 APPROVE_WITH_CHANGES; four required changes applied and accepted.
+- **Reviewer:** Codex, read-only review.
+- **Reviewed:** Proposal, amended delta spec, design, tasks, round 1 review, current project-planning spec, architecture, roadmap skill and strategy reference, PR skill, review-run script, and ADRs 0001, 0002, 0007, 0015 and 0023; amendment commit `706e280`.
+
+The amendment preserves the moved escalation obligations and both scenarios. The shortened init requirement retains autonomous pack answers through the shared autonomous requirement and its explicit scenario. Pack finishing remains covered by the retained scenario. Rows 24–25 correctly follow the moved requirement. No behavioral regression attributable to the amendment was found.
 
 ## Findings
 
@@ -15,10 +17,11 @@ None.
 
 ### Moderate
 
-1. The delta left “Close keeps an agreed Next split” unmodified although autonomous close promotes an unagreed listing without asking.
-2. Question caps could not fit all answers on tools with a 3-question limit (init two rounds, pack one round).
-3. Escalation recovery relied on `architecture-review.md` keeping both rounds, but `review-run.sh` replaces the file each round.
-4. The summary’s gate exemption was missing from `skills/specwright-pr/SKILL.md` feedback step 7 and the architecture’s design-review rule.
+1. **The owner-gate requirement prohibits actions even after owner approval.**  
+   In `specs/project-planning/spec.md:92–96`, “In any mode … It SHALL NOT” unconditionally prohibits writing a `Split agreed` line, applying an agreed-split amendment, and enabling a pack. The unchanged main requirements explicitly require recording an owner-agreed split and enabling an owner-approved pack; the delta’s interactive amendment scenario permits an approved amendment. An interactive run therefore cannot satisfy both requirements: it must either refuse an authorized action or violate the new prohibition. Only the release bullet explicitly qualifies its prohibition with “without the owner's yes.”
+
+2. **An autonomous close that stops before promotion has no defined path to persist its required pending row.**  
+   Design D5 and the unverified-criterion scenario require recording a pending row and stopping. The roadmap skill encounters that stop in close steps 2–3, while branch creation occurs at step 4. Its common committing procedure prohibits writing before branch creation. Tasks 4.2–4.3 do not resolve this ordering. Consequently, a close can either lose the promised durable record or dirty main before the branch gate. The failure table covers interruption on an existing docs branch, but not this normal early-stop path.
 
 ### Suggestions
 
@@ -28,23 +31,14 @@ None.
 
 VERDICT: APPROVE_WITH_CHANGES
 
-All four required changes are now applied to the planning artifacts. The original findings above are retained as the record of round 1.
-
 ## Required Changes
 
-1. Modify “Close keeps an agreed Next split” in the delta to reconcile interactive and autonomous promotion, retaining the existing requirement’s full scenario coverage.
-2. Resolve interview-round versus tool-call limits for init and pack; add capacity-overflow scenarios.
-3. Define how both baseline review reports survive escalation, and align proposal, design and verification with the actual storage mechanism.
-4. Include the PR feedback baseline-review caller and architecture review rule in the gate-exemption updates and checks.
+1. Qualify the split-line, split-amendment and pack-enablement prohibitions as actions forbidden **without explicit owner agreement**. Preserve the prohibition on the agent supplying that agreement itself. Add an interactive approval scenario and map its verification to an implementation task.
 
-CHANGES_APPLIED: yes
+2. Define the persistence procedure for a close that must record summary rows and then stop before promotion: create/check the appropriate docs branch before writing, preserve Now unchanged, and specify how the summary-only result is committed or resumed. Add a failure scenario asserting the pending row survives, main stays clean, and the milestone is not moved; map it to an implementation task.
+
+CHANGES_APPLIED: no
 
 ## Rebuttals
 
-1. **Fixed — accepted by reviewer.** The delta now modifies “Close keeps an agreed Next split” and retains coverage for agreed promotion, amendments, an unsplit Next, and an unagreed listing. The amendment scenario now explicitly applies to `important` or `all`; a separate autonomous scenario keeps the agreed changes and records the proposed amendment as pending. Autonomous promotion of an unagreed listing is also explicitly covered.
-
-2. **Fixed — accepted by reviewer.** Design D6 and the added “A question round may span several ask-tool calls” requirement distinguish interview rounds from tool calls without dropping questions. Overflow scenarios cover ten init questions with a three-question tool limit and four pack questions across two calls, preserving init’s two-round and pack’s one-round caps.
-
-3. **Fixed — accepted by reviewer.** The proposal now states that `architecture-review.md` retains round 2 and the pending summary row carries round 1’s findings. Design D5 specifies copying each earlier finding, with severity and a one-line summary, before the next round replaces the review file; its recovery description uses those two locations. The delta’s preservation and escalation scenarios verify that mechanism. This matches the script’s replacement behavior without requiring script changes or claiming that both complete reports remain in the review file.
-
-4. **Fixed — accepted by reviewer.** The proposal’s Impact section explicitly includes PR feedback step 7 and the architecture’s design-review rule. Design D3 applies the exemption to those callers as well as init and close. The delta covers a summary-only PR feedback fix that leaves the review file unchanged, alongside an outside-section edit that requires another baseline round. These are planned implementation updates; their absence from the current source files does not leave this design-review correction outstanding.
+None for round 2. No files edited.

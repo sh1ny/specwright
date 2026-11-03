@@ -89,14 +89,14 @@ The strategy SHALL hold a `## Decision summary` section in place of the free-for
 - **THEN** the Assumptions list is unchanged and close adds a `## Decision summary` section for its own rows
 
 ### Requirement: Autonomy never passes a gate meant for the owner
-In any mode the agent SHALL NOT pass a gate meant for the owner. It SHALL NOT:
+In any mode the agent SHALL NOT supply the owner's agreement itself. Without the owner's explicit agreement it SHALL NOT:
 - mark a user-verified exit criterion passed;
 - write a `Split agreed` line;
 - apply an amendment to an agreed split;
 - enable a pack;
-- publish a release without the owner's yes.
+- publish a release.
 
-In `autonomous` mode each such item SHALL be recorded as a row awaiting the owner, and the run SHALL go on where the step allows it or stop as the step says.
+In `autonomous` mode each such item SHALL be a row awaiting the owner, and the run SHALL go on where the step allows. A step that stops before its branch exists SHALL write nothing and report the item.
 
 #### Scenario: Autonomous close with an agreed split and an amendment
 - **WHEN** autonomous close promotes a Next with a `Split agreed` line and the milestone suggests dropping one of its changes
@@ -108,7 +108,11 @@ In `autonomous` mode each such item SHALL be recorded as a row awaiting the owne
 
 #### Scenario: Autonomous close with an unverified user criterion
 - **WHEN** autonomous close reaches a user-verified exit criterion with no recorded result
-- **THEN** the criterion is recorded unverified, the milestone stays in Now, and close stops as it does today
+- **THEN** close stops before it creates `docs/close-<milestone>`: no branch is created, no file is written and main stays clean, the milestone stays in Now, and the run's report lists the criterion as unverified; the next close walks the criteria again and finds it
+
+#### Scenario: Owner agrees in an interactive run
+- **WHEN** init runs in `important` mode, offers `gamedev` for a found `project.godot`, and the user answers yes
+- **THEN** `gamedev` is added under `packs:` in `openspec/specwright.yaml`, as the owner agreed it
 
 #### Scenario: Autonomous close with untagged versions
 - **WHEN** autonomous close finds versions with no tag on origin and `release.enabled` is true

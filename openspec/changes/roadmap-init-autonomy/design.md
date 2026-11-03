@@ -95,9 +95,9 @@ The scope decisions (S1-S5) are in `proposal.md`'s Decision Making section.
 
 ### D5: Owner gates in autonomous mode
 
-- **Choice:** each step that today waits on the owner's yes records a `pending` row instead and does not act:
+- **Choice:** each step that today waits on the owner's yes records a `pending` row instead and does not act. Each gate forbids the action without the owner's explicit agreement, never with it: an interactive run still enables a pack, writes a `Split agreed` line or applies an amendment the owner agreed (review round 2, finding 1).
   - a pack offer: not enabled, `packs:` unchanged, and init goes on;
-  - an unverified user criterion: recorded unverified, and close stops as today;
+  - an unverified user criterion: close stops as today, at step 3, before its `docs/close-<milestone>` branch exists. It writes nothing (no branch, no row, main clean, the milestone stays in Now) and lists the criterion in the run's report; the next close walks the criteria again and finds it. (Review round 2, finding 2; the user chose report-only over committing a summary-only branch, which would cost a branch and PR per blocked close.)
   - untagged versions: nothing published, and close goes on;
   - an amendment to an agreed split: not applied;
   - the baseline escalation: no roadmap, ADRs stay proposed, no `USER_OVERRIDE`, and the run stops.
@@ -108,7 +108,7 @@ The scope decisions (S1-S5) are in `proposal.md`'s Decision Making section.
   - Committing after every round (it breaks the one commit per run).
 - **Reversal cost:** low
 - **Important:** yes. It changes behaviour users see.
-- **Chosen by:** user (the principle, S4, and the escalation history). The application to each gate is the agent's.
+- **Chosen by:** user (the principle, S4, the escalation history, and report-only for a close that stops before its branch). The application to the other gates is the agent's.
 
 ### D6: Asking in `all` mode
 
@@ -148,7 +148,7 @@ The scope decisions (S1-S5) are in `proposal.md`'s Decision Making section.
 | D2 | Summary format | run lines + one table with Run column, `R` ids, `pending`; rows in every mode | agent rows only; sub-table per run | medium | yes | user |
 | D3 | Gate and the summary | summary-only edits never void a verdict, on every baseline re-run path incl. PR feedback | gated; rows in Done line | low | yes | user |
 | D4 | Autonomous Next split | agreed: kept, amendments pending; unagreed: promoted as listed | re-split | low | yes | user |
-| D5 | Owner gates when autonomous | `pending` row, step does not act; round 1 findings copied into the summary before round 2 | escalation note in the review file; file per round; commit per round | low | yes | user |
+| D5 | Owner gates when autonomous | `pending` row, step does not act; a close stopping before its branch writes nothing and reports; round 1 findings copied into the summary before round 2 | escalation note in the review file; file per round; commit per round | low | yes | user |
 | D6 | `all` mode batches | interview capped at 2 rounds, pack at 1, a round may span several tool calls; ADR and re-plan choices in further batches | fold into two rounds | low | yes | user |
 | D7 | Template and docs | commented key in `project:`, README, contract bullet, no ADR | active key | low | no | agent |
 
@@ -199,6 +199,7 @@ stateDiagram-v2
 | Setting read | Unknown value | The user fixes it and reruns | yes, nothing written | User, from the stop message |
 | Autonomous init | Baseline escalates (2 REVISE) | The owner reads the `pending` row (with round 1's findings) and round 2's review file, then edits, overrides or reruns | yes. The ADRs stay proposed and no roadmap exists. | User, from the end-of-run rows and the missing roadmap |
 | `all`-mode batch | Session ends before the answer | The choices were never written, so the next run asks them again | yes | User |
+| Autonomous close | Stops at an unverified user criterion, before its `docs/close-*` branch exists | Nothing was written: main is clean and Now unchanged. The next close walks the criteria again and finds the criterion | yes | Owner, from the run's report |
 | Run interrupted after the run line, before the commit | Uncommitted edits on the `docs/*` branch | Existing roadmap recovery: the branch is resumed or discarded by the user | yes | User |
 | Agent skips a row | An agent choice goes unrecorded | The baseline reviewer reads the summary at init. At close, a row is missing from the PR diff. | yes | Reviewer or owner |
 
