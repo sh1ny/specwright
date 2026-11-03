@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.18.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.19.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -476,6 +476,8 @@ Step 2 offers the repo (`.claude/skills/`, `.agents/skills/`) or your user direc
 
 **A whole project instead of one change?** Give the idea to `specwright-roadmap` **init**, then use **next** to start each change and **close** to finish a milestone: once every change of the milestone is done, **next** offers **close** instead of starting anything. Only the current milestone is split into changes, unless you explicitly agree a split for the next one; **close** then keeps it.
 
+How much **init**, **close** and **pack** ask you is set by `project.decision_making` (`autonomous`, `important` or `all`; unset means `important`, the usual short interview). It is separate from the top-level `decision_making`, which the roadmap never reads. Tell the agent when a run starts ("decide yourself for this roadmap") to override the mode for that run only; `specwright.yaml` stays unchanged and the run records your words.
+
 ---
 
 ## 🧩 What's Inside
@@ -561,6 +563,7 @@ project:                        # point at existing docs instead of duplicating 
   architecture: openspec/architecture.md
   roadmap: openspec/roadmap.md
   adr_dir: docs/adr
+  # decision_making: important    # roadmap init / close / pack only: autonomous | important (default; unset means important) | all; the top-level decision_making covers changes only
 
 pr:
   validate: "npm test"          # must pass before every push; empty = none
