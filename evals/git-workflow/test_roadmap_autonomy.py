@@ -218,6 +218,73 @@ class StrategyTemplate(unittest.TestCase):
         self.assertRegex(t, r"(?i)never deleted|not deleted|never removed")
 
 
+def close_text():
+    return section(read(SKILL), "close")
+
+
+class OwnerGates(unittest.TestCase):
+    """Requirement: Autonomy never passes a gate meant for the owner."""
+
+    def test_agreed_split_amendment_pending(self):
+        p = find_block(close_text(), r"Split agreed", r"`autonomous`", r"amendment", r"`pending` row", r"not applied",
+                       r"unchanged", r"in order")
+        self.assertIsNotNone(p, "close does not record an autonomous amendment to an agreed split as a pending row, promoting the split unchanged")
+        self.assertRegex(p, r"(?is)never add the line|no `Split agreed|never (writes?|adds?) a `?\*{0,2}Split agreed|never gets a `?\*{0,2}Split agreed")
+
+    def test_amendment_asked_in_interactive_modes(self):
+        p = find_block(close_text(), r"Split agreed", r"`important` and `all`", r"amendment", r"ask")
+        self.assertIsNotNone(p, "close does not ask an amendment to an agreed split in important and all mode")
+
+    def test_unagreed_listing_promoted_no_split_line(self):
+        p = find_block(close_text(), r"without that line", r"`autonomous`", r"as it stands", r"in order", r"`agent` row")
+        self.assertIsNotNone(p, "close does not promote an unmarked listing as it stands, in order, with an agent row, in autonomous mode")
+        self.assertRegex(p, r"(?is)(never|no).{0,60}Split agreed")
+        self.assertRegex(p, r"(?is)no changes.{0,200}`agent` row")
+
+    def test_unmarked_split_asked_in_interactive_modes(self):
+        p = find_block(close_text(), r"without that line", r"`important` and `all`", r"ask the user whether")
+        self.assertIsNotNone(p, "close does not ask about an unmarked split in important and all mode")
+
+    def test_user_criterion_never_passed(self):
+        p = find_block(close_text(), r"user-verified", r"unverified", r"any mode|every mode|whatever the mode",
+                       r"stays? in Now", r"never")
+        self.assertIsNotNone(p, "close does not keep an unverified user-verified criterion unverified in every mode")
+        self.assertRegex(p, r"(?is)`autonomous`.{0,200}stops? at step 3 before its branch exists.{0,200}writes? nothing.{0,80}no branch, no row"
+                            r".{0,200}(lists?|report).{0,120}(run's report|report)",
+                         "autonomous close does not stop before its branch, write nothing and list the criterion in the report")
+        self.assertRegex(p, r"(?is)next close.{0,40}(finds?|walks?).{0,40}again")
+        self.assertNotRegex(p, r"(?is)record it as a `pending` row", "an unverified user criterion must not become a pending row")
+
+    def test_owner_agreement_still_acts(self):
+        p = find_block(read(SKILL), r"owner gate", r"explicit agreement", r"never supplies?|agent never", r"interactive",
+                       r"pack", r"`Split agreed`", r"amendment")
+        self.assertIsNotNone(p, "SKILL.md does not say the owner gates forbid an action only without the owner's explicit agreement, and an interactive run acts on it")
+        self.assertRegex(p, r"(?is)`packs:`")
+
+    def test_release_not_published(self):
+        p = find_block(close_text(), r"release\.enabled", r"`autonomous`", r"`pending` row", r"nothing (is )?published|publish(es)? nothing",
+                       r"(goes|go) on")
+        self.assertIsNotNone(p, "close does not record untagged versions as a pending row without publishing in autonomous mode")
+
+
+class Escalation(unittest.TestCase):
+    """Requirement: Baseline review rounds follow the schema's escalation rule (autonomous part)."""
+
+    def test_findings_copied_before_next_round(self):
+        s5 = init_step(5)
+        self.assertRegex(s5, r"(?is)`autonomous`.{0,400}before a (new|next) (baseline )?round.{0,200}(replaces?|overwrit).{0,200}"
+                             r"copy.{0,120}findings.{0,120}severity.{0,80}one line.{0,200}(decision summary|summary)",
+                         "init step 5 does not copy the earlier round's findings into the summary before a new round replaces the review file")
+
+    def test_autonomous_escalation_stops(self):
+        s5 = init_step(5)
+        self.assertRegex(s5, r"(?is)`autonomous`.{0,400}(2|two) consecutive.{0,40}REVISE.{0,200}stop without asking")
+        self.assertRegex(s5, r"(?is)stop without asking.{0,400}no roadmap.{0,200}`Status: proposed`.{0,200}no `VERDICT: USER_OVERRIDE`")
+        self.assertRegex(s5, r"(?is)`pending` escalation row.{0,200}round 1.{0,120}severity.{0,80}one line")
+        self.assertRegex(s5, r"(?is)never write.{0,80}architecture-review\.md")
+        self.assertRegex(s5, r"(?i)stop and ask the user", "the non-autonomous path must still stop and ask")
+
+
 class Docs(unittest.TestCase):
     """The template and the README name the nested key."""
 

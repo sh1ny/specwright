@@ -23,14 +23,14 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 15 | The strategy carries the roadmap's decision summary | Edit outside the section | test_roadmap_autonomy.py | Summary.test_edit_outside_section_still_voids | green |
 | 16 | The strategy carries the roadmap's decision summary | Pending rows at the next close | test_roadmap_autonomy.py | Summary.test_close_puts_pending_rows_to_owner | green |
 | 17 | The strategy carries the roadmap's decision summary | Strategy written before this change | test_roadmap_autonomy.py | Summary.test_assumptions_list_kept | green |
-| 18 | Autonomy never passes a gate meant for the owner | Autonomous close with an agreed split and an amendment | test_roadmap_autonomy.py | OwnerGates.test_agreed_split_amendment_pending | red |
-| 19 | Autonomy never passes a gate meant for the owner | Autonomous close with an unagreed listing | test_roadmap_autonomy.py | OwnerGates.test_unagreed_listing_promoted_no_split_line | red |
-| 20 | Autonomy never passes a gate meant for the owner | Autonomous close with an unverified user criterion | test_roadmap_autonomy.py | OwnerGates.test_user_criterion_never_passed | red |
-| 21 | Autonomy never passes a gate meant for the owner | Autonomous close with untagged versions | test_roadmap_autonomy.py | OwnerGates.test_release_not_published | red |
+| 18 | Autonomy never passes a gate meant for the owner | Autonomous close with an agreed split and an amendment | test_roadmap_autonomy.py | OwnerGates.test_agreed_split_amendment_pending | green |
+| 19 | Autonomy never passes a gate meant for the owner | Autonomous close with an unagreed listing | test_roadmap_autonomy.py | OwnerGates.test_unagreed_listing_promoted_no_split_line | green |
+| 20 | Autonomy never passes a gate meant for the owner | Autonomous close with an unverified user criterion | test_roadmap_autonomy.py | OwnerGates.test_user_criterion_never_passed | green |
+| 21 | Autonomy never passes a gate meant for the owner | Autonomous close with untagged versions | test_roadmap_autonomy.py | OwnerGates.test_release_not_published | green |
 | 22 | Baseline review rounds follow the schema's escalation rule | Two consecutive revise verdicts | test_instructions.py | test_roadmap_review_escalates_after_two_consecutive_revise | green |
 | 23 | Baseline review rounds follow the schema's escalation rule | Edit after a passing verdict | test_instructions.py | test_baseline_edit_after_pass_reruns_review | green |
-| 24 | An autonomous baseline escalation stops the run | Round 1 findings kept when round 2 replaces the file | test_roadmap_autonomy.py | Escalation.test_findings_copied_before_next_round | red |
-| 25 | An autonomous baseline escalation stops the run | Two consecutive revise verdicts in autonomous mode | test_roadmap_autonomy.py | Escalation.test_autonomous_escalation_stops | red |
+| 24 | An autonomous baseline escalation stops the run | Round 1 findings kept when round 2 replaces the file | test_roadmap_autonomy.py | Escalation.test_findings_copied_before_next_round | green |
+| 25 | An autonomous baseline escalation stops the run | Two consecutive revise verdicts in autonomous mode | test_roadmap_autonomy.py | Escalation.test_autonomous_escalation_stops | green |
 | 26 | Roadmap init includes enabled packs' questions and documents | Pack questions join the interview | test_instructions.py | test_roadmap_init_asks_pack_questions_in_two_rounds | green |
 | 27 | Roadmap init includes enabled packs' questions and documents | Pack questions in an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_questions_autonomous_init | green |
 | 28 | Roadmap init includes enabled packs' questions and documents | A pack document edited after the baseline passed | test_instructions.py | test_pack_documents_are_not_gated | green |
@@ -38,12 +38,12 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 30 | Roadmap pack mode sets up a pack enabled later | Setting up a pack after the baseline | test_instructions.py | test_roadmap_pack_mode_commits_on_docs_branch | green |
 | 31 | Roadmap pack mode sets up a pack enabled later | The pack is not installed | test_instructions.py | test_roadmap_pack_mode_needs_installed_pack | green |
 | 32 | Close keeps an agreed Next split | Close promotes an agreed split | test_instructions.py | test_roadmap_close_keeps_agreed_split | green |
-| 33 | Close keeps an agreed Next split | Close finds a reason to amend the agreed split | test_roadmap_autonomy.py | OwnerGates.test_amendment_asked_in_interactive_modes | red |
-| 34 | Close keeps an agreed Next split | Amendment to an agreed split in autonomous mode | test_roadmap_autonomy.py | OwnerGates.test_agreed_split_amendment_pending | red |
+| 33 | Close keeps an agreed Next split | Close finds a reason to amend the agreed split | test_roadmap_autonomy.py | OwnerGates.test_amendment_asked_in_interactive_modes | green |
+| 34 | Close keeps an agreed Next split | Amendment to an agreed split in autonomous mode | test_roadmap_autonomy.py | OwnerGates.test_agreed_split_amendment_pending | green |
 | 35 | Close keeps an agreed Next split | Next without a split | test_instructions.py | test_roadmap_close_keeps_agreed_split | green |
-| 36 | Close keeps an agreed Next split | Next lists changes without a recorded agreement | test_roadmap_autonomy.py | OwnerGates.test_unmarked_split_asked_in_interactive_modes | red |
-| 37 | Close keeps an agreed Next split | Unagreed listing in autonomous mode | test_roadmap_autonomy.py | OwnerGates.test_unagreed_listing_promoted_no_split_line | red |
-| 38 | Autonomy never passes a gate meant for the owner | Owner agrees in an interactive run | test_roadmap_autonomy.py | OwnerGates.test_owner_agreement_still_acts | red |
+| 36 | Close keeps an agreed Next split | Next lists changes without a recorded agreement | test_roadmap_autonomy.py | OwnerGates.test_unmarked_split_asked_in_interactive_modes | green |
+| 37 | Close keeps an agreed Next split | Unagreed listing in autonomous mode | test_roadmap_autonomy.py | OwnerGates.test_unagreed_listing_promoted_no_split_line | green |
+| 38 | Autonomy never passes a gate meant for the owner | Owner agrees in an interactive run | test_roadmap_autonomy.py | OwnerGates.test_owner_agreement_still_acts | green |
 
 ## 1. Reading the mode and the override
 
@@ -92,8 +92,8 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 ## 4. Owner gates, close and the escalation
 
-- [ ] 4.1 Add the tests for rows 18-21, 24-25, 33-34 and 36-38, and confirm they fail for the right reason.
-- [ ] 4.2 In close, qualify for the mode (design D4, D5):
+- [x] 4.1 Add the tests for rows 18-21, 24-25, 33-34 and 36-38, and confirm they fail for the right reason.
+- [x] 4.2 In close, qualify for the mode (design D4, D5):
   - an agreed split's amendment is asked in `important`/`all` mode and is a `pending` row in `autonomous`;
   - the unmarked-split question is asked in `important`/`all` mode, and in `autonomous` the listing is promoted as it stands with an `agent` row;
   - the new Next never gets a `Split agreed` line from an autonomous run;
@@ -102,7 +102,7 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
   - untagged versions become a `pending` row and nothing is published.
 
   Keep the wording that `test_instructions.py` checks. Verify that rows 18-21, 33-34 and 36-38 pass and flip them green, and re-run `python -m unittest evals/git-workflow/test_instructions.py -k split` for rows 32 and 35.
-- [ ] 4.3 In init step 5, for `autonomous` mode:
+- [x] 4.3 In init step 5, for `autonomous` mode:
   - before a new baseline round replaces `openspec/architecture-review.md`, copy the previous round's findings (severity and one line each) into the summary;
   - after 2 consecutive REVISE rounds, stop without asking: no roadmap, ADRs stay proposed, no `USER_OVERRIDE`, and a `pending` escalation row names round 1's findings.
 
