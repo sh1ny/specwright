@@ -4,13 +4,19 @@ A smoke run says the build starts. These checks say it reached a state, behaved 
 
 ## Gate every debug hook
 
-State dumps, scene jumps and scripted input exist for the agent and CI. They must be inert in a shipped build. Turn them on only when one of these holds:
+State dumps, scene jumps and scripted input exist for the agent and CI. They must be inert in a shipped build, whatever arguments or tags that build is given. Two conditions must both hold before a hook switches on:
 
-- the build is a debug build: `OS.is_debug_build()`;
-- a custom feature tag is present: `OS.has_feature("qa_hooks")` (tag names are case-sensitive and set in the run or export configuration);
-- a user argument was passed after the double dash: `"--qa-run" in OS.get_cmdline_user_args()`. Arguments before `--` belong to the engine; those after it are reserved for the project.
+1. The build is a debug build: `OS.is_debug_build()` returns true. A release export fails this test and stays off, full stop.
+2. The run also opts in explicitly, by either of:
+   - a custom feature tag: `OS.has_feature("qa_hooks")` (tag names are case-sensitive and set in the run or export configuration);
+   - a user argument after the double dash: `"--qa-run" in OS.get_cmdline_user_args()`. Arguments before `--` belong to the engine; those after it are reserved for the project.
 
-Put the gate in one place (a single debug node or autoload), and have everything else ask it. Run the export job's build once and confirm the hooks do nothing there.
+```gdscript
+var qa_enabled: bool = OS.is_debug_build() and (
+    OS.has_feature("qa_hooks") or "--qa-run" in OS.get_cmdline_user_args())
+```
+
+Neither the tag nor the argument is enough alone. Put the gate in one place (a single debug node or autoload), and have everything else ask it. Run the export job's build once, with the opt-in argument supplied, and confirm the hooks still do nothing there.
 
 ## State dump
 

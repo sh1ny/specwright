@@ -52,4 +52,4 @@ A lambda captures local variables by value when it is created, so assigning to a
 - Commit `export_presets.cfg`, and keep secrets out of it.
 - Install export templates that match the exact engine version.
 - Add a CI job once the first playable exists, so platform problems appear early: `godot --headless --export-release "<preset>" <path>`. The binary must be an editor binary, with templates installed or a custom template set in the preset. A relative output path is relative to the folder holding `project.godot`, not the shell's directory.
-- Confirm the debug hooks in `automated-checks.md` do nothing in that build.
+- Confirm the debug hooks in `automated-checks.md` do nothing in that build, even when it is launched with the opt-in argument.

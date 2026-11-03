@@ -89,7 +89,7 @@ After capturing a picture, open the PNG and compare it with the task's criteria,
 
 ## Short rules for the rest
 
-**Automated checks** (`references/automated-checks.md`). A debug-only state dump (one JSON line per step, fixed prefix) turns "the game ran" into "the game reached this state". Scripted input runs use a fixed frame rate and seed. Debug hooks run only behind a debug feature tag or a user argument after `--`, never in a shipped build. Compare images only for still screens. Measure frame time with real elapsed time, not `delta`.
+**Automated checks** (`references/automated-checks.md`). A debug-only state dump (one JSON line per step, fixed prefix) turns "the game ran" into "the game reached this state". Scripted input runs use a fixed frame rate and seed. Debug hooks switch on only in a debug build (`OS.is_debug_build()`) that also carries an explicit opt-in, a feature tag or a user argument after `--`; a release export never enables them, whatever its arguments. Compare images only for still screens. Measure frame time with real elapsed time, not `delta`.
 
 **Hand-editing `.tscn` and `.tres`** (`references/data-and-saves.md`). Prefer the editor or a `ResourceSaver` script. Never invent a `uid://`; copy it or leave the attribute out. Keep ids unique, declare resources before use, keep the header line, and never copy a node block together with its unique node id (4.6+). Re-import and load the file once afterwards.
 

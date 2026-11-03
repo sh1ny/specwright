@@ -89,8 +89,10 @@ leave a pointer in the GDD instead of keeping two copies.
 - `narrative.md` names the GDD sections it depends on, and the GDD's World and Story section links
   back to it. The GDD edit is handed to `gamedev-design`.
 - Each real decision gets one dated line in `decisions.md`, naming the area, the reason and the
-  section affected. Create the log on its first entry. Example shape:
-  `2026-03-14 | villain | motive is grief, not conquest, so the finale can offer a choice | narrative.md The story in brief`.
+  section affected. The log is shared with `gamedev-design` and `gamedev-playtest`, so use their
+  line format exactly. If `decisions.md` does not exist yet, create it on the first entry from
+  `gamedev-design`'s decisions template. Example:
+  `- 2026-03-14 villain: motive is grief, not conquest (why: the finale can then offer a real choice; affects: narrative.md#The story in brief)`.
 - Mark each lore item settled or provisional. Provisional lore may change without a log line;
   settled lore changes only by a logged decision.
 

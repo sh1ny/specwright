@@ -619,7 +619,7 @@ p { margin: 0 0 var(--space-3); }
     var cfg = S.stage || {};
     stage.classList.toggle('is-crisp', !!cfg.crisp);
     if (cfg.mode !== 'fixed' || !cfg.baseWidth || !cfg.baseHeight) {
-      stage.style.width = ''; stage.style.height = ''; stage.style.maxWidth = '';
+      stage.style.width = ''; stage.style.height = ''; stage.style.maxWidth = ''; stage.style.minHeight = '';
       stage.style.transform = ''; fit.style.width = ''; fit.style.height = '';
       return;
     }
@@ -627,7 +627,7 @@ p { margin: 0 0 var(--space-3); }
     var availH = Math.max(window.innerHeight - frame.getBoundingClientRect().top - 32, cfg.baseHeight);
     var k = Math.min(availW / cfg.baseWidth, availH / cfg.baseHeight);
     if (cfg.scaling === 'whole') { k = Math.max(1, Math.floor(k)); } else { k = Math.max(0.25, k); }
-    stage.style.maxWidth = 'none';
+    stage.style.maxWidth = 'none'; stage.style.minHeight = '0'; // the responsive min-height must not stretch a fixed stage
     stage.style.width = cfg.baseWidth + 'px';
     stage.style.height = cfg.baseHeight + 'px';
     stage.style.transform = 'scale(' + k + ')';
