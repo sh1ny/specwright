@@ -255,6 +255,16 @@ class OwnerGates(unittest.TestCase):
         self.assertRegex(p, r"(?is)next close.{0,40}(finds?|walks?).{0,40}again")
         self.assertNotRegex(p, r"(?is)record it as a `pending` row", "an unverified user criterion must not become a pending row")
 
+    def test_close_writes_summary_only_after_its_branch(self):
+        # Pre-ship review round 1, F1: owner answers to pending rows (close start) and autonomous
+        # release rows (step 3b) come before step 4 creates the branch; they are held until then.
+        p = find_block(close_text(), r"step 4", r"branch", r"(hold|keep)s?\b.{0,160}(memory|until)",
+                       r"pending", r"stops? before step 4", r"report", r"writes? nothing|nothing is written")
+        self.assertIsNotNone(p, "close does not hold summary answers and rows until step 4 creates its branch, "
+                                "and report them when it stops before that")
+        self.assertRegex(p, r"(?is)answer", "the hold rule does not cover the owner's answers to pending rows")
+        self.assertRegex(p, r"(?is)release|untagged|3b", "the hold rule does not cover the release rows of step 3b")
+
     def test_owner_agreement_still_acts(self):
         p = find_block(read(SKILL), r"owner gate", r"explicit agreement", r"never supplies?|agent never", r"interactive",
                        r"pack", r"`Split agreed`", r"amendment")
