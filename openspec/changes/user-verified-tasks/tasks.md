@@ -75,7 +75,7 @@
 
 ## 7. Release
 
-- [ ] 7.1 Run `release.sh bump --to 0.18.0`, rewrite the summary of the proposal's `## Release Notes` to describe the whole release, and verify with `release.sh check` and `release.sh notes --proposal openspec/changes/user-verified-tasks/proposal.md`.
+- [x] 7.1 Run `release.sh bump --to 0.18.0`, rewrite the summary of the proposal's `## Release Notes` to describe the whole release, and verify with `release.sh check` and `release.sh notes --proposal openspec/changes/user-verified-tasks/proposal.md`.
 
 ## Workflow follow-up
 

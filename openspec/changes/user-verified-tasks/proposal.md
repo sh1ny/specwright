@@ -66,10 +66,11 @@ DECISION_MAKING: autonomous
 
 ## Release Notes
 
-Tasks can now belong to you. A `[user]` task in `tasks.md` (a playtest verdict, a UX sign-off, an owner's check against a real system) is never ticked or delegated by an agent: apply skips it and lists it as waiting on you, and verify, archive and the agent merge wait until you tick it. An `[evidence]` task captures what your check needs under the change's `evidence/` folder.
+Specwright 0.18.0 lets a change carry checks only you can make. A `[user]` task in `tasks.md` (a playtest verdict, a UX sign-off, an owner's check against a real system) is never ticked or delegated by an agent: apply skips it and lists it as waiting on you, and verify, archive and the agent merge wait until you tick it. An `[evidence]` task captures what your check needs under the change's `evidence/` folder, and `task-cover.sh` reports both kinds.
 
 ### Added
-- `[user]` and `[evidence]` task markers: agents never tick or dispatch user tasks, the test map can point a scenario at its user task, and archive and the agent merge wait for your tick (#68).
+- `[user]` and `[evidence]` task markers: agents never tick or dispatch user tasks, the test map can point a scenario at its user task, and archive and the agent merge wait for your tick (#186, for the packs in #68).
+- `task-cover.sh` reports each task's kind, `waiting_on_user`, `user_uncommitted` and `evidence_missing`, and reads `tasks.md` at a commit with `--rev` (#186).
 
 ### Changed
-- With `commit_granularity: group`, a group commit no longer waits for the group's user tasks, and the end-of-apply check hands off with user tasks still open (#68).
+- With `commit_granularity: group`, a group commit no longer waits for the group's user tasks; your tick rides the next `tasks.md` commit in a `Specwright-User-Task` trailer, and the end-of-apply check hands off with user tasks still open (#186).
