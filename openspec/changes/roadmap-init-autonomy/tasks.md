@@ -18,11 +18,11 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 10 | A question round may span several ask-tool calls | Pack round larger than the ask tool | test_roadmap_autonomy.py | Rounds.test_round_spans_calls_pack | green |
 | 11 | In all mode every roadmap decision goes to the user | ADR choices in all mode | test_roadmap_autonomy.py | AllMode.test_adr_and_replan_choices_in_further_batches | green |
 | 12 | In all mode every roadmap decision goes to the user | Session ends before the answers | test_roadmap_autonomy.py | AllMode.test_asked_before_file_written | green |
-| 13 | The strategy carries the roadmap's decision summary | Close adds rows after the baseline passed | test_roadmap_autonomy.py | Summary.test_summary_edit_does_not_void_baseline | red |
-| 14 | The strategy carries the roadmap's decision summary | PR feedback fixes only summary rows | test_roadmap_autonomy.py | Summary.test_pr_feedback_summary_only_no_rerun | red |
-| 15 | The strategy carries the roadmap's decision summary | Edit outside the section | test_roadmap_autonomy.py | Summary.test_edit_outside_section_still_voids | red |
-| 16 | The strategy carries the roadmap's decision summary | Pending rows at the next close | test_roadmap_autonomy.py | Summary.test_close_puts_pending_rows_to_owner | red |
-| 17 | The strategy carries the roadmap's decision summary | Strategy written before this change | test_roadmap_autonomy.py | Summary.test_assumptions_list_kept | red |
+| 13 | The strategy carries the roadmap's decision summary | Close adds rows after the baseline passed | test_roadmap_autonomy.py | Summary.test_summary_edit_does_not_void_baseline | green |
+| 14 | The strategy carries the roadmap's decision summary | PR feedback fixes only summary rows | test_roadmap_autonomy.py | Summary.test_pr_feedback_summary_only_no_rerun | green |
+| 15 | The strategy carries the roadmap's decision summary | Edit outside the section | test_roadmap_autonomy.py | Summary.test_edit_outside_section_still_voids | green |
+| 16 | The strategy carries the roadmap's decision summary | Pending rows at the next close | test_roadmap_autonomy.py | Summary.test_close_puts_pending_rows_to_owner | green |
+| 17 | The strategy carries the roadmap's decision summary | Strategy written before this change | test_roadmap_autonomy.py | Summary.test_assumptions_list_kept | green |
 | 18 | Autonomy never passes a gate meant for the owner | Autonomous close with an agreed split and an amendment | test_roadmap_autonomy.py | OwnerGates.test_agreed_split_amendment_pending | red |
 | 19 | Autonomy never passes a gate meant for the owner | Autonomous close with an unagreed listing | test_roadmap_autonomy.py | OwnerGates.test_unagreed_listing_promoted_no_split_line | red |
 | 20 | Autonomy never passes a gate meant for the owner | Autonomous close with an unverified user criterion | test_roadmap_autonomy.py | OwnerGates.test_user_criterion_never_passed | red |
@@ -69,8 +69,8 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 ## 3. The decision summary and the gate exemption
 
-- [ ] 3.1 Add the tests for rows 13-17 and for the strategy reference template, and confirm they fail for the right reason.
-- [ ] 3.2 Replace `## Assumptions` in `skills/specwright-roadmap/references/strategy.md` with `## Decision summary` (design D2):
+- [x] 3.1 Add the tests for rows 13-17 and for the strategy reference template, and confirm they fail for the right reason.
+- [x] 3.2 Replace `## Assumptions` in `skills/specwright-roadmap/references/strategy.md` with `## Decision summary` (design D2):
   - run lines `- <run> <YYYY-MM-DD>: <mode> (source: ...)`;
   - one table with the columns #, Run, Decision, Choice, Rejected, Reason, Important, Chosen by;
   - `R` ids that continue across runs;
@@ -82,7 +82,7 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
   - close lists open `pending` rows at its start and, in `important`/`all` mode, puts them to the owner.
 
   Verify that rows 16-17 pass and flip them green.
-- [ ] 3.3 Exempt edits confined to the strategy's `## Decision summary` from voiding the baseline (design D3):
+- [x] 3.3 Exempt edits confined to the strategy's `## Decision summary` from voiding the baseline (design D3):
   - in init step 5's voiding rule;
   - in `skills/specwright-pr/SKILL.md` feedback step 7;
   - in `openspec/architecture.md`'s design-review row.

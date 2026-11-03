@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "skills" / "specwright-roadmap" / "SKILL.md"
 TEMPLATE = ROOT / "templates" / "openspec" / "specwright.yaml"
 README = ROOT / "README.md"
+STRATEGY = ROOT / "skills" / "specwright-roadmap" / "references" / "strategy.md"
+PR_SKILL = ROOT / "skills" / "specwright-pr" / "SKILL.md"
+ARCH = ROOT / "openspec" / "architecture.md"
 
 MODES = ("autonomous", "important", "all")
 
@@ -134,6 +137,85 @@ class AllMode(unittest.TestCase):
         p = find_block(read(SKILL), r"`all`", r"before the file", r"session ends|ends before",
                        r"no ADR", r"next session asks again")
         self.assertIsNotNone(p, "SKILL.md does not say each batch is asked before its file is written, so an interrupted session leaves no ADR")
+
+
+def init_step(n):
+    s = section(read(SKILL), "init")
+    m = re.search(r"^" + str(n) + r"\. .*$", s, re.M)
+    assert m, f"init has no step {n}"
+    return m.group(0)
+
+
+class Summary(unittest.TestCase):
+    """Requirement: The strategy carries the roadmap's decision summary."""
+
+    def test_summary_edit_does_not_void_baseline(self):
+        s5 = init_step(5)
+        self.assertRegex(s5, r"(?is)edit to the strategy, architecture or ADRs voids it")
+        self.assertRegex(s5, r"(?is)except.{0,300}(`## Decision summary`|decision summary).{0,200}(not void|never void|does not void)|"
+                             r"(`## Decision summary`|decision summary).{0,200}(not void|never void|does not void)",
+                         "init step 5 does not exempt edits confined to the decision summary from voiding the pass")
+        self.assertRegex(s5, r"(?is)confined to")
+
+    def test_pr_feedback_summary_only_no_rerun(self):
+        text = read(PR_SKILL)
+        p = find_block(text, r"docs/project-baseline", r"docs/close-", r"Decision summary", r"confined", r"architecture-review\.md")
+        self.assertIsNotNone(p, "PR feedback does not exempt a fix confined to the decision summary from a new baseline round")
+        self.assertRegex(p, r"(?is)(without|no) (a )?new baseline (review|round)|not re-?run")
+        self.assertRegex(p, r"(?is)unchanged")
+
+    def test_edit_outside_section_still_voids(self):
+        s5 = init_step(5)
+        self.assertRegex(s5, r"(?is)(any|an) (other )?edit (outside|elsewhere|beyond|not confined).{0,200}voids|"
+                             r"(outside|beyond) (that|the) (section|summary).{0,200}voids",
+                         "init step 5 does not say an edit outside the summary still voids the pass")
+
+    def test_close_puts_pending_rows_to_owner(self):
+        s = section(read(SKILL), "close")
+        p = find_block(s, r"`pending` rows?", r"start", r"`important`|important", r"Chosen by: user", r"`autonomous`.{0,80}(leaves?|stay)")
+        self.assertIsNotNone(p, "close does not list open pending rows at its start and put them to the owner")
+        self.assertRegex(p, r"(?is)answer")
+
+    def test_assumptions_list_kept(self):
+        p = find_block(read(SKILL), r"`## Assumptions`", r"(left|kept|read) as (it is|is)", r"never rewritten|not rewritten",
+                       r"`## Decision summary`", r"after it")
+        self.assertIsNotNone(p, "SKILL.md does not leave an older Assumptions list as it is and add the summary after it")
+
+    def test_rows_in_every_mode_and_step2_points_to_summary(self):
+        self.assertIsNotNone(find_block(read(SKILL), r"rows? (are|is) written in every mode|every mode", r"Chosen by: user", r"`important`"))
+        s2 = init_step(2)
+        self.assertNotRegex(s2, r"stated assumption")
+        self.assertRegex(s2, r"(?is)everything else.{0,200}`agent` rows?.{0,80}decision summary")
+
+    def test_exemption_in_architecture_md(self):
+        text = read(ARCH)
+        row = next((l for l in text.splitlines() if l.startswith("| Design review")), "")
+        self.assertRegex(row, r"(?i)decision summary", "architecture.md design-review row has no summary exemption")
+        p = find_block(text, r"project\.decision_making", r"Decision summary", r"R\d|R ids?", r"pending", r"never deleted|not deleted")
+        self.assertIsNotNone(p, "architecture.md has no contract bullet for project.decision_making and the decision summary")
+        self.assertRegex(p, r"(?is)unset.{0,40}important")
+        self.assertRegex(p, r"(?is)unknown.{0,40}stop")
+
+
+class StrategyTemplate(unittest.TestCase):
+    def test_decision_summary_replaces_assumptions(self):
+        t = read(STRATEGY)
+        self.assertIn("## Decision summary", t)
+        self.assertNotIn("## Assumptions", t)
+
+    def test_run_line_and_table(self):
+        t = read(STRATEGY)
+        self.assertIn("- <run> <YYYY-MM-DD>: <mode> (source: setting)", t)
+        self.assertIn('(source: user, "<words>")', t)
+        for run in ("init", "close M<n>", "pack <name>"):
+            self.assertIn(run, t)
+        header = "| # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |"
+        self.assertIn(header, t)
+        self.assertRegex(t, r"R1")
+        for v in ("agent", "user", "pending"):
+            self.assertIn(v, t)
+        self.assertRegex(t, r"(?i)in place")
+        self.assertRegex(t, r"(?i)never deleted|not deleted|never removed")
 
 
 class Docs(unittest.TestCase):
