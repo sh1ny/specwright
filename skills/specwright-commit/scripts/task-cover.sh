@@ -213,13 +213,22 @@ def evidence_ok(t):
     if not m:
         return False
     rel = m.group(1)
-    if ".." in rel.split("/"):
+    # `\` and `:` would let Windows read a segment as a UNC or drive path outside the change: reject before any
+    # filesystem access, as are empty, `.` and `..` segments.
+    if "\\" in rel or ":" in rel or any(s in ("", ".", "..") for s in rel.split("/")):
         return False
     if rev:
         blob = "%s:%s" % (rev, "/".join(p for p in (rel_dir, rel) if p))
         size = git(repo, "cat-file", "-s", blob, soft=True)
         return size is not None and size.strip() not in (b"", b"0")
-    p = os.path.join(os.path.dirname(os.path.abspath(tasks_path)), *rel.split("/"))
+    base = os.path.realpath(os.path.dirname(os.path.abspath(tasks_path)))
+    p = os.path.realpath(os.path.join(base, *rel.split("/")))
+    try:
+        inside = os.path.commonpath([base, p]) == base
+    except ValueError:  # Windows: another drive
+        inside = False
+    if not inside:
+        return False  # a symlink that leaves the change directory
     return os.path.isfile(p) and os.path.getsize(p) > 0
 
 

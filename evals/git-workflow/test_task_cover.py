@@ -283,6 +283,34 @@ class TaskCover(unittest.TestCase):
         doc = self.cover(tasks=self.tasks_file(text))
         self.assertEqual(doc["evidence_missing"], ["2.6"])
 
+    def test_evidence_path_with_backslash_rejected(self):
+        # Windows reads `\` as a separator, so `evidence/\\host\share\x` would leave the change directory; the
+        # file exists on every OS (POSIX: a name holding a backslash; Windows: sub/x.log), yet counts as missing.
+        if os.name == "nt":
+            self.write_evidence("sub/x.log")
+        else:
+            self.write_evidence("sub\\x.log")
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/sub\\x.log\n"))
+        self.assertEqual(doc["evidence_missing"], ["2.2"])
+
+    def test_evidence_path_with_drive_colon_rejected(self):
+        if os.name != "nt":
+            self.write_evidence("C:x.log")
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/C:x.log\n"))
+        self.assertEqual(doc["evidence_missing"], ["2.2"])
+
+    def test_evidence_symlink_out_of_change_rejected(self):
+        outside = Path(tempfile.mkdtemp(prefix="specwright-outside-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        (outside / "x.log").write_text("output\n")
+        (self.tmp / "evidence").mkdir(exist_ok=True)
+        try:
+            os.symlink(outside / "x.log", self.tmp / "evidence" / "x.log")
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not available")
+        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
+        self.assertEqual(doc["evidence_missing"], ["2.2"])
+
     def test_rev_reads_archived_tasks_at_commit(self):
         p = self.repo_tasks("## 4. M\n\n- [x] 4.3 [user] Play\n", archived=True)
         ticked = self.commit("chore: tick")
