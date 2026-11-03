@@ -114,18 +114,8 @@ In `autonomous` mode each such item SHALL be recorded as a row awaiting the owne
 - **WHEN** autonomous close finds versions with no tag on origin and `release.enabled` is true
 - **THEN** nothing is published, and the versions are listed as a row awaiting the owner
 
-## MODIFIED Requirements
-
-### Requirement: Baseline review rounds follow the schema's escalation rule
-The baseline review SHALL escalate to the user after 2 consecutive `VERDICT: REVISE` rounds, and SHALL have no lifetime round cap. A pass covers only the content reviewed: a later edit to strategy, architecture or ADRs voids it and SHALL get a new round, except an edit confined to the strategy's decision summary. The acceptance edit (a reviewed ADR's status set to accepted with its date, plus its in-force index row) is part of passing and does not void it. A pass ends a run of REVISE rounds. In `autonomous` mode the escalation SHALL stop the run instead of asking: no roadmap is written, every reviewed ADR stays `Status: proposed`, and the escalation is recorded as a row awaiting the owner. Before a round replaces the review file, an autonomous run SHALL copy the earlier round's findings into that run's summary rows.
-
-#### Scenario: Two consecutive revise verdicts
-- **WHEN** rounds 1 and 2 of the baseline review both return `VERDICT: REVISE`
-- **THEN** roadmap stops and asks the user, and writes no roadmap until the user decides (recorded as `VERDICT: USER_OVERRIDE` if they choose to proceed)
-
-#### Scenario: Edit after a passing verdict
-- **WHEN** round 2 approved the baseline and a PR fix round then edits `openspec/architecture.md`
-- **THEN** a round 3 review of the edited content runs without asking the user, and a REVISE in round 3 alone does not escalate
+### Requirement: An autonomous baseline escalation stops the run
+In `autonomous` mode, 2 consecutive `VERDICT: REVISE` baseline rounds SHALL stop the run instead of asking: no roadmap is written, every reviewed ADR stays `Status: proposed`, no `VERDICT: USER_OVERRIDE` is written, and the escalation is recorded as a row awaiting the owner. Before a round replaces `openspec/architecture-review.md`, an autonomous run SHALL copy the earlier round's findings into its summary rows.
 
 #### Scenario: Round 1 findings kept when round 2 replaces the file
 - **WHEN** an autonomous init gets `VERDICT: REVISE` in round 1 and is about to run round 2
@@ -135,8 +125,21 @@ The baseline review SHALL escalate to the user after 2 consecutive `VERDICT: REV
 - **WHEN** an autonomous init gets `VERDICT: REVISE` in rounds 1 and 2
 - **THEN** the run stops without asking, `openspec/roadmap.md` is not written, every ADR reads `Status: proposed`, no `VERDICT: USER_OVERRIDE` is written, `openspec/architecture-review.md` holds round 2's review, and the decision summary holds a row awaiting the owner that lists round 1's findings, each with its severity and one line
 
+## MODIFIED Requirements
+
+### Requirement: Baseline review rounds follow the schema's escalation rule
+The baseline review SHALL escalate to the user after 2 consecutive `VERDICT: REVISE` rounds, and SHALL have no lifetime round cap. A pass covers only the content reviewed: a later edit to strategy, architecture or ADRs voids it and SHALL get a new round, except an edit confined to the strategy's decision summary. The acceptance edit (a reviewed ADR's status set to accepted with its date, plus its in-force index row) is part of passing and does not void it. A pass ends a run of REVISE rounds.
+
+#### Scenario: Two consecutive revise verdicts
+- **WHEN** rounds 1 and 2 of the baseline review both return `VERDICT: REVISE` in `important` or `all` mode
+- **THEN** roadmap stops and asks the user, and writes no roadmap until the user decides (recorded as `VERDICT: USER_OVERRIDE` if they choose to proceed)
+
+#### Scenario: Edit after a passing verdict
+- **WHEN** round 2 approved the baseline and a PR fix round then edits `openspec/architecture.md`
+- **THEN** a round 3 review of the edited content runs without asking the user, and a REVISE in round 3 alone does not escalate
+
 ### Requirement: Roadmap init includes enabled packs' questions and documents
-When packs are enabled in `openspec/.specwright/packs.json`, roadmap **init** SHALL treat their init questions like its own gaps under the run's decision mode: asked within its at most two batched rounds, each with a recommended default, in `important` and `all` mode, and taken by the agent and recorded in `autonomous` mode. It SHALL write the answers into each pack document, and name those documents in the baseline review request as context. Pack documents SHALL NOT be gated content: editing one never voids a baseline verdict.
+When packs are enabled in `openspec/.specwright/packs.json`, roadmap **init** SHALL treat their init questions like its own gaps under the run's decision mode (in `important` and `all` mode, within its at most two batched rounds, each with a recommended default), write the answers into each pack document, and name those documents in the baseline review request as context. Pack documents SHALL NOT be gated content: editing one never voids a baseline verdict.
 
 #### Scenario: Pack questions join the interview
 - **WHEN** `gamedev` is installed with four init questions and init interviews the user
@@ -155,7 +158,7 @@ When packs are enabled in `openspec/.specwright/packs.json`, roadmap **init** SH
 - **THEN** init tells the user to rerun the install prompt to create it, and does not create it from memory
 
 ### Requirement: Roadmap pack mode sets up a pack enabled later
-Roadmap **pack** `<name>` SHALL run for an enabled, installed pack. It SHALL take the pack's init questions under the run's decision mode: one batched round with recommended defaults in `important` and `all` mode, answered by the agent and recorded in `autonomous` mode. It SHALL write the answers into the pack's documents without removing user content. It SHALL run no review round, change no baseline verdict, and commit what it wrote through the roadmap's procedure for project files, on `docs/pack-<name>`, never on main.
+Roadmap **pack** `<name>` SHALL run for an enabled, installed pack. It SHALL take the pack's init questions under the run's decision mode (one batched round with recommended defaults in `important` and `all` mode, answered by the agent and recorded in `autonomous` mode), write the answers into the pack's documents without removing user content, run no review round, change no baseline verdict, and commit what it wrote on `docs/pack-<name>`, never on main.
 
 #### Scenario: Setting up a pack after the baseline
 - **WHEN** a project with an approved baseline installs `web` and runs roadmap **pack** `web`

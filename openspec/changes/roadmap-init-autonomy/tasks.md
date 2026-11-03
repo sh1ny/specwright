@@ -29,8 +29,8 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 | 21 | Autonomy never passes a gate meant for the owner | Autonomous close with untagged versions | test_roadmap_autonomy.py | OwnerGates.test_release_not_published | red |
 | 22 | Baseline review rounds follow the schema's escalation rule | Two consecutive revise verdicts | test_instructions.py | test_roadmap_review_escalates_after_two_consecutive_revise | green |
 | 23 | Baseline review rounds follow the schema's escalation rule | Edit after a passing verdict | test_instructions.py | test_baseline_edit_after_pass_reruns_review | green |
-| 24 | Baseline review rounds follow the schema's escalation rule | Round 1 findings kept when round 2 replaces the file | test_roadmap_autonomy.py | Escalation.test_findings_copied_before_next_round | red |
-| 25 | Baseline review rounds follow the schema's escalation rule | Two consecutive revise verdicts in autonomous mode | test_roadmap_autonomy.py | Escalation.test_autonomous_escalation_stops | red |
+| 24 | An autonomous baseline escalation stops the run | Round 1 findings kept when round 2 replaces the file | test_roadmap_autonomy.py | Escalation.test_findings_copied_before_next_round | red |
+| 25 | An autonomous baseline escalation stops the run | Two consecutive revise verdicts in autonomous mode | test_roadmap_autonomy.py | Escalation.test_autonomous_escalation_stops | red |
 | 26 | Roadmap init includes enabled packs' questions and documents | Pack questions join the interview | test_instructions.py | test_roadmap_init_asks_pack_questions_in_two_rounds | green |
 | 27 | Roadmap init includes enabled packs' questions and documents | Pack questions in an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_questions_autonomous_init | green |
 | 28 | Roadmap init includes enabled packs' questions and documents | A pack document edited after the baseline passed | test_instructions.py | test_pack_documents_are_not_gated | green |
