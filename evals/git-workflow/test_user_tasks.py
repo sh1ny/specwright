@@ -181,6 +181,10 @@ class CommitSkillUserTasks(unittest.TestCase):
         self.assertRegex(block, r"(?i)no agent work pending[^.]{0,120}`tasks\.md` alone|`tasks\.md` alone[^.]{0,120}no agent work pending",
                          "the skill does not commit `tasks.md` alone when no agent work is pending")
         self.assertRegex(s, r"(?i)before (the user's )?`?Co-authored-by", "the trailer is not placed before Co-authored-by")
+        # pre-ship F2: tasks.md is staged whole, so a long id list shortens the subject, never defers a trailer
+        self.assertNotRegex(s, r"(?i)leave ids that do not fit", "the skill defers user ticks that do not fit the subject")
+        self.assertRegex(s, r"(?i)record user checks.{0,400}?`and more`[^.]{0,80}trailers? name every (user )?tick",
+                         "the record user checks commit does not keep a trailer for every tick")
 
 CONFIG = ROOT / "templates" / "openspec" / "config.yaml"
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
@@ -244,6 +248,9 @@ class ArchiveAndMergeWaitForUser(unittest.TestCase):
         self.assertRegex(u, r"(?i)before it archives and again before every merge request", "watch does not check before archive and before each merge request")
         self.assertRegex(a, r"(?i)\*\*User tasks\*\*|user-task check", "the archive bullet does not point at the user-task check")
         self.assertRegex(m, r"(?i)\*\*User tasks\*\*|user-task check", "the merge bullet does not point at the user-task check")
+        # pre-ship F1: roadmap branches have no change tasks.md and are not blocked by the check
+        self.assertRegex(u, r"docs/project-baseline", "the user-task check does not exempt roadmap branches")
+        self.assertRegex(u, r"docs/close-\*", "the user-task check does not exempt docs/close-* branches")
 
     def test_watch_rejudges_after_tick(self):
         u = pr_bullet("User tasks")
