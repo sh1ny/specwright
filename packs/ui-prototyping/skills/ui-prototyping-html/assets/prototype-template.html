@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  PROTOTYPE TEMPLATE. Single file, no network, opens from disk.
+  Edit the settings block below first; the rest of the file reads it.
+  Keep the settings in this file so a later edit never loses them.
+  Replace the sample screens (list, detail) with the agreed surfaces.
+  The control bar is tooling, never product UI. Everything inside #stage is the prototype.
+-->
+<script type="application/json" id="settings">
+{
+  "title": "Prototype",
+  "question": "REQUIRED: the one question this prototype answers, in the user's words.",
+  "surfaces": ["list", "detail"],
+  "states": ["empty", "loading", "error", "full"],
+  "stage": { "mode": "responsive", "baseWidth": null, "baseHeight": null, "scaling": "fluid", "crisp": false },
+  "font": "system-ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+  "inputModel": "pointer-keyboard",
+  "glyphs": { "active": "", "sets": {} },
+  "placeholders": "neutral labelled boxes",
+  "safeArea": { "show": false },
+  "options": [
+    { "id": "a", "label": "Option A", "register": "airy, rounded, soft depth" },
+    { "id": "b", "label": "Option B", "register": "dense, square, flat and outlined" }
+  ],
+  "tokenExtensions": [],
+  "saveFolder": "docs/prototypes/",
+  "specLink": ""
+}
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prototype</title>
+<style>
+/* ---------- Tooling tokens (control bar only, not part of the design under test) ---------- */
+:root {
+  --bar-bg: #1f2430;
+  --bar-ink: #f4f6fa;
+  --bar-line: #5b6475;
+  --bar-accent: #ffd166;
+}
+
+/* ---------- Design tokens: roles first, values per option ---------- */
+:root {
+  /* color */
+  --color-canvas: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-ink: #1b1f24;
+  --color-ink-subtle: #4a5360;
+  --color-line: #8892a0;
+  --color-accent: #1d4ed8;
+  --color-on-accent: #ffffff;
+  --color-focus: #b45309;
+  --color-positive: #0f6b3a;
+  --color-warning: #8a5a00;
+  --color-negative: #b42318;
+  --color-scrim: rgb(20 24 31 / 0.62);
+
+  /* type: family, size, weight, leading per role */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-body);
+  --font-heading: var(--font-body);
+  --font-label: var(--font-body);
+  --font-numeric: var(--font-body);
+  --size-display: 2rem;
+  --size-heading: 1.375rem;
+  --size-body: 1rem;
+  --size-label: 0.875rem;
+  --size-numeric: 1rem;
+  --weight-display: 700;
+  --weight-heading: 650;
+  --weight-body: 400;
+  --weight-label: 600;
+  --weight-numeric: 500;
+  --leading-display: 1.15;
+  --leading-heading: 1.25;
+  --leading-body: 1.5;
+  --leading-label: 1.3;
+  --leading-numeric: 1.3;
+
+  /* space */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.5rem;
+  --space-edge: 1.5rem;
+  --space-gap: var(--space-4);
+
+  /* shape */
+  --shape-corner-none: 0;
+  --shape-corner-small: 0.25rem;
+  --shape-corner-large: 0.875rem;
+  --shape-corner-round: 999rem;
+  --shape-stroke-thin: 1px;
+  --shape-stroke-thick: 3px;
+
+  /* depth: shadow or tone, plus layer order */
+  --depth-flat: none;
+  --depth-raised: 0 1px 3px rgb(20 24 31 / 0.18);
+  --depth-overlay: 0 6px 18px rgb(20 24 31 / 0.22);
+  --depth-modal: 0 14px 40px rgb(20 24 31 / 0.35);
+  --layer-flat: 0;
+  --layer-raised: 1;
+  --layer-overlay: 10;
+  --layer-modal: 20;
+
+  /* motion */
+  --motion-quick: 120ms;
+  --motion-standard: 240ms;
+  --motion-slow: 480ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* touch model enlarges this; other models keep it small */
+  --target-min: 2.5rem;
+}
+
+/* Option B: differs in personality (density, shape, depth), not hue alone. */
+:root[data-option="b"] {
+  --space-3: 0.5rem;
+  --space-4: 0.75rem;
+  --space-5: 1rem;
+  --space-gap: var(--space-3);
+  --shape-corner-small: 0;
+  --shape-corner-large: 0;
+  --shape-stroke-thin: 2px;
+  --depth-raised: none;
+  --depth-overlay: none;
+  --size-body: 0.9375rem;
+  --weight-heading: 800;
+  --color-surface-raised: #eef1f6;
+}
+
+:root[data-model="touch"] { --target-min: 3.25rem; }
+
+/* Reduced motion: the media query and the bar toggle share one path. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-quick: 0ms; --motion-standard: 0ms; --motion-slow: 0ms; }
+}
+:root.reduce-motion { --motion-quick: 0ms; --motion-standard: 0ms; --motion-slow: 0ms; }
+
+/* ---------- Base ---------- */
+html { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--size-body);
+  font-weight: var(--weight-body);
+  line-height: var(--leading-body);
+}
+[hidden], .is-off { display: none !important; }
+
+/* Focus marker: outline, never border or padding, so grid and flex rows keep their size.
+   Two nested rings (solid ring plus canvas halo) so it does not rely on colour alone. */
+:focus { outline: var(--shape-stroke-thick) solid var(--color-focus); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: var(--shape-stroke-thick) solid var(--color-focus); }
+.screen :focus, .dialog :focus { box-shadow: 0 0 0 calc(var(--shape-stroke-thick) + 2px) var(--color-canvas); }
+
+/* ---------- Control bar (tooling) ---------- */
+#bar {
+  background: var(--bar-bg);
+  color: var(--bar-ink);
+  padding: 0.5rem 1rem;
+  font: 0.875rem/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+#bar .bar-row { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin: 0.25rem 0; }
+#bar button, #bar select {
+  font: inherit;
+  color: var(--bar-ink);
+  background: transparent;
+  border: 1px solid var(--bar-line);
+  border-radius: 4px;
+  padding: 0.25rem 0.625rem;
+  cursor: pointer;
+}
+#bar button[aria-pressed="true"], #bar button[aria-current="true"] {
+  border-color: var(--bar-accent);
+  color: var(--bar-accent);
+  font-weight: 700;
+  text-decoration: underline;
+}
+#bar :focus { outline: 3px solid var(--bar-accent); outline-offset: 2px; }
+#bar select option { color: #111; }
+#bar-question { max-width: 60rem; }
+#bar-hints, #bar-note { margin: 0.125rem 0; color: #c9d0dc; }
+#bar .group-label { color: #c9d0dc; }
+
+/* ---------- Stage: follows the window by default; fixed mode is sized from script ---------- */
+#stage-frame { padding: 1rem; }
+#stage-fit { margin: 0 auto; max-width: 100%; }
+#stage {
+  position: relative;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 72rem;
+  min-height: 24rem;
+  background: var(--color-canvas);
+  border: var(--shape-stroke-thin) dashed var(--color-line);
+  overflow: hidden;
+  transform-origin: 0 0;
+}
+#stage.is-crisp, #stage.is-crisp * { image-rendering: pixelated; }
+#safe-guide {
+  position: absolute;
+  inset: var(--space-edge);
+  border: var(--shape-stroke-thin) dashed var(--color-negative);
+  pointer-events: none;
+  z-index: var(--layer-overlay);
+}
+
+/* ---------- Screens ---------- */
+.screen { padding: var(--space-edge); animation: screen-in var(--motion-standard) var(--motion-ease); }
+@keyframes screen-in { from { opacity: 0; } to { opacity: 1; } }
+.screen:focus { outline-offset: -4px; }
+h1, h2 { margin: 0 0 var(--space-3); }
+h1 { font-family: var(--font-display); font-size: var(--size-display); font-weight: var(--weight-display); line-height: var(--leading-display); }
+h2 { font-family: var(--font-heading); font-size: var(--size-heading); font-weight: var(--weight-heading); line-height: var(--leading-heading); }
+p { margin: 0 0 var(--space-3); }
+.label { font-family: var(--font-label); font-size: var(--size-label); font-weight: var(--weight-label); line-height: var(--leading-label); color: var(--color-ink-subtle); }
+.numeric { font-family: var(--font-numeric); font-size: var(--size-numeric); font-weight: var(--weight-numeric); font-variant-numeric: tabular-nums; }
+.row { display: flex; flex-wrap: wrap; gap: var(--space-gap); align-items: stretch; }
+.stack { display: flex; flex-direction: column; gap: var(--space-gap); }
+.card {
+  background: var(--color-surface);
+  border: var(--shape-stroke-thin) solid var(--color-line);
+  border-radius: var(--shape-corner-large);
+  box-shadow: var(--depth-raised);
+  padding: var(--space-4);
+}
+.card.raised { background: var(--color-surface-raised); }
+
+.btn {
+  font: inherit;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: var(--shape-stroke-thin) solid var(--color-line);
+  border-radius: var(--shape-corner-small);
+  cursor: pointer;
+  transition: background-color var(--motion-quick) var(--motion-ease);
+}
+.btn.primary { color: var(--color-on-accent); background: var(--color-accent); border-color: var(--color-accent); }
+.btn:hover { text-decoration: underline; } /* extra cue only; nothing depends on hover */
+.item-btn { width: 100%; text-align: left; display: flex; justify-content: space-between; gap: var(--space-3); }
+
+.status {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: var(--shape-stroke-thick) solid currentColor;
+  border-radius: var(--shape-corner-small);
+}
+.status svg { flex: none; width: 1.25rem; height: 1.25rem; margin-top: 0.125rem; fill: none; stroke: currentColor; stroke-width: 2; }
+.status b { text-transform: uppercase; letter-spacing: 0.04em; }
+.status.negative { color: var(--color-negative); }
+.status.warning { color: var(--color-warning); }
+.status.positive { color: var(--color-positive); }
+.status .msg { color: var(--color-ink); }
+
+.skeleton { height: 3rem; border-radius: var(--shape-corner-small); background: var(--color-line); opacity: 0.35; animation: pulse var(--motion-slow) var(--motion-ease) 3 alternate; }
+@keyframes pulse { from { opacity: 0.2; } to { opacity: 0.45; } }
+
+/* Placeholders: neutral, labelled, visibly not final art */
+.ph {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 7rem; min-width: 10rem; flex: 1;
+  color: var(--color-ink-subtle);
+  background: repeating-linear-gradient(135deg, transparent 0 0.5rem, rgb(136 146 160 / 0.2) 0.5rem 1rem);
+  border: var(--shape-stroke-thin) dashed var(--color-line);
+  border-radius: var(--shape-corner-small);
+  font-family: var(--font-label); font-size: var(--size-label);
+}
+.sil { width: 3rem; height: 3rem; fill: var(--color-ink-subtle); }
+.tag { font-family: var(--font-label); font-size: var(--size-label); color: var(--color-ink-subtle); border: var(--shape-stroke-thin) solid var(--color-line); border-radius: var(--shape-corner-round); padding: 0 var(--space-2); }
+.option-mark { font-size: var(--size-label); color: var(--color-ink-subtle); border: var(--shape-stroke-thin) dotted var(--color-line); padding: 0 var(--space-2); }
+
+/* ---------- Modals (inside the stage, so they scale with it) ---------- */
+.modal {
+  position: absolute; inset: 0;
+  z-index: var(--layer-modal);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-edge);
+  background: var(--color-scrim);
+}
+.dialog {
+  width: 100%; max-width: 28rem;
+  background: var(--color-surface-raised);
+  border: var(--shape-stroke-thin) solid var(--color-line);
+  border-radius: var(--shape-corner-large);
+  box-shadow: var(--depth-modal);
+  padding: var(--space-5);
+}
+.dialog .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4); }
+</style>
+</head>
+<body data-model="pointer-keyboard">
+<noscript>This prototype needs script for its controls.</noscript>
+
+<!-- Icon and silhouette symbols (inline, internal references only) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="icon-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 8l8 8M16 8l-8 8"/></symbol>
+  <symbol id="icon-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
+  <symbol id="icon-ok" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 12l4 4 6-8"/></symbol>
+  <symbol id="sil-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-5 3.5-8 8-8s8 3 8 8z"/></symbol>
+</svg>
+
+<!-- ======== Control bar: tooling, outside the stage ======== -->
+<header id="bar" role="toolbar" aria-label="Prototype controls (tooling, not product UI)">
+  <div class="bar-row">
+    <strong id="bar-title"></strong>
+    <span id="bar-question"></span>
+  </div>
+  <div class="bar-row">
+    <span class="group-label">Screen</span>
+    <span id="bar-screens" role="group" aria-label="Screens"></span>
+    <span class="group-label">State</span>
+    <span id="bar-states" role="group" aria-label="States"></span>
+    <span id="bar-options-wrap">
+      <span class="group-label">Option</span>
+      <span id="bar-options" role="group" aria-label="Options"></span>
+    </span>
+  </div>
+  <div class="bar-row">
+    <label>Input model
+      <select id="bar-model">
+        <option value="pointer-keyboard">pointer-keyboard</option>
+        <option value="single-focus">single-focus</option>
+        <option value="touch">touch</option>
+      </select>
+    </label>
+    <label id="bar-glyph-wrap" hidden>Prompt glyphs <select id="bar-glyph"></select></label>
+    <button type="button" id="bar-motion" aria-pressed="false">Reduce motion</button>
+    <button type="button" id="bar-safe" aria-pressed="false">Safe-area guide</button>
+  </div>
+  <p id="bar-hints"></p>
+  <p id="bar-note" role="status" aria-live="polite"></p>
+</header>
+
+<!-- ======== Stage: the prototype itself ======== -->
+<main id="stage-frame">
+ <div id="stage-fit">
+  <div id="stage" aria-label="Prototype stage">
+    <div id="safe-guide" hidden></div>
+
+    <!-- Screen 1. States are marked variants; only the active one shows. -->
+    <section class="screen" id="screen-list" data-screen="list" aria-label="Item list" tabindex="-1" hidden>
+      <h1>Item list</h1>
+      <p class="label">Sample content below is a placeholder. Replace it with content from the spec.</p>
+
+      <div data-state="empty" class="card stack">
+        <h2>Nothing here yet</h2>
+        <p>Items you create will appear in this list.</p>
+        <div><button type="button" class="btn primary" data-first-focus data-open-modal="create">Create item</button></div>
+      </div>
+
+      <div data-state="loading" class="stack" role="status" aria-label="Loading items">
+        <p class="label">Loading items</p>
+        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+      </div>
+
+      <div data-state="error" class="stack">
+        <div class="status negative" role="alert">
+          <svg aria-hidden="true"><use href="#icon-error"/></svg>
+          <div><b>Error</b> <span class="msg">The list could not be loaded.</span></div>
+        </div>
+        <div><button type="button" class="btn primary" data-first-focus data-set-state="loading">Retry</button></div>
+      </div>
+
+      <div data-state="full" class="stack">
+        <ul class="stack" style="list-style:none;margin:0;padding:0">
+          <li><button type="button" class="btn item-btn" data-first-focus data-goto="detail"><span>Sample item one <span class="tag">placeholder</span></span><span class="numeric">12</span></button></li>
+          <li><button type="button" class="btn item-btn" data-goto="detail"><span>Sample item two <span class="tag">placeholder</span></span><span class="numeric">7</span></button></li>
+          <li><button type="button" class="btn item-btn" data-goto="detail"><span>Sample item three <span class="tag">placeholder</span></span><span class="numeric">3</span></button></li>
+        </ul>
+        <div><button type="button" class="btn" data-open-modal="create">Create item</button></div>
+      </div>
+    </section>
+
+    <!-- Screen 2 -->
+    <section class="screen" id="screen-detail" data-screen="detail" aria-label="Item detail" tabindex="-1" hidden>
+      <h1>Item detail</h1>
+
+      <div data-state="empty" class="card stack">
+        <h2>No item selected</h2>
+        <p>Pick an item from the list to see it here.</p>
+        <div><button type="button" class="btn primary" data-first-focus data-goto="list">Go to the list</button></div>
+      </div>
+
+      <div data-state="loading" class="stack" role="status" aria-label="Loading item">
+        <p class="label">Loading item</p>
+        <div class="skeleton"></div><div class="skeleton"></div>
+      </div>
+
+      <div data-state="error" class="stack">
+        <div class="status warning" role="alert">
+          <svg aria-hidden="true"><use href="#icon-warn"/></svg>
+          <div><b>Warning</b> <span class="msg">This item could not be fully loaded.</span></div>
+        </div>
+        <div><button type="button" class="btn" data-first-focus data-back>Back</button></div>
+      </div>
+
+      <div data-state="full" class="stack">
+        <div class="row">
+          <div class="ph" role="img" aria-label="Placeholder: image 16 by 9"><span>Image 16:9</span></div>
+          <div class="ph" role="img" aria-label="Placeholder: person silhouette"><svg class="sil" viewBox="0 0 24 24" aria-hidden="true"><use href="#sil-person"/></svg></div>
+        </div>
+        <!-- Elements that exist in one option only carry data-only; others hide them. -->
+        <div class="card raised" data-only="a">
+          <span class="option-mark">Option A only</span>
+          <h2>Summary card</h2>
+          <p>Short summary of the item. <span class="tag">placeholder</span></p>
+        </div>
+        <div class="card" data-only="b">
+          <span class="option-mark">Option B only</span>
+          <h2>Inline fields</h2>
+          <p class="numeric">Count: 12 &middot; Owner: placeholder</p>
+        </div>
+        <div class="status positive">
+          <svg aria-hidden="true"><use href="#icon-ok"/></svg>
+          <div><b>Saved</b> <span class="msg">All changes are stored.</span></div>
+        </div>
+        <div class="row">
+          <button type="button" class="btn" data-first-focus data-back>Back</button>
+          <button type="button" class="btn primary" data-open-modal="confirm">Delete item</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modals: last in the stage; a later modal sits on top of an earlier one. -->
+    <div class="modal" id="modal-create" role="dialog" aria-modal="true" aria-labelledby="modal-create-title" hidden>
+      <div class="dialog">
+        <h2 id="modal-create-title">Create item</h2>
+        <p>Form fields go here. <span class="tag">placeholder</span></p>
+        <div class="actions">
+          <button type="button" class="btn" data-open-modal="info">What is this?</button>
+          <button type="button" class="btn" data-close-modal>Cancel</button>
+          <button type="button" class="btn primary" data-close-modal data-set-state="full">Create</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="modal-info" role="dialog" aria-modal="true" aria-labelledby="modal-info-title" hidden>
+      <div class="dialog">
+        <h2 id="modal-info-title">About creating items</h2>
+        <p>Nested modal. Escape closes only this one. <span class="tag">placeholder</span></p>
+        <div class="actions"><button type="button" class="btn primary" data-close-modal>Close</button></div>
+      </div>
+    </div>
+    <div class="modal" id="modal-confirm" role="dialog" aria-modal="true" aria-labelledby="modal-confirm-title" hidden>
+      <div class="dialog">
+        <h2 id="modal-confirm-title">Delete this item?</h2>
+        <div class="status warning">
+          <svg aria-hidden="true"><use href="#icon-warn"/></svg>
+          <div><b>Warning</b> <span class="msg">This cannot be undone.</span></div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn" data-close-modal>Keep it</button>
+          <button type="button" class="btn primary" data-close-modal data-goto="list" data-set-state="empty">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+ </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var S = JSON.parse(document.getElementById('settings').textContent);
+  var root = document.documentElement;
+  var stage = document.getElementById('stage');
+  var fit = document.getElementById('stage-fit');
+  var frame = document.getElementById('stage-frame');
+  var screens = Array.prototype.slice.call(stage.querySelectorAll('section.screen'));
+  var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[data-focusable]';
+
+  var trail = [];                 // back history of screen ids
+  var modals = [];                // open modals, topmost last: { el, opener }
+  var stateByScreen = {};
+  var current = null;
+  var noteEl = document.getElementById('bar-note');
+
+  // Small state object a scripted walkthrough can read after every step.
+  var proto = {
+    screen: null,
+    state: null,
+    option: null,
+    model: S.inputModel,
+    reducedMotion: false,
+    trail: trail,
+    openModals: [],
+    errors: [],
+    settings: S,
+    get focus() {
+      var el = document.activeElement;
+      if (!el || el === document.body) { return null; }
+      return el.getAttribute('data-focus-id') || el.id || (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase();
+    },
+    go: function (id) { showScreen(id, true); },
+    setState: function (st) { setState(st); },
+    setOption: function (id) { setOption(id); },
+    back: function () { back(); }
+  };
+  window.proto = proto;
+  window.addEventListener('error', function (e) { proto.errors.push(String(e.message || e)); });
+
+  /* ---------- helpers ---------- */
+  function focusables(container) {
+    return Array.prototype.filter.call(container.querySelectorAll(FOCUSABLE), function (el) {
+      return !el.closest('[hidden]') && !el.closest('.is-off') && el.getClientRects().length > 0;
+    });
+  }
+  function topModal() { return modals.length ? modals[modals.length - 1].el : null; }
+  function container() { return topModal() || (current && document.getElementById('screen-' + current)) || stage; }
+  function focusEl(el) { if (el) { el.focus({ preventScroll: true }); } }
+  function focusFirst(c) {
+    var list = focusables(c);
+    var pick = null;
+    for (var i = 0; i < list.length; i++) { if (list[i].hasAttribute('data-first-focus')) { pick = list[i]; break; } }
+    pick = pick || list[0];
+    if (pick) { focusEl(pick); } else if (c.getAttribute('tabindex') !== null) { focusEl(c); }
+  }
+  function note(msg) { noteEl.textContent = msg || ''; }
+  function indexOfId(list, id) { for (var i = 0; i < list.length; i++) { if (list[i] === id) { return i; } } return -1; }
+  function sync() {
+    proto.screen = current;
+    proto.state = current ? stateByScreen[current] : null;
+    proto.openModals = modals.map(function (m) { return m.el.id; });
+  }
+
+  /* ---------- screens ---------- */
+  function showScreen(id, push) {
+    var target = document.getElementById('screen-' + id);
+    if (!target) { note('No screen named ' + id); return; }
+    if (current === id) { return; }
+    if (push && current) { trail.push(current); }
+    screens.forEach(function (s) { s.hidden = s !== target; });
+    current = id;
+    if (!stateByScreen[id]) { stateByScreen[id] = S.states[S.states.length - 1] || null; }
+    applyState();
+    refreshBar();
+    sync();
+    writeHash();
+    focusFirst(target);
+  }
+  function back() {
+    if (modals.length) { closeModal(); return; }
+    if (trail.length) { showScreen(trail.pop(), false); }
+    // With no history, stay: back never leaves the prototype.
+  }
+
+  /* ---------- states ---------- */
+  function applyState() {
+    if (!current) { return; }
+    var st = stateByScreen[current];
+    var scr = document.getElementById('screen-' + current);
+    Array.prototype.forEach.call(scr.querySelectorAll('[data-state]'), function (el) {
+      el.hidden = el.getAttribute('data-state').split(/\s+/).indexOf(st) === -1;
+    });
+  }
+  function setState(st) {
+    if (S.states.indexOf(st) === -1) { return; }
+    stateByScreen[current] = st;
+    applyState();
+    var has = Array.prototype.some.call(document.getElementById('screen-' + current).querySelectorAll('[data-state]'), function (el) {
+      return el.getAttribute('data-state').split(/\s+/).indexOf(st) !== -1;
+    });
+    note(has ? '' : 'This screen has no "' + st + '" variant yet.');
+    refreshBar();
+    sync();
+    writeHash();
+    var a = document.activeElement;
+    if (!a || a === document.body || a.getClientRects().length === 0) { focusFirst(container()); }
+  }
+
+  /* ---------- options ---------- */
+  function setOption(id) {
+    var ids = S.options.map(function (o) { return o.id; });
+    if (ids.length === 0) { return; }
+    if (ids.indexOf(id) === -1) { id = ids[0]; }
+    root.setAttribute('data-option', id);
+    proto.option = id;
+    Array.prototype.forEach.call(stage.querySelectorAll('[data-only]'), function (el) {
+      el.classList.toggle('is-off', el.getAttribute('data-only').split(/\s+/).indexOf(id) === -1);
+    });
+    refreshBar();
+    writeHash();
+  }
+
+  /* ---------- modals ---------- */
+  function openModal(id) {
+    var el = document.getElementById('modal-' + id);
+    if (!el || !el.hidden) { return; }
+    modals.push({ el: el, opener: document.activeElement });
+    el.hidden = false;
+    sync();
+    focusFirst(el);
+  }
+  function closeModal() {
+    var m = modals.pop();
+    if (!m) { return; }
+    m.el.hidden = true;
+    sync();
+    if (m.opener && m.opener.getClientRects().length > 0) { focusEl(m.opener); } else { focusFirst(container()); }
+  }
+
+  /* ---------- stage sizing ---------- */
+  function fitStage() {
+    var cfg = S.stage || {};
+    stage.classList.toggle('is-crisp', !!cfg.crisp);
+    if (cfg.mode !== 'fixed' || !cfg.baseWidth || !cfg.baseHeight) {
+      stage.style.width = ''; stage.style.height = ''; stage.style.maxWidth = '';
+      stage.style.transform = ''; fit.style.width = ''; fit.style.height = '';
+      return;
+    }
+    var availW = frame.clientWidth - 32;
+    var availH = Math.max(window.innerHeight - frame.getBoundingClientRect().top - 32, cfg.baseHeight);
+    var k = Math.min(availW / cfg.baseWidth, availH / cfg.baseHeight);
+    if (cfg.scaling === 'whole') { k = Math.max(1, Math.floor(k)); } else { k = Math.max(0.25, k); }
+    stage.style.maxWidth = 'none';
+    stage.style.width = cfg.baseWidth + 'px';
+    stage.style.height = cfg.baseHeight + 'px';
+    stage.style.transform = 'scale(' + k + ')';
+    fit.style.width = Math.round(cfg.baseWidth * k) + 'px';
+    fit.style.height = Math.round(cfg.baseHeight * k) + 'px';
+  }
+
+  /* ---------- input model ---------- */
+  function setModel(m) {
+    proto.model = m;
+    document.body.setAttribute('data-model', m);
+    root.setAttribute('data-model', m);
+    document.getElementById('bar-model').value = m;
+    var hints = {
+      'pointer-keyboard': 'Tab and Shift+Tab move focus, Enter activates, Escape goes back.',
+      'single-focus': 'Arrows move the one focus (wraps), Enter or Space confirms, Escape or Backspace goes back, hovering moves the same focus.',
+      'touch': 'Large targets; nothing needs hover. Tab and Enter still work.'
+    };
+    document.getElementById('bar-hints').textContent =
+      'Keys: [ and ] switch screen, S next state, O next option, R reduced motion, G safe-area guide. ' + hints[m];
+  }
+  function moveFocus(step) {
+    var list = focusables(container());
+    if (!list.length) { return; }
+    var i = list.indexOf(document.activeElement);
+    i = i === -1 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length;
+    focusEl(list[i]);
+  }
+  function trapTab(e) {
+    var list = focusables(topModal());
+    if (!list.length) { e.preventDefault(); return; }
+    var i = list.indexOf(document.activeElement);
+    if (e.shiftKey) { if (i <= 0) { e.preventDefault(); focusEl(list[list.length - 1]); } }
+    else if (i === -1 || i === list.length - 1) { e.preventDefault(); focusEl(list[0]); }
+  }
+  function cycle(list, value, step) {
+    var i = indexOfId(list, value);
+    return list[(i + step + list.length) % list.length];
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) { return; }
+    var t = e.target;
+    var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+
+    if (e.key === 'Tab' && modals.length) { trapTab(e); return; }
+    if (e.key === 'Escape') {
+      if (typing && !modals.length) { return; }
+      e.preventDefault();
+      back();
+      return;
+    }
+    if (typing) { return; }
+
+    if (proto.model === 'single-focus') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); moveFocus(1); return; }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); moveFocus(-1); return; }
+      if (e.key === 'Backspace') { e.preventDefault(); back(); return; }
+      if ((e.key === 'Enter' || e.key === ' ') && t && t.hasAttribute && t.hasAttribute('data-focusable') && t.tagName !== 'BUTTON' && t.tagName !== 'A') {
+        e.preventDefault(); t.click(); return;
+      }
+    }
+
+    if (modals.length) { return; }
+    var k = e.key.toLowerCase();
+    if (k === '[' || k === ']') {
+      var ids = screens.map(function (s) { return s.getAttribute('data-screen'); });
+      showScreen(cycle(ids, current, k === ']' ? 1 : -1), true);
+    } else if (k === 's') { setState(cycle(S.states, stateByScreen[current], 1)); }
+    else if (k === 'o' && S.options.length) {
+      setOption(cycle(S.options.map(function (o) { return o.id; }), proto.option, 1));
+    } else if (k === 'r') { toggleMotion(); }
+    else if (k === 'g') { toggleSafe(); }
+  });
+
+  // Keep focus inside the topmost modal even if something else grabs it.
+  document.addEventListener('focusin', function (e) {
+    var m = topModal();
+    if (m && !m.contains(e.target)) { focusFirst(m); }
+  });
+
+  // Single-focus model: hover moves the same focus that the arrows move.
+  stage.addEventListener('mouseover', function (e) {
+    if (proto.model !== 'single-focus') { return; }
+    var el = e.target.closest && e.target.closest(FOCUSABLE);
+    if (el && container().contains(el) && el !== document.activeElement) { focusEl(el); }
+  });
+
+  // Click delegation for the data attributes used in the markup.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest && e.target.closest('[data-goto],[data-back],[data-open-modal],[data-close-modal],[data-set-state]');
+    if (!el || !stage.contains(el)) { return; }
+    if (el.hasAttribute('data-close-modal')) { closeModal(); }
+    if (el.hasAttribute('data-set-state')) { setState(el.getAttribute('data-set-state')); }
+    if (el.hasAttribute('data-goto')) { showScreen(el.getAttribute('data-goto'), true); }
+    if (el.hasAttribute('data-back')) { back(); }
+    if (el.hasAttribute('data-open-modal')) { openModal(el.getAttribute('data-open-modal')); }
+  });
+
+  /* ---------- reduced motion, safe-area guide, glyphs ---------- */
+  function toggleMotion() {
+    proto.reducedMotion = !proto.reducedMotion;
+    root.classList.toggle('reduce-motion', proto.reducedMotion);
+    document.getElementById('bar-motion').setAttribute('aria-pressed', String(proto.reducedMotion));
+  }
+  function toggleSafe() {
+    S.safeArea.show = !S.safeArea.show;
+    document.getElementById('safe-guide').hidden = !S.safeArea.show;
+    document.getElementById('bar-safe').setAttribute('aria-pressed', String(!!S.safeArea.show));
+  }
+  function applyGlyphs() {
+    var set = (S.glyphs.sets && S.glyphs.sets[S.glyphs.active]) || {};
+    Array.prototype.forEach.call(stage.querySelectorAll('[data-glyph]'), function (el) {
+      el.textContent = set[el.getAttribute('data-glyph')] || el.getAttribute('data-glyph-default') || el.textContent;
+    });
+  }
+
+  /* ---------- control bar ---------- */
+  function makeButton(label, onclick, attrs) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    Object.keys(attrs || {}).forEach(function (k) { b.setAttribute(k, attrs[k]); });
+    b.addEventListener('click', onclick);
+    return b;
+  }
+  function buildBar() {
+    document.getElementById('bar-title').textContent = S.title || 'Prototype';
+    document.title = S.title || 'Prototype';
+    document.getElementById('bar-question').textContent = 'Question: ' + S.question;
+
+    var scr = document.getElementById('bar-screens');
+    screens.forEach(function (s) {
+      var id = s.getAttribute('data-screen');
+      scr.appendChild(makeButton(s.getAttribute('aria-label') || id, function () { showScreen(id, true); }, { 'data-screen-btn': id }));
+    });
+    var sts = document.getElementById('bar-states');
+    S.states.forEach(function (st) {
+      sts.appendChild(makeButton(st, function () { setState(st); }, { 'data-state-btn': st }));
+    });
+    var opts = document.getElementById('bar-options');
+    S.options.forEach(function (o) {
+      opts.appendChild(makeButton(o.label + (o.register ? ' (' + o.register + ')' : ''), function () { setOption(o.id); }, { 'data-option-btn': o.id }));
+    });
+    document.getElementById('bar-options-wrap').hidden = S.options.length === 0;
+
+    document.getElementById('bar-model').addEventListener('change', function (e) { setModel(e.target.value); });
+    document.getElementById('bar-motion').addEventListener('click', toggleMotion);
+    document.getElementById('bar-safe').addEventListener('click', toggleSafe);
+
+    var names = Object.keys(S.glyphs.sets || {});
+    if (names.length) {
+      var sel = document.getElementById('bar-glyph');
+      names.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+      sel.value = S.glyphs.active || names[0];
+      S.glyphs.active = sel.value;
+      sel.addEventListener('change', function (e) { S.glyphs.active = e.target.value; applyGlyphs(); });
+      document.getElementById('bar-glyph-wrap').hidden = false;
+    }
+  }
+  function refreshBar() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-screen-btn]'), function (b) {
+      b.setAttribute('aria-current', String(b.getAttribute('data-screen-btn') === current));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-state-btn]'), function (b) {
+      b.setAttribute('aria-pressed', String(current !== null && b.getAttribute('data-state-btn') === stateByScreen[current]));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-option-btn]'), function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-option-btn') === proto.option));
+    });
+  }
+
+  /* ---------- hash deep link: #screen/state/option ---------- */
+  function writeHash() {
+    if (!current) { return; }
+    var h = '#' + current + '/' + stateByScreen[current] + (proto.option ? '/' + proto.option : '');
+    try { window.history.replaceState(null, '', h); } catch (err) { /* some browsers refuse on disk; the link is optional */ }
+  }
+  function readHash() {
+    var parts = location.hash.replace(/^#/, '').split('/');
+    return { screen: parts[0], state: parts[1], option: parts[2] };
+  }
+
+  /* ---------- start ---------- */
+  buildBar();
+  setModel(S.inputModel);
+  var h = readHash();
+  setOption(h.option || (S.options[0] && S.options[0].id));
+  var firstId = (h.screen && document.getElementById('screen-' + h.screen)) ? h.screen : S.surfaces[0] || screens[0].getAttribute('data-screen');
+  if (S.states.indexOf(h.state) !== -1) { stateByScreen[firstId] = h.state; }
+  if (S.font) { root.style.setProperty('--font-body', S.font); }
+  if (S.safeArea.show) { S.safeArea.show = false; toggleSafe(); }
+  applyGlyphs();
+  showScreen(firstId, false);
+  fitStage();
+  window.addEventListener('resize', fitStage);
+  window.addEventListener('hashchange', function () {
+    var x = readHash();
+    if (x.screen && x.screen !== current && document.getElementById('screen-' + x.screen)) { showScreen(x.screen, true); }
+    if (x.state && x.state !== stateByScreen[current]) { setState(x.state); }
+    if (x.option && x.option !== proto.option) { setOption(x.option); }
+  });
+})();
+</script>
+</body>
+</html>

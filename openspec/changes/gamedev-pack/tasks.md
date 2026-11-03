@@ -30,9 +30,9 @@ Both modules are written in group 1, before any pack content, and run red first.
 | 18 | gamedev design lines | gamedev design lines delivered | P | Delivered.test_gamedev_design_lines | red |
 | 19 | gamedev tasks and apply lines | Tasks and apply lines delivered | P | Delivered.test_gamedev_tasks_apply_lines | red |
 | 20 | gamedev tasks and apply lines | Engine-neutral wording | P | SkillStatic.test_engine_neutral_lines_and_files | red |
-| 21 | ui-prototyping settles undecided layout with a prototype | Prototype line delivered | P | Delivered.test_ui_prototyping_proposal_line | red |
+| 21 | ui-prototyping settles undecided layout with a prototype | Prototype line delivered | P | Delivered.test_ui_prototyping_proposal_line | green |
 | 22 | ui-prototyping settles undecided layout with a prototype | The line's pack is removed | U | ShippedInstall.test_removal_keeps_gdd_drops_lines | red |
-| 23 | ui-prototyping defaults are neutral | Neutral template | P | SkillStatic.test_neutral_prototype_template | red |
+| 23 | ui-prototyping defaults are neutral | Neutral template | P | SkillStatic.test_neutral_prototype_template | green |
 | 24 | ui-prototyping defaults are neutral | Game settings passed | P | SkillStatic.test_gamedev_ux_passes_game_settings | red |
 | 25 | ui-prototyping defaults are neutral | A missing game setting | P | SkillStatic.test_missing_game_setting_fails | red |
 | 26 | godot asks for an in-engine evidence task | godot with gamedev | P | Delivered.test_godot_evidence_line_with_gamedev | red |
@@ -41,7 +41,7 @@ Both modules are written in group 1, before any pack content, and run red first.
 | 29 | Signals suggest the packs for game projects | A nested Godot project | U | Signals.test_nested_project_godot_offers_gamedev_and_godot | red |
 | 30 | Signals suggest the packs for game projects | No engine file | U | Signals.test_no_engine_file_no_offer | red |
 | 31 | Signals match under either reading of a nested glob | Root file under the strict reading | U | Signals.test_root_file_both_readings | red |
-| 32 | Signals match under either reading of a nested glob | A nested signal without its root form | P | SkillStatic.test_nested_signal_needs_root_form | red |
+| 32 | Signals match under either reading of a nested glob | A nested signal without its root form | P | SkillStatic.test_nested_signal_needs_root_form | green |
 
 ## How each skill is written (design D8)
 
@@ -54,25 +54,25 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
 
 ## 1. Test harness and ui-prototyping
 
-- [ ] 1.1 Give `evals/packs/packenv.py` `make_download` a `source` argument (default: the fixtures) so it can copy the repository's `packs/`. Verify that `python -m unittest evals/packs/test_pack_verify.py evals/packs/test_pack_docs.py` still passes unchanged.
-- [ ] 1.2 Create `evals/packs/test_shipped_packs.py` (P) with every P row of the test map:
+- [x] 1.1 Give `evals/packs/packenv.py` `make_download` a `source` argument (default: the fixtures) so it can copy the repository's `packs/`. Verify that `python -m unittest evals/packs/test_pack_verify.py evals/packs/test_pack_docs.py` still passes unchanged.
+- [x] 1.2 Create `evals/packs/test_shipped_packs.py` (P) with every P row of the test map:
   - the static-check functions: description cap, named `references/`, `assets/` and `templates/` paths, document templates, third-party notices, engine-neutral lines and files, the neutral prototype template, the D9 settings (`stage`, `scaling`, `font`, `input model`, `save folder`) in both skills, the godot line wording, and nested signals with a root form;
   - the `ShippedPackCheck`, `SkillStatic`, `ShippedDocs`, `Questions` and `Delivered` classes. The failure scenarios use scratch copies with one defect. The `Delivered` checks hold the D10 keywords in the test.
 
   Run `python -m unittest evals/packs/test_shipped_packs.py` and see every row fail because `packs/` holds none of the three packs.
-- [ ] 1.3 Create `evals/update/test_shipped_packs.py` (U) on the `test_packs.py` end-to-end harness, with the repository's `packs/` in the download. It holds:
+- [x] 1.3 Create `evals/update/test_shipped_packs.py` (U) on the `test_packs.py` end-to-end harness, with the repository's `packs/` in the download. It holds:
   - `ShippedInstall` (rows 2, 3, 4 and 22): the six skill trees are byte-equal to the download in every chosen skills directory; `packs.json` ownership; `pack_requires` with no file changed; `godot` alone; removal keeps an edited GDD and drops every `[pack:` line;
   - `Signals` (rows 29-31), over the catalogue the install writes, matched against root, nested and no-match file lists under both readings of `**/`.
 
   Run `python -m unittest evals/update/test_shipped_packs.py` and see the rows fail because the packs do not exist.
-- [ ] 1.4 Write `packs/ui-prototyping/skills/ui-prototyping-html/` (fresh-context writer, see above). It holds:
+- [x] 1.4 Write `packs/ui-prototyping/skills/ui-prototyping-html/` (fresh-context writer, see above). It holds:
   - `SKILL.md`, with the D9 parameter table naming `stage`, `scaling`, `font`, `input model` and `save folder` (plus the other contract settings), each with its neutral default;
   - the prototyping reference;
   - the token schema with its CSS mapping;
   - `assets/prototype-template.html`, with neutral defaults: a `system-ui` font stack, a stage that follows the window, mouse and keyboard, a state switcher and a small exposed state object.
 
   Write `packs/ui-prototyping/pack.json`: no signals, no init questions, and the proposal line naming `ui-prototyping-html`. Verify that the ui-prototyping rows of P pass and `bash scripts/update.sh pack-check --pack ui-prototyping` exits 0. Open the template in a browser once to check it works. Flip rows 21, 23 and 32 green, and rows 1, 5-9 and 20 once groups 2-3 also pass them.
-- [ ] 1.5 Add a `## Packs` section to `README.md`: what a pack is, enabling packs under `packs:` and rerunning the install prompt, and a row for `ui-prototyping`. Add a "Pack layers" note to `packs/README.md`: domain packs require shared packs, stack packs stand alone, and shared packs take settings from the calling skill (D9). Verify with `python -m unittest evals/runner/test_suite_map.py` (README and packs paths are already mapped).
+- [x] 1.5 Add a `## Packs` section to `README.md`: what a pack is, enabling packs under `packs:` and rerunning the install prompt, and a row for `ui-prototyping`. Add a "Pack layers" note to `packs/README.md`: domain packs require shared packs, stack packs stand alone, and shared packs take settings from the calling skill (D9). Verify with `python -m unittest evals/runner/test_suite_map.py` (README and packs paths are already mapped).
 
 ## 2. gamedev
 

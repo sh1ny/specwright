@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "name": "ui-prototyping",
+  "description": "Clickable single-file HTML prototypes and design tokens that settle UI layout and flow before it is specified.",
+  "skills": [
+    "ui-prototyping-html"
+  ],
+  "rules": {
+    "proposal": [
+      "A UI change whose layout or flow is undecided settles it with a clickable prototype built with ui-prototyping-html before the layout is specified."
+    ]
+  }
+}

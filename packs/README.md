@@ -69,6 +69,16 @@ This check is **deliberately crude**. It does no negation-scope analysis and kno
 
 `requires` lists pack names. Every required pack must exist in the download (`pack_requires`) and must be enabled in the project too: the installer never enables a required pack on its own. A cycle is refused (`pack_cycle`). Packs install dependencies first, then by name, and their lines follow that order.
 
+## Pack layers
+
+The shipped packs come in three layers:
+
+- **Shared packs** hold what several domains need, such as `ui-prototyping`. They name no domain and no engine, and their defaults are neutral.
+- **Domain packs** hold one kind of project, such as `gamedev`. A domain pack requires the shared packs it builds on and stays engine-neutral.
+- **Stack packs** hold one engine or framework, such as `godot`. A stack pack stands alone (it requires nothing), so a project can use it without the domain pack. Everything specific to that engine lives there and nowhere else.
+
+A shared skill takes its settings from the skill that calls it. `ui-prototyping-html` lists its settings (stage, scaling, font, input model, save folder and others) with a neutral default each, and a domain skill such as `gamedev-ux` passes its own values. A setting the caller leaves out takes the default. Refer to another pack's skill by its name, never by a path inside it.
+
 ## Documents and init questions
 
 A `documents` entry names a template in the pack (`documents/gdd.md`, which must exist) and a default path relative to the project (`docs/game/gdd.md`, without `..`, not absolute, not a directory). The install creates the file from the template only when it does not exist, never overwrites it, and keeps it when the pack is removed. A project can override the path under `packs.<name>.documents` in `specwright.yaml`.

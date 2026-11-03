@@ -664,7 +664,20 @@ Since 0.13.0 the default branch decides (ADR 0020). Before it archives and befor
 
 ## 📦 Packs
 
-A pack is an optional bundle of skills, config lines and documents that ships in the Specwright release and adds to the core workflow without relaxing a gate. You opt in under `packs:` in `openspec/specwright.yaml`, keyed by pack name, with optional document path overrides. No pack ships yet; the first ones come in 0.18.0. In v1 packs are refused on a planning store and for skills directories outside the project (user-level). See [packs/README.md](packs/README.md).
+A pack is an optional bundle of skills, config lines and documents that ships in the Specwright release and adds to the core workflow without relaxing a gate. Its skills add domain knowledge; its lines reach the agent through `openspec instructions` for the artifacts, apply and archive; its documents are created once and then belong to the project.
+
+To enable packs, list them under `packs:` in `openspec/specwright.yaml`, keyed by pack name, with optional document path overrides, then rerun the install prompt:
+
+```yaml
+packs:
+  ui-prototyping: {}
+```
+
+A pack that requires another needs both listed; the install never enables one on its own. Removing a pack from `packs:` and rerunning the install removes its skills and lines and keeps its documents. In v1 packs are refused on a planning store and for skills directories outside the project (user-level). See [packs/README.md](packs/README.md).
+
+| Pack | Requires | What it adds |
+|---|---|---|
+| `ui-prototyping` | none | `ui-prototyping-html`: clickable single-file HTML prototypes that settle an undecided layout or flow before it is specified, and visual identity as design tokens. Creates no document. |
 
 ## 🗄️ Stores
 
