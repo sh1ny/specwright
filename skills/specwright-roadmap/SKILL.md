@@ -37,6 +37,12 @@ Store-backed (see the Planning repo section of `specwright-commit`): the store's
 
 Then, before each step that writes project files in the store, run `[vcs] state --branch <branch>` on the store (`branch` must be `<branch>`), and commit store files in one call: `[vcs] commit --branch <branch> --message-file <msgfile> -- <files>` in its store form. When the check fails (the store is on another branch), stop with no further write or commit in either repo, and name both branches: `<branch>` expected, and the store's current branch found.
 
+## Decision mode
+
+**init**, **close** and **pack** read `project.decision_making` from `openspec/specwright.yaml` in the code repo once, at their start, before any branch or write: `autonomous`, `important` or `all`. Unset means `important`, today's interview. Any other value is unknown: stop before any branch or file write, naming the value and the three valid values `autonomous`, `important` and `all`; never fall back to another mode. The top-level `decision_making` is never read by the roadmap: it sets the mode of a change's planning only, and a run started by **next** reads no roadmap mode.
+
+An instruction the user gives when a run starts, naming a mode or saying how much to be asked ("decide yourself for this roadmap"), sets the mode for that run only and leaves `specwright.yaml` unchanged. Record the mode in force and its source in the run line of the strategy's `## Decision summary`: `- <run> <YYYY-MM-DD>: <mode> (source: setting)` or `(source: user, "<the user's words>")`, where `<run>` is `init`, `close M<n>` or `pack <name>`. The next run, with no instruction of its own, reads the setting again, whatever mode an earlier run used.
+
 ## init
 
 Input: the user's project idea (any size), plus the repo if code exists. Work on branch `docs/project-baseline` (see Committing project files).

@@ -67,6 +67,10 @@ project:
   architecture: openspec/architecture.md   # system shape + index of in-force ADRs
   roadmap: openspec/roadmap.md
   adr_dir: docs/adr
+  # How far you are kept in the loop while roadmap init, close and pack run:
+  # autonomous, important or all. Unset means important. Separate from the
+  # top-level decision_making, which covers change planning only.
+  # decision_making: important
 
 pr:
   # Command that must pass before every push. Empty = none.

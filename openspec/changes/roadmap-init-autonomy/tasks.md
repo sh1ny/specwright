@@ -6,11 +6,11 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 | # | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|---|
-| 1 | Roadmap runs read their decision mode from the project setting | Key unset | test_roadmap_autonomy.py | ModeFromSetting.test_unset_means_important_interview | red |
-| 2 | Roadmap runs read their decision mode from the project setting | Unknown value | test_roadmap_autonomy.py | ModeFromSetting.test_unknown_value_stops_before_write | red |
-| 3 | Roadmap runs read their decision mode from the project setting | Change planning keeps its own setting | test_roadmap_autonomy.py | ModeFromSetting.test_top_level_decision_making_not_read | red |
-| 4 | A user instruction overrides the roadmap mode for one run | Override at init | test_roadmap_autonomy.py | Override.test_override_recorded_with_words_setting_unchanged | red |
-| 5 | A user instruction overrides the roadmap mode for one run | Next run without an instruction | test_roadmap_autonomy.py | Override.test_override_for_one_run_only | red |
+| 1 | Roadmap runs read their decision mode from the project setting | Key unset | test_roadmap_autonomy.py | ModeFromSetting.test_unset_means_important_interview | green |
+| 2 | Roadmap runs read their decision mode from the project setting | Unknown value | test_roadmap_autonomy.py | ModeFromSetting.test_unknown_value_stops_before_write | green |
+| 3 | Roadmap runs read their decision mode from the project setting | Change planning keeps its own setting | test_roadmap_autonomy.py | ModeFromSetting.test_top_level_decision_making_not_read | green |
+| 4 | A user instruction overrides the roadmap mode for one run | Override at init | test_roadmap_autonomy.py | Override.test_override_recorded_with_words_setting_unchanged | green |
+| 5 | A user instruction overrides the roadmap mode for one run | Next run without an instruction | test_roadmap_autonomy.py | Override.test_override_for_one_run_only | green |
 | 6 | An autonomous roadmap run asks nothing and records every answer | Autonomous init | test_roadmap_autonomy.py | Autonomous.test_init_asks_nothing_and_records_rows | red |
 | 7 | An autonomous roadmap run asks nothing and records every answer | Autonomous pack setup | test_roadmap_autonomy.py | Autonomous.test_pack_mode_autonomous | red |
 | 8 | An autonomous roadmap run asks nothing and records every answer | Pack offer at an autonomous init | test_roadmap_autonomy.py | Autonomous.test_pack_offer_pending_not_enabled | red |
@@ -46,15 +46,15 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 ## 1. Reading the mode and the override
 
-- [ ] 1.1 Create `evals/git-workflow/test_roadmap_autonomy.py` with the tests for rows 1-5. Run `python -m unittest evals/git-workflow/test_roadmap_autonomy.py` and confirm they fail because the skill and template lack the rules.
-- [ ] 1.2 In `skills/specwright-roadmap/SKILL.md`, add a decision-mode paragraph that init, close and pack read at their start, before any branch or write (design D1):
+- [x] 1.1 Create `evals/git-workflow/test_roadmap_autonomy.py` with the tests for rows 1-5. Run `python -m unittest evals/git-workflow/test_roadmap_autonomy.py` and confirm they fail because the skill and template lack the rules.
+- [x] 1.2 In `skills/specwright-roadmap/SKILL.md`, add a decision-mode paragraph that init, close and pack read at their start, before any branch or write (design D1):
   - read `project.decision_making`; unset means `important`, today's interview;
   - an unknown value stops, naming it and `autonomous`, `important`, `all`;
   - the top-level `decision_making` is never read by the roadmap;
   - a spoken instruction at run start sets the mode for that run only, is recorded with the user's words in the run line, and leaves `specwright.yaml` unchanged.
 
   Verify that rows 1-5 pass and flip them green.
-- [ ] 1.3 Add a commented `# decision_making: important` line inside `project:` in `templates/openspec/specwright.yaml`, with a comment naming the three values and that unset means `important`. Add the key to the README settings block and a paragraph to the README roadmap section (design D7). Add tests that the template line is commented and inside `project:` and that the README names the key. Verify that they pass.
+- [x] 1.3 Add a commented `# decision_making: important` line inside `project:` in `templates/openspec/specwright.yaml`, with a comment naming the three values and that unset means `important`. Add the key to the README settings block and a paragraph to the README roadmap section (design D7). Add tests that the template line is commented and inside `project:` and that the README names the key. Verify that they pass.
 
 ## 2. Asking per mode
 
