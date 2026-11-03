@@ -47,7 +47,7 @@
 
 ## 1. The contract
 
-- [ ] 1.1 Write `docs/adr/0024-tasks-the-user-checks-are-marked-and-only-the-user-ticks-them.md` (MADR-short, `Status: accepted`, today's date) from design D1, D2, D3 and D6, and add its row to the in-force ADR index in `openspec/architecture.md`, plus a Contracts bullet for the `[user]`/`[evidence]` markers and the `Specwright-User-Task` trailer. Verify that the ADR file exists, the index row and bullet are present, and `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 1.1 Write `docs/adr/0024-tasks-the-user-checks-are-marked-and-only-the-user-ticks-them.md` (MADR-short, `Status: accepted`, today's date) from design D1, D2, D3 and D6, and add its row to the in-force ADR index in `openspec/architecture.md`, plus a Contracts bullet for the `[user]`/`[evidence]` markers and the `Specwright-User-Task` trailer. Verify that the ADR file exists, the index row and bullet are present, and `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 2. task-cover.sh reads kinds, user ticks, evidence and a revision
 
