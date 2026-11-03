@@ -31,7 +31,9 @@ Role meanings in one line each:
 - `accent` marks the primary action; `on-accent` is text or icons placed on it.
 - `focus` is the focus marker. `positive`, `warning` and `negative` are statuses.
 - `scrim` dims what lies behind a modal.
-- `edge` is the safe margin around a screen; `gap` is the default spacing between siblings.
+- `edge` is the safe margin around a screen (the default action-safe inset of the safe-area guide;
+  the guide's tighter text-safe inset defaults to space step 6 and both are caller-settable);
+  `gap` is the default spacing between siblings.
 
 ## Rules
 

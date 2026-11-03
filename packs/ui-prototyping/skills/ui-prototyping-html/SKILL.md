@@ -50,7 +50,7 @@ The caller passes these; anything missing takes the neutral default. Say which d
 | `input model` | pointer-keyboard, native tab order | Or `single-focus` (arrows move, confirm and back keys, hover moves the same focus), or `touch`. |
 | `prompt glyphs` | none | Labelled placeholder glyph sets, switchable from the bar. |
 | `placeholders` | neutral labelled boxes | A caller may ask for shapes sized to a base-pixel multiple. |
-| `safe-area guide` | off | An overlay inset by the edge token; on when the caller names safe areas. |
+| `safe-area guide` | off | One switch that shows two labelled overlays: an outer action-safe area (default inset: the edge token) and a tighter inner text-safe area (default inset: space step 6). The caller sets either inset; on when the caller names safe areas. |
 | `token extensions` | none | Domain roles added as `<group>.<domain>-<role>` with a generic fallback each. |
 | `save folder` | the calling skill's or project's folder, else `docs/prototypes/` | Where the file is written. |
 | `spec link` | none | The spec sections the prototype illustrates; written into the file header. |

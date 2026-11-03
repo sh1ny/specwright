@@ -116,8 +116,12 @@ settings. Remember that a browser cannot judge timing; motion here shows order, 
   shapes render with nearest-neighbour sampling so edges stay sharp.
 - Check a fixed stage by resizing the window: it must rescale, stay centred, stay crisp, and never
   show a fractional scale when whole steps were asked for.
-- Safe-area guide: an overlay inset by `--space-edge`, off by default. A caller that names safe areas
-  turns it on, and the bar can toggle it (`G`).
+- Safe-area guide: off by default. One switch shows two labelled rectangles: the outer action-safe
+  area (dashed; default inset `--space-edge`, 1.5rem) and the tighter text-safe area (dotted; default
+  inset `--space-6`, 2.5rem). A caller that names safe areas sets `safeArea.actionInset` and
+  `safeArea.textInset` in the settings block (any CSS length or `var(--...)`) and turns the guide on;
+  the bar and the `G` key toggle both together. Keep text and static overlays inside the inner
+  rectangle.
 - Do not assume small screens or touch. If the caller wants a narrow layout, they pass it.
 
 ## Where the eye lands

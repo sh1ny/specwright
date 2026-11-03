@@ -30,7 +30,7 @@
       "A per-frame or hot-path change states a frame budget (frame time or memory) and how it is measured."
     ],
     "tasks": [
-      "Player-visible work ends with a [user] playtest task naming what to play, what to judge and who plays: a fresh player, not the designer, when it judges difficulty or learnability (gamedev-playtest).",
+      "Player-visible work ends with a [user] playtest task naming what to play, what to judge and who plays; when it judges difficulty or learnability it states whether the designer or a fresh player plays (gamedev-playtest).",
       "A change to input gets evidence for each declared input device."
     ]
   },
