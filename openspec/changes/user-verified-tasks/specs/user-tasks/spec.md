@@ -37,7 +37,7 @@ An agent SHALL NOT tick, implement or dispatch a user task, to an implementer or
 - **THEN** the agent leaves 3.2 unticked and asks the user to tick 3.2 in `tasks.md`
 
 ### Requirement: An evidence task is ticked only with its evidence
-An evidence task SHALL name one file under the change's `evidence/` folder, written as a path starting `evidence/`. The agent SHALL tick it only once that file exists, is not empty, and is committed in the commit that covers the task. `task-cover.sh` SHALL list a ticked evidence task as `evidence_missing` when its named file is absent or empty in the working tree, or when it names no `evidence/` path. `evidence_missing` SHALL stop the end-of-apply hand-off.
+An evidence task SHALL name one file as a path starting `evidence/` under the change, and SHALL be ticked only once that file is not empty and committed with the task. `task-cover.sh` SHALL list a ticked evidence task as `evidence_missing` when it names no such path or the file is not a regular, non-empty blob in the index of the repository holding `tasks.md`, whatever `--repo` names (with `--rev`, that revision's tree); it SHALL NOT read the file through the working tree.
 
 #### Scenario: Evidence present
 - **WHEN** task 2.2 names `evidence/run.log`, the file holds the run's output and is committed with the task
@@ -46,6 +46,14 @@ An evidence task SHALL name one file under the change's `evidence/` folder, writ
 #### Scenario: Evidence file missing
 - **WHEN** task 2.2 is ticked and `evidence/run.log` does not exist
 - **THEN** `task-cover.sh` lists 2.2 in `evidence_missing` and there is no hand-off to the pre-ship review or the PR
+
+#### Scenario: Evidence only in the working tree
+- **WHEN** task 2.2 is ticked and `evidence/run.log` exists in the working tree but is neither staged nor committed
+- **THEN** `task-cover.sh` lists 2.2 in `evidence_missing`
+
+#### Scenario: Store-backed evidence
+- **WHEN** `tasks.md` and `evidence/run.log` are committed in the store only, a group commit in each repo covers 2.2, and `task-cover.sh` runs with the store's `tasks.md` against the store and against the code repo
+- **THEN** both calls report no `uncovered`, `duplicates`, `cross_group` or `evidence_missing` entry, so the end-of-apply check passes; once `evidence/run.log` is committed empty, or removed, in the store, both calls list 2.2 in `evidence_missing` and the check stops
 
 #### Scenario: No evidence path named
 - **WHEN** a ticked task reads `- [x] 2.6 [evidence] Capture the frame times`

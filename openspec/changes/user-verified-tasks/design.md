@@ -58,7 +58,7 @@ TIER: FULL
 
 ### D5: Evidence is a committed file under the change
 
-- **Choice:** an `[evidence]` task names one path starting `evidence/`, relative to the change folder; it is ticked only when that file exists, is non-empty and is committed with the task. It is archived with the change.
+- **Choice:** an `[evidence]` task names one path starting `evidence/`, relative to the change folder; it is ticked only when that file exists, is non-empty and is committed with the task. It is archived with the change. `task-cover.sh` reads the file's entry from the index of the repository that holds `tasks.md` (the planning repo, whatever `--repo` names, so the store-backed call against the code repo reports the same evidence as the store call; with `--rev`, from that revision's tree in `--repo`, which holds `tasks.md` there) and counts only a regular, non-empty blob; it never opens the path through the working tree, so a symlink, a UNC or drive path, or a swap during the check cannot make another file count (amended after PR review: three rounds of filesystem-walk fixes each left a hole).
 - **Rejected:** evidence attached to the PR (comments, artifacts), because it would not survive in the repo and `task-cover.sh` cannot read it offline.
 - **Reversal cost:** medium
 - **Important:** no

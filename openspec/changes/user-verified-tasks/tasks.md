@@ -14,6 +14,8 @@
 | user-tasks → An agent never ticks or delegates a user task | User says it passed in chat | evals/git-workflow/test_user_tasks.py | test_chat_report_asks_user_to_tick | green |
 | user-tasks → An evidence task is ticked only with its evidence | Evidence present | evals/git-workflow/test_task_cover.py | test_evidence_present_not_missing | green |
 | user-tasks → An evidence task is ticked only with its evidence | Evidence file missing | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_evidence_file_missing_reported, test_commit_stops_on_evidence_missing | green |
+| user-tasks → An evidence task is ticked only with its evidence | Evidence only in the working tree | evals/git-workflow/test_task_cover.py | test_evidence_untracked_is_missing | green |
+| user-tasks → An evidence task is ticked only with its evidence | Store-backed evidence | evals/git-workflow/test_task_cover.py | test_store_backed_evidence_read_from_tasks_repo | green |
 | user-tasks → An evidence task is ticked only with its evidence | No evidence path named | evals/git-workflow/test_task_cover.py | test_evidence_without_path_reported | green |
 | user-tasks → The test map can point a scenario at a user task | Person-judged scenario | evals/git-workflow/test_user_tasks.py | test_test_map_user_state | green |
 | user-tasks → The test map can point a scenario at a user task | Testable scenario mapped to a user task | evals/git-workflow/test_user_tasks.py | test_review_flags_testable_scenario_on_user_task | green |
