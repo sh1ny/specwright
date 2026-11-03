@@ -2436,7 +2436,8 @@ class Packs(unittest.TestCase):
         sec = section(read(README), r".*Packs")
         self.assertTrue(sec, "README has no Packs section")
         self.assertIn("packs/README.md", sec)
-        self.assertIn("0.18.0", sec)
+        for name in ("ui-prototyping", "gamedev", "godot"):
+            self.assertIn("`%s`" % name, sec, "the Packs section does not list the shipped %s pack" % name)
 
     # group 7: roadmap init and the pack mode
 
