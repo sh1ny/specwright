@@ -364,6 +364,18 @@ class TaskCover(unittest.TestCase):
         doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
         self.assertEqual(doc["evidence_missing"], [])
 
+    def test_rev_ignores_worktree_symlink_on_tasks_path(self):
+        # --rev reads the named path at the revision; a working-tree symlink must not redirect it to another file
+        p = self.repo_tasks("## 1. M\n\n- [ ] 1.1 [user] Play\n")
+        other = p.parent.parent / "other" / "tasks.md"
+        other.parent.mkdir(parents=True)
+        other.write_bytes(b"## 1. M\n\n- [x] 1.1 [user] Play\n")
+        self.commit("chore: two changes")
+        p.unlink()
+        self.symlink_or_skip(other, p)
+        doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
+        self.assertEqual(doc["waiting_on_user"], ["1.1"])
+
     def test_rev_reads_archived_tasks_at_commit(self):
         p = self.repo_tasks("## 4. M\n\n- [x] 4.3 [user] Play\n", archived=True)
         ticked = self.commit("chore: tick")

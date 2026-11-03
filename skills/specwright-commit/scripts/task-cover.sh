@@ -106,8 +106,18 @@ rev = a["--rev"]
 rel_dir = None  # the change folder relative to the repo top, only with --rev
 if rev:
     top = git(repo, "rev-parse", "--show-toplevel").decode("utf-8", "replace").strip()
-    tasks_rel = os.path.relpath(os.path.realpath(tasks_path), os.path.realpath(top)).replace(os.sep, "/")
-    if tasks_rel.startswith("../") or tasks_rel == "..":
+    # The path inside the repo is taken lexically: following a working-tree symlink would let the checkout pick
+    # which committed file is read. Only the repo's own location may be resolved (macOS /var -> /private/var).
+    tasks_rel = None
+    for base in (os.path.abspath(repo), os.path.abspath(top), os.path.realpath(repo)):
+        try:
+            r = os.path.relpath(os.path.abspath(tasks_path), base).replace(os.sep, "/")
+        except ValueError:  # Windows: another drive
+            continue
+        if r not in (".", "..") and not r.startswith("../"):
+            tasks_rel = r
+            break
+    if tasks_rel is None:
         stop("no_tasks", "tasks file %s is outside the repo" % tasks_path, 2)
     raw_tasks = git(repo, "show", "%s:%s" % (rev, tasks_rel), soft=True)
     if raw_tasks is None:
