@@ -137,10 +137,8 @@
 
 :root[data-model="touch"] { --target-min: 3.25rem; }
 
-/* Reduced motion: the media query and the bar toggle share one path. */
-@media (prefers-reduced-motion: reduce) {
-  :root { --motion-quick: 0ms; --motion-standard: 0ms; --motion-slow: 0ms; }
-}
+/* Reduced motion: one path. Script starts the class from the system's prefers-reduced-motion
+   setting, follows changes to it, and the bar toggle flips the same class. */
 :root.reduce-motion { --motion-quick: 0ms; --motion-standard: 0ms; --motion-slow: 0ms; }
 
 /* ---------- Base ---------- */
@@ -283,7 +281,7 @@ p { margin: 0 0 var(--space-3); }
   display: flex; align-items: center; justify-content: center;
   min-height: 7rem; min-width: 10rem; flex: 1;
   color: var(--color-ink-subtle);
-  background: repeating-linear-gradient(135deg, transparent 0 0.5rem, rgb(136 146 160 / 0.2) 0.5rem 1rem);
+  background: repeating-linear-gradient(135deg, transparent 0 0.5rem, color-mix(in srgb, var(--color-line) 20%, transparent) 0.5rem 1rem);
   border: var(--shape-stroke-thin) dashed var(--color-line);
   border-radius: var(--shape-corner-small);
   font-family: var(--font-label); font-size: var(--size-label);
@@ -367,6 +365,7 @@ p { margin: 0 0 var(--space-3); }
     <section class="screen" id="screen-list" data-screen="list" aria-label="Item list" tabindex="-1" hidden>
       <h1>Item list</h1>
       <p class="label">Sample content below is a placeholder. Replace it with content from the spec.</p>
+      <p class="label">Prompts: confirm <span class="tag" data-glyph="confirm" data-glyph-default="Enter">Enter</span> back <span class="tag" data-glyph="back">Esc</span></p>
 
       <div data-state="empty" class="card stack">
         <h2>Nothing here yet</h2>
@@ -488,6 +487,16 @@ p { margin: 0 0 var(--space-3); }
   'use strict';
 
   var S = JSON.parse(document.getElementById('settings').textContent);
+  S.stage = S.stage || {};
+  S.states = S.states || [];
+  S.options = S.options || [];
+  S.surfaces = S.surfaces || [];
+  S.glyphs = S.glyphs || {};
+  S.glyphs.sets = S.glyphs.sets || {};
+  S.glyphs.active = S.glyphs.active || '';
+  S.safeArea = S.safeArea || {};
+  var MODELS = ['pointer-keyboard', 'single-focus', 'touch'];
+  if (MODELS.indexOf(S.inputModel) === -1) { S.inputModel = 'pointer-keyboard'; }
   var root = document.documentElement;
   var stage = document.getElementById('stage');
   var fit = document.getElementById('stage-fit');
@@ -508,6 +517,8 @@ p { margin: 0 0 var(--space-3); }
     option: null,
     model: S.inputModel,
     reducedMotion: false,
+    guide: false,
+    glyphSet: S.glyphs.active,
     trail: trail,
     openModals: [],
     errors: [],
@@ -520,7 +531,12 @@ p { margin: 0 0 var(--space-3); }
     go: function (id) { showScreen(id, true); },
     setState: function (st) { setState(st); },
     setOption: function (id) { setOption(id); },
-    back: function () { back(); }
+    back: function () { back(); },
+    setModel: function (m) { setModel(m); },
+    setMotion: function (on) { setMotion(on); },
+    setSafeArea: function (on) { setSafeArea(on); },
+    setGlyphs: function (name) { setGlyphs(name); },
+    refit: function () { fitStage(); }
   };
   window.proto = proto;
   window.addEventListener('error', function (e) { proto.errors.push(String(e.message || e)); });
@@ -563,7 +579,6 @@ p { margin: 0 0 var(--space-3); }
     if (push && current) { trail.push(current); }
     screens.forEach(function (s) { s.hidden = s !== target; });
     current = id;
-    if (!stateByScreen[id]) { stateByScreen[id] = S.states[S.states.length - 1] || null; }
     applyState();
     refreshBar();
     sync();
@@ -577,23 +592,30 @@ p { margin: 0 0 var(--space-3); }
   }
 
   /* ---------- states ---------- */
+  function defaultState() { return S.states[S.states.length - 1] || null; }
+  // Every screen's variants follow its own state, so no screen shows what an earlier visit left.
   function applyState() {
-    if (!current) { return; }
-    var st = stateByScreen[current];
-    var scr = document.getElementById('screen-' + current);
-    Array.prototype.forEach.call(scr.querySelectorAll('[data-state]'), function (el) {
-      el.hidden = el.getAttribute('data-state').split(/\s+/).indexOf(st) === -1;
+    var has = true;
+    screens.forEach(function (scr) {
+      var id = scr.getAttribute('data-screen');
+      if (!stateByScreen[id]) { stateByScreen[id] = defaultState(); }
+      var st = stateByScreen[id];
+      var found = false;
+      Array.prototype.forEach.call(scr.querySelectorAll('[data-state]'), function (el) {
+        var match = el.getAttribute('data-state').split(/\s+/).indexOf(st) !== -1;
+        el.hidden = !match;
+        found = found || match;
+      });
+      if (id === current) { has = found; }
     });
+    // The note always describes the screen and state now showing, never an earlier one.
+    note(has || !current ? '' : 'This screen has no "' + stateByScreen[current] + '" variant yet.');
   }
   function setState(st) {
     if (S.states.indexOf(st) === -1) { return; }
     dismissModals();
     stateByScreen[current] = st;
     applyState();
-    var has = Array.prototype.some.call(document.getElementById('screen-' + current).querySelectorAll('[data-state]'), function (el) {
-      return el.getAttribute('data-state').split(/\s+/).indexOf(st) !== -1;
-    });
-    note(has ? '' : 'This screen has no "' + st + '" variant yet.');
     refreshBar();
     sync();
     writeHash();
@@ -661,14 +683,14 @@ p { margin: 0 0 var(--space-3); }
     stage.classList.toggle('is-crisp', !!cfg.crisp);
     if (cfg.mode !== 'fixed' || !cfg.baseWidth || !cfg.baseHeight) {
       stage.style.width = ''; stage.style.height = ''; stage.style.maxWidth = ''; stage.style.minHeight = '';
-      stage.style.transform = ''; fit.style.width = ''; fit.style.height = '';
+      stage.style.transform = ''; stage.style.margin = ''; fit.style.width = ''; fit.style.height = ''; fit.style.maxWidth = '';
       return;
     }
     var availW = frame.clientWidth - 32;
     var availH = Math.max(window.innerHeight - frame.getBoundingClientRect().top - 32, cfg.baseHeight);
     var k = Math.min(availW / cfg.baseWidth, availH / cfg.baseHeight);
     if (cfg.scaling === 'whole') { k = Math.max(1, Math.floor(k)); } else { k = Math.max(0.25, k); }
-    stage.style.maxWidth = 'none'; stage.style.minHeight = '0'; // the responsive min-height must not stretch a fixed stage
+    stage.style.maxWidth = 'none'; stage.style.minHeight = '0'; stage.style.margin = '0'; fit.style.maxWidth = 'none'; // the responsive min-height must not stretch a fixed stage
     stage.style.width = cfg.baseWidth + 'px';
     stage.style.height = cfg.baseHeight + 'px';
     stage.style.transform = 'scale(' + k + ')';
@@ -678,6 +700,7 @@ p { margin: 0 0 var(--space-3); }
 
   /* ---------- input model ---------- */
   function setModel(m) {
+    if (MODELS.indexOf(m) === -1) { m = 'pointer-keyboard'; }
     proto.model = m;
     document.body.setAttribute('data-model', m);
     root.setAttribute('data-model', m);
@@ -773,24 +796,45 @@ p { margin: 0 0 var(--space-3); }
   });
 
   /* ---------- reduced motion, safe-area guide, glyphs ---------- */
-  function toggleMotion() {
-    proto.reducedMotion = !proto.reducedMotion;
-    root.classList.toggle('reduce-motion', proto.reducedMotion);
-    document.getElementById('bar-motion').setAttribute('aria-pressed', String(proto.reducedMotion));
+  function setMotion(on) {
+    proto.reducedMotion = !!on;
+    root.classList.toggle('reduce-motion', !!on);
+    document.getElementById('bar-motion').setAttribute('aria-pressed', String(!!on));
   }
-  function toggleSafe() {
-    S.safeArea.show = !S.safeArea.show;
+  function toggleMotion() { setMotion(!proto.reducedMotion); }
+  function setSafeArea(on) {
+    S.safeArea.show = !!on;
+    proto.guide = !!on;
     var g = document.getElementById('safe-guide');
-    if (S.safeArea.actionInset) { g.style.setProperty('--guide-action-inset', S.safeArea.actionInset); }
-    if (S.safeArea.textInset) { g.style.setProperty('--guide-text-inset', S.safeArea.textInset); }
-    g.hidden = !S.safeArea.show;
-    document.getElementById('bar-safe').setAttribute('aria-pressed', String(!!S.safeArea.show));
+    if (S.safeArea.actionInset) { g.style.setProperty('--guide-action-inset', S.safeArea.actionInset); } else { g.style.removeProperty('--guide-action-inset'); }
+    if (S.safeArea.textInset) { g.style.setProperty('--guide-text-inset', S.safeArea.textInset); } else { g.style.removeProperty('--guide-text-inset'); }
+    g.hidden = !on;
+    document.getElementById('bar-safe').setAttribute('aria-pressed', String(!!on));
   }
+  function toggleSafe() { setSafeArea(!S.safeArea.show); }
+  // Prompt text comes from the source each time, never from what was last rendered: the active set,
+  // then the element's own default, then the generic set, then the text it had in the markup.
   function applyGlyphs() {
-    var set = (S.glyphs.sets && S.glyphs.sets[S.glyphs.active]) || {};
+    var sets = S.glyphs.sets;
+    var set = sets[S.glyphs.active] || {};
+    var generic = sets.generic || {};
     Array.prototype.forEach.call(stage.querySelectorAll('[data-glyph]'), function (el) {
-      el.textContent = set[el.getAttribute('data-glyph')] || el.getAttribute('data-glyph-default') || el.textContent;
+      if (!el.hasAttribute('data-glyph-original')) { el.setAttribute('data-glyph-original', el.textContent); }
+      var key = el.getAttribute('data-glyph');
+      var picks = [set[key], el.getAttribute('data-glyph-default'), generic[key], el.getAttribute('data-glyph-original')];
+      for (var i = 0; i < picks.length; i++) {
+        if (picks[i]) { el.textContent = picks[i]; break; }
+      }
     });
+  }
+  function setGlyphs(name) {
+    var names = Object.keys(S.glyphs.sets);
+    if (names.length && name && names.indexOf(name) === -1) { return; }
+    S.glyphs.active = name || '';
+    proto.glyphSet = S.glyphs.active;
+    var sel = document.getElementById('bar-glyph');
+    if (names.indexOf(S.glyphs.active) !== -1) { sel.value = S.glyphs.active; }
+    applyGlyphs();
   }
 
   /* ---------- control bar ---------- */
@@ -830,9 +874,10 @@ p { margin: 0 0 var(--space-3); }
     if (names.length) {
       var sel = document.getElementById('bar-glyph');
       names.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
-      sel.value = S.glyphs.active || names[0];
-      S.glyphs.active = sel.value;
-      sel.addEventListener('change', function (e) { S.glyphs.active = e.target.value; applyGlyphs(); });
+      S.glyphs.active = names.indexOf(S.glyphs.active) !== -1 ? S.glyphs.active : names[0];
+      proto.glyphSet = S.glyphs.active;
+      sel.value = S.glyphs.active;
+      sel.addEventListener('change', function (e) { setGlyphs(e.target.value); });
       document.getElementById('bar-glyph-wrap').hidden = false;
     }
   }
@@ -864,14 +909,21 @@ p { margin: 0 0 var(--space-3); }
   setModel(S.inputModel);
   var h = readHash();
   setOption(h.option || (S.options[0] && S.options[0].id));
-  var firstId = (h.screen && document.getElementById('screen-' + h.screen)) ? h.screen : S.surfaces[0] || screens[0].getAttribute('data-screen');
+  var known = screens.map(function (sc) { return sc.getAttribute('data-screen'); });
+  var firstId = known.indexOf(h.screen) !== -1 ? h.screen
+    : (S.surfaces.filter(function (id) { return known.indexOf(id) !== -1; })[0] || known[0]);
   if (S.states.indexOf(h.state) !== -1) { stateByScreen[firstId] = h.state; }
   if (S.font) { root.style.setProperty('--font-body', S.font); }
-  if (S.safeArea.show) { S.safeArea.show = false; toggleSafe(); }
+  setSafeArea(!!S.safeArea.show);
+  var mq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  setMotion(!!(mq && mq.matches));
+  if (mq && mq.addEventListener) { mq.addEventListener('change', function (e) { setMotion(e.matches); }); }
   applyGlyphs();
   showScreen(firstId, false);
   fitStage();
   window.addEventListener('resize', fitStage);
+  // The bar can change height (hints, notes); refit so a fixed stage never uses a stale size.
+  if (window.ResizeObserver) { new ResizeObserver(fitStage).observe(document.getElementById('bar')); }
   window.addEventListener('hashchange', function () {
     var x = readHash();
     if (x.screen && x.screen !== current && document.getElementById('screen-' + x.screen)) { showScreen(x.screen, true); }

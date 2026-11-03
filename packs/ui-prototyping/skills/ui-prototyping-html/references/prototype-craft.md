@@ -102,9 +102,9 @@ template also adds a halo ring so the marker is a shape, not only a colour.
 
 Motion is optional and purposeful: showing a sequence, not decorating. No constant ambient motion; it
 pulls the eye from the question. All motion durations come from `--motion-*` tokens. The bar's
-"Reduce motion" button (and the `R` key) sets every duration to zero, and the template applies the
-same path under `prefers-reduced-motion`, so the reduced path can be seen without changing system
-settings. Remember that a browser cannot judge timing; motion here shows order, not speed.
+"Reduce motion" button (and the `R` key) sets every duration to zero. The template starts that
+button from the system's `prefers-reduced-motion` setting and follows later changes to it, so the
+reduced path can be seen without changing system settings. Remember that a browser cannot judge timing; motion here shows order, not speed.
 
 ## Stage and scaling
 
@@ -145,6 +145,11 @@ When a headless browser is available, a script may:
    errors);
 2. press the keys through every screen, state and option, reading `window.proto` after each step;
 3. take a screenshot at each step, collect `window.proto.errors`, and stop at the first new error.
+
+Besides the read-only fields (also `guide`, `reducedMotion`, `glyphSet`), `window.proto` offers the same
+switches as the bar: `go`, `back`, `setState`, `setOption`, `setModel`, `setMotion`, `setSafeArea`,
+`setGlyphs` and `refit`. Each setter is idempotent, and switching A to B and back to A restores
+exactly what A showed.
 
 It is a pre-show aid that finds breakage. It is never the verdict, and an agent's screenshots are
 not a playtest. Only the user's look and choice decide.
