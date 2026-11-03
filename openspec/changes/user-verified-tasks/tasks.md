@@ -19,14 +19,14 @@
 | user-tasks → The test map can point a scenario at a user task | Testable scenario mapped to a user task | evals/git-workflow/test_user_tasks.py | test_review_flags_testable_scenario_on_user_task | green |
 | user-tasks → A user-verified exit criterion reaches the tasks | Criterion carried to a task | evals/git-workflow/test_user_tasks.py | test_user_criterion_becomes_user_task | green |
 | user-tasks → A user-verified exit criterion reaches the tasks | Criterion judged only at close | evals/git-workflow/test_user_tasks.py | test_criterion_at_close_explained_in_proposal | green |
-| user-tasks → Archive and verify wait for the user | Archive with a user task open | evals/git-workflow/test_user_tasks.py | test_archive_context_line_stops_on_user_task | red |
-| user-tasks → Archive and verify wait for the user | User ticks, then archive | evals/git-workflow/test_user_tasks.py | test_archive_gate_only_on_unticked | red |
-| user-tasks → Archive and verify wait for the user | Archived with a user task open | evals/git-workflow/test_user_tasks.py | test_finish_checks_archived_user_tasks | red |
-| user-tasks → The agent merge waits for the user | Agent merge waits | evals/git-workflow/test_user_tasks.py | test_watch_waits_on_user_before_archive_and_merge | red |
-| user-tasks → The agent merge waits for the user | Tick arrives while waiting | evals/git-workflow/test_user_tasks.py | test_watch_rejudges_after_tick | red |
+| user-tasks → Archive and verify wait for the user | Archive with a user task open | evals/git-workflow/test_user_tasks.py | test_archive_context_line_stops_on_user_task | green |
+| user-tasks → Archive and verify wait for the user | User ticks, then archive | evals/git-workflow/test_user_tasks.py | test_archive_gate_only_on_unticked | green |
+| user-tasks → Archive and verify wait for the user | Archived with a user task open | evals/git-workflow/test_user_tasks.py | test_finish_checks_archived_user_tasks | green |
+| user-tasks → The agent merge waits for the user | Agent merge waits | evals/git-workflow/test_user_tasks.py | test_watch_waits_on_user_before_archive_and_merge | green |
+| user-tasks → The agent merge waits for the user | Tick arrives while waiting | evals/git-workflow/test_user_tasks.py | test_watch_rejudges_after_tick | green |
 | user-tasks → The agent merge waits for the user | Archived task unticked by a later commit | evals/git-workflow/test_task_cover.py | test_rev_reads_archived_tasks_at_commit | green |
 | user-tasks → The agent merge waits for the user | Local copy differs from the ready head | evals/git-workflow/test_task_cover.py | test_rev_ignores_working_tree | green |
-| user-tasks → The agent merge waits for the user | tasks.md unreadable at the ready head | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_rev_missing_file_exits_2, test_watch_unknown_user_check_blocks_merge | red |
+| user-tasks → The agent merge waits for the user | tasks.md unreadable at the ready head | evals/git-workflow/test_task_cover.py, evals/git-workflow/test_user_tasks.py | test_rev_missing_file_exits_2, test_watch_unknown_user_check_blocks_merge | green |
 | task-commits → A group is committed once at its boundary | Two groups | evals/git-workflow/test_grade.py | test_group_apply_two_commits_pass | green |
 | task-commits → A group is committed once at its boundary | Shared file within a group | evals/git-workflow/test_grade.py | test_group_apply_split_group_fails | green |
 | task-commits → A group is committed once at its boundary | Unowned edits present | evals/git-workflow/test_grade.py | test_group_apply_swept_scratch_fails | green |
@@ -66,8 +66,8 @@
 
 ## 5. Archive, verify and merge gates
 
-- [ ] 5.1 Add the red tests for the "Archive and verify wait for the user" and "The agent merge waits for the user" wording rows to `evals/git-workflow/test_user_tasks.py` and confirm they fail for the right reason.
-- [ ] 5.2 Add the context lines to `templates/openspec/config.yaml`: before archiving, an unticked `[user]` task in the change's `tasks.md` stops the archive (move nothing, sync no spec, name the tasks; in a bulk archive skip that change); verify reports unticked `[user]` tasks as waiting on the user and never reports the change verified. In `skills/specwright-finish/SKILL.md` step 0, run `task-cover.sh` on the archived `tasks.md` and stop on `waiting_on_user` with the same undo plan as DEFERRED. In `skills/specwright-pr/SKILL.md` watch, before archive and before every merge request, run `task-cover.sh --rev <ready head>` on the planning repo's active, else archived, `tasks.md`: `waiting_on_user` → report `ready, waiting on the user: <ids>`, no archive, no merge; exit 2 or 3 → report the user-task check as unknown and send no merge request; a new head after the tick is judged as usual. Verify the rows pass and flip them green.
+- [x] 5.1 Add the red tests for the "Archive and verify wait for the user" and "The agent merge waits for the user" wording rows to `evals/git-workflow/test_user_tasks.py` and confirm they fail for the right reason.
+- [x] 5.2 Add the context lines to `templates/openspec/config.yaml`: before archiving, an unticked `[user]` task in the change's `tasks.md` stops the archive (move nothing, sync no spec, name the tasks; in a bulk archive skip that change); verify reports unticked `[user]` tasks as waiting on the user and never reports the change verified. In `skills/specwright-finish/SKILL.md` step 0, run `task-cover.sh` on the archived `tasks.md` and stop on `waiting_on_user` with the same undo plan as DEFERRED. In `skills/specwright-pr/SKILL.md` watch, before archive and before every merge request, run `task-cover.sh --rev <ready head>` on the planning repo's active, else archived, `tasks.md`: `waiting_on_user` → report `ready, waiting on the user: <ids>`, no archive, no merge; exit 2 or 3 → report the user-task check as unknown and send no merge request; a new head after the tick is judged as usual. Verify the rows pass and flip them green.
 
 ## 6. Docs and coverage
 

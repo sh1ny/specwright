@@ -182,6 +182,81 @@ class CommitSkillUserTasks(unittest.TestCase):
                          "the skill does not commit `tasks.md` alone when no agent work is pending")
         self.assertRegex(s, r"(?i)before (the user's )?`?Co-authored-by", "the trailer is not placed before Co-authored-by")
 
+CONFIG = ROOT / "templates" / "openspec" / "config.yaml"
+FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
+PR = ROOT / "skills" / "specwright-pr" / "SKILL.md"
+
+
+def context_lines():
+    """The flattened lines of the template config `context:` block, one per MANDATORY or rule line."""
+    return [flat(l).strip() for l in read(CONFIG).splitlines() if l.startswith("  ")]
+
+
+def pr_bullet(lead):
+    """One flattened bullet of specwright-pr watch that starts with `- **lead`."""
+    m = re.search(r"^   - \*\*" + lead + r".*?(?=^   - \*\*|^## )", read(PR), re.M | re.S)
+    assert m, f"specwright-pr has no watch bullet {lead}"
+    return flat(m.group(0))
+
+
+class ArchiveAndMergeWaitForUser(unittest.TestCase):
+    def test_archive_context_line_stops_on_user_task(self):
+        lines = [l for l in context_lines() if re.search(r"`\[user\]`", l)]
+        self.assertEqual(len(lines), 1, "the config context has not exactly one line about a `[user]` task")
+        l = lines[0]
+        self.assertTrue(l.startswith("MANDATORY: Before archiving a change"), "the `[user]` rule is not on the archive line")
+        for name in ("/opsx:archive", "/opsx:bulk-archive", "openspec-archive-change", "'openspec archive'"):
+            self.assertIn(name, l, f"the archive line does not name {name}")
+        self.assertRegex(l, r"(?i)unticked `\[user\]` task[^.]{0,40}stops the archive", "the line does not say an unticked `[user]` task stops the archive")
+        self.assertRegex(l, r"`tasks\.md`", "the line does not read `tasks.md`")
+        self.assertRegex(l, r"(?i)move nothing, sync no spec, name the waiting tasks", "the line does not say move nothing, sync no spec, name the waiting tasks")
+        self.assertRegex(l, r"(?i)bulk archive skips that change and archives the rest", "the line does not skip the change in a bulk archive")
+        self.assertRegex(l, r"(?i)ticked one does not stop", "the line does not say a ticked task does not stop the archive")
+        self.assertRegex(l, r"(?i)/opsx:verify, openspec-verify-change\)[^.]*unticked `\[user\]` task as waiting on the user", "verify does not report an unticked `[user]` task as waiting on the user")
+        self.assertRegex(l, r"(?i)never reports the change verified", "verify may report the change verified")
+
+    def test_archive_gate_only_on_unticked(self):
+        c = read(CONFIG)
+        self.assertRegex(flat(c), r"(?i)an unticked `\[user\]` task stops the archive.{0,200}; a ticked one does not stop it", "the gate is not limited to an unticked task")
+        # the gate sits on the DEFERRED archive line, before the finish line
+        i, j, k = c.find("VERDICT: DEFERRED"), c.find("unticked `[user]`"), c.find("Invoke the 'specwright-finish'")
+        self.assertTrue(0 < i < j < k, "the `[user]` rule is not on the DEFERRED archive line, before the finish line")
+
+    def test_finish_checks_archived_user_tasks(self):
+        s0 = flat(section(read(FINISH), r"Steps").split(" 1. **Branch:**")[0])
+        self.assertRegex(s0, r"task-cover\.sh", "finish step 0 does not run task-cover.sh")
+        self.assertRegex(s0, r"<specwright-commit>/scripts/task-cover\.sh", "finish step 0 does not give the specwright-commit script path")
+        self.assertRegex(s0, r"changes/archive/<archived-name>/tasks\.md", "finish step 0 does not read the archived tasks.md")
+        self.assertRegex(s0, r"(?i)non-empty `waiting_on_user`[^.]{0,120}stop|stop[^.]{0,200}non-empty `waiting_on_user`", "finish step 0 does not stop on a non-empty `waiting_on_user`")
+        self.assertRegex(s0, r"(?i)exit 1[-– ]*(to )?3", "finish step 0 does not stop on a script failure (exit 1-3)")
+        self.assertRegex(s0, r"(?i)same undo plan", "finish step 0 does not show the same undo plan as the DEFERRED stop")
+
+    def test_watch_waits_on_user_before_archive_and_merge(self):
+        a = pr_bullet("Archive before merge")
+        m = pr_bullet("Merge:")
+        u = pr_bullet("User tasks")
+        self.assertRegex(u, r"task-cover\.sh --rev <ready head>", "watch does not run task-cover.sh at the ready head")
+        self.assertRegex(u, r"(?i)never the working tree", "watch may read the working tree")
+        self.assertRegex(u, r"changes/archive/<archived-name>/tasks\.md", "watch does not fall back to the archived tasks.md")
+        self.assertRegex(u, r"ready, waiting on the user: <ids>", "watch does not report `ready, waiting on the user: <ids>`")
+        self.assertRegex(u, r"(?i)no archive commit", "watch may still push an archive commit")
+        self.assertRegex(u, r"(?i)no merge request", "watch may still send a merge request")
+        self.assertRegex(u, r"(?i)before it archives and again before every merge request", "watch does not check before archive and before each merge request")
+        self.assertRegex(a, r"(?i)\*\*User tasks\*\*|user-task check", "the archive bullet does not point at the user-task check")
+        self.assertRegex(m, r"(?i)\*\*User tasks\*\*|user-task check", "the merge bullet does not point at the user-task check")
+
+    def test_watch_rejudges_after_tick(self):
+        u = pr_bullet("User tasks")
+        self.assertRegex(u, r"(?i)tick commit", "watch does not mention the tick commit")
+        self.assertRegex(u, r"(?i)judges the new head like any pushed commit", "watch does not judge the tick head like any pushed commit")
+        self.assertRegex(u, r"(?i)only once it is ready again", "watch does not archive/merge only once ready again")
+
+    def test_watch_unknown_user_check_blocks_merge(self):
+        u = pr_bullet("User tasks")
+        self.assertRegex(u, r"(?i)exit 2 or 3", "watch does not handle exit 2 or 3")
+        self.assertRegex(u, r"(?i)user-task check as unknown", "watch does not report the user-task check as unknown")
+        self.assertRegex(u, r"(?i)unknown[^.]{0,120}send no merge request|send no merge request[^.]{0,60}unknown", "an unknown check does not block the merge request")
+
 
 if __name__ == "__main__":
     unittest.main()
