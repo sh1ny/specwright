@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "name": "godot",
+  "description": "Godot 4 stack pack: in-engine evidence, data-resource tunables and Godot 4 guidance.",
+  "skills": [
+    "godot-engine"
+  ],
+  "rules": {
+    "design": [
+      "In a Godot project, tunables live in custom Resource files (.tres) that the game loads, not in script constants (godot-engine)."
+    ],
+    "tasks": [
+      "Player-visible work in a Godot project gets an [evidence] task before any playtest task: it names the screen or state it captures and how the run reaches it, and saves under evidence/ a log from a headless run or a screenshot from a windowed or editor run or --write-movie, using a Godot MCP server when one is configured."
+    ]
+  },
+  "signals": [
+    "project.godot",
+    "**/project.godot"
+  ]
+}

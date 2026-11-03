@@ -679,6 +679,7 @@ A pack that requires another needs both listed; the install never enables one on
 |---|---|---|
 | `ui-prototyping` | none | `ui-prototyping-html`: clickable single-file HTML prototypes that settle an undecided layout or flow before it is specified, and visual identity as design tokens. Creates no document. |
 | `gamedev` | `ui-prototyping` | Engine-neutral game development: `gamedev-design` (ideation, the brief, the GDD, genres, systems and balance, levels and encounters, game code checks), `gamedev-narrative`, `gamedev-ux` and `gamedev-playtest`. Creates `docs/game/gdd.md`, asks six init questions, and adds lines that make gameplay changes cite the GDD, state their frame budgets and end with a `[user]` playtest task. |
+| `godot` | none | `godot-engine`: in-engine evidence (a log from a headless run, a screenshot from a windowed run or `--write-movie`), Resources as data, hand-editing `.tscn`/`.tres`, Theme and focus, pixel-art scaling, localization, test runners and the Godot 4 changes. Adds a design line for `.tres` tunables and an `[evidence]` task before any playtest. Usable with or without `gamedev`. |
 
 ## 🗄️ Stores
 

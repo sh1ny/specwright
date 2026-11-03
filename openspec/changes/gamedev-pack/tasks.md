@@ -10,15 +10,15 @@ Both modules are written in group 1, before any pack content, and run red first.
 
 | # | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|---|
-| 1 | The download ships the ui-prototyping, gamedev and godot packs | The shipped packs pass pack-check | P | ShippedPackCheck.test_three_packs_pass | red |
+| 1 | The download ships the ui-prototyping, gamedev and godot packs | The shipped packs pass pack-check | P | ShippedPackCheck.test_three_packs_pass | green |
 | 2 | The download ships the ui-prototyping, gamedev and godot packs | gamedev without its shared pack | U | ShippedInstall.test_gamedev_without_ui_prototyping_refused | red |
 | 3 | The download ships the ui-prototyping, gamedev and godot packs | godot on its own | U | ShippedInstall.test_godot_alone | red |
 | 4 | Each pack ships its listed skills | Skills installed with their packs | U | ShippedInstall.test_all_three_install_six_skills | red |
-| 5 | Each pack ships its listed skills | A description too long | P | SkillStatic.test_description_cap | red |
-| 6 | Files a pack skill names exist in that skill | References resolve | P | SkillStatic.test_named_files_exist | red |
-| 7 | Files a pack skill names exist in that skill | A reference left behind by the split | P | SkillStatic.test_missing_named_file_fails | red |
-| 8 | Pack skills carry no third-party notice | Clean skill trees | P | SkillStatic.test_no_third_party_markers | red |
-| 9 | Pack skills carry no third-party notice | A leftover credit | P | SkillStatic.test_leftover_credit_fails | red |
+| 5 | Each pack ships its listed skills | A description too long | P | SkillStatic.test_description_cap | green |
+| 6 | Files a pack skill names exist in that skill | References resolve | P | SkillStatic.test_named_files_exist | green |
+| 7 | Files a pack skill names exist in that skill | A reference left behind by the split | P | SkillStatic.test_missing_named_file_fails | green |
+| 8 | Pack skills carry no third-party notice | Clean skill trees | P | SkillStatic.test_no_third_party_markers | green |
+| 9 | Pack skills carry no third-party notice | A leftover credit | P | SkillStatic.test_leftover_credit_fails | green |
 | 10 | gamedev creates the GDD and no other document | GDD created at install | P | ShippedDocs.test_gdd_only_created | green |
 | 11 | gamedev creates the GDD and no other document | An existing GDD | P | ShippedDocs.test_existing_and_overridden_gdd_kept | green |
 | 12 | gamedev creates the GDD and no other document | Templates shipped with their skills | P | SkillStatic.test_document_templates_exist | green |
@@ -29,15 +29,15 @@ Both modules are written in group 1, before any pack content, and run red first.
 | 17 | gamedev specs lines | gamedev specs lines delivered | P | Delivered.test_gamedev_specs_lines | green |
 | 18 | gamedev design lines | gamedev design lines delivered | P | Delivered.test_gamedev_design_lines | green |
 | 19 | gamedev tasks and apply lines | Tasks and apply lines delivered | P | Delivered.test_gamedev_tasks_apply_lines | green |
-| 20 | gamedev tasks and apply lines | Engine-neutral wording | P | SkillStatic.test_engine_neutral_lines_and_files | red |
+| 20 | gamedev tasks and apply lines | Engine-neutral wording | P | SkillStatic.test_engine_neutral_lines_and_files | green |
 | 21 | ui-prototyping settles undecided layout with a prototype | Prototype line delivered | P | Delivered.test_ui_prototyping_proposal_line | green |
 | 22 | ui-prototyping settles undecided layout with a prototype | The line's pack is removed | U | ShippedInstall.test_removal_keeps_gdd_drops_lines | red |
 | 23 | ui-prototyping defaults are neutral | Neutral template | P | SkillStatic.test_neutral_prototype_template | green |
 | 24 | ui-prototyping defaults are neutral | Game settings passed | P | SkillStatic.test_gamedev_ux_passes_game_settings | green |
 | 25 | ui-prototyping defaults are neutral | A missing game setting | P | SkillStatic.test_missing_game_setting_fails | green |
-| 26 | godot asks for an in-engine evidence task | godot with gamedev | P | Delivered.test_godot_evidence_line_with_gamedev | red |
-| 27 | godot asks for an in-engine evidence task | Not tied to one tool | P | SkillStatic.test_godot_line_tool_neutral | red |
-| 28 | godot keeps tunables in resources | Design line delivered | P | Delivered.test_godot_design_line | red |
+| 26 | godot asks for an in-engine evidence task | godot with gamedev | P | Delivered.test_godot_evidence_line_with_gamedev | green |
+| 27 | godot asks for an in-engine evidence task | Not tied to one tool | P | SkillStatic.test_godot_line_tool_neutral | green |
+| 28 | godot keeps tunables in resources | Design line delivered | P | Delivered.test_godot_design_line | green |
 | 29 | Signals suggest the packs for game projects | A nested Godot project | U | Signals.test_nested_project_godot_offers_gamedev_and_godot | red |
 | 30 | Signals suggest the packs for game projects | No engine file | U | Signals.test_no_engine_file_no_offer | red |
 | 31 | Signals match under either reading of a nested glob | Root file under the strict reading | U | Signals.test_root_file_both_readings | red |
@@ -119,7 +119,7 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
 
 ## 3. godot
 
-- [ ] 3.1 Write `packs/godot/skills/godot-engine/` (fresh-context writer). It covers:
+- [x] 3.1 Write `packs/godot/skills/godot-engine/` (fresh-context writer). It covers:
   - the evidence routes: a headless log after an `--import` pass, a scan of the output for errors, and a timeout; a screenshot through a windowed or editor run or `--write-movie`;
   - Resources as data, and never `.tres`/`.res` for player saves;
   - hand-editing rules for `.tscn`/`.tres`;
@@ -128,14 +128,14 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
   - the 3→4 and 4.4+ tables.
 
   Check each engine fact against current Godot docs (ctx7). Verify that its static rows pass.
-- [ ] 3.2 Write `packs/godot/pack.json`:
+- [x] 3.2 Write `packs/godot/pack.json`:
   - no `requires`, no document, no questions;
   - signals `project.godot` and `**/project.godot`;
   - the design line on `.tres` tunables;
   - the tool-neutral tasks line: an `[evidence]` task naming the screen or state and how the run reaches it, a headless log or a screenshot from a windowed run or `--write-movie`, a configured Godot MCP server when there is one, before any playtest task.
 
   Verify that rows 26-28 pass and `bash scripts/update.sh pack-check` exits 0. Flip rows 26-28 green, and rows 1, 5-9 and 20 once all three packs pass them.
-- [ ] 3.3 Add the `godot` row to the README packs section. Verify with `python -m unittest evals/packs/test_pack_check.py` (the shipped-pack and context-size checks now read three real packs).
+- [x] 3.3 Add the `godot` row to the README packs section. Verify with `python -m unittest evals/packs/test_pack_check.py` (the shipped-pack and context-size checks now read three real packs).
 
 ## 4. Real install
 
