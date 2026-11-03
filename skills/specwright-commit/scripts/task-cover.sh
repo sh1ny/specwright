@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Which tasks of tasks.md are covered by commits on a change branch. Read-only: it only reads
-# tasks.md (and evidence files) and runs `git log`, `git rev-list --count` and, with --rev, `git rev-parse`,
-# `git show`, `git ls-tree` and `git cat-file -s`. Prints ONE JSON document. An evidence file counts only as a
-# regular, non-empty file under the change directory, reached without following a symlink.
+# tasks.md and runs `git log`, `git rev-list --count`, `git ls-files -s` and `git cat-file -s` and, with --rev,
+# `git rev-parse`, `git show` and `git ls-tree`. Prints ONE JSON document. An evidence file counts only as a
+# regular, non-empty blob under the change folder in the index of the repo holding tasks.md (with --rev, in that
+# revision's tree); it is never read through the working tree.
 #
 # Usage: bash task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> --change <name> [--rev <sha>]
 #   --rev <sha>  read --tasks as committed at <sha> (`git show <sha>:<path>`, the path taken relative to the
@@ -53,7 +54,6 @@ exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import json
 import os
 import re
-import stat
 import subprocess
 import sys
 
@@ -241,18 +241,22 @@ def evidence_ok(t):
             return False
         size = git(repo, "cat-file", "-s", fields[2].decode("ascii"), soft=True)
         return size is not None and size.strip() not in (b"", b"0")
-    # Walk the components under the change directory with lstat, which never follows a link: a symlink or
-    # reparse point anywhere on the way is refused before its target is looked up.
-    p = os.path.dirname(os.path.abspath(tasks_path))
-    for seg in rel.split("/"):
-        p = os.path.join(p, seg)
-        try:
-            st = os.lstat(p)
-        except OSError:
-            return False
-        if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
-            return False
-    return stat.S_ISREG(st.st_mode) and st.st_size > 0
+    # The index of the repo holding tasks.md (the planning repo, whatever --repo names), never the working tree:
+    # no path is opened, so no symlink, UNC or drive path, or swap during the check can make another file count.
+    change_dir = os.path.dirname(os.path.abspath(tasks_path))
+    entry = git(change_dir, "ls-files", "-s", "-z", "--", ":(literal)" + rel, soft=True)
+    if not entry:
+        return False
+    entries = [e for e in entry.split(b"\0") if e]
+    if len(entries) != 1:
+        return False
+    meta, _, name = entries[0].partition(b"\t")
+    fields = meta.split()  # mode, object, stage
+    if len(fields) != 3 or fields[0] not in (b"100644", b"100755") or fields[2] != b"0" \
+            or name.decode("utf-8", "replace") != rel:
+        return False
+    size = git(change_dir, "cat-file", "-s", fields[1].decode("ascii"), soft=True)
+    return size is not None and size.strip() not in (b"", b"0")
 
 
 uncovered = [t["id"] for t in tasks if work(t)]

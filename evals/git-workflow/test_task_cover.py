@@ -73,12 +73,12 @@ class TaskCover(unittest.TestCase):
         p.write_bytes(text.encode("utf-8"))
         return p
 
-    def run_script(self, tasks=None, env=None, change=CHANGE, rev=None):
+    def run_script(self, tasks=None, env=None, change=CHANGE, rev=None, repo=None, base=None):
         tasks = tasks or self.tasks_file()
         e = dict(os.environ, **(env or {}))
         extra = ["--rev", rev] if rev else []
         return subprocess.run(
-            [bashexe.bash(), str(SCRIPT), "--repo", str(self.repo), "--range", self.base + "..HEAD",
+            [bashexe.bash(), str(SCRIPT), "--repo", str(repo or self.repo), "--range", (base or self.base) + "..HEAD",
              "--tasks", str(tasks), "--change", change, *extra],
             capture_output=True, env=e)
 
@@ -267,56 +267,22 @@ class TaskCover(unittest.TestCase):
         self.assertEqual(self.task(doc, "2.3")["kind"], "user")
         self.assertEqual(doc["waiting_on_user"], [])
 
-    def test_evidence_present_not_missing(self):
-        self.write_evidence()
-        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n"))
-        self.assertEqual(doc["evidence_missing"], [])
+    # Evidence is read from git's index (with --rev, the revision's tree), never through the working tree.
+    def change_with_evidence(self, text, files=(), stage=True):
+        """tasks.md in the fixture repo's change folder, with evidence files {name: text}; staged when `stage`."""
+        p = self.repo_tasks(text)
+        for name, body in dict(files).items():
+            self.write_evidence(name, body, base=p.parent)
+        self.git("add", "--", str(p))
+        if stage and files:
+            self.git("add", "--", str(p.parent / "evidence"))
+        return p
 
-    def test_evidence_file_missing_reported(self):
-        text = "## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n- [x] 2.3 [evidence] Save b → evidence/b.log\n"
-        self.write_evidence("b.log", "")  # present but empty counts as missing
-        doc = self.cover(tasks=self.tasks_file(text))
-        self.assertEqual(doc["evidence_missing"], ["2.2", "2.3"])
-
-    def test_evidence_without_path_reported(self):
-        text = "## 2. M\n\n- [x] 2.6 [evidence] Capture the frame times\n- [ ] 2.7 [evidence] Unticked, no path\n"
-        doc = self.cover(tasks=self.tasks_file(text))
-        self.assertEqual(doc["evidence_missing"], ["2.6"])
-
-    def test_evidence_path_trailing_punctuation_ignored(self):
-        self.write_evidence()
-        text = ("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/run.log.\n"
-                "- [x] 2.3 [evidence] Save **evidence/run.log**\n- [x] 2.4 [evidence] Save to evidence/run.log: done\n")
-        doc = self.cover(tasks=self.tasks_file(text))
-        self.assertEqual(doc["evidence_missing"], [])
-
-    def test_evidence_path_with_backslash_rejected(self):
-        # Windows reads `\` as a separator, so `evidence/\\host\share\x` would leave the change directory; the
-        # file exists on every OS (POSIX: a name holding a backslash; Windows: sub/x.log), yet counts as missing.
-        if os.name == "nt":
-            self.write_evidence("sub/x.log")
-        else:
-            self.write_evidence("sub\\x.log")
-        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/sub\\x.log\n"))
-        self.assertEqual(doc["evidence_missing"], ["2.2"])
-
-    def test_evidence_path_with_drive_colon_rejected(self):
-        if os.name != "nt":
-            self.write_evidence("C:x.log")
-        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/C:x.log\n"))
-        self.assertEqual(doc["evidence_missing"], ["2.2"])
-
-    def test_evidence_symlink_out_of_change_rejected(self):
-        outside = Path(tempfile.mkdtemp(prefix="specwright-outside-"))
-        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
-        (outside / "x.log").write_text("output\n")
-        (self.tmp / "evidence").mkdir(exist_ok=True)
-        try:
-            os.symlink(outside / "x.log", self.tmp / "evidence" / "x.log")
-        except (OSError, NotImplementedError):
-            self.skipTest("symlinks not available")
-        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
-        self.assertEqual(doc["evidence_missing"], ["2.2"])
+    def stage_symlink(self, p, name, target):
+        # a symlink index entry through plumbing: Git for Windows would stage a real link as a plain file
+        blob = self.git("hash-object", "-w", "--stdin", input=target.encode()).strip()
+        path = p.parent.relative_to(self.repo).as_posix() + "/evidence/" + name
+        self.git("update-index", "--add", "--cacheinfo", "120000,%s,%s" % (blob, path))
 
     def symlink_or_skip(self, target, link):
         try:
@@ -324,20 +290,112 @@ class TaskCover(unittest.TestCase):
         except (OSError, NotImplementedError):
             self.skipTest("symlinks not available")
 
-    def test_evidence_symlink_inside_change_rejected(self):
-        # any symlink is refused without following it: its target is never looked up
-        self.write_evidence("real.log")
-        self.symlink_or_skip(self.tmp / "evidence" / "real.log", self.tmp / "evidence" / "x.log")
-        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
-        self.assertEqual(doc["evidence_missing"], ["2.2"])
+    def test_evidence_present_not_missing(self):
+        # staged is enough: Reconcile reads coverage before the group commit records the file
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n",
+                                      {"run.log": "output\n"})
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], [])
 
-    def test_evidence_symlinked_directory_rejected(self):
+    def test_evidence_committed_not_missing(self):
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n",
+                                      {"run.log": "output\n"})
+        self.git("commit", "-q", "-m", "chore: evidence")
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], [])
+
+    def test_evidence_untracked_is_missing(self):
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n",
+                                      {"run.log": "output\n"}, stage=False)
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2"])
+
+    def test_evidence_file_missing_reported(self):
+        text = "## 2. M\n\n- [x] 2.2 [evidence] Save the log → evidence/run.log\n- [x] 2.3 [evidence] Save b → evidence/b.log\n"
+        p = self.change_with_evidence(text, {"b.log": ""})  # staged but empty counts as missing
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2", "2.3"])
+
+    def test_evidence_without_path_reported(self):
+        text = "## 2. M\n\n- [x] 2.6 [evidence] Capture the frame times\n- [ ] 2.7 [evidence] Unticked, no path\n"
+        self.assertEqual(self.cover(tasks=self.change_with_evidence(text))["evidence_missing"], ["2.6"])
+
+    def test_evidence_path_trailing_punctuation_ignored(self):
+        text = ("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/run.log.\n"
+                "- [x] 2.3 [evidence] Save **evidence/run.log**\n- [x] 2.4 [evidence] Save to evidence/run.log: done\n")
+        p = self.change_with_evidence(text, {"run.log": "output\n"})
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], [])
+
+    def test_store_backed_evidence_read_from_tasks_repo(self):
+        # tasks.md and its evidence live in the store; the code-repo call reads them from the store, as the store does
+        store = self.tmp / "store"
+        store.mkdir()
+
+        def sgit(*args):
+            r = subprocess.run(["git", "-C", str(store), *args], capture_output=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout.decode("utf-8").strip()
+        sgit("init", "-q", "-b", "main")
+        sgit("config", "user.name", "T")
+        sgit("config", "user.email", "t@example.com")
+        sgit("config", "commit.gpgsign", "false")
+        tasks = store / "openspec" / "changes" / CHANGE / "tasks.md"
+        tasks.parent.mkdir(parents=True)
+        tasks.write_bytes("## 2. M\n\n- [ ] 2.2 [evidence] Save → evidence/run.log\n".encode("utf-8"))
+        sgit("add", "-A")
+        sgit("commit", "-q", "-m", "chore: planning")
+        store_base = sgit("rev-parse", "HEAD")
+        # the group commit in each repo: the code half here, the store half with the tick and the evidence
+        self.user_commit("feat(x): group 2 M", task_trailers=["2.2"])
+        tasks.write_bytes("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/run.log\n".encode("utf-8"))
+        self.write_evidence("run.log", "output\n", base=tasks.parent)
+        sgit("add", "-A")
+        sgit("commit", "-q", "-m", "feat(x): group 2 M\n\nSpecwright-Task: 2.2")
+
+        def both():
+            store_doc = self.json_ok(self.run_script(tasks=tasks, repo=store, base=store_base))
+            code_doc = self.json_ok(self.run_script(tasks=tasks))  # --repo is the code repo
+            return store_doc, code_doc
+
+        for doc in both():  # completion holds in both repos: covered once, nothing missing
+            self.assertEqual((doc["uncovered"], doc["duplicates"], doc["cross_group"], doc["evidence_missing"]),
+                             ([], [], [], []))
+        self.write_evidence("run.log", "", base=tasks.parent)
+        sgit("add", "-A")
+        sgit("commit", "-q", "-m", "chore: empty evidence")
+        self.assertEqual([d["evidence_missing"] for d in both()], [["2.2"], ["2.2"]])
+        sgit("rm", "-q", "-r", "openspec/changes/%s/evidence" % CHANGE)
+        sgit("commit", "-q", "-m", "chore: evidence gone")
+        self.assertEqual([d["evidence_missing"] for d in both()], [["2.2"], ["2.2"]])
+
+    def test_evidence_path_with_backslash_rejected(self):
+        # Windows reads `\` as a separator: the path is refused as written, whatever the index holds
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/sub\\x.log\n",
+                                      {"sub/x.log": "output\n"})
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2"])
+
+    def test_evidence_path_with_drive_colon_rejected(self):
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/C:x.log\n")
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2"])
+
+    def test_evidence_staged_symlink_is_missing(self):
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n")
+        self.stage_symlink(p, "x.log", "../../../../outside.log")
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2"])
+
+    def test_evidence_worktree_symlink_is_missing(self):
+        # a link in the working tree, unstaged, to a real file outside: never followed, never counted
         outside = Path(tempfile.mkdtemp(prefix="specwright-outside-"))
         self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
         (outside / "x.log").write_text("output\n")
-        self.symlink_or_skip(outside, self.tmp / "evidence")
-        doc = self.cover(tasks=self.tasks_file("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n"))
-        self.assertEqual(doc["evidence_missing"], ["2.2"])
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n")
+        (p.parent / "evidence").mkdir()
+        self.symlink_or_skip(outside / "x.log", p.parent / "evidence" / "x.log")
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2"])
+
+    def test_evidence_symlinked_directory_is_missing(self):
+        outside = Path(tempfile.mkdtemp(prefix="specwright-outside-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        (outside / "x.log").write_text("output\n")
+        p = self.change_with_evidence("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/x.log\n")
+        self.symlink_or_skip(outside, p.parent / "evidence")
+        self.assertEqual(self.cover(tasks=p)["evidence_missing"], ["2.2"])
 
     def test_rev_evidence_directory_is_missing(self):
         p = self.repo_tasks("## 4. M\n\n- [x] 4.4 [evidence] Log → evidence/run.log\n")
