@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Which tasks of tasks.md are covered by commits on a change branch. Read-only: it only reads
 # tasks.md and runs `git log`, `git rev-list --count`, `git ls-files -s` and `git cat-file -s` and, with --rev,
-# `git rev-parse`, `git show` and `git ls-tree`. Prints ONE JSON document. An evidence file counts only as a
+# `git rev-parse`, `git ls-tree` and `git cat-file blob`. Prints ONE JSON document. An evidence file counts only as a
 # regular, non-empty blob under the change folder in the index of the repo holding tasks.md (with --rev, in that
 # revision's tree); it is never read through the working tree.
 #
 # Usage: bash task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> --change <name> [--rev <sha>]
-#   --rev <sha>  read --tasks as committed at <sha> (`git show <sha>:<path>`, the path taken relative to the
-#                repo; the working tree is ignored) and check evidence files at <sha> too. The tasks file
-#                absent at <sha> = exit 2 no_tasks.
+#   --rev <sha>  read --tasks as committed at <sha> (the regular-file blob at <path>, the path taken relative to
+#                the repo; the working tree is ignored) and check evidence files at <sha> too. The tasks file
+#                absent at <sha>, or a symlink or directory there = exit 2 no_tasks.
 # Evidence (a task X.Y is covered by a commit when):
 #   subject  the subject starts `<type>(<change>): task X.Y ` (<type> is any token; nothing else in a
 #            subject counts, so `task 1.1` inside other text, or in a `group N` subject, is not evidence);
@@ -119,7 +119,14 @@ if rev:
             break
     if tasks_rel is None:
         stop("no_tasks", "tasks file %s is outside the repo" % tasks_path, 2)
-    raw_tasks = git(repo, "show", "%s:%s" % (rev, tasks_rel), soft=True)
+    # only a regular file is a task list: a committed symlink or directory would parse as one with no tasks
+    entry = git(repo, "ls-tree", "-z", rev, "--", tasks_rel, soft=True) or b""
+    meta, _, name = entry.rstrip(b"\0").partition(b"\t")
+    meta = meta.split()
+    if len(meta) != 3 or meta[0] not in (b"100644", b"100755") or meta[1] != b"blob" \
+            or name != tasks_rel.encode("utf-8") or b"\0" in entry.rstrip(b"\0"):
+        stop("no_tasks", "no tasks file %s at %s" % (tasks_rel, rev), 2)
+    raw_tasks = git(repo, "cat-file", "blob", meta[2].decode("ascii"), soft=True)
     if raw_tasks is None:
         stop("no_tasks", "no tasks file %s at %s" % (tasks_rel, rev), 2)
     rel_dir = os.path.dirname(tasks_rel)

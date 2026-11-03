@@ -387,8 +387,12 @@ def cmd_undo(d, a):
             mdir = join(P, "changes", "archive", dn)
             nm = change if dn == archived else dn if dn in moved else DATE_RX.sub("", dn)  # a dated name is archived as it is
             rv = blob(T, join(mdir, "review.md")) or b""
+            # on the current branch the undo moves the working-tree folder back, so its tasks.md is the one rerun reads
+            tk = wd_bytes(join(mdir, "tasks.md")) if branch == cb else None
+            if tk is None:
+                tk = blob(T, join(mdir, "tasks.md"))
             members.append({"name": nm, "archived_name": dn, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))),
-                            "waiting_on_user": waiting_on_user(blob(T, join(mdir, "tasks.md"))), "dir": mdir})
+                            "waiting_on_user": waiting_on_user(tk), "dir": mdir})
         unique_members([(m["archived_name"], m["name"]) for m in members])
         for m in members:
             tgt = join(P, "changes", m["name"])

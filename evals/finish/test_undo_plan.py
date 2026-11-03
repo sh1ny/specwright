@@ -694,6 +694,22 @@ class TestUndoPlan(Base):
                 self.assertIn("openspec archive add-y --yes", doc["after_rerun"])
                 self.assertNotIn("openspec archive add-x", doc["after_rerun"])
 
+    def test_committed_bulk_rerun_reads_working_tree_untick(self):
+        # PR #187: the undo carries the working-tree tasks.md back, so an uncommitted untick decides the rerun
+        self.on_branch()
+        for name in ("add-x", "add-y"):
+            fx.make_change(self.work, name, "APPROVE", {"a": name}, commit_it=False)
+            fx.commit(self.work, f"docs({name}): add planning artifacts",
+                      {f"{P}/changes/{name}/tasks.md": "# Tasks\n\n- [x] 1.1 do it\n- [x] 1.2 [user] Play the level\n"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        fx.write(self.work, f"{ad('add-x')}/tasks.md", "# Tasks\n\n- [x] 1.1 do it\n- [ ] 1.2 [user] Play the level\n")
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual({m["name"]: m["waiting_on_user"] for m in doc["members"]},
+                         {"add-x": ["1.2"], "add-y": []}, raw)
+        self.assertIn("openspec archive add-y --yes", doc["after_rerun"])
+        self.assertNotIn("openspec archive add-x", doc["after_rerun"])
+
     # ---- fix-m4-gaps D8: the after-rerun script deletes again what the user deleted -------------------------
     def retire_a(self):
         self.git("rm", "-q", SPEC_A)

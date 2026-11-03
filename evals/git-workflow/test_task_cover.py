@@ -434,6 +434,32 @@ class TaskCover(unittest.TestCase):
         doc = self.json_ok(self.run_script(tasks=p, rev="HEAD"))
         self.assertEqual(doc["waiting_on_user"], ["1.1"])
 
+    def assert_rev_no_tasks(self, p):
+        r = self.run_script(tasks=p, rev="HEAD")
+        self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
+        self.assertEqual(json.loads(r.stdout)["error"], "no_tasks")
+
+    def test_rev_rejects_committed_symlink_tasks(self):
+        # PR #187: git show would print the link target, read as a task list with no tasks: an unknown check, not ok
+        p = self.repo_tasks("## 1. M\n\n- [ ] 1.1 [user] Play\n")
+        other = p.parent.parent / "other" / "tasks.md"
+        other.parent.mkdir(parents=True)
+        other.write_bytes(b"## 1. M\n\n- [ ] 1.1 [user] Play\n")
+        self.git("add", "-A")
+        rel = p.relative_to(self.repo).as_posix()
+        self.git("rm", "-q", "--cached", "--", rel)
+        blob = self.git("hash-object", "-w", "--stdin", input=b"../other/tasks.md").strip()
+        self.git("update-index", "--add", "--cacheinfo", "120000,%s,%s" % (blob, rel))
+        self.git("commit", "-q", "-m", "chore: link")
+        self.assert_rev_no_tasks(p)
+
+    def test_rev_rejects_committed_directory_tasks(self):
+        d = self.repo / "openspec" / "changes" / CHANGE / "tasks.md"
+        d.mkdir(parents=True)
+        (d / "x.md").write_bytes(b"- [ ] 1.1 [user] Play\n")
+        self.commit("chore: directory")
+        self.assert_rev_no_tasks(d)
+
     def test_rev_reads_archived_tasks_at_commit(self):
         p = self.repo_tasks("## 4. M\n\n- [x] 4.3 [user] Play\n", archived=True)
         ticked = self.commit("chore: tick")
