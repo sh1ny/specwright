@@ -45,7 +45,7 @@ The caller passes these; anything missing takes the neutral default. Say which d
 | `surfaces` | required, no default (2-4) | The screens that carry the decision. Never every screen. |
 | `states` | empty, loading, error, full | States each surface can show; callers may add others, such as locked. |
 | `stage` | responsive, fills the window up to a readable width | `fixed` instead takes a base width and height. |
-| `scaling` | fluid | For a fixed stage: `whole` scales in whole-number steps and centres; `crisp` asks for nearest-neighbour rendering. |
+| `scaling` | fluid | For a fixed stage: `fluid` fits the window in both dimensions; `whole` scales in whole-number steps (never below 1) and centres; `crisp` asks for nearest-neighbour rendering. |
 | `font` | system UI stack (`system-ui` first) | A caller font stack always keeps offline fallbacks; never a web font. |
 | `input model` | pointer-keyboard, native tab order | Or `single-focus` (arrows move, confirm and back keys, hover moves the same focus), or `touch`. |
 | `prompt glyphs` | none | Labelled placeholder glyph sets, switchable from the bar. |

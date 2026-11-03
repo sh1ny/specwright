@@ -133,6 +133,12 @@ reduced path can be seen without changing system settings. Remember that a brows
   shapes render with nearest-neighbour sampling so edges stay sharp.
 - Check a fixed stage by resizing the window: it must rescale, stay centred, stay crisp, and never
   show a fractional scale when whole steps were asked for.
+- Fluid scaling fits both dimensions: the factor is the smaller of width room over base width and
+  height room over base height, so a stage in a short window shrinks instead of running off the
+  bottom. The room is measured from the stage's top in page coordinates, so scrolling never changes
+  the scale.
+- Whole-step scaling never goes below 1. In a window smaller than the base size the stage keeps its
+  base size, stays crisp, and the page scrolls; ask for fluid scaling if shrinking is wanted.
 - Safe-area guide: off by default. One switch shows two labelled rectangles: the outer action-safe
   area (dashed; default inset `--space-edge`, 1.5rem) and the tighter text-safe area (dotted; default
   inset `--space-6`, 2.5rem). A caller that names safe areas sets `safeArea.actionInset` and

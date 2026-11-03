@@ -220,6 +220,25 @@ def check_engine_neutral(root):
     return out
 
 
+CLICK_ACTIONS = ("data-goto", "data-replace", "data-back", "data-set-state", "data-open-modal", "data-close-modal")
+
+
+def check_click_actions(root):
+    """The sample Delete control navigates without history, and the craft reference documents every click action."""
+    d = skill_dir(root, "ui-prototyping-html")
+    tpl, craft = d / "assets" / "prototype-template.html", d / "references" / "prototype-craft.md"
+    out = [f"ui-prototyping-html: {p.name} missing" for p in (tpl, craft) if not p.is_file()]
+    if out:
+        return out
+    tags = re.findall(r"<[a-z][^>]*>", read(tpl), re.I)
+    if not any("data-close-modal" in t and "data-goto" in t and "data-replace" in t for t in tags):
+        out.append(f"{tpl.name}: no control combines data-close-modal, data-goto and data-replace (the sample Delete)")
+    text = read(craft)
+    out += [f"{craft.name}: does not document `{a}`" for a in CLICK_ACTIONS
+            if not re.search(r"`[^`\n]*\b%s\b[^`\n]*`" % re.escape(a), text)]
+    return out
+
+
 def check_neutral_template(root):
     f = skill_dir(root, "ui-prototyping-html") / "assets" / "prototype-template.html"
     if not f.is_file():
@@ -425,6 +444,16 @@ class SkillStatic(Tree):
         f = skill_dir(root, "ui-prototyping-html") / "assets" / "prototype-template.html"
         self.edit(f, lambda t: t + "\n<style>.game-stage { width: 640px; }</style>\n")
         self.assertFails(check_neutral_template(root), "prototype-template.html", "stage", "width")
+
+    def test_click_actions_documented(self):
+        root = self.need_packs()
+        self.assertEqual(check_click_actions(root), [])
+        root = self.scratch()
+        d = skill_dir(root, "ui-prototyping-html")
+        self.edit(d / "assets" / "prototype-template.html", lambda t: t.replace(" data-replace", ""))
+        self.assertFails(check_click_actions(root), "prototype-template.html", "data-replace")
+        self.edit(d / "references" / "prototype-craft.md", lambda t: t.replace("`data-back`", "back"))
+        self.assertFails(check_click_actions(root), "prototype-craft.md", "data-back")
 
     def test_gamedev_ux_passes_game_settings(self):
         self.assertEqual(check_settings(self.need_packs()), [])

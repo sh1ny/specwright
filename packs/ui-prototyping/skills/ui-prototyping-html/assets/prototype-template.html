@@ -696,10 +696,18 @@ p { margin: 0 0 var(--space-3); }
       stage.style.transform = ''; stage.style.margin = ''; fit.style.width = ''; fit.style.height = ''; fit.style.maxWidth = '';
       return;
     }
-    var availW = frame.clientWidth - 32;
-    var availH = Math.max(window.innerHeight - frame.getBoundingClientRect().top - 32, cfg.baseHeight);
+    // Room left for the stage: the frame's own width and the window height below the frame's top
+    // (measured in page coordinates, so scrolling does not change it), less the frame's padding.
+    var cs = window.getComputedStyle(frame);
+    var padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    var padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    var top = frame.getBoundingClientRect().top + window.pageYOffset;
+    var availW = Math.max(frame.clientWidth - padX, 1);
+    var availH = Math.max(window.innerHeight - top - padY, 1);
     var k = Math.min(availW / cfg.baseWidth, availH / cfg.baseHeight);
-    if (cfg.scaling === 'whole') { k = Math.max(1, Math.floor(k)); } else { k = Math.max(0.25, k); }
+    // whole: whole-number steps, never below 1 (a window smaller than the base size keeps the base
+    // size and the page scrolls). fluid: fits both dimensions at any size, down to a tiny positive scale.
+    if (cfg.scaling === 'whole') { k = Math.max(1, Math.floor(k)); } else { k = Math.max(0.05, k); }
     stage.style.maxWidth = 'none'; stage.style.minHeight = '0'; stage.style.margin = '0'; fit.style.maxWidth = 'none'; // the responsive min-height must not stretch a fixed stage
     stage.style.width = cfg.baseWidth + 'px';
     stage.style.height = cfg.baseHeight + 'px';
