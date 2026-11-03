@@ -186,6 +186,16 @@ class CommitSkillUserTasks(unittest.TestCase):
         self.assertRegex(s, r"(?i)record user checks.{0,400}?`and more`[^.]{0,80}trailers? name every (user )?tick",
                          "the record user checks commit does not keep a trailer for every tick")
 
+    def test_reconcile_compares_agent_ticks_only(self):
+        # pre-ship F2: a user tick in the tasks.md diff never trips the store recovery predicates
+        r = flat(section(read(COMMIT), r"Reconcile \("))
+        self.assertRegex(r, r"(?i)(only that task|exactly those)[^.]{0,200}agent and evidence (ticks|tasks)",
+                         "Reconcile still compares user ticks in the tasks.md diff")
+        self.assertRegex(r, r"(?i)user ticks in the diff[^.]{0,200}`Specwright-User-Task`",
+                         "Reconcile does not add the user-task trailers when it completes the store commit")
+        self.assertRegex(r, r"(?i)agent or evidence ticks in more than one group",
+                         "Reconcile still stops on user ticks spread over groups")
+
 CONFIG = ROOT / "templates" / "openspec" / "config.yaml"
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
 PR = ROOT / "skills" / "specwright-pr" / "SKILL.md"
