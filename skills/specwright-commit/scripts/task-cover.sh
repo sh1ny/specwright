@@ -130,7 +130,7 @@ def box_done(box):
 HEADING = re.compile(r"^##[ \t]+(\d+)\.[ \t]+(\S.*?)[ \t]*$")
 TASK = re.compile(r"^[ \t]*-[ \t]+\[([^\]\r\n]*)\][ \t]+(\d+)\.(\d+)(?=\s|$)(.*)$")
 MARKER = re.compile(r"^[ \t]*\[(user|evidence)\](?=[ \t]|$)")
-EVIDENCE = re.compile(r"(?:^|[\s(`'\"])(evidence/[^\s)`'\",;]+)")
+EVIDENCE = re.compile(r"(?:^|[\s(`'\"*_])(evidence/[^\s)`'\",;]+)")
 tasks, headings, texts = [], {}, {}
 for line in text.splitlines():
     m = HEADING.match(line)
@@ -212,7 +212,7 @@ def evidence_ok(t):
     m = EVIDENCE.search(texts[t["id"]])
     if not m:
         return False
-    rel = m.group(1)
+    rel = m.group(1).rstrip(".:*!?")  # sentence or markdown punctuation after the path is not part of it
     # `\` and `:` would let Windows read a segment as a UNC or drive path outside the change: reject before any
     # filesystem access, as are empty, `.` and `..` segments.
     if "\\" in rel or ":" in rel or any(s in ("", ".", "..") for s in rel.split("/")):

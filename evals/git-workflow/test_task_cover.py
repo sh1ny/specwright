@@ -283,6 +283,13 @@ class TaskCover(unittest.TestCase):
         doc = self.cover(tasks=self.tasks_file(text))
         self.assertEqual(doc["evidence_missing"], ["2.6"])
 
+    def test_evidence_path_trailing_punctuation_ignored(self):
+        self.write_evidence()
+        text = ("## 2. M\n\n- [x] 2.2 [evidence] Save → evidence/run.log.\n"
+                "- [x] 2.3 [evidence] Save **evidence/run.log**\n- [x] 2.4 [evidence] Save to evidence/run.log: done\n")
+        doc = self.cover(tasks=self.tasks_file(text))
+        self.assertEqual(doc["evidence_missing"], [])
+
     def test_evidence_path_with_backslash_rejected(self):
         # Windows reads `\` as a separator, so `evidence/\\host\share\x` would leave the change directory; the
         # file exists on every OS (POSIX: a name holding a backslash; Windows: sub/x.log), yet counts as missing.
