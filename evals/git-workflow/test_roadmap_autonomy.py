@@ -124,6 +124,17 @@ class Rounds(unittest.TestCase):
         self.assertRegex(p, r"(?i)only after|not before|before any")
 
 
+class SchemaPointer(unittest.TestCase):
+    """Pre-ship review round 2, F1: installed projects hold the schema under the planning root."""
+
+    def test_asking_rules_point_at_installed_schema(self):
+        p = find_block(read(SKILL), r"ask tool", r"recommended option", r"proposal instruction")
+        self.assertIsNotNone(p, "SKILL.md does not point the asking rules at the schema's proposal instruction")
+        self.assertIn("openspec/schemas/specwright/schema.yaml", p)
+        self.assertRegex(p, r"planning root")
+        self.assertNotRegex(p, r"\(`schemas/specwright/schema\.yaml`", "the pointer still names the source-repo path")
+
+
 class AllMode(unittest.TestCase):
     """Requirement: In all mode every roadmap decision goes to the user."""
 
