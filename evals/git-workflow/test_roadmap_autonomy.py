@@ -302,8 +302,22 @@ class Escalation(unittest.TestCase):
         self.assertRegex(s5, r"(?is)`autonomous`.{0,400}(2|two) consecutive.{0,40}REVISE.{0,200}stop without asking")
         self.assertRegex(s5, r"(?is)stop without asking.{0,400}no roadmap.{0,200}`Status: proposed`.{0,200}no `VERDICT: USER_OVERRIDE`")
         self.assertRegex(s5, r"(?is)`pending` escalation row.{0,200}round 1.{0,120}severity.{0,80}one line")
-        self.assertRegex(s5, r"(?is)never write.{0,80}architecture-review\.md")
+        self.assertRegex(s5, r"(?is)autonomous run never writes.{0,80}architecture-review\.md")
         self.assertRegex(s5, r"(?i)stop and ask the user", "the non-autonomous path must still stop and ask")
+
+    def test_owner_override_still_recorded(self):
+        # PR #188 review: the no-write rule is autonomous-only; the owner's USER_OVERRIDE after an
+        # escalation in important or all mode has no review-run.sh writer and is still recorded.
+        s5 = init_step(5)
+        self.assertNotRegex(s5, r"(?s)Never write into `openspec/architecture-review\.md` yourself",
+                            "an unconditional no-write rule blocks the owner's USER_OVERRIDE")
+        self.assertRegex(s5, r"(?is)`VERDICT: USER_OVERRIDE`.{0,120}(owner|user) chooses.{0,160}`important` or `all`.{0,80}recorded")
+
+    def test_close_adr_review_keeps_summary_exemption(self):
+        # PR #188 review: close's ADR re-review states the summary exemption, not only init step 5.
+        p = find_block(close_text(), r"Supersedes", r"init step 5")
+        self.assertIsNotNone(p, "close has no ADR re-review paragraph")
+        self.assertRegex(p, r"(?is)`## Decision summary`.{0,160}(keeps the verdict|never voids?|does not void)")
 
 
 class Docs(unittest.TestCase):
