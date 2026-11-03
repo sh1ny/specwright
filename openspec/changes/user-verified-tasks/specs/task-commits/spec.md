@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A group is committed once at its boundary
-With `commit_granularity: group`, `specwright-commit` SHALL leave a task group's work uncommitted until every agent and evidence task of the group is ticked and freshly verified, then SHALL commit it once, staging the group's files and `tasks.md` by name. The group's user tasks SHALL NOT hold the group commit back, and the group commit SHALL NOT tick or cover them. The message SHALL carry one `Specwright-Task: X.Y` trailer for each agent or evidence task of the group that the commit covers, in task order. User ticks follow **User ticks ride the next tasks.md commit**.
+With `commit_granularity: group`, `specwright-commit` SHALL leave a task group's work uncommitted until every agent and evidence task of the group is ticked and freshly verified, then SHALL commit it once, staging the group's files and `tasks.md` by name. The message SHALL carry one `Specwright-Task: X.Y` trailer per agent or evidence task of the group it covers, in task order. The group's user tasks SHALL NOT hold the commit back, and it SHALL NOT tick or cover them.
 
 #### Scenario: Two groups
 - **WHEN** apply in group mode finishes groups `1.1`-`1.3` and `2.1`-`2.2`
@@ -26,7 +26,7 @@ With `commit_granularity: group`, `specwright-commit` SHALL leave a task group's
 - **THEN** the group 3 commit is made with trailers `Specwright-Task: 3.1` and `3.3` only, and 3.2 stays unticked
 
 ### Requirement: End-of-apply check uses task evidence
-When every agent and evidence task is ticked, `specwright-commit` SHALL require each ticked task to have exactly one covering commit, no cross-group trailer, no entry in `evidence_missing`, and a clean tree apart from pre-existing files. It SHALL then report `<N> tasks, <M> task-work commits, tree clean`, and, when user tasks are unticked, `waiting on the user: <ids>`. Unticked user tasks SHALL NOT stop the hand-off to the pre-ship review and the PR. Any task with no evidence, or covered twice, or listed in `evidence_missing`, SHALL stop the hand-off and be listed.
+When every agent and evidence task is ticked, `specwright-commit` SHALL require each ticked task to have exactly one covering commit, no cross-group trailer, no `evidence_missing` entry, and a clean tree apart from pre-existing files, then report `<N> tasks, <M> task-work commits, tree clean`. A task with no evidence, covered twice or in `evidence_missing` SHALL stop the hand-off and be listed. Unticked user tasks SHALL NOT stop it; the report adds `waiting on the user: <ids>`.
 
 #### Scenario: Group mode complete
 - **WHEN** five ticked tasks are covered by two group commits and the tree is clean
@@ -41,7 +41,7 @@ When every agent and evidence task is ticked, `specwright-commit` SHALL require 
 - **THEN** the report adds `waiting on the user: 4.3` and the hand-off to the pre-ship review and the PR continues
 
 ### Requirement: An interrupted group resumes without loss
-When apply in group mode starts and exactly one group has ticked agent or evidence tasks with no evidence, `specwright-commit` SHALL treat them as that group's pending work: it SHALL re-run their verification, finish the group's remaining tasks and make one group commit covering all its uncovered tasks. Ticked agent or evidence tasks with no evidence in more than one group SHALL make no commit, and SHALL be listed for the user. A ticked, uncovered user task SHALL NOT make its group pending: it SHALL be listed apart, as an uncommitted user tick, and committed by the rule **User ticks ride the next tasks.md commit**. A tick SHALL never be removed.
+When apply in group mode starts and exactly one group has ticked agent or evidence tasks with no evidence, `specwright-commit` SHALL treat them as that group's pending work: re-run their verification, finish the group's remaining tasks and make one group commit covering them all. Such ticks in more than one group SHALL make no commit and be listed. A ticked, uncovered user task SHALL NOT make its group pending; it is listed as an uncommitted user tick. A tick SHALL never be removed.
 
 #### Scenario: Resume in a fresh session
 - **WHEN** tasks 1.1 and 1.2 are ticked with their work uncommitted, 1.3 is not ticked, and apply restarts
