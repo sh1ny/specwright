@@ -9,7 +9,7 @@ Implied systems (saving, menus, persistence, AI, input remapping, localisation) 
 **Must hold.** A short paragraph: what the game is, who plays it, and what they do. A stranger should be able to repeat it.
 
 **Pressure questions.**
-- What does the player do most of the time, in one sentence with a verb?
+- Which activity fills most of the minutes of play? Say it in one sentence built on a verb.
 - Who is this for, narrower than "everyone"?
 - If you could show only ten seconds of play, which ten?
 

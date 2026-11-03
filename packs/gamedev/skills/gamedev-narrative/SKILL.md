@@ -158,6 +158,6 @@ is reachable only by chance.
 
 | File | Read it when |
 |---|---|
-| `references/story-craft.md` | You need craft guidance on a topic: premise, tone, structure, beats, cast, world, dialogue, delivery, endings, objectives, choices, barks, urgency, clues, storylets, mysteries, text budgets, translator brief, the consistency pass or the review checklist. Use its contents list and load only the part you need. |
+| `references/story-craft.md` | You need craft guidance on a topic. It runs in project order: premise, tone, structure and play fit; world, mysteries and cast; beats, text sizing and endings; choices (with gates and agency), objectives, urgency, delivery, clues and storylets; barks, dialogue, keys, localization and the translator brief; then the consistency pass and the review checklist. Use its contents list and load only the part you need. |
 | `references/order-and-repetition.md` | The game is run-based, roguelike, nonlinear, backtracking, systemic or episodic, or relies on environmental storytelling. |
 | `templates/narrative.md` | The weight is moderate or heavy and a conversation first needs the document. Copy it beside the GDD and prune it to the weight. |

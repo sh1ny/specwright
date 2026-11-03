@@ -43,7 +43,7 @@ The editor's upgrade tool (`--convert-3to4`, described in the engine's migration
 | 4.6 | CSV translation files accept plural forms (a `?plural` column) | PO is no longer needed just for plurals; call `tr_n()` |
 | 4.7 | New projects default to stretch mode `canvas_items` and aspect `expand` | Read the project's setting; never assume |
 | 4.7 | Mouse and keyboard events use `InputEvent.DEVICE_ID_MOUSE` / `DEVICE_ID_KEYBOARD`, not device 0 | Filter by event type or the constants |
-| 4.7 | An override of a method with a typed return inherits that type and needs an explicit `return` | Add the return (for example `return null`) |
+| 4.7 | A method that overrides one with a declared return type now takes on that type, so a body without a `return` statement is an error | End the body with a `return` of a fitting value (for example `return null`) |
 
 Features whose version this pass could not pin down. They exist in current docs; check the project's engine version before relying on them:
 

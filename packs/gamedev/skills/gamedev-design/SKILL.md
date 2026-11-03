@@ -109,7 +109,7 @@ The depth is in `references/gdd-guide.md`. The habits that matter every time:
 - Turn adjectives into numbers. Every number is a starting hypothesis; the live value lives in data.
 - Feel is written as words a playtester can judge yes or no, each with an anti-reference, a commitment profile and a failure texture.
 - Progression must change how the loop plays. A counter that only grows is a finding, unless getting visibly stronger is the chosen fantasy.
-- Keep the GDD about what the player experiences and what a system must achieve. When the talk turns to how it is built, capture the need and move the how to architecture questions.
+- Write the GDD in terms of the player's experience and the outcome each system owes them. When the talk turns to construction, note the need in the GDD and send the construction detail to the architecture questions.
 - A change to a pillar or to the core loop is a redesign, not an edit. Say so and walk the ripple through mechanics, progression and First Playable.
 - Check rewards for ethics: a condition the player would not enjoy meeting is a finding.
 - Park cuts with one line: what it was and why it went. Reopen only on new evidence. If cuts keep hitting the same pillar, question the pillar.

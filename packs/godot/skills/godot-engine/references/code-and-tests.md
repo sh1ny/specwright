@@ -31,7 +31,7 @@ A lambda captures local variables by value when it is created, so assigning to a
 
 - `_enter_tree` runs parent first. `_ready` runs children first, then the parent, once all have entered the tree. Do not read a child's state from the parent's `_enter_tree`.
 - Do not put `@export` and `@onready` on one variable: the onready assignment runs later and overwrites the exported value (the engine warns, and treats it as an error by default).
-- An `await` on a signal that may never fire hangs that code path. Race it against a timeout: `get_tree().create_timer(2.0).timeout`.
+- If the signal you `await` is never emitted, the code after it never runs and the caller waits forever. When that is possible, also wait on a timer (`get_tree().create_timer(2.0).timeout`) and continue with whichever comes first.
 - Once an input event is consumed, call `get_viewport().set_input_as_handled()` so nodes further up do not act on it too.
 - `_process` and `_physics_process` run by `process_priority` (lower first), then tree order. Set the priority when order matters; do not reshuffle nodes.
 - Loading a big scene or resource during play stalls the frame. Use `ResourceLoader.load_threaded_request(path)` and poll `load_threaded_get_status(path)` from `_process` over several frames, not in a loop.

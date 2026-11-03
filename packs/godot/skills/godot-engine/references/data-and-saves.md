@@ -11,7 +11,7 @@ Prefer the editor, or a script that builds the resource and calls `ResourceSaver
 - **Declare before use.** An external resource goes at the top of the file. A sub-resource that refers to another sub-resource must come after the one it refers to.
 - **Values are data.** Property values hold literals and resource references, not script syntax. Typed arrays keep their type.
 - **Keep the header line** (`[gd_scene ... format=3 ...]` or `[gd_resource ...]`) as it is.
-- **Node ids, 4.6 and later.** Scene files store a unique id per node and no longer write `load_steps`. Never copy a node block, with its unique id, into another node. Opening and saving in 4.6 a scene last saved in 4.5 produces large diffs in version control; they are expected and not a sign of damage. Saving the whole project's files in the new format once keeps later diffs small.
+- **Node ids, 4.6 and later.** Scene files store a unique id per node and no longer write `load_steps`. When you duplicate a node by hand, give the new block its own id or leave the id out; a node's id must not be carried over to a second node. Opening and saving in 4.6 a scene last saved in 4.5 produces large diffs in version control; they are expected and not a sign of damage. Saving the whole project's files in the new format once keeps later diffs small.
 - **A scene stores only values that differ from the default.** Do not add every property to a node block; do not read a missing property as "unset".
 - **Leave tile-map cell data alone.** The packed cell arrays are the editor's job.
 - **Scripts and shaders have `.uid` files beside them.** Do not delete them or write them by hand. Commit them with the file they describe once the project's version creates them; the check is whether the project already tracks them.
@@ -22,13 +22,13 @@ Prefer the editor, or a script that builds the resource and calls `ResourceSaver
 A tunable is any number a playtest might change: speeds, costs, damage, spawn rates. Keep them in data, not in code.
 
 ```gdscript
-class_name EnemyStats
+class_name WeaponTuning
 extends Resource
 
-@export var speed: float = 120.0            # pixels per second
-@export_range(1, 999) var max_health: int = 10
-@export_enum("melee", "ranged") var attack_kind: String = "melee"
-@export var drops: Array[ItemStats] = []
+@export var fire_interval: float = 0.4      # seconds between shots
+@export_range(0, 500) var damage: int = 25
+@export_enum("pierce", "splash") var impact: String = "pierce"
+@export var upgrades: Array[UpgradeTuning] = []
 ```
 
 - Create instances in the editor, or from a script with `ResourceSaver.save()`; load them with `preload` or `load` and read the fields at run time.

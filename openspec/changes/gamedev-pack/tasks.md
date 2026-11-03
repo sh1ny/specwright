@@ -11,9 +11,9 @@ Both modules are written in group 1, before any pack content, and run red first.
 | # | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|---|
 | 1 | The download ships the ui-prototyping, gamedev and godot packs | The shipped packs pass pack-check | P | ShippedPackCheck.test_three_packs_pass | green |
-| 2 | The download ships the ui-prototyping, gamedev and godot packs | gamedev without its shared pack | U | ShippedInstall.test_gamedev_without_ui_prototyping_refused | red |
-| 3 | The download ships the ui-prototyping, gamedev and godot packs | godot on its own | U | ShippedInstall.test_godot_alone | red |
-| 4 | Each pack ships its listed skills | Skills installed with their packs | U | ShippedInstall.test_all_three_install_six_skills | red |
+| 2 | The download ships the ui-prototyping, gamedev and godot packs | gamedev without its shared pack | U | ShippedInstall.test_gamedev_without_ui_prototyping_refused | green |
+| 3 | The download ships the ui-prototyping, gamedev and godot packs | godot on its own | U | ShippedInstall.test_godot_alone | green |
+| 4 | Each pack ships its listed skills | Skills installed with their packs | U | ShippedInstall.test_all_three_install_six_skills | green |
 | 5 | Each pack ships its listed skills | A description too long | P | SkillStatic.test_description_cap | green |
 | 6 | Files a pack skill names exist in that skill | References resolve | P | SkillStatic.test_named_files_exist | green |
 | 7 | Files a pack skill names exist in that skill | A reference left behind by the split | P | SkillStatic.test_missing_named_file_fails | green |
@@ -31,16 +31,16 @@ Both modules are written in group 1, before any pack content, and run red first.
 | 19 | gamedev tasks and apply lines | Tasks and apply lines delivered | P | Delivered.test_gamedev_tasks_apply_lines | green |
 | 20 | gamedev tasks and apply lines | Engine-neutral wording | P | SkillStatic.test_engine_neutral_lines_and_files | green |
 | 21 | ui-prototyping settles undecided layout with a prototype | Prototype line delivered | P | Delivered.test_ui_prototyping_proposal_line | green |
-| 22 | ui-prototyping settles undecided layout with a prototype | The line's pack is removed | U | ShippedInstall.test_removal_keeps_gdd_drops_lines | red |
+| 22 | ui-prototyping settles undecided layout with a prototype | The line's pack is removed | U | ShippedInstall.test_removal_keeps_gdd_drops_lines | green |
 | 23 | ui-prototyping defaults are neutral | Neutral template | P | SkillStatic.test_neutral_prototype_template | green |
 | 24 | ui-prototyping defaults are neutral | Game settings passed | P | SkillStatic.test_gamedev_ux_passes_game_settings | green |
 | 25 | ui-prototyping defaults are neutral | A missing game setting | P | SkillStatic.test_missing_game_setting_fails | green |
 | 26 | godot asks for an in-engine evidence task | godot with gamedev | P | Delivered.test_godot_evidence_line_with_gamedev | green |
 | 27 | godot asks for an in-engine evidence task | Not tied to one tool | P | SkillStatic.test_godot_line_tool_neutral | green |
 | 28 | godot keeps tunables in resources | Design line delivered | P | Delivered.test_godot_design_line | green |
-| 29 | Signals suggest the packs for game projects | A nested Godot project | U | Signals.test_nested_project_godot_offers_gamedev_and_godot | red |
-| 30 | Signals suggest the packs for game projects | No engine file | U | Signals.test_no_engine_file_no_offer | red |
-| 31 | Signals match under either reading of a nested glob | Root file under the strict reading | U | Signals.test_root_file_both_readings | red |
+| 29 | Signals suggest the packs for game projects | A nested Godot project | U | Signals.test_nested_project_godot_offers_gamedev_and_godot | green |
+| 30 | Signals suggest the packs for game projects | No engine file | U | Signals.test_no_engine_file_no_offer | green |
+| 31 | Signals match under either reading of a nested glob | Root file under the strict reading | U | Signals.test_root_file_both_readings | green |
 | 32 | Signals match under either reading of a nested glob | A nested signal without its root form | P | SkillStatic.test_nested_signal_needs_root_form | green |
 
 ## How each skill is written (design D8)
@@ -139,9 +139,9 @@ It may use public documentation (ctx7 for Godot). The orchestrator reviews the r
 
 ## 4. Real install
 
-- [ ] 4.1 Run `python -m unittest evals/update/test_shipped_packs.py` and see rows 2-4, 22 and 29-31 pass. If one fails, fix the pack, not the test. Flip them green.
-- [ ] 4.2 Review the written skills' wording, and have the writer restate any passage that reads as carried over rather than written for Specwright.
-- [ ] 4.3 Review the skills' structure (headings, templates, checklists, worked examples) the same way, and have the writer regroup any match the domain does not dictate.
+- [x] 4.1 Run `python -m unittest evals/update/test_shipped_packs.py` and see rows 2-4, 22 and 29-31 pass. If one fails, fix the pack, not the test. Flip them green.
+- [x] 4.2 Review the written skills' wording, and have the writer restate any passage that reads as carried over rather than written for Specwright.
+- [x] 4.3 Review the skills' structure (headings, templates, checklists, worked examples) the same way, and have the writer regroup any match the domain does not dictate.
 
 ## 5. Map and release
 
