@@ -313,6 +313,12 @@ class Escalation(unittest.TestCase):
                             "an unconditional no-write rule blocks the owner's USER_OVERRIDE")
         self.assertRegex(s5, r"(?is)`VERDICT: USER_OVERRIDE`.{0,120}(owner|user) chooses.{0,160}`important` or `all`.{0,80}recorded")
 
+    def test_owner_override_names_its_writer(self):
+        # PR #188 review round 2: review-run.sh rejects USER_OVERRIDE, so the skill must name
+        # the orchestrator as the one writer of that line, as openspec/architecture.md does.
+        s5 = init_step(5)
+        self.assertRegex(s5, r"(?is)`review-run\.sh` (never writes|rejects) it.{0,80}you write that one `VERDICT: USER_OVERRIDE` line into `openspec/architecture-review\.md` yourself")
+
     def test_close_adr_review_keeps_summary_exemption(self):
         # PR #188 review: close's ADR re-review states the summary exemption, not only init step 5.
         p = find_block(close_text(), r"Supersedes", r"init step 5")
