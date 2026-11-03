@@ -460,6 +460,16 @@ class TaskCover(unittest.TestCase):
         self.commit("chore: directory")
         self.assert_rev_no_tasks(d)
 
+    def test_rev_ignores_replace_refs(self):
+        # PR #187 security: a local refs/replace/<sha> must not change what the ready head holds
+        p = self.repo_tasks("## 1. M\n\n- [ ] 1.1 [user] Play\n")
+        head = self.commit("chore: planning")
+        p.write_bytes(b"## 1. M\n\n- [x] 1.1 [user] Play\n")
+        fake = self.commit("chore: tick")
+        self.git("replace", head, fake)
+        doc = self.json_ok(self.run_script(tasks=p, rev=head))
+        self.assertEqual(doc["waiting_on_user"], ["1.1"])
+
     def test_rev_reads_archived_tasks_at_commit(self):
         p = self.repo_tasks("## 4. M\n\n- [x] 4.3 [user] Play\n", archived=True)
         ticked = self.commit("chore: tick")

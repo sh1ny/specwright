@@ -88,8 +88,10 @@ def parse_args(argv):
 
 def git(repo, *args, soft=False):
     try:
-        # log.showSignature would print signature checks into the machine-readable log
-        r = subprocess.run(["git", "-c", "log.showSignature=false", "-C", repo, *args], capture_output=True)
+        # log.showSignature would print signature checks into the machine-readable log; a local refs/replace
+        # entry must not change what a commit (the ready head above all) holds
+        r = subprocess.run(["git", "--no-replace-objects", "-c", "log.showSignature=false", "-C", repo, *args],
+                           capture_output=True)
     except OSError as e:
         stop("git_failed", "cannot run git: %s" % e, 3)
     if r.returncode != 0:
