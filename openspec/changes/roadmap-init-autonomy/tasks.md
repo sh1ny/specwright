@@ -110,8 +110,8 @@ New tests live in `evals/git-workflow/test_roadmap_autonomy.py` (wording checks 
 
 ## 5. Map and release
 
-- [ ] 5.1 Run `python -m unittest evals/runner/test_suite_map.py` to confirm that `evals/suites.json` covers the new test module. Add a rule if it reports the module uncovered.
-- [ ] 5.2 Run `release.sh bump --to 0.19.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/roadmap-init-autonomy/proposal.md`.
+- [x] 5.1 Run `python -m unittest evals/runner/test_suite_map.py` to confirm that `evals/suites.json` covers the new test module. Add a rule if it reports the module uncovered.
+- [x] 5.2 Run `release.sh bump --to 0.19.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/roadmap-init-autonomy/proposal.md`.
 
 ## Workflow follow-up
 

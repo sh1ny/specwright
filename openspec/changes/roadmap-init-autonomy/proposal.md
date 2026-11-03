@@ -101,7 +101,10 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Roadmap planning now has its own decision mode. `project.decision_making` (`autonomous`, `important` or `all`; unset keeps today's interview) decides how far roadmap init, close and pack ask you. With `autonomous`, a roadmap can be drafted while you are away: every answer the agent chose is listed in a decision summary in `strategy.md` for later review. Changes still follow `decision_making`, so they can still put every decision to you.
+Roadmap planning now has its own decision mode. `project.decision_making` (`autonomous`, `important` or `all`; unset keeps today's interview) decides how far roadmap init, close and pack ask you. With `autonomous`, a roadmap can be drafted while you are away: every answer the agent chose is listed in a decision summary in `strategy.md` for later review. The agent never agrees anything for you: packs, splits, user checks, releases and a stuck baseline review wait for you. Changes still follow `decision_making`, so they can still put every decision to you.
 
 ### Added
 - `project.decision_making` for roadmap init, close and pack, a per-run override, and a decision summary table in `strategy.md`; an autonomous run stops at the baseline escalation and never passes a gate itself (#184).
+
+### Changed
+- An edit confined to the strategy's decision summary no longer voids the baseline review verdict, in roadmap runs and in PR feedback fixes (#184).
