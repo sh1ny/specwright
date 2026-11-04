@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.19.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.20.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -664,7 +664,22 @@ Since 0.13.0 the default branch decides (ADR 0020). Before it archives and befor
 
 ## 📦 Packs
 
-A pack is an optional bundle of skills, config lines and documents that ships in the Specwright release and adds to the core workflow without relaxing a gate. You opt in under `packs:` in `openspec/specwright.yaml`, keyed by pack name, with optional document path overrides. No pack ships yet; the first ones come in 0.18.0. In v1 packs are refused on a planning store and for skills directories outside the project (user-level). See [packs/README.md](packs/README.md).
+A pack is an optional bundle of skills, config lines and documents that ships in the Specwright release and adds to the core workflow without relaxing a gate. Its skills add domain knowledge; its lines reach the agent through `openspec instructions` for the artifacts, apply and archive; its documents are created once and then belong to the project.
+
+To enable packs, list them under `packs:` in `openspec/specwright.yaml`, keyed by pack name, with optional document path overrides, then rerun the install prompt:
+
+```yaml
+packs:
+  ui-prototyping: {}
+```
+
+A pack that requires another needs both listed; the install never enables one on its own. Removing a pack from `packs:` and rerunning the install removes its skills and lines and keeps its documents. In v1 packs are refused on a planning store and for skills directories outside the project (user-level). See [packs/README.md](packs/README.md).
+
+| Pack | Requires | What it adds |
+|---|---|---|
+| `ui-prototyping` | none | `ui-prototyping-html`: clickable single-file HTML prototypes that settle an undecided layout or flow before it is specified, and visual identity as design tokens. Creates no document. |
+| `gamedev` | `ui-prototyping` | Engine-neutral game development: `gamedev-design` (ideation, the brief, the GDD, genres, systems and balance, levels and encounters, game code checks), `gamedev-narrative`, `gamedev-ux` and `gamedev-playtest`. Creates `docs/game/gdd.md`, asks six init questions, and adds lines that make gameplay changes cite the GDD, state their frame budgets and end with a `[user]` playtest task. |
+| `godot` | none | `godot-engine`: in-engine evidence (a log from a headless run, a screenshot from a windowed run or `--write-movie`), Resources as data, hand-editing `.tscn`/`.tres`, Theme and focus, pixel-art scaling, localization, test runners and the Godot 4 changes. Adds a design line for `.tres` tunables and an `[evidence]` task before any playtest. Usable with or without `gamedev`. |
 
 ## 🗄️ Stores
 

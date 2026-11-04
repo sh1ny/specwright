@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "name": "gamedev",
+  "description": "Engine-neutral game development: the GDD, game design, systems and levels, narrative, game UX and playtests.",
+  "requires": [
+    "ui-prototyping"
+  ],
+  "skills": [
+    "gamedev-design",
+    "gamedev-narrative",
+    "gamedev-ux",
+    "gamedev-playtest"
+  ],
+  "context": [
+    "Game design documents live beside the GDD (default docs/game/gdd.md, overridden by packs.gamedev.documents.gdd in openspec/specwright.yaml): brief.md, narrative.md, ux.md, decisions.md and prototypes/."
+  ],
+  "rules": {
+    "proposal": [
+      "A gameplay, story or UI request is classed as tuning (data values only), tweak (edits the GDD section it cites) or new behaviour (designed in the GDD first, with gamedev-design); the class sets the GDD work, and the change then follows the normal workflow.",
+      "A change that adds a resource, currency or reward cites the GDD lines naming its sources and sinks.",
+      "A change that cites a GDD section carries that section's feel words into a scenario or the playtest question."
+    ],
+    "specs": [
+      "A change to saved data has a scenario that loads the previous version's save and shows it migrated, or rejected with a message.",
+      "Timing and feel are judged by the playtest; layout and state can be proven by an evidence file or an automated test.",
+      "A change to a fail state has an automated check that doing nothing does not win."
+    ],
+    "design": [
+      "Tuning values are hypotheses kept in data the game loads, not constants in code.",
+      "A per-frame or hot-path change states a frame budget (frame time or memory) and how it is measured."
+    ],
+    "tasks": [
+      "Player-visible work ends with a [user] playtest task naming what to play, what to judge and who plays; when it judges difficulty or learnability it states whether the designer or a fresh player plays (gamedev-playtest).",
+      "A change to input gets evidence for each declared input device."
+    ]
+  },
+  "operations": {
+    "apply": {
+      "guidance": [
+        "Check game code against gamedev-design's game code checks before marking a game-code task done."
+      ]
+    },
+    "archive": {
+      "guidance": [
+        "Name the GDD sections the change implemented and any playtest verdict that changed them."
+      ]
+    }
+  },
+  "documents": {
+    "gdd": {
+      "path": "docs/game/gdd.md",
+      "template": "documents/gdd.md"
+    }
+  },
+  "init": {
+    "questions": [
+      "Genre and References: Which genre is the game, and which two or three games are its closest references?",
+      "Core Fantasy and Pillars: What does the player get to be or do, and which three pillars decide what stays in?",
+      "First Playable: What must the first playable build prove, and what does it leave out?",
+      "Platforms and Input: Which platforms ship first, and which input device is primary?",
+      "Narrative Weight: How much story does the game carry (none, light and kept in the GDD, or a full narrative document)?",
+      "Accessibility Floor: Which accessibility features are the floor for this game's audience?"
+    ]
+  },
+  "signals": [
+    "project.godot",
+    "**/project.godot",
+    "*.uproject",
+    "ProjectSettings/ProjectVersion.txt",
+    "game.project",
+    "docs/game/gdd.md"
+  ]
+}

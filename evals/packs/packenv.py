@@ -28,14 +28,15 @@ def posix(p):
     return Path(p).resolve().as_posix()
 
 
-def make_download(tmp, packs, name="dl"):
+def make_download(tmp, packs, name="dl", source=FIXTURE_PACKS):
+    """`source` is a directory holding pack directories: the fixtures by default, or ROOT / "packs" for the shipped ones."""
     dl = Path(tmp) / name
     shutil.copytree(ROOT / "schemas" / "specwright", dl / "schemas" / "specwright")
     (dl / "templates" / "openspec").mkdir(parents=True)
     shutil.copy(ROOT / "templates" / "openspec" / "config.yaml", dl / "templates" / "openspec" / "config.yaml")
     (dl / "packs").mkdir()
     for p in packs:
-        shutil.copytree(FIXTURE_PACKS / p, dl / "packs" / p)
+        shutil.copytree(Path(source) / p, dl / "packs" / p)
     return dl
 
 

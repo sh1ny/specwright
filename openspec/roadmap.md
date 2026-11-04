@@ -38,7 +38,7 @@ Replace the shipped bash and embedded Python scripts with one native CLI, `sw`, 
 ## Later
 
 - Unplanned features, placed at a later **close**: #42 stealth mode; #72 a configurable report signal per reviewer in `pr.reviewers`; #140 implementer agents can use the project's MCP servers.
-- Deferred dogfood check, run when a dogfood project is at a convenient point; it does not block a milestone: #98 (M3) an update with a change in flight; the gamedev pack used for a real change in Tower of Lament once 0.19.0 is out (M6). (#86, the M2 agent-merge check, passed in sh1ny/blackgrid#44.)
+- Deferred dogfood check, run when a dogfood project is at a convenient point; it does not block a milestone: #98 (M3) an update with a change in flight; the gamedev pack used for a real change in Tower of Lament once 0.20.0 is out (M6). (#86, the M2 agent-merge check, passed in sh1ny/blackgrid#44.)
 - Unscheduled `known-gap` issues filed after a milestone is planned are placed into a milestone at the next **close**, or into an earlier change that touches the same code.
 - Parked: #9 snapshot pagination beyond 100 items; revisit if large PRs become routine.
 - Parked: #118 the codex route on Windows (`fix-codex-windows-route`, moved out of M5 on 2026-10-28). It could not be reproduced: on 2026-10-28 an exact replay of the failed review (same codex-cli 0.163.0, `elevated` sandbox, Specwright 0.7.2, the original prompt) passed, and so did four codex reviews in a dogfood project, so the 2026-10-21 failure was most likely transient. Revisit if it fails again; the fix then starts by reading codex's own error from its `--json` event stream and keeping that stream when a run fails.
