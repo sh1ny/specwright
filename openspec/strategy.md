@@ -39,6 +39,6 @@ Specwright is a spec-driven development bundle for AI coding agents, built on un
 
 | # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |
 |---|---|---|---|---|---|---|---|
-| R1 | close M6 | Native CLI milestone scope | M7 proves distribution and migrates VCS, commit and finish; M8 completes the remaining scripts | Put the whole migration in M7 | The migration is larger than six PR-sized changes; splitting retains the full outcome and tests the risky distribution path first | yes | agent |
+| R1 | close M6 | Native CLI milestone scope | M7 proves distribution and migrates the first scripts; M8 completes the remaining migration | Put the whole migration in M7 | The migration is larger than six PR-sized changes; splitting retains the full outcome and tests the risky distribution path first | yes | user |
 | R2 | close M6 | M7 change order | Spike, distribution, VCS, commit, finish | Migrate scripts before the spike | Prove binary delivery and process handling before depending on them, then migrate related interfaces incrementally | no | agent |
 | R3 | close M6 | Open known gaps | Place #167-#173 in M9 | Expand M7 with unrelated configuration changes | Keep the native migration focused while scheduling the reported gaps | no | agent |
