@@ -37,7 +37,7 @@ Do this before anything else, every time.
 
 1. Read `project.godot`. Find the engine version and the renderer.
    - Version: `[application]` `config/features` usually lists a version such as `"4.3"` plus a renderer label. Treat it as a hint and confirm with the binary (`godot --version`). A very old looking project file, or GDScript using `KinematicBody2D`, `yield` or `export var`, means Godot 3.
-   - Renderer: `[rendering]` `renderer/rendering_method` is `forward_plus`, `mobile` or `gl_compatibility`; when it is absent, the default (Forward+) applies. Per-platform overrides (for example a `.mobile` suffixed key) can differ.
+   - Renderer: `[rendering]` `renderer/rendering_method` is `forward_plus`, `mobile` or `gl_compatibility`; when it is absent, the default (Forward+) applies. The renderer can also be overridden on the command line (`--rendering-method`) or changed by a fallback, so what actually runs may differ from the file.
    - Also note: `run/main_scene`, `[autoload]`, `[input]` actions, `display/window/stretch/*`, localization files, and which test addon sits under `addons/` (`gut` or `gdUnit4`).
 2. **Trust the project's version over any table in this skill.** Apply a version-specific row only when the project's minor version is at or past it. See `references/version-changes.md`.
 3. If it is a Godot 3 project, say so. Do not apply Godot 4 advice blindly; read the Godot 3 to 4 table backwards.

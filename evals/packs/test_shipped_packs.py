@@ -231,8 +231,11 @@ def check_click_actions(root):
     if out:
         return out
     tags = re.findall(r"<[a-z][^>]*>", read(tpl), re.I)
-    if not any("data-close-modal" in t and "data-goto" in t and "data-replace" in t for t in tags):
-        out.append(f"{tpl.name}: no control combines data-close-modal, data-goto and data-replace (the sample Delete)")
+    delete = [t for t in tags if 'data-goto="list"' in t and 'data-set-state="empty"' in t]
+    if not delete:
+        out.append(f"{tpl.name}: no sample Delete control (data-goto=\"list\" with data-set-state=\"empty\")")
+    elif not any("data-close-modal" in t and "data-replace" in t for t in delete):
+        out.append(f"{tpl.name}: the sample Delete control lacks data-close-modal or data-replace")
     text = read(craft)
     out += [f"{craft.name}: does not document `{a}`" for a in CLICK_ACTIONS
             if not re.search(r"`[^`\n]*\b%s\b[^`\n]*`" % re.escape(a), text)]

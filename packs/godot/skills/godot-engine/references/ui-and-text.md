@@ -21,7 +21,7 @@ Turning a UX spec or HTML prototype into Godot scenes, and the project settings 
 - The built-in actions are `ui_up`, `ui_down`, `ui_left`, `ui_right`, `ui_accept`, `ui_cancel`, plus `ui_focus_next` and `ui_focus_prev`. Check they are mapped to the gamepad in the Input Map.
 - Godot picks the closest control in each direction by itself. Where that guess is wrong, set the `focus_neighbor_*` properties, and `focus_next` / `focus_previous` for the tab order.
 - When a screen opens, give focus to its default control: `$StartButton.grab_focus.call_deferred()` in `_ready`. A control that becomes hidden loses focus, so re-grab it when a panel reopens.
-- Focus gained by mouse or touch is not drawn; keyboard and gamepad focus is. Check the focus visuals both ways. (`grab_focus()` takes an optional `hide_focus` argument to suppress the highlight.) Newer engine releases changed how mouse and keyboard focus are tracked; look at the project's version before relying on either.
+- Focus gained by mouse or touch is not drawn; keyboard and gamepad focus is. Check the focus visuals both ways. (`grab_focus()` takes an optional `hide_focus` argument to suppress the highlight.) A button's focus StyleBox is drawn over its base style, so make it a translucent outline or underline rather than an opaque fill.
 - Test every menu with a gamepad alone: reach every control, activate it, and back out with `ui_cancel`.
 
 ## Pixel-art scaling

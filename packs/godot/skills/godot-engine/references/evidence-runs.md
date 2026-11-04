@@ -37,7 +37,7 @@ echo "clean"
 
 `timeout` returns 124 when it had to stop the command. Any error hit fails the run. An empty log from a run that should have printed something is also a failure, not a pass. Do not rely on the exit status alone, and do not rely on the scan alone.
 
-`--log-file <path>` writes the engine log to a file instead; scan that file the same way. The scan covers what the engine prints, so a state-dump line you expect (see `automated-checks.md`) must also be present.
+`--log-file <path>` writes the engine's log, errors included, to that file; scan the file the same way (and still capture the process output, in case something is printed outside it). The scan covers what the engine prints, so a state-dump line you expect (see `automated-checks.md`) must also be present.
 
 ### Leave `-d` out
 
@@ -80,7 +80,7 @@ timeout 120 "$GODOT" --path <project> --write-movie /abs/path/work/shot.png --qu
 
 - The file extension picks the writer: `.png` writes an image sequence plus a WAV, `.avi` and `.ogv` write video.
 - `--fixed-fps` is forced by Movie Maker and may be set explicitly (for example `--fixed-fps 60`).
-- `--quit-after` sets how many frames are written. Leave a few frames for the scene to settle; the first frames can show an unfinished layout.
+- `--quit-after` sets how many frames are written. Leave a few frames for the scene to settle, and look at the frame you keep before trusting it.
 - A `.png` target writes one file per frame with an eight-digit, zero-padded number appended to the name, starting at zero: `shot.png` gives `shot00000000.png`, `shot00000001.png`, and so on. The audio goes to `shot.wav` beside them.
 - Write into a scratch folder, not into `evidence/`.
 
@@ -102,7 +102,7 @@ func capture(path: String) -> void:
     get_viewport().get_texture().get_image().save_png(path)
 ```
 
-Wait for the state to be reached first (a signal, a frame count), then call it. Waiting only for `process_frame` can capture a frame that has not been drawn yet; `frame_post_draw` is the signal that guarantees the texture is current. The viewport texture can otherwise be black or stale, especially in `_ready`. The same display requirement applies.
+Wait for the state to be reached first (a signal, a frame count), then call it. The engine's docs warn that a viewport texture read too early, such as in `_ready`, can be completely black or out of date, and tell you to await `RenderingServer.frame_post_draw` first; do not substitute an earlier signal such as `process_frame`. The same display requirement applies.
 
 ## Route 4: a configured Godot MCP server
 

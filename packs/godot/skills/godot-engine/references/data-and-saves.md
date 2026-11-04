@@ -9,7 +9,7 @@ Prefer the editor, or a script that builds the resource and calls `ResourceSaver
 - **Never invent a `uid://` value.** Copy it from the target's `.uid` file or from an existing reference. If you cannot, leave the `uid` attribute out and let the editor add it.
 - **Ids must not collide.** Each `[ext_resource]` and `[sub_resource]` carries an `id`, and `ExtResource("id")` / `SubResource("id")` point at it. The two kinds are looked up separately, so an external and an internal resource may technically share an id, but do not rely on that: keep every id in the file unique, and never reuse one.
 - **Declare before use.** An external resource goes at the top of the file. A sub-resource that refers to another sub-resource must come after the one it refers to.
-- **Values are data.** Property values hold literals and resource references, not script syntax. Typed arrays keep their type.
+- **Values are data.** Property values hold literals and resource references, not script syntax. Leave array type annotations exactly as the editor wrote them.
 - **Keep the header line** (`[gd_scene ... format=3 ...]` or `[gd_resource ...]`) as it is.
 - **Node ids, 4.6 and later.** Scene files store a unique id per node and no longer write `load_steps`. When you duplicate a node by hand, give the new block its own id or leave the id out; a node's id must not be carried over to a second node. Opening and saving in 4.6 a scene last saved in 4.5 produces large diffs in version control; they are expected and not a sign of damage. Saving the whole project's files in the new format once keeps later diffs small.
 - **A scene stores only values that differ from the default.** Do not add every property to a node block; do not read a missing property as "unset".

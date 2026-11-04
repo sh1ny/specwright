@@ -8,7 +8,7 @@ State dumps, scene jumps and scripted input exist for the agent and CI. They mus
 
 1. The build is a debug build: `OS.is_debug_build()` returns true. A release export fails this test and stays off, full stop.
 2. The run also opts in explicitly, by either of:
-   - a custom feature tag: `OS.has_feature("qa_hooks")` (tag names are case-sensitive and set in the run or export configuration);
+   - a custom feature tag: `OS.has_feature("qa_hooks")` (tag names are case-sensitive; custom tags are added to an export preset, so for plain command-line runs the user argument below is the simpler opt-in);
    - a user argument after the double dash: `"--qa-run" in OS.get_cmdline_user_args()`. Arguments before `--` belong to the engine; those after it are reserved for the project.
 
 ```gdscript
@@ -58,6 +58,10 @@ func _send(action: String, pressed: bool) -> void:
     Input.parse_input_event(ev)          # reaches _input / _unhandled_input
 
 func run_script() -> void:
+    # Sync to a tick boundary first. SceneTree.physics_frame is emitted
+    # immediately BEFORE every node's _physics_process() runs, so a run
+    # started from _ready() would otherwise press mid-way through a tick.
+    await get_tree().physics_frame
     for i in STEPS.size():
         for a in STEPS[i].actions:
             _send(a, true)
@@ -67,6 +71,8 @@ func run_script() -> void:
             _send(a, false)
         dump_state(i)
 ```
+
+How the counting works. Awaiting `physics_frame` resumes your code at the start of a physics tick, before the nodes' `_physics_process()` callbacks of that tick. The first `await` above lands on such a boundary. Each press is then sent before that tick's callbacks run, and each further `await` resumes at the start of the next tick, so after `frames` awaits exactly `frames` complete physics ticks have run with the action held. The release and the `dump_state()` call therefore see the result of all of them, and a 1-frame step is observed held for one full tick. Do not start pressing without the first sync, and do not release one await earlier: both lose a tick. The docs do not say exactly when an injected event is dispatched relative to the tick, so check a 1-frame step in the state dump the first time you rely on the runner.
 
 Rules:
 

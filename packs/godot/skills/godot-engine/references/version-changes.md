@@ -23,8 +23,6 @@ Use this table forwards to modernise a model's stale draft, and backwards if ste
 | `update()` on a canvas item | `queue_redraw()` |
 | `OS` time and date methods | the `Time` singleton |
 | `OS.get_screen_size()` and other screen or window methods | `DisplayServer` (`DisplayServer.screen_get_size()`) |
-| `get_tree().change_scene(path)` | `get_tree().change_scene_to_file(path)` |
-| a `Tween` node | `create_tween()` on a node or the tree |
 | `Array.empty()`, `invert()`, `remove()` | `is_empty()`, `reverse()`, `remove_at()` |
 | `Control.get_stylebox()` | `get_theme_stylebox()` |
 
@@ -50,5 +48,5 @@ Features whose version this pass could not pin down. They exist in current docs;
 - `TileMap` is deprecated in favour of `TileMapLayer` nodes, one per layer. Use `TileMapLayer` for new work when the project's version has it.
 - Sidecar `.uid` files are generated beside scripts, shaders and other resources, and hold the file's unique id. Where the project has them, commit them and never delete them.
 - Screen-reader support through AccessKit.
-- Mouse and touch focus is not drawn while keyboard and gamepad focus is. Whether an engine release tracks the two separately is not confirmed here.
+- Focus gained by mouse or touch is not drawn, while keyboard and gamepad focus is. Whether a particular release tracks the two separately was not confirmed; test both.
 - Automatic translation of Control text through `auto_translate_mode`.
