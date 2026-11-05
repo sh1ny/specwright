@@ -4,9 +4,9 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| design-grounding → A design cites the code behind each claim | Claim checked against the code | evals/git-workflow/test_design_grounding.py | test_design_claims_cite_path_line | red |
-| design-grounding → A design cites the code behind each claim | Claim the author could not check | evals/git-workflow/test_design_grounding.py | test_unchecked_claim_is_numbered_assumption | red |
-| design-grounding → A design cites the code behind each claim | Design with no claims about existing code | evals/git-workflow/test_design_grounding.py | test_assumptions_none_when_all_cited | red |
+| design-grounding → A design cites the code behind each claim | Claim checked against the code | evals/git-workflow/test_design_grounding.py | test_design_claims_cite_path_line | green |
+| design-grounding → A design cites the code behind each claim | Claim the author could not check | evals/git-workflow/test_design_grounding.py | test_unchecked_claim_is_numbered_assumption | green |
+| design-grounding → A design cites the code behind each claim | Design with no claims about existing code | evals/git-workflow/test_design_grounding.py | test_assumptions_none_when_all_cited | green |
 | design-grounding → The design review checks each cited claim | Citation contradicts the claim | evals/git-workflow/test_design_grounding.py | test_review_rereads_citations_contradiction_critical | red |
 | design-grounding → The design review checks each cited claim | Claim without citation | evals/git-workflow/test_design_grounding.py | test_review_flags_uncited_claim | red |
 | design-grounding → The design review checks each cited claim | Assumption the code settles | evals/git-workflow/test_design_grounding.py | test_review_flags_settleable_assumption | red |
@@ -25,8 +25,8 @@ Extra tests (design D1, required by the review): `test_template_assumptions_abov
 
 ## 2. Design grounding
 
-- [ ] 2.1 Create `evals/git-workflow/test_design_grounding.py` in the style of `evals/git-workflow/test_user_tasks.py` (assert where a rule sits and its key terms in the flattened schema block). Add the red tests for the three "cites the code" rows plus `test_template_assumptions_above_light_boundary` and `test_light_section_list_names_assumptions`. Run `python -m unittest evals/git-workflow/test_design_grounding.py` and confirm each fails because the rule is missing, not because of a fixture error.
-- [ ] 2.2 In `schemas/specwright/schema.yaml`, design instruction:
+- [x] 2.1 Create `evals/git-workflow/test_design_grounding.py` in the style of `evals/git-workflow/test_user_tasks.py` (assert where a rule sits and its key terms in the flattened schema block). Add the red tests for the three "cites the code" rows plus `test_template_assumptions_above_light_boundary` and `test_light_section_list_names_assumptions`. Run `python -m unittest evals/git-workflow/test_design_grounding.py` and confirm each fails because the rule is missing, not because of a fixture error.
+- [x] 2.2 In `schemas/specwright/schema.yaml`, design instruction:
   - Step 2 GROUND: every claim about how existing code, data or a format behaves cites the narrowest `path:line` range that shows it (D3). A claim not checked against the code becomes an `## Assumptions` entry with an id, why it was not checked, and the decisions or tasks that depend on it (or `none`). The section reads `None` when everything is cited.
   - LIGHT list: "Triage, Context, Decisions and Assumptions".
   - Add `## Assumptions` to the SECTIONS list.

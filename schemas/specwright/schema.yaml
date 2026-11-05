@@ -282,20 +282,30 @@ artifacts:
         logs, lists, queues, history)
       - T6 Risk: security, auth, money, data loss, or user data that cannot
         be recreated
-      No trigger → LIGHT tier: write Triage, Context and Decisions only.
+      No trigger → LIGHT tier: write Triage, Context, Decisions and Assumptions only.
       Any trigger → FULL tier: write every section the template marks FULL.
       When unsure whether a trigger applies, it applies. Emit the
       machine-readable line exactly: `TIER: LIGHT` or `TIER: FULL`.
 
-      2. GROUND before deciding. Read the code the change touches and cite
-      existing patterns as file:line. Check any claim that something does not
-      exist; otherwise label it an unverified assumption. Read the in-force
-      ADRs (see ADR rules); the design MUST be coherent with them or flag the
-      conflict under Open Questions.
+      2. GROUND before deciding. Read the code the change touches. Every
+      claim about how existing code, data or a format behaves (what a
+      function does, what an input holds, what a format guarantees) cites
+      the `path:line` range that shows it, as narrow as the claim allows:
+      the lines that show it, not the whole file or function around them.
+      Check any claim that something does not exist the same way. A claim
+      you did not check against the code goes in `## Assumptions`, never in
+      the text as fact. Read the in-force ADRs (see ADR rules); the design
+      MUST be coherent with them or flag the conflict under Open Questions.
 
       3. SECTIONS.
-      - Context: only the current state and constraints the approach needs.
-        Point to proposal.md instead of restating it.
+      - Context: only the current state and constraints the approach needs,
+        each claim about existing behaviour with its `path:line`. Point to
+        proposal.md instead of restating it.
+      - `## Assumptions` (both tiers), placed after the Decision summary and
+        above the template's LIGHT boundary, reads `None` when every claim is
+        cited; otherwise each claim you did not check against the code is one
+        entry: an id (`A1`, `A2` and so on), the claim, why it was not
+        checked, and the decisions or tasks that depend on it (or `none`).
       - Decisions (both tiers): each states the choice, at least one rejected
         alternative that differs structurally (ownership, boundary,
         sequencing, integration pattern - not cosmetically), why it lost, and
