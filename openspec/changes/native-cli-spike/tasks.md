@@ -54,8 +54,8 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 1. ADR and architecture
 
-- [ ] 1.1 Write `docs/adr/0027-shipped-tooling-is-one-dart-binary.md` (MADR-short, Status accepted, Supersedes 0002, adds to 0014) as design.md's ADRs section describes, carrying C4 (install root, exact version and interface, unsigned-first with the quarantine step and signing trigger; rejected: per-project binary, interface-only matching, `dart build cli`, signing first), C5 (scripts and `bounded.py` copies stay until each port and M8), C6 (parent killed by SIGKILL or task kill can leave the helper and command; evals close it via the spawn record) and C8 (CI artifacts only; linux-arm64, macOS x64 and release assets are `native-cli-distribution`'s). Verify: the file exists and states the facts of C4, C5, C6 and C8.
-- [ ] 1.2 Add ADR 0027 to the in-force index in `openspec/architecture.md`, mark 0002 superseded by 0027 and note 0014's addition; update any section the decision changes (tooling shape). Verify: the index row exists and 0002 is no longer listed as in force.
+- [x] 1.1 Write `docs/adr/0027-shipped-tooling-is-one-dart-binary.md` (MADR-short, Status accepted, Supersedes 0002, adds to 0014) as design.md's ADRs section describes, carrying C4 (install root, exact version and interface, unsigned-first with the quarantine step and signing trigger; rejected: per-project binary, interface-only matching, `dart build cli`, signing first), C5 (scripts and `bounded.py` copies stay until each port and M8), C6 (parent killed by SIGKILL or task kill can leave the helper and command; evals close it via the spawn record) and C8 (CI artifacts only; linux-arm64, macOS x64 and release assets are `native-cli-distribution`'s). Verify: the file exists and states the facts of C4, C5, C6 and C8.
+- [x] 1.2 Add ADR 0027 to the in-force index in `openspec/architecture.md`, mark 0002 superseded by 0027 and note 0014's addition; update any section the decision changes (tooling shape). Verify: the index row exists and 0002 is no longer listed as in force.
 
 ## 2. Dart package scaffold and toolchain
 
