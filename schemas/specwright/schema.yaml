@@ -648,6 +648,16 @@ artifacts:
       An entry with no dependents gets no task. A disproved assumption is
       design drift: apply stops that work and the drift rule applies.
 
+      CARRIED CONSTRAINTS. For each `## Carried constraints` entry in the
+      design, add a task that names its id (`C1` and so on) and writes the
+      fact at its destination. ADR destinations ride the first-group ADR
+      task: that task names the entry ids it carries. The task is ticked only
+      when the text is at the destination. A destination that is gone, or no
+      longer fits, during apply is design drift: apply stops that task, the
+      entry is amended under the drift rule, and the task then writes it at
+      the new destination. A section that reads `None`, or no section, adds
+      no task.
+
       At the end of planning, before apply, show the user the Decision
       summary table from design.md. In `autonomous` mode planning does not
       wait for an answer to it: show it and continue, with no question.

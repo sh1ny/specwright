@@ -8,8 +8,8 @@
 | design-constraints → A design lists the constraints it carries forward | Behavioural guarantee | evals/git-workflow/test_design_constraints.py | test_destination_rule_by_kind | green |
 | design-constraints → A design lists the constraints it carries forward | Nothing outlives the change | evals/git-workflow/test_design_constraints.py | test_carried_constraints_none_when_empty | green |
 | design-constraints → A design lists the constraints it carries forward | LIGHT design | evals/git-workflow/test_design_constraints.py | test_carried_constraints_above_light_boundary_and_in_light_list | green |
-| design-constraints → Apply writes each carried constraint at its destination | Doc comment destination | evals/git-workflow/test_design_constraints.py | test_tasks_write_each_entry_at_destination | red |
-| design-constraints → Apply writes each carried constraint at its destination | Destination moved during apply | evals/git-workflow/test_design_constraints.py | test_moved_destination_is_drift | red |
+| design-constraints → Apply writes each carried constraint at its destination | Doc comment destination | evals/git-workflow/test_design_constraints.py | test_tasks_write_each_entry_at_destination | green |
+| design-constraints → Apply writes each carried constraint at its destination | Destination moved during apply | evals/git-workflow/test_design_constraints.py | test_moved_destination_is_drift | green |
 | design-constraints → The design review checks the list is complete | Rejected alternative not carried | evals/git-workflow/test_design_constraints.py | test_review_flags_unlisted_constraint_moderate | green |
 | design-constraints → The design review checks the list is complete | Entry without a destination | evals/git-workflow/test_design_constraints.py | test_review_flags_entry_without_single_destination | green |
 | design-constraints → The design review checks the list is complete | LIGHT design omits a constraint | evals/git-workflow/test_design_constraints.py | test_light_recheck_records_finding_and_withholds_verdict | green |
@@ -47,8 +47,8 @@
 
 ## 5. Tasks carry each entry
 
-- [ ] 5.1 Add the red tests for the two "Apply writes each carried constraint" rows and confirm they fail for the right reason.
-- [ ] 5.2 In the tasks instruction of `schemas/specwright/schema.yaml`, next to the ADR first-group rule, add the per-entry rule:
+- [x] 5.1 Add the red tests for the two "Apply writes each carried constraint" rows and confirm they fail for the right reason.
+- [x] 5.2 In the tasks instruction of `schemas/specwright/schema.yaml`, next to the ADR first-group rule, add the per-entry rule:
   - Each `## Carried constraints` entry gets a task that names its id and writes the fact at its destination.
   - ADR destinations ride the first-group ADR task.
   - The task is ticked only when the text is there.
