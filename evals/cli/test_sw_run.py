@@ -103,6 +103,13 @@ class PassThrough(Base):
         proc = self.sw("--", sys.executable, script)
         self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, "out\n", "err\n"))
 
+    @unittest.skipUnless(sys.platform == "win32", "a 32-bit NTSTATUS exit code is a Windows status")
+    def test_windows_high_bit_status_passes_through(self):
+        # 0xC0000005 (access violation): Windows reports it as a signed -1073741819; it must not be read as a signal.
+        script = self.script("v.py", "import sys\nsys.exit(0xC0000005)\n")
+        proc = self.sw("--", sys.executable, script)
+        self.assertEqual((proc.returncode, proc.stderr), (0xC0000005, ""))
+
 
 class Limits(Base):
     def line(self, limit, script):

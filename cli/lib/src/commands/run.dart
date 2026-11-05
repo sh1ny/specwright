@@ -107,5 +107,9 @@ Future<int> runCommand(
   writeOut(result.stdout);
   writeErr(result.stderr);
   final code = result.exitCode ?? 127;
+  // A negative code is a signal only on POSIX. On Windows it is a 32-bit
+  // status with the high bit set (0xC0000005 arrives as -1073741819), and it
+  // passes through unchanged.
+  if (Platform.isWindows) return code;
   return code < 0 ? 128 - code : code;
 }
