@@ -20,7 +20,7 @@
 
 ## 1. Verify the base (A1)
 
-- [ ] 1.1 Verify A1 before any other task: `verify-design-claims` is merged on `main`. Rebase this branch onto `main`. Confirm that `schemas/specwright/templates/design.md` has `## Assumptions` above the LIGHT boundary, and that the schema's LIGHT list reads "Triage, Context, Decisions and Assumptions". If either is missing, stop: design D1 is drift, and the drift rule applies.
+- [x] 1.1 Verify A1 before any other task: `verify-design-claims` is merged on `main`. Rebase this branch onto `main`. Confirm that `schemas/specwright/templates/design.md` has `## Assumptions` above the LIGHT boundary, and that the schema's LIGHT list reads "Triage, Context, Decisions and Assumptions". If either is missing, stop: design D1 is drift, and the drift rule applies.
 
 ## 2. The contract
 
