@@ -55,7 +55,7 @@ Extra tests (design D1, required by the review): `test_template_assumptions_abov
 
 ## 5. Docs, roadmap and coverage
 
-- [ ] 5.1 Make the docs and roadmap edits:
+- [x] 5.1 Make the docs and roadmap edits:
   - `README.md`: add one or two sentences on design grounding where the design review is described (citations, Assumptions, the Claims check, verify-first tasks).
   - `openspec/roadmap.md`: insert `verify-design-claims` (#197) and `carry-design-constraints` (#198, closes #190) into M7's change list ahead of `native-cli-spike`, renumbering the rest.
 
