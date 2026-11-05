@@ -3,6 +3,7 @@ import 'dart:io';
 import '../process/bounded_run.dart';
 import '../process/limit_line.dart';
 import '../process/limits.dart';
+import '../process/platform_tree.dart';
 import '../process/resolve.dart';
 import '../process/transport.dart';
 
@@ -79,13 +80,23 @@ Future<int> runCommand(
     stdinBytes: transport.stdinBytes,
     limits: resolveLimits(environment, paged: invocation.paged),
     helperCommand: helperCommand,
+    treeFor: () => platformTree(environment),
+    preGoFile: environment['SPECWRIGHT_TEST_PRE_GO'],
     note: err.write,
   ).run();
 
+  final label = commandLabel(command);
+  if (result.helperNotStopped) {
+    err.write('bounded: helper not stopped: $label\n');
+  }
   final limit = result.limit;
   if (limit != null) {
     err.write(limitLine(limit, command));
     return limit.exitCode;
+  }
+  if (result.helperExited) {
+    err.write('bounded: helper exited during startup: $label\n');
+    return 127;
   }
   final startError = result.startError;
   if (startError != null) {

@@ -6,6 +6,7 @@ import 'package:args/args.dart';
 import 'commands/run.dart';
 import 'commands/version.dart';
 import 'process/exec_helper.dart';
+import 'process/platform_tree.dart';
 
 const _usage =
     'usage: sw <command>\n'
@@ -26,7 +27,11 @@ Future<int> runCli(
   void Function(List<int> bytes)? errBytes,
 }) async {
   if (args.isNotEmpty && args.first == '__exec') {
-    return runExecHelper(args.sublist(1));
+    return runExecHelper(
+      args.sublist(1),
+      hello: platformHello(),
+      contain: platformContainment(),
+    );
   }
   if (args.isNotEmpty && args.first == 'run') {
     return runCommand(

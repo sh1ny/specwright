@@ -7,14 +7,17 @@ import 'limit_line.dart';
 import 'limits.dart';
 import 'tree_stop.dart';
 
-/// What a bounded run ended in. Exactly one of [limit], [startError] or
-/// [exitCode] describes the end; the output is the command's own and is only
-/// meant to be passed on when there is no limit and no start error.
+/// What a bounded run ended in. Exactly one of [limit], [startError],
+/// [helperExited] or [exitCode] describes the end; the output is the
+/// command's own and is only meant to be passed on when there is no limit and
+/// no start failure.
 class BoundedResult {
   const BoundedResult({
     this.exitCode,
     this.limit,
     this.startError,
+    this.helperExited = false,
+    this.helperNotStopped = false,
     this.stdout = const [],
     this.stderr = const [],
   });
@@ -28,6 +31,14 @@ class BoundedResult {
   /// Why the command could not be started (exit 127), if it could not.
   final String? startError;
 
+  /// The helper could not be identified, or exited, before the go (exit 127).
+  final bool helperExited;
+
+  /// A limit hit before the helper announced itself and it neither announced
+  /// itself nor exited within the stop wait; it was left running (C12). Set
+  /// together with [limit].
+  final bool helperNotStopped;
+
   final List<int> stdout;
   final List<int> stderr;
 }
@@ -35,17 +46,22 @@ class BoundedResult {
 /// One bounded run of a command: its deadline, a byte bound on each of stdout
 /// and stderr, and the stop of its whole process tree.
 ///
-/// The helper's ready frame (`\x00sw-ready ...\n`) is internal: the parent
-/// strips it before counting or passing on stderr, and the command starts only
-/// after the go byte.
+/// The helper's frames, `\x00sw-hello ...\n` (its identity) and then
+/// `\x00sw-ready ...\n`, are internal: the parent strips both before counting
+/// or passing on stderr, and the command starts only after the go byte.
 ///
 /// A [BoundedRun] owns the helper process (`sw __exec -- <command>`), a state
 /// machine over its stream subscriptions and its exit future:
 ///
-/// * Starting: the parent reads and strips the ready frame, then writes `g`,
-///   the transport bytes and closes the pipe. A limit before the go closes the
-///   pipe without `g`, kills the helper by PID and waits for its exit, so the
-///   command never starts. A missing or malformed frame is a start error.
+/// * Starting: the parent reads and strips the hello frame (the tree checks
+///   the helper's identity), then the ready frame (the tree contains the
+///   helper), then writes `g`, the transport bytes and closes the pipe. A
+///   limit before the go stops the helper first and closes the pipe second,
+///   and waits for the helper's exit, so the command never starts. A limit
+///   before the hello closes the pipe and waits at most [stopWait] for the
+///   hello or the exit, else leaves the helper (C12). A missing or malformed
+///   frame is a start error; a helper that cannot be identified or exited
+///   before the go is `helperExited`.
 /// * Running: every chunk is counted per stream into memory (never disk); past
 ///   the bound both subscriptions are cancelled and the tree is stopped. The
 ///   exit future races a deadline timer on a monotonic [Stopwatch]: an exit
@@ -57,9 +73,10 @@ class BoundedRun {
   BoundedRun({
     required this.command,
     required this.limits,
+    required this.treeFor,
     this.stdinBytes = const [],
     List<String>? helperCommand,
-    this.treeFor = PidTree.new,
+    this.preGoFile,
     void Function(String line)? note,
   }) : helperCommand = helperCommand ?? [Platform.resolvedExecutable, '__exec'],
        _note = note ?? stderr.write;
@@ -75,6 +92,12 @@ class BoundedRun {
   final List<String> helperCommand;
 
   final ProcessTreeFactory treeFor;
+
+  /// Test hook `SPECWRIGHT_TEST_PRE_GO`: once the ready frame is consumed, the
+  /// parent creates `<file>.reached` and defers the go byte while the file
+  /// exists. The deadline keeps running, so it can only delay the start.
+  final String? preGoFile;
+
   final void Function(String line) _note;
 
   Future<BoundedResult> run() async {
@@ -91,6 +114,7 @@ class BoundedRun {
       hit(BoundedLimit.deadlineExceeded);
     });
 
+    final tree = treeFor();
     final Process helper;
     try {
       helper = await Process.start(helperCommand.first, [
@@ -100,14 +124,16 @@ class BoundedRun {
       ]);
     } on ProcessException catch (e) {
       deadlineTimer.cancel();
+      tree.dispose();
       return BoundedResult(startError: 'cannot start the helper: ${e.message}');
     }
-    final tree = treeFor(helper);
+    tree.started(helper);
 
     final out = BytesBuilder(copy: false);
     final err = BytesBuilder(copy: false);
-    final parser = ReadyFrameParser();
-    final frameSettled = Completer<void>();
+    final parser = FrameParser();
+    final helloSettled = Completer<void>(); // hello read, or no hello will come
+    final frameSettled = Completer<void>(); // ready read, or no frame will come
     final outDone = Completer<void>();
     final errDone = Completer<void>();
     final readersDone = Future.wait([outDone.future, errDone.future]);
@@ -128,12 +154,18 @@ class BoundedRun {
     final errSub = helper.stderr.listen(
       (chunk) {
         final rest = parser.add(chunk);
-        if (parser.state != FrameState.pending) settle(frameSettled);
+        if (parser.hello != null) settle(helloSettled);
+        if (parser.state == FrameState.ready ||
+            parser.state == FrameState.malformed) {
+          settle(helloSettled);
+          settle(frameSettled);
+        }
         if (rest.isNotEmpty) count(err, rest);
       },
       onError: (Object _) => settle(errDone),
       onDone: () {
         parser.close();
+        settle(helloSettled);
         settle(frameSettled);
         settle(errDone);
       },
@@ -161,36 +193,120 @@ class BoundedRun {
       ]);
     }
 
-    // Stops the tree, gives the helper at most [stopWait] to go, lets go.
+    Future<void> waitForExit() => Future.any<Object?>([
+      exited.future,
+      Future<int>.delayed(stopWait, () => -1),
+    ]);
+
+    // After the go: stop the tree, give the helper at most [stopWait], let go.
     Future<void> stopAndLetGo() async {
       await tree.stop();
-      await Future.any<Object?>([
-        exited.future,
-        Future<int>.delayed(stopWait, () => -1),
-      ]);
+      await waitForExit();
     }
 
+    // Before the go the helper is the whole tree: stop it first and close the
+    // pipe second, so it cannot exit on end-of-file and free its PID first.
+    Future<BoundedResult> limitBeforeGo() async {
+      await tree.stop();
+      closeControlPipe(); // without the go byte
+      await cancelReaders();
+      await waitForExit();
+      return BoundedResult(limit: await firstLimit.future);
+    }
+
+    var letGo = false; // a helper that was never identified: do not signal it
     try {
-      // Starting: the ready frame, or a limit.
-      await Future.any<Object?>([frameSettled.future, firstLimit.future]);
-      if (firstLimit.isCompleted) {
-        closeControlPipe(); // without the go byte
+      // Starting: the hello frame, or a limit.
+      await Future.any<Object?>([helloSettled.future, firstLimit.future]);
+      if (parser.hello == null && parser.state != FrameState.malformed) {
+        // A limit before the helper announced itself: close the pipe without
+        // the go, and give the helper the stop wait to announce itself or
+        // exit. Nothing is signalled that has not been identified (C12).
+        closeControlPipe();
+        await Future.any<Object?>([
+          helloSettled.future,
+          exited.future,
+          Future<void>.delayed(stopWait),
+        ]);
+        final hello = parser.hello;
+        if (hello != null && tree.hello(hello)) {
+          await tree.stop();
+          await waitForExit();
+        } else if (hello == null && !exited.isCompleted) {
+          letGo = true;
+        }
         await cancelReaders();
-        await stopAndLetGo();
-        return BoundedResult(limit: await firstLimit.future);
+        return BoundedResult(
+          limit: await firstLimit.future,
+          helperNotStopped: letGo,
+        );
       }
+      if (parser.hello == null) {
+        // malformed before any hello: another binary answered
+        closeControlPipe();
+        await cancelReaders();
+        if (!exited.isCompleted) helper.kill(ProcessSignal.sigkill);
+        return BoundedResult(
+          startError: '${parser.problem}: ${parser.received}',
+        );
+      }
+      if (!tree.hello(parser.hello!)) {
+        // The helper cannot be identified, or is gone: nothing is assigned or
+        // terminated, and no go is written.
+        closeControlPipe();
+        await cancelReaders();
+        if (firstLimit.isCompleted) {
+          return BoundedResult(limit: await firstLimit.future);
+        }
+        return const BoundedResult(helperExited: true);
+      }
+      if (firstLimit.isCompleted) return await limitBeforeGo();
+
+      // The ready frame, or a limit, or the helper's end.
+      await Future.any<Object?>([
+        frameSettled.future,
+        firstLimit.future,
+        exited.future,
+      ]);
+      if (firstLimit.isCompleted) return await limitBeforeGo();
       if (parser.state != FrameState.ready) {
         closeControlPipe();
         await cancelReaders();
-        await stopAndLetGo();
-        return BoundedResult(
-          startError:
-              '${parser.problem}'
-              '${parser.received.isEmpty ? '' : ': ${parser.received}'}',
-        );
+        if (!exited.isCompleted) helper.kill(ProcessSignal.sigkill);
+        final problem = parser.state == FrameState.malformed
+            ? '${parser.problem}'
+                  '${parser.received.isEmpty ? '' : ': ${parser.received}'}'
+            : 'the helper exited before its ready frame';
+        return BoundedResult(startError: problem);
       }
-      final jobReason = parser.frame!.jobReason;
-      if (jobReason != null) _note('bounded: no job object: $jobReason\n');
+      final noJob = tree.ready(parser.ready!);
+      if (noJob != null) _note('bounded: no job object: $noJob\n');
+
+      final hold = preGoFile;
+      if (hold != null) {
+        try {
+          File('$hold.reached').writeAsStringSync('');
+        } on FileSystemException {
+          // a test aid only
+        }
+        while (!firstLimit.isCompleted &&
+            !exited.isCompleted &&
+            File(hold).existsSync()) {
+          await Future.any<Object?>([
+            firstLimit.future,
+            exited.future,
+            Future<void>.delayed(const Duration(milliseconds: 20)),
+          ]);
+        }
+      }
+      if (firstLimit.isCompleted) return await limitBeforeGo();
+      if (exited.isCompleted || tree.helperGone) {
+        // The helper ended after its frames and before the go: nothing is
+        // written to it, and the command never starts.
+        closeControlPipe();
+        await cancelReaders();
+        return const BoundedResult(helperExited: true);
+      }
 
       // Go: no limit has hit, and nothing awaits between this check and the
       // write.
@@ -241,7 +357,8 @@ class BoundedRun {
       );
     } finally {
       deadlineTimer.cancel();
-      if (!exited.isCompleted) await tree.stop();
+      if (!exited.isCompleted && !letGo) await tree.stop();
+      tree.dispose();
     }
   }
 }

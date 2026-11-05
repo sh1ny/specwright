@@ -19,11 +19,16 @@ enum BoundedLimit {
 /// than three arguments, it names the command the shell wraps instead: the two
 /// arguments after the script (`sh -c 'exec gh "$@"' gh api ...` names
 /// `gh api`).
-String limitLine(BoundedLimit limit, List<String> cmd, {bool? windows}) {
+String limitLine(BoundedLimit limit, List<String> cmd, {bool? windows}) =>
+    'bounded: ${limit.label}: ${commandLabel(cmd, windows: windows)}\n';
+
+/// How a line names the command: `<cmd> <first arg>`, or for a `sh`/`bash -c`
+/// wrapper the command it wraps (see [limitLine]).
+String commandLabel(List<String> cmd, {bool? windows}) {
   final named = _isShellWrapper(cmd, windows: windows ?? Platform.isWindows)
       ? cmd.skip(3).take(2)
       : cmd.take(2);
-  return 'bounded: ${limit.label}: ${named.join(' ')}\n';
+  return named.join(' ');
 }
 
 bool _isShellWrapper(List<String> cmd, {required bool windows}) {

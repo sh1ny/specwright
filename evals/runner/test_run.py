@@ -70,6 +70,22 @@ def nested_hang_file(pids, seconds):
             f"        time.sleep({seconds})\n")
 
 
+def sw_hang_files(sw, pids, seconds):
+    """Two files for a throwaway suite: a command that starts a sleeping child and records its own PID and the child's in
+    `pids`, and a test file that runs that command under `sw run --bounded` (which puts it in a session of its own on POSIX) and
+    then sleeps `seconds`."""
+    command = ("import os, subprocess, sys, time\n"
+               f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({seconds})'])\n"
+               f"open({str(pids)!r}, 'w').write('%d %d' % (os.getpid(), child.pid))\n"
+               f"time.sleep({seconds})\n")
+    test = ("import subprocess, sys, time, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_hang(self):\n"
+            f"        subprocess.Popen([{str(sw)!r}, 'run', '--bounded', '--', sys.executable, {str(pids) + '.command.py'!r}])\n"
+            f"        time.sleep({seconds})\n")
+    return command, test
+
+
 def load_runner():
     spec = importlib.util.spec_from_file_location("evals_run_under_test", str(RUN))
     mod = importlib.util.module_from_spec(spec)
@@ -221,6 +237,24 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(alive, [], "the file's own process or the session its bounded.spawn started survived the runner")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertRegex(r.stdout, r"timeout after 4 s")
+
+    def test_sweep_stops_sw_sessions_after_timeout(self):
+        sys.path.insert(0, str(HERE.parent / "cli"))
+        try:
+            import swharness
+        finally:
+            sys.path.pop(0)
+        sw = swharness.require_sw()
+        pids = self.root / "pids.txt"
+        command, test = sw_hang_files(sw, pids, 600)
+        Path(str(pids) + ".command.py").write_text(command, encoding="utf-8")
+        self.suite("alpha", {"test_hang.py": test, "test_ok.py": PASSING})
+        r = self.run_runner("alpha", "--timeout", "12")
+        found = [int(x) for x in pids.read_text().split()] if pids.exists() else []
+        self.assertEqual(len(found), 2, "sw never started the command: " + r.stdout + r.stderr)
+        alive = wait_dead(found)  # never leaves a sleeper behind, whatever the assertion says
+        self.assertEqual(alive, [], "the command or its child, started by sw in a session of its own, survived the runner")
+        self.assertRegex(r.stdout, r"timeout after 12 s")
 
     def interrupt_once(self, pids):
         """Interrupt the main thread, as Ctrl-C does, once `pids` exists; gives up after 60 s."""
