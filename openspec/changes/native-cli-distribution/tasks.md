@@ -22,13 +22,13 @@
 | native-cli → SHA256SUMS is uploaded last and seals the release | Sealed release run again | `evals/cli/test_attach_release.py` | `test_sealed_complete_release_changes_nothing` | red |
 | native-cli → SHA256SUMS is uploaded last and seals the release | Sealed release missing a binary | `evals/cli/test_attach_release.py` | `test_sealed_release_missing_binary_fails` | red |
 | native-cli → SHA256SUMS is uploaded last and seals the release | No release for the tag | `evals/cli/test_attach_release.py` | `test_tag_without_release_fails` | red |
-| native-cli → A project's sw is found and checked before use | Matching binary | `evals/cli/test_sw_path.py` | `test_matching_binary_prints_path` | red |
-| native-cli → A project's sw is found and checked before use | SPECWRIGHT_HOME override | `evals/cli/test_sw_path.py` | `test_specwright_home_is_used` | red |
-| native-cli → A project's sw is found and checked before use | Override set but its binary missing | `evals/cli/test_sw_path.py` | `test_override_without_binary_does_not_fall_back` | red |
-| native-cli → A project's sw is found and checked before use | Project has no VERSION | `evals/cli/test_sw_path.py` | `test_no_version_file_stops` | red |
-| native-cli → A missing or mismatched sw stops with one message | Binary missing | `evals/cli/test_sw_path.py` | `test_missing_binary_ignores_other_versions` | red |
-| native-cli → A missing or mismatched sw stops with one message | Interface mismatch | `evals/cli/test_sw_path.py` | `test_interface_mismatch_stops` | red |
-| native-cli → A missing or mismatched sw stops with one message | Version report is not JSON | `evals/cli/test_sw_path.py` | `test_non_json_report_stops` | red |
+| native-cli → A project's sw is found and checked before use | Matching binary | `evals/cli/test_sw_path.py` | `test_matching_binary_prints_path` | green |
+| native-cli → A project's sw is found and checked before use | SPECWRIGHT_HOME override | `evals/cli/test_sw_path.py` | `test_specwright_home_is_used` | green |
+| native-cli → A project's sw is found and checked before use | Override set but its binary missing | `evals/cli/test_sw_path.py` | `test_override_without_binary_does_not_fall_back` | green |
+| native-cli → A project's sw is found and checked before use | Project has no VERSION | `evals/cli/test_sw_path.py` | `test_no_version_file_stops` | green |
+| native-cli → A missing or mismatched sw stops with one message | Binary missing | `evals/cli/test_sw_path.py` | `test_missing_binary_ignores_other_versions` | green |
+| native-cli → A missing or mismatched sw stops with one message | Interface mismatch | `evals/cli/test_sw_path.py` | `test_interface_mismatch_stops` | green |
+| native-cli → A missing or mismatched sw stops with one message | Version report is not JSON | `evals/cli/test_sw_path.py` | `test_non_json_report_stops` | green |
 | install-update → A tagged install places a checked sw for the host | Install of a tag with binaries on Linux x64 | `evals/update/test_sw_install.py` | `test_tag_install_places_checked_binary` (host target) | red |
 | install-update → A tagged install places a checked sw for the host | SPECWRIGHT_HOME set | `evals/update/test_sw_install.py` | `test_specwright_home_is_the_root` | red |
 | install-update → A tagged install places a checked sw for the host | Host on a platform with no target | `evals/update/test_sw_install.py` | `test_unsupported_platform_stops` | red |
@@ -55,10 +55,10 @@
 
 ## 1. The shared resolver
 
-- [ ] 1.1 Write `evals/cli/test_sw_path.py` with the eight resolver tests of the test map, driving `bash skills/specwright-pr/scripts/sw-path.sh` against a temp code checkout and a temp `SPECWRIGHT_HOME`. A matching binary is a copy of the `SPECWRIGHT_SW` build (skip as `sw not built` without it). Mismatched or broken binaries are small stubs given through `--file` (a shell script on POSIX, a `.cmd` on Windows). Run `python -m unittest evals/cli/test_sw_path.py` and confirm each fails because `sw-path.sh` does not exist.
-- [ ] 1.2 Write `skills/specwright-pr/scripts/sw-path.sh` (D2): `--code`, `--version`, `--file`; path `<home>/.specwright/bin/<version>/sw[.exe]`; the check runs through the `bounded.py` beside it with `SPECWRIGHT_NET_DEADLINE=10` and `SPECWRIGHT_NET_MAX_BYTES=1048576`; `SW_INTERFACE=1`; stdout carries only the path; every failure prints `sw missing or mismatched: rerun the install prompt` and a detail line, exit 1. Its header comment carries C10 (bounds) and C6 (no fallback to another version or `PATH`). Verify `test_sw_path.py` passes and flip its rows green.
-- [ ] 1.3 Add `evals/cli/test_sw_interface_pin.py`: it reads `SW_INTERFACE` from `sw-path.sh` and `interfaceVersion` from `cli/lib/src/commands/version.dart` and fails when they differ. Add the doc comment on `interfaceVersion` that carries C2 (change both together, pinned by that test). Verify the test passes, and fails when one value is edited locally.
-- [ ] 1.4 Add rules to `evals/suites.json` so `skills/specwright-pr/scripts/sw-path.sh` also routes to the `cli` suite, and so the new workflows and `cli/tool/*.py` are covered. Run `python -m unittest evals/runner/test_suite_map.py`.
+- [x] 1.1 Write `evals/cli/test_sw_path.py` with the eight resolver tests of the test map, driving `bash skills/specwright-pr/scripts/sw-path.sh` against a temp code checkout and a temp `SPECWRIGHT_HOME`. A matching binary is a copy of the `SPECWRIGHT_SW` build (skip as `sw not built` without it). Mismatched or broken binaries are small stubs given through `--file` (a shell script on POSIX, a `.cmd` on Windows). Run `python -m unittest evals/cli/test_sw_path.py` and confirm each fails because `sw-path.sh` does not exist.
+- [x] 1.2 Write `skills/specwright-pr/scripts/sw-path.sh` (D2): `--code`, `--version`, `--file`; path `<home>/.specwright/bin/<version>/sw[.exe]`; the check runs through the `bounded.py` beside it with `SPECWRIGHT_NET_DEADLINE=10` and `SPECWRIGHT_NET_MAX_BYTES=1048576`; `SW_INTERFACE=1`; stdout carries only the path; every failure prints `sw missing or mismatched: rerun the install prompt` and a detail line, exit 1. Its header comment carries C10 (bounds) and C6 (no fallback to another version or `PATH`). Verify `test_sw_path.py` passes and flip its rows green.
+- [x] 1.3 Add `evals/cli/test_sw_interface_pin.py`: it reads `SW_INTERFACE` from `sw-path.sh` and `interfaceVersion` from `cli/lib/src/commands/version.dart` and fails when they differ. Add the doc comment on `interfaceVersion` that carries C2 (change both together, pinned by that test). Verify the test passes, and fails when one value is edited locally.
+- [x] 1.4 Add rules to `evals/suites.json` so `skills/specwright-pr/scripts/sw-path.sh` also routes to the `cli` suite, and so the new workflows and `cli/tool/*.py` are covered. Run `python -m unittest evals/runner/test_suite_map.py`.
 
 ## 2. Five-target build and the interface check in CI
 
