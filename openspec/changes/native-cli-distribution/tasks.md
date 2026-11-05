@@ -87,8 +87,8 @@
 
 ## 5. Install prompt and docs
 
-- [ ] 5.1 Update the README install prompt: in Step 3, after `plan`, a tag whose `plan` has an `sw` field runs `update.sh sw-install` and stops before Step 4 on a non-zero exit, naming its `error` and `message`; `main` and a `plan` without the field skip it. Step 8 reports the `sw` path, or why none was installed. Verify with the `update` suite's prompt-text tests, if any cover Step 3, and by reading the steps against the spec scenarios.
-- [ ] 5.2 Update `openspec/architecture.md`: the `sw` row (`:92`: binaries per release, the install places them, `sw-path.sh` resolves them), the install and `update.sh` rows (`sw-install`, the `plan` field), and the state table (`<home>/.specwright/bin/<version>/`, release assets and the seal). Verify that no row still says that nothing installs `sw`.
+- [x] 5.1 Update the README install prompt: in Step 3, after `plan`, a tag whose `plan` has an `sw` field runs `update.sh sw-install` and stops before Step 4 on a non-zero exit, naming its `error` and `message`; `main` and a `plan` without the field skip it. Step 8 reports the `sw` path, or why none was installed. Verify with the `update` suite's prompt-text tests, if any cover Step 3, and by reading the steps against the spec scenarios.
+- [x] 5.2 Update `openspec/architecture.md`: the `sw` row (`:92`: binaries per release, the install places them, `sw-path.sh` resolves them), the install and `update.sh` rows (`sw-install`, the `plan` field), and the state table (`<home>/.specwright/bin/<version>/`, release assets and the seal). Verify that no row still says that nothing installs `sw`.
 
 ## 6. Release
 

@@ -221,6 +221,23 @@ Step 3 - Choose the version, download and compare versions
   enabled or still listed in `packs.json`, STOP before `stage` in the same way,
   say that download predates packs (remove the packs with a 0.16.0 or newer
   release first), and name interfaces 1 and 2.
+- Install the native `sw` binary, before Step 4 stages anything. Only a
+  release tag whose `plan` document (the check above) has an `sw` field
+  takes this step:
+  - Run `bash <download>/scripts/update.sh sw-install` with `--code`,
+    `--root`, `--download` and `--ref` as in Step 4. It downloads the
+    host's binary and `SHA256SUMS` from that tag's GitHub release, checks
+    them and places `<home>/.specwright/bin/<version>/sw[.exe]` (`<home>`
+    is `SPECWRIGHT_HOME`, else your home directory). It writes nothing in
+    the project. Record its `path` and `action` (installed, replaced or
+    kept) for Step 8.
+  - `"ok": false` is a stop: STOP before Step 4, name its `error` and show
+    its `message`. With `assets_not_uploaded`, say the release's binaries
+    are not uploaded yet and to rerun this prompt once they are. Delete the
+    temporary directory and write no file.
+  - `main`, and a `plan` without the `sw` field (a release from before
+    0.24.0), skip this step. Record `sw not installed: main has no release
+    binaries`, or `sw not installed: <tag> ships no sw`, for Step 8.
 
 Step 4 - Install files (the update script stages, then swaps)
 `update.sh` below is the downloaded `<download>/scripts/update.sh`, run from the
@@ -442,6 +459,8 @@ and say the user commits them in the store; this prompt never commits.
   relying on them.
 - Without a swap (a refused, stopped or failed update that changed no installed
   file): no restart notice. Say that the installed version is unchanged.
+Report the `sw` binary as recorded in Step 3: its path and whether it was
+installed, replaced or kept, or the `sw not installed: ...` line.
 Report the OpenSpec version as recorded in Step 3: `OpenSpec <found> (pinned)`,
 or `OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1
 recorded a missing PR prerequisite, add the line
