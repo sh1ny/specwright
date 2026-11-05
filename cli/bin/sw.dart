@@ -1,6 +1,7 @@
 import 'dart:io';
 
-void main(List<String> args) {
-  stderr.writeln('usage: sw <command>');
-  exit(2);
+import 'package:specwright_cli/src/cli.dart';
+
+Future<void> main(List<String> args) async {
+  exitCode = await runCli(args, out: stdout, err: stderr);
 }

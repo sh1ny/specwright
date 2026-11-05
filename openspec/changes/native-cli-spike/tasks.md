@@ -4,8 +4,8 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| native-cli → sw reports its version and interface version | Version report of a CI build | evals/cli/test_sw_version.py | test_version_json_reports_version_and_interface | red |
-| native-cli → sw reports its version and interface version | Unknown command or flag | evals/cli/test_sw_version.py | test_unknown_command_or_flag_prints_usage_and_exits_2 | red |
+| native-cli → sw reports its version and interface version | Version report of a CI build | evals/cli/test_sw_version.py | test_version_json_reports_version_and_interface | green |
+| native-cli → sw reports its version and interface version | Unknown command or flag | evals/cli/test_sw_version.py | test_unknown_command_or_flag_prints_usage_and_exits_2 | green |
 | native-cli → sw run --bounded keeps bounded.py's command-line contract | Command finishes within its limits | evals/cli/test_sw_run.py | test_passes_output_and_status_through | red |
 | native-cli → sw run --bounded keeps bounded.py's command-line contract | Deadline reached | evals/cli/test_sw_run.py | test_deadline_exits_124_with_the_limit_line | red |
 | native-cli → sw run --bounded keeps bounded.py's command-line contract | Output over the bound | evals/cli/test_sw_run.py | test_too_large_exits_125_before_the_deadline | red |
@@ -42,8 +42,8 @@
 | native-cli → The macOS binary runs after a documented quarantine step | The documented step does not unblock it | evals/runner/test_cli_workflow.py | test_macos_verify_fails_when_step_does_not_unblock | red |
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | CI run | evals/runner/test_ci_workflow.py | test_cli_suite_jobs_build_sw_and_require_it | red |
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | Build fails | evals/runner/test_ci_workflow.py | test_sw_build_step_fails_the_job | red |
-| eval-runner → Suites that need sw run against a binary built from the tree in CI | Local run without sw | evals/cli/test_sw_harness.py | test_skips_with_sw_not_built | red |
-| eval-runner → Suites that need sw run against a binary built from the tree in CI | Required but missing | evals/cli/test_sw_harness.py | test_require_sw_fails_naming_the_binary | red |
+| eval-runner → Suites that need sw run against a binary built from the tree in CI | Local run without sw | evals/cli/test_sw_harness.py | test_skips_with_sw_not_built | green |
+| eval-runner → Suites that need sw run against a binary built from the tree in CI | Required but missing | evals/cli/test_sw_harness.py | test_require_sw_fails_naming_the_binary | green |
 | eval-runner → A stopped test file's sw process groups are stopped too | Runner timeout during a hung sw test | evals/runner/test_run.py | test_sweep_stops_sw_sessions_after_timeout | red |
 | eval-runner → A stopped test file's sw process groups are stopped too | Variable unset | evals/cli/test_sw_tree.py | test_no_spawn_record_without_variable | red |
 | eval-runner → A stopped test file's sw process groups are stopped too | Unwritable spawn directory | evals/cli/test_sw_tree.py | test_unwritable_spawn_dir_leaves_result_unchanged | red |
@@ -67,8 +67,8 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 3. sw version and the eval harness
 
-- [ ] 3.1 Write failing `evals/cli/test_sw_harness.py` (`test_skips_with_sw_not_built`, `test_require_sw_fails_naming_the_binary`) and `evals/cli/test_sw_version.py` (both version rows); verify they fail (or skip) for the right reason.
-- [ ] 3.2 Implement the harness skip/fail behaviour and `sw version --json` with `--define=SW_VERSION` (default `0.0.0-dev`) and `interface: 1`, plus usage and exit 2 for unknown commands and flags, with Dart unit tests in `cli/test/version_test.dart`. Verify: the four rows go green (locally with `SPECWRIGHT_SW` pointing at a `mise run build` binary); flip them.
+- [x] 3.1 Write failing `evals/cli/test_sw_harness.py` (`test_skips_with_sw_not_built`, `test_require_sw_fails_naming_the_binary`) and `evals/cli/test_sw_version.py` (both version rows); verify they fail (or skip) for the right reason.
+- [x] 3.2 Implement the harness skip/fail behaviour and `sw version --json` with `--define=SW_VERSION` (default `0.0.0-dev`) and `interface: 1`, plus usage and exit 2 for unknown commands and flags, with Dart unit tests in `cli/test/version_test.dart`. Verify: the four rows go green (locally with `SPECWRIGHT_SW` pointing at a `mise run build` binary); flip them.
 
 ## 4. Bounded runner core (all OSes)
 
