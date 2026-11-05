@@ -72,5 +72,52 @@ class DesignCitesTheCode(unittest.TestCase):
                          "the LIGHT section list does not name Assumptions")
 
 
+class ReviewChecksClaims(unittest.TestCase):
+    def test_review_rereads_citations_contradiction_critical(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)\*\*?Claims\*?\*?|- Claims:", "the review checklist has no Claims item")
+        self.assertRegex(r, r"(?i)re-read\w*[^.]{0,80}(cited range|citation)",
+                         "the review does not re-read every cited range")
+        self.assertRegex(r, r"(?i)contradict\w*[^.]{0,200}(decision or task|task or decision)[^.]{0,120}Critical",
+                         "a contradicted load-bearing claim is not Critical")
+
+    def test_review_flags_uncited_claim(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)(neither a citation nor an? (Assumptions )?entry|no citation and no (Assumptions )?entry)",
+                         "a claim with neither a citation nor an Assumptions entry is not a finding")
+        self.assertRegex(r, r"(?i)at least Moderate", "other claim findings are not at least Moderate")
+
+    def test_review_flags_settleable_assumption(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)assumption[^.]{0,80}(the code settles|settle\w* by reading)",
+                         "an assumption the code settles is not a finding")
+
+    def test_review_flags_citation_not_showing_claim(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)citation[^.]{0,80}(does not|doesn't) show[^.]{0,120}(broad|moved|missing)",
+                         "a citation that does not show its claim (too broad, moved, missing) is not a finding")
+
+    def test_light_recheck_rereads_citations(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)LIGHT:[^.]{0,400}re-read\w*[^.]{0,80}citation",
+                         "the LIGHT re-check does not re-read citations")
+
+    def test_light_contradiction_fixed_before_verdict(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)contradict\w*[^.]{0,120}fix\w*[^.]{0,80}design\.md[^.]{0,80}before[^.]{0,40}verdict",
+                         "a LIGHT contradiction is not fixed in design.md before any verdict")
+
+    def test_old_design_without_section_counts_as_none(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)no `## Assumptions` section[^.]{0,120}`None`",
+                         "a design planned before the rule is not read as `None`")
+
+    def test_reviewer_agents_name_the_claim_check(self):
+        for p in REVIEWERS:
+            text = flat(read(p))
+            self.assertRegex(text, r"(?i)design review[^.]{0,400}(re-read\w*[^.]{0,60}cit\w*|cit\w*[^.]{0,60}re-read)",
+                             f"{p.relative_to(ROOT)} does not name the claim check for design reviews")
+
+
 if __name__ == "__main__":
     unittest.main()

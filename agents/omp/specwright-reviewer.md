@@ -17,7 +17,7 @@ Rules:
 
 Planning files may live outside this checkout. Take the planning root from `root.path` in `openspec list --json` (run from the code checkout, with `--store <id>` when the request names a store), never a fixed `./openspec/`; the change, its specs and the main specs are under `<root.path>/openspec/`. Referenced stores (`members` with `role: referenced_store` in `openspec context --json`) are read-only context: read their specs through the `fetch` command it gives, never write there, and name an unresolved one (`reference_unresolved`) in your output instead of guessing its path.
 
-For a design review, follow the review artifact's instruction (`openspec instructions review --change <name>`) and its template exactly, including the machine-readable `VERDICT:` and `CHANGES_APPLIED:` lines.
+For a design review, follow the review artifact's instruction (`openspec instructions review --change <name>`) and its template exactly, including the machine-readable `VERDICT:` and `CHANGES_APPLIED:` lines. Its Claims item is part of every design review: re-read each range the design cites and check that it supports the claim.
 
 For a baseline review (from `specwright-roadmap`, no change exists): review the strategy, architecture and ADR files the request names against the same checklist, and write the file it names using the sections of the review template that `openspec templates --schema specwright --json` returns as `review.path` (run it with `<root.path>` as the working directory: the command reads schemas from there), with the same verdict and `CHANGES_APPLIED:` rules.
 

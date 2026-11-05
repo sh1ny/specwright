@@ -7,12 +7,12 @@
 | design-grounding → A design cites the code behind each claim | Claim checked against the code | evals/git-workflow/test_design_grounding.py | test_design_claims_cite_path_line | green |
 | design-grounding → A design cites the code behind each claim | Claim the author could not check | evals/git-workflow/test_design_grounding.py | test_unchecked_claim_is_numbered_assumption | green |
 | design-grounding → A design cites the code behind each claim | Design with no claims about existing code | evals/git-workflow/test_design_grounding.py | test_assumptions_none_when_all_cited | green |
-| design-grounding → The design review checks each cited claim | Citation contradicts the claim | evals/git-workflow/test_design_grounding.py | test_review_rereads_citations_contradiction_critical | red |
-| design-grounding → The design review checks each cited claim | Claim without citation | evals/git-workflow/test_design_grounding.py | test_review_flags_uncited_claim | red |
-| design-grounding → The design review checks each cited claim | Assumption the code settles | evals/git-workflow/test_design_grounding.py | test_review_flags_settleable_assumption | red |
-| design-grounding → The design review checks each cited claim | Cited range no longer exists | evals/git-workflow/test_design_grounding.py | test_review_flags_citation_not_showing_claim | red |
-| design-grounding → The LIGHT re-check also re-reads citations | LIGHT citations hold | evals/git-workflow/test_design_grounding.py | test_light_recheck_rereads_citations | red |
-| design-grounding → The LIGHT re-check also re-reads citations | LIGHT citation contradicts the claim | evals/git-workflow/test_design_grounding.py | test_light_contradiction_fixed_before_verdict | red |
+| design-grounding → The design review checks each cited claim | Citation contradicts the claim | evals/git-workflow/test_design_grounding.py | test_review_rereads_citations_contradiction_critical | green |
+| design-grounding → The design review checks each cited claim | Claim without citation | evals/git-workflow/test_design_grounding.py | test_review_flags_uncited_claim | green |
+| design-grounding → The design review checks each cited claim | Assumption the code settles | evals/git-workflow/test_design_grounding.py | test_review_flags_settleable_assumption | green |
+| design-grounding → The design review checks each cited claim | Cited range no longer exists | evals/git-workflow/test_design_grounding.py | test_review_flags_citation_not_showing_claim | green |
+| design-grounding → The LIGHT re-check also re-reads citations | LIGHT citations hold | evals/git-workflow/test_design_grounding.py | test_light_recheck_rereads_citations | green |
+| design-grounding → The LIGHT re-check also re-reads citations | LIGHT citation contradicts the claim | evals/git-workflow/test_design_grounding.py | test_light_contradiction_fixed_before_verdict | green |
 | design-grounding → Tasks verify load-bearing assumptions first | Assumption with dependent tasks | evals/git-workflow/test_design_grounding.py | test_tasks_verify_assumption_before_dependents | red |
 | design-grounding → Tasks verify load-bearing assumptions first | Assumption disproved during apply | evals/git-workflow/test_design_grounding.py | test_disproved_assumption_is_drift | red |
 | design-grounding → Tasks verify load-bearing assumptions first | Assumption nothing depends on | evals/git-workflow/test_design_grounding.py | test_no_verify_task_without_dependents | red |
@@ -35,8 +35,8 @@ Extra tests (design D1, required by the review): `test_template_assumptions_abov
 
 ## 3. Review checks claims
 
-- [ ] 3.1 Add the red tests for the four "design review checks" rows and the two LIGHT rows to `evals/git-workflow/test_design_grounding.py`, plus one asserting that both reviewer agent definitions name the claim check. Confirm they fail for the right reason.
-- [ ] 3.2 Make the review changes:
+- [x] 3.1 Add the red tests for the four "design review checks" rows and the two LIGHT rows to `evals/git-workflow/test_design_grounding.py`, plus one asserting that both reviewer agent definitions name the claim check. Confirm they fail for the right reason.
+- [x] 3.2 Make the review changes:
   - In the review instruction of `schemas/specwright/schema.yaml`, add a **Claims** item to the "Try to break the design" list. The reviewer re-reads every cited range. Each of these is a finding: a claim about existing behaviour with neither a citation nor an Assumptions entry; a citation that does not show its claim (too broad, moved or missing); and an assumption the code settles. A contradicted claim that a decision or task depends on is Critical; any other claim finding is at least Moderate (D2).
   - Extend the LIGHT paragraph: the re-check also re-reads each citation against its claim, fixes a contradiction in design.md before any verdict, and goes FULL when the fix trips a trigger. A design with no `## Assumptions` section (planned before this change) counts as `None`, and its citations are still checked.
   - In `agents/claude/specwright-reviewer.md` and `agents/omp/specwright-reviewer.md`, the design-review line names the claim check (D4).

@@ -421,7 +421,10 @@ artifacts:
       (read through `openspec context --json`, never written); name an
       unresolved reference in the review and continue.
 
-      LIGHT: re-check the triage against the code. If it still holds, write
+      LIGHT: re-check the triage against the code, and re-read each citation
+      in the design against its claim. When a cited range contradicts its
+      claim, fix the claim in design.md before any verdict is written; a fix
+      that makes a trigger apply makes the design FULL. If the triage still holds, write
       only the metadata with `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a`
       and a one-line reason, and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
@@ -483,6 +486,15 @@ artifacts:
         assertable
       - Test map: a testable scenario mapped to a user task is a finding;
         only a scenario a person alone can judge maps to one
+      - Claims: re-read every cited range in design.md and check that it
+        supports its claim. Each of these is a finding: a claim about
+        existing behaviour with neither a citation nor an Assumptions entry;
+        a citation that does not show its claim (too broad, moved or
+        missing); an assumption the code settles, which should have been
+        checked. A contradicted claim that a decision or task depends on is
+        Critical; any other claim finding is at least Moderate. A design
+        with no `## Assumptions` section (planned before the section existed)
+        counts as `None`, and its citations are still checked.
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
