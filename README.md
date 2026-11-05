@@ -263,7 +263,8 @@ installed agent file (say so in Step 8).
     Step 3 check) runs `recover` on its journal before anything else and
     reports a `recovered` object. Tell the user its `message`:
     `discarded unfinished update to <to>`, `resumed update to <to>` or
-    `rolled back to <prev>`. A `journal` still listed afterwards in phase
+    `rolled back to <prev>`, followed by its `sw_note` when that is not null
+    (no `sw` binary serves `<prev>`). A `journal` still listed afterwards in phase
     `swapped` with this download's `to` is a swap that finished before the
     stamp: set `swapped` to true, skip `stage` and `swap`, and go on with
     Steps 5-7. No `swap` report exists then: take `store_written` from
@@ -432,8 +433,8 @@ Step 7 - Verify, stamp the version, finish, clean up
   to fix it, and never claim success. Say the update is swapped but not
   stamped: after the fix, rerun this prompt (it goes straight to Steps 5-7),
   or roll back with `update.sh` `recover --rollback` (it reports
-  `rolled back to <prev>`, and stops when the store is busy or no longer this
-  project's).
+  `rolled back to <prev>`, plus an `sw_note` when no `sw` serves `<prev>`, and
+  stops when the store is busy or no longer this project's).
 - Delete the temporary directory.
 
 Step 8 - Report briefly: the ref installed (`v0.6.0`, `main` as asked, or

@@ -483,7 +483,7 @@ class TestPlacement(Base):
 
     def test_unrunnable_matching_file_is_replaced(self):
         if WINDOWS:
-            self.skipTest("a Windows file has no executable bit to remove")
+            self.skipTest("platform: a Windows file has no executable bit to remove")
         self.release()
         self.bin.mkdir(parents=True)
         self.final.write_bytes(self.binary)
@@ -577,7 +577,8 @@ class TestRecovery(Base):
     def test_rollback_to_version_without_sw(self):
         self.release()
         doc = self.update_then_roll_back()
-        self.assertIn("no sw serves 0.0.1, which no 0.0.1 skill needs", doc["message"], doc)
+        self.assertEqual(doc["sw_note"], "no sw serves 0.0.1, which no 0.0.1 skill needs", doc)
+        self.assertEqual(doc["message"], "rolled back to 0.0.1", doc)
         self.assertFalse(self.old_bin.exists(), "the rollback creates nothing under bin/")
         r = subprocess.run([bashexe.bash(), str(self.dl / SWPATH_REL), "--code", str(self.co.code)], env=self.env(),
                            capture_output=True, text=True, timeout=120)

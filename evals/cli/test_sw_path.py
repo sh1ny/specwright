@@ -33,7 +33,7 @@ class Base(unittest.TestCase):
         self.bash = bashexe.bash()
         if not self.bash:
             self.skipTest("no bash installed")
-        self.tmp = Path(tempfile.mkdtemp(prefix="sw-path-"))
+        self.tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix="sw-path-")))  # long form: a runner's TEMP may be 8.3 (RUNNER~1)
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.code = self.tmp / "code"
         self.home = self.tmp / "home"

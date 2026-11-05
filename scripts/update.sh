@@ -484,7 +484,7 @@ remove_staging() {  # remove every staging directory of the journal (or of the p
 # Needs the lock. Every step checks the disk before it acts, and the journal is removed last, so a rerun after a kill
 # during recover decides again from what is left.
 
-REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
+REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE="" REC_SWNOTE=""
 
 recover_cleanup() {  # staging first, journal last
   remove_staging
@@ -648,7 +648,7 @@ recover_rollback() {
 }
 
 recover_core() {
-  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
+  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE="" REC_SWNOTE=""
   if [ ! -f "$journal" ]; then rm -f "$jtmp"; return 0; fi
   jload
   journal_format_ok
@@ -697,7 +697,7 @@ recover_core() {
     else
       if [ "$storeful" = 1 ] && { [ "$sst" = pending ] || [ "$sst" = written ]; }; then recover_gate rollback; fi
       recover_rollback
-      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}$(rollback_sw_note "$from")"
+      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}" REC_SWNOTE=$(rollback_sw_note "$from")
     fi
   fi
   recover_after
@@ -705,21 +705,14 @@ recover_core() {
 
 q() { if [ -n "$1" ]; then printf '"%s"' "$1"; else printf null; fi; }  # a JSON string or null
 
-rollback_sw_note() {  # after a rollback to version $1: "; no sw serves <v> ..." when <home>/.specwright/bin/<v>/ holds no sw
-  local v=$1 home=${SPECWRIGHT_HOME:-$HOME} ma mi
-  [ -n "$v" ] || return 0
-  [ ! -f "$home/.specwright/bin/$v/sw" ] && [ ! -f "$home/.specwright/bin/$v/sw.exe" ] || return 0
-  IFS=. read -r ma mi _ <<< "$v"
-  if [ "${ma:-1}" = 0 ] && [ "${mi:-99}" -lt 24 ] 2>/dev/null; then
-    printf '; no sw serves %s, which no %s skill needs' "$v" "$v"  # binaries ship from 0.24.0 on
-  else
-    printf '; no sw serves %s: rerun the install prompt for %s to place it' "$v" "$v"
-  fi
+rollback_sw_note() {  # after a rollback to version $1: "no sw serves <v> ..." when <home>/.specwright/bin/<v>/ holds no sw (sw_note);
+  [ -n "$1" ] || return 0  # <home> is resolved in Python, as sw-install resolves it (USERPROFILE on native Windows)
+  pyx sw-note "$1" 2>/dev/null || true
 }
 
 
-rec_json() {  # the recovered object: action, message, from, to
-  printf '{"action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s}' "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW"
+rec_json() {  # the recovered object: action, message, from, to, store_written, sw_note (a rollback to a version with no sw)
+  printf '{"action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s, "sw_note": %s}' "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "$(q "$REC_SWNOTE")"
 }
 
 lock_extra_members() {  # the members of LOCK_EXTRA, for splicing into another object ("" when none)
@@ -734,8 +727,8 @@ do_recover() {
   [ ! -f "$state_dir/VERSION" ] || read -r now < "$state_dir/VERSION" || true
   now=${now//$'\r'/}
   lx=$(lock_extra_members)
-  printf '{"ok": true, "interface": 2, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s%s}\n' \
-    "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "${lx:+, $lx}"
+  printf '{"ok": true, "interface": 2, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s, "sw_note": %s%s}\n' \
+    "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "$(q "$REC_SWNOTE")" "${lx:+, $lx}"
 }
 
 # --- subcommands ------------------------------------------------------------------------------------------------
@@ -3175,8 +3168,7 @@ def sw_install(o):
     asset = sw_asset(target)
     base = sw_base(o)
     bounded = sw_bounded(o)
-    home = os.environ.get("SPECWRIGHT_HOME") or str(Path.home())
-    vdir = Path(home) / ".specwright" / "bin" / version
+    vdir = Path(sw_home()) / ".specwright" / "bin" / version
     final = vdir / ("sw.exe" if os.name == "nt" else "sw")
     vdir.mkdir(parents=True, exist_ok=True)
     now = time.time()
@@ -3247,6 +3239,23 @@ def sw_install(o):
                 p.unlink()
             except OSError:
                 pass
+
+
+def sw_home():  # <home> of ADR 0027: SPECWRIGHT_HOME, else the user's home as Python finds it (USERPROFILE on Windows)
+    return os.environ.get("SPECWRIGHT_HOME") or str(Path.home())
+
+
+def cmd_sw_note(o, pos):
+    """After a rollback to version pos[0]: the note that no sw serves it, or nothing when <home>/.specwright/bin/<v>/ holds one."""
+    v = pos[0] if pos else ""
+    vdir = Path(sw_home()) / ".specwright" / "bin" / v
+    if not v or (vdir / "sw").is_file() or (vdir / "sw.exe").is_file():
+        return
+    m = SEMVER.match(v)
+    if m and (int(v.split(".")[0]), int(v.split(".")[1])) < (0, 24):  # binaries ship from 0.24.0 on
+        sys.stdout.write(f"no sw serves {v}, which no {v} skill needs")
+    else:
+        sys.stdout.write(f"no sw serves {v}: rerun the install prompt for {v} to place it")
 
 
 def cmd_sw_install(o, pos):

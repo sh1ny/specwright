@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Every platform's binary is built and checked in CI
-For each pull request that touches `cli/` or the build, CI SHALL build `sw` for linux-x64, linux-arm64, windows-x64, macos-arm64 and macos-x64, each on a runner of that platform, run its tests there, and upload each binary with a SHA-256 checksum. A separate job per target SHALL download that artifact on a runner of the same platform, verify the checksum, and run `sw version --json`, checking that `version` equals `VERSION` and `interface` equals the interface the skills expect. Any mismatch SHALL fail the job.
+For each pull request that touches `cli/` or the build, CI SHALL build `sw` for linux-x64, linux-arm64, windows-x64, macos-arm64 and macos-x64, each on its own platform's runner, run its tests there, and upload each binary with a SHA-256 checksum. A separate job per target SHALL download that artifact on the same platform, verify the checksum, and run `sw version --json`, checking `version` against `VERSION` and `interface` against the skills' interface. Any mismatch SHALL fail the job.
 
 #### Scenario: All three builds pass
 - **WHEN** a pull request changes `cli/`

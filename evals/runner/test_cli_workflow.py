@@ -1,20 +1,23 @@
-"""Text checks on .github/workflows/cli.yml (stdlib only, no YAML parser): the per-OS sw build, artifact and download-and-run."""
+"""Text checks on .github/workflows/cli.yml and the sw-build.yml it calls (stdlib only, no YAML parser): the per-platform sw
+build, artifact and download-and-run."""
 import re
 import unittest
 from pathlib import Path
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "cli.yml"
-OSES = ["ubuntu-24.04", "windows-latest", "macos-latest"]
+WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+WORKFLOW = WORKFLOWS / "cli.yml"
+BUILD = WORKFLOWS / "sw-build.yml"  # the jobs live here; cli.yml (pull requests) and release.yml call it
+OSES = ["ubuntu-24.04", "ubuntu-24.04-arm", "windows-latest", "macos-latest", "macos-15-intel"]
 
 
-def read():
-    return WORKFLOW.read_text(encoding="utf-8")
+def read(path=WORKFLOW):
+    return path.read_text(encoding="utf-8")
 
 
 def job_block(name):
-    m = re.search(r"(?ms)^  %s:\n(.*?)(?=^  \S|\Z)" % re.escape(name), read())
+    m = re.search(r"(?ms)^  %s:\n(.*?)(?=^  \S|\Z)" % re.escape(name), read(BUILD))
     if not m:
-        raise AssertionError("no job %r in %s" % (name, WORKFLOW))
+        raise AssertionError("no job %r in %s" % (name, BUILD))
     return m.group(1)
 
 
@@ -35,13 +38,12 @@ class TestCliWorkflow(unittest.TestCase):
         t = read()
         self.assertRegex(t, r"(?m)^on:\n(?:  .*\n)*?  pull_request:")
         self.assertRegex(t, r"(?m)^on:\n(?:  .*\n)*?  workflow_dispatch:")
-        for path in ("cli/**", "mise.toml", "VERSION", ".github/workflows/cli.yml"):
+        for path in ("cli/**", "mise.toml", "VERSION", ".github/workflows/cli.yml", ".github/workflows/sw-build.yml"):
             self.assertIn(path, t.split("\njobs:\n", 1)[0], "the trigger paths name %s" % path)
+        self.assertRegex(t.split("\njobs:\n", 1)[1], r"(?m)^    uses: \./\.github/workflows/sw-build\.yml$")
         for name in ("build", "verify"):
             job = job_block(name)
-            matrix_os = re.search(r"(?m)^\s+os: \[([^\]]*)\]$", job)
-            self.assertIsNotNone(matrix_os, "%s: matrix.os must be an inline list" % name)
-            self.assertEqual([o.strip() for o in matrix_os.group(1).split(",")], OSES)
+            self.assertEqual(re.findall(r"(?m)^          - os: (\S+)$", job), OSES, "%s: one matrix row per platform" % name)
             self.assertIn("runs-on: ${{ matrix.os }}", job)
         self.assertRegex(job_block("verify"), r"(?m)^    needs: build$")
 
