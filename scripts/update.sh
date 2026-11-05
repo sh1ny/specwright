@@ -214,7 +214,8 @@
 #            project and no journal entry. Prints {ok, interface, subcommand, action: installed | kept | replaced | skipped, path, asset,
 #            version, ref} (skipped, with a message, for a ref that is not a release tag: nothing is installed or changed), or exits 1
 #            with error and message: unsupported_platform, no_github_origin, assets_not_uploaded, asset_missing, sums_invalid,
-#            checksum_mismatch, deadline_exceeded, response_too_large, download_failed, sw_check_failed, sw_in_use. plan gains `sw` for a
+#            checksum_mismatch, deadline_exceeded, response_too_large, download_failed, download_version_invalid (VERSION is not the
+#            tag's version), sw_check_failed, sw_in_use. plan gains `sw` for a
 #            tag ref only: {asset, target} for a supported host, {asset: null, reason: unsupported_platform} otherwise.
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 2 (1 is still read and recovered;
 # a download that knows only format 1 refuses a format 2 journal as unreadable), from, to, ref, kind,
@@ -696,13 +697,26 @@ recover_core() {
     else
       if [ "$storeful" = 1 ] && { [ "$sst" = pending ] || [ "$sst" = written ]; }; then recover_gate rollback; fi
       recover_rollback
-      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}"
+      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}$(rollback_sw_note "$from")"
     fi
   fi
   recover_after
 }
 
 q() { if [ -n "$1" ]; then printf '"%s"' "$1"; else printf null; fi; }  # a JSON string or null
+
+rollback_sw_note() {  # after a rollback to version $1: "; no sw serves <v> ..." when <home>/.specwright/bin/<v>/ holds no sw
+  local v=$1 home=${SPECWRIGHT_HOME:-$HOME} ma mi
+  [ -n "$v" ] || return 0
+  [ ! -f "$home/.specwright/bin/$v/sw" ] && [ ! -f "$home/.specwright/bin/$v/sw.exe" ] || return 0
+  IFS=. read -r ma mi _ <<< "$v"
+  if [ "${ma:-1}" = 0 ] && [ "${mi:-99}" -lt 24 ] 2>/dev/null; then
+    printf '; no sw serves %s, which no %s skill needs' "$v" "$v"  # binaries ship from 0.24.0 on
+  else
+    printf '; no sw serves %s: rerun the install prompt for %s to place it' "$v" "$v"
+  fi
+}
+
 
 rec_json() {  # the recovered object: action, message, from, to
   printf '{"action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s}' "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW"
@@ -3135,6 +3149,9 @@ def sw_install(o):
     version, _ = read_version(Path(o["download"]) / "VERSION")
     if not (version and SEMVER.match(version)):
         raise SwStop("download_version_invalid", f"the download's VERSION holds {version!r}, not MAJOR.MINOR.PATCH")
+    if version != ref[1:]:
+        raise SwStop("download_version_invalid", f"the download's VERSION holds {version}, but the ref is {ref}: the binary must "
+                     f"report the tag's version {ref[1:]}; nothing was downloaded or placed")
     system, machine, target = sw_host()
     if not target:
         raise SwStop("unsupported_platform", f"this host ({system} {machine}) has no sw binary for release {ref}; the release ships "

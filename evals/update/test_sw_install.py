@@ -314,6 +314,12 @@ class TestStops(Base):
         self.stopped("sw_check_failed", "9.9.9", ref="v9.9.9")
         self.assert_nothing_placed()
 
+    def test_tag_other_than_download_version_stops(self):
+        # the download says self.version, the ref names another tag whose release holds a binary reporting self.version
+        self.release(tag="v9.9.9")
+        self.stopped("download_version_invalid", "v9.9.9", self.version, ref="v9.9.9")
+        self.assert_nothing_placed()
+
     def test_malformed_sums_line_is_rejected(self):
         good = self.sums().splitlines()
         host = next(i for i, l in enumerate(good) if l.endswith(asset_of(self.target)))
@@ -531,6 +537,7 @@ class TestRecovery(Base):
         doc = run("recover", "--rollback")
         self.assertEqual(doc["action"], "rolled-back", doc)
         self.assertEqual(self.co.version_file.read_text().strip(), "0.0.1")
+        return doc
 
     def test_rollback_keeps_placed_binaries(self):
         self.old_bin.mkdir(parents=True)
@@ -546,7 +553,8 @@ class TestRecovery(Base):
 
     def test_rollback_to_version_without_sw(self):
         self.release()
-        self.update_then_roll_back()
+        doc = self.update_then_roll_back()
+        self.assertIn("no sw serves 0.0.1, which no 0.0.1 skill needs", doc["message"], doc)
         self.assertFalse(self.old_bin.exists(), "the rollback creates nothing under bin/")
         r = subprocess.run([bashexe.bash(), str(self.dl / SWPATH_REL), "--code", str(self.co.code)], env=self.env(),
                            capture_output=True, text=True, timeout=120)
