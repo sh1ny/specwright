@@ -37,13 +37,13 @@
 | native-cli → Batch shims get escaped arguments or none | A shim found in a directory whose name cmd.exe would expand | evals/cli/test_sw_args.py | test_batch_path_with_percent_is_refused | green |
 | native-cli → Batch shims get escaped arguments or none | An argument that cmd.exe would expand | evals/cli/test_sw_args.py | test_batch_unsafe_argument_is_refused | green |
 | native-cli → Batch shims get escaped arguments or none | A batch command line over the cmd.exe limit | evals/cli/test_sw_args.py | test_batch_line_over_limit_is_refused | green |
-| native-cli → Every platform's binary is built and checked in CI | All three builds pass | evals/runner/test_cli_workflow.py | test_cli_workflow_builds_tests_and_verifies_each_os | red |
-| native-cli → Every platform's binary is built and checked in CI | Checksum does not match | evals/cli/test_verify_artifact.py | test_checksum_mismatch_fails_without_running | red |
-| native-cli → Every platform's binary is built and checked in CI | Version drifts from VERSION | evals/cli/test_verify_artifact.py | test_version_drift_fails_naming_both | red |
-| native-cli → The macOS binary runs after a documented quarantine step | Quarantined binary after the documented step | evals/runner/test_cli_workflow.py | test_macos_verify_sets_quarantine_and_applies_step | red |
-| native-cli → The macOS binary runs after a documented quarantine step | The documented step does not unblock it | evals/runner/test_cli_workflow.py | test_macos_verify_fails_when_step_does_not_unblock | red |
-| eval-runner → Suites that need sw run against a binary built from the tree in CI | CI run | evals/runner/test_ci_workflow.py | test_cli_suite_jobs_build_sw_and_require_it | red |
-| eval-runner → Suites that need sw run against a binary built from the tree in CI | Build fails | evals/runner/test_ci_workflow.py | test_sw_build_step_fails_the_job | red |
+| native-cli → Every platform's binary is built and checked in CI | All three builds pass | evals/runner/test_cli_workflow.py | test_cli_workflow_builds_tests_and_verifies_each_os | green |
+| native-cli → Every platform's binary is built and checked in CI | Checksum does not match | evals/cli/test_verify_artifact.py | test_checksum_mismatch_fails_without_running | green |
+| native-cli → Every platform's binary is built and checked in CI | Version drifts from VERSION | evals/cli/test_verify_artifact.py | test_version_drift_fails_naming_both | green |
+| native-cli → The macOS binary runs after a documented quarantine step | Quarantined binary after the documented step | evals/runner/test_cli_workflow.py | test_macos_verify_sets_quarantine_and_applies_step | green |
+| native-cli → The macOS binary runs after a documented quarantine step | The documented step does not unblock it | evals/runner/test_cli_workflow.py | test_macos_verify_fails_when_step_does_not_unblock | green |
+| eval-runner → Suites that need sw run against a binary built from the tree in CI | CI run | evals/runner/test_ci_workflow.py | test_cli_suite_jobs_build_sw_and_require_it | green |
+| eval-runner → Suites that need sw run against a binary built from the tree in CI | Build fails | evals/runner/test_ci_workflow.py | test_sw_build_step_fails_the_job | green |
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | Local run without sw | evals/cli/test_sw_harness.py | test_skips_with_sw_not_built | green |
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | Required but missing | evals/cli/test_sw_harness.py | test_require_sw_fails_naming_the_binary | green |
 | eval-runner → A stopped test file's sw process groups are stopped too | Runner timeout during a hung sw test | evals/runner/test_run.py | test_sweep_stops_sw_sessions_after_timeout | red |
@@ -92,7 +92,7 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 7. CI build, artifacts and download-and-run
 
-- [ ] 7.1 Write failing `evals/runner/test_cli_workflow.py` (three rows) and `evals/cli/test_verify_artifact.py` (checksum mismatch, version drift) against a new `cli/tool/verify_artifact.py`; then write `.github/workflows/cli.yml` (D10: build per OS through `jdx/mise-action` pinned to mise 2026.10.12, analyze, format, test, compile with the version define, SHA-256 artifact; a verify job per OS that downloads, checks the checksum, runs `sw version --json` against `VERSION`; on macOS sets `com.apple.quarantine`, logs whether it runs, applies `xattr -d` and requires success), and add the `cli` suite to `.github/workflows/evals.yml` with `sw` built from the tree and `SPECWRIGHT_REQUIRE_SW=1` (eval-runner rows `CI run`, `Build fails`). Verify: these rows go green locally (structure) and A4 and A2 are settled by the PR's CI run.
+- [x] 7.1 Write failing `evals/runner/test_cli_workflow.py` (three rows) and `evals/cli/test_verify_artifact.py` (checksum mismatch, version drift) against a new `cli/tool/verify_artifact.py`; then write `.github/workflows/cli.yml` (D10: build per OS through `jdx/mise-action` pinned to mise 2026.10.12, analyze, format, test, compile with the version define, SHA-256 artifact; a verify job per OS that downloads, checks the checksum, runs `sw version --json` against `VERSION`; on macOS sets `com.apple.quarantine`, logs whether it runs, applies `xattr -d` and requires success), and add the `cli` suite to `.github/workflows/evals.yml` with `sw` built from the tree and `SPECWRIGHT_REQUIRE_SW=1` (eval-runner rows `CI run`, `Build fails`). Verify: these rows go green locally (structure) and A4 and A2 are settled by the PR's CI run.
 - [ ] 7.2 [evidence] After the PR's CI is green on all three OSes, record the run URL, each artifact's SHA-256, and the macOS log line saying whether the quarantined binary ran before the step (A2) → evidence/ci-run.md. Flip the CI-proved rows green.
 
 ## 8. Contributor rules
