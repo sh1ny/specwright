@@ -112,8 +112,10 @@ class TasksCarryEachEntry(unittest.TestCase):
         self.assertRegex(t, r"(?i)## Carried constraints", "the tasks instruction does not read the Carried constraints section")
         self.assertRegex(t, r"(?i)CARRIED CONSTRAINTS\.[^.]{0,200}(task|tasks)[^.]{0,120}names its id[^.]{0,120}destination",
                          "each entry does not get a task naming its id and writing the fact at its destination")
-        self.assertRegex(t, r"(?i)ADR destinations?[^.]{0,200}first[- ]group ADR task[^.]{0,120}(entry ids|ids)",
-                         "ADR destinations do not ride the first-group ADR task naming the entry ids")
+        self.assertRegex(t, r"(?i)ADR destinations?[^.]{0,200}task that writes that ADR[^.]{0,120}(entry ids|ids)",
+                         "ADR destinations do not ride the task that writes that ADR, naming the entry ids")
+        self.assertNotRegex(t, r"(?i)ADR destinations?[^.]{0,80}first[- ]group",
+                            "ADR destinations are pinned to the first task group, which an earlier verify task can occupy")
         self.assertRegex(t, r"(?i)ticked only when the text is at the destination",
                          "the task is not ticked only once the text is at the destination")
         self.assertRegex(t, r"(?i)(reads `None`|no section)[^.]{0,120}no task",
