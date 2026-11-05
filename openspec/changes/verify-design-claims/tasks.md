@@ -13,9 +13,9 @@
 | design-grounding → The design review checks each cited claim | Cited range no longer exists | evals/git-workflow/test_design_grounding.py | test_review_flags_citation_not_showing_claim | green |
 | design-grounding → The LIGHT re-check also re-reads citations | LIGHT citations hold | evals/git-workflow/test_design_grounding.py | test_light_recheck_rereads_citations | green |
 | design-grounding → The LIGHT re-check also re-reads citations | LIGHT citation contradicts the claim | evals/git-workflow/test_design_grounding.py | test_light_contradiction_fixed_before_verdict | green |
-| design-grounding → Tasks verify load-bearing assumptions first | Assumption with dependent tasks | evals/git-workflow/test_design_grounding.py | test_tasks_verify_assumption_before_dependents | red |
-| design-grounding → Tasks verify load-bearing assumptions first | Assumption disproved during apply | evals/git-workflow/test_design_grounding.py | test_disproved_assumption_is_drift | red |
-| design-grounding → Tasks verify load-bearing assumptions first | Assumption nothing depends on | evals/git-workflow/test_design_grounding.py | test_no_verify_task_without_dependents | red |
+| design-grounding → Tasks verify load-bearing assumptions first | Assumption with dependent tasks | evals/git-workflow/test_design_grounding.py | test_tasks_verify_assumption_before_dependents | green |
+| design-grounding → Tasks verify load-bearing assumptions first | Assumption disproved during apply | evals/git-workflow/test_design_grounding.py | test_disproved_assumption_is_drift | green |
+| design-grounding → Tasks verify load-bearing assumptions first | Assumption nothing depends on | evals/git-workflow/test_design_grounding.py | test_no_verify_task_without_dependents | green |
 
 Extra tests (design D1, required by the review): `test_template_assumptions_above_light_boundary` and `test_light_section_list_names_assumptions` in the same file.
 
@@ -45,8 +45,8 @@ Extra tests (design D1, required by the review): `test_template_assumptions_abov
 
 ## 4. Tasks verify assumptions
 
-- [ ] 4.1 Add the red tests for the three "Tasks verify load-bearing assumptions first" rows to `evals/git-workflow/test_design_grounding.py` and confirm they fail for the right reason.
-- [ ] 4.2 In the tasks instruction of `schemas/specwright/schema.yaml` (next to the ADR first-group rule), add the verify-first rule:
+- [x] 4.1 Add the red tests for the three "Tasks verify load-bearing assumptions first" rows to `evals/git-workflow/test_design_grounding.py` and confirm they fail for the right reason.
+- [x] 4.2 In the tasks instruction of `schemas/specwright/schema.yaml` (next to the ADR first-group rule), add the verify-first rule:
   - Each Assumptions entry that names a dependent decision or task gets a task. The task names its id, says what to read or run to settle it, and comes before the first task that relies on it.
   - An entry with no dependents gets no task.
   - A disproved assumption is design drift: point to the apply drift rule.

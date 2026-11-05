@@ -119,5 +119,25 @@ class ReviewChecksClaims(unittest.TestCase):
                              f"{p.relative_to(ROOT)} does not name the claim check for design reviews")
 
 
+class TasksVerifyAssumptions(unittest.TestCase):
+    def test_tasks_verify_assumption_before_dependents(self):
+        t = artifact_instruction("tasks")
+        self.assertRegex(t, r"(?i)## Assumptions", "the tasks instruction does not read the Assumptions section")
+        self.assertRegex(t, r"(?i)task[^.]{0,120}(names|naming) its id", "the verify task does not name the assumption id")
+        self.assertRegex(t, r"(?i)before the first task that relies on it",
+                         "the verify task is not ordered before the first task that relies on it")
+
+    def test_disproved_assumption_is_drift(self):
+        t = artifact_instruction("tasks")
+        self.assertRegex(t, r"(?i)disproved assumption[^.]{0,80}drift", "a disproved assumption is not design drift")
+
+    def test_no_verify_task_without_dependents(self):
+        t = artifact_instruction("tasks")
+        self.assertRegex(t, r"(?i)(no dependents|nothing depends on|names no dependent)[^.]{0,60}no (verify )?task",
+                         "an assumption with no dependents still gets a task")
+        self.assertRegex(flat(read(TASKS_TEMPLATE)), r"(?i)Verify A1",
+                         "the tasks template has no verify-first example line")
+
+
 if __name__ == "__main__":
     unittest.main()

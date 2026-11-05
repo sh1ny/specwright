@@ -607,6 +607,12 @@ artifacts:
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
 
+      ASSUMPTIONS. For each `## Assumptions` entry in the design that names a
+      dependent decision or task, add a task that names its id and says what
+      to read or run to settle it, placed before the first task that relies on it.
+      An entry with no dependents gets no task. A disproved assumption is
+      design drift: apply stops that work and the drift rule applies.
+
       At the end of planning, before apply, show the user the Decision
       summary table from design.md. In `autonomous` mode planning does not
       wait for an answer to it: show it and continue, with no question.
