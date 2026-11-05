@@ -112,6 +112,18 @@ class ReviewChecksClaims(unittest.TestCase):
         self.assertRegex(r, r"(?i)no `## Assumptions` section[^.]{0,120}`None`",
                          "a design planned before the rule is not read as `None`")
 
+    def test_cited_files_limited_to_tracked_files(self):
+        # A design can come from PR content: a citation such as `.env:1-20` must not make a reviewer
+        # read an ignored local secret and send it to the review provider.
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)only files? tracked[^.]{0,200}(ignored|untracked)[^.]{0,200}symlink[^.]{0,120}not opened[^.]{0,80}finding",
+                         "the Claims item does not limit re-reads to tracked repository files")
+        self.assertRegex(r, r"(?i)LIGHT:[^.]{0,400}re-read\w*[^.]{0,200}tracked",
+                         "the LIGHT re-check does not limit re-reads to tracked repository files")
+        for p in REVIEWERS:
+            self.assertRegex(flat(read(p)), r"(?i)re-read\w*[^.]{0,200}only files? tracked",
+                             f"{p.relative_to(ROOT)} does not limit the claim check to tracked files")
+
     def test_reviewer_agents_name_the_claim_check(self):
         for p in REVIEWERS:
             text = flat(read(p))

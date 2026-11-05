@@ -78,4 +78,4 @@ Design reviews now check what a design says about existing code. A design cites 
 - Design claims about existing code cite `path:line`. Unchecked claims go in a `## Assumptions` section, and tasks verify each load-bearing assumption first (#197).
 
 ### Changed
-- The design review and the LIGHT re-check re-read each cited range. A missing or contradicting citation is a finding (#197).
+- The design review and the LIGHT re-check re-read each cited range. A missing or contradicting citation is a finding (#197). They open only files tracked in the repository, so a citation cannot send an ignored local file to the review provider.
