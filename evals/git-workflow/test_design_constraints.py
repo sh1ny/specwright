@@ -159,18 +159,21 @@ class PreshipBriefChecksConstraints(unittest.TestCase):
         self.assertRegex(b, r"(?i)(reads `None`|no section)[^.]{0,200}no finding",
                          "a `None` or missing section still raises a finding")
 
-    def test_brief_opens_only_tracked_destinations(self):
-        # design.md is change content: a destination it names must not lead the reviewer to an
-        # ignored, untracked or outside file, or through a symlink, since what it opens goes to the
-        # review provider (the same guard as the design review's Claims check, ADR 0025).
+    def test_brief_judges_destinations_from_diff(self):
+        # Apply writes every carried constraint in the change, so its fact is in the reviewed diff.
+        # Judging from the diff alone needs no file read: design.md is change content, a path it names
+        # must not send the reviewer to another file (what it opens goes to the review provider), and a
+        # snapshot review of a branch tip has no Git metadata to check a path against.
         b = brief_report_section()
         item = b[b.index("**Carried constraints**"):]
-        self.assertRegex(item, r"(?i)tracked in the repository[^.]{0,120}git ls-files",
-                         "the brief does not limit destination reads to tracked files")
-        self.assertRegex(item, r"(?i)(ignored|untracked)[^.]{0,80}(outside|symlink)[^.]{0,120}not opened",
-                         "the brief does not refuse ignored, untracked, outside or symlinked destinations")
-        self.assertRegex(item, r"(?i)(reviewed|diff)[^.]{0,80}(range|blob|commit)",
-                         "the brief does not judge the destination from the reviewed content")
+        item = item[:item.index("\n- **", 1)] if "\n- **" in item[1:] else item
+        self.assertRegex(item, r"(?i)judge each entry from the reviewed diff alone",
+                         "the brief does not judge each entry from the reviewed diff alone")
+        self.assertRegex(item, r"(?i)(do not|never) open[^.]{0,80}destination",
+                         "the brief does not forbid opening a destination file named by the design")
+        self.assertRegex(item, r"(?i)apply writes[^.]{0,120}(in this change|change)[^.]{0,120}diff",
+                         "the brief does not say why the fact must be in the diff")
+        self.assertNotRegex(item, r"git ls-files", "the brief still checks destinations against the reviewer's checkout")
 
 
 if __name__ == "__main__":
