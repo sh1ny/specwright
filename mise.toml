@@ -1,0 +1,21 @@
+[tools]
+dart = "3.13.7"
+
+[tasks.test]
+description = "Run the Dart tests of cli/"
+dir = "cli"
+run = "dart test"
+
+[tasks.analyze]
+description = "Analyze cli/"
+dir = "cli"
+run = "dart analyze --fatal-infos"
+
+[tasks.format]
+description = "Check the formatting of cli/"
+run = "dart format --output=none --set-exit-if-changed cli"
+
+[tasks.build]
+description = "Compile cli/bin/sw.dart to cli/build/sw with SW_VERSION from VERSION"
+dir = "cli"
+run = "dart run tool/build.dart"

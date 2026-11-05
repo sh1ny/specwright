@@ -59,11 +59,11 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 2. Dart package scaffold and toolchain
 
-- [ ] 2.1 Verify A6 and A4 locally: read the owner's Dart pin (Dart 3.13.7 through mise) and confirm `mise exec -- dart --version` resolves pure Dart from a new root `mise.toml` (`[tools] dart = "3.13.7"`). Record the version in the task's commit message. Verify: the command prints 3.13.7.
-- [ ] 2.2 Create `cli/` (`pubspec.yaml` with `package:args` and `package:ffi` only, `analysis_options.yaml` with lints, `dart_test.yaml` with tags, `bin/sw.dart`), mise tasks `test`, `analyze`, `format`, `build` in `mise.toml`, and `.gitignore` entries for `cli/.dart_tool/` and build outputs. Write C3 as the doc comment above `dependencies` in `cli/pubspec.yaml`. Verify: `mise exec -- dart analyze cli` and `mise exec -- dart format --set-exit-if-changed cli` pass; the comment is present.
-- [ ] 2.3 Verify A3: run `mise exec -- dart pub get` in `cli/` and `mise exec -- dart compile exe cli/bin/sw.dart -o <tmp>/sw`; confirm `pubspec.lock` holds no package with build hooks and compile succeeds. Verify: the binary runs.
-- [ ] 2.4 Write the failing Dart test `cli/test/no_build_hooks_test.dart` (fails when any `pubspec.lock` package declares `hooks`), then make it pass. Verify: `mise exec -- dart test cli/test/no_build_hooks_test.dart` green.
-- [ ] 2.5 Add rules to `evals/suites.json` for `cli/**`, `mise.toml` and `.github/workflows/cli.yml` (suite `cli`, plus `runner` for the workflow), and create `evals/cli/` with a shared harness module that resolves `SPECWRIGHT_SW` and skips or fails per `SPECWRIGHT_REQUIRE_SW`. Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 2.1 Verify A6 and A4 locally: read the owner's Dart pin (Dart 3.13.7 through mise) and confirm `mise exec -- dart --version` resolves pure Dart from a new root `mise.toml` (`[tools] dart = "3.13.7"`). Record the version in the task's commit message. Verify: the command prints 3.13.7.
+- [x] 2.2 Create `cli/` (`pubspec.yaml` with `package:args` and `package:ffi` only, `analysis_options.yaml` with lints, `dart_test.yaml` with tags, `bin/sw.dart`), mise tasks `test`, `analyze`, `format`, `build` in `mise.toml`, and `.gitignore` entries for `cli/.dart_tool/` and build outputs. Write C3 as the doc comment above `dependencies` in `cli/pubspec.yaml`. Verify: `mise exec -- dart analyze cli` and `mise exec -- dart format --set-exit-if-changed cli` pass; the comment is present.
+- [x] 2.3 Verify A3: run `mise exec -- dart pub get` in `cli/` and `mise exec -- dart compile exe cli/bin/sw.dart -o <tmp>/sw`; confirm `pubspec.lock` holds no package with build hooks and compile succeeds. Verify: the binary runs.
+- [x] 2.4 Write the failing Dart test `cli/test/no_build_hooks_test.dart` (fails when any `pubspec.lock` package declares `hooks`), then make it pass. Verify: `mise exec -- dart test cli/test/no_build_hooks_test.dart` green.
+- [x] 2.5 Add rules to `evals/suites.json` for `cli/**`, `mise.toml` and `.github/workflows/cli.yml` (suite `cli`, plus `runner` for the workflow), and create `evals/cli/` with a shared harness module that resolves `SPECWRIGHT_SW` and skips or fails per `SPECWRIGHT_REQUIRE_SW`. Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 3. sw version and the eval harness
 

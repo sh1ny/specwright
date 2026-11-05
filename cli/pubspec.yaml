@@ -1,0 +1,21 @@
+name: specwright_cli
+description: The sw command line tool of Specwright.
+publish_to: none
+version: 0.0.0
+
+environment:
+  sdk: ^3.13.0
+
+executables:
+  sw: sw
+
+# Constraint C3: cli/ must not depend on any package with build hooks, because
+# the distribution is one `dart compile exe` file (ADR 0027);
+# test/no_build_hooks_test.dart enforces it.
+dependencies:
+  args: ^2.7.0
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0
