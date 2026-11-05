@@ -3,7 +3,7 @@
 Needs the binary named by SPECWRIGHT_SW (skips as `sw not built` otherwise). The held-startup, helper-death and pre-hello
 cases drive the test-only hooks of the helper: SPECWRIGHT_TEST_HOLD_START (prehello|before|after:<file>, which also writes
 <file>.pid and <file>.exit), SPECWRIGHT_TEST_PRE_GO (<file>.reached marks that the parent consumed the ready frame and defers the
-go while <file> exists), SPECWRIGHT_TEST_HELPER_EXIT=after-ready, SPECWRIGHT_TEST_NO_JOB=1 and SPECWRIGHT_TEST_SPAWN_DIR.
+go while <file> exists), SPECWRIGHT_TEST_HELPER_EXIT=after-hello|after-ready, SPECWRIGHT_TEST_NO_JOB=1 and SPECWRIGHT_TEST_SPAWN_DIR.
 Fixtures are small Python scripts run with sys.executable.
 
 Run: SPECWRIGHT_SW=<path> python -m unittest evals/cli/test_sw_tree.py
@@ -207,6 +207,16 @@ class HelperDeath(TreeBase):
         self.assertEqual(proc.returncode, 127, err)
         self.assertEqual(out, "")
         self.assertEqual(err, "bounded: helper exited during startup: %s\n" % self.command_label(sys.executable, self.mark))
+        self.no_start_after_release()
+
+    def test_helper_exit_between_hello_and_ready_is_a_start_failure(self):
+        # The helper announces itself, waits a second (so the parent identifies it), then exits before its ready frame.
+        env = self.env(SPECWRIGHT_TEST_HELPER_EXIT="after-hello", SPECWRIGHT_NET_DEADLINE=30)
+        proc = swharness.run_sw("run", "--bounded", "--", sys.executable, self.mark, str(self.marker), env=env, timeout=60)
+        self.assertEqual(proc.returncode, 127, proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        self.assertEqual(proc.stderr,
+                         "bounded: helper exited during startup: %s\n" % self.command_label(sys.executable, self.mark))
         self.no_start_after_release()
 
 

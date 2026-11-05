@@ -74,6 +74,11 @@ class FrameParser {
   /// Why the frame is malformed once [state] is [FrameState.malformed].
   String? get problem => _problem;
 
+  /// Whether the stream ended cleanly between frames: no byte of the
+  /// pending frame arrived, so the writer stopped rather than sent a bad one.
+  bool get missing => _missing;
+  bool _missing = false;
+
   /// What was read of a malformed frame, printable, for the reason line.
   String get received => latin1
       .decode(_buffer.take(120).toList(), allowInvalid: true)
@@ -116,9 +121,8 @@ class FrameParser {
     if (_state == FrameState.awaitingHello ||
         _state == FrameState.awaitingReady) {
       final what = _state == FrameState.awaitingHello ? 'hello' : 'ready';
-      _problem = _buffer.isEmpty
-          ? 'no $what frame'
-          : 'the $what frame ended early';
+      _missing = _buffer.isEmpty;
+      _problem = _missing ? 'no $what frame' : 'the $what frame ended early';
       _state = FrameState.malformed;
     }
   }

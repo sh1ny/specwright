@@ -117,6 +117,7 @@ void main() {
     expect(parser.state, FrameState.malformed);
     expect(parser.problem, 'no ready frame');
     expect(parser.hello, isNotNull);
+    expect(parser.missing, isTrue);
   });
 
   test('a stream that ends inside a frame is malformed', () {
@@ -124,6 +125,7 @@ void main() {
     expect(parser.state, FrameState.awaitingHello);
     parser.close();
     expect(parser.state, FrameState.malformed);
+    expect(parser.missing, isFalse);
   });
 
   test('a frame that never ends is cut off', () {

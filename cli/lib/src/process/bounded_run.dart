@@ -279,11 +279,15 @@ class BoundedRun {
         closeControlPipe();
         await cancelReaders();
         await tree.stop(); // acts only on an identified helper (C2, C11)
-        final problem = parser.state == FrameState.malformed
-            ? '${parser.problem}'
-                  '${parser.received.isEmpty ? '' : ': ${parser.received}'}'
-            : 'the helper exited before its ready frame';
-        return BoundedResult(startError: problem);
+        if (parser.state != FrameState.malformed || parser.missing) {
+          // The helper ended between its hello and its ready frame.
+          return const BoundedResult(helperExited: true);
+        }
+        return BoundedResult(
+          startError:
+              '${parser.problem}'
+              '${parser.received.isEmpty ? '' : ': ${parser.received}'}',
+        );
       }
       final noJob = tree.ready(parser.ready!);
       if (noJob != null) _note('bounded: no job object: $noJob\n');

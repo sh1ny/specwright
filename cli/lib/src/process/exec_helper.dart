@@ -108,6 +108,11 @@ Future<int> _run(
   } on Object {
     return 125; // the parent is gone
   }
+  if (environment['SPECWRIGHT_TEST_HELPER_EXIT'] == 'after-hello') {
+    // Long enough for the parent to identify the helper first.
+    await Future<void>.delayed(const Duration(seconds: 1));
+    return 3;
+  }
   await _hold(holdFile('before', environment));
   try {
     stderr.add((await contain()).encode());
