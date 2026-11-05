@@ -282,20 +282,30 @@ artifacts:
         logs, lists, queues, history)
       - T6 Risk: security, auth, money, data loss, or user data that cannot
         be recreated
-      No trigger → LIGHT tier: write Triage, Context and Decisions only.
+      No trigger → LIGHT tier: write Triage, Context, Decisions and Assumptions only.
       Any trigger → FULL tier: write every section the template marks FULL.
       When unsure whether a trigger applies, it applies. Emit the
       machine-readable line exactly: `TIER: LIGHT` or `TIER: FULL`.
 
-      2. GROUND before deciding. Read the code the change touches and cite
-      existing patterns as file:line. Check any claim that something does not
-      exist; otherwise label it an unverified assumption. Read the in-force
-      ADRs (see ADR rules); the design MUST be coherent with them or flag the
-      conflict under Open Questions.
+      2. GROUND before deciding. Read the code the change touches. Every
+      claim about how existing code, data or a format behaves (what a
+      function does, what an input holds, what a format guarantees) cites
+      the `path:line` range that shows it, as narrow as the claim allows:
+      the lines that show it, not the whole file or function around them.
+      Check any claim that something does not exist the same way. A claim
+      you did not check against the code goes in `## Assumptions`, never in
+      the text as fact. Read the in-force ADRs (see ADR rules); the design
+      MUST be coherent with them or flag the conflict under Open Questions.
 
       3. SECTIONS.
-      - Context: only the current state and constraints the approach needs.
-        Point to proposal.md instead of restating it.
+      - Context: only the current state and constraints the approach needs,
+        each claim about existing behaviour with its `path:line`. Point to
+        proposal.md instead of restating it.
+      - `## Assumptions` (both tiers), placed after the Decision summary and
+        above the template's LIGHT boundary, reads `None` when every claim is
+        cited; otherwise each claim you did not check against the code is one
+        entry: an id (`A1`, `A2` and so on), the claim, why it was not
+        checked, and the decisions or tasks that depend on it (or `none`).
       - Decisions (both tiers): each states the choice, at least one rejected
         alternative that differs structurally (ownership, boundary,
         sequencing, integration pattern - not cosmetically), why it lost, and
@@ -411,7 +421,11 @@ artifacts:
       (read through `openspec context --json`, never written); name an
       unresolved reference in the review and continue.
 
-      LIGHT: re-check the triage against the code. If it still holds, write
+      LIGHT: re-check the triage against the code, and re-read each citation
+      in the design against its claim, opening only files tracked in the
+      repository (the Claims item below). When a cited range contradicts its
+      claim, fix the claim in design.md before any verdict is written; a fix
+      that makes a trigger apply makes the design FULL. If the triage still holds, write
       only the metadata with `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a`
       and a one-line reason, and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
@@ -473,6 +487,19 @@ artifacts:
         assertable
       - Test map: a testable scenario mapped to a user task is a finding;
         only a scenario a person alone can judge maps to one
+      - Claims: re-read every cited range in design.md and check that it
+        supports its claim. Open only files tracked in the repository (check
+        with `git ls-files`): a citation of an ignored, untracked or outside
+        path, or of a symlink, is not opened and is itself a finding, since a
+        design can come from PR content and what you open goes to the review
+        provider. Each of these is a finding: a claim about
+        existing behaviour with neither a citation nor an Assumptions entry;
+        a citation that does not show its claim (too broad, moved or
+        missing); an assumption the code settles, which should have been
+        checked. A contradicted claim that a decision or task depends on is
+        Critical; any other claim finding is at least Moderate. A design
+        with no `## Assumptions` section (planned before the section existed)
+        counts as `None`, and its citations are still checked.
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
@@ -584,6 +611,12 @@ artifacts:
 
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
+
+      ASSUMPTIONS. For each `## Assumptions` entry in the design that names a
+      dependent decision or task, add a task that names its id and says what
+      to read or run to settle it, placed before the first task that relies on it.
+      An entry with no dependents gets no task. A disproved assumption is
+      design drift: apply stops that work and the drift rule applies.
 
       At the end of planning, before apply, show the user the Decision
       summary table from design.md. In `autonomous` mode planning does not
