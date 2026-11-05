@@ -21,7 +21,7 @@ Extra tests (design D1, required by the review): `test_template_assumptions_abov
 
 ## 1. The contract
 
-- [ ] 1.1 Write `docs/adr/0025-design-claims-cite-code-unchecked-claims-are-numbered-assumptions.md` (MADR-short, `Status: accepted`, today's date) from design D1-D3 and D5: the `path:line` citation rule, the `## Assumptions` section in both tiers with ids `A1`..., its consumers (the FULL review's Claims item, the LIGHT re-check, verify-first tasks) and the severity rule. Add its row to the in-force ADR index in `openspec/architecture.md`. Verify that the ADR file and the index row exist.
+- [x] 1.1 Write `docs/adr/0025-design-claims-cite-code-unchecked-claims-are-numbered-assumptions.md` (MADR-short, `Status: accepted`, today's date) from design D1-D3 and D5: the `path:line` citation rule, the `## Assumptions` section in both tiers with ids `A1`..., its consumers (the FULL review's Claims item, the LIGHT re-check, verify-first tasks) and the severity rule. Add its row to the in-force ADR index in `openspec/architecture.md`. Verify that the ADR file and the index row exist.
 
 ## 2. Design grounding
 
