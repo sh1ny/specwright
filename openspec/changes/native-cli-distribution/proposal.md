@@ -90,7 +90,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Releases now ship the `sw` native CLI. Each release carries checked binaries for Linux, Windows and macOS on x64 and arm64, and the install places the right one per user, by version. Nothing calls `sw` yet: the VCS, commit and finish ports switch to it next.
+Releases now ship the `sw` native CLI. Each published release carries five checked binaries (Linux x64 and arm64, Windows x64, macOS arm64 and x64) and a `SHA256SUMS` file, and installing a release tag places the host's binary under `~/.specwright/bin/<version>/`. A tag install stops before changing anything when the binary is missing, not uploaded yet or does not match; `main` installs no binary. The binaries are unsigned: on macOS the install clears the quarantine flag only after the checksum matches. Nothing calls `sw` yet: the VCS, commit and finish ports switch to it next.
 
 ### Added
 

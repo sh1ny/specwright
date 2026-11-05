@@ -92,7 +92,7 @@
 
 ## 6. Release
 
-- [ ] 6.1 Run `release.sh bump --to 0.24.0` and rewrite the summary of the proposal's `## Release Notes` section for the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-distribution/proposal.md`.
+- [x] 6.1 Run `release.sh bump --to 0.24.0` and rewrite the summary of the proposal's `## Release Notes` section for the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-distribution/proposal.md`.
 
 ## Workflow follow-up
 
