@@ -78,5 +78,33 @@ class DesignCarriesConstraints(unittest.TestCase):
                          "a design planned before the rule is not read as `None`")
 
 
+class ReviewChecksCompleteness(unittest.TestCase):
+    def test_review_flags_unlisted_constraint_moderate(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)Carried constraints:[^.]{0,300}(rejected alternative|invariant|deliberate gap)[^.]{0,300}(does not list|not listed|unlisted)[^.]{0,120}Moderate",
+                         "a stated constraint the section does not list is not a Moderate finding")
+
+    def test_review_flags_entry_without_single_destination(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)Carried constraints:.{0,900}(zero or several|no destination or more than one|without exactly one)[^.]{0,80}destination",
+                         "an entry with zero or several destinations is not a finding")
+
+    def test_light_recheck_records_finding_and_withholds_verdict(self):
+        r = artifact_instruction("review")
+        m = re.search(r"LIGHT: re-check.*?(?=FULL: the review MUST NOT)", r, re.S)
+        self.assertTrue(m, "the review instruction has no LIGHT paragraph")
+        light = m.group(0)
+        self.assertRegex(light, r"(?i)Carried constraints", "the LIGHT re-check does not apply the Carried constraints test")
+        self.assertRegex(light, r"(?i)Moderate finding[^.]{0,120}## Findings", "a LIGHT failure is not recorded as a Moderate finding under `## Findings`")
+        self.assertRegex(light, r"(?i)no `VERDICT:` line", "a LIGHT failure still writes a verdict line")
+        self.assertRegex(light, r"(?i)re-run\w*[^.]{0,80}re-check|re-check[^.]{0,80}again", "the author does not re-run the re-check")
+        self.assertRegex(light, r"(?i)marked fixed", "earlier findings are not marked fixed after a passing re-check")
+
+    def test_review_missing_section_reads_as_none(self):
+        r = artifact_instruction("review")
+        self.assertRegex(r, r"(?i)no `## Carried constraints` section[^.]{0,120}`None`",
+                         "the review does not read a design with no section as `None`")
+
+
 if __name__ == "__main__":
     unittest.main()

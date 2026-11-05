@@ -10,9 +10,9 @@
 | design-constraints → A design lists the constraints it carries forward | LIGHT design | evals/git-workflow/test_design_constraints.py | test_carried_constraints_above_light_boundary_and_in_light_list | green |
 | design-constraints → Apply writes each carried constraint at its destination | Doc comment destination | evals/git-workflow/test_design_constraints.py | test_tasks_write_each_entry_at_destination | red |
 | design-constraints → Apply writes each carried constraint at its destination | Destination moved during apply | evals/git-workflow/test_design_constraints.py | test_moved_destination_is_drift | red |
-| design-constraints → The design review checks the list is complete | Rejected alternative not carried | evals/git-workflow/test_design_constraints.py | test_review_flags_unlisted_constraint_moderate | red |
-| design-constraints → The design review checks the list is complete | Entry without a destination | evals/git-workflow/test_design_constraints.py | test_review_flags_entry_without_single_destination | red |
-| design-constraints → The design review checks the list is complete | LIGHT design omits a constraint | evals/git-workflow/test_design_constraints.py | test_light_recheck_records_finding_and_withholds_verdict | red |
+| design-constraints → The design review checks the list is complete | Rejected alternative not carried | evals/git-workflow/test_design_constraints.py | test_review_flags_unlisted_constraint_moderate | green |
+| design-constraints → The design review checks the list is complete | Entry without a destination | evals/git-workflow/test_design_constraints.py | test_review_flags_entry_without_single_destination | green |
+| design-constraints → The design review checks the list is complete | LIGHT design omits a constraint | evals/git-workflow/test_design_constraints.py | test_light_recheck_records_finding_and_withholds_verdict | green |
 | design-constraints → The design review checks the list is complete | Design planned before this change | evals/git-workflow/test_design_constraints.py | test_missing_section_reads_as_none | green |
 | preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint missing from the code | evals/git-workflow/test_design_constraints.py | test_brief_missing_carried_constraint_is_p1 | red |
 | preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint present | evals/git-workflow/test_design_constraints.py | test_brief_checks_destination_in_range | red |
@@ -38,8 +38,8 @@
 
 ## 4. Design review completeness
 
-- [ ] 4.1 Add the red tests for "Rejected alternative not carried", "Entry without a destination" and "LIGHT design omits a constraint" to `evals/git-workflow/test_design_constraints.py`, and confirm they fail for the right reason.
-- [ ] 4.2 In the review instruction of `schemas/specwright/schema.yaml`:
+- [x] 4.1 Add the red tests for "Rejected alternative not carried", "Entry without a destination" and "LIGHT design omits a constraint" to `evals/git-workflow/test_design_constraints.py`, and confirm they fail for the right reason.
+- [x] 4.2 In the review instruction of `schemas/specwright/schema.yaml`:
   - Add a **Carried constraints** checklist item. A stated rejected alternative, invariant or deliberate gap that a future change could break and that is not listed is a Moderate finding. So is an entry with zero or several destinations. A design with no section reads as `None`.
   - Extend the LIGHT paragraph: the re-check applies the same test. Each failure is recorded in review.md as a Moderate finding with no `VERDICT:` line. After the author's fix and a passing re-check, review.md gets `VERDICT: SKIPPED_LIGHT` with the findings marked fixed.
 

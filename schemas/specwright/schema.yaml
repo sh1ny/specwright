@@ -442,9 +442,16 @@ artifacts:
       in the design against its claim, opening only files tracked in the
       repository (the Claims item below). When a cited range contradicts its
       claim, fix the claim in design.md before any verdict is written; a fix
-      that makes a trigger apply makes the design FULL. If the triage still holds, write
-      only the metadata with `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a`
-      and a one-line reason, and stop. If a trigger applies after all, fix
+      that makes a trigger apply makes the design FULL. The re-check also
+      applies the Carried constraints test below. Each failure is recorded in
+      review.md as a Moderate finding under `## Findings`, with no `VERDICT:`
+      line, so the tasks precheck stops. The author adds the missing entry or
+      fixes its destination in design.md and runs the re-check again; after
+      a passing re-check, review.md gets `VERDICT: SKIPPED_LIGHT` with each
+      earlier finding marked fixed. If the triage still holds and the
+      re-check finds nothing, write only the metadata with
+      `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a` and a one-line reason,
+      and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
 
       FULL: the review MUST NOT be written in the context that authored
@@ -517,6 +524,12 @@ artifacts:
         Critical; any other claim finding is at least Moderate. A design
         with no `## Assumptions` section (planned before the section existed)
         counts as `None`, and its citations are still checked.
+      - Carried constraints: a rejected alternative, invariant or deliberate
+        gap that a future change could break, and that
+        `## Carried constraints` does not list, is a Moderate finding. So is
+        an entry with zero or several destinations. A design with no
+        `## Carried constraints` section counts as `None`, and its stated
+        constraints are still checked.
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
