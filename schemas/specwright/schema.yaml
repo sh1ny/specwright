@@ -650,9 +650,10 @@ artifacts:
 
       CARRIED CONSTRAINTS. For each `## Carried constraints` entry in the
       design, add a task that names its id (`C1` and so on) and writes the
-      fact at its destination. ADR destinations ride the task that writes
-      that ADR file: that task names the entry ids it carries. The task is ticked only
-      when the text is at the destination. A destination that is gone, or no
+      fact at its destination.
+      ADR destinations ride the task that writes that ADR file: that task
+      names the entry ids it carries. The task is ticked only when the text
+      is at the destination. A destination that is gone, or no
       longer fits, during apply is design drift: apply stops that task, the
       entry is amended under the drift rule, and the task then writes it at
       the new destination. A section that reads `None`, or no section, adds
