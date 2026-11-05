@@ -41,7 +41,6 @@ void main() {
       <String>[],
       ['frobnicate'],
       ['version', '--bogus'],
-      ['run'],
     ]) {
       test('$args prints usage naming the commands and exits 2', () async {
         final (code, out, err) = await run(args);

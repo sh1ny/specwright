@@ -6,25 +6,25 @@
 |---|---|---|---|---|
 | native-cli → sw reports its version and interface version | Version report of a CI build | evals/cli/test_sw_version.py | test_version_json_reports_version_and_interface | green |
 | native-cli → sw reports its version and interface version | Unknown command or flag | evals/cli/test_sw_version.py | test_unknown_command_or_flag_prints_usage_and_exits_2 | green |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | Command finishes within its limits | evals/cli/test_sw_run.py | test_passes_output_and_status_through | red |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | Deadline reached | evals/cli/test_sw_run.py | test_deadline_exits_124_with_the_limit_line | red |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | Output over the bound | evals/cli/test_sw_run.py | test_too_large_exits_125_before_the_deadline | red |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | Invalid invocation | evals/cli/test_sw_run.py | test_invalid_invocation_exits_2_and_starts_nothing | red |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | Command cannot be started | evals/cli/test_sw_run.py | test_missing_command_exits_127 | red |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | A limited command is never run again | evals/cli/test_sw_run.py | test_limited_command_started_at_most_once | red |
-| native-cli → sw run --bounded keeps bounded.py's command-line contract | Limit line names the command a shell wraps | evals/cli/test_sw_run.py | test_limit_line_names_the_command_inside_bash_c | red |
-| native-cli → Bounded limits can only be lowered | Environment lowers the deadline | evals/cli/test_sw_run.py | test_env_lowers_the_deadline | red |
-| native-cli → Bounded limits can only be lowered | Environment tries to raise a limit | evals/cli/test_sw_run.py | test_env_cannot_raise_a_limit | red |
-| native-cli → Bounded limits can only be lowered | Deadline-at already in the past | evals/cli/test_sw_run.py | test_deadline_at_in_the_past_exits_124_unstarted | red |
-| native-cli → Bounded limits can only be lowered | Malformed override | evals/cli/test_sw_run.py | test_malformed_override_is_ignored | red |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | Command finishes within its limits | evals/cli/test_sw_run.py | test_passes_output_and_status_through | green |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | Deadline reached | evals/cli/test_sw_run.py | test_deadline_exits_124_with_the_limit_line | green |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | Output over the bound | evals/cli/test_sw_run.py | test_too_large_exits_125_before_the_deadline | green |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | Invalid invocation | evals/cli/test_sw_run.py | test_invalid_invocation_exits_2_and_starts_nothing | green |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | Command cannot be started | evals/cli/test_sw_run.py | test_missing_command_exits_127 | green |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | A limited command is never run again | evals/cli/test_sw_run.py | test_limited_command_started_at_most_once | green |
+| native-cli → sw run --bounded keeps bounded.py's command-line contract | Limit line names the command a shell wraps | evals/cli/test_sw_run.py | test_limit_line_names_the_command_inside_bash_c | green |
+| native-cli → Bounded limits can only be lowered | Environment lowers the deadline | evals/cli/test_sw_run.py | test_env_lowers_the_deadline | green |
+| native-cli → Bounded limits can only be lowered | Environment tries to raise a limit | evals/cli/test_sw_run.py | test_env_cannot_raise_a_limit | green |
+| native-cli → Bounded limits can only be lowered | Deadline-at already in the past | evals/cli/test_sw_run.py | test_deadline_at_in_the_past_exits_124_unstarted | green |
+| native-cli → Bounded limits can only be lowered | Malformed override | evals/cli/test_sw_run.py | test_malformed_override_is_ignored | green |
 | native-cli → A command's exit is judged when it happens | Exit just before the deadline while a child holds the pipe | evals/cli/test_sw_run.py | test_exit_before_deadline_with_pipe_holder_keeps_status | red |
-| native-cli → A command's exit is judged when it happens | Exit after the deadline | evals/cli/test_sw_run.py | test_exit_after_deadline_exits_124 | red |
+| native-cli → A command's exit is judged when it happens | Exit after the deadline | evals/cli/test_sw_run.py | test_exit_after_deadline_exits_124 | green |
 | native-cli → The whole process tree is stopped | Orphaned grandchild on a deadline | evals/cli/test_sw_tree.py | test_orphaned_grandchild_is_stopped | red |
 | native-cli → The whole process tree is stopped | A limit before the command has started | evals/cli/test_sw_tree.py | test_held_startup_before_containment, test_held_startup_after_ready_before_go | red |
 | native-cli → The whole process tree is stopped | sw itself already runs in a job | evals/cli/test_sw_tree.py | test_nested_job_holds_the_tree | red |
 | native-cli → The whole process tree is stopped | No job object on Windows | evals/cli/test_sw_tree.py | test_no_job_announces_and_stops_by_pid | red |
-| native-cli → Secret mode keeps output off disk | Token lookup | evals/cli/test_sw_run.py | test_secret_mode_writes_nothing_to_disk | red |
-| native-cli → Secret mode keeps output off disk | Secret command floods its output | evals/cli/test_sw_run.py | test_secret_flood_never_echoes_output | red |
+| native-cli → Secret mode keeps output off disk | Token lookup | evals/cli/test_sw_run.py | test_secret_mode_writes_nothing_to_disk | green |
+| native-cli → Secret mode keeps output off disk | Secret command floods its output | evals/cli/test_sw_run.py | test_secret_flood_never_echoes_output | green |
 | native-cli → Commands resolve as the shell would find them | A .cmd shim on Windows | evals/cli/test_sw_args.py | test_cmd_shim_resolves_through_pathext | red |
 | native-cli → Commands resolve as the shell would find them | A name that resolves nowhere | evals/cli/test_sw_args.py | test_unresolved_name_exits_127 | red |
 | native-cli → Arguments reach native executables unchanged | A long argument to a native executable | evals/cli/test_sw_args.py | test_long_argument_to_native_exe_is_unchanged | red |
@@ -72,15 +72,15 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 4. Bounded runner core (all OSes)
 
-- [ ] 4.1 Verify A5: write a Dart spike test `cli/test/inherit_stdio_test.dart` showing a helper started with `inheritStdio` hands its pipes to a child, and that a one-byte stdin read leaves the following bytes for the child. Verify: the test passes on this machine; a failure is design drift (stop).
-- [ ] 4.2 Write failing tests in `evals/cli/test_sw_run.py` for every `test_sw_run.py` row in the test map (contract, limits, exit timing, secret mode, shell-wrapper attribution, at most once), with fresh fixtures (no copied code). Verify: each fails for the right reason.
-- [ ] 4.3 Implement `cli/lib/src/process/bounded_run.dart` (`BoundedRun`, D7: stream byte counting, deadline timer racing the exit future, 2 s grace, 5 s pipe release, limit line with wrapper attribution, env lowering and `SPECWRIGHT_NET_DEADLINE_AT`), `sw run --bounded` argument parsing, and the helper startup protocol (D1 steps 1–7: ready frame, go byte, pre-go cancellation closing the pipe and killing the helper by PID). Write C1 and C7 as checked (they are already in specs/native-cli/spec.md under "sw run --bounded keeps bounded.py's command-line contract"; confirm the text) and C10 as the doc comment on `BoundedRun`. Add Dart unit tests for the limit parsing and frame stripping. Verify: the `test_sw_run.py` rows go green on this machine; flip them; `mise exec -- dart test` for each new Dart test file passes.
+- [x] 4.1 Verify A5: write a Dart spike test `cli/test/inherit_stdio_test.dart` showing a helper started with `inheritStdio` hands its pipes to a child, and that a one-byte stdin read leaves the following bytes for the child. Verify: the test passes on this machine; a failure is design drift (stop).
+- [x] 4.2 Write failing tests in `evals/cli/test_sw_run.py` for every `test_sw_run.py` row in the test map (contract, limits, exit timing, secret mode, shell-wrapper attribution, at most once), with fresh fixtures (no copied code). Verify: each fails for the right reason.
+- [x] 4.3 Implement `cli/lib/src/process/bounded_run.dart` (`BoundedRun`, D7: stream byte counting, deadline timer racing the exit future, 2 s grace, 5 s pipe release, limit line with wrapper attribution, env lowering and `SPECWRIGHT_NET_DEADLINE_AT`), `sw run --bounded` argument parsing, and the helper startup protocol (D1 steps 1–7: ready frame, go byte, pre-go cancellation closing the pipe and killing the helper by PID). Write C1 and C7 as checked (they are already in specs/native-cli/spec.md under "sw run --bounded keeps bounded.py's command-line contract"; confirm the text) and C10 as the doc comment on `BoundedRun`. Add Dart unit tests for the limit parsing and frame stripping. Verify: the `test_sw_run.py` rows go green on this machine, except `test_exit_before_deadline_with_pipe_holder_keeps_status`, whose orphaned pipe holder only the job or process group of 5.3 can stop (it flips in 5.3); flip them; `mise exec -- dart test` for each new Dart test file passes.
 
 ## 5. Process trees: Windows job and POSIX session
 
 - [ ] 5.1 Verify A1: a Dart test `cli/test/windows_job_test.dart` (Windows only) showing a self-started compiled `sw __exec` joins an inherited job handle, also inside an outer job. Verify: passes on this machine; a failure is design drift (stop).
 - [ ] 5.2 Write failing `evals/cli/test_sw_tree.py`: true orphan fixture (child records grandchild PID, exits, then the limit hits; every recorded PID gone), nested job, no-job announcement (`SPECWRIGHT_TEST_NO_JOB=1`), held startup with `SPECWRIGHT_TEST_HOLD_START` (`before` and `after`, the `after` case with `SPECWRIGHT_TEST_PRE_GO`), spawn-record unset and unwritable cases. Verify: each fails for the right reason.
-- [ ] 5.3 Implement `cli/lib/src/native/` bindings (D12: kernel32 job calls; libc `setsid`, `kill`), `cli/lib/src/process/windows_tree.dart` (`WindowsTree`, job without kill-on-close, PID fallback with its announcement) and the POSIX session/group kill with the `SPECWRIGHT_TEST_SPAWN_DIR` record (D6), and the test-only hold and pre-go hooks. Write C2 as the doc comment on `WindowsTree`. Verify: the `test_sw_tree.py` rows go green on Windows here; flip them after CI shows Linux and macOS green (task 7.2).
+- [ ] 5.3 Implement `cli/lib/src/native/` bindings (D12: kernel32 job calls; libc `setsid`, `kill`), `cli/lib/src/process/windows_tree.dart` (`WindowsTree`, job without kill-on-close, PID fallback with its announcement) and the POSIX session/group kill with the `SPECWRIGHT_TEST_SPAWN_DIR` record (D6), and the test-only hold and pre-go hooks. Write C2 as the doc comment on `WindowsTree`. Verify: the `test_sw_tree.py` rows and `test_sw_run.py`'s `test_exit_before_deadline_with_pipe_holder_keeps_status` go green on Windows here (flip the latter now); flip them after CI shows Linux and macOS green (task 7.2).
 - [ ] 5.4 Write failing `test_sweep_stops_sw_sessions_after_timeout` in `evals/runner/test_run.py`, then make `evals/run.py`'s sweep stop recorded `sw` groups (pass `SPECWRIGHT_TEST_SPAWN_DIR` to `cli` test files). Verify: the row goes green in CI on Linux and macOS; flip it.
 
 ## 6. Command lookup and arguments
