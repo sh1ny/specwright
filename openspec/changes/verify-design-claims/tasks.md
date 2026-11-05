@@ -63,7 +63,7 @@ Extra tests (design D1, required by the review): `test_template_assumptions_abov
 
 ## 6. Release
 
-- [ ] 6.1 Run `release.sh bump --to 0.21.0`, rewrite the summary of the proposal's `## Release Notes` to describe the whole release, and verify with `release.sh check` and `release.sh notes --proposal openspec/changes/verify-design-claims/proposal.md`.
+- [x] 6.1 Run `release.sh bump --to 0.21.0`, rewrite the summary of the proposal's `## Release Notes` to describe the whole release, and verify with `release.sh check` and `release.sh notes --proposal openspec/changes/verify-design-claims/proposal.md`.
 
 ## Workflow follow-up
 
