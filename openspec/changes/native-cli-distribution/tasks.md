@@ -8,12 +8,12 @@
 | native-cli → Every platform's binary is built and checked in CI | All five builds pass | `evals/cli/test_workflows.py`; CI run (task 3.1) | `test_build_matrix_has_five_native_targets`; the run's ten jobs | red |
 | native-cli → Every platform's binary is built and checked in CI | Checksum does not match | `evals/cli/test_verify_artifact.py` | `test_checksum_mismatch_fails_without_running` | green |
 | native-cli → Every platform's binary is built and checked in CI | Version drifts from VERSION | `evals/cli/test_verify_artifact.py` | `test_version_drift_fails_naming_both` | green |
-| native-cli → Every platform's binary is built and checked in CI | Interface differs from the skills' | `evals/cli/test_verify_artifact.py` | `test_interface_mismatch_fails_naming_both` | red |
-| native-cli → Every platform's binary is built and checked in CI | One target's runner fails | `evals/cli/test_workflows.py` | `test_matrix_is_not_fail_fast` | red |
+| native-cli → Every platform's binary is built and checked in CI | Interface differs from the skills' | `evals/cli/test_verify_artifact.py` | `test_interface_mismatch_fails_naming_both` | green |
+| native-cli → Every platform's binary is built and checked in CI | One target's runner fails | `evals/cli/test_workflows.py` | `test_matrix_is_not_fail_fast` | green |
 | native-cli → Each published release carries checked binaries | Release published | `evals/cli/test_attach_release.py` | `test_unsealed_release_gets_five_binaries_then_sums` | red |
 | native-cli → Each published release carries checked binaries | One target fails its check | `evals/cli/test_workflows.py` | `test_attach_needs_every_verify_job` | red |
 | native-cli → Each published release carries checked binaries | Tag's VERSION differs from the tag | `evals/cli/test_attach_release.py` | `test_tag_version_mismatch_attaches_nothing` | red |
-| native-cli → Each published release carries checked binaries | Interface mismatch at the tag | `evals/cli/test_verify_artifact.py`; `evals/cli/test_workflows.py` | `test_interface_mismatch_fails_naming_both`; `test_release_verify_checks_interface` | red |
+| native-cli → Each published release carries checked binaries | Interface mismatch at the tag | `evals/cli/test_verify_artifact.py`; `evals/cli/test_workflows.py` | `test_interface_mismatch_fails_naming_both`; `test_release_verify_checks_interface` | green |
 | native-cli → Release assets have fixed names and one checksum file | Checksum file content | `evals/cli/test_attach_release.py` | `test_sums_has_five_sorted_lines_matching_binaries` | red |
 | native-cli → Release assets have fixed names and one checksum file | A malformed checksum line | `evals/update/test_sw_install.py` | `test_malformed_sums_line_is_rejected` | red |
 | native-cli → SHA256SUMS is uploaded last and seals the release | Re-run after a failed upload | `evals/cli/test_attach_release.py` | `test_partial_unsealed_release_is_replaced_then_sealed` | red |
@@ -62,10 +62,10 @@
 
 ## 2. Five-target build and the interface check in CI
 
-- [ ] 2.1 Extend `evals/cli/test_verify_artifact.py` with `test_interface_mismatch_fails_naming_both`, a stub reporting the right version and another interface; run it and see it fail for the right reason (no interface argument yet).
-- [ ] 2.2 Add `--interface-from <sw-path.sh>` to `cli/tool/verify_artifact.py`: it reads `SW_INTERFACE` and fails naming both interfaces on a mismatch. Verify `test_verify_artifact.py` passes and flip the two interface rows' verify-artifact part green.
-- [ ] 2.3 Write `evals/cli/test_workflows.py` (text checks of the workflow files with the standard library): five targets on `ubuntu-24.04`, `ubuntu-24.04-arm`, `windows-latest`, `macos-latest`, `macos-15-intel`; `fail-fast: false`; verify runs `verify_artifact.py` with `--interface-from`; `release.yml` has the per-tag concurrency group with `cancel-in-progress: false`, `contents: write` only on `attach`, and `attach` needs every verify job. Run it and see it fail.
-- [ ] 2.4 Move the build and verify jobs into `.github/workflows/sw-build.yml` (`workflow_call`, input `ref`) with the five-target matrix and the interface check, and have `cli.yml` call it for pull requests (path filters keep `cli/**`, `mise.toml`, `VERSION`, the workflow files and `skills/specwright-pr/scripts/sw-path.sh`). Its header comment carries C14 (one shared build for pull requests and releases). Verify the `sw-build.yml` parts of `test_workflows.py` pass.
+- [x] 2.1 Extend `evals/cli/test_verify_artifact.py` with `test_interface_mismatch_fails_naming_both`, a stub reporting the right version and another interface; run it and see it fail for the right reason (no interface argument yet).
+- [x] 2.2 Add `--interface-from <sw-path.sh>` to `cli/tool/verify_artifact.py`: it reads `SW_INTERFACE` and fails naming both interfaces on a mismatch. Verify `test_verify_artifact.py` passes and flip the two interface rows' verify-artifact part green.
+- [x] 2.3 Write `evals/cli/test_workflows.py` (text checks of the workflow files with the standard library): five targets on `ubuntu-24.04`, `ubuntu-24.04-arm`, `windows-latest`, `macos-latest`, `macos-15-intel`; `fail-fast: false`; verify runs `verify_artifact.py` with `--interface-from`; `release.yml` has the per-tag concurrency group with `cancel-in-progress: false`, `contents: write` only on `attach`, and `attach` needs every verify job. Run it and see it fail.
+- [x] 2.4 Move the build and verify jobs into `.github/workflows/sw-build.yml` (`workflow_call`, input `ref`) with the five-target matrix and the interface check, and have `cli.yml` call it for pull requests (path filters keep `cli/**`, `mise.toml`, `VERSION`, the workflow files and `skills/specwright-pr/scripts/sw-path.sh`). Its header comment carries C14 (one shared build for pull requests and releases). Verify the `sw-build.yml` parts of `test_workflows.py` pass.
 
 ## 3. Release workflow and the seal
 
