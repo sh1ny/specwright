@@ -24,7 +24,7 @@
 
 ## 2. The contract
 
-- [ ] 2.1 Write `docs/adr/0026-design-constraints-are-carried-into-code-specs-or-adrs-during-apply.md` (MADR-short, `Status: accepted`, today's date). It carries C1 (no archive-time harvest), C2 (no step reads archived designs for planning) and C3 (the `## Carried constraints` format: heading, ids, kinds, exactly one destination in one of three forms, `None`, placement above the LIGHT boundary), plus D2-D4. Add its row to the in-force ADR index in `openspec/architecture.md`. Verify the ADR names C1, C2 and C3 and the index row exists.
+- [x] 2.1 Write `docs/adr/0026-design-constraints-are-carried-into-code-specs-or-adrs-during-apply.md` (MADR-short, `Status: accepted`, today's date). It carries C1 (no archive-time harvest), C2 (no step reads archived designs for planning) and C3 (the `## Carried constraints` format: heading, ids, kinds, exactly one destination in one of three forms, `None`, placement above the LIGHT boundary), plus D2-D4. Add its row to the in-force ADR index in `openspec/architecture.md`. Verify the ADR names C1, C2 and C3 and the index row exists.
 
 ## 3. The design section
 
