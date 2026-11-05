@@ -255,12 +255,18 @@ class TestInstall(Base):
         self.assert_nothing_placed()
 
     def test_quarantine_cleared_after_checksum(self):
-        if WINDOWS:
-            self.skipTest("the xattr shim is a POSIX script; the step runs on macOS")
         marker, shims = self.tmp / "marker", self.tmp / "shims"
         shims.mkdir()
-        (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in -p) echo 0081;; esac\nexit 0\n')
-        (shims / "xattr").chmod(0o755)
+        # the flag is present until -d removes it, so the probe after the removal finds it gone
+        if WINDOWS:  # found through shutil.which, so a .cmd shim stands in for xattr
+            (shims / "xattr.cmd").write_text('@echo off\r\necho XATTR %1 %2>>"%SW_MARKER%"\r\n'
+                                             'if "%1"=="-d" type nul > "%SW_MARKER%.cleared"\r\n'
+                                             'if "%1"=="-p" if exist "%SW_MARKER%.cleared" exit /b 1\r\nexit /b 0\r\n')
+        else:
+            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in\n'
+                                         '  -p) [ -f "$SW_MARKER.cleared" ] && exit 1; echo 0081 ;;\n'
+                                         '  -d) : > "$SW_MARKER.cleared" ;;\nesac\nexit 0\n')
+            (shims / "xattr").chmod(0o755)
         self.edit_swpath("set -uo pipefail", 'set -uo pipefail\necho SWPATH >> "$SW_MARKER"')
         self.release(target="macos-arm64")
         self.installed(SPECWRIGHT_TEST_HOST="Darwin/arm64", SW_MARKER=marker.as_posix(),
