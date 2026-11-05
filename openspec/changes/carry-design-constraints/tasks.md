@@ -4,16 +4,16 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| design-constraints → A design lists the constraints it carries forward | Deliberate gap in the data | evals/git-workflow/test_design_constraints.py | test_design_lists_carried_constraints_with_destination | red |
-| design-constraints → A design lists the constraints it carries forward | Behavioural guarantee | evals/git-workflow/test_design_constraints.py | test_destination_rule_by_kind | red |
-| design-constraints → A design lists the constraints it carries forward | Nothing outlives the change | evals/git-workflow/test_design_constraints.py | test_carried_constraints_none_when_empty | red |
-| design-constraints → A design lists the constraints it carries forward | LIGHT design | evals/git-workflow/test_design_constraints.py | test_carried_constraints_above_light_boundary_and_in_light_list | red |
+| design-constraints → A design lists the constraints it carries forward | Deliberate gap in the data | evals/git-workflow/test_design_constraints.py | test_design_lists_carried_constraints_with_destination | green |
+| design-constraints → A design lists the constraints it carries forward | Behavioural guarantee | evals/git-workflow/test_design_constraints.py | test_destination_rule_by_kind | green |
+| design-constraints → A design lists the constraints it carries forward | Nothing outlives the change | evals/git-workflow/test_design_constraints.py | test_carried_constraints_none_when_empty | green |
+| design-constraints → A design lists the constraints it carries forward | LIGHT design | evals/git-workflow/test_design_constraints.py | test_carried_constraints_above_light_boundary_and_in_light_list | green |
 | design-constraints → Apply writes each carried constraint at its destination | Doc comment destination | evals/git-workflow/test_design_constraints.py | test_tasks_write_each_entry_at_destination | red |
 | design-constraints → Apply writes each carried constraint at its destination | Destination moved during apply | evals/git-workflow/test_design_constraints.py | test_moved_destination_is_drift | red |
 | design-constraints → The design review checks the list is complete | Rejected alternative not carried | evals/git-workflow/test_design_constraints.py | test_review_flags_unlisted_constraint_moderate | red |
 | design-constraints → The design review checks the list is complete | Entry without a destination | evals/git-workflow/test_design_constraints.py | test_review_flags_entry_without_single_destination | red |
 | design-constraints → The design review checks the list is complete | LIGHT design omits a constraint | evals/git-workflow/test_design_constraints.py | test_light_recheck_records_finding_and_withholds_verdict | red |
-| design-constraints → The design review checks the list is complete | Design planned before this change | evals/git-workflow/test_design_constraints.py | test_missing_section_reads_as_none | red |
+| design-constraints → The design review checks the list is complete | Design planned before this change | evals/git-workflow/test_design_constraints.py | test_missing_section_reads_as_none | green |
 | preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint missing from the code | evals/git-workflow/test_design_constraints.py | test_brief_missing_carried_constraint_is_p1 | red |
 | preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint present | evals/git-workflow/test_design_constraints.py | test_brief_checks_destination_in_range | red |
 | preship-review → The pre-ship review checks each carried constraint against the diff | No carried constraints | evals/git-workflow/test_design_constraints.py | test_brief_no_finding_for_none | red |
@@ -28,8 +28,8 @@
 
 ## 3. The design section
 
-- [ ] 3.1 Create `evals/git-workflow/test_design_constraints.py` in the style of `evals/git-workflow/test_user_tasks.py`, with the red tests for the four "lists the constraints" rows and `test_missing_section_reads_as_none`. Run `python -m unittest evals/git-workflow/test_design_constraints.py` and confirm each fails because the rule is missing.
-- [ ] 3.2 In `schemas/specwright/schema.yaml`, design instruction:
+- [x] 3.1 Create `evals/git-workflow/test_design_constraints.py` in the style of `evals/git-workflow/test_user_tasks.py`, with the red tests for the four "lists the constraints" rows and `test_missing_section_reads_as_none`. Run `python -m unittest evals/git-workflow/test_design_constraints.py` and confirm each fails because the rule is missing.
+- [x] 3.2 In `schemas/specwright/schema.yaml`, design instruction:
   - Add `## Carried constraints` to SECTIONS: ids `C1`..., kind, exactly one destination (`doc comment: <path> <symbol>`, `spec: specs/<capability>/spec.md → Requirement: <name>`, or `ADR NNNN`), and `None` when nothing outlives the change.
   - Add the destination rule by kind (D2).
   - Make the LIGHT list "Triage, Context, Decisions, Assumptions and Carried constraints".

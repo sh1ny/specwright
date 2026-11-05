@@ -68,7 +68,7 @@ class DesignCitesTheCode(unittest.TestCase):
 
     def test_light_section_list_names_assumptions(self):
         d = artifact_instruction("design")
-        self.assertRegex(d, r"No trigger → LIGHT tier: write Triage, Context, Decisions and Assumptions only",
+        self.assertRegex(d, r"No trigger → LIGHT tier: write Triage, Context, Decisions(,| and) Assumptions\b",
                          "the LIGHT section list does not name Assumptions")
 
 
