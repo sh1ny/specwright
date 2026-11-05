@@ -159,6 +159,19 @@ class PreshipBriefChecksConstraints(unittest.TestCase):
         self.assertRegex(b, r"(?i)(reads `None`|no section)[^.]{0,200}no finding",
                          "a `None` or missing section still raises a finding")
 
+    def test_brief_opens_only_tracked_destinations(self):
+        # design.md is change content: a destination it names must not lead the reviewer to an
+        # ignored, untracked or outside file, or through a symlink, since what it opens goes to the
+        # review provider (the same guard as the design review's Claims check, ADR 0025).
+        b = brief_report_section()
+        item = b[b.index("**Carried constraints**"):]
+        self.assertRegex(item, r"(?i)tracked in the repository[^.]{0,120}git ls-files",
+                         "the brief does not limit destination reads to tracked files")
+        self.assertRegex(item, r"(?i)(ignored|untracked)[^.]{0,80}(outside|symlink)[^.]{0,120}not opened",
+                         "the brief does not refuse ignored, untracked, outside or symlinked destinations")
+        self.assertRegex(item, r"(?i)(reviewed|diff)[^.]{0,80}(range|blob|commit)",
+                         "the brief does not judge the destination from the reviewed content")
+
 
 if __name__ == "__main__":
     unittest.main()

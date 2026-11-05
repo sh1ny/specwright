@@ -22,7 +22,8 @@ Report real defects the author would fix before merging:
   - A user-visible change the diff ships with no item is P2 `docs`.
   - With releases off, ignore the section: no finding concerns it.
 - **Carried constraints**: read `## Carried constraints` in the change's design.md, from the archived design when the review runs after the archive commit.
-  - Check that each entry's fact is present at its destination in the reviewed range.
+  - Check that each entry's fact is present at its destination in the reviewed range. Judge it from the diff, or from the file as the reviewed commit holds it.
+  - Open a destination only when it is a file tracked in the repository (check with `git ls-files`) and not a symlink. The design is change content, and what you open goes to the review provider. A destination that is an ignored, untracked or outside path, or a symlink, is not opened: report it as P1 `docs`, naming the entry.
   - A missing entry, or text there that contradicts the design, is P1 `docs`, naming the entry (`C1`, `C2` and so on).
   - A section that reads `None`, or a design with no section, raises no finding of this kind.
 
