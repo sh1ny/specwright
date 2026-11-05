@@ -15,7 +15,7 @@
 | native-cli → Each published release carries checked binaries | Tag's VERSION differs from the tag | `evals/cli/test_attach_release.py` | `test_tag_version_mismatch_attaches_nothing` | green |
 | native-cli → Each published release carries checked binaries | Interface mismatch at the tag | `evals/cli/test_verify_artifact.py`; `evals/cli/test_workflows.py` | `test_interface_mismatch_fails_naming_both`; `test_release_verify_checks_interface` | green |
 | native-cli → Release assets have fixed names and one checksum file | Checksum file content | `evals/cli/test_attach_release.py` | `test_sums_has_five_sorted_lines_matching_binaries` | green |
-| native-cli → Release assets have fixed names and one checksum file | A malformed checksum line | `evals/update/test_sw_install.py` | `test_malformed_sums_line_is_rejected` | red |
+| native-cli → Release assets have fixed names and one checksum file | A malformed checksum line | `evals/update/test_sw_install.py` | `test_malformed_sums_line_is_rejected` | green |
 | native-cli → SHA256SUMS is uploaded last and seals the release | Re-run after a failed upload | `evals/cli/test_attach_release.py` | `test_partial_unsealed_release_is_replaced_then_sealed` | green |
 | native-cli → SHA256SUMS is uploaded last and seals the release | Overlapping runs for one tag | `evals/cli/test_workflows.py`; `evals/cli/test_attach_release.py` | `test_release_concurrency_queues_per_tag`; `test_sealed_complete_release_changes_nothing` | green |
 | native-cli → SHA256SUMS is uploaded last and seals the release | A binary changed before the seal | `evals/cli/test_attach_release.py` | `test_readback_mismatch_writes_no_seal` | green |
@@ -29,29 +29,29 @@
 | native-cli → A missing or mismatched sw stops with one message | Binary missing | `evals/cli/test_sw_path.py` | `test_missing_binary_ignores_other_versions` | green |
 | native-cli → A missing or mismatched sw stops with one message | Interface mismatch | `evals/cli/test_sw_path.py` | `test_interface_mismatch_stops` | green |
 | native-cli → A missing or mismatched sw stops with one message | Version report is not JSON | `evals/cli/test_sw_path.py` | `test_non_json_report_stops` | green |
-| install-update → A tagged install places a checked sw for the host | Install of a tag with binaries on Linux x64 | `evals/update/test_sw_install.py` | `test_tag_install_places_checked_binary` (host target) | red |
-| install-update → A tagged install places a checked sw for the host | SPECWRIGHT_HOME set | `evals/update/test_sw_install.py` | `test_specwright_home_is_the_root` | red |
-| install-update → A tagged install places a checked sw for the host | Host on a platform with no target | `evals/update/test_sw_install.py` | `test_unsupported_platform_stops` | red |
-| install-update → The macOS install clears quarantine only on the file it checked | Quarantined download on macOS arm64 | `evals/update/test_sw_install.py` | `test_quarantine_cleared_after_checksum` (macOS only) | red |
-| install-update → The macOS install clears quarantine only on the file it checked | Mismatched file is left quarantined | `evals/update/test_sw_install.py` | `test_mismatch_keeps_quarantine_and_never_runs` | red |
-| install-update → A missing or incompatible sw stops a tagged install before any change | Release assets not uploaded yet | `evals/update/test_sw_install.py` | `test_unsealed_release_stops_assets_not_uploaded` | red |
-| install-update → A missing or incompatible sw stops a tagged install before any change | Checksum mismatch | `evals/update/test_sw_install.py` | `test_checksum_mismatch_stops_before_stage` | red |
-| install-update → A missing or incompatible sw stops a tagged install before any change | Wrong interface | `evals/update/test_sw_install.py` | `test_wrong_interface_stops_before_stage` | red |
-| install-update → The sw download is bounded | Download completes in time | `evals/update/test_sw_install.py` | `test_tag_install_places_checked_binary` | red |
-| install-update → The sw download is bounded | Server stalls | `evals/update/test_sw_install.py` | `test_stalled_download_hits_deadline` | red |
-| install-update → The sw download is bounded | Oversized answer | `evals/update/test_sw_install.py` | `test_oversized_download_is_refused` | red |
-| install-update → An install without release binaries says so | Install of main | `evals/update/test_sw_install.py` | `test_main_install_reports_no_sw` | red |
-| install-update → An install without release binaries says so | Install of an older tag | `evals/update/test_sw_install.py` | `test_plan_without_sw_field_means_no_sw` | red |
-| install-update → An install without release binaries says so | Existing binaries stay untouched on main | `evals/update/test_sw_install.py` | `test_main_install_leaves_bin_untouched` | red |
-| install-update → Placing sw is atomic and keeps other versions | Rerun with the binary already placed | `evals/update/test_sw_install.py` | `test_rerun_keeps_matching_binary` | red |
-| install-update → Placing sw is atomic and keeps other versions | Interrupted before the rename | `evals/update/test_sw_install.py` | `test_interrupt_before_rename_leaves_no_final_file` | red |
-| install-update → Placing sw is atomic and keeps other versions | A stale file at the final path | `evals/update/test_sw_install.py` | `test_stale_final_file_is_replaced` | red |
-| install-update → Placing sw is atomic and keeps other versions | Matching hash but not runnable | `evals/update/test_sw_install.py` | `test_unrunnable_matching_file_is_replaced` (POSIX) | red |
-| install-update → Placing sw is atomic and keeps other versions | Two installs of one version at once | `evals/update/test_sw_install.py` | `test_concurrent_installs_both_succeed` | red |
-| install-update → Placing sw is atomic and keeps other versions | Rename blocked by a running binary | `evals/update/test_sw_install.py` | `test_blocked_rename_with_matching_file_is_kept` | red |
-| install-update → Placing sw is atomic and keeps other versions | A temporary file left by a killed run | `evals/update/test_sw_install.py` | `test_only_old_part_files_are_cleaned` | red |
-| install-update → Recovery leaves placed binaries in place | Rollback after the binary was placed | `evals/update/test_sw_install.py` | `test_rollback_keeps_placed_binaries` | red |
-| install-update → Recovery leaves placed binaries in place | Previous version had no binary | `evals/update/test_sw_install.py` | `test_rollback_to_version_without_sw` | red |
+| install-update → A tagged install places a checked sw for the host | Install of a tag with binaries on Linux x64 | `evals/update/test_sw_install.py` | `test_tag_install_places_checked_binary` (host target) | green |
+| install-update → A tagged install places a checked sw for the host | SPECWRIGHT_HOME set | `evals/update/test_sw_install.py` | `test_specwright_home_is_the_root` | green |
+| install-update → A tagged install places a checked sw for the host | Host on a platform with no target | `evals/update/test_sw_install.py` | `test_unsupported_platform_stops` | green |
+| install-update → The macOS install clears quarantine only on the file it checked | Quarantined download on macOS arm64 | `evals/update/test_sw_install.py` | `test_quarantine_cleared_after_checksum` (macOS only) | green |
+| install-update → The macOS install clears quarantine only on the file it checked | Mismatched file is left quarantined | `evals/update/test_sw_install.py` | `test_mismatch_keeps_quarantine_and_never_runs` | green |
+| install-update → A missing or incompatible sw stops a tagged install before any change | Release assets not uploaded yet | `evals/update/test_sw_install.py` | `test_unsealed_release_stops_assets_not_uploaded` | green |
+| install-update → A missing or incompatible sw stops a tagged install before any change | Checksum mismatch | `evals/update/test_sw_install.py` | `test_checksum_mismatch_stops_before_stage` | green |
+| install-update → A missing or incompatible sw stops a tagged install before any change | Wrong interface | `evals/update/test_sw_install.py` | `test_wrong_interface_stops_before_stage` | green |
+| install-update → The sw download is bounded | Download completes in time | `evals/update/test_sw_install.py` | `test_tag_install_places_checked_binary` | green |
+| install-update → The sw download is bounded | Server stalls | `evals/update/test_sw_install.py` | `test_stalled_download_hits_deadline` | green |
+| install-update → The sw download is bounded | Oversized answer | `evals/update/test_sw_install.py` | `test_oversized_download_is_refused` | green |
+| install-update → An install without release binaries says so | Install of main | `evals/update/test_sw_install.py` | `test_main_install_reports_no_sw` | green |
+| install-update → An install without release binaries says so | Install of an older tag | `evals/update/test_sw_install.py` | `test_plan_without_sw_field_means_no_sw` | green |
+| install-update → An install without release binaries says so | Existing binaries stay untouched on main | `evals/update/test_sw_install.py` | `test_main_install_leaves_bin_untouched` | green |
+| install-update → Placing sw is atomic and keeps other versions | Rerun with the binary already placed | `evals/update/test_sw_install.py` | `test_rerun_keeps_matching_binary` | green |
+| install-update → Placing sw is atomic and keeps other versions | Interrupted before the rename | `evals/update/test_sw_install.py` | `test_interrupt_before_rename_leaves_no_final_file` | green |
+| install-update → Placing sw is atomic and keeps other versions | A stale file at the final path | `evals/update/test_sw_install.py` | `test_stale_final_file_is_replaced` | green |
+| install-update → Placing sw is atomic and keeps other versions | Matching hash but not runnable | `evals/update/test_sw_install.py` | `test_unrunnable_matching_file_is_replaced` (POSIX) | green |
+| install-update → Placing sw is atomic and keeps other versions | Two installs of one version at once | `evals/update/test_sw_install.py` | `test_concurrent_installs_both_succeed` | green |
+| install-update → Placing sw is atomic and keeps other versions | Rename blocked by a running binary | `evals/update/test_sw_install.py` | `test_blocked_rename_with_matching_file_is_kept` | green |
+| install-update → Placing sw is atomic and keeps other versions | A temporary file left by a killed run | `evals/update/test_sw_install.py` | `test_only_old_part_files_are_cleaned` | green |
+| install-update → Recovery leaves placed binaries in place | Rollback after the binary was placed | `evals/update/test_sw_install.py` | `test_rollback_keeps_placed_binaries` | green |
+| install-update → Recovery leaves placed binaries in place | Previous version had no binary | `evals/update/test_sw_install.py` | `test_rollback_to_version_without_sw` | green |
 
 ## 1. The shared resolver
 
@@ -78,12 +78,12 @@
 
 ## 4. Install: `update.sh sw-install`
 
-- [ ] 4.1 [evidence] Verify A4: fetch the headers of one asset of an existing public GitHub release (no auth) with a bounded `python -I` urllib call that does not follow redirects, and record each redirect hop's scheme and host → evidence/release-download-redirects.md
-- [ ] 4.2 Write `evals/update/test_sw_install.py` with every install-update row of the test map. A fixture release directory served through `--release-url file://...` holds the `SPECWRIGHT_SW` build under the host's asset name and a `SHA256SUMS` line. Stalls and oversized answers come from a local `http.server` thread. The rollback tests reuse the interrupt fixtures of `evals/update/test_interrupt.py`. Run it and see it fail.
-- [ ] 4.3 Add the `sw` field to `plan` (D1, D8: `{asset, target}` or `{asset: null, reason: unsupported_platform}`) and the host map. Verify the plan rows of `test_sw_install.py` pass.
-- [ ] 4.4 Implement `sw_download` (D3): origin to `<owner>/<repo>` (github.com `https` only, else `no_github_origin`), `--release-url`, a `python -I` child under `bounded.run_bounded` (120 s) that streams to the part file and stops past 64 MiB, `https`-only redirects, `asset_missing` and `assets_not_uploaded`. Its doc comment carries C8 (anonymous, no `gh`), C13 (no retry) and C15 (`https`-only redirects). Verify the download and stop rows pass.
-- [ ] 4.5 Implement `sw_install` placement (D7): cleanup of parts older than one hour, the SHA-256 before `xattr -d` and before the first run, `chmod`, `sw-path.sh --file` checks of the part and of an existing final file, rename, and the re-check after a failed rename (`kept` or `sw_in_use`). Its doc comment carries C4 (no pruning) and C5 (checksum proves integrity, not authorship). Wire the subcommand into the usage text and dispatch (`scripts/update.sh:281`, `:962-971`). The comment on `INTERFACE` carries C7 (additive, interface stays 2). Verify every `test_sw_install.py` row passes and flip them green.
-- [ ] 4.6 Carry C3, C11, C12, C16 and C17: confirm the delta spec `specs/install-update/spec.md` holds each requirement the design names for them, with the stated text. Verify by reading the file.
+- [x] 4.1 [evidence] Verify A4: fetch the headers of one asset of an existing public GitHub release (no auth) with a bounded `python -I` urllib call that does not follow redirects, and record each redirect hop's scheme and host → evidence/release-download-redirects.md
+- [x] 4.2 Write `evals/update/test_sw_install.py` with every install-update row of the test map. A fixture release directory served through `--release-url file://...` holds the `SPECWRIGHT_SW` build under the host's asset name and a `SHA256SUMS` line. Stalls and oversized answers come from a local `http.server` thread. The rollback tests reuse the interrupt fixtures of `evals/update/test_interrupt.py`. Run it and see it fail.
+- [x] 4.3 Add the `sw` field to `plan` (D1, D8: `{asset, target}` or `{asset: null, reason: unsupported_platform}`) and the host map. Verify the plan rows of `test_sw_install.py` pass.
+- [x] 4.4 Implement `sw_download` (D3): origin to `<owner>/<repo>` (github.com `https` only, else `no_github_origin`), `--release-url`, a `python -I` child under `bounded.run_bounded` (120 s) that streams to the part file and stops past 64 MiB, `https`-only redirects, `asset_missing` and `assets_not_uploaded`. Its doc comment carries C8 (anonymous, no `gh`), C13 (no retry) and C15 (`https`-only redirects). Verify the download and stop rows pass.
+- [x] 4.5 Implement `sw_install` placement (D7): cleanup of parts older than one hour, the SHA-256 before `xattr -d` and before the first run, `chmod`, `sw-path.sh --file` checks of the part and of an existing final file, rename, and the re-check after a failed rename (`kept` or `sw_in_use`). Its doc comment carries C4 (no pruning) and C5 (checksum proves integrity, not authorship). Wire the subcommand into the usage text and dispatch (`scripts/update.sh:281`, `:962-971`). The comment on `INTERFACE` carries C7 (additive, interface stays 2). Verify every `test_sw_install.py` row passes and flip them green.
+- [x] 4.6 Carry C3, C11, C12, C16 and C17: confirm the delta spec `specs/install-update/spec.md` holds each requirement the design names for them, with the stated text. Verify by reading the file.
 
 ## 5. Install prompt and docs
 

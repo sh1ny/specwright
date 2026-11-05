@@ -137,14 +137,14 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "SPECWRIGHT_REQUIRE_BUT=1" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@v5
-        # the cli suite and the runner's sweep test drive a sw built from this tree
-        if: matrix.suite == 'cli' || matrix.suite == 'runner'
+        # the cli suite, the runner's sweep test and the update suite's sw-install tests drive a sw built from this tree
+        if: matrix.suite == 'cli' || matrix.suite == 'runner' || matrix.suite == 'update'
         with:
           version: 2026.10.12
           install: true
           cache: false
       - name: Build sw from the tree
-        if: matrix.suite == 'cli' || matrix.suite == 'runner'
+        if: matrix.suite == 'cli' || matrix.suite == 'runner' || matrix.suite == 'update'
         run: |
           mise run build
           sw="${{ github.workspace }}/cli/build/sw${{ runner.os == 'Windows' && '.exe' || '' }}"
