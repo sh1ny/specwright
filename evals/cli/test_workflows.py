@@ -92,7 +92,8 @@ class ReleaseTests(unittest.TestCase):
 
     def test_attach_needs_every_verify_job(self):
         text = read("release.yml")
-        build = re.search(r"^  (\w[\w-]*):\s*\n(?:\s+.*\n)*?\s+uses:\s*\./\.github/workflows/sw-build\.yml", text, re.M)
+        jobs = block(text, "jobs", 0) + "\n"  # not the `on:` triggers, which also sit at two spaces (release:)
+        build = re.search(r"^  (\w[\w-]*):\s*\n(?:\s+.*\n)*?\s+uses:\s*\./\.github/workflows/sw-build\.yml", jobs, re.M)
         self.assertTrue(build, "release.yml calls sw-build.yml")
         needs = re.search(r"needs:\s*(.+)", job(text, "attach"))
         self.assertTrue(needs, "the attach job has needs")
