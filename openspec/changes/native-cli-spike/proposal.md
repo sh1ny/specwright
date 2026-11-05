@@ -106,7 +106,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Starts the native CLI migration (#148). A Dart executable, `sw`, now builds and is checked on Linux, Windows and macOS. It reports its interface version and runs commands under the existing bounds, holding Windows process trees in a job object. Nothing in the skills uses it yet. A new ADR fixes how `sw` is installed (per user, by version) and what it supersedes.
+Starts the native CLI migration (#148) with `sw`, a Dart executable that CI builds and checks on Linux, Windows and macOS. `sw version --json` reports its version and interface. `sw run --bounded` runs a command under `bounded.py`'s limits and exit codes and stops the whole process tree on a limit: a job object on Windows, a process session on Linux and macOS. A new `cli` eval suite checks `sw` against the same cases as `bounded.py`. Nothing in the skills uses `sw` yet. ADR 0027 decides how it will be installed (per user, by version) and supersedes ADR 0002.
 
 ### Added
 - `cli/`: the `sw` Dart executable with `sw version --json` and `sw run --bounded`, pinned through mise, with process-tree regression tests on three platforms (#148).
