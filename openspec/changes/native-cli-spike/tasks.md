@@ -27,16 +27,16 @@
 | native-cli → The whole process tree is stopped | A limit before the helper has announced itself | evals/cli/test_sw_tree.py | test_prehello_limit_leaves_helper_that_never_starts | red |
 | native-cli → Secret mode keeps output off disk | Token lookup | evals/cli/test_sw_run.py | test_secret_mode_writes_nothing_to_disk | green |
 | native-cli → Secret mode keeps output off disk | Secret command floods its output | evals/cli/test_sw_run.py | test_secret_flood_never_echoes_output | green |
-| native-cli → Commands resolve as the shell would find them | A .cmd shim on Windows | evals/cli/test_sw_args.py | test_cmd_shim_resolves_through_pathext | red |
-| native-cli → Commands resolve as the shell would find them | A name that resolves nowhere | evals/cli/test_sw_args.py | test_unresolved_name_exits_127 | red |
-| native-cli → Arguments reach native executables unchanged | A long argument to a native executable | evals/cli/test_sw_args.py | test_long_argument_to_native_exe_is_unchanged | red |
-| native-cli → Arguments reach native executables unchanged | A long argument through bash -c on Windows | evals/cli/test_sw_args.py | test_long_argument_through_bash_c_transport | red |
-| native-cli → Arguments reach native executables unchanged | A missing transport end marker | evals/cli/test_sw_args.py | test_missing_transport_marker_exits_126 | red |
-| native-cli → Batch shims get escaped arguments or none | Metacharacters reach the shim literally | evals/cli/test_sw_args.py | test_batch_metacharacters_reach_recorder | red |
-| native-cli → Batch shims get escaped arguments or none | Trailing backslashes survive forwarding | evals/cli/test_sw_args.py | test_batch_trailing_backslashes_survive | red |
-| native-cli → Batch shims get escaped arguments or none | A shim found in a directory whose name cmd.exe would expand | evals/cli/test_sw_args.py | test_batch_path_with_percent_is_refused | red |
-| native-cli → Batch shims get escaped arguments or none | An argument that cmd.exe would expand | evals/cli/test_sw_args.py | test_batch_unsafe_argument_is_refused | red |
-| native-cli → Batch shims get escaped arguments or none | A batch command line over the cmd.exe limit | evals/cli/test_sw_args.py | test_batch_line_over_limit_is_refused | red |
+| native-cli → Commands resolve as the shell would find them | A .cmd shim on Windows | evals/cli/test_sw_args.py | test_cmd_shim_resolves_through_pathext | green |
+| native-cli → Commands resolve as the shell would find them | A name that resolves nowhere | evals/cli/test_sw_args.py | test_unresolved_name_exits_127 | green |
+| native-cli → Arguments reach native executables unchanged | A long argument to a native executable | evals/cli/test_sw_args.py | test_long_argument_to_native_exe_is_unchanged | green |
+| native-cli → Arguments reach native executables unchanged | A long argument through bash -c on Windows | evals/cli/test_sw_args.py | test_long_argument_through_bash_c_transport | green |
+| native-cli → Arguments reach native executables unchanged | A missing transport end marker | evals/cli/test_sw_args.py | test_missing_transport_marker_exits_126 | green |
+| native-cli → Batch shims get escaped arguments or none | Metacharacters reach the shim literally | evals/cli/test_sw_args.py | test_batch_metacharacters_reach_recorder | green |
+| native-cli → Batch shims get escaped arguments or none | Trailing backslashes survive forwarding | evals/cli/test_sw_args.py | test_batch_trailing_backslashes_survive | green |
+| native-cli → Batch shims get escaped arguments or none | A shim found in a directory whose name cmd.exe would expand | evals/cli/test_sw_args.py | test_batch_path_with_percent_is_refused | green |
+| native-cli → Batch shims get escaped arguments or none | An argument that cmd.exe would expand | evals/cli/test_sw_args.py | test_batch_unsafe_argument_is_refused | green |
+| native-cli → Batch shims get escaped arguments or none | A batch command line over the cmd.exe limit | evals/cli/test_sw_args.py | test_batch_line_over_limit_is_refused | green |
 | native-cli → Every platform's binary is built and checked in CI | All three builds pass | evals/runner/test_cli_workflow.py | test_cli_workflow_builds_tests_and_verifies_each_os | red |
 | native-cli → Every platform's binary is built and checked in CI | Checksum does not match | evals/cli/test_verify_artifact.py | test_checksum_mismatch_fails_without_running | red |
 | native-cli → Every platform's binary is built and checked in CI | Version drifts from VERSION | evals/cli/test_verify_artifact.py | test_version_drift_fails_naming_both | red |
@@ -87,8 +87,8 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 6. Command lookup and arguments
 
-- [ ] 6.1 Write failing `evals/cli/test_sw_args.py` for every `test_sw_args.py` row: PATHEXT resolution, 127, long native argument, `bash -c` stdin transport and missing marker (126), batch metacharacters through a `%*`-forwarding shim and native recorder (seven arguments; `x & echo pwned` runs nothing), trailing one and two backslashes, `%SW_SLOT%` PATH directory with a decoy shim, unsafe arguments, over-limit line. Verify: each fails for the right reason.
-- [ ] 6.2 Implement `cli/lib/src/process/command_line.dart` (D8): PATH/PATHEXT lookup (default `.COM;.EXE;.BAT;.CMD`), native direct start, the batch command line started verbatim by the helper through `CreateProcessW` (`sw __exec --cmdline`), the `bash -c` NUL transport written after the go byte, and batch quoting (path and arguments double-quoted, trailing backslashes doubled, refusal of `%`, `!`, `"`, CR, LF, NUL in arguments, `%` or `!` in the resolved path, and lines over 8,191 characters). Confirm C9's text in specs/native-cli/spec.md under "Batch shims get escaped arguments or none". Add Dart unit tests for the quoting function. Verify: the `test_sw_args.py` rows go green on Windows here; flip them.
+- [x] 6.1 Write failing `evals/cli/test_sw_args.py` for every `test_sw_args.py` row: PATHEXT resolution, 127, long native argument, `bash -c` stdin transport and missing marker (126), batch metacharacters through a `%*`-forwarding shim and native recorder (seven arguments; `x & echo pwned` runs nothing), trailing one and two backslashes, `%SW_SLOT%` PATH directory with a decoy shim, unsafe arguments, over-limit line. Verify: each fails for the right reason.
+- [x] 6.2 Implement `cli/lib/src/process/command_line.dart` (D8): PATH/PATHEXT lookup (default `.COM;.EXE;.BAT;.CMD`), native direct start, the batch command line started verbatim by the helper through `CreateProcessW` (`sw __exec --cmdline`), the `bash -c` NUL transport written after the go byte, and batch quoting (path and arguments double-quoted, trailing backslashes doubled, refusal of `%`, `!`, `"`, CR, LF, NUL in arguments, `%` or `!` in the resolved path, and lines over 8,191 characters). Confirm C9's text in specs/native-cli/spec.md under "Batch shims get escaped arguments or none". Add Dart unit tests for the quoting function. Verify: the `test_sw_args.py` rows go green on Windows here; flip them.
 
 ## 7. CI build, artifacts and download-and-run
 

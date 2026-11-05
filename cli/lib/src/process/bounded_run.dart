@@ -75,6 +75,7 @@ class BoundedRun {
     required this.limits,
     required this.treeFor,
     this.stdinBytes = const [],
+    this.rawLine = false,
     List<String>? helperCommand,
     this.preGoFile,
     void Function(String line)? note,
@@ -87,6 +88,10 @@ class BoundedRun {
 
   /// Bytes written on the command's stdin right after the go byte.
   final List<int> stdinBytes;
+
+  /// [command] is an application and its exact Windows command line (see
+  /// `LaunchPlan.rawLine`): the helper is started with `--cmdline`.
+  final bool rawLine;
 
   /// The helper's own command line up to (not including) `--`.
   final List<String> helperCommand;
@@ -119,6 +124,7 @@ class BoundedRun {
     try {
       helper = await Process.start(helperCommand.first, [
         ...helperCommand.skip(1),
+        if (rawLine) '--cmdline',
         '--',
         ...command,
       ]);

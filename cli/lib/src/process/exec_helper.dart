@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../native/kernel32.dart' as k32;
 import 'frame.dart';
 
 /// What the helper's identity frame says about itself: its creation time on
@@ -62,6 +63,10 @@ Future<void> _hold(String? path) async {
 /// or any other byte exits 125 and starts nothing, and so does a failed write
 /// of a frame (the parent is gone). A command that cannot start exits 127 with
 /// the reason on stderr. The helper exits with the command's status.
+///
+/// `sw __exec --cmdline -- <application> <command line>` (Windows only) starts
+/// the application with that exact command line through `CreateProcessW`: Dart
+/// would escape the quotes of a `cmd.exe /s /c "<line>"` (D8).
 Future<int> runExecHelper(
   List<String> args, {
   HelloSource hello = noHello,
@@ -87,9 +92,14 @@ Future<int> _run(
   Containment contain,
   Map<String, String> environment,
 ) async {
-  if (args.isEmpty || args.first != '--') return 2;
-  final command = args.sublist(1);
-  if (command.isEmpty) return 2;
+  final raw = args.isNotEmpty && args.first == '--cmdline';
+  final rest = raw ? args.sublist(1) : args;
+  if (rest.isEmpty || rest.first != '--') return 2;
+  final command = rest.sublist(1);
+  if (command.isEmpty ||
+      (raw && (command.length != 2 || !Platform.isWindows))) {
+    return 2;
+  }
 
   await _hold(holdFile('prehello', environment));
   try {
@@ -112,6 +122,21 @@ Future<int> _run(
   // follow it, which belong to the command.
   final go = stdin.readByteSync();
   if (go != 0x67) return 125;
+
+  if (raw) {
+    final started = k32.runWithCommandLine(command[0], command[1]);
+    final status = started.status;
+    if (status == null) {
+      stderr.add(
+        utf8.encode(
+          'bounded: cannot start ${command[0]}: error ${started.error}\n',
+        ),
+      );
+      await stderr.flush();
+      return 127;
+    }
+    return status;
+  }
 
   final Process process;
   try {

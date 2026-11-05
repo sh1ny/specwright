@@ -173,3 +173,103 @@ int? processCreationTime(int process) {
 /// which needs `SYNCHRONIZE`); false when it has, or when the wait fails.
 bool isProcessRunning(int process) =>
     _waitForSingleObject(Pointer.fromAddress(process), 0) == _waitTimeout;
+
+final int Function(
+  Pointer<Utf16>,
+  Pointer<Utf16>,
+  Pointer<Void>,
+  Pointer<Void>,
+  int,
+  int,
+  Pointer<Void>,
+  Pointer<Utf16>,
+  Pointer<Uint8>,
+  Pointer<Uint8>,
+)
+_createProcess = _kernel32
+    .lookupFunction<
+      Int32 Function(
+        Pointer<Utf16>,
+        Pointer<Utf16>,
+        Pointer<Void>,
+        Pointer<Void>,
+        Int32,
+        Uint32,
+        Pointer<Void>,
+        Pointer<Utf16>,
+        Pointer<Uint8>,
+        Pointer<Uint8>,
+      ),
+      int Function(
+        Pointer<Utf16>,
+        Pointer<Utf16>,
+        Pointer<Void>,
+        Pointer<Void>,
+        int,
+        int,
+        Pointer<Void>,
+        Pointer<Utf16>,
+        Pointer<Uint8>,
+        Pointer<Uint8>,
+      )
+    >('CreateProcessW');
+
+final int Function(_Handle, Pointer<Uint32>) _getExitCodeProcess = _kernel32
+    .lookupFunction<
+      Int32 Function(_Handle, Pointer<Uint32>),
+      int Function(_Handle, Pointer<Uint32>)
+    >('GetExitCodeProcess');
+
+const int _infinite = 0xFFFFFFFF;
+const int _startupInfoSize = 104; // STARTUPINFOW on 64-bit Windows
+
+/// Runs [application] with exactly [commandLine] (no quoting is added), lets
+/// it inherit this process's standard handles, waits for it, and returns its
+/// exit status as a signed 32-bit value. [status] is null when the process
+/// cannot be created, and [error] is then the Win32 error.
+({int? status, int error}) runWithCommandLine(
+  String application,
+  String commandLine,
+) {
+  final app = application.toNativeUtf16();
+  final line = commandLine.toNativeUtf16();
+  final startup = calloc<Uint8>(_startupInfoSize);
+  final info = calloc<Uint8>(24); // PROCESS_INFORMATION
+  try {
+    startup.cast<Uint32>().value = _startupInfoSize;
+    final ok = _createProcess(
+      app,
+      line,
+      nullptr,
+      nullptr,
+      1,
+      0,
+      nullptr,
+      nullptr,
+      startup,
+      info,
+    );
+    if (ok == 0) return (status: null, error: _getLastError());
+    final handles = info.cast<IntPtr>();
+    final process = Pointer<Void>.fromAddress(handles[0]);
+    _closeHandle(Pointer.fromAddress(handles[1]));
+    _waitForSingleObject(process, _infinite);
+    final code = calloc<Uint32>();
+    try {
+      final got = _getExitCodeProcess(process, code);
+      final value = got == 0 ? 1 : code.value;
+      return (
+        status: value >= 0x80000000 ? value - 0x100000000 : value,
+        error: 0,
+      );
+    } finally {
+      calloc.free(code);
+      _closeHandle(process);
+    }
+  } finally {
+    calloc.free(app);
+    calloc.free(line);
+    calloc.free(startup);
+    calloc.free(info);
+  }
+}

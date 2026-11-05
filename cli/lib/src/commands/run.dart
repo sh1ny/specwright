@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import '../process/bounded_run.dart';
+import '../process/command_line.dart';
 import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
-import '../process/transport.dart';
 
 const String runUsage =
     'usage: sw run --bounded [--paged] [--secret] -- cmd [args...]\n';
@@ -68,16 +68,17 @@ Future<int> runCommand(
     err.write('bounded: cannot start ${command.first}: command not found\n');
     return 127;
   }
-  if (Platform.isWindows &&
-      RegExp(r'\.(cmd|bat)$', caseSensitive: false).hasMatch(path)) {
-    err.write('bounded: batch shims are not supported yet: ${command.first}\n');
-    return 127;
+  final LaunchPlan plan;
+  try {
+    plan = planLaunch(path, command, environment);
+  } on UnsafeBatchArgument {
+    err.write('bounded: unsafe batch argument: ${command.first}\n');
+    return 2;
   }
-
-  final transport = transportFor([path, ...command.skip(1)]);
   final result = await BoundedRun(
-    command: transport.command,
-    stdinBytes: transport.stdinBytes,
+    command: plan.command,
+    stdinBytes: plan.stdinBytes,
+    rawLine: plan.rawLine,
     limits: resolveLimits(environment, paged: invocation.paged),
     helperCommand: helperCommand,
     treeFor: () => platformTree(environment),
