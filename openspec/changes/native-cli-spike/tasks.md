@@ -49,8 +49,8 @@
 | eval-runner → A stopped test file's sw process groups are stopped too | Runner timeout during a hung sw test | evals/runner/test_run.py | test_sweep_stops_sw_sessions_after_timeout | red |
 | eval-runner → A stopped test file's sw process groups are stopped too | Variable unset | evals/cli/test_sw_tree.py | test_no_spawn_record_without_variable | red |
 | eval-runner → A stopped test file's sw process groups are stopped too | Unwritable spawn directory | evals/cli/test_sw_tree.py | test_unwritable_spawn_dir_leaves_result_unchanged | red |
-| eval-runner → Dart tests run locally only for the module being written | Both files carry the rule | evals/runner/test_agent_instructions.py | test_dart_single_file_rule_in_both_files | red |
-| eval-runner → Dart tests run locally only for the module being written | A file tells the reader to run every Dart test | evals/runner/test_agent_instructions.py | test_whole_dart_run_instruction_fails_naming_line | red |
+| eval-runner → Dart tests run locally only for the module being written | Both files carry the rule | evals/runner/test_agent_instructions.py | test_dart_single_file_rule_in_both_files | green |
+| eval-runner → Dart tests run locally only for the module being written | A file tells the reader to run every Dart test | evals/runner/test_agent_instructions.py | test_whole_dart_run_instruction_fails_naming_line | green |
 
 The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row check the workflow's structure in code; their runtime proof is the CI run in task 7.2 (evidence). The CI-only test files run in CI per `AGENTS.md`; locally only the module being written runs, red then green.
 
@@ -97,7 +97,7 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 8. Contributor rules
 
-- [ ] 8.1 Write failing `test_dart_single_file_rule_in_both_files` and `test_whole_dart_run_instruction_fails_naming_line` in `evals/runner/test_agent_instructions.py`, then add the Dart rule to `AGENTS.md` and `CONTRIBUTING.md` (`mise exec -- dart test <file>` for the file being written; CI runs the rest on three OSes). Verify: both rows go green with `python -m unittest evals/runner/test_agent_instructions.py`; flip them; `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 8.1 Write failing `test_dart_single_file_rule_in_both_files` and `test_whole_dart_run_instruction_fails_naming_line` in `evals/runner/test_agent_instructions.py`, then add the Dart rule to `AGENTS.md` and `CONTRIBUTING.md` (`mise exec -- dart test <file>` for the file being written; CI runs the rest on three OSes). Verify: both rows go green with `python -m unittest evals/runner/test_agent_instructions.py`; flip them; `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 9. Owner check and release
 

@@ -3,6 +3,9 @@
 AGENTS.md and CONTRIBUTING.md each name the CI workflow, the single-module run, the map test and the
 milestone close; CLAUDE.md imports AGENTS.md. A missing rule names the file. AGENTS.md, CONTRIBUTING.md
 and README.md never tell the reader to run a whole suite locally.
+
+Both files also carry the Dart rule (native-cli-spike): locally only the Dart test file being written runs,
+through the pinned SDK, and CI runs the rest. Neither tells the reader to run every Dart test locally.
 """
 import shutil
 import tempfile
@@ -25,6 +28,9 @@ RULES = (
 )
 LOCAL_RUN_FILES = ("AGENTS.md", "CONTRIBUTING.md", "README.md")
 LOCAL_RUNS = ("python evals/run.py --changed main", "python -m unittest discover evals/")
+DART_RULE = "mise exec -- dart test <file>"
+DART_CI = "three OSes"
+DART_WHOLE_RUNS = ("`mise exec -- dart test`", "`dart test`", "`mise run test`")
 
 
 def problems(root):
@@ -62,7 +68,55 @@ def local_runs(root):
     return out
 
 
+def dart_problems(root):
+    """Each Dart-rule gap in a rule file under `root`: a missing rule, or a whole-run instruction naming its line."""
+    out = []
+    for name in RULE_FILES:
+        path = Path(root) / name
+        if not path.is_file():
+            out.append(f"{name} does not exist")
+            continue
+        lines = path.read_text(encoding="utf-8").splitlines()
+        text = "\n".join(lines)
+        if DART_RULE not in text:
+            out.append(f"{name} does not name the single-file Dart run (`{DART_RULE}`)")
+        elif DART_CI not in text:
+            out.append(f"{name} does not say CI runs the Dart tests on the {DART_CI}")
+        for number, line in enumerate(lines, 1):
+            for command in DART_WHOLE_RUNS:
+                if command in line:
+                    out.append(f"{name}:{number} tells the reader to run every Dart test ({command})")
+    return out
+
+
 class TestAgentInstructions(unittest.TestCase):
+    def test_dart_single_file_rule_in_both_files(self):
+        self.assertEqual(dart_problems(ROOT), [])
+        for name in RULE_FILES:
+            with self.subTest(file=name), tempfile.TemporaryDirectory() as tmp:
+                for f in RULE_FILES:
+                    shutil.copy(ROOT / f, Path(tmp) / f)
+                path = Path(tmp) / name
+                path.write_text(path.read_text(encoding="utf-8").replace(DART_RULE, "dart"), encoding="utf-8")
+                found = dart_problems(tmp)
+                self.assertEqual(len(found), 1, found)
+                self.assertTrue(found[0].startswith(name) and DART_RULE in found[0], found)
+
+    def test_whole_dart_run_instruction_fails_naming_line(self):
+        for name in RULE_FILES:
+            for command in DART_WHOLE_RUNS:
+                with self.subTest(file=name, command=command), tempfile.TemporaryDirectory() as tmp:
+                    for f in RULE_FILES:
+                        shutil.copy(ROOT / f, Path(tmp) / f)
+                    path = Path(tmp) / name
+                    text = path.read_text(encoding="utf-8")
+                    if not text.endswith("\n"):
+                        text += "\n"
+                    line = len(text.splitlines()) + 1
+                    path.write_text(text + f"Before a commit run {command} in cli/.\n", encoding="utf-8")
+                    found = dart_problems(tmp)
+                    self.assertIn(f"{name}:{line} tells the reader to run every Dart test ({command})", found)
+
     def test_agents_and_contributing_carry_the_rule(self):
         self.assertEqual(problems(ROOT), [])
 
