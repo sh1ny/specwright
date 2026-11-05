@@ -87,7 +87,15 @@ When `sw run --bounded` stops a command (a limit, or a held pipe after the comma
 
 #### Scenario: A limit before the command has started
 - **WHEN** the deadline passes while `sw` is still setting up the command's job or process group (for example `SPECWRIGHT_NET_DEADLINE_AT` already passed), on any OS
-- **THEN** `sw` exits 124, the command never starts, and no process `sw` started survives
+- **THEN** `sw` exits 124, the command never starts, and no process `sw` started survives, except a helper that has not announced itself within 5 s (next scenario)
+
+#### Scenario: A limit before the helper has announced itself
+- **WHEN** a limit hits before the helper has announced itself, and it neither announces itself nor exits within 5 s
+- **THEN** `sw` writes `bounded: helper not stopped: <cmd>` on stderr and exits 124, the command never starts, and the helper exits 125 without starting anything once it runs on
+
+#### Scenario: The helper dies during startup
+- **WHEN** the helper `sw` starts to hold the command exits after announcing itself and before the command is started
+- **THEN** `sw` exits 127 with `bounded: helper exited during startup: <cmd>` on stderr, the command never starts, and on Windows `sw` assigns no other process to its job and terminates none
 
 #### Scenario: sw itself already runs in a job
 - **WHEN** on Windows `sw` is started inside a job object that its caller created

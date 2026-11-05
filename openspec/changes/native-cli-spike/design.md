@@ -30,21 +30,23 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 
 ## Decisions
 
-### D1: Windows trees through a self-spawned helper that joins the job first
+### D1: Windows trees through a self-spawned helper the parent assigns to the job before the go
 
-- **Choice:** the parent `sw` creates an unnamed job object without kill-on-close, then starts itself as `sw __exec --job-handle <h> -- <cmd...>` with the job handle inheritable. The helper's first act is `AssignProcessToJobObject(job, GetCurrentProcess())`. Only after the go signal (the startup protocol below) does it start the command with inherited stdout and stderr, wait, and exit with the command's status. A limit after the go makes the parent call `TerminateJobObject`, which stops the helper and every descendant. If the helper cannot join the job, the command still runs, the parent writes `bounded: no job object: <reason>`, and a limit stops the tree by PID (`taskkill /T /F`).
+- **Choice:** the parent `sw` creates an unnamed job object without kill-on-close, then starts itself as `sw __exec -- <cmd...>` with `Process.start`. The helper starts nothing until the go signal (the startup protocol below). The parent never acts on the helper by a bare PID: on Windows every action on the helper goes through one process handle `H` whose identity the parent has checked (the identity rule below), and `H` stays open until the run ends, so the PID cannot be reused while the parent can still act on it. After the ready frame and before the go, the parent calls `AssignProcessToJobObject(job, H)`; only then does it write the go. After the go the helper starts the command with inherited stdout and stderr, waits, and exits with the command's status. A limit after the go makes the parent call `TerminateJobObject`, which stops the helper and every descendant. If the job cannot be created or the assignment fails, the command still runs, the parent writes `bounded: no job object: <reason>`, and a limit stops the tree with `taskkill /T /F` by the helper's PID while `H` still pins that PID.
+- **Identity rule.** The helper's very first act, before any test hold and before containment, is an identity frame on its stderr: `\x00sw-hello <id>\n`. On Windows `<id>` is the helper's own creation time (`GetProcessTimes` on `GetCurrentProcess()`, the 64-bit FILETIME in decimal); on POSIX it is `-`. On Windows, when the hello arrives, the parent opens the helper's PID (`OpenProcess` with `PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`) and keeps the handle as `H` only if `GetProcessTimes(H)` gives the same creation time and `WaitForSingleObject(H, 0)` reports it still running. A PID and a creation time together name one process, so a match means `H` is the helper, and an open handle keeps Windows from reusing the PID. Anything else (the open fails, the times differ, or the process has exited) means the helper is gone: the parent closes any handle it opened, writes no go, assigns and terminates nothing, and exits 127 with `bounded: helper exited during startup: <cmd>`. On POSIX Dart exposes no process handle and reaps its children itself, so the PID cannot be pinned. There the parent signals both the helper's process group and its PID (the group exists once the helper has called `setsid()`; the parent need not know whether it has yet) only while it has not yet seen the helper's exit, and the group alone after that: a PID is never handed out while it names a live process group, so while any member of the session lives, the group signal reaches only that session. The window between Dart reaping the helper and the parent seeing the exit is a deliberate gap (C11).
 - **Startup protocol (both OSes):**
-  1. The helper sets up containment: it joins the job on Windows and calls `setsid()` on POSIX (D6).
-  2. It writes exactly one ready frame as the first bytes on its stderr: `\x00sw-ready ok\n` or `\x00sw-ready nojob <reason>\n`. The NUL prefix keeps it from matching any text a command could have written, since the command has not started yet.
+  1. The helper writes its identity frame (the identity rule above) as the first bytes on its stderr, then sets up its own containment: it calls `setsid()` on POSIX (D6). On Windows it has nothing to set up, because the parent assigns it to the job in step 4.
+  2. It writes exactly one ready frame, the next bytes on its stderr: `\x00sw-ready ok\n` or `\x00sw-ready nojob <reason>\n`. The NUL prefix keeps it from matching any text a command could have written, since the command has not started yet.
   3. It blocks reading one byte from its stdin, a pipe only the parent holds.
-  4. The parent reads and strips the ready frame before it counts or passes on any stderr bytes, so the frame never reaches the caller and never uses the byte allowance.
+  4. The parent reads and strips both frames before it counts or passes on any stderr bytes, so they never reach the caller and never use the byte allowance. It checks the helper's identity when the hello arrives (Windows) and assigns `H` to the job after the ready frame, before any go is written.
   5. If no limit has hit, the parent writes `g`, then D8's transport bytes when there are any, and closes the pipe. The helper starts the command with all three streams inherited, so the command's stdin is the rest of that pipe: the transport bytes, then end-of-file. That is equivalent to `bounded.py`'s null stdin for a command that reads nothing.
-  6. If a limit hits before the go is written (before or after the frame), the parent closes the pipe without writing `g`, then kills the helper by its PID and waits for its exit, whether or not the frame has arrived. Cancellation never depends on the helper reaching its stdin read: a helper stuck before that read is stopped the same way. A helper that does read end-of-file instead of `g` exits 125 without starting anything, which only makes the kill a no-op. Before go the helper is the whole tree, so stopping it by PID is complete.
-  7. A frame that is missing or malformed (the helper died, or another binary answered) is a spawn failure: exit 127, with the reason on stderr.
-- **Rejected:** `CreateProcessW` with `CREATE_SUSPENDED` plus `ResumeThread` (#148's Option B). It means owning pipe creation, `ReadFile` loops and Windows command-line quoting in FFI: far more native code for the same guarantee. Assigning the job after a normal `Process.start` was also rejected, because a child started before the assignment escapes (ADR 0014).
+  6. If a limit hits before the go is written, the parent never writes `g`. After the hello it stops the helper first and closes the pipe second: on Windows `TerminateProcess(H)`, on POSIX the signal the identity rule allows, then it waits for the helper's exit, at most the 5 s stop wait. Cancellation never depends on the helper reaching its stdin read: a helper held before that read is stopped the same way. Stopping before closing means the helper cannot exit on end-of-file first and free its PID; on Windows `H` pins it anyway, and terminating an already exited process through `H` does nothing. Before the hello, the only code running is the helper's own start-up: the parent closes the pipe without `g` and waits, at most the stop wait, for the hello (then stops the helper as above) or for its exit; if neither comes it lets the helper go and says so on stderr (`bounded: helper not stopped: <cmd>`). Such a helper can never start the command, because the pipe is closed and only `g` starts it; when it does run on, its hello write fails or its control read sees end-of-file, and either makes it exit 125 without starting anything. This is the one survivor a limit can leave (C12). Before go the helper is the whole tree, so stopping it is complete.
+  7. A frame that is missing or malformed (the helper died, or another binary answered) is a spawn failure: exit 127, with the reason on stderr. So is a helper that exits after its frames and before the go: the parent writes no go and, on Windows, acts only through `H`, which still names the exited helper.
+  8. `H` is owned by the parent alone. It stays open through the assignment, any stop, the PID fallback and the pipe wait, and is closed exactly once, when the run ends (or at once on an identity failure). The job handle is closed after `H`.
+- **Rejected:** the helper joining an inherited job handle (`sw __exec --job-handle <h>`, this decision's first form). Dart's `Process.start` on Windows passes only the stdio handles to the child, so the handle never reaches the helper: task 5.1 found `AssignProcessToJobObject` failing and `IsProcessInJob` false. A named job the helper opens was rejected too (a name is an object in a shared namespace), and so was duplicating the handle into the helper (a new protocol step for the same result). `CreateProcessW` with `CREATE_SUSPENDED` plus `ResumeThread` (#148's Option B) stays rejected: it means owning pipe creation, `ReadFile` loops and Windows command-line quoting in FFI, far more native code for the same guarantee. ADR 0014 rejected assigning the job after a normal spawn because a child started before the assignment escapes. That does not apply here: the helper starts no process before the go, and the go is written only after the assignment.
 - **Reversal cost:** medium (contained in one module; Option B can replace it behind the same runner interface).
 - **Important:** yes (weak evidence until the nested-job and orphan tests pass on a Windows runner)
-- **Chosen by:** user (stated in #148 as "Option A, preferred, try first")
+- **Chosen by:** user (stated in #148 as "Option A, preferred, try first"; after A1's first form failed in apply, the user chose parent-side assignment of the held helper on 2026-11-05)
 
 ### D2: One single-file executable from `dart compile exe`
 
@@ -109,7 +111,9 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 
 - **Choice:** `evals/cli/test_sw_run.py` and `evals/cli/test_sw_version.py` drive the binary named by `SPECWRIGHT_SW`, case for case against `test_bounded.py`'s CLI, process-tree and argument-transport cases, with fresh fixtures written here. Beyond those, the suite adds:
   - **A true orphan fixture:** child → grandchild. The child records the grandchild's PID, then exits, and the fixture waits until both facts are on disk before the limit triggers. It then asserts unconditionally that every recorded PID is gone.
-  - **Held-startup fixtures:** a test-only `SPECWRIGHT_TEST_HOLD_START` names a file the helper polls for. With `before`, the helper waits before it joins the job or calls `setsid()`. With `after`, it waits after writing its ready frame and before reading the go byte. For the `after` case the parent also needs a test-only `SPECWRIGHT_TEST_PRE_GO` file: once it has consumed the ready frame and before it writes `g`, the parent writes a marker next to that file and defers writing `g` while the file exists (its deadline timer keeps running), so the test knows the frame was read, the helper is held before its stdin read and `g` was never written. The test lets the deadline expire while the helper waits, asserts exit 124 and that no helper survives, and only then releases the hold (removes the file). It finally asserts that no command-start marker appeared, not even after the release. The test runs for both hold points on Windows with a job, on Windows with `SPECWRIGHT_TEST_NO_JOB=1`, and on POSIX. Like the other `SPECWRIGHT_TEST_*` overrides, it can only delay, never loosen a limit.
+  - **Held-startup fixtures:** a test-only `SPECWRIGHT_TEST_HOLD_START` names a file the helper polls for. With `before`, the helper waits after its hello and before it calls `setsid()` and writes its ready frame, so on Windows the parent has not assigned it yet. With `after`, it waits after writing its ready frame and before reading the go byte. For the `after` case the parent also needs a test-only `SPECWRIGHT_TEST_PRE_GO` file: once it has consumed the ready frame and before it writes `g`, the parent writes a marker next to that file and defers writing `g` while the file exists (its deadline timer keeps running), so the test knows the frame was read, the helper is held before its stdin read and `g` was never written. The test lets the deadline expire while the helper waits, asserts exit 124 and that no helper survives, and only then releases the hold (removes the file). It finally asserts that no command-start marker appeared, not even after the release. The test runs for both hold points on Windows with a job, on Windows with `SPECWRIGHT_TEST_NO_JOB=1`, and on POSIX. Like the other `SPECWRIGHT_TEST_*` overrides, it can only delay, never loosen a limit.
+  - **Pre-hello hold:** `SPECWRIGHT_TEST_HOLD_START=prehello:<path>` makes the helper wait before its hello. The test lets the deadline expire, asserts exit 124, `bounded: helper not stopped` on stderr and no command-start marker, then releases the hold itself (the test owns that cleanup) and asserts that the helper exits 125 within the stop wait and that no command-start marker ever appears.
+  - **Helper death during startup:** a test-only `SPECWRIGHT_TEST_HELPER_EXIT=after-ready` makes the helper exit right after its ready frame. `sw` must exit 127 with `bounded: helper exited during startup`, the command must never start, and on Windows no process other than the helper may be assigned or terminated. The after-ready hold with a limit covers the other order: the helper is stopped through `H` before the pipe is closed. A Dart unit test drives `WindowsTree`'s identity check through an injected seam (open and creation-time lookups) and asserts that a mismatched creation time, a failed open and an exited process each refuse assignment and termination and close what was opened.
   - **Batch quoting** is tested with a `.cmd` shim that forwards `%*` to a native argument recorder. The test asserts exact values and boundaries for empty strings, spaces, `&|<>()^`, arguments ending in one and two backslashes (one with spaces) followed by an ordinary and an empty argument, and combinations. An injection-shaped argument (`x & echo pwned`) must run no second command. A shim resolved from a `PATH` directory literally named with `%SW_SLOT%`, with `SW_SLOT` pointing at a decoy shim, must be refused with neither shim running.
   - **Shell-wrapper attribution:** the limit line for `bash -c 'exec gh "$@"' gh api` must read `gh api` (`skills/specwright-pr/scripts/bounded.py:394-396`; `evals/pr-pair/test_bounded.py:392-399`), with and without the Windows transport.
   - **Batch-shim round trips** for metacharacters, plus refusals for `%`, `!`, `"` and the length limit. They skip as `sw not built` when it is unset, and fail when `SPECWRIGHT_REQUIRE_SW=1`. Dart unit tests in `cli/test/` cover limit resolution, PATHEXT lookup and the state machine. Process tests carry the `process` tag.
@@ -136,7 +140,7 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 
 ### D12: Own `kernel32`/libc bindings, no `package:win32`
 
-- **Choice:** the about eight foreign functions `sw` needs (create, assign and terminate job; set handle information; current process; close handle; `setsid`; `kill`) are declared in one `cli/lib/src/native/` file per OS, over `package:ffi`.
+- **Choice:** the about eight foreign functions `sw` needs (create, assign and terminate job; open, time, wait on and terminate a process; close handle; `setsid`; `kill`) are declared in one `cli/lib/src/native/` file per OS, over `package:ffi`.
 - **Rejected:** `package:win32`. It is a large generated surface for eight calls, its release cadence becomes ours, and D2 needs any dependency to stay hook-free.
 - **Reversal cost:** low
 - **Important:** no
@@ -154,7 +158,7 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 | S6 | Publishing | CI artifacts only | Release assets now | low | no | agent |
 | S7 | Targets | Runner-native arch on 3 OSes | Full target matrix | low | no | agent |
 | S8 | Release | 0.23.0 minor | Patch | low | no | agent |
-| D1 | Tree holding and startup | Self-spawned helper joins job (or `setsid`), ready frame, go byte | CreateProcessW suspended; assign after spawn | medium | yes | user |
+| D1 | Tree holding and startup | Self-spawned helper assigned to the job by the parent after its ready frame and before the go (or `setsid` in the helper), ready frame, go byte | Inherited handle; named job; duplicated handle; CreateProcessW suspended | medium | yes | user |
 | D2 | Build form | `dart compile exe`, one file | `dart build cli` bundle | medium | yes | user |
 | D3 | Install root | `~/.specwright/bin/<version>/` | OS data dirs; per project | high | yes | user |
 | D4 | Version check | Exact version and interface | Interface only | low | yes | user |
@@ -169,7 +173,7 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 
 ## Assumptions
 
-- **A1:** an AOT-compiled `sw` started by itself can open an inherited job handle and join the job, also when `sw` already runs inside the caller's job (nested jobs, Windows 8+). Not checked because no Dart code exists yet. Depends on it: D1, task group 2.
+- **A1:** a compiled `sw` helper started with `Process.start` and held before its go can be opened by the parent through `OpenProcess` on its PID, matched by its creation time, and assigned to a job through `AssignProcessToJobObject` on that handle, also when the parent `sw` already runs inside the caller's job (nested jobs, Windows 8+), and the command it starts after the go is in that job. Not checked because the first form of A1 (the helper joining an inherited handle) failed in task 5.1 and this form is new. Depends on it: D1, task group 5.
 - **A2:** a CI-downloaded macOS arm64 binary from `dart compile exe` is ad-hoc signed by the Dart toolchain, so it runs once `com.apple.quarantine` is removed. Not checked because it needs a macOS runner. Depends on it: D11, the verify job.
 - **A3:** `package:ffi` and `package:args` have no build hooks, so `dart compile exe` accepts `cli/`. Not checked because there is no `pubspec.lock` yet (yagurad's reason for `dart build cli` came from another package). Depends on it: D2.
 - **A4:** `jdx/mise-action` with mise `2026.10.12` installs pure `dart` (not Flutter) on all three runners, including macOS, which the owner's other projects never ran. Not checked because it needs a CI run. Depends on it: D10.
@@ -179,7 +183,7 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 ## Carried constraints
 
 - **C1:** The bounded limits (120 s, 300 s paged, 32 MiB per stream; env lowers only; `SPECWRIGHT_NET_DEADLINE_AT` caps), the limit line (naming the wrapped command for a `sh`/`bash -c` wrapper, `skills/specwright-pr/scripts/bounded.py:394-396`) and exit codes 124, 125, 2 and 127 are `sw run --bounded`'s contract, identical to `bounded.py`'s. Kind: invariant. Destination: spec: specs/native-cli/spec.md → Requirement: sw run --bounded keeps bounded.py's command-line contract
-- **C2:** On Windows the command must already be inside the job object when it starts. Kill-on-close is never set, and the PID fallback announces itself. Kind: invariant. Destination: doc comment: cli/lib/src/process/windows_tree.dart WindowsTree
+- **C2:** On Windows the command must already be inside the job object when it starts. The parent acts on the helper only through the handle it matched against the helper's identity frame, never a bare PID. Kill-on-close is never set, and the PID fallback announces itself. Kind: invariant. Destination: doc comment: cli/lib/src/process/windows_tree.dart WindowsTree
 - **C3:** `cli/` must not depend on any package with build hooks, because the distribution is one `dart compile exe` file. Kind: invariant. Destination: doc comment: cli/pubspec.yaml dependencies
 - **C4:** Shipped tooling becomes one Dart binary: installed at `~/.specwright/bin/<version>/`, run only at the project's exact version and interface, unsigned until a measured block, superseding ADR 0002 and 0014's Python-specific parts. Kind: rejected alternative (per-project binary, interface-only matching, `dart build cli`, signing first). Destination: ADR 0027
 - **C5:** Skills keep calling the bash and Python scripts until each port's own change switches them; `bounded.py` and its three copies stay until M8 removes them. Kind: deliberate gap. Destination: ADR 0027
@@ -187,7 +191,9 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 - **C7:** `sw` never retries a command that ended in a limit; a cut-off write is decided by the caller's read-back. Kind: invariant. Destination: spec: specs/native-cli/spec.md → Requirement: sw run --bounded keeps bounded.py's command-line contract
 - **C8:** This change publishes CI artifacts only, for linux-x64, windows-x64 and macos-arm64; release assets, linux-arm64 and macOS x64 are `native-cli-distribution`'s. Kind: deliberate gap. Destination: ADR 0027
 - **C9:** Batch-shim arguments holding `%`, `!`, `"`, CR, LF or NUL, a resolved batch path holding `%` or `!`, or a line over 8,191 characters, are refused, never best-effort escaped. Kind: rejected alternative. Destination: spec: specs/native-cli/spec.md → Requirement: Batch shims get escaped arguments or none
-- **C10:** The helper's ready frame (`\x00sw-ready ...\n`) is internal: the parent strips it before counting or passing on stderr, and the command starts only after the go byte. Kind: invariant. Destination: doc comment: cli/lib/src/process/bounded_run.dart BoundedRun
+- **C10:** The helper's frames (`\x00sw-hello ...\n`, then `\x00sw-ready ...\n`) are internal: the parent strips them before counting or passing on stderr, and the command starts only after the go byte. Kind: invariant. Destination: doc comment: cli/lib/src/process/bounded_run.dart BoundedRun
+- **C11:** On POSIX the helper's PID cannot be pinned (Dart reaps its children and exposes no handle), so between Dart reaping the helper and the parent seeing its exit a signal could reach a process that reused the PID; `sw` narrows it by signalling the helper only before it sees the exit and the group alone after it. `bounded.py` has the same window: its watcher reaps with `p.wait()` (`skills/specwright-pr/scripts/bounded.py:47-49`) and `kill_tree` then signals the group by PID (`skills/specwright-pr/scripts/bounded.py:72-79`). Kind: deliberate gap. Destination: ADR 0027
+- **C12:** A limit can leave one process running: a helper that has written no identity frame within the 5 s stop wait, which `sw` cannot identify and so does not signal. It never starts the command (the go pipe is closed) and exits 125 once it runs on; `sw` names it on stderr (`bounded: helper not stopped: <cmd>`). Kind: deliberate gap. Destination: ADR 0027
 
 ## Diagrams (FULL)
 
@@ -197,8 +203,9 @@ The scope decisions S1–S8 are in proposal.md. What exists today:
 flowchart LR
   Skill["(later) skill / eval"] -->|"sw run --bounded -- cmd"| P["sw parent<br/>BoundedRun"]
   Skill -->|"sw version --json"| V["version report<br/>{version, interface}"]
-  P -->|"Process.start: sw __exec --job-handle h -- cmd"| H["sw helper"]
-  H -->|"joins job (Windows) / setsid (POSIX)<br/>then starts, stdio inherited"| C["command"]
+  P -->|"Process.start: sw __exec -- cmd"| H["sw helper"]
+  P -->|"Windows: assigns helper to job through its checked handle, before go"| H
+  H -->|"setsid (POSIX); after go<br/>starts cmd, stdio inherited"| C["command"]
   C --> G["descendants"]
   P -. "TerminateJobObject / kill(-pgid)" .-> H
   P -. same .-> C
@@ -212,22 +219,25 @@ sequenceDiagram
   participant P as sw parent
   participant H as sw helper
   participant C as command
-  P->>P: CreateJobObjectW (no kill-on-close), handle inheritable
-  P->>H: Process.start(sw __exec --job-handle h -- cmd), stdin = control pipe
-  alt limit before the ready frame
-    P->>H: kill helper by PID (it has started nothing)
+  P->>P: CreateJobObjectW (no kill-on-close)
+  P->>H: Process.start(sw __exec -- cmd), stdin = control pipe
+  H-->>P: stderr frame NUL "sw-hello creation-time"
+  P->>P: H = OpenProcess(PID); require GetProcessTimes(H) == creation-time, still running
+  alt identity check fails
+    P->>P: close H, no go, exit 127 (nothing assigned or terminated)
   end
-  H->>H: AssignProcessToJobObject(h, self)
-  alt joined
-    H-->>P: stderr frame NUL "sw-ready ok"
-  else failed
-    H-->>P: stderr frame NUL "sw-ready nojob reason"
+  alt limit before the ready frame
+    P->>H: TerminateProcess(H), then close the pipe (it has started nothing)
+  end
+  H-->>P: stderr frame NUL "sw-ready ok"
+  P->>P: strip both frames (not counted, not passed on)
+  P->>P: AssignProcessToJobObject(job, H)
+  alt assignment failed (or no job)
     P->>P: write "bounded: no job object: reason" on own stderr
   end
-  P->>P: strip the frame (not counted, not passed on)
   alt limit after the frame, before go
-    P->>H: close control pipe without "g"
-    P->>H: kill helper by PID, wait for its exit
+    P->>H: TerminateProcess(H), then close control pipe without "g"
+    P->>H: wait for its exit (at most 5 s)
     Note over H: never starts cmd (EOF or killed, whichever comes first)
   else no limit
     P->>H: "g" + transport bytes, then close
@@ -250,8 +260,8 @@ sequenceDiagram
 stateDiagram-v2
   [*] --> Starting
   Starting --> Running: ready frame read, go written
-  Starting --> Stopping: limit before go (pipe closed without go; helper killed by PID)
-  Starting --> Done: frame missing or malformed (exit 127)
+  Starting --> Stopping: limit before go (helper stopped through H or the allowed signal, then pipe closed without go)
+  Starting --> Done: frame missing or malformed, identity check failed, or helper exited before go (exit 127)
   Running --> Exited: exit before deadline
   Running --> Limited: deadline or byte bound
   Exited --> Done: pipes closed within 2 s
@@ -274,7 +284,8 @@ flowchart LR
 
 | State | Owner (sole writer) | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
-| Job object handle | parent `sw` (`BoundedRun`) | one bounded run | closed after the normal end or after terminate | the parent's handle; the helper's inherited copy is used once, then closed |
+| Job object handle | parent `sw` (`BoundedRun`) | one bounded run | closed after the normal end or after terminate | the parent's handle; the helper never holds one. The job handle is closed after `H` |
+| Helper process handle `H` (Windows) | parent `sw` (`BoundedRun` through `WindowsTree`) | from the identity check to the end of the run: open through assignment, any stop, the PID fallback and the pipe wait | closed exactly once, at run end (or at once on an identity failure) | the parent's handle; it pins the helper's PID |
 | Output buffers (stdout, stderr) | parent `BoundedRun` | one run, memory only | discarded on exit | memory; never disk |
 | Run state (running/exited/limited/stopping/done) | parent `BoundedRun` | one run | none | memory |
 | Compiled version and interface | build (define) / source constant | per binary | rebuild | the binary |
@@ -285,11 +296,14 @@ flowchart LR
 | Component | Fails / dies mid-operation → | Recovery | Retry safe? | Who finds out |
 |---|---|---|---|---|
 | Parent `sw` killed (SIGKILL / task kill) | helper and command keep running; on Windows the job handle closes without killing (no kill-on-close) | none in-process; ADR 0012/0014 accepted this | the caller decides | caller sees its own kill; a hung child is the accepted gap |
-| Helper dies or answers without a valid ready frame | no command started | none | yes | exit 127 with the reason |
-| Limit while starting (before go) | parent closes the control pipe without `g` and kills the helper by PID, with or without its frame; the helper never starts the command | none needed | n/a | exit 124 or 125 as usual |
-| Helper fails to join job | runs command with PID fallback | `taskkill /T /F` by PID on a limit | yes | stderr `bounded: no job object: <reason>` |
+| Helper dies or answers without valid frames | no command started | none | yes | exit 127 with the reason |
+| Helper exits after its frames, before the go | no command started; on Windows `H` still names it, so nothing else is assigned or terminated | close `H` and the job | yes | exit 127, `bounded: helper exited during startup: <cmd>` |
+| Helper's PID reused on POSIX after Dart reaps it and before the parent sees the exit | a signal meant for the helper could reach the new process (C11) | none | n/a | nobody: the accepted gap, as with `bounded.py` |
+| Limit while starting (before go) | parent stops the helper (through `H` on Windows, the allowed signal on POSIX), then closes the control pipe without `g`; before the hello it closes the pipe and waits at most 5 s; the helper never starts the command | none needed | n/a | exit 124 or 125 as usual |
+| Limit while the helper has not yet announced itself, and no hello or exit within 5 s | the helper is left running; it can never start the command and exits 125 once it runs on (C12) | none | yes | stderr `bounded: helper not stopped: <cmd>`, exit 124 or 125 as usual |
+| Assigning the helper to the job fails | runs command with PID fallback | `taskkill /T /F` by PID on a limit | yes | stderr `bounded: no job object: <reason>` |
 | Helper fails to start command | exits 127 | none | yes | stderr names the command; exit 127 |
-| Job creation fails in parent | helper started without job handle; PID fallback | as above | yes | same stderr line |
+| Job creation fails in parent | no assignment; PID fallback | as above | yes | same stderr line |
 | Command holds pipes after exit | 2 s grace, tree stopped | stop | n/a | command's own result stands |
 | Survivor after stop holds pipes | let go after 5 s | none | n/a | nothing more is read; documented |
 | CI build/verify job | job fails | rerun | yes | PR check red, error names file/version |
@@ -311,19 +325,21 @@ flowchart LR
 
 - **Exit and limit race:** whichever event the state machine handles first wins. An exit whose future completed before the deadline timer fired keeps its result, even if the handler runs later. The exit time is taken when the future completes, compared with the deadline instant.
 - **Byte bound hit after exit:** if stderr passes the bound during the 2 s grace, the run is `response_too_large`, matching `bounded.py`'s "stderr over the bound after a quick exit" case (`evals/pr-pair/test_bounded.py:113-115`).
-- **Limit during startup:** handled by D1's startup protocol. The command starts only after the go byte. Before the go, a limit ends the run with the helper as the whole tree, and the helper exits on end-of-file or is killed by PID. A deadline already passed at start (`DEADLINE_AT`) takes this path.
+- **Helper identity:** handled by D1's identity rule: on Windows no action ever takes a bare PID, and on POSIX the remaining window is C11.
+- **Limit during startup:** handled by D1's startup protocol. The command starts only after the go byte. Before the go, a limit ends the run with the helper as the whole tree, and the helper is stopped (through `H` on Windows) before the pipe closes, or exits on end-of-file. The one exception is a helper that has not announced itself within the stop wait: it is left to exit on its own and never starts the command (C12). A deadline already passed at start (`DEADLINE_AT`) takes this path.
 - **Restart mid-run:** none. A run is one process lifetime and nothing persists.
 - **Concurrent runs:** each `sw run` owns its own job or group. Several `sw` processes never share one.
-- **Parent already in a job:** nested jobs (A1). If assignment still fails, the PID fallback applies with its message.
+- **Parent already in a job:** nested jobs (A1): the helper inherits the outer job and is assigned to `sw`'s own job as well. If assignment still fails, the PID fallback applies with its message.
 - **Clock jumps:** deadlines use a monotonic `Stopwatch`. `DEADLINE_AT` is converted once, at start, from wall time to a monotonic remainder.
 
 ## Mechanism Ledger (FULL)
 
 | Mechanism | Built? | Why (harm nobody catches / expensive later) | Evidence that would change the call |
 |---|---|---|---|
-| Job object via self-spawn helper | yes | without it, orphans survive kills on Windows (#116) | A1 fails → Option B |
+| Job object, held helper assigned by the parent | yes | without it, orphans survive kills on Windows (#116) | A1 fails → Option B |
 | PID fallback with message | yes | a silent loss of tree holding would go unnoticed | — |
 | Handshake line from helper | yes | the parent must know whether the job holds, to pick the stop method and report | — |
+| Identity frame and the pinned handle `H` | yes | without them a helper that died during startup lets the parent assign or terminate whatever process gets its PID next | Dart exposes the child's process handle (then use it instead) |
 | `setsid` through helper on POSIX | yes | without its own group, a kill misses grandchildren | — |
 | Hook-free dependency test | yes | a hook package would silently break the one-file build | — |
 | Checksum verify job | yes | a corrupted or swapped artifact would pass unnoticed | — |
@@ -338,7 +354,7 @@ flowchart LR
 ## Risks / Trade-offs
 
 - [Malwarebytes or SmartScreen flags an unsigned exe that starts processes and reads tokens] → a `[user]` task runs the CI-built Windows binary under Malwarebytes. A block makes signing the next decision (ADR 0027). We never ask for an exclusion.
-- [Nested-job or inherited-handle behaviour differs on Windows runners] → the A1 verify task comes first in group 2, and Option B is the documented fallback.
+- [Nested-job or assignment behaviour differs on Windows runners] → the A1 verify task comes first in group 5, and Option B is the documented fallback.
 - [macOS runner minutes] → `cli.yml` runs only on paths that touch the CLI.
 - [mise-action breaks on a runner] → mise is pinned to 2026.10.12, the owner's known-good version (A4 verify task).
 - [Contract drift from `bounded.py`] → the `evals/cli` cases mirror `test_bounded.py`'s CLI cases one to one, and C1 records the contract in the spec.

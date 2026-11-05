@@ -2,28 +2,32 @@
 
 ## Metadata
 
-- **Round:** 5
-- **Prior round:** Rounds 1–4 returned REVISE. Round 1 identified startup cancellation, Windows argument integrity, orphan coverage, interrupted-eval cleanup, carried-constraint and citation gaps. Round 2 identified batch caret escaping, incomplete startup fixtures and diagrams, shell-wrapper attribution and contradictory no-retry wording. Round 3 accepted those revisions and left trailing-backslash corruption and expansion of the resolved batch path. Round 4 accepted trailing-backslash doubling, refusal of resolved batch paths containing `%` or `!`, and the earlier fixes, but left C4: post-ready, pre-go cancellation depended on the helper reaching its stdin read. The owner chose to fix C4 and authorized round 5.
-- **Reviewer:** OMP, fresh review context; no authoring transcript supplied.
-- **Reviewed:** `openspec/changes/native-cli-spike/{proposal.md,design.md,specs/native-cli/spec.md,specs/eval-runner/spec.md}`; `openspec/architecture.md`; ADRs 0002, 0003, 0010, 0011, 0012, 0014, 0021, 0025 and 0026; M7/M8 in `openspec/roadmap.md`; `openspec/specs/eval-runner/spec.md`; every source range cited in `design.md`, including `skills/specwright-pr/scripts/bounded.py`, `evals/pr-pair/test_bounded.py`, `evals/run.py`, `.github/workflows/evals.yml`, `evals/suites.json`, `scripts/update.sh`, `README.md`, `openspec/specwright.yaml` and `VERSION`.
-- **Installed project skills:** none.
-- **Verification limits:** static review only. No command-execution tool was available; reviewer selection, `git ls-files`, tests and runtime experiments were not executed. Tracking and symlink status remain unverified. The historical main-tree absence claim could not be independently checked. No external owner-project source was opened.
-- **Unresolved context reference:** referenced-store discovery through `openspec context --json` could not be executed. Referenced-store context remains unresolved; no external store was opened.
-- **Task map:** `tasks.md` is absent; scenario-to-task assignments and assumption-verification ordering could not be checked.
+- **Round:** 7
+- **Prior round:** Round 6 returned REVISE with Critical C1 concerning helper identity and PID reuse.
+- **Reviewer:** Cross-model CLI — Codex (GPT-6).
+- **Reviewed:** `native-cli-spike/{proposal.md,design.md,tasks.md,review.md,specs/native-cli/spec.md,specs/eval-runner/spec.md}`; ADRs 0002, 0003, 0010, 0011, 0012, 0014, 0021, 0025, 0026 and 0027; `openspec/architecture.md`, including In-force ADRs; cited ranges in `bounded.py`, `test_bounded.py`, `evals/run.py`, `evals.yml`, `evals/suites.json`, `update.sh`, `README.md`, `VERSION` and `openspec/specwright.yaml`; existing bounded-run, helper, frame, tree-stop, inheritance-test and dependency-hook code under `cli/`. Cited source tracking and regular-file status were checked with Git; historical toolchain absence was checked against `e6e17e0`. Static review only. No files modified.
 
-Artifact references below are relative to `openspec/changes/native-cli-spike/` unless otherwise stated. No artifacts were modified.
-
-This verdict covers the reviewed proposal, specs and design. Editing them afterward voids it, except for an edit confined to the proposal’s `## Release Notes` section.
+This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes, or an edit confined to the proposal's `## Release Notes` section) voids it.
 
 ## Findings
 
 ### Critical (blocking)
 
-None.
+None. Round-6 C1’s mechanism is addressed by the creation-time check, retained Windows handle, explicit startup failure and stop-before-close ordering, subject to the consistency correction below.
 
 ### Moderate
 
-None.
+**M1 — State & Ownership still instructs immediate closure of the identity handle.**
+
+`design.md:285` says the parent’s helper-process handle “is closed right after the assignment.” The next row, D1 step 8, task 5.3 and ADR 0027 require retaining `H` until run end.
+
+Following the first row would remove the PID pin needed by subsequent cancellation and PID fallback, restoring the risk the amendment addresses. This is a localized contradiction with an otherwise explicit lifecycle.
+
+**M2 — The pre-hello escape path contradicts the startup-cleanup guarantee.**
+
+D1 step 6 (`design.md:43`) permits returning after five seconds with an unresponsive pre-hello helper still alive, reporting `bounded: helper not stopped`. However, the native-cli startup-limit scenario (`specs/native-cli/spec.md:90`) guarantees that no process `sw` started survives. Flow & State Gaps also describes startup cleanup without this exception.
+
+A helper stalled before its identity frame can therefore satisfy the designed implementation while violating the spec. The held-startup tests begin after hello and cannot establish the unconditional guarantee. This additional survivor case also lacks its own carried constraint; C6 covers parent death, and C11 covers POSIX PID reuse.
 
 ### Suggestions
 
@@ -31,28 +35,21 @@ None.
 
 ## Verdict
 
-VERDICT: APPROVE
+VERDICT: APPROVE_WITH_CHANGES
 
-C4 is addressed at design level. Pre-go cancellation now forcibly stops and reaps the helper regardless of readiness or whether the helper can read EOF. The revised fixture explicitly holds the parent before writing `g`, preventing post-go tree termination from masking a broken pre-go cancellation path.
-
-The whole-change re-review found no additional concrete design defect. Approval does not establish runtime behavior; A1–A6 and the specified cross-platform process, argument and artifact checks remain implementation verification obligations.
+The revised Windows identity mechanism closes C1’s substantive gap. Two localized consistency corrections remain.
 
 ## Required Changes
 
-None.
+1. Remove the immediate helper-handle closure instruction from State & Ownership. State consistently that `H` remains open through assignment, cancellation, fallback and pipe cleanup, and closes exactly once at run end.
+2. Reconcile the pre-hello survivor path with the spec. If retaining the bounded-wait exception, qualify the startup-cleanup guarantee, update Failure & Visibility and Flow & State Gaps, carry the exception into ADR 0027 through a named constraint and task, and add deterministic pre-hello coverage with a test-owned cleanup mechanism. Preserve the guarantee that the command never starts.
 
-CHANGES_APPLIED: n/a
+CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-- **Round-4 C4 — Fixed at design level; accepted by reviewer.** D1 step 6 at `design.md:42` requires closing the control pipe without `g`, killing the helper by PID and waiting for its exit, both before and after receiving readiness. Cancellation no longer depends on the helper reaching its stdin read. The post-ready sequence at `design.md:228-231`, startup transition at `design.md:253`, failure row at `design.md:289` and startup discussion at `design.md:314` agree with that rule.
-
-- **Round-4 C4 fixture gap — Fixed at design level; accepted by reviewer.** D9 at `design.md:112` adds the parent-side `SPECWRIGHT_TEST_PRE_GO` gate. The parent marks that it consumed readiness and defers `g` while its deadline continues running; the helper remains held before its stdin read. The fixture requires exit 124 and no surviving helper before releasing the hold, then requires no command-start marker after release. Both startup hold points remain covered on POSIX and on Windows with and without a job. Runtime execution was not available in this review.
-
-- **Round-3 trailing-backslash finding — Remains fixed at design level; accepted by reviewer.** D8 at `design.md:102` accounts for both command-line parsers, doubles trailing backslash runs inside argument quotes and limits the unchanged-value guarantee to native `%*` forwarding. D9 at `design.md:113` and the trailing-backslash scenario in `specs/native-cli/spec.md` require exact values and argument boundaries, including an ordinary and an empty argument after the path arguments.
-
-- **Round-3 resolved batch-path expansion finding — Remains fixed at design level; accepted by reviewer.** D8 refuses a resolved batch path containing `%` or `!` before starting any process. D9 and the corresponding native-cli scenario require refusal of a shim found under a literal `%SW_SLOT%` directory, with neither the intended shim nor the expansion-selected decoy running.
-
-- **Earlier startup, orphan and interrupted-eval findings — Accepted on this re-review.** The ready/go gate preserves containment before command launch; the internal frame is stripped before stderr accounting; the true-orphan fixture requires unconditional recorded-PID assertions; and D6 retains the POSIX spawn record consumed by the existing eval sweep at `evals/run.py:226-244`.
-
-- **Other round-1 and round-2 findings — Accepted on this re-review.** The shell-wrapper attribution matches `bounded.py:394-396` and its cited regression case. The no-retry scenario retains “at most once” and permits zero command starts when startup is cancelled. C1–C10 retain one destination each, including the accepted parent-death gap, deferred migration and distribution scope. The cited current source ranges support their associated claims, subject to the metadata’s tracking and historical-tree verification limits.
+- **Round-6 C1:** The identity frame validates the process opened by PID; retaining `H` preserves that identity through later actions. D9’s injected identity seam covers failed opens, mismatches and already-exited processes. M1 identifies the remaining contradictory instruction.
+- **ADR 0014:** Assigning the cooperative helper before go addresses its rejected alternative’s concrete harm: no command or descendant can start before assignment.
+- **Startup cancellation:** Stopping through `H` before closing stdin removes the EOF-induced Windows cancellation race. The held-before-read fixtures remain appropriate.
+- **POSIX residual window:** C11 and ADR 0027 explicitly accept it; the cited Python watcher and PID-based group cleanup support the comparison.
+- **A1 and tasks 5.1–5.3:** Verification remains ordered before dependent implementation and covers nested-job assignment, startup death and identity validation. Their design is acceptable; runtime proof remains outstanding.
