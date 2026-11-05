@@ -83,7 +83,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Designs now list the constraints a later change must respect and carry each one where the next planner will read it: a doc comment on the code, a spec requirement, or an ADR. Apply writes them, and the design and pre-ship reviews check them. Archived designs no longer hold facts nobody reads (#198, #190).
+Designs now list, in both tiers, the constraints a later change must respect: invariants, deliberate gaps and rejected alternatives. Each goes where the next planner reads anyway: a doc comment on the code, a spec requirement or an ADR. Apply writes it there in a task. The design review and the LIGHT re-check flag a constraint left off the list, and the pre-ship review blocks ship when one is missing at its destination. Once a change is archived, no step reads its design again (ADR 0026; #198, #190).
 
 ### Added
 - A `## Carried constraints` section in design.md. Each entry names its destination, and a task writes it during apply (#198).

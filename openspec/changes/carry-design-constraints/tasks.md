@@ -76,7 +76,7 @@
 
 ## 8. Release
 
-- [ ] 8.1 Run `release.sh bump --to 0.22.0`, rewrite the summary of the proposal's `## Release Notes` to describe the whole release, and verify with `release.sh check` and `release.sh notes --proposal openspec/changes/carry-design-constraints/proposal.md`.
+- [x] 8.1 Run `release.sh bump --to 0.22.0`, rewrite the summary of the proposal's `## Release Notes` to describe the whole release, and verify with `release.sh check` and `release.sh notes --proposal openspec/changes/carry-design-constraints/proposal.md`.
 
 ## Workflow follow-up
 
