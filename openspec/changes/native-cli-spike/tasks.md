@@ -101,7 +101,7 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 
 ## 9. Owner check and release
 
-- [ ] 9.1 [user] Download the Windows `sw.exe` artifact from the PR's CI run, check it against its SHA-256, run `sw version --json`, and report whether Malwarebytes blocks or quarantines it (S3). A block makes signing the next decision under ADR 0027.
+- [x] 9.1 [user] Download the Windows `sw.exe` artifact from the PR's CI run, check it against its SHA-256, run `sw version --json`, and report whether Malwarebytes blocks or quarantines it (S3). A block makes signing the next decision under ADR 0027.
 - [x] 9.2 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.23.0`, rewrite the summary of proposal.md's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-spike/proposal.md` pass.
 
 ## Workflow follow-up

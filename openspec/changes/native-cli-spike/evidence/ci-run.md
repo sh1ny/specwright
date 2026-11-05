@@ -38,3 +38,13 @@ On this runner, the downloaded binary with the quarantine attribute ran even bef
 Run: https://github.com/sh1ny/specwright/actions/runs/42073150474 (success)
 
 The `cli` and `runner` suites ran on Linux, Windows and macOS against a `sw` built from the tree (`SPECWRIGHT_REQUIRE_SW=1`, so a missing binary fails rather than skips). This run proves the rows flipped green in this commit: `test_sw_tree.py` (orphaned grandchild, held startup, nested job, no job, helper death after ready and between hello and ready, pre-hello limit, spawn record) and `test_run.py`'s `test_sweep_stops_sw_sessions_after_timeout`. The Windows-only rows skip on Linux and macOS with a `platform:` reason, and the POSIX-only rows skip on Windows.
+
+## Windows antivirus check (task 9.1, by the owner)
+
+The owner downloaded the `sw-windows-x64` artifact from the cli.yml run above in a browser and extracted it on their own machine, with Malwarebytes real-time protection on.
+- SHA-256 `537ca17f88568abb9b6f1efb3791cc48c56c47cc1904926c95a425d416144ced`, which matches the build job.
+- `sw-windows-x64.exe version --json` printed `{"version":"0.23.0","interface":1}`.
+- A Malwarebytes custom scan of the zip and the folder checked 2 items: 0 threats, 0 PUPs, 0 PUMs, nothing quarantined.
+- Nothing blocked the download, the extraction or the run, and neither Malwarebytes nor SmartScreen showed a prompt.
+
+Under ADR 0027 the unsigned build stands. Signing stays the response to a future block.
