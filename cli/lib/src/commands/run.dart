@@ -106,10 +106,8 @@ Future<int> runCommand(
   }
   writeOut(result.stdout);
   writeErr(result.stderr);
-  final code = result.exitCode ?? 127;
-  // A negative code is a signal only on POSIX. On Windows it is a 32-bit
-  // status with the high bit set (0xC0000005 arrives as -1073741819), and it
-  // passes through unchanged.
-  if (Platform.isWindows) return code;
-  return code < 0 ? 128 - code : code;
+  // The status passes through as bounded.py's does: on Windows a status with
+  // the high bit set (0xC0000005 arrives as -1073741819) stays as it is, and
+  // on POSIX the helper's own exit already folded a signal to 256 - signal.
+  return result.exitCode ?? 127;
 }

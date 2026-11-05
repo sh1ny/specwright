@@ -251,7 +251,7 @@ class BoundedRun {
         // malformed before any hello: another binary answered
         closeControlPipe();
         await cancelReaders();
-        if (!exited.isCompleted) helper.kill(ProcessSignal.sigkill);
+        await tree.stop(); // acts only on an identified helper (C2, C11)
         return BoundedResult(
           startError: '${parser.problem}: ${parser.received}',
         );
@@ -278,7 +278,7 @@ class BoundedRun {
       if (parser.state != FrameState.ready) {
         closeControlPipe();
         await cancelReaders();
-        if (!exited.isCompleted) helper.kill(ProcessSignal.sigkill);
+        await tree.stop(); // acts only on an identified helper (C2, C11)
         final problem = parser.state == FrameState.malformed
             ? '${parser.problem}'
                   '${parser.received.isEmpty ? '' : ': ${parser.received}'}'
