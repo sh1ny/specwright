@@ -215,7 +215,7 @@
 #            version, ref} (skipped, with a message, for a ref that is not a release tag: nothing is installed or changed), or exits 1
 #            with error and message: unsupported_platform, no_github_origin, assets_not_uploaded, asset_missing, sums_invalid,
 #            checksum_mismatch, deadline_exceeded, response_too_large, download_failed, download_version_invalid (VERSION is not the
-#            tag's version), sw_check_failed, sw_in_use. plan gains `sw` for a
+#            tag's version), quarantine_not_cleared (macOS), sw_check_failed, sw_in_use. plan gains `sw` for a
 #            tag ref only: {asset, target} for a supported host, {asset: null, reason: unsupported_platform} otherwise.
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 2 (1 is still read and recovered;
 # a download that knows only format 1 refuses a format 2 journal as unreadable), from, to, ref, kind,
@@ -3131,6 +3131,22 @@ def file_sha(path):
     return h.hexdigest()
 
 
+def sw_unquarantine(part, asset, ref):
+    """Remove com.apple.quarantine from the checked part file and confirm it is gone, or stop before the file first runs (C16)."""
+    xattr = shutil.which("xattr")
+    if not xattr:
+        raise SwStop("quarantine_not_cleared", f"{asset} of release {ref}: xattr was not found, so the quarantine flag cannot be "
+                     "cleared; the file was not run and nothing was placed")
+    probe = [xattr, "-p", "com.apple.quarantine", str(part)]
+    if subprocess.run(probe, capture_output=True, timeout=30).returncode != 0:
+        return  # no quarantine flag on the file
+    removed = subprocess.run([xattr, "-d", "com.apple.quarantine", str(part)], capture_output=True, text=True, timeout=30)
+    if removed.returncode != 0 or subprocess.run(probe, capture_output=True, timeout=30).returncode == 0:
+        detail = (removed.stderr or "").strip() or f"exit {removed.returncode}"
+        raise SwStop("quarantine_not_cleared", f"{asset} of release {ref}: removing com.apple.quarantine failed ({detail}); the "
+                     "file was not run and nothing was placed")
+
+
 def sw_install(o):
     """Download, check and place the host's sw for the download's version. Returns the success document; raises SwStop.
 
@@ -3194,8 +3210,7 @@ def sw_install(o):
             raise SwStop("checksum_mismatch", f"{asset} of release {ref}: SHA-256 {got} differs from the SHA256SUMS line {sums[asset]}; "
                          "the file was not run and nothing was placed")
         if system.lower() == "darwin":  # only now: the file has the release's hash
-            if subprocess.run(["xattr", "-p", "com.apple.quarantine", str(part)], capture_output=True).returncode == 0:
-                subprocess.run(["xattr", "-d", "com.apple.quarantine", str(part)], capture_output=True)
+            sw_unquarantine(part, asset, ref)
         if os.name != "nt":
             os.chmod(part, 0o755)
         ok, detail = sw_check(o, part, version)

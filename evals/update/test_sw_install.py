@@ -269,6 +269,23 @@ class TestInstall(Base):
         self.assertIn("XATTR -d com.apple.quarantine", log)
         self.assertLess(log.index("XATTR -d com.apple.quarantine"), log.index("SWPATH"), "removal comes before the first run")
 
+    def test_failed_quarantine_removal_stops_before_running(self):
+        marker, shims = self.tmp / "marker", self.tmp / "shims"
+        shims.mkdir()
+        if WINDOWS:  # found through shutil.which, so a .cmd shim stands in for xattr
+            (shims / "xattr.cmd").write_text('@echo off\r\necho XATTR %1 %2>>"%SW_MARKER%"\r\nif "%1"=="-p" exit /b 0\r\nexit /b 1\r\n')
+        else:
+            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in -p) exit 0;; esac\nexit 1\n')
+            (shims / "xattr").chmod(0o755)
+        self.edit_swpath("set -uo pipefail", 'set -uo pipefail\necho SWPATH >> "$SW_MARKER"')
+        self.release(target="macos-arm64")
+        self.stopped("quarantine_not_cleared", asset_of("macos-arm64"), self.tag, SPECWRIGHT_TEST_HOST="Darwin/arm64",
+                     SW_MARKER=marker.as_posix(), PATH=str(shims) + os.pathsep + os.environ["PATH"])
+        log = marker.read_text().splitlines()
+        self.assertIn("XATTR -d com.apple.quarantine", log)
+        self.assertNotIn("SWPATH", log, "the file never ran")
+        self.assert_nothing_placed()
+
     def test_mismatch_keeps_quarantine_and_never_runs(self):
         marker, shims = self.tmp / "marker", self.tmp / "shims"
         self.edit_swpath("set -uo pipefail", 'set -uo pipefail\necho SWPATH >> "$SW_MARKER"')
