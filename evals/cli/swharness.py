@@ -31,6 +31,21 @@ def require_sw():
     raise unittest.SkipTest(SKIP_REASON)
 
 
+SPAWN_DIR = "SPECWRIGHT_TEST_SPAWN_DIR"
+
+
+def fixture_env(**extra):
+    """os.environ without SPECWRIGHT_NET_* and SPECWRIGHT_TEST_* overrides, plus `extra` (values as strings).
+
+    SPECWRIGHT_TEST_SPAWN_DIR is kept: evals/run.py sets it so its sweep can stop the sessions sw starts when it stops
+    a test file. A test that needs it unset or different passes its own value or pops it.
+    """
+    env = {k: v for k, v in os.environ.items()
+           if k == SPAWN_DIR or not k.startswith(("SPECWRIGHT_NET_", "SPECWRIGHT_TEST_"))}
+    env.update({k: str(v) for k, v in extra.items()})
+    return env
+
+
 def run_sw(*args, cwd=None, env=None, input=None, timeout=60):
     """Run sw with args; return the CompletedProcess (text mode, stdout and stderr captured). Raises on timeout."""
     return subprocess.run([require_sw(), *map(str, args)], cwd=cwd, env=env, input=input, capture_output=True,

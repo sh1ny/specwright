@@ -37,10 +37,9 @@ class Base(unittest.TestCase):
         self.recorder.write_text(RECORDER, encoding="utf-8")
 
     def env(self, *dirs, **extra):
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("SPECWRIGHT_NET_", "SPECWRIGHT_TEST_"))}
+        env = swharness.fixture_env(**extra)
         if dirs:
             env["PATH"] = os.pathsep.join([*map(str, dirs), env.get("PATH", "")])
-        env.update({k: str(v) for k, v in extra.items()})
         return env
 
     def sw(self, *args, env=None, input=b"", timeout=60):

@@ -222,6 +222,8 @@ class SpawnRecord(TreeBase):
         scratch = self.tmp / "scratch"
         scratch.mkdir(exist_ok=True)
         env = self.env(TMP=scratch, TEMP=scratch, TMPDIR=scratch, **extra)
+        if swharness.SPAWN_DIR not in extra:
+            env.pop(swharness.SPAWN_DIR, None)  # these cases own the record; the runner's must not leak in
         return swharness.run_sw("run", "--bounded", "--", sys.executable, self.quick, env=env, cwd=scratch, timeout=60)
 
     def test_no_spawn_record_without_variable(self):

@@ -80,9 +80,7 @@ class Base(unittest.TestCase):
         return str(path)
 
     def env(self, **extra):
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("SPECWRIGHT_NET_", "SPECWRIGHT_TEST_"))}
-        env.update({k: str(v) for k, v in extra.items()})
-        return env
+        return swharness.fixture_env(**extra)
 
     def sw(self, *args, env=None, timeout=60):
         t0 = time.monotonic()
