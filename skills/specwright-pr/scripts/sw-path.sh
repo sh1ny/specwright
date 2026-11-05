@@ -75,7 +75,18 @@ for c in python3 python; do
 done
 [ -n "$py" ] || { echo "sw-path.sh: no_python: needs python 3.8+ for its bounded check" >&2; exit 2; }
 
-out=$(SPECWRIGHT_NET_DEADLINE=10 SPECWRIGHT_NET_MAX_BYTES=1048576 "$py" -I "$SW_DIR/bounded.py" -- "$abs" version --json 2>/dev/null)
+# The caps, kept lower when the caller set a lower SPECWRIGHT_NET_DEADLINE or SPECWRIGHT_NET_MAX_BYTES (a bad value is ignored).
+limits=$("$py" -I -c '
+import os
+def low(name, cap, cast):
+    try:
+        v = cast(os.environ.get(name, ""))
+    except ValueError:
+        return cap
+    return v if 0 <= v < cap else cap
+print(low("SPECWRIGHT_NET_DEADLINE", 10, float), low("SPECWRIGHT_NET_MAX_BYTES", 1048576, int))')
+read -r deadline max_bytes <<< "$limits"
+out=$(SPECWRIGHT_NET_DEADLINE=${deadline:-10} SPECWRIGHT_NET_MAX_BYTES=${max_bytes:-1048576} "$py" -I "$SW_DIR/bounded.py" -- "$abs" version --json 2>/dev/null)
 status=$?
 case $status in
   0) ;;

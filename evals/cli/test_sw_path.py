@@ -138,6 +138,22 @@ class Resolver(Base):
                 proc = self.resolve("--file", stub, "--version", "0.24.0")
                 self.assert_stop(proc, stub)
 
+    def test_stricter_caller_limits_are_kept(self):
+        # The resolver caps the bounds at 10 s and 1 MiB; a caller's lower SPECWRIGHT_NET_* value must survive the cap.
+        stub = self.stub('{"version":"0.24.0","interface":%d}' % self.report["interface"])
+        proc = self.resolve("--file", stub, "--version", "0.24.0")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for limit in ({"SPECWRIGHT_NET_MAX_BYTES": "8"}, {"SPECWRIGHT_NET_DEADLINE": "0"}):
+            with self.subTest(limit=limit):
+                proc = self.resolve("--file", stub, "--version", "0.24.0", **limit)
+                self.assert_stop(proc, stub)
+
+    def test_looser_caller_limits_are_capped(self):
+        stub = self.stub('{"version":"0.24.0","interface":%d}' % self.report["interface"])
+        proc = self.resolve("--file", stub, "--version", "0.24.0", SPECWRIGHT_NET_DEADLINE="999",
+                            SPECWRIGHT_NET_MAX_BYTES="999999999")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

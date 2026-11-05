@@ -50,7 +50,11 @@ class TestCliWorkflow(unittest.TestCase):
         build = job_block("build")
         mise = [s for s in steps(build) if "uses: jdx/mise-action@" in s]
         self.assertEqual(len(mise), 1)
-        self.assertRegex(mise[0], r"uses: jdx/mise-action@v\d+\s")
+        # The release binaries are built here: a third-party action runs pinned to a reviewed commit, its tag in a comment.
+        self.assertRegex(mise[0], r"uses: jdx/mise-action@[0-9a-f]{40} # v\d+\.\d+\.\d+\s")
+        for owner in re.findall(r"(?m)^\s+(?:- )?uses: ([\w.-]+)/\S+@(\S+)", read(BUILD)):
+            if owner[0] not in ("actions",):
+                self.assertRegex(owner[1], r"^[0-9a-f]{40}$", "%s actions run pinned to a commit SHA" % owner[0])
         self.assertRegex(mise[0], r"version: '?2026\.10\.12'?\s")
         for task in ("mise run deps", "mise run analyze", "mise run format", "mise run test", "mise run build"):
             self.assertIn(task, build)
