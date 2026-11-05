@@ -136,6 +136,21 @@ jobs:
       - name: Require but where it is installed (Linux)
         if: runner.os == 'Linux'
         run: echo "SPECWRIGHT_REQUIRE_BUT=1" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@v5
+        # the cli suite and the runner's sweep test drive a sw built from this tree
+        if: matrix.suite == 'cli' || matrix.suite == 'runner'
+        with:
+          version: 2026.10.12
+          install: true
+          cache: false
+      - name: Build sw from the tree
+        if: matrix.suite == 'cli' || matrix.suite == 'runner'
+        run: |
+          mise run build
+          sw="${{ github.workspace }}/cli/build/sw${{ runner.os == 'Windows' && '.exe' || '' }}"
+          test -f "$sw"
+          echo "SPECWRIGHT_SW=$sw" >> "$GITHUB_ENV"
+          echo "SPECWRIGHT_REQUIRE_SW=1" >> "$GITHUB_ENV"
       - name: Git identity and default branch
         run: |
           git config --global user.name "Specwright CI"

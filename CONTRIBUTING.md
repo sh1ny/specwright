@@ -40,6 +40,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 ## Testing
 
 - Which suites to run: during a change, rely on CI. The workflow `.github/workflows/evals.yml` runs every suite on Linux, Windows and macOS for each pull request, one job per suite. Do not run a whole suite locally. Run only the test module you are writing, red then green: `python -m unittest evals/<suite>/test_<x>.py`. At a milestone close, rely on a green `gh workflow run evals.yml --ref main` run on the closing head of `main`.
+- Dart tests (`cli/`): locally run only the test file you are writing, through the SDK `mise.toml` pins: `mise exec -- dart test <file>` from `cli/`. CI runs the whole Dart test set on the three OSes in `.github/workflows/cli.yml`.
 - The suite map: [`evals/suites.json`](evals/suites.json) maps each tracked path to the suites that cover it. When you add a tracked file, add a rule or a `no_eval` entry to it, then run `python -m unittest evals/runner/test_suite_map.py`; the test fails on an uncovered file. `python evals/run.py --list-suites` prints the suites as JSON.
 - Runner: `evals/run.py` runs the suites in parallel, one process per test file, and CI uses it. A test file whose tests assert deadlines of a few seconds goes in `SERIAL` in `evals/run.py`, with the reason as a comment.
 - Git-skill changes: run the [`evals/git-workflow`](evals/git-workflow/) cases (see the README's Evals section) and add a case when the change adds a stop condition or branch-state rule.

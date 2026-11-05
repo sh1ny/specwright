@@ -9,6 +9,10 @@ These rules cover the evals in `evals/`. `CLAUDE.md` imports this file. It is no
 - After you add a tracked file, run the map test: `python -m unittest evals/runner/test_suite_map.py`.
 - At a milestone close, rely on a green `gh workflow run evals.yml --ref main` run on the closing head of `main`. Do not run every suite locally.
 
+## Running Dart tests
+
+- Locally, run only the Dart test file you are writing, through the SDK `mise.toml` pins: `mise exec -- dart test <file>` from `cli/`. CI runs the whole Dart test set on Linux, Windows and macOS (three OSes) in `.github/workflows/cli.yml`.
+
 ## Keeping the map covering
 
 - When you add a tracked file, add a rule for it to `evals/suites.json`, or list it in `no_eval` if no suite can break on it.

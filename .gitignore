@@ -21,3 +21,7 @@ __pycache__/
 /openspec/config.yaml
 /openspec/specs/.gitkeep
 /openspec/changes/archive/.gitkeep
+
+# Dart CLI (cli/): pub cache state and build outputs. pubspec.lock is committed.
+cli/.dart_tool/
+cli/build/

@@ -1,0 +1,113 @@
+import 'dart:io';
+
+import '../process/bounded_run.dart';
+import '../process/command_line.dart';
+import '../process/limit_line.dart';
+import '../process/limits.dart';
+import '../process/platform_tree.dart';
+import '../process/resolve.dart';
+
+const String runUsage =
+    'usage: sw run --bounded [--paged] [--secret] -- cmd [args...]\n';
+
+/// A parsed `sw run` command line.
+class RunInvocation {
+  const RunInvocation({
+    required this.paged,
+    required this.secret,
+    required this.command,
+  });
+
+  final bool paged;
+  final bool secret;
+  final List<String> command;
+}
+
+/// Parses the arguments after `run`: flags, `--`, then the command. Null when
+/// the invocation is invalid: no `--bounded`, no `--`, nothing after `--`, or
+/// a flag other than `--bounded`, `--paged` and `--secret`.
+RunInvocation? parseRunArgs(List<String> args) {
+  final dashes = args.indexOf('--');
+  if (dashes < 0) return null;
+  final flags = args.sublist(0, dashes);
+  final command = args.sublist(dashes + 1);
+  if (command.isEmpty) return null;
+  const known = {'--bounded', '--paged', '--secret'};
+  if (flags.any((f) => !known.contains(f)) || !flags.contains('--bounded')) {
+    return null;
+  }
+  return RunInvocation(
+    paged: flags.contains('--paged'),
+    secret: flags.contains('--secret'),
+    command: command,
+  );
+}
+
+/// `sw run --bounded [--paged] [--secret] -- <cmd> [args...]`; returns the
+/// exit code. [writeOut] and [writeErr] receive the command's bytes. Secret
+/// mode behaves the same way: output is only ever held in memory, and on a
+/// limit nothing but the limit line is printed in either mode.
+Future<int> runCommand(
+  List<String> args, {
+  required StringSink err,
+  required void Function(List<int> bytes) writeOut,
+  required void Function(List<int> bytes) writeErr,
+  Map<String, String>? env,
+  List<String>? helperCommand,
+}) async {
+  final invocation = parseRunArgs(args);
+  if (invocation == null) {
+    err.write(runUsage);
+    return 2;
+  }
+  final environment = env ?? Platform.environment;
+  final command = invocation.command;
+
+  final path = resolveCommand(command.first, environment);
+  if (path == null) {
+    err.write('bounded: cannot start ${command.first}: command not found\n');
+    return 127;
+  }
+  final LaunchPlan plan;
+  try {
+    plan = planLaunch(path, command, environment);
+  } on UnsafeBatchArgument {
+    err.write('bounded: unsafe batch argument: ${command.first}\n');
+    return 2;
+  }
+  final result = await BoundedRun(
+    command: plan.command,
+    stdinBytes: plan.stdinBytes,
+    rawLine: plan.rawLine,
+    limits: resolveLimits(environment, paged: invocation.paged),
+    helperCommand: helperCommand,
+    treeFor: () => platformTree(environment),
+    preGoFile: environment['SPECWRIGHT_TEST_PRE_GO'],
+    note: err.write,
+  ).run();
+
+  final label = commandLabel(command);
+  if (result.helperNotStopped) {
+    err.write('bounded: helper not stopped: $label\n');
+  }
+  final limit = result.limit;
+  if (limit != null) {
+    err.write(limitLine(limit, command));
+    return limit.exitCode;
+  }
+  if (result.helperExited) {
+    err.write('bounded: helper exited during startup: $label\n');
+    return 127;
+  }
+  final startError = result.startError;
+  if (startError != null) {
+    err.write('bounded: cannot start ${command.first}: $startError\n');
+    return 127;
+  }
+  writeOut(result.stdout);
+  writeErr(result.stderr);
+  // The status passes through as bounded.py's does: on Windows a status with
+  // the high bit set (0xC0000005 arrives as -1073741819) stays as it is, and
+  // on POSIX the helper's own exit already folded a signal to 256 - signal.
+  return result.exitCode ?? 127;
+}

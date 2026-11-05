@@ -1,0 +1,7 @@
+tags:
+  # Tests that start child processes (slower, platform sensitive).
+  process:
+    timeout: 2x
+  # Tests that only make sense on Windows.
+  windows:
+    test_on: windows

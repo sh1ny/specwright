@@ -350,5 +350,57 @@ class TestPinnedButWorkflow(unittest.TestCase):
         self.assertFalse(self.marker.exists(), "the but binary must not be run after a checksum mismatch")
 
 
+SW_STEP = "Build sw from the tree"
+
+
+def suites_needing_sw():
+    """Every eval suite with a test file that drives the built sw (through evals/cli/swharness.py)."""
+    found = set()
+    for path in (ROOT / "evals").glob("*/test_*.py"):
+        if path.parent.name != "cli" or path.name != "test_sw_harness.py":
+            if "swharness" in path.read_text(encoding="utf-8"):
+                found.add(path.parent.name)
+    return found
+
+
+class TestSwBuildInSuiteJobs(unittest.TestCase):
+    def test_cli_suite_jobs_build_sw_and_require_it(self):
+        needing = suites_needing_sw()
+        self.assertLessEqual({"cli", "runner"}, needing)
+        text = WORKFLOW.read_text(encoding="utf-8")
+        steps = re.split(r"(?m)^(?=      - )", text.split("\n    steps:\n", 1)[1])
+        mise = [s for s in steps if "uses: jdx/mise-action@" in s]
+        self.assertEqual(len(mise), 1)
+        self.assertRegex(mise[0], r"uses: jdx/mise-action@v\d+\s")
+        self.assertRegex(mise[0], r"version: '?2026\.10\.12'?\s")
+        build = step_text(SW_STEP)
+        condition = re.search(r"(?m)^\s+if: (.*)$", build)
+        self.assertIsNotNone(condition, "the build is conditional on the suite")
+        mise_condition = re.search(r"(?m)^\s+if: (.*)$", mise[0])
+        self.assertIsNotNone(mise_condition)
+        for suite in needing:
+            self.assertIn("matrix.suite == '%s'" % suite, condition.group(1))
+            self.assertIn("matrix.suite == '%s'" % suite, mise_condition.group(1))
+        self.assertIn("mise run build", build)
+        self.assertIn("cli/build/sw", build)
+        self.assertRegex(build, r"SPECWRIGHT_SW=\S+\"? >> \"\$GITHUB_ENV\"")
+        self.assertRegex(build, r"SPECWRIGHT_REQUIRE_SW=1\"? >> \"\$GITHUB_ENV\"")
+        # the build comes before the suite runs
+        self.assertLess(text.index("mise-action"), text.index(SW_STEP))
+        self.assertLess(text.index(SW_STEP), text.index("- name: Run the suite"))
+
+    def test_sw_build_step_fails_the_job(self):
+        build = step_text(SW_STEP)
+        self.assertNotIn("continue-on-error", build)
+        self.assertNotRegex(build, r"\|\|\s*(true|:)|;\s*true")
+        self.assertNotIn("set +e", build)
+        # the binary the suite is pointed at must exist: a build that produced nothing fails here, not as 49 skips
+        self.assertRegex(build, r"test -f ")
+        mise = next(s for s in re.split(r"(?m)^(?=      - )", WORKFLOW.read_text(encoding="utf-8"))
+                    if "uses: jdx/mise-action@" in s)
+        self.assertNotIn("continue-on-error", mise)
+        self.assertEqual(step_text("Run the suite").count("continue-on-error"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
