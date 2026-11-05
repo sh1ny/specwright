@@ -19,12 +19,12 @@
 | native-cli → Bounded limits can only be lowered | Malformed override | evals/cli/test_sw_run.py | test_malformed_override_is_ignored | green |
 | native-cli → A command's exit is judged when it happens | Exit just before the deadline while a child holds the pipe | evals/cli/test_sw_run.py | test_exit_before_deadline_with_pipe_holder_keeps_status | green |
 | native-cli → A command's exit is judged when it happens | Exit after the deadline | evals/cli/test_sw_run.py | test_exit_after_deadline_exits_124 | green |
-| native-cli → The whole process tree is stopped | Orphaned grandchild on a deadline | evals/cli/test_sw_tree.py | test_orphaned_grandchild_is_stopped | red |
-| native-cli → The whole process tree is stopped | A limit before the command has started | evals/cli/test_sw_tree.py | test_held_startup_before_containment, test_held_startup_after_ready_before_go | red |
-| native-cli → The whole process tree is stopped | sw itself already runs in a job | evals/cli/test_sw_tree.py | test_nested_job_holds_the_tree | red |
-| native-cli → The whole process tree is stopped | No job object on Windows | evals/cli/test_sw_tree.py | test_no_job_announces_and_stops_by_pid | red |
-| native-cli → The whole process tree is stopped | The helper dies during startup | evals/cli/test_sw_tree.py | test_helper_exit_after_ready_is_a_start_failure | red |
-| native-cli → The whole process tree is stopped | A limit before the helper has announced itself | evals/cli/test_sw_tree.py | test_prehello_limit_leaves_helper_that_never_starts | red |
+| native-cli → The whole process tree is stopped | Orphaned grandchild on a deadline | evals/cli/test_sw_tree.py | test_orphaned_grandchild_is_stopped | green |
+| native-cli → The whole process tree is stopped | A limit before the command has started | evals/cli/test_sw_tree.py | test_held_startup_before_containment, test_held_startup_after_ready_before_go | green |
+| native-cli → The whole process tree is stopped | sw itself already runs in a job | evals/cli/test_sw_tree.py | test_nested_job_holds_the_tree | green |
+| native-cli → The whole process tree is stopped | No job object on Windows | evals/cli/test_sw_tree.py | test_no_job_announces_and_stops_by_pid | green |
+| native-cli → The whole process tree is stopped | The helper dies during startup | evals/cli/test_sw_tree.py | test_helper_exit_after_ready_is_a_start_failure, test_helper_exit_between_hello_and_ready_is_a_start_failure | green |
+| native-cli → The whole process tree is stopped | A limit before the helper has announced itself | evals/cli/test_sw_tree.py | test_prehello_limit_leaves_helper_that_never_starts | green |
 | native-cli → Secret mode keeps output off disk | Token lookup | evals/cli/test_sw_run.py | test_secret_mode_writes_nothing_to_disk | green |
 | native-cli → Secret mode keeps output off disk | Secret command floods its output | evals/cli/test_sw_run.py | test_secret_flood_never_echoes_output | green |
 | native-cli → Commands resolve as the shell would find them | A .cmd shim on Windows | evals/cli/test_sw_args.py | test_cmd_shim_resolves_through_pathext | green |
@@ -46,9 +46,9 @@
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | Build fails | evals/runner/test_ci_workflow.py | test_sw_build_step_fails_the_job | green |
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | Local run without sw | evals/cli/test_sw_harness.py | test_skips_with_sw_not_built | green |
 | eval-runner → Suites that need sw run against a binary built from the tree in CI | Required but missing | evals/cli/test_sw_harness.py | test_require_sw_fails_naming_the_binary | green |
-| eval-runner → A stopped test file's sw process groups are stopped too | Runner timeout during a hung sw test | evals/runner/test_run.py | test_sweep_stops_sw_sessions_after_timeout | red |
-| eval-runner → A stopped test file's sw process groups are stopped too | Variable unset | evals/cli/test_sw_tree.py | test_no_spawn_record_without_variable | red |
-| eval-runner → A stopped test file's sw process groups are stopped too | Unwritable spawn directory | evals/cli/test_sw_tree.py | test_unwritable_spawn_dir_leaves_result_unchanged | red |
+| eval-runner → A stopped test file's sw process groups are stopped too | Runner timeout during a hung sw test | evals/runner/test_run.py | test_sweep_stops_sw_sessions_after_timeout | green |
+| eval-runner → A stopped test file's sw process groups are stopped too | Variable unset | evals/cli/test_sw_tree.py | test_no_spawn_record_without_variable | green |
+| eval-runner → A stopped test file's sw process groups are stopped too | Unwritable spawn directory | evals/cli/test_sw_tree.py | test_unwritable_spawn_dir_leaves_result_unchanged | green |
 | eval-runner → Dart tests run locally only for the module being written | Both files carry the rule | evals/runner/test_agent_instructions.py | test_dart_single_file_rule_in_both_files | green |
 | eval-runner → Dart tests run locally only for the module being written | A file tells the reader to run every Dart test | evals/runner/test_agent_instructions.py | test_whole_dart_run_instruction_fails_naming_line | green |
 
@@ -93,7 +93,7 @@ The two `test_cli_workflow.py` macOS rows and the "All three builds pass" row ch
 ## 7. CI build, artifacts and download-and-run
 
 - [x] 7.1 Write failing `evals/runner/test_cli_workflow.py` (three rows) and `evals/cli/test_verify_artifact.py` (checksum mismatch, version drift) against a new `cli/tool/verify_artifact.py`; then write `.github/workflows/cli.yml` (D10: build per OS through `jdx/mise-action` pinned to mise 2026.10.12, analyze, format, test, compile with the version define, SHA-256 artifact; a verify job per OS that downloads, checks the checksum, runs `sw version --json` against `VERSION`; on macOS sets `com.apple.quarantine`, logs whether it runs, applies `xattr -d` and requires success), and add the `cli` suite to `.github/workflows/evals.yml` with `sw` built from the tree and `SPECWRIGHT_REQUIRE_SW=1` (eval-runner rows `CI run`, `Build fails`). Verify: these rows go green locally (structure) and A4 and A2 are settled by the PR's CI run.
-- [ ] 7.2 [evidence] After the PR's CI is green on all three OSes, record the run URL, each artifact's SHA-256, and the macOS log line saying whether the quarantined binary ran before the step (A2) → evidence/ci-run.md. Flip the CI-proved rows green.
+- [x] 7.2 [evidence] After the PR's CI is green on all three OSes, record the run URL, each artifact's SHA-256, and the macOS log line saying whether the quarantined binary ran before the step (A2) → evidence/ci-run.md. Flip the CI-proved rows green.
 
 ## 8. Contributor rules
 
