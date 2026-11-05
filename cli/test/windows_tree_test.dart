@@ -1,5 +1,6 @@
 // WindowsTree's identity check and handle ownership, driven through the
 // WindowsApi seam with a fake: no process is started, so it runs everywhere.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:specwright_cli/src/process/frame.dart';
@@ -72,8 +73,14 @@ class _FakeApi implements WindowsApi {
   @override
   int lastError() => 5;
 
+  /// When set, `taskkill` never finishes.
+  bool killTreeHangs = false;
+
   @override
-  Future<void> killTree(int pid) async => calls.add('killTree($pid)');
+  Future<void> killTree(int pid, Duration wait) {
+    calls.add('killTree($pid)');
+    return killTreeHangs ? Completer<void>().future : Future.value();
+  }
 
   /// The calls that act on a process or a job, not on handles' life cycle.
   List<String> get actions => calls
@@ -213,6 +220,20 @@ void main() {
         'SPECWRIGHT_TEST_NO_JOB is set',
       );
       await tree.stop();
+      expect(api.actions, ['killTree($_pid)', 'terminate(100)']);
+    });
+
+    test('a taskkill that never finishes is bounded, and the handle still terminates', () async {
+      final api = _FakeApi()..killTreeHangs = true;
+      final tree = WindowsTree(
+        api: api,
+        noJobReason: 'SPECWRIGHT_TEST_NO_JOB is set',
+        killTreeWait: const Duration(milliseconds: 200),
+      );
+      tree.started(_FakeProcess());
+      expect(tree.hello(_hello), isTrue);
+      tree.ready(const ReadyFrame.ok());
+      await tree.stop().timeout(const Duration(seconds: 5));
       expect(api.actions, ['killTree($_pid)', 'terminate(100)']);
     });
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../native/kernel32.dart' as k32;
@@ -29,7 +30,8 @@ abstract interface class WindowsApi {
   int lastError();
 
   /// `taskkill /T /F` on [pid]; only called while a handle pins the PID.
-  Future<void> killTree(int pid);
+  /// Returns within [wait]: a `taskkill` still running then is stopped.
+  Future<void> killTree(int pid, Duration wait);
 }
 
 class NativeWindowsApi implements WindowsApi {
@@ -64,11 +66,20 @@ class NativeWindowsApi implements WindowsApi {
   int lastError() => k32.lastError();
 
   @override
-  Future<void> killTree(int pid) async {
+  Future<void> killTree(int pid, Duration wait) async {
+    final Process taskkill;
     try {
-      await Process.run('taskkill', ['/T', '/F', '/PID', '$pid']);
+      taskkill = await Process.start('taskkill', ['/T', '/F', '/PID', '$pid']);
     } on ProcessException {
-      // the handle terminate still ends the helper
+      return; // the handle terminate still ends the helper
+    }
+    // Drain its output so a full pipe cannot stall it.
+    unawaited(taskkill.stdout.drain<void>());
+    unawaited(taskkill.stderr.drain<void>());
+    try {
+      await taskkill.exitCode.timeout(wait);
+    } on TimeoutException {
+      taskkill.kill(ProcessSignal.sigkill); // our own child, by Dart's handle
     }
   }
 }
@@ -91,8 +102,11 @@ class NativeWindowsApi implements WindowsApi {
 /// reason` and a limit stops the tree with `taskkill /T /F` by the pinned
 /// PID. The handle is closed exactly once, before the job handle.
 class WindowsTree implements ProcessTree {
-  WindowsTree({WindowsApi api = const NativeWindowsApi(), String? noJobReason})
-    : _api = api {
+  WindowsTree({
+    WindowsApi api = const NativeWindowsApi(),
+    String? noJobReason,
+    this.killTreeWait = const Duration(seconds: 5),
+  }) : _api = api {
     if (noJobReason != null) {
       _failure = noJobReason;
     } else {
@@ -112,6 +126,9 @@ class WindowsTree implements ProcessTree {
   );
 
   final WindowsApi _api;
+
+  /// How long the PID fallback's `taskkill` may run before it is abandoned.
+  final Duration killTreeWait;
   int _job = 0;
   String? _failure;
   int _pid = 0;
@@ -155,7 +172,13 @@ class WindowsTree implements ProcessTree {
   Future<void> stop() async {
     if (_assigned) _api.terminateJob(_job);
     if (_handle == 0) return; // never act on a PID that was not identified
-    if (!_assigned) await _api.killTree(_pid);
+    if (!_assigned) {
+      try {
+        await _api.killTree(_pid, killTreeWait).timeout(killTreeWait);
+      } on TimeoutException {
+        // abandoned: the handle terminate below still ends the helper
+      }
+    }
     _api.terminate(_handle);
   }
 
