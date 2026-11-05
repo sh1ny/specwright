@@ -282,7 +282,7 @@ artifacts:
         logs, lists, queues, history)
       - T6 Risk: security, auth, money, data loss, or user data that cannot
         be recreated
-      No trigger → LIGHT tier: write Triage, Context, Decisions and Assumptions only.
+      No trigger → LIGHT tier: write Triage, Context, Decisions, Assumptions and Carried constraints only.
       Any trigger → FULL tier: write every section the template marks FULL.
       When unsure whether a trigger applies, it applies. Emit the
       machine-readable line exactly: `TIER: LIGHT` or `TIER: FULL`.
@@ -306,6 +306,23 @@ artifacts:
         cited; otherwise each claim you did not check against the code is one
         entry: an id (`A1`, `A2` and so on), the claim, why it was not
         checked, and the decisions or tasks that depend on it (or `none`).
+      - `## Carried constraints` (both tiers), placed after `## Assumptions`
+        and above the template's LIGHT boundary, lists each fact a future
+        change must respect as one entry: an id (`C1`, `C2` and so on), the
+        fact, its kind (invariant, deliberate gap or rejected alternative),
+        and exactly one destination: `doc comment: <path> <symbol>`,
+        `spec: specs/<capability>/spec.md → Requirement: <name>`, or
+        `ADR NNNN`. The `## Carried constraints` section reads `None` when
+        nothing outlives the change; a design planned before this rule has
+        no section, which counts as `None`.
+        Pick the destination by kind. A fact about specific code (what an
+        input holds, why a path is not taken) goes in that code's doc
+        comment, where the next planner reads it during GROUND. A guarantee
+        users or downstream systems rely on goes in this change's delta spec.
+        A decision that binds future changes beyond one module goes in an ADR,
+        under the ADR rules. When the constrained code is in a file that
+        cannot hold a comment, the destination is the nearest owning code or
+        the spec.
       - Decisions (both tiers): each states the choice, at least one rejected
         alternative that differs structurally (ownership, boundary,
         sequencing, integration pattern - not cosmetically), why it lost, and
@@ -425,9 +442,16 @@ artifacts:
       in the design against its claim, opening only files tracked in the
       repository (the Claims item below). When a cited range contradicts its
       claim, fix the claim in design.md before any verdict is written; a fix
-      that makes a trigger apply makes the design FULL. If the triage still holds, write
-      only the metadata with `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a`
-      and a one-line reason, and stop. If a trigger applies after all, fix
+      that makes a trigger apply makes the design FULL. The re-check also
+      applies the Carried constraints test below. Each failure is recorded in
+      review.md as a Moderate finding under `## Findings`, with no `VERDICT:`
+      line, so the tasks precheck stops. The author adds the missing entry or
+      fixes its destination in design.md and runs the re-check again; after
+      a passing re-check, review.md gets `VERDICT: SKIPPED_LIGHT` with each
+      earlier finding marked fixed. If the triage still holds and the
+      re-check finds nothing, write only the metadata with
+      `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a` and a one-line reason,
+      and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
 
       FULL: the review MUST NOT be written in the context that authored
@@ -500,6 +524,12 @@ artifacts:
         Critical; any other claim finding is at least Moderate. A design
         with no `## Assumptions` section (planned before the section existed)
         counts as `None`, and its citations are still checked.
+      - Carried constraints: a rejected alternative, invariant or deliberate
+        gap that a future change could break, and that
+        `## Carried constraints` does not list, is a Moderate finding. So is
+        an entry with zero or several destinations. A design with no
+        `## Carried constraints` section counts as `None`, and its stated
+        constraints are still checked.
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
@@ -617,6 +647,17 @@ artifacts:
       to read or run to settle it, placed before the first task that relies on it.
       An entry with no dependents gets no task. A disproved assumption is
       design drift: apply stops that work and the drift rule applies.
+
+      CARRIED CONSTRAINTS. For each `## Carried constraints` entry in the
+      design, add a task that names its id (`C1` and so on) and writes the
+      fact at its destination.
+      ADR destinations ride the task that writes that ADR file: that task
+      names the entry ids it carries. The task is ticked only when the text
+      is at the destination. A destination that is gone, or no
+      longer fits, during apply is design drift: apply stops that task, the
+      entry is amended under the drift rule, and the task then writes it at
+      the new destination. A section that reads `None`, or no section, adds
+      no task.
 
       At the end of planning, before apply, show the user the Decision
       summary table from design.md. In `autonomous` mode planning does not

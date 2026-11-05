@@ -45,6 +45,12 @@ TIER: <VALUE>
 
 - **A1:** <!-- the claim --> Not checked because <!-- why -->. Depends on it: <!-- decisions or tasks, or none -->
 
+## Carried constraints
+
+<!-- Both tiers. One entry per fact a future change must respect, or `None` when nothing outlives the change. Exactly one destination: `doc comment: <path> <symbol>`, `spec: specs/<capability>/spec.md → Requirement: <name>`, or `ADR NNNN`. -->
+
+- **C1:** <!-- the fact --> Kind: <!-- invariant | deliberate gap | rejected alternative -->. Destination: <!-- doc comment: <path> <symbol> -->
+
 <!-- ===== LIGHT tier ends here. Delete everything below for LIGHT. ===== -->
 
 ## Diagrams (FULL)
