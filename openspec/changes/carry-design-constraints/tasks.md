@@ -68,7 +68,7 @@
 
 ## 7. Docs, roadmap and coverage
 
-- [ ] 7.1 Make the docs and roadmap edits:
+- [x] 7.1 Make the docs and roadmap edits:
   - `README.md`: add one or two sentences on carried constraints next to the design-grounding text (the section, the destinations, the review and pre-ship checks, and that archived designs are history only).
   - `openspec/roadmap.md`: make sure M7 lists `carry-design-constraints` (#198, closes #190) after `verify-design-claims`; add it if missing.
 
