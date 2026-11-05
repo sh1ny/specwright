@@ -1,6 +1,11 @@
 [tools]
 dart = "3.13.7"
 
+[tasks.deps]
+description = "Fetch the dependencies of cli/ exactly as pubspec.lock pins them"
+dir = "cli"
+run = "dart pub get --enforce-lockfile"
+
 [tasks.test]
 description = "Run the Dart tests of cli/"
 dir = "cli"

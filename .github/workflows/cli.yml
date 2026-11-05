@@ -45,6 +45,8 @@ jobs:
           version: 2026.10.12
           install: true
           cache: false
+      - name: Get dependencies
+        run: mise run deps
       - name: Analyze
         run: mise run analyze
       - name: Check formatting

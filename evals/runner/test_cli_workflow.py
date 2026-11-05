@@ -50,8 +50,10 @@ class TestCliWorkflow(unittest.TestCase):
         self.assertEqual(len(mise), 1)
         self.assertRegex(mise[0], r"uses: jdx/mise-action@v\d+\s")
         self.assertRegex(mise[0], r"version: '?2026\.10\.12'?\s")
-        for task in ("mise run analyze", "mise run format", "mise run test", "mise run build"):
+        for task in ("mise run deps", "mise run analyze", "mise run format", "mise run test", "mise run build"):
             self.assertIn(task, build)
+        # A fresh checkout has no package config: analyze resolves no import until the dependencies are fetched.
+        self.assertLess(build.index("mise run deps"), build.index("mise run analyze"))
         self.assertLess(build.index("mise run analyze"), build.index("mise run build"))
         self.assertIn("sha256", build)
         self.assertRegex(build, r"actions/upload-artifact@v\d+")

@@ -22,7 +22,6 @@ import swharness  # noqa: E402
 import bashexe  # noqa: E402
 
 WINDOWS = os.name == "nt"
-WINDOWS_ONLY = "Windows only: .cmd and .bat shims run through cmd.exe"
 RECORDER = "import json, sys\nwith open(sys.argv[1], 'w', encoding='utf-8') as f:\n    json.dump(sys.argv[2:], f)\n"
 UNSAFE_LINE = "bounded: unsafe batch argument: %s\n"
 
@@ -63,7 +62,7 @@ class Base(unittest.TestCase):
 
 
 class Lookup(Base):
-    @unittest.skipUnless(WINDOWS, WINDOWS_ONLY)
+    @unittest.skipUnless(WINDOWS, "platform: .cmd and .bat shims run through cmd.exe on Windows only")
     def test_cmd_shim_resolves_through_pathext(self):
         bin_dir = self.tmp / "bin"
         self.shim(bin_dir, "gh.cmd", "@echo shim %~1 %~2\n@exit /b 4\n")
@@ -97,7 +96,7 @@ class NativeArguments(Base):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout, long_arg.encode("utf-8"))
 
-    @unittest.skipUnless(WINDOWS, "Windows only: the bash -c stdin transport is used on Windows")
+    @unittest.skipUnless(WINDOWS, "platform: the bash -c stdin transport is used on Windows only")
     def test_missing_transport_marker_exits_126(self):
         bash = bashexe.bash()
         if not bash:
@@ -117,7 +116,7 @@ class NativeArguments(Base):
                 self.assertFalse(ran.exists())
 
 
-@unittest.skipUnless(WINDOWS, WINDOWS_ONLY)
+@unittest.skipUnless(WINDOWS, "platform: .cmd and .bat shims run through cmd.exe on Windows only")
 class BatchShims(Base):
     def test_batch_metacharacters_reach_recorder(self):
         self.forwarding_shim(self.tmp / "bin")

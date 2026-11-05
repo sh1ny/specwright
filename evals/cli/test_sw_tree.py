@@ -103,7 +103,7 @@ class OrphanedTree(TreeBase):
         proc = self.sw("--", sys.executable, self.command, str(self.tmp), env=self.env(SPECWRIGHT_NET_DEADLINE=6))
         self.assert_orphans_stopped(proc)
 
-    @unittest.skipUnless(WINDOWS, "job objects are Windows only")
+    @unittest.skipUnless(WINDOWS, "platform: job objects are Windows only")
     def test_nested_job_holds_the_tree(self):
         wrapper = self.script("outer_job.py", IN_OUTER_JOB)
         proc = subprocess.run(
@@ -113,7 +113,7 @@ class OrphanedTree(TreeBase):
         self.assert_orphans_stopped(proc)
 
 
-@unittest.skipUnless(WINDOWS, "SPECWRIGHT_TEST_NO_JOB is a Windows hook")
+@unittest.skipUnless(WINDOWS, "platform: SPECWRIGHT_TEST_NO_JOB is a Windows hook")
 class NoJob(TreeBase):
     def test_no_job_announces_and_stops_by_pid(self):
         command = self.script("live.py", LIVE_TREE_COMMAND)
@@ -253,7 +253,7 @@ class SpawnRecord(TreeBase):
                                  (plain.returncode, plain.stdout, plain.stderr))
         self.assertFalse((self.tmp / "nope").exists(), "sw created the spawn directory")
 
-    @unittest.skipIf(WINDOWS, "the record names a POSIX process group")
+    @unittest.skipIf(WINDOWS, "platform: the record names a POSIX process group")
     def test_spawn_record_names_the_group(self):
         spawns = self.tmp / "spawns"
         spawns.mkdir()
