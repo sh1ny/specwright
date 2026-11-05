@@ -14,9 +14,9 @@
 | design-constraints → The design review checks the list is complete | Entry without a destination | evals/git-workflow/test_design_constraints.py | test_review_flags_entry_without_single_destination | green |
 | design-constraints → The design review checks the list is complete | LIGHT design omits a constraint | evals/git-workflow/test_design_constraints.py | test_light_recheck_records_finding_and_withholds_verdict | green |
 | design-constraints → The design review checks the list is complete | Design planned before this change | evals/git-workflow/test_design_constraints.py | test_missing_section_reads_as_none | green |
-| preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint missing from the code | evals/git-workflow/test_design_constraints.py | test_brief_missing_carried_constraint_is_p1 | red |
-| preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint present | evals/git-workflow/test_design_constraints.py | test_brief_checks_destination_in_range | red |
-| preship-review → The pre-ship review checks each carried constraint against the diff | No carried constraints | evals/git-workflow/test_design_constraints.py | test_brief_no_finding_for_none | red |
+| preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint missing from the code | evals/git-workflow/test_design_constraints.py | test_brief_missing_carried_constraint_is_p1 | green |
+| preship-review → The pre-ship review checks each carried constraint against the diff | Carried constraint present | evals/git-workflow/test_design_constraints.py | test_brief_checks_destination_in_range | green |
+| preship-review → The pre-ship review checks each carried constraint against the diff | No carried constraints | evals/git-workflow/test_design_constraints.py | test_brief_no_finding_for_none | green |
 
 ## 1. Verify the base (A1)
 
@@ -58,8 +58,8 @@
 
 ## 6. Pre-ship brief
 
-- [ ] 6.1 Add the red tests for the three preship-review rows and confirm they fail for the right reason.
-- [ ] 6.2 In `skills/specwright-review/references/brief.md` under "What to report", add a **Carried constraints** item:
+- [x] 6.1 Add the red tests for the three preship-review rows and confirm they fail for the right reason.
+- [x] 6.2 In `skills/specwright-review/references/brief.md` under "What to report", add a **Carried constraints** item:
   - Read the design's `## Carried constraints`, from the archived design when the review runs after the archive commit.
   - Check that each entry's fact is present at its destination in the reviewed range. A missing entry, or text there that contradicts the design, is P1 `docs` naming the entry.
   - A section that reads `None`, or a design with no section, raises no such finding.

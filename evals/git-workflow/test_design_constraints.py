@@ -126,5 +126,37 @@ class TasksCarryEachEntry(unittest.TestCase):
                          "drift does not stop the task, amend the entry and write at the new destination")
 
 
+BRIEF = ROOT / "skills" / "specwright-review" / "references" / "brief.md"
+
+
+def brief_report_section():
+    """The flattened `## What to report` section of the pre-ship brief."""
+    m = re.search(r"^## What to report$.*?(?=^## )", read(BRIEF), re.M | re.S)
+    assert m, "brief.md has no `## What to report` section"
+    return flat(m.group(0))
+
+
+class PreshipBriefChecksConstraints(unittest.TestCase):
+    def test_brief_missing_carried_constraint_is_p1(self):
+        b = brief_report_section()
+        self.assertRegex(b, r"\*\*Carried constraints\*\*", "the brief has no Carried constraints item")
+        self.assertRegex(b, r"(?i)\*\*Carried constraints\*\*.{0,900}(missing|contradict\w*)[^.]{0,200}P1 `docs`[^.]{0,80}naming the entry",
+                         "a missing or contradicted entry is not a P1 `docs` finding naming the entry")
+        self.assertLess(b.index("**Release Notes**"), b.index("**Carried constraints**"),
+                        "the Carried constraints item should follow the Release Notes item")
+
+    def test_brief_checks_destination_in_range(self):
+        b = brief_report_section()
+        self.assertRegex(b, r"(?i)## Carried constraints[^.]{0,200}design", "the brief does not read the design's section")
+        self.assertRegex(b, r"(?i)archived design", "the brief does not read the archived design after the archive commit")
+        self.assertRegex(b, r"(?i)each entry[^.]{0,120}(present|text)[^.]{0,120}destination[^.]{0,120}reviewed range",
+                         "the brief does not check each entry at its destination in the reviewed range")
+
+    def test_brief_no_finding_for_none(self):
+        b = brief_report_section()
+        self.assertRegex(b, r"(?i)(reads `None`|no section)[^.]{0,200}no finding",
+                         "a `None` or missing section still raises a finding")
+
+
 if __name__ == "__main__":
     unittest.main()
