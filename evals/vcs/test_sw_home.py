@@ -1,4 +1,4 @@
-"""The eval helper that lets the vcs suite run the shim against the tree's `sw` (design D9, D10).
+"""The eval helper that lets the vcs suite run the shim against the tree's `sw` (design D9).
 
 One SPECWRIGHT_HOME per test process holds a copy of SPECWRIGHT_SW at .specwright/bin/<tree VERSION>/sw[.exe]. A fixture's
 openspec/.specwright/VERSION is written and hidden through .git/info/exclude, so no status read sees it.
@@ -116,36 +116,6 @@ class TestSwHome(unittest.TestCase):
             with self.assertRaises(AssertionError) as caught:
                 support.sw_home()
         self.assertIn("SPECWRIGHT_SW", str(caught.exception))
-
-
-class TestViaSwSwitch(unittest.TestCase):
-    """D10: SPECWRIGHT_VCS_VIA_SW=1 runs `<sw> vcs --args-stdin` instead of `bash vcs.sh`; only vcs_test_support reads it."""
-
-    def test_switch_is_off_unless_one(self):
-        for value, expected in ((None, False), ("", False), ("0", False), ("1", True)):
-            env = {k: v for k, v in os.environ.items() if k != "SPECWRIGHT_VCS_VIA_SW"}
-            if value is not None:
-                env["SPECWRIGHT_VCS_VIA_SW"] = value
-            with mock.patch.dict(os.environ, env, clear=True):
-                self.assertEqual(support.via_sw(), expected, value)
-
-    def test_stdin_is_nul_terminated_records(self):
-        bs = chr(92)
-        bash = "C:" + bs + "git" + bs + "bash.exe"
-        data = support.sw_vcs_stdin("C:/x/scripts", bash, "commit", ["--repo", "a b", "--message", "\u00e9\u2028"])
-        self.assertEqual(data, b"C:/x/scripts\0" + bash.encode() + b"\0commit\0--repo\0a b\0--message\0\xc3\xa9\xe2\x80\xa8\0")
-
-    def test_stdin_keeps_an_argument_that_looks_like_a_marker(self):
-        data = support.sw_vcs_stdin("d", "b", "state", ["", "--", "3"])
-        self.assertEqual(data, b"d\0b\0state\0" + b"\0" + b"--\0" + b"3\0")
-
-    def test_command_runs_sw_vcs_with_nothing_else_on_argv(self):
-        self.assertEqual(support.sw_vcs_command("/h/sw"), ["/h/sw", "vcs", "--args-stdin"])
-
-    def test_header_names_the_shim_scripts_directory_and_bash(self):
-        scripts, bash = support.sw_vcs_header()
-        self.assertEqual(scripts, (ROOT / "skills" / "specwright-pr" / "scripts").as_posix())
-        self.assertEqual(bash, str(Path(jjenv.find_bash())))
 
 
 if __name__ == "__main__":

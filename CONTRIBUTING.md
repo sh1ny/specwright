@@ -9,6 +9,18 @@ Specwright is built with Specwright: changes to it go through the same branch â†
 3. Run the [install prompt](README.md#-install--update) from the README in the clone. It installs Specwright into the repo's own `openspec/` and asks for this repo's settings; `finish: pr` fits here.
 4. Start a new agent session: installed skills and agent definitions load only in a session started after the install.
 
+## Bootstrap a checkout from its own tree
+
+The install prompt installs tags and `main`, and a `main` install places no `sw`. Since 0.25.0 every `vcs.sh` call runs `sw`, so a checkout that dogfoods Specwright (this repository's own install, or a clone of it) stops its VCS steps with `sw_missing` until it holds the `sw` of its installed version. To install from the checkout's own tree, run these steps from its root, in this order:
+
+1. Run `bash scripts/update.sh --code . --skills <dir> --agents <kind>=<dir> --download . --ref <branch> plan`. Repeat `--skills <dir>` and `--agents <kind>=<dir>` for each target (`plan` refuses with `no_targets` without one); this repository uses `--skills .claude/skills --agents claude=.claude/agents`. `--download .` makes the checkout the download tree, and `--ref` is free text recorded as the installed ref (the checkout's branch).
+2. Run the same command with `stage`, then with `swap`. They copy the skills, agents and schema.
+3. Run the install prompt's Step 7 checks: `openspec schema validate specwright`, and the installed skills and agents match the tree.
+4. Only when they pass, copy `VERSION` to `openspec/.specwright/VERSION` (the stamp). `finish` refuses with `not_stamped` until it reads the new version.
+5. Run the same `update.sh` command with `finish`.
+6. Run `mise run install-sw`. It builds `cli/`, checks the build, and places it at `<home>/.specwright/bin/<VERSION>/sw[.exe]`; it prints that path.
+7. Run `bash skills/specwright-pr/scripts/sw-path.sh --code .`. It prints the same path when the checkout's `VERSION` matches the placed binary.
+
 ## Source vs. installed copies
 
 | Edit this | Installed copy (git-ignored) |

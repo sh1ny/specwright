@@ -1,7 +1,6 @@
 """sw vcs reads settings and fences identity through the scripts of the vcs.sh that started it (design D2, S2).
 
-The tests drive `sw vcs` through the harness switch (SPECWRIGHT_VCS_VIA_SW=1, SPECWRIGHT_SW=<built sw>); without the switch
-they run the same operations through vcs.sh. Each one copies the scripts directory and puts a recording wrapper in front of
+The tests run vcs.sh, the shim, against the tree's sw (SPECWRIGHT_SW=<built sw>, design D9). Each one copies the scripts directory and puts a recording wrapper in front of
 `pr-pair.sh` or `as.sh`, so it can see which script ran, from where and with which arguments.
 
 Run: python -m unittest evals/vcs/test_sw_scripts.py

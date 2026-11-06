@@ -1582,8 +1582,27 @@ class VcsScriptMissing(Exception):
     """A jj store, and the download has no skills/specwright-pr/scripts/vcs.sh to read its branch with."""
 
 
+class SwMissing(Exception):
+    """A jj store, and no sw for the download's version is installed to read its branch with."""
+
+
 VCS_SH_REL = "skills/specwright-pr/scripts/vcs.sh"
 PR_PAIR_REL = "skills/specwright-pr/scripts/pr-pair.sh"
+
+
+def download_sw(o):
+    """The sw of the download's own VERSION (never the project's installed one), checked by the download's sw-path.sh at
+    <home>/.specwright/bin/<version>/sw[.exe]; raises SwMissing naming the version when it does not pass."""
+    version, _ = read_version(Path(o["download"]) / "VERSION")
+    path = Path(sw_home()) / ".specwright" / "bin" / (version or "") / ("sw.exe" if os.name == "nt" else "sw")
+    try:
+        ok, detail = sw_check(o, path, version or "")
+    except SwStop as e:
+        ok, detail = False, str(e)
+    if not ok:
+        raise SwMissing(f"sw missing: no sw {version} for the download is installed at {path.as_posix()} ({detail}); a main download "
+                        f"needs `mise run install-sw` from its checkout first")
+    return path.as_posix()
 
 
 def store_is_jj(o):
@@ -1607,20 +1626,23 @@ def store_is_jj(o):
 
 
 def jj_store_branch(o, top):
-    """(branch, problem) of a jj store by the jj rule, read through the download's vcs.sh state: the change bookmark at @-,
-    else the store's main when main points at @-, else "" (no branch). Raises VcsScriptMissing without the script."""
+    """(branch, problem) of a jj store by the jj rule, read through the download's `sw vcs state`: the change bookmark at @-,
+    else the store's main when main points at @-, else "" (no branch). Raises VcsScriptMissing without the script, SwMissing
+    without a matching sw."""
     script = Path(o["download"]) / VCS_SH_REL
     if not script.is_file():
         raise VcsScriptMissing(f"the store's backend is jj, and the downloaded copy has no {VCS_SH_REL} to read its branch with "
                                f"(looked in {o['download']})")
+    sw = download_sw(o)
+    bash = os.environ.get("UPDATE_BASH") or "bash"
+    records = (script.parent.as_posix(), bash, "state", "--repo", str(top), "--role", "store", "--code", str(o["code"]))
     try:
-        r = subprocess.run([os.environ.get("UPDATE_BASH") or "bash", script.as_posix(), "state", "--repo", str(top), "--role", "store",
-                            "--code", str(o["code"])], capture_output=True)
+        r = subprocess.run([sw, "vcs", "--args-stdin"], input=b"".join(os.fsencode(x) + b"\0" for x in records), capture_output=True)
         doc = json.loads(r.stdout.decode("utf-8", "replace"))
     except (OSError, ValueError) as e:
-        return None, f"vcs.sh state failed in the store ({e})"
+        return None, f"sw vcs state failed in the store ({e})"
     if not doc.get("ok"):
-        return None, f"vcs.sh state failed in the store ({doc.get('error') or 'error'}: {doc.get('message') or 'no message'})"
+        return None, f"sw vcs state failed in the store ({doc.get('error') or 'error'}: {doc.get('message') or 'no message'})"
     return (doc["main"] if doc.get("on_main") and not doc.get("branch") else doc.get("branch", "")), None
 
 
@@ -1730,6 +1752,8 @@ def cmd_store_check(o, pos):
             reason, _ = store_busy_reason(o, top, lambda p: under(p, staging))
         except VcsScriptMissing as e:
             stop("vcs_script_missing", f"{e}. Nothing was swapped; use a download that ships specwright-pr, then rerun the update")
+        except SwMissing as e:
+            stop("sw_missing", f"{e}. Nothing was swapped; then rerun the update")
         if reason is None:
             emit({"ok": True, "mode": "write"})
         if not workflow_update(j["from"], j["to"]):
@@ -1746,6 +1770,8 @@ def cmd_store_check(o, pos):
         reason, _ = store_busy_reason(o, top, written_by_update(j, top))
     except VcsScriptMissing as e:
         stop("vcs_script_missing", f"{e}. The rollback stops before any rename and the swapped state and the journal are kept")
+    except SwMissing as e:
+        stop("sw_missing", f"{e}. The rollback stops before any rename and the swapped state and the journal are kept")
     if reason:
         stop("store_busy", f"{reason}. The rollback stops before any rename and the swapped state and the journal are kept; "
              f"the store stays on {j['to']}. Finish that change, then run the rollback again")

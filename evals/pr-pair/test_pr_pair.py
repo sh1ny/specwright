@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 import jjenv  # noqa: E402
+import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
 
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the repo with its first commit is built once and copied
@@ -64,6 +65,7 @@ def _build_repo(name, dest):
     (dest / "README.md").write_text(f"# {name}\n", encoding="utf-8", newline="\n")
     for args in (("add", "-A"), ("commit", "-q", "-m", "chore: initial")):
         subprocess.run(["git", *args], cwd=dest, check=True, capture_output=True, text=True, env=env)
+    vcs_test_support.stamp_version(dest)
 
 
 class CachedBuild(unittest.TestCase):
@@ -109,7 +111,8 @@ class Base(unittest.TestCase):
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""),
                   "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log),
                   "SPECWRIGHT_STATE_DIR": str(self.state_dir), "GIT_CONFIG_GLOBAL": os.devnull,
-                  "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0", "PYTHONIOENCODING": "utf-8"})
+                  "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0", "PYTHONIOENCODING": "utf-8",
+                  "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())})
         e.update(self.extra_env)
         return e
 

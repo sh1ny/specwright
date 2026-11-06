@@ -24,6 +24,8 @@ ROOT = HERE.parents[1]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
+sys.path.append(str(ROOT / "evals" / "vcs"))
+import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
 import bashexe  # noqa: E402
 SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
 DATE = "2026-10-19"
@@ -94,6 +96,7 @@ def _build_repo(work, prefix, caps):
         write(work, f"{prefix}/specs/{cap}/spec.md", base_spec(cap))
     git(work, "add", "-A")
     git(work, "commit", "-q", "-m", "initial")
+    vcs_test_support.stamp_version(work)
     return work
 
 
@@ -204,7 +207,8 @@ def fake_bin(tmp):
 
 def run_finish(work, *args, cwd=None):
     """Run finish.sh; returns (exit code, parsed JSON, raw stdout + stderr)."""
-    r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8",
+                       env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
     try:
         doc = json.loads(r.stdout)
     except ValueError:

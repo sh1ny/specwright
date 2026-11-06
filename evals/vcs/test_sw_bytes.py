@@ -1,6 +1,6 @@
 """sw vcs output bytes: separators stay escaped, a name's bytes round-trip, tool input reaches the tool.
 
-Written for the harness switch (SPECWRIGHT_VCS_VIA_SW=1); the shim makes it permanent."""
+Run through the vcs.sh shim against the tree's sw (design D9)."""
 
 import os
 import subprocess

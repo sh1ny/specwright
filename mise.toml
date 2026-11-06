@@ -24,3 +24,8 @@ run = "dart format --output=none --set-exit-if-changed cli"
 description = "Compile cli/bin/sw.dart to cli/build/sw with SW_VERSION from VERSION"
 dir = "cli"
 run = "dart run tool/build.dart"
+
+[tasks.install-sw]
+description = "Build sw from the tree and place it at ~/.specwright/bin/<VERSION>/ for the projects at that version"
+depends = ["build"]
+run = "bash scripts/install-sw.sh"

@@ -37,6 +37,7 @@ class JjBase(unittest.TestCase):
         self.addCleanup(self.scratch.close)
         self.repo = self.scratch.tracked_repo()
         self.work = self.repo.path
+        vcs_test_support.stamp_version(self.work)  # vcs.sh resolves sw from the project's VERSION (native-cli-vcs D9)
         self.env = {**self.scratch.env, "JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL}
         self.tmp = Path(tempfile.mkdtemp(prefix="swf-"))
         self.addCleanup(fx.rmtree, self.tmp)
