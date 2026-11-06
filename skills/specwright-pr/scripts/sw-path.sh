@@ -12,7 +12,7 @@
 #
 # Contract: run `<sw> version --json`; when stdout is exactly one JSON object whose `version` equals the expected version and
 # whose `interface` equals SW_INTERFACE, print the absolute path of the binary on stdout and exit 0. Every other outcome (no
-# VERSION, no file, a non-zero exit, a limit hit, not one JSON object, a missing field, another version or interface) prints
+# VERSION, a version that is not x.y.z[-pre][+build], no file, a non-zero exit, a limit hit, not one JSON object, a missing field, another version or interface) prints
 # `sw missing or mismatched: rerun the install prompt` and one detail line (the path and what was found) on stderr, nothing on
 # stdout, and exits 1. Usage errors exit 2.
 #
@@ -51,6 +51,8 @@ if [ -z "$version" ]; then
   version=$(printf '%s' "$version" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
   [ -n "$version" ] || stop "no installed version found: $vfile is empty"
 fi
+# a version, never a path: a committed VERSION must not steer the lookup out of <home>/.specwright/bin/
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]] || stop "$version is not a version (expected x.y.z)"
 
 if [ -z "$file" ]; then
   home=${SPECWRIGHT_HOME:-}

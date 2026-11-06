@@ -119,6 +119,15 @@ class Resolver(Base):
         proc = self.resolve("--code", self.code)
         self.assert_stop(proc, "no installed version")
 
+    def test_version_that_is_a_path_stops(self):
+        # a committed VERSION must not steer the lookup out of <home>/.specwright/bin/
+        planted = self.tmp / "planted"
+        self.install(self.report["version"], home=planted)
+        escape = "../../../planted/.specwright/bin/" + self.report["version"]
+        self.version_file(escape)
+        proc = self.resolve("--code", self.code)
+        self.assert_stop(proc, "not a version")
+
     def test_missing_binary_ignores_other_versions(self):
         self.version_file("0.24.0")
         self.install("0.23.0")

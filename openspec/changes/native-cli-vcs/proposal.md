@@ -87,3 +87,7 @@ Version-control work now runs in the native `sw` binary. Every branch read and v
 - `vcs.sh` now runs `sw vcs`, the Dart port of its Git, jj and GitButler backends, with unchanged JSON documents and exit codes. A missing or mismatched `sw` stops with `sw missing or mismatched: rerun the install prompt`, with no fallback to the old Python (#148).
 - The update reads a jj planning store's branch with the downloaded version's `sw`, and refuses with `sw_missing` when none is installed.
 - The install prompt's Step 8 warns when no matching `sw` is installed, so VCS steps would stop with `sw_missing`.
+
+### Fixed
+
+- `sw-path.sh` accepts only a version (`x.y.z`, with an optional pre-release or build suffix) from `openspec/.specwright/VERSION`, so a committed VERSION can no longer point the `sw` lookup at a binary outside `~/.specwright/bin/`.
