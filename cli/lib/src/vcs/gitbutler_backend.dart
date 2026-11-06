@@ -554,7 +554,8 @@ class GitButler {
       );
     }
     await _argvCheck(given, messageFile);
-    final message = decodeEscaped(
+    // Strict UTF-8, as vcs.sh read it: an invalid byte stops before `but commit`.
+    final message = utf8.decode(
       File.fromRawPath(encodeEscaped(messageFile)).readAsBytesSync(),
     );
     final applied = [for (final st in stacks) ..._stackNames(st)];
