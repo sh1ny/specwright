@@ -20,6 +20,12 @@ void main() {
       : Platform.isWindows
       ? posixOnly
       : false;
+  final linuxSkip = bash == null
+      ? 'no bash installed'
+      : Platform.isLinux
+      ? false
+      : 'Linux only: macOS (APFS) refuses names that are not valid UTF-8, '
+            'and Windows names are UTF-16';
   final sep = Platform.pathSeparator;
 
   late Directory repo;
@@ -64,7 +70,7 @@ void main() {
         expect(encodeEscaped(found.single.name), [0x61, 0xff, 0x62]);
         expect(found.single.size, 3);
       },
-      skip: posixSkip,
+      skip: linuxSkip,
     );
 
     test('lists regular files with their sizes', () async {
@@ -144,7 +150,7 @@ void main() {
       }
     }, skip: skip);
 
-    test('a find first on PATH is never run', () async {
+    test('a find or bash first on PATH is never run', () async {
       file('a.txt');
       final fake = Directory.systemTemp.createTempSync('claude-ncv-g2-fake-');
       addTearDown(() => fake.deleteSync(recursive: true));
@@ -152,8 +158,15 @@ void main() {
       File('${fake.path}${sep}find').writeAsStringSync(
         '#!/bin/sh\ntouch "\$(dirname "\$0")/ran"\nprintf "bogus\\0"\n',
       );
+      // A stand-in for System32's bash.exe (the WSL launcher): a nested
+      // `bash` looked up on PATH would run this instead of the bash handed in.
+      File(
+        '${fake.path}${sep}bash',
+      ).writeAsStringSync('#!/bin/sh\ntouch "\$(dirname "\$0")/ran"\nexit 1\n');
       if (!Platform.isWindows) {
-        Process.runSync('chmod', ['+x', '${fake.path}${sep}find']);
+        for (final n in ['find', 'bash']) {
+          Process.runSync('chmod', ['+x', '${fake.path}$sep$n']);
+        }
       }
       final env = Map<String, String>.of(Platform.environment);
       final key = env.keys.firstWhere(
@@ -177,8 +190,14 @@ void main() {
         file('locked/hidden.txt');
         file('open/b.txt');
         Process.runSync('chmod', ['000', at('locked')]);
-        if (Directory(at('locked')).listSync().isNotEmpty) {
-          // Running as a user for whom mode 000 does not stop listing (root).
+        var reallyLocked = true;
+        try {
+          // Running as a user for whom mode 000 does not stop listing (root)?
+          reallyLocked = Directory(at('locked')).listSync().isEmpty;
+        } on FileSystemException {
+          // Listing threw: the directory really is locked.
+        }
+        if (!reallyLocked) {
           Process.runSync('chmod', ['755', at('locked')]);
           return;
         }
@@ -200,6 +219,22 @@ void main() {
       final found = statRecords(records, repo.path);
       expect([for (final f in found) (f.name, f.size)], [('real.txt', 3)]);
     });
+  });
+
+  group('statRecords on special files', () {
+    test('a directory and a FIFO are not regular files', () {
+      dir('adir');
+      Process.runSync('mkfifo', [at('fifo')]);
+      expect(FileSystemEntity.typeSync(at('fifo')), FileSystemEntityType.pipe);
+      expect(statRecords([at('adir'), at('fifo')], repo.path), isEmpty);
+    }, skip: posixSkip);
+
+    test('a broken link and a directory link are skipped', () {
+      dir('adir');
+      Link(at('broken')).createSync(at('nowhere'));
+      Link(at('dlink')).createSync(at('adir'));
+      expect(statRecords([at('broken'), at('dlink')], repo.path), isEmpty);
+    }, skip: posixSkip);
   });
 
   group('walkOrder', () {

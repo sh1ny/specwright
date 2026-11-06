@@ -357,9 +357,10 @@ void main() {
       },
       skip: bash == null
           ? 'no bash installed'
-          : Platform.isWindows
-          ? 'POSIX only: Windows names are UTF-16'
-          : false,
+          : Platform.isLinux
+          ? false
+          : 'Linux only: macOS (APFS) refuses names that are not valid UTF-8, '
+                'and Windows names are UTF-16',
     );
 
     test('a missing directory starts nothing and gives exit 127', () async {

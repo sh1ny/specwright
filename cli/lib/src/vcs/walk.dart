@@ -23,7 +23,7 @@ class WalkedFile {
 /// Names come from `find -print0` run through the transport (never
 /// `Directory.list()`, whose entries expose only a lossy `path`): `find
 /// ROOT/ -mindepth 1 ( -type d ( -name .git -o -name .jj ) -prune ) -o -type
-/// f -print0`, started as `bash -c 'command -p find "$@"'` so that the system
+/// f -print0`, started as `BASH -c 'command -p find "$@"'` so that the system
 /// `find` is used, not one on the inherited `PATH`. Every complete
 /// NUL-terminated record is used and `find`'s exit status and stderr are
 /// ignored, as `os.walk` skips a directory it cannot list; a last record with
@@ -40,7 +40,10 @@ Future<List<WalkedFile>> walkFiles(
   if (windows) findRoot = findRoot.replaceAll(r'\', '/');
   if (!findRoot.endsWith('/')) findRoot = '$findRoot/';
   final result = await runTool(bash, repo, [
-    'bash',
+    // The bash handed in, not the name `bash`: `exec` looks a bare name up on
+    // the inherited PATH, where Windows puts System32's WSL launcher
+    // (bash.exe) ahead of Git's.
+    bash,
     '-c',
     'command -p find "\$@"',
     'vcs',
@@ -76,19 +79,26 @@ Future<List<WalkedFile>> walkFiles(
   return statRecords(walkOrder(findRoot, records), repo);
 }
 
-/// For each record (an absolute name as `find` printed it), in order: one
-/// `File.fromRawPath(<bytes>).statSync()` and one link check on the same
-/// bytes. A name that is gone, is not a regular file or is a link is skipped;
-/// the size comes from that stat. The reported name is
+/// For each record (an absolute name as `find` printed it), in order, on the
+/// name's raw bytes only: a link (`Link.fromRawPath(..).existsSync()`) is
+/// skipped; so is a name for which `File.fromRawPath(..).existsSync()` is false
+/// (gone, a directory, a FIFO or another non-regular file); the size is
+/// `File.fromRawPath(..).lengthSync()`, and a name for which that throws is
+/// skipped. `File.statSync` is never used: it stats the lossy `path` string and
+/// misses a name that is not valid UTF-8. The reported name is
 /// [relpathText]`(record, repo)`.
 List<WalkedFile> statRecords(List<String> records, String repo) {
   final found = <WalkedFile>[];
   for (final record in records) {
     final bytes = encodeEscaped(record);
-    final stat = File.fromRawPath(bytes).statSync();
-    if (stat.type != FileSystemEntityType.file) continue;
     if (Link.fromRawPath(bytes).existsSync()) continue;
-    found.add(WalkedFile(relpathText(record, repo), stat.size));
+    final file = File.fromRawPath(bytes);
+    try {
+      if (!file.existsSync()) continue;
+      found.add(WalkedFile(relpathText(record, repo), file.lengthSync()));
+    } on FileSystemException {
+      continue;
+    }
   }
   return found;
 }
