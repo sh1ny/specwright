@@ -222,11 +222,9 @@ void main() {
   });
 
   group('statRecords on special files', () {
-    test('a directory and a FIFO are not regular files', () {
+    test('a directory is skipped', () {
       dir('adir');
-      Process.runSync('mkfifo', [at('fifo')]);
-      expect(FileSystemEntity.typeSync(at('fifo')), FileSystemEntityType.pipe);
-      expect(statRecords([at('adir'), at('fifo')], repo.path), isEmpty);
+      expect(statRecords([at('adir')], repo.path), isEmpty);
     }, skip: posixSkip);
 
     test('a broken link and a directory link are skipped', () {

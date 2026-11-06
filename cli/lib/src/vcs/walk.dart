@@ -82,7 +82,8 @@ Future<List<WalkedFile>> walkFiles(
 /// For each record (an absolute name as `find` printed it), in order, on the
 /// name's raw bytes only: a link (`Link.fromRawPath(..).existsSync()`) is
 /// skipped; so is a name for which `File.fromRawPath(..).existsSync()` is false
-/// (gone, a directory, a FIFO or another non-regular file); the size is
+/// (gone, or a directory; `find -type f` already listed only regular files,
+/// and a file swapped for another type in between is accepted); the size is
 /// `File.fromRawPath(..).lengthSync()`, and a name for which that throws is
 /// skipped. `File.statSync` is never used: it stats the lossy `path` string and
 /// misses a name that is not valid UTF-8. The reported name is
