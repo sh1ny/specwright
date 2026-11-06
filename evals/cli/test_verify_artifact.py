@@ -73,6 +73,25 @@ class VerifyArtifactTests(unittest.TestCase):
         self.assertIn("9.9.9", output)
         self.assertIn("1.2.3", output)
 
+    def test_interface_mismatch_fails_naming_both(self):
+        binary = self.make_binary("1.2.3")  # reports interface 1
+        pin = self.dir / "sw-path.sh"
+        pin.write_text("#!/bin/sh\nSW_INTERFACE=7\n", encoding="utf-8", newline="\n")
+        result = self.verify(binary, self.write_sha(binary), "--interface-from", str(pin))
+        self.assertNotEqual(result.returncode, 0)
+        output = result.stdout + result.stderr
+        self.assertIn("interface", output.lower())
+        self.assertIn("7", output)
+        self.assertIn("1", output)
+        self.assertNotIn("unrecognized arguments", output)
+
+    def test_matching_interface_passes(self):
+        binary = self.make_binary("1.2.3")
+        pin = self.dir / "sw-path.sh"
+        pin.write_text("#!/bin/sh\nSW_INTERFACE=1\n", encoding="utf-8", newline="\n")
+        result = self.verify(binary, self.write_sha(binary), "--interface-from", str(pin))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_checksum_only_checks_without_running(self):
         binary = self.make_binary("9.9.9")
         result = self.verify(binary, self.write_sha(binary), "--checksum-only")

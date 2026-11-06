@@ -23,6 +23,8 @@
 #                     packs/ (default: all)
 #   --pack-doc P.ID=PATH  plan: the path of document ID of enabled pack P, relative to the code toplevel (the specwright.yaml
 #                     override, else the manifest's default); repeat for each document the prompt resolved
+#   --release-url URL sw-install only: the base of the release (default: the download's github.com origin); files are read from
+#                     <URL>/releases/download/<ref>/. For an https mirror or a local file:// tree (http is refused)
 #   --rollback        recover only: roll the swapped update back instead of resuming it (the prompt's Step 7 failed)
 # The installed version is read from <code>/openspec/.specwright/VERSION (missing = a fresh install).
 #
@@ -206,6 +208,15 @@
 #            <download>/packs/<name>/), never overwrites one, needs no journal or lock (a rerun completes an interrupted run).
 #            Prints {ok, interface, subcommand, documents: [{pack, id, path, status: created | kept}]}. An unsafe path (as in plan's
 #            pack_doc_path) or a template the download lacks is error refused (exit 1, refusals[], nothing written).
+#   sw-install  between plan and stage, for a release tag whose plan carries an `sw` field (design D1 of native-cli-distribution):
+#            downloads the host's `sw` binary and SHA256SUMS from the tag's GitHub release, checks the SHA-256 and `sw version --json`,
+#            and places <home>/.specwright/bin/<version>/sw[.exe] (<home> is SPECWRIGHT_HOME, else the user's home). Writes nothing in the
+#            project and no journal entry. Prints {ok, interface, subcommand, action: installed | kept | replaced | skipped, path, asset,
+#            version, ref} (skipped, with a message, for a ref that is not a release tag: nothing is installed or changed), or exits 1
+#            with error and message: unsupported_platform, no_github_origin, assets_not_uploaded, asset_missing, sums_invalid,
+#            checksum_mismatch, deadline_exceeded, response_too_large, download_failed, download_version_invalid (VERSION is not the
+#            tag's version), quarantine_not_cleared (macOS), sw_check_failed, sw_in_use. plan gains `sw` for a
+#            tag ref only: {asset, target} for a supported host, {asset: null, reason: unsupported_platform} otherwise.
 # Journal (openspec/.specwright/update.json, written to update.json.tmp and renamed): format 2 (1 is still read and recovered;
 # a download that knows only format 1 refuses a format 2 journal as unreadable), from, to, ref, kind,
 # role, code, root, inflight, owner_id, store_owner, store_version, store_record, store_lock, store_staging,
@@ -252,18 +263,19 @@ if command -v cygpath >/dev/null 2>&1; then UPDATE_BASH=$(cygpath -w "$UPDATE_BA
 export UPDATE_BASH
 pyx() { MSYS2_ARG_CONV_EXCL='*' "$py" -I -X utf8 -c "$PYLOAD" "$SELF" "$@"; }  # Git Bash must not rewrite an argument like pack.id=/tmp/x into a drive path
 
-code="" root="" download="" ref="" sub="" ROLLBACK=0
+code="" root="" download="" ref="" releaseurl="" sub="" ROLLBACK=0
 skills=() agents=() packs=() packdocs=() previous=()
 usage() { echo "{\"ok\":false,\"error\":\"usage\",\"message\":\"$1\"}"; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --code|--root|--download|--ref|--skills|--agents|--pack|--pack-doc|--previous)
+    --code|--root|--download|--ref|--release-url|--skills|--agents|--pack|--pack-doc|--previous)
       [ $# -ge 2 ] || usage "$1 needs a value"
       case "$1" in
         --code) native code "$2" ;;
         --root) native root "$2" ;;
         --download) native download "$2" ;;
         --ref) ref=$2 ;;
+        --release-url) releaseurl=$2 ;;
         --pack) packs+=("$2") ;;
         --pack-doc) packdocs+=("$2") ;;
         --previous) previous+=("$2") ;;
@@ -278,7 +290,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$sub" ] || usage "one subcommand only"; sub=$1; shift ;;
   esac
 done
-[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish, recover, pack-check, pack-verify or pack-docs"
+[ -n "$sub" ] || usage "a subcommand is required: plan, stage, swap, note-config, finish, recover, pack-check, pack-verify, pack-docs or sw-install"
 [ "$ROLLBACK" = 0 ] || [ "$sub" = recover ] || usage "--rollback belongs to the recover subcommand"
 [ -n "$code" ] || native code "$PWD"
 [ -n "$root" ] || root=$code
@@ -293,6 +305,7 @@ fi
 
 PYARGS=(--code "$code" --root "$root" --download "$download")
 [ -z "$ref" ] || PYARGS+=(--ref "$ref")
+[ -z "$releaseurl" ] || PYARGS+=(--release-url "$releaseurl")
 for s in ${skills[@]+"${skills[@]}"}; do PYARGS+=(--skills "$s"); done
 for a in ${agents[@]+"${agents[@]}"}; do PYARGS+=(--agents "$a"); done
 for a in ${packs[@]+"${packs[@]}"}; do PYARGS+=(--pack "$a"); done
@@ -471,7 +484,7 @@ remove_staging() {  # remove every staging directory of the journal (or of the p
 # Needs the lock. Every step checks the disk before it acts, and the journal is removed last, so a rerun after a kill
 # during recover decides again from what is left.
 
-REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
+REC_ACTION="" REC_MSG="" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE="" REC_SWNOTE=""
 
 recover_cleanup() {  # staging first, journal last
   remove_staging
@@ -635,7 +648,7 @@ recover_rollback() {
 }
 
 recover_core() {
-  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE=""
+  REC_ACTION=none REC_MSG="no unfinished update" REC_FROM="" REC_TO="" REC_SW=false REC_NOTE="" REC_SWNOTE=""
   if [ ! -f "$journal" ]; then rm -f "$jtmp"; return 0; fi
   jload
   journal_format_ok
@@ -684,7 +697,7 @@ recover_core() {
     else
       if [ "$storeful" = 1 ] && { [ "$sst" = pending ] || [ "$sst" = written ]; }; then recover_gate rollback; fi
       recover_rollback
-      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}"
+      REC_ACTION=rolled-back REC_MSG="rolled back to ${from:-the state before the first install}${REC_NOTE:+; $REC_NOTE}" REC_SWNOTE=$(rollback_sw_note "$from")
     fi
   fi
   recover_after
@@ -692,8 +705,14 @@ recover_core() {
 
 q() { if [ -n "$1" ]; then printf '"%s"' "$1"; else printf null; fi; }  # a JSON string or null
 
-rec_json() {  # the recovered object: action, message, from, to
-  printf '{"action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s}' "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW"
+rollback_sw_note() {  # after a rollback to version $1: "no sw serves <v> ..." when <home>/.specwright/bin/<v>/ holds no sw (sw_note);
+  [ -n "$1" ] || return 0  # <home> is resolved in Python, as sw-install resolves it (USERPROFILE on native Windows)
+  pyx sw-note "$1" 2>/dev/null || true
+}
+
+
+rec_json() {  # the recovered object: action, message, from, to, store_written, sw_note (a rollback to a version with no sw)
+  printf '{"action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s, "sw_note": %s}' "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "$(q "$REC_SWNOTE")"
 }
 
 lock_extra_members() {  # the members of LOCK_EXTRA, for splicing into another object ("" when none)
@@ -708,8 +727,8 @@ do_recover() {
   [ ! -f "$state_dir/VERSION" ] || read -r now < "$state_dir/VERSION" || true
   now=${now//$'\r'/}
   lx=$(lock_extra_members)
-  printf '{"ok": true, "interface": 2, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s%s}\n' \
-    "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "${lx:+, $lx}"
+  printf '{"ok": true, "interface": 2, "subcommand": "recover", "installed": %s, "action": "%s", "message": "%s", "from": %s, "to": %s, "store_written": %s, "sw_note": %s%s}\n' \
+    "$(q "$now")" "$REC_ACTION" "$REC_MSG" "$(q "$REC_FROM")" "$(q "$REC_TO")" "$REC_SW" "$(q "$REC_SWNOTE")" "${lx:+, $lx}"
 }
 
 # --- subcommands ------------------------------------------------------------------------------------------------
@@ -962,13 +981,14 @@ case "$sub" in
   pack-check) pyx pack-check "${PYARGS[@]}"; exit "$?" ;;  # read only: no lock, no journal, no code checkout
   pack-verify) pyx pack-verify "${PYARGS[@]}"; exit "$?" ;;  # writes only under <download>/.update-scratch/, removed before it returns
   pack-docs) pyx pack-docs "${PYARGS[@]}"; exit "$?" ;;  # no lock and no journal: a rerun completes an interrupted run
+  sw-install) pyx sw-install "${PYARGS[@]}"; exit "$?" ;;  # per user, outside the journal and the lock (design D1, D7)
   plan) do_plan ;;
   stage) do_stage ;;
   swap) do_swap ;;
   note-config) do_note_config ;;
   finish) do_finish ;;
   recover) do_recover ;;
-  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover, pack-check, pack-verify, pack-docs)" ;;
+  *) usage "unknown subcommand $sub (plan, stage, swap, note-config, finish, recover, pack-check, pack-verify, pack-docs, sw-install)" ;;
 esac
 exit "$?"
 
@@ -980,18 +1000,23 @@ import importlib.util
 import io
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
 import tarfile
+import time
+import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(newline="\n")  # no CRLF on Windows: the shell reads these lines
+# C7: the plan field `sw` and the sw-install subcommand are additive, so this stays 2. A change that alters an existing
+# subcommand's output or exit codes bumps it.
 INTERFACE = 2
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 STATE_REL = "openspec/.specwright"
-VALUE_OPTS = ("code", "root", "download", "ref", "error", "message", "extra", "plan", "mode")
+VALUE_OPTS = ("code", "root", "download", "ref", "release-url", "error", "message", "extra", "plan", "mode")
 PREFIXES = ("feat", "bugfix", "refactor", "docs", "chore")
 SCRATCH = ".update-scratch"
 
@@ -1936,6 +1961,9 @@ def make_plan(o, check=False):
                 "refusals": refusals, "warnings": warnings})
     if role in ("claim", "owner", "other"):
         doc["store"] = {"root": o["root"], "version": rec["version"] if rec else None, "owner": rec["owner"] if rec else None, "id": info["id"]}
+    if sw_tag(o.get("ref")):  # a tag ref only: main and a download without this field ship no sw (C12)
+        _, _, target = sw_host()
+        doc["sw"] = {"asset": sw_asset(target), "target": target} if target else {"asset": None, "reason": "unsupported_platform"}
     if refusals:
         # unchanged: false only while a readable journal shows a started swap (phase swapping or swapped); an unreadable
         # journal is not proof of one
@@ -2940,6 +2968,309 @@ def cmd_report(o, pos):
     if o.get("extra"):
         doc.update(json.loads(o["extra"]))
     emit(doc)
+
+
+# --- sw-install (design D1, D3, D7, D8 of native-cli-distribution) --------------------------------------------------------
+
+SW_TARGETS = ("linux-x64", "linux-arm64", "windows-x64", "macos-arm64", "macos-x64")
+SW_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
+SW_MAX_BYTES = 64 * 1024 * 1024
+SW_DEADLINE = 120
+SW_PART_AGE = 3600  # seconds: a run lasts minutes (two 120 s downloads and a 10 s check), so a younger part is another run's
+SW_READER = r"""
+import errno, sys, urllib.error, urllib.parse, urllib.request
+url, dest, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
+class Https(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise urllib.error.URLError("redirect to a URL that is not https refused: " + newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+try:
+    resp = urllib.request.build_opener(Https).open(url)
+    n = 0
+    with open(dest, "wb") as f:
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            n += len(chunk)
+            if n > limit:
+                sys.exit(3)
+            f.write(chunk)
+except urllib.error.HTTPError as e:
+    if e.code == 404:
+        sys.exit(4)
+    print("HTTP %d" % e.code)
+    sys.exit(5)
+except urllib.error.URLError as e:
+    if isinstance(e.reason, OSError) and e.reason.errno == errno.ENOENT:
+        sys.exit(4)
+    print(e.reason)
+    sys.exit(5)
+except OSError as e:
+    print(e)
+    sys.exit(5)
+"""
+
+
+class SwStop(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+def sw_tag(ref):
+    return bool(ref and SW_TAG.match(ref))
+
+
+def sw_host():
+    """(system, machine, target or None) from platform.system() and platform.machine() (D8). SPECWRIGHT_TEST_HOST=<system>/<machine>
+    replaces them in the evals."""
+    forced = os.environ.get("SPECWRIGHT_TEST_HOST")
+    system, machine = forced.split("/", 1) if forced and "/" in forced else (platform.system(), platform.machine())
+    os_name = {"linux": "linux", "darwin": "macos", "windows": "windows"}.get(system.lower())
+    arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(machine.lower())
+    target = f"{os_name}-{arch}" if os_name and arch else None
+    return system, machine, target if target in SW_TARGETS else None
+
+
+def sw_asset(target):
+    return f"sw-{target}" + (".exe" if target.startswith("windows") else "")
+
+
+def sw_sums(text):
+    """{asset: hash} from SHA256SUMS, or None when any line is not `<64 lowercase hex digits>  <one of the five asset names>`."""
+    assets = {sw_asset(t) for t in SW_TARGETS}
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    out = {}
+    for line in lines:
+        m = re.fullmatch(r"([0-9a-f]{64})  (\S+)", line)
+        if not m or m.group(2) not in assets or m.group(2) in out:
+            return None
+        out[m.group(2)] = m.group(1)
+    return out or None
+
+
+def sw_base(o):
+    """The release base URL: --release-url, else https://github.com/<owner>/<repo> from the download's origin (no_github_origin)."""
+    if o.get("release-url"):
+        url = o["release-url"].rstrip("/")
+        scheme = urllib.parse.urlsplit(url).scheme.lower()
+        # SHA256SUMS comes over the same channel as the binary, so a plaintext mirror could swap both: https, or a local
+        # file:// tree. Plain http only for the evals' local server (SPECWRIGHT_TEST_HTTP=1).
+        if scheme != "https" and scheme != "file" and not (scheme == "http" and os.environ.get("SPECWRIGHT_TEST_HTTP") == "1"):
+            raise SwStop("release_url_not_https", f"--release-url {url} is not an https:// URL: the checksums and the binary "
+                         "would come over a channel anyone on the path can rewrite; nothing was downloaded or placed")
+        return url
+    rc, out = git(o["download"], "remote", "get-url", "origin")
+    m = re.fullmatch(r"https://github\.com/([^/@\s]+)/([^/@\s]+?)(?:\.git)?/?", out.decode("utf-8", "replace").strip()) if rc == 0 else None
+    if not m:
+        raise SwStop("no_github_origin", "the download's origin is not an https://github.com/<owner>/<repo> URL, so the release's binaries "
+                     "cannot be located; install from the GitHub repository, or pass --release-url for a mirror")
+    return f"https://github.com/{m.group(1)}/{m.group(2)}"
+
+
+def sw_bounded(o):
+    path = Path(o["download"]) / "skills" / "specwright-pr" / "scripts" / "bounded.py"
+    if not path.is_file():
+        raise SwStop("download_incomplete", "the download has no skills/specwright-pr/scripts/bounded.py")
+    spec = importlib.util.spec_from_file_location("bounded", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def sw_download(bounded, url, dest, name, tag):
+    """Fetch one release file (`SHA256SUMS` or an asset) to `dest`, in a `python -I` child under bounded.run_bounded.
+
+    The limits are 120 s and 64 MiB; SPECWRIGHT_NET_DEADLINE and SPECWRIGHT_NET_MAX_BYTES can only lower them (C11, and how the
+    evals make them short). Returns True when the file is there, False when the server has no such file (HTTP 404 or a missing
+    file:// path); raises SwStop on a bound, a refused redirect or any other failure, and the caller deletes the part file.
+    C8: the download is anonymous HTTPS and needs no `gh` login or run login, like the clone; `gh release download` through
+    as.sh was rejected for that reason. C13: a failed download is never retried within a run; the user reruns the install
+    (the one-hour age limit of the part-file cleanup relies on a run lasting minutes). C15: the child follows only https
+    redirects, a redirect to any other scheme (file:// included) is refused before any downloaded file runs; file:// is accepted
+    only as the --release-url base, for tests."""
+    env = dict(os.environ)
+    limit = SW_MAX_BYTES
+    try:
+        limit = min(limit, int(env["SPECWRIGHT_NET_MAX_BYTES"]))
+    except (KeyError, ValueError):
+        pass
+    deadline = min(SW_DEADLINE, bounded.resolve(None, None, env, False)[0])
+    r = bounded.run_bounded([sys.executable, "-I", "-c", SW_READER, url, str(dest), str(limit)], deadline=deadline, env=env)
+    where = f"{name} of release {tag}"
+    if r.limit:
+        raise SwStop(r.limit, f"{r.limit}: the download of {where} passed its bound ({deadline:g} s, {limit} bytes); nothing was installed")
+    if r.rc == 3:
+        raise SwStop("response_too_large", f"response_too_large: {where} is larger than {limit} bytes; nothing was installed")
+    if r.rc == 4:
+        return False
+    if r.rc != 0:
+        raise SwStop("download_failed", f"the download of {where} from {url} failed: {r.stdout.strip() or r.stderr.strip() or 'exit ' + str(r.rc)}")
+    return True
+
+
+def sw_check(o, path, version):
+    """(ok, detail): the resolver of the download checks `path` as the sw of `version` (sw-path.sh --file)."""
+    script = Path(o["download"]) / "skills" / "specwright-pr" / "scripts" / "sw-path.sh"
+    if not script.is_file():
+        raise SwStop("download_incomplete", "the download has no skills/specwright-pr/scripts/sw-path.sh")
+    r = subprocess.run([os.environ.get("UPDATE_BASH") or "bash", script.as_posix(), "--file", Path(path).as_posix(), "--version", version],
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    lines = r.stderr.strip().splitlines()
+    return r.returncode == 0, (lines[-1] if lines else f"exit {r.returncode}")
+
+
+def file_sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def sw_unquarantine(part, asset, ref):
+    """Remove com.apple.quarantine from the checked part file and confirm it is gone, or stop before the file first runs (C16)."""
+    xattr = shutil.which("xattr")
+    if not xattr:
+        raise SwStop("quarantine_not_cleared", f"{asset} of release {ref}: xattr was not found, so the quarantine flag cannot be "
+                     "cleared; the file was not run and nothing was placed")
+    probe = [xattr, "-p", "com.apple.quarantine", str(part)]
+    if subprocess.run(probe, capture_output=True, timeout=30).returncode != 0:
+        return  # no quarantine flag on the file
+    removed = subprocess.run([xattr, "-d", "com.apple.quarantine", str(part)], capture_output=True, text=True, timeout=30)
+    if removed.returncode != 0 or subprocess.run(probe, capture_output=True, timeout=30).returncode == 0:
+        detail = (removed.stderr or "").strip() or f"exit {removed.returncode}"
+        raise SwStop("quarantine_not_cleared", f"{asset} of release {ref}: removing com.apple.quarantine failed ({detail}); the "
+                     "file was not run and nothing was placed")
+
+
+def sw_install(o):
+    """Download, check and place the host's sw for the download's version. Returns the success document; raises SwStop.
+
+    Placement (D7): `.sw-<random>.part` in <home>/.specwright/bin/<version>/, the SHA-256 against the SHA256SUMS line, then (macOS)
+    `xattr -d com.apple.quarantine`, chmod 0755, `sw-path.sh --file` on the part, and a rename onto the final path. A final file
+    is kept only with the release's SHA-256 and a passing check; any other file there is replaced by the rename. When the rename
+    fails (Windows, a running sw.exe) the final file is checked again: kept, or sw_in_use. The SHA-256 comes before the quarantine
+    removal and before the file first runs (C16), and the checks come before the rename (C17). Every stop deletes this run's parts.
+    C4: nothing prunes other versions under bin/ (another project on the machine may pin any of them). C5: SHA256SUMS comes from
+    the same release as the binary, so the checksum proves integrity, not authorship; authenticity waits for ADR 0027's signing."""
+    ref = o.get("ref") or ""
+    if not sw_tag(ref):
+        why = f"{ref} has no release binaries" if ref == "main" else f"{ref or 'this ref'} is not a release tag"
+        return {"ok": True, "interface": INTERFACE, "subcommand": "sw-install", "action": "skipped", "ref": ref or None,
+                "message": f"sw not installed: {why}"}
+    version, _ = read_version(Path(o["download"]) / "VERSION")
+    if not (version and SEMVER.match(version)):
+        raise SwStop("download_version_invalid", f"the download's VERSION holds {version!r}, not MAJOR.MINOR.PATCH")
+    if version != ref[1:]:
+        raise SwStop("download_version_invalid", f"the download's VERSION holds {version}, but the ref is {ref}: the binary must "
+                     f"report the tag's version {ref[1:]}; nothing was downloaded or placed")
+    system, machine, target = sw_host()
+    if not target:
+        raise SwStop("unsupported_platform", f"this host ({system} {machine}) has no sw binary for release {ref}; the release ships "
+                     f"{', '.join(SW_TARGETS)}")
+    asset = sw_asset(target)
+    base = sw_base(o)
+    bounded = sw_bounded(o)
+    vdir = Path(sw_home()) / ".specwright" / "bin" / version
+    final = vdir / ("sw.exe" if os.name == "nt" else "sw")
+    vdir.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    for old in vdir.glob(".sw-*.part"):  # a killed run's leftovers; a younger part belongs to a run still going
+        try:
+            if now - old.stat().st_mtime > SW_PART_AGE:
+                old.unlink()
+        except OSError:
+            pass
+    token = os.urandom(6).hex()
+    part, sums_part = vdir / f".sw-{token}.part", vdir / f".sw-{token}.sums.part"
+    url = f"{base}/releases/download/{ref}/"
+    try:
+        if not sw_download(bounded, url + "SHA256SUMS", sums_part, "SHA256SUMS", ref):
+            raise SwStop("assets_not_uploaded", f"the binaries of release {ref} are not uploaded yet (no SHA256SUMS): rerun the install "
+                         "once the release workflow has attached them")
+        try:
+            sums = sw_sums(sums_part.read_bytes().decode("utf-8"))
+        except UnicodeDecodeError:
+            sums = None
+        if sums is None:
+            raise SwStop("sums_invalid", f"SHA256SUMS of release {ref} is not made of lines `<64 lowercase hex digits>  <asset name>` "
+                         "for the five assets; no hash is used from it")
+        if asset not in sums:
+            raise SwStop("assets_not_uploaded", f"SHA256SUMS of release {ref} has no line for {asset}: rerun the install once the "
+                         "release workflow has attached the binaries")
+        if not sw_download(bounded, url + asset, part, asset, ref):
+            raise SwStop("asset_missing", f"release {ref} has SHA256SUMS but no {asset}; the sealed release needs its owner")
+        got = file_sha(part)
+        if got != sums[asset]:
+            raise SwStop("checksum_mismatch", f"{asset} of release {ref}: SHA-256 {got} differs from the SHA256SUMS line {sums[asset]}; "
+                         "the file was not run and nothing was placed")
+        if system.lower() == "darwin":  # only now: the file has the release's hash
+            sw_unquarantine(part, asset, ref)
+        if os.name != "nt":
+            os.chmod(part, 0o755)
+        ok, detail = sw_check(o, part, version)
+        if not ok:
+            raise SwStop("sw_check_failed", f"{asset} of release {ref} did not pass the version check: {detail}")
+        action = "installed"
+        if final.is_file():
+            action = "replaced"
+            if file_sha(final) == sums[asset] and sw_check(o, final, version)[0]:
+                return {"ok": True, "interface": INTERFACE, "subcommand": "sw-install", "action": "kept", "path": final.as_posix(),
+                        "asset": asset, "version": version, "ref": ref}
+        hook = os.environ.get("SPECWRIGHT_TEST_RENAME", "")  # evals only: die | fail | race
+        if hook == "die":
+            os._exit(9)
+        try:
+            if hook in ("fail", "race"):
+                if hook == "race":
+                    shutil.copyfile(part, final)
+                    os.chmod(final, 0o755)
+                raise PermissionError("rename blocked")
+            os.replace(part, final)
+        except OSError:
+            part.unlink()
+            if final.is_file() and file_sha(final) == sums[asset] and sw_check(o, final, version)[0]:
+                action = "kept"
+            else:
+                raise SwStop("sw_in_use", f"{final.as_posix()} cannot be replaced by the checked {asset} of release {ref}; stop the "
+                             "program running it and rerun the install")
+        return {"ok": True, "interface": INTERFACE, "subcommand": "sw-install", "action": action, "path": final.as_posix(),
+                "asset": asset, "version": version, "ref": ref}
+    finally:
+        for p in (part, sums_part):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+
+def sw_home():  # <home> of ADR 0027: SPECWRIGHT_HOME, else the user's home as Python finds it (USERPROFILE on Windows)
+    return os.environ.get("SPECWRIGHT_HOME") or str(Path.home())
+
+
+def cmd_sw_note(o, pos):
+    """After a rollback to version pos[0]: the note that no sw serves it, or nothing when <home>/.specwright/bin/<v>/ holds one."""
+    v = pos[0] if pos else ""
+    vdir = Path(sw_home()) / ".specwright" / "bin" / v
+    if not v or (vdir / "sw").is_file() or (vdir / "sw.exe").is_file():
+        return
+    m = SEMVER.match(v)
+    if m and (int(v.split(".")[0]), int(v.split(".")[1])) < (0, 24):  # binaries ship from 0.24.0 on
+        sys.stdout.write(f"no sw serves {v}, which no {v} skill needs")
+    else:
+        sys.stdout.write(f"no sw serves {v}: rerun the install prompt for {v} to place it")
+
+
+def cmd_sw_install(o, pos):
+    try:
+        emit(sw_install(o))
+    except SwStop as e:
+        emit({"ok": False, "interface": INTERFACE, "subcommand": "sw-install", "error": e.code, "message": e.message}, 1)
 
 
 COMMANDS = {n[4:]: f for n, f in list(globals().items()) if n.startswith("cmd_")}

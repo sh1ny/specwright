@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.23.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.24.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -221,6 +221,23 @@ Step 3 - Choose the version, download and compare versions
   enabled or still listed in `packs.json`, STOP before `stage` in the same way,
   say that download predates packs (remove the packs with a 0.16.0 or newer
   release first), and name interfaces 1 and 2.
+- Install the native `sw` binary, before Step 4 stages anything. Only a
+  release tag whose `plan` document (the check above) has an `sw` field
+  takes this step:
+  - Run `bash <download>/scripts/update.sh sw-install` with `--code`,
+    `--root`, `--download` and `--ref` as in Step 4. It downloads the
+    host's binary and `SHA256SUMS` from that tag's GitHub release, checks
+    them and places `<home>/.specwright/bin/<version>/sw[.exe]` (`<home>`
+    is `SPECWRIGHT_HOME`, else your home directory). It writes nothing in
+    the project. Record its `path` and `action` (installed, replaced or
+    kept) for Step 8.
+  - `"ok": false` is a stop: STOP before Step 4, name its `error` and show
+    its `message`. With `assets_not_uploaded`, say the release's binaries
+    are not uploaded yet and to rerun this prompt once they are. Delete the
+    temporary directory and write no file.
+  - `main`, and a `plan` without the `sw` field (a release from before
+    0.24.0), skip this step. Record `sw not installed: main has no release
+    binaries`, or `sw not installed: <tag> ships no sw`, for Step 8.
 
 Step 4 - Install files (the update script stages, then swaps)
 `update.sh` below is the downloaded `<download>/scripts/update.sh`, run from the
@@ -246,7 +263,8 @@ installed agent file (say so in Step 8).
     Step 3 check) runs `recover` on its journal before anything else and
     reports a `recovered` object. Tell the user its `message`:
     `discarded unfinished update to <to>`, `resumed update to <to>` or
-    `rolled back to <prev>`. A `journal` still listed afterwards in phase
+    `rolled back to <prev>`, followed by its `sw_note` when that is not null
+    (no `sw` binary serves `<prev>`). A `journal` still listed afterwards in phase
     `swapped` with this download's `to` is a swap that finished before the
     stamp: set `swapped` to true, skip `stage` and `swap`, and go on with
     Steps 5-7. No `swap` report exists then: take `store_written` from
@@ -415,8 +433,8 @@ Step 7 - Verify, stamp the version, finish, clean up
   to fix it, and never claim success. Say the update is swapped but not
   stamped: after the fix, rerun this prompt (it goes straight to Steps 5-7),
   or roll back with `update.sh` `recover --rollback` (it reports
-  `rolled back to <prev>`, and stops when the store is busy or no longer this
-  project's).
+  `rolled back to <prev>`, plus an `sw_note` when no `sw` serves `<prev>`, and
+  stops when the store is busy or no longer this project's).
 - Delete the temporary directory.
 
 Step 8 - Report briefly: the ref installed (`v0.6.0`, `main` as asked, or
@@ -442,6 +460,8 @@ and say the user commits them in the store; this prompt never commits.
   relying on them.
 - Without a swap (a refused, stopped or failed update that changed no installed
   file): no restart notice. Say that the installed version is unchanged.
+Report the `sw` binary as recorded in Step 3: its path and whether it was
+installed, replaced or kept, or the `sw not installed: ...` line.
 Report the OpenSpec version as recorded in Step 3: `OpenSpec <found> (pinned)`,
 or `OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1
 recorded a missing PR prerequisite, add the line

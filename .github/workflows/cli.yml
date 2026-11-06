@@ -6,7 +6,9 @@ on:
       - 'cli/**'
       - 'mise.toml'
       - 'VERSION'
+      - 'skills/specwright-pr/scripts/sw-path.sh'
       - '.github/workflows/cli.yml'
+      - '.github/workflows/sw-build.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,113 +20,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-24.04
-            target: linux-x64
-            ext: ''
-          - os: windows-latest
-            target: windows-x64
-            ext: '.exe'
-          - os: macos-latest
-            target: macos-arm64
-            ext: ''
-    name: build (${{ matrix.os }})
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
-        with:
-          version: 2026.10.12
-          install: true
-          cache: false
-      - name: Get dependencies
-        run: mise run deps
-      - name: Analyze
-        run: mise run analyze
-      - name: Check formatting
-        run: mise run format
-      - name: Test
-        run: mise run test
-      - name: Compile with the version define
-        run: mise run build
-      - name: Name the artifact and write its SHA-256
-        run: |
-          mkdir -p dist
-          name="sw-${{ matrix.target }}${{ matrix.ext }}"
-          cp "cli/build/sw${{ matrix.ext }}" "dist/$name"
-          python -c 'import hashlib, sys; print("%s  %s" % (hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest(), sys.argv[2]))' "dist/$name" "$name" > "dist/$name.sha256"
-          cat "dist/$name.sha256"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: sw-${{ matrix.target }}
-          path: dist/*
-          if-no-files-found: error
-
-  verify:
-    needs: build
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-24.04
-            target: linux-x64
-            ext: ''
-          - os: windows-latest
-            target: windows-x64
-            ext: '.exe'
-          - os: macos-latest
-            target: macos-arm64
-            ext: ''
-    name: verify (${{ matrix.os }})
-    env:
-      SW_FILE: sw-${{ matrix.target }}${{ matrix.ext }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-      - uses: actions/download-artifact@v8
-        with:
-          name: sw-${{ matrix.target }}
-          path: ${{ runner.temp }}/artifact
-      - name: Make the binary executable
-        if: runner.os != 'Windows'
-        run: chmod +x "$RUNNER_TEMP/artifact/$SW_FILE"
-      - name: Check the checksum before the file is run (macOS)
-        if: runner.os == 'macOS'
-        run: python cli/tool/verify_artifact.py --binary "$RUNNER_TEMP/artifact/$SW_FILE" --sha256 "$RUNNER_TEMP/artifact/$SW_FILE.sha256" --version-file VERSION --checksum-only
-      - name: Quarantine the binary and log whether it runs before the documented step (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          sw="$RUNNER_TEMP/artifact/$SW_FILE"
-          xattr -w com.apple.quarantine "0081;00000000;Safari;" "$sw"
-          if "$sw" version --json; then
-            echo "A2: the quarantined binary ran before the step"
-          else
-            echo "A2: the quarantined binary did not run before the step (exit $?)"
-          fi
-      - name: Apply the documented quarantine step (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          sw="$RUNNER_TEMP/artifact/$SW_FILE"
-          xattr -d com.apple.quarantine "$sw"
-          if xattr -p com.apple.quarantine "$sw" 2>/dev/null; then
-            echo "the quarantine attribute is still set after xattr -d" >&2
-            exit 1
-          fi
-      - name: Verify the checksum and that sw version --json matches VERSION
-        run: python cli/tool/verify_artifact.py --binary "$RUNNER_TEMP/artifact/$SW_FILE" --sha256 "$RUNNER_TEMP/artifact/$SW_FILE.sha256" --version-file VERSION
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sw-build.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}
