@@ -1,13 +1,13 @@
-Filesystem access is read-only, so I could not replace `review.md`. Full replacement content follows.
+Filesystem access is read-only; I could not save `review.md`. Replacement content:
 
 # Review
 
 ## Metadata
 
-- **Round:** 8
-- **Prior round:** Round 7 — APPROVE.
+- **Round:** 9
+- **Prior round:** Round 8 — APPROVE.
 - **Reviewer:** Codex
-- **Reviewed:** Proposal, both delta specs, design, tasks, round-7 review, architecture, named ADRs including 0028, and cited source, particularly `vcs.sh` and `evals/update/test_update_jj_store.py`. Static design review; SDK implementation details accepted as reported evidence. No tests run.
+- **Reviewed:** Proposal, both delta specs, complete design and tasks, round-8 review, architecture, named ADRs including 0028, and cited source, especially the specified `vcs.sh` ranges and `evals/update/test_update_jj_store.py`. Checked both D4 amendments first against `cli/lib/src/vcs/walk.dart`. Static design review; CI observations accepted as reported evidence. No tests run.
 
 ## Findings
 
@@ -35,6 +35,6 @@ CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-- **Raw-path amendment accepted.** D4 now explicitly excludes `statSync` and uses raw-path `Link.existsSync`, `File.existsSync` and `File.lengthSync`. This addresses the reported Linux failure. The accepted difference when `lengthSync` throws remains explicit. A5 and task 2.2 reflect these calls and limit non-UTF-8 checks to Linux, consistent with the reported APFS refusal.
-- **Requirement shortening accepted.** The jj-store requirement is 486 characters, below the reported 500-character limit. It preserves the jj branch rule, the download’s own `VERSION`, resolution through the download’s `sw-path.sh`, exclusion of the project’s installed binary, and refusals for no branch, `vcs_script_missing` and `sw_missing`. Task 8.5 retains the C5 check.
-- The round-7 walk-order resolution remains intact. Re-review of the complete change found no new design-level finding. Implementation parity, assumption verification and the planned CI gates remain required.
+- **File-type clarification accepted.** D4 correctly distinguishes `find -type f`’s initial regular-file filtering from `File.existsSync`’s later check. It explicitly accepts replacement by a FIFO or another non-regular file between those observations, alongside the existing accepted `lengthSync` race. This matches `walk.dart` and the user’s decision.
+- **Explicit bash path accepted.** The nested shell uses the transport’s supplied bash path. This avoids inherited-PATH lookup of the bare name `bash`, addressing the reported Windows selection of System32’s WSL launcher. The nested shell still uses `command -p find`, preserving the intended system-tool lookup.
+- Re-reading the complete change found no inconsistency requiring revision. Earlier decisions remain settled; implementation parity and the planned verification gates remain required.
