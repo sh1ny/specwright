@@ -66,7 +66,7 @@ The `install-update` Step 8 rows check the install prompt's text in `README.md`.
 
 ## 6. GitButler backend
 
-- [ ] 6.1 Port the GitButler backend to `cli/lib/src/vcs/gitbutler_backend.dart`, including `but_run`'s output cap with its kill, U+FFFD decoding, the push pinning through `pr-pair.sh context --only repos --branch`, and the fenced `but pull`. Add Dart tests in `cli/test/vcs/gitbutler_backend_test.dart` for each stop. Verify: the Dart tests pass, and the `test_gitbutler_*.py` and `test_butenv_fixture.py` tests of `evals/vcs` pass unchanged through the harness switch in the PR's CI.
+- [x] 6.1 Port the GitButler backend to `cli/lib/src/vcs/gitbutler_backend.dart`, including `but_run`'s output cap with its kill, U+FFFD decoding, the push pinning through `pr-pair.sh context --only repos --branch`, and the fenced `but pull`. Add Dart tests in `cli/test/vcs/gitbutler_backend_test.dart` for each stop. Verify: the Dart tests pass, and the `test_gitbutler_*.py` and `test_butenv_fixture.py` tests of `evals/vcs` pass unchanged through the harness switch in the PR's CI.
 
 ## 7. plan, byte parity and whole-suite parity
 
