@@ -297,36 +297,40 @@ void main() {
       skip: skip,
     );
 
-    test('scripts under a directory whose name holds the byte 0xFF', () async {
-      final raw = '${posix(tmp.path)}/odd-\udcff-dir';
-      final made = await runTool(bash!, posix(tmp.path), [
-        'cp',
-        '-r',
-        posix(scriptsDir.path),
-        raw,
-      ]);
-      expect(made.exitCode, 0, reason: decodeEscaped(made.stderr));
-      put('vcs.out', '{"ok": true, "code": "jj", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {"main": "m"}}');
-      await runTool(bash, posix(tmp.path), [
-        'cp',
-        '${posix(scriptsDir.path)}/vcs.out',
-        '${posix(scriptsDir.path)}/context.out',
-        raw,
-      ]);
-      final s = await readSettings(
-        VcsScripts(raw, bash),
-        code: code(),
-        repo: code(),
-        role: 'code',
-      );
-      expect((s.backend, s.main), ('jj', 'm'));
-      final log = await runTool(bash, posix(tmp.path), [
-        'cat',
-        '$raw/calls.log',
-      ]);
-      expect(decodeEscaped(log.stdout), startsWith('vcs|--code|'));
-    }, skip: Platform.isWindows ? 'needs a POSIX filesystem' : skip);
+    test(
+      'scripts under a directory whose name holds the byte 0xFF',
+      () async {
+        final raw = '${posix(tmp.path)}/odd-\udcff-dir';
+        final made = await runTool(bash!, posix(tmp.path), [
+          'cp',
+          '-r',
+          posix(scriptsDir.path),
+          raw,
+        ]);
+        expect(made.exitCode, 0, reason: decodeEscaped(made.stderr));
+        put('vcs.out', '{"ok": true, "code": "jj", "store": "git"}');
+        put('context.out', '{"ok": true, "code": {"main": "m"}}');
+        await runTool(bash, posix(tmp.path), [
+          'cp',
+          '${posix(scriptsDir.path)}/vcs.out',
+          '${posix(scriptsDir.path)}/context.out',
+          raw,
+        ]);
+        final s = await readSettings(
+          VcsScripts(raw, bash),
+          code: code(),
+          repo: code(),
+          role: 'code',
+        );
+        expect((s.backend, s.main), ('jj', 'm'));
+        final log = await runTool(bash, posix(tmp.path), [
+          'cat',
+          '$raw/calls.log',
+        ]);
+        expect(decodeEscaped(log.stdout), startsWith('vcs|--code|'));
+      },
+      skip: Platform.isLinux ? skip : 'Linux only: macOS (APFS) and Windows refuse names that are not valid UTF-8',
+    );
   });
 
   group('fence', () {

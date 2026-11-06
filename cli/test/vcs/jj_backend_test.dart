@@ -59,6 +59,8 @@ void main() {
 
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('claude-ncv-g5-');
+    // The pure helpers need no fixture; the build runners have no jj.
+    if (skip != false) return;
     scriptsDir = Directory('${tmp.path}/scripts')..createSync();
     File('${scriptsDir.path}/as.sh').writeAsStringSync(_fakeAs);
     originDir = Directory('${tmp.path}/origin.git')..createSync();

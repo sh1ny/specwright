@@ -119,6 +119,9 @@ void main() {
     File('${scriptsDir.path}/pr-pair.sh').writeAsStringSync(_fakeScript('pp'));
     butDir = Directory('${tmp.path}/but')..createSync();
     File('${butDir.path}/but').writeAsStringSync(_fakeBut);
+    if (!Platform.isWindows) {
+      Process.runSync('chmod', ['+x', '${butDir.path}/but']);
+    }
     originDir = Directory('${tmp.path}/origin.git')..createSync();
     sh(originDir.path, ['init', '-q', '--bare', '-b', 'main']);
     repoDir = Directory('${tmp.path}/repo')..createSync();
