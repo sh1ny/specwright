@@ -39,11 +39,15 @@ class TestInstallSw(unittest.TestCase):
         self.version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
     def test_build_placed_and_resolved(self):
-        mise = shutil.which("mise")
-        if not mise:
-            self.skipTest("mise not found")
-        done = subprocess.run([mise, "run", "install-sw"], cwd=ROOT, env=self.env, capture_output=True, text=True,
-                              encoding="utf-8", timeout=600)
+        # The task builds, then runs scripts/install-sw.sh. Rebuilding here would overwrite cli/build/sw while other
+        # tests run it, so this checks the task's wiring and runs its body on the build CI already made.
+        task = (ROOT / "mise.toml").read_text(encoding="utf-8").split("[tasks.install-sw]", 1)[1].split("[tasks.", 1)[0]
+        self.assertIn('depends = ["build"]', task)
+        self.assertIn('run = "bash scripts/install-sw.sh"', task)
+        if not (ROOT / "cli" / "build" / EXE).is_file():
+            self.skipTest("sw not built")
+        done = subprocess.run([self.bash, str(ROOT / "scripts" / "install-sw.sh")], cwd=ROOT, env=self.env,
+                              capture_output=True, text=True, encoding="utf-8", timeout=600)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         placed = self.home / ".specwright" / "bin" / self.version / EXE
         self.assertTrue(placed.is_file(), done.stdout + done.stderr)

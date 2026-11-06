@@ -32,6 +32,7 @@ while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); don
 [ -e "$proj/.git" ] || proj=$dir
 
 err=$(mktemp)
+trap 'rm -f "$err"' EXIT
 if ! sw=$("$BASH" "$VCS_DIR/sw-path.sh" --code "$proj" 2>"$err"); then
   "$py" -I -X utf8 -c 'import json, sys; print(json.dumps({"ok": False, "error": "sw_missing", "message": sys.stdin.read().rstrip("\r\n")}, ensure_ascii=False))' <"$err"
   cat "$err" >&2
