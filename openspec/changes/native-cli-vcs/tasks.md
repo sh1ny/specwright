@@ -62,7 +62,7 @@ The `install-update` Step 8 rows check the install prompt's text in `README.md`.
 
 ## 5. jj backend
 
-- [ ] 5.1 Port the jj backend to `cli/lib/src/vcs/jj_backend.dart`, including `check_directory_snapshot` with D4's walk from `cli/lib/src/vcs/walk.dart` (task 2.2), and `git check-ignore -z --stdin` input through the transport, and the `too_many_paths` thresholds computed on the same quoted form. Add Dart tests in `cli/test/vcs/jj_backend_test.dart` for each stop, including a commit that names a directory holding an oversized, unignored file in both the directory and a child of it, which asserts that `path_not_tracked` names the parent's file in `path` and the message, as `vcs.sh` does. Verify: the Dart tests pass, and the jj tests of `evals/vcs` (`jjenv.py` fixtures, `test_advance.py`, `test_flows.py`, `test_probe.py` and the jj cases of the other files) pass unchanged through the harness switch in the PR's CI.
+- [x] 5.1 Port the jj backend to `cli/lib/src/vcs/jj_backend.dart`, including `check_directory_snapshot` with D4's walk from `cli/lib/src/vcs/walk.dart` (task 2.2), and `git check-ignore -z --stdin` input through the transport, and the `too_many_paths` thresholds computed on the same quoted form. Add Dart tests in `cli/test/vcs/jj_backend_test.dart` for each stop, including a commit that names a directory holding an oversized, unignored file in both the directory and a child of it, which asserts that `path_not_tracked` names the parent's file in `path` and the message, as `vcs.sh` does. Verify: the Dart tests pass, and the jj tests of `evals/vcs` (`jjenv.py` fixtures, `test_advance.py`, `test_flows.py`, `test_probe.py` and the jj cases of the other files) pass unchanged through the harness switch in the PR's CI.
 
 ## 6. GitButler backend
 
