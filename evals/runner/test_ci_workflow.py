@@ -374,13 +374,9 @@ class TestSwBuildInSuiteJobs(unittest.TestCase):
         self.assertRegex(mise[0], r"uses: jdx/mise-action@v\d+\s")
         self.assertRegex(mise[0], r"version: '?2026\.10\.12'?\s")
         build = step_text(SW_STEP)
-        condition = re.search(r"(?m)^\s+if: (.*)$", build)
-        self.assertIsNotNone(condition, "the build is conditional on the suite")
-        mise_condition = re.search(r"(?m)^\s+if: (.*)$", mise[0])
-        self.assertIsNotNone(mise_condition)
-        for suite in needing:
-            self.assertIn("matrix.suite == '%s'" % suite, condition.group(1))
-            self.assertIn("matrix.suite == '%s'" % suite, mise_condition.group(1))
+        # every suite job builds sw: the vcs suite runs the shim against it (native-cli-vcs D9), so no suite is excluded
+        self.assertIsNone(re.search(r"(?m)^\s+if: ", build), "the build runs for every suite")
+        self.assertIsNone(re.search(r"(?m)^\s+if: ", mise[0]), "the toolchain is set up for every suite")
         self.assertIn("mise run build", build)
         self.assertIn("cli/build/sw", build)
         self.assertRegex(build, r"SPECWRIGHT_SW=\S+\"? >> \"\$GITHUB_ENV\"")

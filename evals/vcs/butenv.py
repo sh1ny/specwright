@@ -152,6 +152,12 @@ class Scratch:
             "FAKE_GH_STATE": _posix(self.gh_state),
             "FAKE_GH_LOG": _posix(self.gh_log),
         }
+        # vcs.sh is a shim around the project's sw (ADR 0028): the scripts the tests run reach it, so they need the test home.
+        from vcs_test_support import sw_home
+        try:
+            self.env["SPECWRIGHT_HOME"] = str(sw_home())
+        except unittest.SkipTest:
+            pass
 
     def __enter__(self):
         return self
@@ -181,6 +187,8 @@ class Scratch:
         shutil.move(str(world / "repo"), str(path))
         world.rmdir()
         _run([real_git(), "remote", "set-url", "origin", _posix(self.origin)], cwd=path, env=self.env)
+        from vcs_test_support import stamp_version
+        stamp_version(path)
         repo = Repo(path, self.origin, self.env)
         return repo
 

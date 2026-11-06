@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.24.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.25.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -462,6 +462,17 @@ and say the user commits them in the store; this prompt never commits.
   file): no restart notice. Say that the installed version is unchanged.
 Report the `sw` binary as recorded in Step 3: its path and whether it was
 installed, replaced or kept, or the `sw not installed: ...` line.
+Then check whether the installed skills can run: when the installed `VERSION`
+is 0.25.0 or newer (its `vcs.sh` runs `sw`), run `bash <skills dir>/specwright-pr/scripts/sw-path.sh --code <code checkout>`.
+If the resolver finds no matching `sw` binary (it exits non-zero, as after a
+`main` install with `sw not installed: main has no release binaries`), add
+the line `sw_missing: every branch, commit and finish step stops with
+sw_missing until a matching sw is placed`, and say to use a tagged install,
+or, from a Specwright checkout, the `CONTRIBUTING.md` bootstrap. Otherwise add
+no such warning. A matching binary already placed gets no warning. A tagged
+install whose `sw-install` returned installed, replaced or kept gets no
+warning. An installed version older than 0.25.0 (its `vcs.sh` runs no `sw`)
+gets no warning.
 Report the OpenSpec version as recorded in Step 3: `OpenSpec <found> (pinned)`,
 or `OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1
 recorded a missing PR prerequisite, add the line

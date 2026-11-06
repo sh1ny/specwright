@@ -1,6 +1,6 @@
 """A planning store whose backend is jj passes update.sh's branch check (store-check, the swap's store gate): the
-branch is read through the download's skills/specwright-pr/scripts/vcs.sh, because a colocated jj store has a detached
-Git HEAD. A Git store keeps the Git rule.
+branch is read through the download's `sw vcs state` (the sw of the download's own VERSION, resolved by the download's
+sw-path.sh, never the project's), because a colocated jj store has a detached Git HEAD. A Git store keeps the Git rule.
 
 Run: python -m unittest test_update_jj_store   (from evals/update)
 """
@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import jjenv  # noqa: E402
+import vcs_test_support as support  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("update_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
@@ -29,15 +30,17 @@ class JjStoreBase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(fx.rmtree, self.tmp)
 
-    def pair(self, vcs_script=True):
-        """The store pair at 0.5.0, a 0.6.0 download that changes the schema, and (vcs_script) the real specwright-pr skill
-        copied into the download before plan, so the download ships vcs.sh."""
+    def pair(self, vcs_script=True, home=True):
+        """The store pair at 0.5.0, a download at the tree's version that changes the schema, and (vcs_script) the real
+        specwright-pr skill copied into the download before plan, so the download ships vcs.sh. (home) The test home holding
+        the tree's sw at the download's version (design D9)."""
         dl0 = fx.make_mini_download(self.tmp / "dl-0.5.0", "0.5.0", 1)
         self.p = fx.make_store_pair(self.tmp, "0.5.0", download=dl0)
         self.a, self.store = self.p.a, self.p.store
         fx.write_store_record(self.store, "0.5.0", fx.owner_id(self.a))
         self.p.env.update({"JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL})
-        self.dl = fx.make_mini_download(self.tmp / "dl-0.6.0", "0.6.0", 1, schema_edit=fx.schema_edit_comment)
+        self.dl = fx.make_mini_download(self.tmp / "dl", support.tree_version(), 1, schema_edit=fx.schema_edit_comment)
+        self.p.env["SPECWRIGHT_HOME"] = str(support.sw_home() if home else self.tmp / "empty-home")
         if vcs_script:
             shutil.copytree(ROOT / "skills" / "specwright-pr", self.dl / "skills" / "specwright-pr",
                             ignore=shutil.ignore_patterns("__pycache__"))
@@ -89,6 +92,32 @@ class TestJjStore(JjStoreBase):
         code, doc = self.run_sub("swap")
         self.assertEqual(code, 0, doc)
         self.assertTrue(doc["store_written"], doc)
+
+    def test_branch_read_by_download_version_sw(self):
+        """The project's version has no usable sw (a decoy that fails the resolver); the download's has the tree's: the
+        branch is read by the download's, so the store is not refused."""
+        self.pair()
+        self.store_jj()
+        decoy = Path(self.p.env["SPECWRIGHT_HOME"]) / ".specwright" / "bin" / "0.5.0"
+        decoy.mkdir(parents=True)
+        for name in ("sw", "sw.exe"):
+            (decoy / name).write_text("not a binary\n", encoding="utf-8")
+        self.plan_stage()
+        code, doc = self.run_sub("swap")
+        self.assertEqual(code, 0, doc)
+        self.assertTrue(doc["store_written"], doc)
+
+    def test_no_sw_for_download_version_refuses(self):
+        self.pair(home=False)
+        self.store_jj()
+        self.plan_stage()
+        before = self.installed()
+        code, doc = self.run_sub("swap")
+        self.assertEqual((code, doc["error"]), (1, "sw_missing"), doc)
+        self.assertIn(support.tree_version(), doc["message"])
+        self.assertIn("mise run install-sw", doc["message"])
+        self.assertEqual(self.installed(), before)
+        self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
 
     def test_git_store_detached_still_refused(self):
         self.pair()

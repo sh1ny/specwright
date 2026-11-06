@@ -1,4 +1,5 @@
 """Shared subprocess and repository helpers for the VCS backend contract tests."""
+import atexit
 import json
 import os
 import shutil
@@ -12,7 +13,67 @@ import gitlog
 import jjenv
 
 ROOT = Path(__file__).resolve().parents[2]
-VCS = ROOT / "skills" / "specwright-pr" / "scripts" / "vcs.sh"
+sys.path.append(str(ROOT / "evals" / "cli"))
+import swharness  # noqa: E402
+
+SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
+VCS = SCRIPTS / "vcs.sh"
+STAMP = "openspec/.specwright/VERSION"
+
+_SW_HOMES = {}  # SPECWRIGHT_SW path -> (tempdir, home): one home per sw binary per test process
+
+
+def tree_version():
+    """The tree's version: the repo root VERSION file."""
+    return (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+
+def make_sw_home(sw):
+    """Copy the `sw` file to <new home>/.specwright/bin/<tree VERSION>/sw[.exe]; return the home. The caller owns the cleanup."""
+    home = Path(tempfile.mkdtemp(prefix="swv-home-"))
+    target = home / ".specwright" / "bin" / tree_version() / ("sw.exe" if os.name == "nt" else "sw")
+    target.parent.mkdir(parents=True)
+    shutil.copy2(sw, target)
+    target.chmod(0o755)
+    return home
+
+
+def forget_sw_homes():
+    """Delete every cached test home (the process exit does the same)."""
+    while _SW_HOMES:
+        _, home = _SW_HOMES.popitem()
+        shutil.rmtree(home, ignore_errors=True)
+
+
+atexit.register(forget_sw_homes)
+
+
+def sw_home():
+    """The SPECWRIGHT_HOME holding SPECWRIGHT_SW, made once per process. Skips as `sw not built` without the binary,
+    or fails when SPECWRIGHT_REQUIRE_SW=1 (swharness.require_sw)."""
+    sw = swharness.require_sw()
+    key = str(Path(sw).resolve())
+    if key not in _SW_HOMES:
+        _SW_HOMES[key] = make_sw_home(sw)
+    return _SW_HOMES[key]
+
+
+def stamp_version(repo):
+    """Write the tree's version to <repo>/openspec/.specwright/VERSION and list it in <repo>/.git/info/exclude, so no
+    status read of Git, jj or GitButler sees it (A1) and no fixture tree content changes."""
+    repo = Path(repo)
+    vfile = repo / STAMP
+    vfile.parent.mkdir(parents=True, exist_ok=True)
+    nl = chr(10)
+    vfile.write_bytes((tree_version() + nl).encode("utf-8"))
+    if not (repo / ".git").exists():
+        return
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    if STAMP not in text.splitlines():
+        prefix = "" if not text or text.endswith(nl) else nl
+        exclude.write_bytes((text + prefix + STAMP + nl).encode("utf-8"))
 
 
 def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
@@ -53,11 +114,16 @@ def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
     return env
 
 
-def bash_run(args, cwd, env=None, shim=None):
+def bash_run(args, cwd, env=None, shim=None, stamp=True):
     """Run `bash <args>` with a Git-Bash-native PATH (the way VcsTestCase.invoke does); returns the CompletedProcess.
-    `env` adds variables (its PATH is ignored); `shim` is a directory put first on PATH."""
+    `env` adds variables (its PATH is ignored); `shim` is a directory put first on PATH; `stamp` writes the
+    excluded VERSION into the directories named by --code and --repo."""
     shell_env = bash_path_env(shim)
     shell_env.update({key: value for key, value in (env or {}).items() if key != "PATH"})
+    shell_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
+    for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():  # the shim resolves sw from --code or --repo
+        if flag in ("--code", "--repo") and Path(value).is_dir() and not (Path(value) / STAMP).exists():
+            stamp_version(value)
     shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
     return subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
                            "bash-run", *map(str, args)], cwd=cwd, env=shell_env, capture_output=True, text=True,
@@ -74,6 +140,13 @@ class VcsTestCase(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self._init_git(self.repo)
+        self._stamp(self.repo)
+
+    def _stamp(self, *repos):
+        """The shim resolves sw from the code repo's installed VERSION (design D9)."""
+        for repo in repos:
+            if repo is not None and Path(repo).is_dir() and not (Path(repo) / STAMP).exists():
+                stamp_version(repo)
 
     def _init_git(self, path):
         path.mkdir(parents=True, exist_ok=True)
@@ -97,8 +170,10 @@ class VcsTestCase(unittest.TestCase):
                                      **(env or {})}, capture_output=True, text=True)
         return result
 
-    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0):
+    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None):
+        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's)."""
         target = Path(repo or self.repo)
+        scripts = Path(scripts) if scripts is not None else SCRIPTS
         args = ["--repo", str(target), "--role", role]
         if code is not None:
             args += ["--code", str(code)]
@@ -109,10 +184,12 @@ class VcsTestCase(unittest.TestCase):
         shell_env.update({key: value for key, value in getattr(self, "env", {}).items() if key != "PATH"})
         shell_env.update(env or {})
         shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
+        shell_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
+        self._stamp(target, code)
         result = subprocess.run(
-            [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
-             "vcs-test", VCS.as_posix(), command, *args, *map(str, options)],
-            cwd=target, env=shell_env, capture_output=True, text=True, encoding="utf-8")
+            [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test",
+             (scripts / "vcs.sh").as_posix(), command, *args, *map(str, options)],
+            cwd=target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)

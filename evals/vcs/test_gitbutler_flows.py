@@ -13,6 +13,7 @@ from pathlib import Path
 import jjenv
 from butenv import Scratch, require_but
 from gbnet import LOGIN, GitButlerNetworkCase
+from vcs_test_support import stamp_version, sw_home
 
 ROOT = Path(__file__).resolve().parents[2]
 PR_PAIR = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
@@ -50,7 +51,9 @@ class GitButlerFlowCase(GitButlerNetworkCase):
         """Run `bash <script> <args>` (argv[0] is "bash") with the Git shim, the logging `but` and the fake gh on PATH; one JSON line out."""
         self.assertEqual(argv[0], "bash", argv)
         env = self.fenced_env(scratch, wrap)
-        env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8"})
+        env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
+                    "SPECWRIGHT_HOME": str(sw_home())})
+        stamp_version(self.repo_path)
         env["VCS_TEST_SEARCH"] = env["PATH"]
         done = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "flow",
                                *map(str, argv[1:])], cwd=str(cwd), env=env, capture_output=True, text=True, encoding="utf-8")

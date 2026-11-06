@@ -132,7 +132,8 @@ class TestNoNetwork(Base):
         fake = bindir / "gh"
         fake.write_text("#!/usr/bin/env bash" + NL + f'echo "$@" >> "{log.as_posix()}"' + NL + "sleep 600" + NL, encoding="utf-8", newline=NL)
         fake.chmod(0o755)
-        env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""))
+        env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+                   SPECWRIGHT_HOME=str(fx.vcs_test_support.sw_home()))
         args = [bashexe.bash(), str(fx.SCRIPT), "undo-archive-plan", "--change", "add-x", "--archived-name", f"{fx.DATE}-add-x",
                 "--prefix", P, "--main", "main"]
         t0 = time.monotonic()
