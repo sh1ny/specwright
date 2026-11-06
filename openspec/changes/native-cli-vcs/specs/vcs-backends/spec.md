@@ -92,7 +92,7 @@ Until those scripts are ported, `sw vcs` SHALL read the backend settings and the
 ## MODIFIED Requirements
 
 ### Requirement: A jj store passes the update's branch check
-The install and update SHALL accept a store whose backend is `jj` and whose Git HEAD is detached. They SHALL read its current branch with the jj rule, using the downloaded copy's `sw-path.sh` to resolve the `sw` of the download's own `VERSION` and running its `sw vcs state` with the download's scripts directory, never the project's installed `sw`. They SHALL still refuse a store on no branch by that rule, SHALL refuse with `vcs_script_missing` when the downloaded copy lacks that script, and SHALL refuse with `sw_missing` when no matching `sw` for the download's version is installed.
+The install and update SHALL accept a store whose backend is `jj` and whose Git HEAD is detached, and SHALL read its branch with the jj rule through the download's `sw vcs state` at the download's own `VERSION`, resolved by the download's `sw-path.sh`, never the project's installed `sw`. They SHALL still refuse a store on no branch, SHALL refuse with `vcs_script_missing` when the download lacks that script, and with `sw_missing` when no `sw` for the download's version is installed.
 
 #### Scenario: jj store on main
 - **WHEN** `planning_store.vcs` is `jj`, main points at the store's `@-`, and the update runs

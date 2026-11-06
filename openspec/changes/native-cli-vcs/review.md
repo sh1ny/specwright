@@ -4,10 +4,10 @@ Filesystem access is read-only, so I could not replace `review.md`. Full replace
 
 ## Metadata
 
-- **Round:** 7
-- **Prior round:** Round 6 — REVISE; walk-order finding M1.
+- **Round:** 8
+- **Prior round:** Round 7 — APPROVE.
 - **Reviewer:** Codex
-- **Reviewed:** Proposal, both delta specs, design, tasks, round-6 review, architecture, all ADRs named by the design including 0028, and cited source, particularly `vcs.sh`, process transport and commit evals. Static design review; no tests run.
+- **Reviewed:** Proposal, both delta specs, design, tasks, round-7 review, architecture, named ADRs including 0028, and cited source, particularly `vcs.sh` and `evals/update/test_update_jj_store.py`. Static design review; SDK implementation details accepted as reported evidence. No tests run.
 
 ## Findings
 
@@ -21,7 +21,7 @@ None.
 
 ### Suggestions
 
-Keep A5 unverified until the planned raw-path and cross-platform walk checks pass.
+None.
 
 ## Verdict
 
@@ -35,6 +35,6 @@ CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-- **Round-6 M1 — resolved at design level.** D4 now requires regrouping the records before checking them: each directory’s own files precede its child subtrees, preserving file enumeration order and child-subtree encounter order without sorting. Empty subtrees cannot affect the selected oversized file. This addresses the ordering difference in `vcs.sh:933-954`.
-- Task 2.2 explicitly tests regrouping with fixed records where a child’s file precedes its parent’s. Task 5.1 adds the corresponding jj commit case with oversized, unignored parent and child files, asserting the parent’s filename in both `path` and the message.
-- The round-5 resolutions accepted in round 6 remain intact. The full re-review found no new design-level finding. Approval covers the design; implementation parity and the planned verification gates remain required.
+- **Raw-path amendment accepted.** D4 now explicitly excludes `statSync` and uses raw-path `Link.existsSync`, `File.existsSync` and `File.lengthSync`. This addresses the reported Linux failure. The accepted difference when `lengthSync` throws remains explicit. A5 and task 2.2 reflect these calls and limit non-UTF-8 checks to Linux, consistent with the reported APFS refusal.
+- **Requirement shortening accepted.** The jj-store requirement is 486 characters, below the reported 500-character limit. It preserves the jj branch rule, the download’s own `VERSION`, resolution through the download’s `sw-path.sh`, exclusion of the project’s installed binary, and refusals for no branch, `vcs_script_missing` and `sw_missing`. Task 8.5 retains the C5 check.
+- The round-7 walk-order resolution remains intact. Re-review of the complete change found no new design-level finding. Implementation parity, assumption verification and the planned CI gates remain required.
