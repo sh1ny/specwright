@@ -124,7 +124,7 @@ class TestUnknownBackend(ScriptsCase):
 
 class TestNonUtf8ScriptsDirectory(ScriptsCase):
     @unittest.skipUnless(sys.platform.startswith("linux"),
-                         "a directory name holding the byte 0xFF needs a Linux filesystem (macOS and Windows reject it)")
+                         "platform: a directory name holding the byte 0xFF needs a Linux filesystem (macOS and Windows reject it)")
     def test_scripts_under_non_utf8_directory(self):
         require_jj()
         scratch = Scratch()

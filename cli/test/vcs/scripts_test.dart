@@ -558,18 +558,14 @@ void main() {
       skip: skip,
     );
 
-    test(
-      'the backend the settings name runs after the probe',
-      () async {
-        gitInit();
-        put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-        put('context.out', '{"ok": true, "code": {}}');
-        final (code, doc) = await run('state', []);
-        expect(code, 0);
-        expect(doc['ok'], true);
-        expect(doc['backend'], 'git');
-      },
-      skip: skip,
-    );
+    test('the backend the settings name runs after the probe', () async {
+      gitInit();
+      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
+      put('context.out', '{"ok": true, "code": {}}');
+      final (code, doc) = await run('state', []);
+      expect(code, 0);
+      expect(doc['ok'], true);
+      expect(doc['backend'], 'git');
+    }, skip: skip);
   });
 }
