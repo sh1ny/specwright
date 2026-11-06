@@ -54,7 +54,7 @@ The `install-update` Step 8 rows check the install prompt's text in `README.md`.
 
 ## 3. Settings and identity fence
 
-- [ ] 3.1 Write failing tests in `evals/vcs/test_sw_scripts.py` for the four rows of "sw vcs reads settings and fences identity through the existing scripts", run through the D10 harness switch. Implement the `pr-pair.sh vcs`/`context` reads and the `as.sh` fence (with `--resolve`) in `cli/lib/src/vcs/scripts.dart`, from the scripts directory in the stdin header, with `vcs.sh`'s arguments and `Stop` mapping. Verify: `python -m unittest evals/vcs/test_sw_scripts.py` passes (the Linux row through CI), and flip those four rows green.
+- [x] 3.1 Write failing tests in `evals/vcs/test_sw_scripts.py` for the four rows of "sw vcs reads settings and fences identity through the existing scripts", run through the D10 harness switch. Implement the `pr-pair.sh vcs`/`context` reads and the `as.sh` fence (with `--resolve`) in `cli/lib/src/vcs/scripts.dart`, from the scripts directory in the stdin header, with `vcs.sh`'s arguments and `Stop` mapping. Verify: `python -m unittest evals/vcs/test_sw_scripts.py` passes (the Linux row through CI), and flip those four rows green.
 
 ## 4. Git backend
 

@@ -185,8 +185,10 @@ class VcsTestCase(unittest.TestCase):
                                      **(env or {})}, capture_output=True, text=True)
         return result
 
-    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0):
+    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None):
+        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's)."""
         target = Path(repo or self.repo)
+        scripts = Path(scripts) if scripts is not None else SCRIPTS
         args = ["--repo", str(target), "--role", role]
         if code is not None:
             args += ["--code", str(code)]
@@ -203,9 +205,9 @@ class VcsTestCase(unittest.TestCase):
             shell_env["SPECWRIGHT_HOME"] = str(sw_home())
             self._stamp(target, code)
             argv = sw_vcs_command(sw.as_posix())
-            stdin = sw_vcs_stdin(*sw_vcs_header(), command, [*args, *map(str, options)])
+            stdin = sw_vcs_stdin(scripts.as_posix(), sw_vcs_header()[1], command, [*args, *map(str, options)])
         else:
-            argv = [VCS.as_posix(), command, *args, *map(str, options)]
+            argv = [(scripts / "vcs.sh").as_posix(), command, *args, *map(str, options)]
         result = subprocess.run(
             [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$@"' if stdin is not None
              else 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test", *argv],
