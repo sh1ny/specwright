@@ -1,4 +1,5 @@
 """Shared subprocess and repository helpers for the VCS backend contract tests."""
+import atexit
 import json
 import os
 import shutil
@@ -12,7 +13,86 @@ import gitlog
 import jjenv
 
 ROOT = Path(__file__).resolve().parents[2]
-VCS = ROOT / "skills" / "specwright-pr" / "scripts" / "vcs.sh"
+sys.path.append(str(ROOT / "evals" / "cli"))
+import swharness  # noqa: E402
+
+SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
+VCS = SCRIPTS / "vcs.sh"
+STAMP = "openspec/.specwright/VERSION"
+
+_SW_HOMES = {}  # SPECWRIGHT_SW path -> (tempdir, home): one home per sw binary per test process
+
+
+def tree_version():
+    """The tree's version: the repo root VERSION file."""
+    return (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+
+def make_sw_home(sw):
+    """Copy the `sw` file to <new home>/.specwright/bin/<tree VERSION>/sw[.exe]; return the home. The caller owns the cleanup."""
+    home = Path(tempfile.mkdtemp(prefix="swv-home-"))
+    target = home / ".specwright" / "bin" / tree_version() / ("sw.exe" if os.name == "nt" else "sw")
+    target.parent.mkdir(parents=True)
+    shutil.copy2(sw, target)
+    target.chmod(0o755)
+    return home
+
+
+def forget_sw_homes():
+    """Delete every cached test home (the process exit does the same)."""
+    while _SW_HOMES:
+        _, home = _SW_HOMES.popitem()
+        shutil.rmtree(home, ignore_errors=True)
+
+
+atexit.register(forget_sw_homes)
+
+
+def sw_home():
+    """The SPECWRIGHT_HOME holding SPECWRIGHT_SW, made once per process. Skips as `sw not built` without the binary,
+    or fails when SPECWRIGHT_REQUIRE_SW=1 (swharness.require_sw)."""
+    sw = swharness.require_sw()
+    key = str(Path(sw).resolve())
+    if key not in _SW_HOMES:
+        _SW_HOMES[key] = make_sw_home(sw)
+    return _SW_HOMES[key]
+
+
+def stamp_version(repo):
+    """Write the tree's version to <repo>/openspec/.specwright/VERSION and list it in <repo>/.git/info/exclude, so no
+    status read of Git, jj or GitButler sees it (A1) and no fixture tree content changes."""
+    repo = Path(repo)
+    vfile = repo / STAMP
+    vfile.parent.mkdir(parents=True, exist_ok=True)
+    nl = chr(10)
+    vfile.write_bytes((tree_version() + nl).encode("utf-8"))
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    if STAMP not in text.splitlines():
+        prefix = "" if not text or text.endswith(nl) else nl
+        exclude.write_bytes((text + prefix + STAMP + nl).encode("utf-8"))
+
+
+# Temporary harness switch (design D10), read only here: SPECWRIGHT_VCS_VIA_SW=1 runs `<sw> vcs --args-stdin` in place of
+# `bash vcs.sh <args>`. Without it the suite runs vcs.sh as it always did.
+def via_sw():
+    return os.environ.get("SPECWRIGHT_VCS_VIA_SW") == "1"
+
+
+def sw_vcs_header():
+    """The first two stdin records `sw vcs` is handed: the scripts directory (forward-slash form) and the bash (Windows form)."""
+    return SCRIPTS.as_posix(), str(Path(jjenv.find_bash()))
+
+
+def sw_vcs_command(sw):
+    """The argv that starts `sw vcs`: nothing but --args-stdin follows the command."""
+    return [str(sw), "vcs", "--args-stdin"]
+
+
+def sw_vcs_stdin(scripts, bash, command, args):
+    """Stdin bytes for `sw vcs --args-stdin`: scripts directory, bash, subcommand, then each argument, each NUL-terminated."""
+    return b"".join(str(record).encode("utf-8", "surrogateescape") + b"\0" for record in (scripts, bash, command, *args))
 
 
 def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
@@ -74,6 +154,14 @@ class VcsTestCase(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self._init_git(self.repo)
+        if via_sw():
+            self._stamp(self.repo)
+
+    def _stamp(self, *repos):
+        """The shim resolves sw from the code repo's installed VERSION (design D9)."""
+        for repo in repos:
+            if repo is not None and (Path(repo) / ".git").exists() and not (Path(repo) / STAMP).exists():
+                stamp_version(repo)
 
     def _init_git(self, path):
         path.mkdir(parents=True, exist_ok=True)
@@ -109,10 +197,24 @@ class VcsTestCase(unittest.TestCase):
         shell_env.update({key: value for key, value in getattr(self, "env", {}).items() if key != "PATH"})
         shell_env.update(env or {})
         shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
+        stdin = None
+        if via_sw():
+            sw = sw_home() / ".specwright" / "bin" / tree_version() / ("sw.exe" if os.name == "nt" else "sw")
+            shell_env["SPECWRIGHT_HOME"] = str(sw_home())
+            self._stamp(target, code)
+            argv = sw_vcs_command(sw.as_posix())
+            stdin = sw_vcs_stdin(*sw_vcs_header(), command, [*args, *map(str, options)])
+        else:
+            argv = [VCS.as_posix(), command, *args, *map(str, options)]
         result = subprocess.run(
-            [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
-             "vcs-test", VCS.as_posix(), command, *args, *map(str, options)],
-            cwd=target, env=shell_env, capture_output=True, text=True, encoding="utf-8")
+            [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$@"' if stdin is not None
+             else 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test", *argv],
+            cwd=target, env=shell_env, input=stdin, capture_output=True, text=stdin is None,
+            encoding="utf-8" if stdin is None else None)
+        if stdin is not None:
+            result = subprocess.CompletedProcess(result.args, result.returncode,
+                                                 result.stdout.decode("utf-8", "surrogateescape"),
+                                                 result.stderr.decode("utf-8", "surrogateescape"))
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)
