@@ -84,6 +84,9 @@ Uint8List _recordBytes(String text) {
   return Uint8List.fromList([...bytes, 0]);
 }
 
+/// Python's `repr()` of a `str` (see [_pyRepr]); `%r` in `vcs.sh` messages.
+String pyRepr(String s) => _pyRepr(s);
+
 /// Python's `repr()` of a `str`: single quotes unless the text holds `'` and
 /// no `"`; backslash, the quote, newline, return, tab and other controls
 /// escaped; a lone surrogate as a `u` escape.

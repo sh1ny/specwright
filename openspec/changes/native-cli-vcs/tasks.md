@@ -58,7 +58,7 @@ The `install-update` Step 8 rows check the install prompt's text in `README.md`.
 
 ## 4. Git backend
 
-- [ ] 4.1 Port the Git backend (`state`, `branch-create`, `switch`, `commit`, `merge`, `delete-branch`, `fetch-main`, `pull`, `push`, and the rest of the surface `vcs.sh` dispatches for Git) to `cli/lib/src/vcs/git_backend.dart`, function by function against `vcs.sh`, with Dart tests in `cli/test/vcs/git_backend_test.dart` for each stop (error code, message, exit code). Verify: the Dart tests pass, and the Git tests of `evals/vcs` (`test_git_backend.py`, `test_state.py`, `test_branch.py`, `test_commit.py`, `test_merge.py`, `test_delete.py`, `test_fetch_pull.py`, `test_push.py`, `test_switch.py`, `test_paths.py`) pass unchanged through the harness switch in the PR's CI.
+- [x] 4.1 Port the Git backend (`state`, `branch-create`, `switch`, `commit`, `merge`, `delete-branch`, `fetch-main`, `pull`, `push`, and the rest of the surface `vcs.sh` dispatches for Git) to `cli/lib/src/vcs/git_backend.dart`, function by function against `vcs.sh`, with Dart tests in `cli/test/vcs/git_backend_test.dart` for each stop (error code, message, exit code). Verify: the Dart tests pass, and the Git tests of `evals/vcs` (`test_git_backend.py`, `test_state.py`, `test_branch.py`, `test_commit.py`, `test_merge.py`, `test_delete.py`, `test_fetch_pull.py`, `test_push.py`, `test_switch.py`, `test_paths.py`) pass unchanged through the harness switch in the PR's CI.
 
 ## 5. jj backend
 
