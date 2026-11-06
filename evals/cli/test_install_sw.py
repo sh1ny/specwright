@@ -44,8 +44,7 @@ class TestInstallSw(unittest.TestCase):
         task = (ROOT / "mise.toml").read_text(encoding="utf-8").split("[tasks.install-sw]", 1)[1].split("[tasks.", 1)[0]
         self.assertIn('depends = ["build"]', task)
         self.assertIn('run = "bash scripts/install-sw.sh"', task)
-        if not (ROOT / "cli" / "build" / EXE).is_file():
-            self.skipTest("sw not built")
+        swharness.require_sw()  # skips as `sw not built` (fails under SPECWRIGHT_REQUIRE_SW=1) without cli/build's sw
         done = subprocess.run([self.bash, str(ROOT / "scripts" / "install-sw.sh")], cwd=ROOT, env=self.env,
                               capture_output=True, text=True, encoding="utf-8", timeout=600)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
