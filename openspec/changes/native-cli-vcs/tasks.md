@@ -89,7 +89,7 @@ The `install-update` Step 8 rows check the install prompt's text in `README.md`.
 
 ## 9. Release
 
-- [ ] 9.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.25.0` (a minor bump for a feature, per `CONTRIBUTING.md`'s pre-1.0 rule). Rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including the `mise run install-sw` task and the bootstrap. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-vcs/proposal.md` both pass.
+- [x] 9.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.25.0` (a minor bump for a feature, per `CONTRIBUTING.md`'s pre-1.0 rule). Rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including the `mise run install-sw` task and the bootstrap. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-vcs/proposal.md` both pass.
 
 ## Workflow follow-up
 

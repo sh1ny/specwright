@@ -75,8 +75,15 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-The VCS boundary is the first shipped script to run inside the native `sw` binary. Every branch read and version-control write now goes through `sw vcs`, with the same JSON, exit codes and Git, jj and GitButler behaviour as before. `vcs.sh` is now a shim around it.
+Version-control work now runs in the native `sw` binary. Every branch read and version-control write goes through `sw vcs`, with the same JSON, exit codes and Git, jj and GitButler behaviour as before, and `vcs.sh` is a shim around it. Each project needs an `sw` matching its installed version: a tagged install places it, and a checkout of this repository places it with `mise run install-sw` and the bootstrap in `CONTRIBUTING.md`.
+
+### Added
+
+- `mise run install-sw` builds `sw` from the tree, checks it and places it under `~/.specwright/bin/<version>/`.
+- `CONTRIBUTING.md` describes how to bootstrap a checkout of this repository from its own tree, ending with `mise run install-sw`.
 
 ### Changed
 
 - `vcs.sh` now runs `sw vcs`, the Dart port of its Git, jj and GitButler backends, with unchanged JSON documents and exit codes. A missing or mismatched `sw` stops with `sw missing or mismatched: rerun the install prompt`, with no fallback to the old Python (#148).
+- The update reads a jj planning store's branch with the downloaded version's `sw`, and refuses with `sw_missing` when none is installed.
+- The install prompt's Step 8 warns when no matching `sw` is installed, so VCS steps would stop with `sw_missing`.
