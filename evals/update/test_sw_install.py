@@ -191,7 +191,8 @@ class Base(unittest.TestCase):
     # --- running ---
 
     def env(self, **extra):
-        env = swharness.fixture_env(SPECWRIGHT_HOME=self.home.as_posix(), **extra)
+        # SPECWRIGHT_TEST_HTTP=1 lets the local http server below stand in for an https mirror (evals only).
+        env = swharness.fixture_env(SPECWRIGHT_HOME=self.home.as_posix(), SPECWRIGHT_TEST_HTTP="1", **extra)
         return env
 
     def sw_install(self, ref="tag", base=None, dl=None, env=None, **extra):
@@ -393,6 +394,15 @@ class TestBounds(Base):
         base = self.serve(redirect={asset_of(self.target): "http://127.0.0.1:9/elsewhere"})
         self.stopped("download_failed", "redirect", base=base)
         self.assert_nothing_placed()
+
+    def test_plain_http_release_url_is_refused(self):
+        # SHA256SUMS and the binary would share one plaintext channel: the mirror must be https (or a local file:// tree).
+        self.release()
+        base = self.serve()
+        env = swharness.fixture_env(SPECWRIGHT_HOME=self.home.as_posix())  # without the evals-only http hook
+        self.stopped("release_url_not_https", base, base=base, env=env)
+        self.assert_nothing_placed()
+        self.assertFalse(self.bin.exists(), "nothing is created before the URL is checked")
 
 
 class TestPlan(Base):

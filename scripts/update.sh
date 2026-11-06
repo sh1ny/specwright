@@ -24,7 +24,7 @@
 #   --pack-doc P.ID=PATH  plan: the path of document ID of enabled pack P, relative to the code toplevel (the specwright.yaml
 #                     override, else the manifest's default); repeat for each document the prompt resolved
 #   --release-url URL sw-install only: the base of the release (default: the download's github.com origin); files are read from
-#                     <URL>/releases/download/<ref>/. For a mirror, and for the evals (file:// or a local http server)
+#                     <URL>/releases/download/<ref>/. For an https mirror or a local file:// tree (http is refused)
 #   --rollback        recover only: roll the swapped update back instead of resuming it (the prompt's Step 7 failed)
 # The installed version is read from <code>/openspec/.specwright/VERSION (missing = a fresh install).
 #
@@ -1007,6 +1007,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(newline="\n")  # no CRLF on Windows: the shell reads these lines
@@ -3055,7 +3056,14 @@ def sw_sums(text):
 def sw_base(o):
     """The release base URL: --release-url, else https://github.com/<owner>/<repo> from the download's origin (no_github_origin)."""
     if o.get("release-url"):
-        return o["release-url"].rstrip("/")
+        url = o["release-url"].rstrip("/")
+        scheme = urllib.parse.urlsplit(url).scheme.lower()
+        # SHA256SUMS comes over the same channel as the binary, so a plaintext mirror could swap both: https, or a local
+        # file:// tree. Plain http only for the evals' local server (SPECWRIGHT_TEST_HTTP=1).
+        if scheme != "https" and scheme != "file" and not (scheme == "http" and os.environ.get("SPECWRIGHT_TEST_HTTP") == "1"):
+            raise SwStop("release_url_not_https", f"--release-url {url} is not an https:// URL: the checksums and the binary "
+                         "would come over a channel anyone on the path can rewrite; nothing was downloaded or placed")
+        return url
     rc, out = git(o["download"], "remote", "get-url", "origin")
     m = re.fullmatch(r"https://github\.com/([^/@\s]+)/([^/@\s]+?)(?:\.git)?/?", out.decode("utf-8", "replace").strip()) if rc == 0 else None
     if not m:

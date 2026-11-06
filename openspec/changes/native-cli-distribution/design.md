@@ -135,7 +135,7 @@ The proposal covers why. This section lists the facts the design builds on.
 - **C16:** the SHA-256 check comes before the macOS quarantine removal and before the downloaded file first runs. Kind: invariant. Destination: spec: specs/install-update/spec.md → Requirement: The macOS install clears quarantine only on the file it checked
 - **C17:** the checksum and resolver checks complete before the temporary file is placed, by a rename within the version directory. The final executable is never written in place. Kind: invariant. Destination: spec: specs/install-update/spec.md → Requirement: Placing sw is atomic and keeps other versions
 - **C14:** pull requests and releases build and check `sw` through the one reusable `sw-build.yml`, so a release binary never takes a path that pull requests did not exercise. Kind: rejected alternative (a separate release build). Destination: doc comment: .github/workflows/sw-build.yml header
-- **C15:** the downloader follows only `https` redirects (`file://` only as a `--release-url` base for tests), before any downloaded file runs. Kind: invariant. Destination: doc comment: scripts/update.sh sw_download
+- **C15:** the downloader follows only `https` redirects, and a `--release-url` base must be `https://` or a local `file://` tree (`release_url_not_https` otherwise; plain `http` only for the evals' local server under `SPECWRIGHT_TEST_HTTP=1`), before any downloaded file runs. Kind: invariant. Destination: doc comment: scripts/update.sh sw_download
 
 ## Diagrams (FULL)
 
