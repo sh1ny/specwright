@@ -158,4 +158,6 @@ jobs:
       - name: Run the suite
         env:
           SPECWRIGHT_PY38: ${{ steps.py38.outputs.python-path }}
+          # TEMPORARY (native-cli-vcs D10): the vcs suite runs sw vcs through the harness; task 8.1 removes this line
+          SPECWRIGHT_VCS_VIA_SW: ${{ matrix.suite == 'vcs' && '1' || '' }}
         run: python evals/run.py --timeout ${{ matrix.run_timeout }} ${{ matrix.suite }}

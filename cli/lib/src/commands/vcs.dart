@@ -5,6 +5,7 @@ import '../vcs/document.dart';
 import '../vcs/git_backend.dart';
 import '../vcs/gitbutler_backend.dart';
 import '../vcs/jj_backend.dart';
+import '../vcs/plan.dart';
 import '../vcs/probe.dart';
 import '../vcs/scripts.dart';
 import '../vcs/stop.dart';
@@ -86,19 +87,13 @@ VcsHandler _operation(String command) => probed((VcsSession s) async {
   throw StateError('$command is not ported yet');
 });
 
-/// The dispatch seam: subcommand name to handler. The jj, GitButler and plan
-/// task groups replace the remaining entries.
-///
-/// TEMPORARY: `plan` and the non-Git backends run the probe and then answer
-/// `internal_error` ("not ported yet").
+/// The dispatch seam: subcommand name to handler.
 final Map<String, VcsHandler> vcsHandlers = {
   'probe': probed(probeDocument),
   'state': probed(_state),
   for (final command in knownCommands)
     if (command != 'probe' && command != 'state')
-      command: command == 'plan'
-          ? probed((_) async => throw StateError('plan is not ported yet'))
-          : _operation(command),
+      command: command == 'plan' ? probed(planDocument) : _operation(command),
 };
 
 const String _argvUsage = 'usage: sw vcs --args-stdin';
