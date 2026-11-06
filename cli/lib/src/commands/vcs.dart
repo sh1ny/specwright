@@ -152,10 +152,15 @@ Map<String, Object?> _internalError(Object e) => {
   },
 };
 
+/// Reads the handoff with `readByteSync`, never as a stream: at a pipe's EOF
+/// the stream closes fd 0, and Dart 3.13's process spawn can then hand a
+/// child's stdin pipe the number 0 and close it in the child
+/// (dart-lang/sdk#64744), so a tool's `read` fails with EBADF. The handoff is
+/// a few hundred bytes.
 Future<List<int>> _readAllStdin() async {
   final bytes = <int>[];
-  await for (final chunk in io.stdin) {
-    bytes.addAll(chunk);
+  for (var b = io.stdin.readByteSync(); b != -1; b = io.stdin.readByteSync()) {
+    bytes.add(b);
   }
   return bytes;
 }
