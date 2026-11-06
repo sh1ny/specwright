@@ -45,18 +45,15 @@ Future<String> resolvePath(String bash, String path) async {
 bool _samePath(String a, String b) =>
     Platform.isWindows ? a.toLowerCase() == b.toLowerCase() : a == b;
 
-FileSystemEntityType _typeOf(String path) {
-  try {
-    return File.fromRawPath(encodeEscaped(path)).statSync().type;
-  } on Object {
-    return FileSystemEntityType.notFound;
-  }
+// Raw-byte checks only: `statSync` stats the lossy `path` string (D4).
+bool _exists(String path) {
+  final bytes = encodeEscaped(path);
+  return File.fromRawPath(bytes).existsSync() ||
+      Directory.fromRawPath(bytes).existsSync();
 }
 
-bool _exists(String path) => _typeOf(path) != FileSystemEntityType.notFound;
-
 bool _isDirectory(String path) =>
-    _typeOf(path) == FileSystemEntityType.directory;
+    Directory.fromRawPath(encodeEscaped(path)).existsSync();
 
 String _join(String base, String rel) {
   final absolute =
