@@ -80,4 +80,4 @@
 
 - Pre-ship review, then mark the draft PR ready, Codex review, CI on three OSes, then archive and finish per `finish: pr`.
 - After the merge, installs at 0.28.0 need `sw` 0.28.0 placed: a tagged install or `mise run install-sw`.
-- Next on M8: `native-cli-pr-pair` ports `pr-pair.sh` and `reviewers.py`; `native-cli-retire-scripts` switches `sw vcs` to the in-process fence (C7) and replaces the external `mktemp`, `ln`, `sleep` and `date` (C5).
+- Next on M8: `native-cli-pr-pair` ports `pr-pair.sh` and `reviewers.py`; `native-cli-retire-scripts` switches `sw vcs` to the in-process fence (C7) and replaces the external `mktemp`, `ln` and `sleep` (C5).

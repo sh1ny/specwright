@@ -96,9 +96,9 @@ TIER: FULL
 - **Important:** yes: chosen with the user because it decides how parity is reached
 - **Chosen by:** user
 
-### D8: `mktemp`, `ln`, `sleep` and `date` stay external commands through bash
+### D8: `mktemp`, `ln` and `sleep` stay external commands through bash
 
-- **Choice:** the reply's body file, the evaluator's material file and the head record's temp file come from `mktemp` run through `runTool`. The head record is published with `ln` through `runTool`. The watch naps run `sleep <n>` through `runTool`. The deadline fallback uses `date +%s` through `runTool`. Each keeps the script's error path when the command fails: exit 4 `no temp file`, `cannot create a temp file for the reviewer evaluator` exit 1, `first_seen_unsaved`. On Windows, `mktemp` output is converted with `cygpath -m` in the same bash call before `sw` opens the file. `native-cli-retire-scripts` replaces them, together with the eval hooks that fake them.
+- **Choice:** the reply's body file, the evaluator's material file and the head record's temp file come from `mktemp` run through `runTool`. The head record is published with `ln` through `runTool`. The watch naps run `sleep <n>` through `runTool`. The script's `date +%s` deadline fallback has no counterpart: it ran only when `bounded.py --deadline-at` printed nothing, and `sw` works out the same now-plus-120 deadline in-process, so `date` never runs (amended during apply). Each keeps the script's error path when the command fails: exit 4 `no temp file`, `cannot create a temp file for the reviewer evaluator` exit 1, `first_seen_unsaved`. On Windows, `mktemp` output is converted with `cygpath -m` in the same bash call before `sw` opens the file. `native-cli-retire-scripts` replaces them, together with the eval hooks that fake them.
 - **Rejected:** native temp files and timers with test-only environment hooks. The eval fixtures would change, so the unchanged evals would no longer prove parity for those tests (Q2).
 - **Reversal cost:** low
 - **Important:** yes: binds future changes (retire-scripts replaces the hooks)
@@ -167,7 +167,7 @@ TIER: FULL
 | D5 | Fenced environment | Full map, `includeParentEnvironment: false`; discovery without a token, verification with it | Overrides on the parent's environment | low | no | agent |
 | D6 | gh calls | In-process `BoundedRun` with a bash 3.2 framed prelude, arguments as escaped records on stdin on every OS, and a new `environment` map; `reviewers.py` likewise | `sw run --bounded` child; `resolveCommand`; `planLaunch` (argv on POSIX) | low | no | agent |
 | D7 | Snapshot shaping | Same GraphQL and jq text, run by `gh --jq`; text tools in Dart | Jq logic re-implemented in Dart | low | yes | user |
-| D8 | `mktemp`, `ln`, `sleep`, `date` | External through bash until retire-scripts | Native with test hooks | low | yes | user |
+| D8 | `mktemp`, `ln`, `sleep` | External through bash until retire-scripts | Native with test hooks | low | yes | user |
 | D9 | Watch state | Same paths, names, nonce and order; `nativePath` on Windows | New `v3` layout | medium | yes | agent |
 | D10 | Shim form | As `vcs.sh` but with no `mktemp`; project from the current directory | From `--repo`; from git toplevel | low | no | agent |
 | D11 | `sw vcs` fence | Keeps calling `as.sh` | In-process fence now | low | yes | user |
@@ -186,7 +186,7 @@ TIER: FULL
 - **C2:** the fenced command runs through bash's own lookup (`exec` in a bash prelude), never through `resolveCommand`, so extensionless scripts and bash's 127 behave as `as.sh` did. Kind: rejected alternative. Destination: doc comment: cli/lib/src/fence/exec_inherit.dart runFenced
 - **C3:** a fenced command that dies by signal N gives 128+N, not the signal itself. Kind: deliberate gap. Destination: spec: specs/github-identity/spec.md → Requirement: The fenced command keeps the caller's stdin, arguments and exit status
 - **C4:** the snapshot's GraphQL and jq text is the script's, byte for byte, and gh runs the jq. Changing one byte changes the snapshot's bytes and the `sig` that watchers compare. Kind: invariant. Destination: doc comment: cli/lib/src/pr/queries.dart snapshotQuery
-- **C5:** `mktemp`, `ln`, `sleep` and `date` run as external commands through bash, because the evals fake them on `PATH`. `native-cli-retire-scripts` replaces them together with those hooks. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/snapshot.dart runSnapshot
+- **C5:** `mktemp`, `ln` and `sleep` run as external commands through bash, because the evals fake them on `PATH`. The script's `date +%s` deadline fallback is not ported: `sw` computes the poll deadline in-process. `native-cli-retire-scripts` replaces them together with those hooks. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/snapshot.dart runSnapshot
 - **C6:** watch claims and head records keep the v2 layout, the nonce format and the byte order of nonces, and are shared with `pr-pair.sh` and with old-script watchers. Kind: invariant. Destination: spec: specs/pr-script-runtime/spec.md → Requirement: Watch claims and head records stay shared across implementations
 - **C7:** `sw vcs` reaches the fence through the `as.sh` shim until `native-cli-retire-scripts`. Its exit-3 and `as.sh:` prefix mapping depends on that. Kind: deliberate gap. Destination: doc comment: cli/lib/src/vcs/scripts.dart runAs
 - **C8:** `sw as` lower-cases URLs with ASCII folding only, as `tr A-Z a-z` did. Kind: invariant. Destination: doc comment: cli/lib/src/fence/urls.dart lowerAscii
@@ -235,7 +235,7 @@ flowchart LR
     K[skill: as.sh login bash pr-snapshot.sh / pr-reply.sh] --> SH[shim] --> SW[sw pr snapshot / reply]
     SW -->|BoundedRun bash -c exec gh| GH[gh + gh jq]
     SW -->|BoundedRun bash -c exec| RV[reviewers.py]
-    SW -->|runTool| UT[mktemp, ln, sleep, date]
+    SW -->|runTool| UT[mktemp, ln, sleep]
     SW --> ST[(state dir: watch/v2, heads)]
     PP[pr-pair.sh] --> ST
 ```
