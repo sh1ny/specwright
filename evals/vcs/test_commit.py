@@ -8,7 +8,7 @@ from unittest import mock
 
 import jjenv
 from jjenv import Scratch, require_jj
-from vcs_test_support import VcsTestCase, bash_path_env
+from vcs_test_support import VcsTestCase, bash_path_env, sw_home, stamp_version
 
 
 TASK_COVER = Path(__file__).resolve().parents[2] / "skills" / "specwright-commit" / "scripts" / "task-cover.sh"
@@ -63,6 +63,8 @@ class TestJjCommit(VcsTestCase):
         shell_env = bash_path_env()
         shell_env.update({key: value for key, value in self.scratch.env.items() if key != "PATH"})
         shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
+        shell_env["SPECWRIGHT_HOME"] = str(sw_home())
+        stamp_version(self.repo)
         cover = subprocess.run(
             [require_jjenv_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
              "task-cover", TASK_COVER.as_posix(), "--repo", self.repo.as_posix(), "--range", "main..HEAD",

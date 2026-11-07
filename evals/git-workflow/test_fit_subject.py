@@ -19,16 +19,38 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
+sys.path.append(str(ROOT / "evals" / "vcs"))
+import vcs_test_support  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "fit-subject.sh"
 LIMIT = 72
 # Task 1.1 of the add-greeting fixture (fixtures.py), the subject #21 saw miscounted.
 GREETING = "feat(add-greeting): task 1.1 Add `greet(name)` with tests test_greet_named and test_greet_empty; verify `python -m unittest -q` passes"
+
+_MODULE = {}
+
+
+def setUpModule():
+    """Put SPECWRIGHT_HOME into os.environ so every run's environment carries it (design D8). Without a built sw it is
+    left out locally (the script does not need it yet); CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
+    _MODULE["env"] = os.environ.get("SPECWRIGHT_HOME")
+    try:
+        os.environ["SPECWRIGHT_HOME"] = str(vcs_test_support.sw_home())
+    except unittest.SkipTest:
+        pass
+
+
+def tearDownModule():
+    if _MODULE["env"] is None:
+        os.environ.pop("SPECWRIGHT_HOME", None)
+    else:
+        os.environ["SPECWRIGHT_HOME"] = _MODULE["env"]
 
 
 class FitSubject(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        vcs_test_support.stamp_version(self.tmp)  # the project every run uses as its working directory
 
     def run_script(self, msg):
         return subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp)
