@@ -36,9 +36,13 @@ Specwright is a spec-driven development bundle for AI coding agents, built on un
 ## Decision summary
 
 - close M6 2026-11-04: important (source: setting)
+- close M7 2026-11-07: important (source: setting)
 
 | # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |
 |---|---|---|---|---|---|---|---|
 | R1 | close M6 | Native CLI milestone scope | M7 proves distribution and migrates the first scripts; M8 completes the remaining migration | Put the whole migration in M7 | The migration is larger than six PR-sized changes; splitting retains the full outcome and tests the risky distribution path first | yes | user |
 | R2 | close M6 | M7 change order | Spike, distribution, VCS, commit, finish | Migrate scripts before the spike | Prove binary delivery and process handling before depending on them, then migrate related interfaces incrementally | no | agent |
 | R3 | close M6 | Open known gaps | Place #167-#173 in M9 | Expand M7 with unrelated configuration changes | Keep the native migration focused while scheduling the reported gaps | no | agent |
+| R4 | close M7 | M8 split | Six changes: pr-io (`as.sh`, `pr-reply.sh`, `pr-snapshot.sh`), pr-pair (`pr-pair.sh`, `reviewers.py`), review, release, update, retire-scripts | One PR-tooling change for all of specwright-pr's scripts; update path second | Leaf scripts first keep each port near one PR, `pr-pair.sh` gets its own change at about 3,000 lines, and removal waits for every port's parity | yes | user |
+| R5 | close M7 | M9 as Next | Paragraph, split at M8 close | Agree a split now | The `sw`-based configuration surface is not known until M8 ends | no | user |
+| R6 | close M7 | Gaps filed during M7 | #202 into `native-cli-pr-io`, #211 into `native-cli-release`, #201 and #208 into M9; #206 and #209 stay filed parity follow-ups | Fix them in the M8 ports' scope | Each rides with the change that touches its code; parity defects stay out of a port | no | agent |

@@ -4,33 +4,30 @@ Strategy: [openspec/strategy.md](strategy.md) · Architecture: [openspec/archite
 
 Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes the gaps between the code and the architecture baseline that most often force a manual rescue. Issue numbers refer to sh1ny/specwright. Versions follow the pre-1.0 rule in [strategy.md](strategy.md#assumptions): one minor version per feature, configuration key or workflow change, and a patch version per fix.
 
-## Now: M7 - Native CLI foundation
+## Now: M8 - Complete the native CLI migration
 
-**Outcome:** a compiled Dart `sw` can be delivered on the supported platforms and replaces the VCS, commit and finish scripts incrementally, retaining their existing contracts. The remaining shipped scripts move in M8 (#148). The distribution and bounded-process spike comes first among the CLI changes, after two inserted planning changes (#197, #198); the migration's new architecture decision is reviewed before implementation supersedes ADR 0002.
+**Outcome:** every shipped script runs in `sw`, and Specwright ships with no bash or Python tooling of its own (#148). The remaining scripts are ported one PR at a time behind ADR 0028's shims, with their existing JSON, exit-code, identity, process, journal and recovery contracts intact; the shims, the three `bounded.py` copies and the Python prerequisite go last, once every port has proven parity.
 
 **Exit criteria:**
-- A reviewed architecture decision establishes the binary's distribution, installation and interface-version contract, and records how it supersedes the relevant existing ADRs. (agent)
-- CI builds and checks a versioned binary on Linux, Windows and macOS; distribution artifacts and checksums are verified and the install path handles a missing or incompatible binary explicitly. (agent)
-- Bounded processes preserve deadlines, output bounds, secret handling and process-tree cleanup on Windows and POSIX, with regression coverage. (agent)
-- VCS, commit and finish operations use `sw`; their existing JSON, exit-code and workflow contracts are covered by the corresponding black-box evals on the three CI platforms. (agent)
-- All M7 changes are archived on main and their releases are published. (agent)
+- The PR, review, release and update operations use `sw`; their existing JSON, exit-code and workflow contracts are covered by the corresponding black-box evals on the three CI platforms. (agent)
+- A fresh install and an update reach a working, checked `sw` on Linux, Windows and macOS without Python, and an update keeps its recovery guarantees. (agent)
+- No shipped skill calls a bash or Python script; the ported scripts, their shims and the `bounded.py` copies are removed, and the docs list no Python prerequisite. (agent)
+- All M8 changes are archived on main and their releases are published. (agent)
 
 **Changes** (in order; each about one PR):
-1. `verify-design-claims` - #197 (inserted 2026-11-05): designs cite the code behind each claim and number the claims nobody checked; the design review and the LIGHT re-check re-read every citation, and tasks verify load-bearing assumptions first.
-2. `carry-design-constraints` - #198, closes #190 (inserted 2026-11-05): designs list the constraints a later change must respect, apply writes each into a doc comment, spec or ADR, and the design and pre-ship reviews check them.
-3. `native-cli-spike` - #148: establish the Dart executable and reviewed architecture; prove bounded process handling, build artifacts and download-and-run on all three platforms before committing to distribution details.
-4. `native-cli-distribution` - deliver and verify versioned binaries, integrate installation and contract-version checks, and preserve the existing updater's recovery guarantees during transition.
-5. `native-cli-vcs` - move the VCS boundary to `sw` with Git, jj and GitButler parity, retaining the existing eval contracts.
-6. `native-cli-commit` - move task coverage and subject fitting to `sw` while retaining task and commit evidence contracts.
-7. `native-cli-finish` - move finish operations to `sw`, preserving local and store-backed recovery behavior.
+1. `native-cli-pr-io` - port `as.sh`, `pr-reply.sh` and `pr-snapshot.sh` to `sw`, with the fenced identity and the exact reply bytes intact; carries #202.
+2. `native-cli-pr-pair` - port `pr-pair.sh` and `reviewers.py` (discovery, context, merge, cleanup, policy and reviewer receipts).
+3. `native-cli-review` - port `review-run.sh`: reviewer routes, selection, isolation and result validation.
+4. `native-cli-release` - port `release.sh`: bump, check, notes, untagged and publish; carries #211.
+5. `native-cli-update` - port `scripts/update.sh` and complete the bootstrap, so an install needs only `sw`.
+6. `native-cli-retire-scripts` - switch the skills to call `sw` directly, then remove the shims, the `bounded.py` copies and the Python and bash prerequisites once parity is proven.
 
-## Next: M8 - Complete the native CLI migration
+## Next: M9 - Adoption and configuration
 
-Continue #148 script by script: migrate the PR, review, release and update paths with their identity, process, journal and recovery contracts intact; complete bootstrap and remove obsolete shipped scripts and runtime prerequisites only after parity is proven. Split into PR-sized changes at M7 close.
+Plan the known gaps #167-#173, covering GitHub connection options, remotes, reviewer routes, implementer defaults, project conventions, review limits and neutral examples, together with two workflow gaps filed during M7: #201 (where an ADR task goes when a design verifies assumptions first) and #208 (Codex apply delegates task groups to Claude Code). Split into PR-sized changes at M8 close, once the `sw`-based configuration surface is known.
 
 ## Later
 
-- M9 - Adoption and configuration: plan the known gaps #167-#173, covering GitHub connection options, remotes, reviewer routes, implementer defaults, project conventions, review limits and neutral examples.
 - Unplanned features, placed at a later **close**: #42 stealth mode; #72 a configurable report signal per reviewer in `pr.reviewers`; #140 implementer agents can use the project's MCP servers.
 - Deferred dogfood check, run when a dogfood project is at a convenient point; it does not block a milestone: #98 (M3) an update with a change in flight; the gamedev pack used for a real change in Tower of Lament once 0.20.0 is out (M6). (#86, the M2 agent-merge check, passed in sh1ny/blackgrid#44.)
 - Parked: #154 GitButler tests on macOS and Windows await standalone versioned `but` builds upstream; Linux CI runs them.
@@ -39,6 +36,8 @@ Continue #148 script by script: migrate the PR, review, release and update paths
 - Parked: #118 the codex route on Windows (`fix-codex-windows-route`, moved out of M5 on 2026-10-28). It could not be reproduced: on 2026-10-28 an exact replay of the failed review (same codex-cli 0.163.0, `elevated` sandbox, Specwright 0.7.2, the original prompt) passed, and so did four codex reviews in a dogfood project, so the 2026-10-21 failure was most likely transient. Revisit if it fails again; the fix then starts by reading codex's own error from its `--json` event stream and keeping that stream when a run fails.
 
 ## Done
+
+- **M7 - Native CLI foundation** (closed 2026-11-07; PRs #199, #200, #203, #204, #205, #207, #210; releases 0.21.0-0.27.0). All five exit criteria passed: ADR 0027 (superseding 0002) and ADR 0028 were reviewed and accepted; v0.27.0 ships five checked `sw` binaries with `SHA256SUMS`; the `cli` and eval matrices passed on the closing head on Linux, Windows and macOS, the Windows release suite on a re-run after a timing flake (#211). Learned: a frozen oracle copy of each script, run differentially against the port, made parity reviews short and caught Python-specific behaviour (`(?m)` anchors, code-point sorting, `os.walk` order) that unit tests missed; a port keeps the old script's defects for parity and files them (#206, #209) instead of fixing them mid-port; the two inserted design-quality changes (#197, #198) paid off, since every port's design cited the code it replaced; and Windows CI timing tests need headroom for the steps they do not bound.
 
 - **M6 - Packs** (closed 2026-11-04; PRs #156, #158, #159, #160, #163, #165, #174, #179, #183, #187, #188, #195; releases 0.12.1-0.20.0). The closing-head eval matrix passed on Linux, Windows and macOS; the first shipped packs, user-verified tasks and roadmap decision modes are in place. Learned: pack installation and delivered instructions need complementary coverage; cross-platform GitButler coverage remains limited by upstream binary availability (#154); and the native CLI migration needs a distribution and process-runner spike before incremental replacement.
 
