@@ -134,7 +134,6 @@ class TestQueryTextArrivesWhole(ShimCase):
         self.assertIn("…[truncated, see url]", jq)
 
 
-@unittest.skipUnless(os.name == "nt", "platform: checks the Git Bash form of HOME, which only Windows has (assumption A3)")
 @unittest.skipIf(os.name == "nt", "platform: POSIX signals")
 class TestReplySignalCleanup(ShimCase):
     """The script's `trap ... EXIT` removed the reply body file when a signal ended it; `sw pr reply` does the same."""
@@ -181,6 +180,7 @@ class TestReplySignalCleanup(ShimCase):
                     pass
 
 
+@unittest.skipUnless(os.name == "nt", "platform: checks the Git Bash form of HOME, which only Windows has (assumption A3)")
 class TestHomeStateBaseOnWindows(ShimCase):
     """A3 (design D9): with no SPECWRIGHT_STATE_DIR and HOME in Git Bash `/c/...` form, the sw watcher claims under
     <HOME>/.cache/specwright/watch/v2/, the directory the old script used, so an old-script watcher sees its claim."""
