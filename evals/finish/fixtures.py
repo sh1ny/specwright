@@ -28,6 +28,8 @@ sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
 import bashexe  # noqa: E402
 SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
+ORACLE = HERE / "oracle" / "finish.sh"  # the frozen copy of the old finish.sh (native-cli-finish D9); test-only
+ORACLE_FIN_DIR = ROOT / "skills" / "specwright-finish" / "scripts"  # so the oracle prints the real vcs.sh path
 DATE = "2026-10-19"
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 
@@ -216,14 +218,29 @@ def run_finish(work, *args, cwd=None):
     return r.returncode, doc, r.stdout + r.stderr
 
 
-def run_plan(work, change, archived=None, prefix="openspec", main="main", branch=None, typ=None, cwd=None, dir_=None):
+def run_oracle(work, *args, cwd=None):
+    """Run the frozen oracle copy of finish.sh the way run_finish runs finish.sh; returns (exit code, parsed JSON, raw output)."""
+    r = subprocess.run([bashexe.bash(), str(ORACLE), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8",
+                       env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), ORACLE_FIN_DIR=str(ORACLE_FIN_DIR)))
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        doc = None
+    return r.returncode, doc, r.stdout + r.stderr
+
+
+def plan_args(change, archived=None, prefix="openspec", main="main", branch=None, typ=None, dir_=None):
     args = (["--dir", str(dir_)] if dir_ else []) + ["undo-archive-plan", "--change", change,
             "--archived-name", archived or f"{DATE}-{change}", "--prefix", prefix, "--main", main]
     if branch:
         args += ["--branch", branch]
     if typ:
         args += ["--type", typ]
-    return run_finish(work, *args, cwd=cwd)
+    return args
+
+
+def run_plan(work, change, archived=None, prefix="openspec", main="main", branch=None, typ=None, cwd=None, dir_=None):
+    return run_finish(work, *plan_args(change, archived, prefix, main, branch, typ, dir_), cwd=cwd)
 
 
 def run_bash(work, tmp, text, name, prefix="openspec"):
