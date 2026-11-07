@@ -22,9 +22,9 @@
 | task-commits → sw commit task-cover keeps task-cover.sh's contract | Usage error | cli/test/commit/task_cover_test.dart | usage error names --code | red |
 | task-commits → sw commit task-cover keeps task-cover.sh's contract | Task ids are ASCII digits | cli/test/commit/task_cover_test.dart | non-ASCII digit ids are not tasks | red |
 | task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Unchanged fit-subject evals pass on sw | evals/git-workflow/test_fit_subject.py | every existing test (CI, three OSes) | red |
-| task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Characters, not bytes, are counted | cli/test/commit/fit_subject_test.dart | multi-byte subject within 72 characters is untouched | red |
-| task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Line endings kept | cli/test/commit/fit_subject_test.dart | CRLF file keeps its CRs | red |
-| task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Rewrite fails | cli/test/commit/fit_subject_test.dart | failed temp write leaves the file and no temp | red |
+| task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Characters, not bytes, are counted | cli/test/commit/fit_subject_test.dart | multi-byte subject within 72 characters is untouched | green |
+| task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Line endings kept | cli/test/commit/fit_subject_test.dart | CRLF file keeps its CRs | green |
+| task-commits → sw commit fit-subject keeps fit-subject.sh's contract | Rewrite fails | cli/test/commit/fit_subject_test.dart | failed temp write leaves the file and no temp | green |
 | task-commits → Apply stops on a missing sw | Missing sw during a task commit | evals/git-workflow/test_instructions.py | test_commit_stops_on_sw_missing | red |
 | task-commits → Apply stops on a missing sw | Subject that does not fit is still reported as before | evals/git-workflow/test_instructions.py | test_commit_skill_stops_on_unfittable_subject (existing, re-run) | green |
 
@@ -48,7 +48,7 @@
 
 ## 4. sw commit fit-subject
 
-- [ ] 4.1 Write failing tests in `cli/test/commit/fit_subject_test.dart`. They cover the 72-character limit counted as bytes outside 0x80-0xBF, the `task X.Y` and `group N` prefixes with ASCII digits, a cut at 0x20 only, exit 1 and exit 2 with `fit-subject.sh`'s exact stderr texts, CRLF kept, a file with no newline, invalid UTF-8 bytes kept, the file untouched when it already fits, and a failed temp write that leaves the file and no temp file. They also cover a D9 conversion failure, which gives exit 2 with `fit-subject.sh: could not convert path: <path>` and leaves every file untouched. Implement `fitSubject` in `cli/lib/src/commit/fit_subject.dart` on bytes, with the `<msg>.fit.<pid>` temp file and rename (D5). Carry C5 as its doc comment. Verify: the test file passes, flip the "Characters, not bytes", "Line endings kept" and "Rewrite fails" rows green, and the C5 doc comment is present.
+- [x] 4.1 Write failing tests in `cli/test/commit/fit_subject_test.dart`. They cover the 72-character limit counted as bytes outside 0x80-0xBF, the `task X.Y` and `group N` prefixes with ASCII digits, a cut at 0x20 only, exit 1 and exit 2 with `fit-subject.sh`'s exact stderr texts, CRLF kept, a file with no newline, invalid UTF-8 bytes kept, the file untouched when it already fits, and a failed temp write that leaves the file and no temp file. They also cover a D9 conversion failure, which gives exit 2 with `fit-subject.sh: could not convert path: <path>` and leaves every file untouched. Implement `fitSubject` in `cli/lib/src/commit/fit_subject.dart` on bytes, with the `<msg>.fit.<pid>` temp file and rename (D5). Carry C5 as its doc comment. Verify: the test file passes, flip the "Characters, not bytes", "Line endings kept" and "Rewrite fails" rows green, and the C5 doc comment is present.
 
 ## 5. Shims, skills and parity
 
