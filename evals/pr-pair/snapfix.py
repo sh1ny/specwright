@@ -23,6 +23,9 @@ sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
 import bashexe  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "evals" / "vcs"))
+import vcs_test_support  # noqa: E402
+
 sys.path.insert(0, str(ROOT / "evals" / "fakes"))
 import gh as fake_gh  # noqa: E402
 
@@ -54,6 +57,7 @@ class SnapCase(unittest.TestCase):
         self.addCleanup(fixtures.rmtree, self.tmp)
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
+        vcs_test_support.stamp_version(self.tmp)  # the shims run `sw` from the project that holds the version stamp
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
         self.state_dir = self.tmp / "state"
         self.extra_env = {}
@@ -142,7 +146,7 @@ class SnapCase(unittest.TestCase):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""),
                   "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log), "FAKE_GH_JQ": JQ,
-                  "SPECWRIGHT_STATE_DIR": str(self.state_dir), "PYTHONIOENCODING": "utf-8", "GIT_TERMINAL_PROMPT": "0"})
+                  "SPECWRIGHT_STATE_DIR": str(self.state_dir), "SPECWRIGHT_HOME": str(vcs_test_support.sw_home()), "PYTHONIOENCODING": "utf-8", "GIT_TERMINAL_PROMPT": "0"})
         if login:
             e["GH_TOKEN"] = self.st()["tokens"][login]
         e.update(self.extra_env)
