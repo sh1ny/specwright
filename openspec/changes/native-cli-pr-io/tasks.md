@@ -47,7 +47,7 @@
 
 ## 1. ADR
 
-- [ ] 1.1 Write `docs/adr/0029-identity-fence-handoff-file.md` (`Status: accepted`): `as.sh` alone hands its records to `sw as` in a private `mktemp` file that `sw as` deletes before any gh call or command, so the fenced command keeps the caller's stdin. Every other shim keeps ADR 0028's stdin handoff (carries C1). Add the ADR to the index in `openspec/architecture.md`, and add `sw as` and `sw pr` to the `sw` component row and the Script I/O line. Verify: the ADR file holds C1's text, `openspec/architecture.md` lists 0029, and `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 1.1 Write `docs/adr/0029-identity-fence-handoff-file.md` (`Status: accepted`): `as.sh` alone hands its records to `sw as` in a private `mktemp` file that `sw as` deletes before any gh call or command, so the fenced command keeps the caller's stdin. Every other shim keeps ADR 0028's stdin handoff (carries C1). Add the ADR to the index in `openspec/architecture.md`, and add `sw as` and `sw pr` to the `sw` component row and the Script I/O line. Verify: the ADR file holds C1's text, `openspec/architecture.md` lists 0029, and `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 2. Oracle, runner and the fence
 
