@@ -11,14 +11,19 @@ import 'queries.dart';
 /// Every argument and body check runs before the first GitHub call (exit 4). A pending review of the viewer stops with
 /// exit 2, a changed revision with exit 5 (exit 3 when it cannot be read), the reply is posted with its marker, and the
 /// exit status is 1 when the reply was posted but its resolution or reaction failed. The body file with its marker is
-/// made by the external `mktemp` and removed on every exit.
+/// made by the external `mktemp` and removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform has them
+/// (the script's `EXIT` trap).
 Future<int> runReply(PrContext ctx, List<String> argv) async {
   final reply = _Reply(ctx);
+  final signals = cleanupOnSignals(() => removeFile(reply.tmp));
   try {
     return await reply.run(argv);
   } on PrExit catch (e) {
     return e.code;
   } finally {
+    for (final s in signals) {
+      await s.cancel();
+    }
     removeFile(reply.tmp);
   }
 }

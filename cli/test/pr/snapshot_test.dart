@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
@@ -600,6 +602,22 @@ void main() {
       expect(claims(), isEmpty);
       expect(f.leftovers, isEmpty);
     });
+
+    test(
+      'a failed sleep stops the watch with its status, polling no more',
+      () async {
+        final usual = f.onTool;
+        f.onTool = (c) => c.first == 'sleep'
+            ? ToolResult(127, Uint8List(0), utf8.encode('sleep: not found\n'))
+            : usual!(c);
+        expect(await snapshot(['--wait', '--timeout', '600']), 127);
+        expect(f.stderr, 'sleep: not found\n');
+        expect(kinds().where((k) => k == 'snapshot'), hasLength(1));
+        expect(f.stdout, isEmpty);
+        expect(claims(), isEmpty);
+        expect(f.leftovers, isEmpty);
+      },
+    );
 
     test('times out when nothing changes, never sleeping past the timeout', () async {
       expect(

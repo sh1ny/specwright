@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -219,4 +220,22 @@ void removeFile(String? path) {
   } on FileSystemException {
     // already gone, or not ours to remove
   }
+}
+
+/// The script's `trap cleanup EXIT` also ran when a signal ended it; the exit status is 128 plus the signal number.
+List<StreamSubscription<ProcessSignal>> cleanupOnSignals(
+  void Function() cleanup,
+) {
+  if (Platform.isWindows) return const [];
+  return [
+    for (final (signal, number) in [
+      (ProcessSignal.sigint, 2),
+      (ProcessSignal.sigterm, 15),
+      (ProcessSignal.sighup, 1),
+    ])
+      signal.watch().listen((_) {
+        cleanup();
+        exit(128 + number);
+      }),
+  ];
 }

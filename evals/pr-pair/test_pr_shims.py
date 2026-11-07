@@ -135,6 +135,52 @@ class TestQueryTextArrivesWhole(ShimCase):
 
 
 @unittest.skipUnless(os.name == "nt", "platform: checks the Git Bash form of HOME, which only Windows has (assumption A3)")
+@unittest.skipIf(os.name == "nt", "platform: POSIX signals")
+class TestReplySignalCleanup(ShimCase):
+    """The script's `trap ... EXIT` removed the reply body file when a signal ended it; `sw pr reply` does the same."""
+
+    def test_sigterm_during_the_post_removes_the_body_file(self):
+        import signal
+        tid, c = self.add_thread("rev", "please fix")
+        tmpdir = self.tmp / "tmpdir"
+        tmpdir.mkdir()
+        hang = self.tmp / "hang"
+        hang.mkdir()
+        seen = self.tmp / "posting"
+        gh = hang / "gh"
+        gh.write_text('#!/bin/sh\nfor a in "$@"; do case $a in body=@*) echo $$ > "%s"; exec sleep 60;; esac; done\n'
+                      'exec "%s" "$@"\n' % (fixtures.posix(seen), fixtures.posix(self.tmp / "bin" / "gh")),
+                      encoding="utf-8", newline="\n")
+        gh.chmod(0o755)
+        body = self.tmp / "body.md"
+        body.write_text("done\n", encoding="utf-8", newline="\n")
+        env = self.env(TMPDIR=str(tmpdir))
+        env["PATH"] = str(hang) + os.pathsep + env["PATH"]
+        p = subprocess.Popen([bashexe.bash(), str(REPLY), str(self.PR), "thread", tid, str(c["databaseId"]),
+                              fixtures.posix(body), "--repo", self.SLUG], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, encoding="utf-8", env=env, cwd=self.tmp)
+        try:
+            end = time.time() + 60
+            while not (seen.exists() and seen.read_text().strip()) and time.time() < end:
+                self.assertIsNone(p.poll(), p.stderr.read() if p.poll() is not None else "")
+                time.sleep(0.05)
+            self.assertTrue(seen.exists(), "the post was never reached")
+            self.assertTrue(any(tmpdir.iterdir()), "the body file exists while the post runs")
+            p.send_signal(signal.SIGTERM)
+            _, err = p.communicate(timeout=30)
+            self.assertEqual(p.returncode, 143, err)
+            self.assertEqual(list(tmpdir.iterdir()), [], "the body file is removed")
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.communicate()
+            if seen.exists():
+                try:
+                    os.kill(int(seen.read_text().strip()), signal.SIGKILL)
+                except (ValueError, ProcessLookupError):
+                    pass
+
+
 class TestHomeStateBaseOnWindows(ShimCase):
     """A3 (design D9): with no SPECWRIGHT_STATE_DIR and HOME in Git Bash `/c/...` form, the sw watcher claims under
     <HOME>/.cache/specwright/watch/v2/, the directory the old script used, so an old-script watcher sees its claim."""

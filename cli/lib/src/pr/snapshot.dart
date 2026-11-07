@@ -31,7 +31,7 @@ final RegExp _pushPattern = RegExp(
 /// reviewer config; 3 when `--full` cannot read; 4 when a newer watcher took over.
 Future<int> runSnapshot(PrContext ctx, List<String> argv) async {
   final snapshot = _Snapshot(ctx);
-  final signals = _cleanupOnSignals(snapshot.cleanup);
+  final signals = cleanupOnSignals(snapshot.cleanup);
   try {
     return await snapshot.run(argv);
   } on PrExit catch (e) {
@@ -42,24 +42,6 @@ Future<int> runSnapshot(PrContext ctx, List<String> argv) async {
     }
     snapshot.cleanup();
   }
-}
-
-/// The script's `trap cleanup EXIT` also ran when a signal ended it; the exit status is 128 plus the signal number.
-List<StreamSubscription<ProcessSignal>> _cleanupOnSignals(
-  void Function() cleanup,
-) {
-  if (Platform.isWindows) return const [];
-  return [
-    for (final (signal, number) in [
-      (ProcessSignal.sigint, 2),
-      (ProcessSignal.sigterm, 15),
-      (ProcessSignal.sighup, 1),
-    ])
-      signal.watch().listen((_) {
-        cleanup();
-        exit(128 + number);
-      }),
-  ];
 }
 
 class _Result {
@@ -579,7 +561,12 @@ class _Snapshot {
       if (limit == null || elapsed >= limit) break;
       final every = int.tryParse(interval) ?? limit;
       final nap = every <= limit - elapsed ? every : limit - elapsed;
-      await ctx.tool(['sleep', '$nap']);
+      // `set -e` ended the script when `sleep` failed; never poll without the nap
+      final slept = await ctx.tool(['sleep', '$nap']);
+      if (slept.exitCode != 0) {
+        ctx.writeErr(slept.stderr);
+        throw PrExit(slept.exitCode);
+      }
       if (!stillOwner()) takeOver();
       // keep the last good snapshot; a failed poll never replaces it
       final next = await poll();
