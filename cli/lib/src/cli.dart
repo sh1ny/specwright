@@ -3,6 +3,7 @@ import 'dart:io' as io;
 
 import 'package:args/args.dart';
 
+import 'commands/commit.dart';
 import 'commands/run.dart';
 import 'commands/vcs.dart';
 import 'commands/version.dart';
@@ -16,7 +17,8 @@ const _usage =
     '  run --bounded [--paged] [--secret] -- cmd [args...]\n'
     '                    run a command under a deadline and a byte bound\n'
     '  vcs --args-stdin  run one VCS operation; stdin: scripts dir, bash,\n'
-    '                    subcommand and arguments, each ending in a NUL\n';
+    '                    subcommand and arguments, each ending in a NUL\n'
+    '  commit --args-stdin  run task-cover or fit-subject; same stdin as vcs\n';
 
 /// Runs sw with [args], writing to [out] and [err]; returns the exit code.
 ///
@@ -30,6 +32,7 @@ Future<int> runCli(
   void Function(List<int> bytes)? errBytes,
   Future<List<int>> Function()? readStdin,
   Map<String, VcsHandler>? vcsHandlers,
+  Map<String, CommitHandler>? commitHandlers,
 }) async {
   if (args.isNotEmpty && args.first == '__exec') {
     return runExecHelper(
@@ -44,6 +47,15 @@ Future<int> runCli(
       err: err,
       writeOut: outBytes ?? io.stdout.add,
       writeErr: errBytes ?? io.stderr.add,
+    );
+  }
+  if (args.isNotEmpty && args.first == 'commit') {
+    return runCommitCommand(
+      args.sublist(1),
+      writeOut: outBytes ?? io.stdout.add,
+      writeErr: errBytes ?? io.stderr.add,
+      readStdin: readStdin,
+      handlers: commitHandlers,
     );
   }
   if (args.isNotEmpty && args.first == 'vcs') {

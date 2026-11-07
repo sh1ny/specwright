@@ -31,6 +31,14 @@ void main() {
       );
     });
 
+    test('escapes U+2028 and U+2029 by default and when the flag is true', () {
+      const text = 'a\u2028b\u2029c';
+      const escaped = r'"a\u2028b\u2029c"';
+      expect(documentText(text), escaped);
+      expect(documentText(text, escapeLineSeparators: true), escaped);
+      expect(documentText(text, escapeLineSeparators: false), '"$text"');
+    });
+
     test('writes empty containers', () {
       expect(documentText(<String, Object?>{}), '{}');
       expect(documentText(<Object?>[]), '[]');
@@ -72,6 +80,21 @@ void main() {
         _hex(
           '7b2273223a2022c3a9e282acf09f98805c75323032385c7532303239efbfbd227d',
         ),
+      );
+    });
+
+    test('escapes the separators by default, raw bytes with the flag off', () {
+      const text = '\u2028';
+      expect(
+        documentBytes(text, lineEnd: ''),
+        _hex(
+          '225c7532303238'
+          '22',
+        ),
+      );
+      expect(
+        documentBytes(text, lineEnd: '', escapeLineSeparators: false),
+        _hex('22e280a822'),
       );
     });
 

@@ -13,11 +13,15 @@ import 'codec.dart';
 /// written as it is; [documentBytes] turns U+DC80..U+DCFF back into bytes.
 /// Supported values are `null`, `bool`, `int`, `BigInt`, `String`, `List` and
 /// `Map<String, _>`; anything else is an [ArgumentError].
-String documentText(Object? value) {
+///
+/// With [escapeLineSeparators] false the two separators stay raw, which is
+/// plain `json.dumps(value, ensure_ascii=False)` (`task-cover.sh` prints that).
+String documentText(Object? value, {bool escapeLineSeparators = true}) {
   final out = StringBuffer();
   _write(out, value);
-  return out
-      .toString()
+  final text = out.toString();
+  if (!escapeLineSeparators) return text;
+  return text
       .replaceAll(_lineSeparator, r'\u2028')
       .replaceAll(_paragraphSeparator, r'\u2029');
 }
@@ -33,8 +37,14 @@ String documentLineEnd({bool? windows}) =>
 /// The bytes `vcs.sh` writes to stdout for [value]: [documentText], encoded
 /// with surrogateescape (Python's `-X utf8` mode), then [lineEnd] (default
 /// [documentLineEnd]).
-Uint8List documentBytes(Object? value, {String? lineEnd}) =>
-    encodeEscaped('${documentText(value)}${lineEnd ?? documentLineEnd()}');
+Uint8List documentBytes(
+  Object? value, {
+  String? lineEnd,
+  bool escapeLineSeparators = true,
+}) => encodeEscaped(
+  '${documentText(value, escapeLineSeparators: escapeLineSeparators)}'
+  '${lineEnd ?? documentLineEnd()}',
+);
 
 void _write(StringBuffer out, Object? v) {
   switch (v) {
