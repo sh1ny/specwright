@@ -28,11 +28,13 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
+sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the empty repo is built once and copied
 import bashexe  # noqa: E402
+import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 
 
@@ -77,6 +79,7 @@ class AsShCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(fixtures.rmtree, self.tmp)
+        vcs_test_support.stamp_version(self.tmp)  # as.sh started outside a repository resolves sw from here
         Recorder.seen = []
         self.server = HTTPServer(("127.0.0.1", 0), Recorder)
         self.base = f"http://127.0.0.1:{self.server.server_port}/"
@@ -103,6 +106,7 @@ class AsShCase(unittest.TestCase):
         d = self.tmp / name
         fixturecache.copy(("as-sh.repo",), self._init_repo, d)  # the remote URL names this test's server port: added after the copy
         self.git(d, "remote", "add", "origin", f"{self.base}o/{name}.git")
+        vcs_test_support.stamp_version(d)
         if header:  # repository-local and URL-scoped: only the store has it
             self.git(d, "config", f"http.{self.base}.extraheader", LEAK)
         return d
@@ -118,7 +122,7 @@ class AsShCase(unittest.TestCase):
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""),
                   "FAKE_GH_STATE": str(self.tmp / "gh-state.json"), "FAKE_GH_LOG": str(self.tmp / "gh-log.jsonl"),
                   "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
-                  "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"})
+                  "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1", "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())})
         for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
             e.pop(k, None)
         return e

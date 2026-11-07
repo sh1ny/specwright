@@ -8,6 +8,7 @@ import 'commands/finish.dart';
 import 'commands/run.dart';
 import 'commands/vcs.dart';
 import 'commands/version.dart';
+import 'fence/as_command.dart';
 import 'finish/undo_plan.dart';
 import 'process/exec_helper.dart';
 import 'process/platform_tree.dart';
@@ -21,7 +22,9 @@ const _usage =
     '  vcs --args-stdin  run one VCS operation; stdin: scripts dir, bash,\n'
     '                    subcommand and arguments, each ending in a NUL\n'
     '  commit --args-stdin  run task-cover or fit-subject; same stdin as vcs\n'
-    '  finish --args-stdin  print the undo plan of an archive; same stdin as vcs\n';
+    '  finish --args-stdin  print the undo plan of an archive; same stdin as vcs\n'
+    '  as --args-file <path>  run the identity fence for the as.sh shim; the\n'
+    '                    file holds the same records, and is deleted when read\n';
 
 /// Runs sw with [args], writing to [out] and [err]; returns the exit code.
 ///
@@ -60,6 +63,13 @@ Future<int> runCli(
       writeErr: errBytes ?? io.stderr.add,
       readStdin: readStdin,
       handlers: commitHandlers,
+    );
+  }
+  if (args.isNotEmpty && args.first == 'as') {
+    return runAsCommand(
+      args.sublist(1),
+      writeOut: outBytes ?? io.stdout.add,
+      writeErr: errBytes ?? io.stderr.add,
     );
   }
   if (args.isNotEmpty && args.first == 'finish') {
