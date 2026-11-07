@@ -141,41 +141,44 @@ class TestReplySignalCleanup(ShimCase):
     def test_sigterm_during_the_post_removes_the_body_file(self):
         import signal
         tid, c = self.add_thread("rev", "please fix")
-        tmpdir = self.tmp / "tmpdir"
-        tmpdir.mkdir()
         hang = self.tmp / "hang"
         hang.mkdir()
-        seen = self.tmp / "posting"
+        seen = self.tmp / "posting"  # the hung gh's pid, then the body file it was given
         gh = hang / "gh"
-        gh.write_text('#!/bin/sh\nfor a in "$@"; do case $a in body=@*) echo $$ > "%s"; exec sleep 60;; esac; done\n'
-                      'exec "%s" "$@"\n' % (fixtures.posix(seen), fixtures.posix(self.tmp / "bin" / "gh")),
+        gh.write_text('#!/bin/sh\nfor a in "$@"; do case $a in body=@*)\n'
+                      '  printf "%%s\\n%%s\\n" "$$" "${a#body=@}" > "%s.part" && mv "%s.part" "%s"; exec sleep 60;;\n'
+                      'esac; done\nexec "%s" "$@"\n'
+                      % (fixtures.posix(seen), fixtures.posix(seen), fixtures.posix(seen),
+                         fixtures.posix(self.tmp / "bin" / "gh")),
                       encoding="utf-8", newline="\n")
         gh.chmod(0o755)
         body = self.tmp / "body.md"
         body.write_text("done\n", encoding="utf-8", newline="\n")
-        env = self.env(TMPDIR=str(tmpdir))
+        env = self.env()
         env["PATH"] = str(hang) + os.pathsep + env["PATH"]
         p = subprocess.Popen([bashexe.bash(), str(REPLY), str(self.PR), "thread", tid, str(c["databaseId"]),
                               fixtures.posix(body), "--repo", self.SLUG], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              text=True, encoding="utf-8", env=env, cwd=self.tmp)
+        pid = None
         try:
             end = time.time() + 60
-            while not (seen.exists() and seen.read_text().strip()) and time.time() < end:
+            while not seen.exists() and time.time() < end:
                 self.assertIsNone(p.poll(), p.stderr.read() if p.poll() is not None else "")
                 time.sleep(0.05)
             self.assertTrue(seen.exists(), "the post was never reached")
-            self.assertTrue(any(tmpdir.iterdir()), "the body file exists while the post runs")
+            pid, posted = seen.read_text(encoding="utf-8").splitlines()
+            self.assertTrue(os.path.isfile(posted), f"the body file {posted} exists while the post runs")
             p.send_signal(signal.SIGTERM)
             _, err = p.communicate(timeout=30)
             self.assertEqual(p.returncode, 143, err)
-            self.assertEqual(list(tmpdir.iterdir()), [], "the body file is removed")
+            self.assertFalse(os.path.exists(posted), f"the body file {posted} is removed")
         finally:
             if p.poll() is None:
                 p.kill()
                 p.communicate()
-            if seen.exists():
+            if pid:
                 try:
-                    os.kill(int(seen.read_text().strip()), signal.SIGKILL)
+                    os.kill(int(pid), signal.SIGKILL)
                 except (ValueError, ProcessLookupError):
                     pass
 
