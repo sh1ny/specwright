@@ -70,8 +70,9 @@ Future<Map<String, Object?>> probeDocument(VcsSession session) async => {
     'jj_present': true,
 };
 
-/// `state` after the probe: Git is ported, the other backends are not yet.
-Future<Map<String, Object?>> _state(VcsSession s) async {
+/// `state` after the probe, by backend. Public so that `sw finish` reads the
+/// branch and working-copy changes through it.
+Future<Map<String, Object?>> stateDocument(VcsSession s) async {
   if (s.info.backend == 'git') return gitStateDocument(s);
   if (s.info.backend == 'jj') return jjStateDocument(s);
   if (s.info.backend == 'gitbutler') return gitbutlerStateDocument(s);
@@ -90,7 +91,7 @@ VcsHandler _operation(String command) => probed((VcsSession s) async {
 /// The dispatch seam: subcommand name to handler.
 final Map<String, VcsHandler> vcsHandlers = {
   'probe': probed(probeDocument),
-  'state': probed(_state),
+  'state': probed(stateDocument),
   for (final command in knownCommands)
     if (command != 'probe' && command != 'state')
       command: command == 'plan' ? probed(planDocument) : _operation(command),

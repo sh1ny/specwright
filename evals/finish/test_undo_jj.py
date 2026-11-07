@@ -5,6 +5,7 @@ Run: python -m unittest test_undo_jj   (from evals/finish)
 """
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -178,9 +179,15 @@ class TestVcsScriptMissing(unittest.TestCase):
         lone = tmp / "skills" / "specwright-finish" / "scripts"
         lone.mkdir(parents=True)
         (lone / "finish.sh").write_bytes(fx.SCRIPT.read_bytes())
+        # the resolver and its bounded runner are there, vcs.sh is not: the run reaches sw, which reports the missing script
+        pr = tmp / "skills" / "specwright-pr" / "scripts"
+        pr.mkdir(parents=True)
+        for name in ("sw-path.sh", "bounded.py"):
+            (pr / name).write_bytes((fx.ROOT / "skills" / "specwright-pr" / "scripts" / name).read_bytes())
         r = subprocess.run([bashexe.bash(), str(lone / "finish.sh"), "undo-archive-plan", "--change", "add-x", "--archived-name",
                             f"{fx.DATE}-add-x", "--prefix", P, "--main", "main", "--branch", BRANCH],
-                           cwd=work, capture_output=True, text=True, encoding="utf-8")
+                           cwd=work, capture_output=True, text=True, encoding="utf-8",
+                           env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         doc = json.loads(r.stdout)
         self.assertEqual(doc["error"], "vcs_script_missing")

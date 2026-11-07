@@ -4,9 +4,11 @@ import 'dart:io' as io;
 import 'package:args/args.dart';
 
 import 'commands/commit.dart';
+import 'commands/finish.dart';
 import 'commands/run.dart';
 import 'commands/vcs.dart';
 import 'commands/version.dart';
+import 'finish/undo_plan.dart';
 import 'process/exec_helper.dart';
 import 'process/platform_tree.dart';
 
@@ -18,7 +20,8 @@ const _usage =
     '                    run a command under a deadline and a byte bound\n'
     '  vcs --args-stdin  run one VCS operation; stdin: scripts dir, bash,\n'
     '                    subcommand and arguments, each ending in a NUL\n'
-    '  commit --args-stdin  run task-cover or fit-subject; same stdin as vcs\n';
+    '  commit --args-stdin  run task-cover or fit-subject; same stdin as vcs\n'
+    '  finish --args-stdin  print the undo plan of an archive; same stdin as vcs\n';
 
 /// Runs sw with [args], writing to [out] and [err]; returns the exit code.
 ///
@@ -33,6 +36,7 @@ Future<int> runCli(
   Future<List<int>> Function()? readStdin,
   Map<String, VcsHandler>? vcsHandlers,
   Map<String, CommitHandler>? commitHandlers,
+  UndoPlanner? undoPlanner,
 }) async {
   if (args.isNotEmpty && args.first == '__exec') {
     return runExecHelper(
@@ -56,6 +60,14 @@ Future<int> runCli(
       writeErr: errBytes ?? io.stderr.add,
       readStdin: readStdin,
       handlers: commitHandlers,
+    );
+  }
+  if (args.isNotEmpty && args.first == 'finish') {
+    return runFinishCommand(
+      args.sublist(1),
+      writeOut: outBytes ?? io.stdout.add,
+      readStdin: readStdin,
+      planner: undoPlanner,
     );
   }
   if (args.isNotEmpty && args.first == 'vcs') {

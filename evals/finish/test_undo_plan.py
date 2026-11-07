@@ -9,6 +9,7 @@ Run: python -m unittest discover evals/finish
 import importlib.util
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -121,6 +122,19 @@ def network_lines(path):
     return found
 
 
+DART_FINISH = fx.ROOT / "cli" / "lib" / "src" / "finish"
+
+
+def dart_network_lines(root):
+    """(file name, line number, text) of every non-`//` line of the Dart files under root that names a network command."""
+    found = []
+    for path in sorted(Path(root).rglob("*.dart")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.lstrip().startswith("//") and NETWORK_RX.search(line):
+                found.append((path.name, n, line.strip()))
+    return found
+
+
 class TestNoNetwork(Base):
     def test_plan_runs_no_network_command(self):
         self.single({"a": "New thing"})
@@ -153,6 +167,21 @@ class TestNoNetwork(Base):
         lines.insert(40, "git(top, 'fetch', 'origin')")
         copy.write_text(NL.join(lines) + NL, encoding="utf-8", newline=NL)
         self.assertEqual(network_lines(copy), [(41, "git(top, 'fetch', 'origin')")])
+
+    def test_sw_finish_source_has_no_network_command(self):
+        self.assertTrue(list(DART_FINISH.rglob("*.dart")), "no Dart source under cli/lib/src/finish")
+        hits = dart_network_lines(DART_FINISH)
+        self.assertEqual(hits, [], "sw finish runs a network command: " + "; ".join(f"{f} line {n}: {t}" for f, n, t in hits))
+
+    def test_dart_scan_names_an_injected_line(self):
+        copy = self.scripts / "finish"
+        shutil.copytree(DART_FINISH, copy)
+        target = copy / "walk.dart"
+        lines = target.read_text(encoding="utf-8").splitlines()
+        lines.insert(40, "  await git(top, ['fetch', 'origin']);")
+        lines.insert(41, "  // git push origin is only a comment")
+        target.write_text(NL.join(lines) + NL, encoding="utf-8", newline=NL)
+        self.assertEqual(dart_network_lines(copy), [("walk.dart", 41, "await git(top, ['fetch', 'origin']);")])
 
 
 class TestUndoPlan(Base):

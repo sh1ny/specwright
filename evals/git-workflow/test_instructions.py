@@ -212,6 +212,19 @@ class TaskCommits(unittest.TestCase):
                 self.assertTrue(block, "%s has no store-backed task-cover.sh read passing --code <code toplevel>" % path.parent.name)
 
 
+class FinishSwMissing(unittest.TestCase):
+    def test_finish_stops_on_sw_missing(self):
+        text = read(ROOT / "skills" / "specwright-finish" / "SKILL.md")
+        block = find_block(text, r"undo-archive-plan", r"\bsw_missing\b")
+        self.assertTrue(block, "step 0 does not say what to do with a sw_missing document from finish.sh")
+        self.assertRegex(block, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit|\bstop\b",
+                         "sw_missing does not stop finish")
+        self.assertIn("rerun the install prompt", block, "sw_missing does not report the install message")
+        self.assertRegex(block, r"(?is)\bnot\b.{0,80}\bundo plan\b", "sw_missing may be shown as an undo plan")
+        self.assertRegex(block, r"(?is)\bno (restore|merge)\b|\bmake no\b|\brun no\b|\bno commit\b",
+                         "sw_missing does not rule out a commit, merge or restore")
+
+
 def committing_project_files():
     """The roadmap skill's "Committing project files" text, up to the first mode section."""
     text = read(ROADMAP)
