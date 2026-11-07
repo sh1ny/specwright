@@ -82,7 +82,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Undo plans for deferred archives now run in the native `sw` binary. `finish.sh` is a shim around the new `sw finish undo-archive-plan`, with unchanged JSON, exit codes and printed scripts. Installs at 0.27.0 need `sw` 0.27.0 placed.
+Undo plans for deferred archives now run in the native `sw` binary. `finish.sh` is a shim around the new `sw finish undo-archive-plan`, with unchanged JSON, exit codes and printed scripts. With it, every script in M7's scope (`vcs.sh`, `task-cover.sh`, `fit-subject.sh` and `finish.sh`) runs in `sw`. Installs at 0.27.0 need `sw` 0.27.0 placed.
 
 ### Changed
 
