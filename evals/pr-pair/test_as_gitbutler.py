@@ -20,8 +20,10 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
+sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 import bashexe  # noqa: E402
+import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 FAKE_BUT = (
     "#!/bin/sh\n"
@@ -43,6 +45,7 @@ class TestAsGitButler(unittest.TestCase):
             {"user": "sh1ny", "tokens": {"sh1ny": "tok-sh1ny", "code-bot": "tok-code"}}), encoding="utf-8")
         self.work = self.tmp / "work"
         self.work.mkdir()
+        vcs_test_support.stamp_version(self.work)
         self.log = self.tmp / "but-argv.txt"
         # a `but` stand-in first on PATH: it records argv, and what the fenced helper answers
         self.stub = self.tmp / "stub"
@@ -54,7 +57,7 @@ class TestAsGitButler(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO")}
         env.update({"PATH": os.pathsep.join([str(self.stub), str(self.tmp / "bin"), env.get("PATH", "")]),
                     "FAKE_GH_STATE": str(self.tmp / "gh-state.json"), "FAKE_GH_LOG": str(self.tmp / "gh-log.jsonl"),
-                    "BUT_LOG": self.log.as_posix()})
+                    "BUT_LOG": self.log.as_posix(), "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())})
         return env
 
     def as_sh(self, *args):

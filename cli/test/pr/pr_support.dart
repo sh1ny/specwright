@@ -1,0 +1,113 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:specwright_cli/src/pr/context.dart';
+import 'package:specwright_cli/src/pr/gh.dart';
+import 'package:specwright_cli/src/vcs/codec.dart';
+import 'package:specwright_cli/src/vcs/tool_runner.dart';
+
+/// A gh answer: exit 0 and [stdout] by default.
+GhResult answer(
+  String stdout, {
+  int exit = 0,
+  String stderr = '',
+  String? limitLine,
+}) => GhResult(
+  exitCode: exit,
+  stdout: encodeEscaped(stdout),
+  stderr: encodeEscaped(stderr),
+  limitLine: limitLine,
+);
+
+/// What the commands ran against, with every call recorded: the answers come from [onGh], the temp files from
+/// [tempDir] and the other tools from [onTool] (default: exit 0).
+class Fixture {
+  Fixture({
+    this.onGh,
+    this.onTool,
+    this.onBounded,
+    Directory? temp,
+    Map<String, String>? environment,
+  }) : tempDir = temp ?? Directory.systemTemp.createTempSync('sw-pr-test-') {
+    ctx = PrContext(
+      scriptsDir: 'scripts',
+      bash: 'bash',
+      writeOut: out.addAll,
+      writeErr: err.addAll,
+      environment: environment,
+      seconds: () => clock,
+      bounded: (command, {environment}) async {
+        boundedCalls.add(command);
+        boundedEnvs.add(environment);
+        final r = onBounded?.call(command);
+        if (r == null) throw StateError('unexpected bounded call: $command');
+        return r;
+      },
+      gh: (args, {environment, paged = false}) async {
+        ghCalls.add(args);
+        ghEnvs.add(environment);
+        final r = onGh?.call(args);
+        if (r == null) throw StateError('unexpected gh call: $args');
+        return r;
+      },
+      tool: (command) async {
+        toolCalls.add(command);
+        return onTool?.call(command) ?? ToolResult0();
+      },
+      makeTemp: ([template]) async {
+        tempCalls.add(template);
+        if (tempFails) return null;
+        if (fixedTemp != null) return fixedTemp;
+        final dir = template == null
+            ? tempDir.path
+            : template.substring(0, template.lastIndexOf('/'));
+        final f = File('$dir/tmp.${++tempCount}')..createSync();
+        return f.path;
+      },
+      cwd: tempDir.path,
+    );
+  }
+
+  final Directory tempDir;
+  final List<int> out = [];
+  final List<int> err = [];
+  final List<List<String>> ghCalls = [];
+  final List<Map<String, String>?> ghEnvs = [];
+  final List<List<String>> toolCalls = [];
+  final List<List<String>> boundedCalls = [];
+  final List<Map<String, String>?> boundedEnvs = [];
+  final List<String?> tempCalls = [];
+  GhResult Function(List<String> args)? onGh;
+  GhResult Function(List<String> command)? onBounded;
+
+  /// The monotonic seconds the command sees (`$SECONDS`); a test moves it from `onTool` when `sleep` runs.
+  int clock = 0;
+  ToolResult Function(List<String> command)? onTool;
+  bool tempFails = false;
+  String? fixedTemp;
+  int tempCount = 0;
+  late final PrContext ctx;
+
+  String get stdout => decodeEscaped(out);
+  String get stderr => decodeEscaped(err);
+
+  void dispose() => tempDir.deleteSync(recursive: true);
+
+  /// Files left in the temp directory.
+  List<String> get leftovers => [
+    for (final e in tempDir.listSync()) e.uri.pathSegments.last,
+  ];
+
+  File file(String name, String text) =>
+      File('${tempDir.path}/$name')..writeAsBytesSync(utf8.encode(text));
+}
+
+/// A process result with no output.
+class ToolResult0 extends ToolResult {
+  ToolResult0([int code = 0]) : super(code, Uint8List(0), Uint8List(0));
+}
+
+/// A tool result with [stdout].
+ToolResult toolOut(String stdout, {int code = 0}) =>
+    ToolResult(code, encodeEscaped(stdout), Uint8List(0));

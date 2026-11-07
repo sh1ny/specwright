@@ -1,4 +1,5 @@
 import 'package:specwright_cli/src/process/command_line.dart';
+import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -109,6 +110,70 @@ void main() {
       expect(
         () => planLaunch('f.cmd', ['f.cmd', '%x%'], {}, windows: true),
         throwsA(isA<UnsafeBatchArgument>()),
+      );
+    });
+  });
+
+  group('resolveCommand with an empty POSIX PATH entry (#202)', () {
+    bool Function(String) files(Set<String> present) => present.contains;
+
+    test('a leading empty entry is the current directory, searched first', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': ':/usr/bin'},
+          windows: false,
+          isFile: files({'./tool', '/usr/bin/tool'}),
+        ),
+        './tool',
+      );
+    });
+
+    test('a trailing empty entry keeps its position', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': '/usr/bin:'},
+          windows: false,
+          isFile: files({'./tool', '/usr/bin/tool'}),
+        ),
+        '/usr/bin/tool',
+      );
+    });
+
+    test('an empty entry between two colons is the current directory', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': '/a::/usr/bin'},
+          windows: false,
+          isFile: files({'./tool', '/usr/bin/tool'}),
+        ),
+        './tool',
+      );
+    });
+
+    test('no empty entry, no current directory', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': '/usr/bin'},
+          windows: false,
+          isFile: files({'./tool'}),
+        ),
+        isNull,
+      );
+    });
+
+    test('Windows still drops empty entries', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': r';C:\bin', 'PATHEXT': '.EXE'},
+          windows: true,
+          isFile: files({r'.\tool.exe', r'C:\bin\tool.exe'}),
+        ),
+        r'C:\bin\tool.exe',
       );
     });
   });

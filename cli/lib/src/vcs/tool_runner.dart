@@ -17,8 +17,13 @@ import 'stop.dart';
 /// empty `CDPATH` for `cd` only, so a drive-form path is never searched
 /// through it, and nothing is printed); a directory that vanished exits 127,
 /// silently.
+///
+/// The records are read with `LC_ALL=C`, and `LC_ALL` is restored (or unset)
+/// before the tool runs: in a UTF-8 locale bash's `read` takes a lead byte at
+/// the end of a record (`\xe9` then NUL) as the start of a character and
+/// swallows the NUL that ends the record.
 const String vcsPrelude =
-    r'''__d=; IFS= read -r -d '' __d || { echo "vcs: argument transport failed" >&2; exit 126; }; __c=; IFS= read -r -d '' __c || __c=x; case $__c in ''|*[!0-9]*|0*) echo "vcs: argument transport failed" >&2; exit 126;; esac; [ "${#__c}" -le 9 ] || { echo "vcs: argument transport failed" >&2; exit 126; }; set --; __i=0; while [ "$__i" -lt "$__c" ]; do IFS= read -r -d '' __a || { echo "vcs: argument transport failed" >&2; exit 126; }; set -- "$@" "$__a"; __i=$((__i+1)); done; CDPATH= cd -- "$__d" >/dev/null 2>&1 || exit 127; unset __d __c __i __a''';
+    r'''__lcs=${LC_ALL+x}; __lc=${LC_ALL-}; LC_ALL=C; __d=; IFS= read -r -d '' __d || { echo "vcs: argument transport failed" >&2; exit 126; }; __c=; IFS= read -r -d '' __c || __c=x; case $__c in ''|*[!0-9]*|0*) echo "vcs: argument transport failed" >&2; exit 126;; esac; [ "${#__c}" -le 9 ] || { echo "vcs: argument transport failed" >&2; exit 126; }; set --; __i=0; while [ "$__i" -lt "$__c" ]; do IFS= read -r -d '' __a || { echo "vcs: argument transport failed" >&2; exit 126; }; set -- "$@" "$__a"; __i=$((__i+1)); done; if [ -n "$__lcs" ]; then LC_ALL=$__lc; else unset LC_ALL; fi; CDPATH= cd -- "$__d" >/dev/null 2>&1 || exit 127; unset __d __c __i __a __lc __lcs''';
 
 /// What a tool run produced: the exit code and the raw output bytes. Decoding
 /// is the caller's choice (see codec.dart).

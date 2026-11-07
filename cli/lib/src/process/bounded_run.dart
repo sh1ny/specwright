@@ -78,6 +78,7 @@ class BoundedRun {
     this.rawLine = false,
     List<String>? helperCommand,
     this.preGoFile,
+    this.environment,
     void Function(String line)? note,
   }) : helperCommand = helperCommand ?? [Platform.resolvedExecutable, '__exec'],
        _note = note ?? stderr.write;
@@ -103,6 +104,15 @@ class BoundedRun {
   /// exists. The deadline keeps running, so it can only delay the start.
   final String? preGoFile;
 
+  /// Constraint C12: when given, this is the whole environment of the helper
+  /// and so of the command it starts, with nothing inherited from `sw`: a name
+  /// absent from the map is absent in the command, which `includeParentEnvironment`
+  /// with overrides cannot do. The helper starts the command with no environment
+  /// of its own, so the command inherits the helper's, the map. Null (what
+  /// `sw run --bounded` passes) keeps the helper and the command on `sw`'s own
+  /// environment.
+  final Map<String, String>? environment;
+
   final void Function(String line) _note;
 
   Future<BoundedResult> run() async {
@@ -122,12 +132,12 @@ class BoundedRun {
     final tree = treeFor();
     final Process helper;
     try {
-      helper = await Process.start(helperCommand.first, [
-        ...helperCommand.skip(1),
-        if (rawLine) '--cmdline',
-        '--',
-        ...command,
-      ]);
+      helper = await Process.start(
+        helperCommand.first,
+        [...helperCommand.skip(1), if (rawLine) '--cmdline', '--', ...command],
+        environment: environment,
+        includeParentEnvironment: environment == null,
+      );
     } on ProcessException catch (e) {
       deadlineTimer.cancel();
       tree.dispose();

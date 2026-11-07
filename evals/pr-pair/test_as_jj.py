@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 import jjenv  # noqa: E402
 import bashexe  # noqa: E402
+import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 GITHUB = "https://github.com/o/r.git"
 HOOK = (
@@ -52,6 +53,7 @@ class AsJjCase(unittest.TestCase):
             {"user": "sh1ny", "tokens": {"sh1ny": "tok-sh1ny", "code-bot": "tok-code"}}), encoding="utf-8")
         self.fixture = self.scratch.tracked_repo()
         self.repo = self.fixture.path
+        vcs_test_support.stamp_version(self.repo)
         self.marker = self.tmp / "ran"
         # a jj stand-in that only records that it ran; refusal tests put it first on PATH
         self.stub = self.tmp / "stub"
@@ -62,7 +64,8 @@ class AsJjCase(unittest.TestCase):
     def env(self, **extra):
         env = {k: v for k, v in self.scratch.env.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO")}
         env.update({"PATH": str(self.tmp / "bin") + os.pathsep + env.get("PATH", ""),
-                    "FAKE_GH_STATE": str(self.tmp / "gh-state.json"), "FAKE_GH_LOG": str(self.tmp / "gh-log.jsonl")})
+                    "FAKE_GH_STATE": str(self.tmp / "gh-state.json"), "FAKE_GH_LOG": str(self.tmp / "gh-log.jsonl"),
+                    "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())})
         env.update(extra)
         return env
 

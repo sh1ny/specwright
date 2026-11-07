@@ -11,10 +11,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vcs"))
 
 import fixtures  # noqa: E402
 import grade  # noqa: E402
 import bashexe  # noqa: E402
+import vcs_test_support  # noqa: E402
 
 TREE_CHECK = "The code repo's main tree equals the code branch's tip tree, so the merge kept the code"
 EVALS = ("eval-store-finish-resume-code-merge", "eval-store-finish-resume-code-merge-from-main")
@@ -107,7 +109,10 @@ class WatchMerge(unittest.TestCase):
             "login": "chatgpt-codex-connector", "role": "required", "timeout": 1200,
             "report": {"sha_pattern": "Reviewed commit:\\*\\* `([0-9a-f]{7,40})`"}}]},
             sort_keys=True, separators=(",", ":")), encoding="utf-8", newline="\n")
-        snap = json.loads(self.sh(repo, "bash ../../../skills/specwright-pr/scripts/pr-snapshot.sh 7 --repo acme/greeter "
+        # the shim runs `sw` from the stamped project: the fixture repo and the test home
+        vcs_test_support.stamp_version(repo)
+        snap = json.loads(self.sh(repo, f"export SPECWRIGHT_HOME={fixtures.posix(vcs_test_support.sw_home())} && "
+                                        "bash ../../../skills/specwright-pr/scripts/pr-snapshot.sh 7 --repo acme/greeter "
                                         f"--reviewer-config {fixtures.posix(config)}".replace("../../../", fixtures.posix(fixtures.ROOT) + "/")))
         self.assertEqual((snap["mergeable"], snap["merge_state"], snap["checks"]["pending"], snap["reviewers"][0]["state"]),
                          ("MERGEABLE", "CLEAN", 0, "reported"))
@@ -900,11 +905,14 @@ class ReleaseEvals(unittest.TestCase):
         run_dir = Path(tmp.name) / "run"
         repo = run_dir / "repo"
         fixtures.build(name, repo)
+        vcs_test_support.stamp_version(repo)  # the as.sh shim runs `sw` from the stamped project and the test home
         (run_dir / "outputs").mkdir()
         return run_dir, repo
 
     def sh(self, repo, script):
-        r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
+        env = dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()))
+        r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True,
+                           env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout.strip()
 

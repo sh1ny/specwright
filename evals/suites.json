@@ -25,6 +25,9 @@
     {"paths": ["evals/suites.json", "evals/timings.md", "evals/runner/**", "JJ_VERSION", "BUT_VERSION"], "suites": ["runner"]},
     {"paths": ["cli/**", "mise.toml", ".github/workflows/cli.yml", ".github/workflows/sw-build.yml", ".github/workflows/release.yml", "skills/specwright-pr/scripts/sw-path.sh", "scripts/install-sw.sh", "evals/cli/**", "evals/fakes/gh_release.py"], "suites": ["cli"]},
     {"paths": ["evals/finish/oracle/**"], "suites": ["finish", "vcs"]},
+    {"paths": ["evals/pr-pair/oracle/**"], "suites": ["pr-pair"]},
+    {"paths": ["cli/lib/src/fence/**", "cli/lib/src/pr/gh.dart", "cli/lib/src/commands/as.dart", "cli/test/fence/**", "cli/test/helper_support.dart"], "suites": ["pr-pair", "vcs"]},
+    {"paths": ["cli/lib/src/pr/**", "cli/lib/src/commands/pr.dart", "cli/test/pr/**"], "suites": ["pr-pair"]},
     {"paths": ["cli/lib/src/commit/**", "cli/test/commit/**"], "suites": ["git-workflow", "vcs"]},
     {"paths": ["cli/lib/src/finish/**", "cli/lib/src/commands/finish.dart", "cli/test/finish/**"], "suites": ["finish", "vcs"]},
     {"paths": ["evals/vcs/**", "skills/specwright-pr/scripts/vcs.sh", "skills/specwright-pr/scripts/pr-pair.sh", "skills/specwright-pr/scripts/as.sh", "skills/specwright-review/scripts/review-run.sh", "skills/specwright-release/scripts/release.sh", "skills/specwright-finish/scripts/finish.sh"], "suites": ["vcs"]}

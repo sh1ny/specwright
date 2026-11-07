@@ -154,6 +154,12 @@ Future<String> fenceLogin(
 
 /// `as.sh <who> <command...>` in [repo]: a fenced network command. The caller
 /// maps a non-zero exit (3 is a refused fence) as `network_git` does.
+///
+/// Constraint C7: this reaches the fence through the `as.sh` shim, which hands
+/// the call to `sw as`, until `native-cli-retire-scripts` calls `sw as`
+/// directly. The exit-3 and `as.sh:` prefix mapping of the callers depends on
+/// that shim: the fence keeps `as.sh`'s messages and statuses, and a direct
+/// call would have to keep them too.
 Future<TextResult> runAs(
   VcsScripts scripts,
   String repo,
