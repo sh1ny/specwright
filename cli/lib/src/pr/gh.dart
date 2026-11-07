@@ -123,7 +123,14 @@ Future<GhResult> _run(
     command: [bash, '-c', '$boundedPrelude; exec "\$@"', name],
     stdinBytes: stdinBytes,
     environment: environment,
-    limits: limits ?? resolveLimits(_platformEnv(environment), paged: paged),
+    // the scripts' `gh()` passed `--paged` whenever SW_PAGED was set, too
+    limits:
+        limits ??
+        resolveLimits(
+          _platformEnv(environment),
+          paged:
+              paged || (_platformEnv(environment)['SW_PAGED'] ?? '').isNotEmpty,
+        ),
     helperCommand: helperCommand,
     treeFor: () => platformTree(environment ?? _platformEnv(null)),
     note: (_) {},

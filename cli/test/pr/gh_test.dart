@@ -139,5 +139,33 @@ void main() {
         expect(r.limitLine, 'bounded: deadline_exceeded: gh api\n');
       },
     );
+
+    // The scripts' `gh()` passed `--paged` whenever SW_PAGED was set.
+    for (final (label, paged, finishes) in [
+      ('an inherited SW_PAGED takes the paged deadline', '1', true),
+      ('without SW_PAGED the normal deadline applies', '', false),
+    ]) {
+      test(label, () async {
+        fakeGh('sleep 2; printf ok');
+        env
+          ..['SW_PAGED'] = paged
+          ..['SPECWRIGHT_NET_DEADLINE'] = '1'
+          ..['SPECWRIGHT_NET_PAGED_DEADLINE'] = '60'
+          ..remove('SPECWRIGHT_NET_DEADLINE_AT');
+        final r = await runGh(
+          bash!,
+          Directory.current.path,
+          ['api', 'user'],
+          environment: env,
+          helperCommand: helper,
+        );
+        if (finishes) {
+          expect(r.limit, isNull);
+          expect(decodeText(r.stdout), 'ok');
+        } else {
+          expect(r.limit, BoundedLimit.deadlineExceeded);
+        }
+      });
+    }
   });
 }
