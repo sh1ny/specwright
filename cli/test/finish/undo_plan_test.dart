@@ -481,7 +481,9 @@ void main() {
 
     test('a --code that cygpath cannot convert is bad_path, exit 2', () async {
       final r = await plan(
-        request(tmp.path, code: '/no/such/code'),
+        // A drive-form --dir is not converted, so only --code reaches cygpath
+        // (tmp.path is itself a /-path off Windows).
+        request('C:/no/such/dir', code: '/no/such/code'),
         context(environment: env(), windows: true),
       );
       expect(r.code, 2);

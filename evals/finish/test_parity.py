@@ -158,7 +158,7 @@ class TestParityGit(tp.Base, ParityAsserts):
         self.assertParity(pair, 1)
         self.assertIn(b'"dirty_tree"', pair[1][1])
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
     def test_uncommitted_archive_with_invalid_utf8_file_name(self):
         self.single({"a": "New thing"})
         fx.archive(self.work, "add-x")
