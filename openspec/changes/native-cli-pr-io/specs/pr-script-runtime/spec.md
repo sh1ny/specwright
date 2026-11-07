@@ -56,7 +56,7 @@ When the resolver stops, `pr-snapshot.sh` and `pr-reply.sh` SHALL print one JSON
 
 #### Scenario: Equal claim numbers across implementations (accepted gap)
 - **WHEN** an old-script watcher and an `sw` watcher create claims with the same number on PR 12 within one directory listing
-- **THEN** `sw` picks the owner by comparing the nonces as bytes, the old script compares them by the locale's collation, and the two may each see themselves as owner. This is accepted and is not a parity failure
+- **THEN** `sw` picks the owner by comparing the nonces as bytes, the old script compares them by the locale's collation, and the two may each see themselves as owner. This is accepted and is not a parity failure. If a duplicate owner is ever seen in a run, the gap is reconsidered
 
 #### Scenario: State directory cannot be created
 - **WHEN** `SPECWRIGHT_STATE_DIR` names a path under a regular file and `pr-snapshot.sh 12 --wait` runs
