@@ -72,8 +72,12 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Task coverage and commit-subject fitting now run in the native `sw` binary. `task-cover.sh` and `fit-subject.sh` are shims around `sw commit task-cover` and `sw commit fit-subject`, with unchanged output and exit codes.
+Task coverage and commit-subject fitting now run in the native `sw` binary. `task-cover.sh` and `fit-subject.sh` are shims around the new `sw commit task-cover` and `sw commit fit-subject`, with unchanged output and exit codes. `task-cover.sh` gains `--code`, so store-backed runs find the code checkout's `sw`. Installs at 0.26.0 need `sw` 0.26.0 placed.
+
+### Added
+
+- `task-cover.sh --code <code toplevel>` picks the project whose `sw` runs. The commit, finish and watch skills pass it in store-backed runs, where the store has no installed `VERSION` (#148).
 
 ### Changed
 
-- `task-cover.sh` and `fit-subject.sh` now run `sw commit task-cover` and `sw commit fit-subject`, the Dart ports of their evidence and subject rules, with unchanged JSON, output and exit codes. A missing or mismatched `sw` stops them with `sw_missing`, and apply stops with the install message (#148).
+- `task-cover.sh` and `fit-subject.sh` now run `sw commit task-cover` and `sw commit fit-subject`, the Dart ports of their evidence and subject rules, with unchanged JSON, output and exit codes. Task and group ids are ASCII digits only. A missing or mismatched `sw` stops them with `sw_missing`, and apply stops with the install message (#148).

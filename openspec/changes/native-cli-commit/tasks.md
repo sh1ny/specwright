@@ -58,7 +58,7 @@
 
 ## 6. Release
 
-- [ ] 6.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.26.0` (a minor bump for a feature, per `CONTRIBUTING.md`'s pre-1.0 rule), and rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including `task-cover.sh`'s `--code`. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-commit/proposal.md` both pass.
+- [x] 6.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.26.0` (a minor bump for a feature, per `CONTRIBUTING.md`'s pre-1.0 rule), and rewrite the summary of the proposal's `## Release Notes` to describe the whole release, including `task-cover.sh`'s `--code`. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-commit/proposal.md` both pass.
 
 ## Workflow follow-up
 
