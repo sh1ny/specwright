@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../vcs/codec.dart';
 import 'context.dart';
+import '../vcs/tool_runner.dart';
 import 'paths.dart';
 
 const int _limit = 72;
@@ -107,14 +108,25 @@ Future<int> fitSubject(
   }
 
   if (fitted.length != line.length) {
-    final tmp = File.fromRawPath(encodeEscaped('$path.fit.$pid'));
+    final tmpPath = '$path.fit.$pid';
+    final tmp = File.fromRawPath(encodeEscaped(tmpPath));
     try {
       final out = BytesBuilder(copy: false)
         ..add(fitted)
         ..add(cr ? const [0x0d] : const [])
         ..add(Uint8List.sublistView(content, nl));
       await tmp.writeAsBytes(out.takeBytes(), flush: true);
-      await tmp.rename(file.path);
+      // `File.rename` takes a decoded String, which loses a name's bytes that
+      // are not UTF-8 (POSIX). `mv` through the transport gets them exactly,
+      // as the script's own `mv -f` did.
+      final moved = await runTool(ctx.bash, '.', [
+        'mv',
+        '-f',
+        '--',
+        tmpPath,
+        path,
+      ]);
+      if (moved.exitCode != 0) throw FileSystemException('mv failed', tmpPath);
     } on Object {
       try {
         if (tmp.existsSync()) await tmp.delete();
