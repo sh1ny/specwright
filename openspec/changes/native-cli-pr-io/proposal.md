@@ -95,3 +95,4 @@ The GitHub identity fence and the PR snapshot and reply tools now run in the nat
 ### Fixed
 
 - `sw` treats an empty entry in a POSIX `PATH` as the current directory, in its position, as the shell does (#202).
+- In a UTF-8 locale, `sw vcs` no longer exits 126 with `vcs: argument transport failed` when an argument ends in a byte that starts a multibyte character. It reads its argument records with `LC_ALL=C`, and the tool still gets the caller's `LC_ALL`.

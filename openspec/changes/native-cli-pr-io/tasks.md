@@ -74,7 +74,7 @@
 
 ## 5. Release
 
-- [ ] 5.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.28.0` (a minor bump for a feature, per `CONTRIBUTING.md`'s pre-1.0 rule), and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-pr-io/proposal.md` both pass.
+- [x] 5.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.28.0` (a minor bump for a feature, per `CONTRIBUTING.md`'s pre-1.0 rule), and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-pr-io/proposal.md` both pass.
 
 ## Workflow follow-up
 
