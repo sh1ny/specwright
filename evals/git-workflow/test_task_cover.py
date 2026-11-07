@@ -44,18 +44,14 @@ _MODULE = {}
 
 def setUpModule():
     """Give every run of the script an sw home and a stamped project (design D8): SPECWRIGHT_HOME goes into os.environ,
-    so every environment built from it carries it, and the module runs from a stamped temporary project. Without a
-    built sw the home is left out locally (the scripts do not need it yet); CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
-    try:
-        home = str(vcs_test_support.sw_home())
-    except unittest.SkipTest:
-        home = None
+    so every environment built from it carries it, and the module runs from a stamped temporary project. The script is
+    a shim, so it needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
+    home = str(vcs_test_support.sw_home())
     _MODULE["cwd"] = os.getcwd()
     _MODULE["env"] = os.environ.get("SPECWRIGHT_HOME")
     _MODULE["project"] = tempfile.mkdtemp(prefix="swv-project-")
     vcs_test_support.stamp_version(_MODULE["project"])
-    if home:
-        os.environ["SPECWRIGHT_HOME"] = home
+    os.environ["SPECWRIGHT_HOME"] = home
     os.chdir(_MODULE["project"])
 
 

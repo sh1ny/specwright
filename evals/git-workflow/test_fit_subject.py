@@ -30,13 +30,10 @@ _MODULE = {}
 
 
 def setUpModule():
-    """Put SPECWRIGHT_HOME into os.environ so every run's environment carries it (design D8). Without a built sw it is
-    left out locally (the script does not need it yet); CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
+    """Put SPECWRIGHT_HOME into os.environ so every run's environment carries it (design D8). The script is a shim, so it
+    needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
     _MODULE["env"] = os.environ.get("SPECWRIGHT_HOME")
-    try:
-        os.environ["SPECWRIGHT_HOME"] = str(vcs_test_support.sw_home())
-    except unittest.SkipTest:
-        pass
+    os.environ["SPECWRIGHT_HOME"] = str(vcs_test_support.sw_home())
 
 
 def tearDownModule():
@@ -183,6 +180,88 @@ class FitSubject(unittest.TestCase):
                 r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(msg.read_bytes().decode("utf-8").split("\n", 1)[0], one_word)
+
+
+
+
+@unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
+class FitSubjectWindowsPaths(unittest.TestCase):
+    """Path arguments in Git Bash and UNC forms reach the file the shell would name (design D9)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        vcs_test_support.stamp_version(self.tmp)
+
+    def cygpath(self, flag, path):
+        r = subprocess.run(["cygpath", flag, str(path)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def run_shim(self, arg, **kw):
+        return vcs_test_support.bash_run([SCRIPT.as_posix(), arg], cwd=self.tmp, stamp=False, **kw)
+
+    def scratch_in(self, base, name):
+        """base/name as a new directory (a native path); it and base, if base was new, go when the test ends."""
+        base = Path(base)
+        existed = base.exists()
+        base.mkdir(exist_ok=True)
+        d = base / name
+        d.mkdir()
+        self.addCleanup(lambda: (shutil.rmtree(d, ignore_errors=True), None if existed else shutil.rmtree(base, ignore_errors=True)))
+        return d
+
+    def assert_fitted_file(self, path):
+        text = path.read_bytes().decode("utf-8")
+        line1 = text.split("\n", 1)[0]
+        FitSubject.assert_fitted(self, GREETING, line1)
+        self.assertEqual(text, line1 + "\n\nBody.\n")
+
+    DATA = (GREETING + "\n\nBody.\n").encode("utf-8")
+
+    def test_git_bash_paths_on_windows(self):
+        name = "swfit-%d" % os.getpid()
+        in_tmp = self.scratch_in(self.cygpath("-w", "/tmp"), name)
+        for where in (self.tmp, in_tmp):
+            with self.subTest(where=str(where)):
+                msg = where / "m.txt"
+                msg.write_bytes(self.DATA)
+                arg = self.cygpath("-u", msg)  # /c/Users/... and /tmp/...
+                self.assertTrue(arg.startswith("/"), arg)
+                r = self.run_shim(arg)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assert_fitted_file(msg)
+
+    def test_unc_path_on_windows(self):
+        msg = self.tmp / "m.txt"
+        msg.write_bytes(self.DATA)
+        unc = "//localhost/%s$/%s" % (msg.drive[:1], msg.as_posix().split(":/", 1)[1])
+        if not os.path.isfile(unc):
+            self.skipTest("the administrative share %s is not reachable" % unc)
+        self.assertEqual(self.cygpath("-m", unc), unc, "cygpath -m does not keep the UNC form")
+        r = self.run_shim(unc)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("could not convert path", r.stderr)
+        self.assert_fitted_file(msg)
+
+    def test_failed_path_conversion_changes_nothing(self):
+        name = "swfit-%d" % os.getpid()
+        on_drive = self.scratch_in(self.tmp.drive + "\\tmp", name)  # \tmp\<name> on the current drive
+        in_tmp = self.scratch_in(self.cygpath("-w", "/tmp"), name)  # what Git Bash calls /tmp/<name>
+        for d in (on_drive, in_tmp):
+            (d / "m.txt").write_bytes(self.DATA)
+        arg = "/tmp/%s/m.txt" % name
+        stub = self.tmp / "stub"
+        stub.mkdir()
+        # fails for the message path only: the resolver and the shim convert their own paths with cygpath too
+        (stub / "cygpath").write_text(
+            '#!/bin/sh\nfor a in "$@"; do [ "$a" = "%s" ] && exit 1; done\nexec "%s" "$@"\n'
+            % (arg, Path(shutil.which("cygpath")).as_posix()), encoding="utf-8", newline="\n")
+        r = self.run_shim(arg, shim=stub)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("fit-subject.sh: could not convert path: " + arg, r.stderr)
+        self.assertEqual((on_drive / "m.txt").read_bytes(), self.DATA)
+        self.assertEqual((in_tmp / "m.txt").read_bytes(), self.DATA)
 
 
 if __name__ == "__main__":

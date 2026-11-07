@@ -1,65 +1,46 @@
 #!/usr/bin/env bash
-# Fit a task or group commit subject to 72 characters, in the message file itself.
+# Fit a task or group commit subject to 72 characters, in the message file itself. A shim (ADR 0028): it finds the
+# project's `sw` through sw-path.sh and runs `sw commit --args-stdin fit-subject`, handing it this directory, this bash
+# and the whole command line as NUL-terminated stdin records. All fitting logic lives in `sw commit fit-subject`.
 #
 # Usage: bash fit-subject.sh <msgfile>
-# Line 1 must be `<type>(<scope>): task X.Y <task text>` or
-# `<type>(<scope>): group N <group heading>`. When it is longer than 72
-# characters, it keeps that prefix plus the longest run of whole words of the
-# text that fits, and rewrites line 1 in place; every other line
-# is kept byte for byte. Prints the final subject.
-# The text is only ever read from the file: it never reaches a command
-# line, so backticks, `$` and quotes in it stay literal.
+# Line 1 must be `<type>(<scope>): task X.Y <task text>` or `<type>(<scope>): group N <group heading>`. When it is
+# longer than 72 characters, line 1 is cut at the last whole word that fits and rewritten in place; every other line is
+# kept byte for byte. Prints the final subject. The project is the current directory's.
 # Exit 0: fitted, or already fits (file untouched).
-# Exit 1: not even the first word fits after the prefix (file untouched).
-# Exit 2: missing file, or line 1 has no `<type>(<scope>): task X.Y ` or
-# `<type>(<scope>): group N ` prefix.
-set -u
+# Exit 1: not even the first word fits after the prefix (file untouched), or no `sw` that sw-path.sh accepts (one
+#         `sw_missing` JSON document on stdout: no fallback, file untouched; not a subject that does not fit).
+# Exit 2: missing file, or line 1 has no task or group prefix.
+set -euo pipefail
 
-limit=72
-msg=${1:-}
-[ -n "$msg" ] && [ -f "$msg" ] || { echo "fit-subject.sh: no message file: '$msg'" >&2; exit 2; }
-
-IFS= read -r line < "$msg" || true
-cr=
-case $line in *$'\r') cr=$'\r'; line=${line%$'\r'} ;; esac
-
-# POSIX awk (length, match, substr, gsub); the subject comes in through the
-# environment, so awk -v never reinterprets its backslashes. awk runs on bytes
-# (LC_ALL=C) in every environment, and chars() counts UTF-8 characters by
-# leaving out continuation bytes (0x80-0xBF), so the limit is in characters
-# whatever the caller's locale.
-fitted=$(SUBJECT=$line LC_ALL=C awk -v lim="$limit" '
-function chars(t) { return length(t) - gsub(/[\200-\277]/, "", t) }
-BEGIN {
-  s = ENVIRON["SUBJECT"]
-  if (!match(s, /^[^ ]+: task [0-9]+\.[0-9]+ /) && !match(s, /^[^ ]+: group [0-9]+ /)) exit 2
-  if (chars(s) <= lim) { print s; exit 0 }
-  p = RLENGTH
-  for (i = length(s); i > p; i--) {
-    if (substr(s, i, 1) != " ") continue
-    out = substr(s, 1, i - 1)
-    sub(/ +$/, "", out)
-    if (length(out) < p) exit 1
-    if (chars(out) <= lim) { print out; exit 0 }
-  }
+py=
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then py=$c; break; fi
+done
+if [ -z "$py" ]; then
+  # sw-path.sh needs Python too: say so with a fixed document (exit 2 would tell the skill to fix the message file)
+  echo '{"ok":false,"error":"sw_missing","message":"sw missing or mismatched: rerun the install prompt (the resolver needs Python 3.8+)"}'
+  echo "sw missing or mismatched: rerun the install prompt (the resolver needs Python 3.8+)" >&2
   exit 1
-}')
-rc=$?
-case $rc in
-  0) ;;
-  1) echo "fit-subject.sh: no word of the task or group text fits in $limit characters: $line" >&2; exit 1 ;;
-  *) echo "fit-subject.sh: line 1 is not '<type>(<scope>): task X.Y <task text>' or '<type>(<scope>): group N <group heading>': $line" >&2; exit 2 ;;
-esac
-
-if [ "$fitted" != "$line" ]; then
-  tmp="$msg.fit.$$"
-  {
-    printf '%s%s' "$fitted" "$cr"
-    # Everything from the first newline on, byte for byte (nothing when line 1 is the whole file).
-    if [ "$(wc -l < "$msg")" -gt 0 ]; then
-      skip=$(( $(printf '%s%s' "$line" "$cr" | wc -c) + 1 ))
-      tail -c +"$skip" -- "$msg"
-    fi
-  } > "$tmp" && mv -f -- "$tmp" "$msg" || { rm -f -- "$tmp"; echo "fit-subject.sh: could not rewrite $msg" >&2; exit 2; }
 fi
-printf '%s\n' "$fitted"
+SELF_DIR=$(cd "$(dirname "$0")" && pwd -P)
+RESOLVER="$SELF_DIR/../../specwright-pr/scripts/sw-path.sh"
+SELF_BASH=${BASH:-bash}
+if command -v cygpath >/dev/null 2>&1; then SELF_DIR=$(cygpath -m "$SELF_DIR"); SELF_BASH=$(cygpath -w "$SELF_BASH"); fi
+
+# The project: the current directory, then up to the first `.git` entry.
+dir=$(pwd -P)
+proj=$dir
+while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); done
+[ -e "$proj/.git" ] || proj=$dir
+
+err=$(mktemp)
+trap 'rm -f "$err"' EXIT
+if ! sw=$("$BASH" "$RESOLVER" --code "$proj" 2>"$err"); then
+  "$py" -I -X utf8 -c 'import json, sys; print(json.dumps({"ok": False, "error": "sw_missing", "message": sys.stdin.read().rstrip("\r\n")}, ensure_ascii=False))' <"$err"
+  cat "$err" >&2
+  rm -f "$err"
+  exit 1
+fi
+rm -f "$err"
+exec "$sw" commit --args-stdin < <(printf '%s\0' "$SELF_DIR" "$SELF_BASH" fit-subject "$@")
