@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
+sys.path.append(str(ROOT / "evals" / "vcs"))
+import vcs_test_support  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "task-cover.sh"
 CHANGE = "add-greeting"
 
@@ -35,6 +37,31 @@ TASKS = """# Tasks
 - [x] 2.1 Write bye
 - [x] 2.2 Test bye
 """
+
+
+_MODULE = {}
+
+
+def setUpModule():
+    """Give every run of the script an sw home and a stamped project (design D8): SPECWRIGHT_HOME goes into os.environ,
+    so every environment built from it carries it, and the module runs from a stamped temporary project. The script is
+    a shim, so it needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
+    home = str(vcs_test_support.sw_home())
+    _MODULE["cwd"] = os.getcwd()
+    _MODULE["env"] = os.environ.get("SPECWRIGHT_HOME")
+    _MODULE["project"] = tempfile.mkdtemp(prefix="swv-project-")
+    vcs_test_support.stamp_version(_MODULE["project"])
+    os.environ["SPECWRIGHT_HOME"] = home
+    os.chdir(_MODULE["project"])
+
+
+def tearDownModule():
+    os.chdir(_MODULE["cwd"])
+    if _MODULE["env"] is None:
+        os.environ.pop("SPECWRIGHT_HOME", None)
+    else:
+        os.environ["SPECWRIGHT_HOME"] = _MODULE["env"]
+    shutil.rmtree(_MODULE["project"], ignore_errors=True)
 
 
 class TaskCover(unittest.TestCase):

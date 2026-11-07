@@ -37,6 +37,7 @@ void main() {
     test('reads the scripts dir, the bash and the operation', () {
       final h = parseHandoff(
         _records(['/s', '/bin/bash', 'state', '--repo', '/r']),
+        handoffUsage,
       );
       expect(h.scriptsDir, '/s');
       expect(h.bash, '/bin/bash');
@@ -49,7 +50,7 @@ void main() {
         0x61,
         0xff,
         0,
-      ]);
+      ], handoffUsage);
       expect(h.argv, ['commit', '', 'a\udcff']);
     });
 
@@ -59,10 +60,16 @@ void main() {
         _records(['/s']),
         _records(['/s', '/b']),
       ]) {
-        final stop = _stopOf(() => parseHandoff(input));
+        final stop = _stopOf(() => parseHandoff(input, handoffUsage));
         expect(stop.error, 'usage');
+        expect(stop.message, handoffUsage);
         expect(stop.code, 2);
       }
+    });
+
+    test('a stop carries the usage text the caller passed', () {
+      final stop = _stopOf(() => parseHandoff(<int>[], 'usage: sw commit'));
+      expect(stop.message, 'usage: sw commit');
     });
 
     test('an unterminated last record is a usage stop with exit 2', () {
@@ -70,7 +77,7 @@ void main() {
         () => parseHandoff([
           ..._records(['/s', '/b']),
           ...utf8.encode('state'),
-        ]),
+        ], handoffUsage),
       );
       expect(stop.error, 'usage');
       expect(stop.code, 2);

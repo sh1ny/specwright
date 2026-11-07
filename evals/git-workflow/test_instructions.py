@@ -194,6 +194,23 @@ class TaskCommits(unittest.TestCase):
         self.assertRegex(block, r"(?is)\breport\b.{0,80}\btask\b.{0,40}\bsubject\b.{0,40}\blimit\b|\b72\b",
                          "exit 1 does not report the task, the subject and the limit")
 
+    def test_commit_stops_on_sw_missing(self):
+        text, s2 = commit_step2()
+        block = find_block(s2, r"\bsw_missing\b", r"fit-subject")
+        self.assertTrue(block, "step 2 does not say what to do with a sw_missing document from fit-subject.sh")
+        self.assertRegex(block, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "sw_missing does not stop the commit")
+        self.assertIn("rerun the install prompt", block, "sw_missing does not report the install message")
+        self.assertRegex(block, r"(?is)\bnot\b.{0,80}\b(does not fit|72)", "sw_missing may be read as the subject that does not fit")
+        reads = find_block(text, r"\bsw_missing\b", r"task-cover")
+        self.assertTrue(reads, "the coverage read does not say what to do with a sw_missing document from task-cover.sh")
+        self.assertRegex(reads, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "sw_missing from task-cover.sh does not stop")
+
+    def test_store_backed_task_cover_reads_pass_code(self):
+        for path in (COMMIT, ROOT / "skills" / "specwright-finish" / "SKILL.md", ROOT / "skills" / "specwright-pr" / "SKILL.md"):
+            with self.subTest(skill=path.parent.name):
+                block = find_block(read(path), r"task-cover\.sh", r"--code [\"`]?<code toplevel>")
+                self.assertTrue(block, "%s has no store-backed task-cover.sh read passing --code <code toplevel>" % path.parent.name)
+
 
 def committing_project_files():
     """The roadmap skill's "Committing project files" text, up to the first mode section."""

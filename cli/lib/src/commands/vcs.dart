@@ -114,7 +114,10 @@ Future<int> runVcsCommand(
     if (args.length != 1 || args.first != '--args-stdin') {
       throw VcsStop('usage', _argvUsage, code: 2);
     }
-    final handoff = parseHandoff(await (readStdin ?? _readAllStdin)());
+    final handoff = parseHandoff(
+      await (readStdin ?? readAllStdin)(),
+      handoffUsage,
+    );
     final request = parseVcsArguments(handoff.argv);
     final handler = (handlers ?? vcsHandlers)[request.command];
     if (handler == null) {
@@ -157,7 +160,7 @@ Map<String, Object?> _internalError(Object e) => {
 /// child's stdin pipe the number 0 and close it in the child
 /// (dart-lang/sdk#64744), so a tool's `read` fails with EBADF. The handoff is
 /// a few hundred bytes.
-Future<List<int>> _readAllStdin() async {
+Future<List<int>> readAllStdin() async {
   final bytes = <int>[];
   for (var b = io.stdin.readByteSync(); b != -1; b = io.stdin.readByteSync()) {
     bytes.add(b);

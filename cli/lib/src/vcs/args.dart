@@ -19,12 +19,13 @@ const String handoffUsage =
     'usage: sw vcs --args-stdin (stdin: scripts dir, bash path, subcommand and '
     'arguments, each record ending in a NUL byte)';
 
-/// Splits the stdin of `sw vcs --args-stdin` into NUL-terminated records,
-/// decoded with surrogateescape. Fewer than three records, or a last record
-/// with no NUL, is a usage stop (exit 2).
-Handoff parseHandoff(List<int> stdin) {
+/// Splits the stdin of `sw <command> --args-stdin` into NUL-terminated
+/// records, decoded with surrogateescape. Fewer than three records, or a last
+/// record with no NUL, is a usage stop (exit 2) whose message is [usage], so
+/// each command names itself (`sw vcs` passes [handoffUsage]).
+Handoff parseHandoff(List<int> stdin, String usage) {
   if (stdin.isNotEmpty && stdin.last != 0) {
-    throw VcsStop('usage', handoffUsage, code: 2);
+    throw VcsStop('usage', usage, code: 2);
   }
   final bytes = Uint8List.fromList(stdin);
   final records = <String>[];
@@ -36,7 +37,7 @@ Handoff parseHandoff(List<int> stdin) {
     }
   }
   if (records.length < 3) {
-    throw VcsStop('usage', handoffUsage, code: 2);
+    throw VcsStop('usage', usage, code: 2);
   }
   return Handoff(records[0], records[1], records.sublist(2));
 }
