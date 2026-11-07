@@ -108,7 +108,7 @@ Future<int> runFinishCommand(
     document = {
       'ok': false,
       'error': 'internal_error',
-      'message': e is StateError ? e.message : e.toString(),
+      'message': '${e.runtimeType}: ${e is StateError ? e.message : e}',
     };
     code = 1;
   }
