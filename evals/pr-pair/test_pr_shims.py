@@ -11,6 +11,8 @@ Run: python -m unittest discover evals/pr-pair -p test_pr_shims.py
 import json
 import os
 import subprocess
+import sys
+import time
 import unittest
 
 import snapfix
@@ -130,6 +132,63 @@ class TestQueryTextArrivesWhole(ShimCase):
         self.assertTrue(jq.startswith("def cfg:"), jq[:40])
         self.assertTrue(jq.endswith("\n" + shape), "the jq program arrived whole")
         self.assertIn("…[truncated, see url]", jq)
+
+
+@unittest.skipUnless(os.name == "nt", "platform: checks the Git Bash form of HOME, which only Windows has (assumption A3)")
+class TestHomeStateBaseOnWindows(ShimCase):
+    """A3 (design D9): with no SPECWRIGHT_STATE_DIR and HOME in Git Bash `/c/...` form, the sw watcher claims under
+    <HOME>/.cache/specwright/watch/v2/, the directory the old script used, so an old-script watcher sees its claim."""
+
+    def setUp(self):
+        super().setUp()
+        sleep = self.tmp / "bin" / "sleep"  # short naps, so the old watcher's takeover check comes quickly
+        sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
+                         encoding="utf-8", newline="\n")
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.procs = []
+        self.addCleanup(self._reap)
+
+    def _reap(self):
+        for p in self.procs:
+            if p.poll() is None:
+                p.kill()
+            p.communicate()
+
+    def start(self, script, **extra):
+        env = self.env(HOME=fixtures.msys(self.home), **extra)
+        env.pop("SPECWRIGHT_STATE_DIR")
+        p = subprocess.Popen([bashexe.bash(), str(script), str(self.PR), "--repo", self.SLUG, "--wait", "--interval", "1",
+                              "--timeout", "60"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             encoding="utf-8", env=env, cwd=self.tmp)
+        self.procs.append(p)
+        return p
+
+    def claims(self):
+        base = self.home / ".cache" / "specwright" / "watch" / "v2"
+        return sorted(p.name for p in base.rglob("*") if p.is_file()) if base.is_dir() else []
+
+    def wait_for(self, cond, what):
+        end = time.time() + 60
+        while time.time() < end:
+            if cond():
+                return
+            time.sleep(0.05)
+        self.fail(f"timed out waiting for {what}; claims: {self.claims()}")
+
+    def test_home_default_state_base_is_shared_with_the_old_script(self):
+        new = self.start(SNAPSHOT)
+        self.wait_for(lambda: self.claims(), "the sw watcher's claim under <HOME>/.cache/specwright/watch/v2/")
+        first = self.claims()
+        self.assertEqual(len(first), 1, first)
+        self.assertTrue(first[0].startswith("1-"), first)
+        old = self.start(ORACLE / "pr-snapshot.sh", ORACLE_SW_DIR=fixtures.posix(snapfix.SCRIPTS))
+        _, err_new = new.communicate(timeout=90)
+        self.assertEqual(new.returncode, 4, err_new)  # the old watcher saw the claim and took a higher one
+        self.assertIn("took over", err_new)
+        self.assertTrue(any(c.startswith("2-") for c in self.claims()), self.claims())
+        old.kill()
+        old.communicate()
 
 
 if __name__ == "__main__":

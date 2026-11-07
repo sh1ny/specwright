@@ -124,7 +124,7 @@ class TestShim(ShimCase):
         self.assertIn("token resolves to 'sh1ny', expected 'KintsugiBot'", r.stderr)
         self.assertFalse(marker.exists())
 
-    @unittest.skipUnless(sys.platform == "darwin" and os.path.exists("/bin/bash"), "macOS /bin/bash 3.2 only")
+    @unittest.skipUnless(sys.platform == "darwin" and os.path.exists("/bin/bash"), "platform: macOS /bin/bash 3.2 only")
     def test_macos_bin_bash_empty_argument_and_argument_bytes(self):
         out = self.tmp / "mac.out"
         e = self.env()
@@ -177,7 +177,7 @@ class TestShimProcess(ShimCase):
         time.sleep(9)  # long enough for a command that was left running to finish
         self.assertFalse(late.exists(), "the fenced command outlived its bounded caller")
 
-    @unittest.skipIf(os.name == "nt", "POSIX signals")
+    @unittest.skipIf(os.name == "nt", "platform: POSIX signals")
     def test_sigterm_reaches_the_command(self):
         ready, term = self.tmp / "ready", self.tmp / "term"
         script = f'trap \'touch "{term.as_posix()}"; exit 0\' TERM; touch "{ready.as_posix()}"; while :; do sleep 0.2; done'

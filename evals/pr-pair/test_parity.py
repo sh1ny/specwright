@@ -218,7 +218,7 @@ class SnapshotParity(PrParity):
                 self.assertParity((new, old), 2)
                 self.assertEqual(old["calls"], [], "no gh call before the config check")
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "a file name that is not UTF-8 needs Linux")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs Linux")
     def test_config_name_with_a_non_utf8_byte_for_the_check_and_the_evaluation(self):
         name = os.fsdecode(b"reviewers-\xff.json")
         good = self.write_config(rev("genrev"), name=name)
@@ -231,7 +231,9 @@ class SnapshotParity(PrParity):
         bad.write_text("{not json", encoding="utf-8")
         new, old = self.snapshot_pair("--reviewer-config", fixtures.posix(bad))  # the check
         self.assertParity((new, old), 2)
-        self.assertIn(b"\xff", old["stderr"], "the check names the file by its bytes")
+        # reviewers.py opened the file by its bytes (a lost byte would be "No such file"); Python's stderr writes the name
+        # with backslashreplace, so the byte shows as \udcff in both
+        self.assertIn(b"not valid JSON", new["stderr"], "the check opened the file by its bytes")
 
 
 class ReplyParity(PrParity):

@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Commands resolve as the shell would find them
-`sw run --bounded` SHALL find the command on `PATH` itself. On Windows it SHALL also try each `PATHEXT` extension in order, so `.exe`, `.cmd` and `.bat` shims (the eval fakes of `gh` and the reviewer CLIs included) resolve. A name containing a path separator SHALL be used as given. On POSIX an empty `PATH` entry (leading, trailing, or between two colons) SHALL mean the current directory, searched in its position, as the shell and `execvp` search it.
+`sw run --bounded` SHALL find the command on `PATH` itself. On Windows it SHALL also try each `PATHEXT` extension in order, so `.exe`, `.cmd` and `.bat` shims (the eval fakes of `gh` and the reviewer CLIs included) resolve. A name containing a path separator SHALL be used as given. On POSIX an empty `PATH` entry (leading, trailing, or between two colons) SHALL mean the current directory, searched in its position, as the shell and `execvp` search it. On Windows empty entries SHALL be dropped.
 
 #### Scenario: A .cmd shim on Windows
 - **WHEN** on Windows `PATH` holds a directory with `gh.cmd` and no `gh.exe`, and `sw run --bounded -- gh api user` runs

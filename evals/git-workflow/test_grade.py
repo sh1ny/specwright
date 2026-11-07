@@ -905,11 +905,14 @@ class ReleaseEvals(unittest.TestCase):
         run_dir = Path(tmp.name) / "run"
         repo = run_dir / "repo"
         fixtures.build(name, repo)
+        vcs_test_support.stamp_version(repo)  # the as.sh shim runs `sw` from the stamped project and the test home
         (run_dir / "outputs").mkdir()
         return run_dir, repo
 
     def sh(self, repo, script):
-        r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True)
+        env = dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()))
+        r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True,
+                           env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout.strip()
 

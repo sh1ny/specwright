@@ -78,6 +78,41 @@ class Lookup(Base):
         self.assertIn(b"sw-no-such-command-xyz", proc.stderr)
 
 
+@unittest.skipIf(WINDOWS, "platform: an empty PATH entry is the current directory on POSIX only (#202)")
+class EmptyPathEntry(Base):
+    """#202: an empty POSIX PATH entry is the current directory, searched in its position, as `bash -c tool` finds it."""
+
+    def setUp(self):
+        super().setUp()
+        self.work = self.tmp / "work"
+        self.bin = self.tmp / "bin"
+        for d, who in ((self.work, "cwd"), (self.bin, "bin")):
+            d.mkdir()
+            tool = d / "tool"
+            tool.write_text("#!/bin/sh\necho %s\n" % who, encoding="utf-8", newline="\n")
+            tool.chmod(0o755)
+
+    def run_tool(self, path):
+        env = swharness.fixture_env()
+        env["PATH"] = path
+        return subprocess.run([swharness.require_sw(), "run", "--bounded", "--", "tool"], cwd=self.work, env=env,
+                              capture_output=True, timeout=60)
+
+    def test_empty_path_entry_is_cwd(self):
+        proc = self.run_tool(":" + str(self.bin))
+        self.assertEqual((proc.returncode, proc.stdout.decode().strip()), (0, "cwd"), proc.stderr)
+
+    def test_empty_path_entry_keeps_position(self):
+        proc = self.run_tool(str(self.bin) + ":")
+        self.assertEqual((proc.returncode, proc.stdout.decode().strip()), (0, "bin"), proc.stderr)
+
+    def test_no_empty_entry_no_cwd(self):
+        (self.bin / "tool").unlink()
+        proc = self.run_tool(str(self.bin))
+        self.assertEqual(proc.returncode, 127, proc.stderr)
+        self.assertIn(b"tool", proc.stderr)
+
+
 class NativeArguments(Base):
     def test_long_argument_to_native_exe_is_unchanged(self):
         long_arg = ("word \"quoted\" back\\slash \\\\ trailing\\ new\nline \u00e9\u4e2d\U0001f600 " * 400)[:20000]

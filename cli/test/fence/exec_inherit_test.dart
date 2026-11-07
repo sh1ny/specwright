@@ -208,6 +208,42 @@ void main() {
     test('a command ended by SIGTERM gives 128+15', () async {
       expect(await fenced([bash!, '-c', r'kill -TERM $$']), 143);
     }, skip: Platform.isWindows ? 'POSIX signals' : false);
+
+    for (final (label, value) in [('set', 'C.UTF-8'), ('unset', null)]) {
+      test('the command gets the caller\'s LC_ALL ($label)', () async {
+        final out = File('${other.path}/lc');
+        final env = Map.of(Platform.environment)
+          ..removeWhere((k, _) => k.toUpperCase() == 'LC_ALL');
+        if (value != null) env['LC_ALL'] = value;
+        final code = await fenced([
+          bash!,
+          '-c',
+          r'printf "%s" "${LC_ALL-unset}" > "$0"',
+          _fwd(out.path),
+        ], env: env);
+        expect(code, 0);
+        expect(out.readAsStringSync(), value ?? 'unset');
+      });
+    }
+
+    test(
+      'a lead byte at the end of an argument keeps its record in UTF-8',
+      () async {
+        final out = File('${other.path}/bytes');
+        final env = Map.of(Platform.environment)..['LC_ALL'] = 'C.UTF-8';
+        final code = await fenced([
+          bash!,
+          '-c',
+          r'printf "%s|" "$@" > "$0"',
+          _fwd(out.path),
+          'a${String.fromCharCode(0xdce9)}',
+          'next',
+        ], env: env);
+        expect(code, 0);
+        expect(out.readAsBytesSync(), [0x61, 0xe9, 0x7c, ...'next|'.codeUnits]);
+      },
+      skip: Platform.isWindows ? 'POSIX argument bytes' : false,
+    );
   });
 
   group('A1', () {

@@ -5,6 +5,11 @@ import 'dart:io';
 /// A name with a path separator is used as given. Otherwise `PATH` is walked,
 /// and on Windows each `PATHEXT` extension in order (default
 /// `.COM;.EXE;.BAT;.CMD`). [isFile] is replaceable for tests.
+///
+/// Constraint C9: on POSIX an empty `PATH` entry (leading, trailing or between
+/// two colons) is the current directory, searched in its position as the shell
+/// and `execvp` search it, and found as `./<name>`. On Windows empty entries
+/// are dropped (#202).
 String? resolveCommand(
   String name,
   Map<String, String> env, {
@@ -16,9 +21,11 @@ String? resolveCommand(
   final separator = win ? RegExp(r'[\\/]') : RegExp('/');
   if (name.contains(separator)) return exists(name) ? name : null;
 
-  final dirs = (_lookup(env, 'PATH', win) ?? '')
+  final path = _lookup(env, 'PATH', win);
+  if (path == null) return null; // no PATH searches nothing, not `.`
+  final dirs = path
       .split(win ? ';' : ':')
-      .map((d) => win ? d.trim().replaceAll('"', '') : d)
+      .map((d) => win ? d.trim().replaceAll('"', '') : (d.isEmpty ? '.' : d))
       .where((d) => d.isNotEmpty)
       .toList();
   final extensions = win ? _pathExt(_lookup(env, 'PATHEXT', win)) : const [''];

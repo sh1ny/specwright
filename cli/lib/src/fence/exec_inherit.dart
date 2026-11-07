@@ -15,8 +15,11 @@ const String fencedEnd = '--sw-end--';
 /// directory, and runs the rest with `exec`. The file is read through a
 /// redirection, so the command's own stdin is left alone. A missing, unreadable
 /// or cut-off file exits 126 with `as.sh: handoff: malformed` and runs nothing.
+/// The records are read with `LC_ALL=C`, restored (or unset) before `exec`, so
+/// a UTF-8 locale's `read` cannot take a lead byte at a record's end as the
+/// start of a character and swallow the NUL after it.
 const String fencedPrelude =
-    r'''__f=$1; __a=(); while IFS= read -r -d '' __x; do __a+=("$__x"); done < "$__f" || { echo "as.sh: handoff: malformed" >&2; exit 126; }; __n=${#__a[@]}; if [ "$__n" -lt 2 ] || [ "${__a[__n-1]}" != --sw-end-- ]; then echo "as.sh: handoff: malformed" >&2; exit 126; fi; unset "__a[__n-1]"; rm -f -- "$__f"; rmdir -- "${__f%/*}" 2>/dev/null; exec "${__a[@]}"''';
+    r'''__f=$1; __lcs=${LC_ALL+x}; __lc=${LC_ALL-}; LC_ALL=C; __a=(); while IFS= read -r -d '' __x; do __a+=("$__x"); done < "$__f" || { echo "as.sh: handoff: malformed" >&2; exit 126; }; if [ -n "$__lcs" ]; then LC_ALL=$__lc; else unset LC_ALL; fi; unset __lc __lcs; __n=${#__a[@]}; if [ "$__n" -lt 2 ] || [ "${__a[__n-1]}" != --sw-end-- ]; then echo "as.sh: handoff: malformed" >&2; exit 126; fi; unset "__a[__n-1]"; rm -f -- "$__f"; rmdir -- "${__f%/*}" 2>/dev/null; exec "${__a[@]}"''';
 
 /// Constraint C2: the fenced command runs through bash's own lookup, `exec` in
 /// [fencedPrelude], and never through `resolveCommand`, so an extensionless
