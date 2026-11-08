@@ -5,6 +5,7 @@ import '../pr/settings_commands.dart';
 import '../pr/reviewers.dart';
 import '../pr/reply.dart';
 import '../pr/snapshot.dart';
+import '../pr/workflow.dart';
 import 'vcs.dart' show readAllStdin;
 
 /// The commands that take the shim's handoff on stdin.
@@ -16,6 +17,12 @@ const List<String> _handoffCommands = [
   'tier',
   'context',
   'policy',
+  'discover',
+  'ensure-pr',
+  'link',
+  'expected',
+  'pair-state',
+  'rounds',
 ];
 
 final String _usage = 'usage: sw pr ${_handoffCommands.join('|')} --args-stdin';
@@ -70,6 +77,12 @@ Future<int> runPrCommand(
     'vcs' => runVcs(ctx, handoff.args),
     'tier' => runTier(ctx, handoff.args),
     'context' => runContext(ctx, handoff.args),
+    'discover' ||
+    'ensure-pr' ||
+    'link' ||
+    'expected' ||
+    'pair-state' ||
+    'rounds' => runWorkflow(ctx, args[0], handoff.args),
     _ => runPolicy(ctx, handoff.args),
   };
 }

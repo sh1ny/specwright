@@ -16,6 +16,28 @@ import 'pair.dart';
 
 PairStop _stopOf(SettingsStop e) => PairStop(e.error, e.message, code: e.code);
 
+/// Settings for native workflow callers, without context's reviewer-file output.
+Future<Contexts> workflowContexts(
+  PrContext ctx,
+  String code,
+  String? store,
+) async {
+  final mains = {
+    code: await _detectMain(ctx, code),
+    if (store != null) store: await _detectMain(ctx, store),
+  };
+  try {
+    return contexts(
+      await _loadSettings(ctx, code),
+      code,
+      store,
+      detectMain: (d) => mains[d] ?? 'main',
+    );
+  } on SettingsStop catch (e) {
+    throw _stopOf(e);
+  }
+}
+
 /// `toplevel(d)`: the git top level of [d], else [d].
 Future<String> _toplevel(PrContext ctx, String d) async {
   final r = await ctx.git(d, ['rev-parse', '--show-toplevel']);

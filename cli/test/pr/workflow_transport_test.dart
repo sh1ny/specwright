@@ -1,4 +1,7 @@
 import 'dart:typed_data';
+
+import 'package:specwright_cli/src/vcs/codec.dart';
+
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -19,30 +22,66 @@ GhResult result(String text, [int code = 0]) => GhResult(
 
 void main() {
   test(
-    'typed inner byte limit remains refusal when outer bytes are larger',
+    'real workflow command preserves empty long and raw argument bytes',
     () async {
-      final transport = WorkflowTransport(
-        directory: 'repo',
-        environment: {'SPECWRIGHT_NET_MAX_BYTES': '10'},
-        runner: (dir, command, env, limits) async => GhResult(
-          exitCode: 125,
-          limit: BoundedLimit.responseTooLarge,
-          stdout: Uint8List(0),
-          stderr: Uint8List(0),
-        ),
+      final bash = findBash();
+      expect(bash, isNotNull);
+      final native = WorkflowTransport.native(
+        directory: Directory.current.path,
+        bash: bash!,
       );
+      final transport = WorkflowTransport(
+        directory: Directory.current.path,
+        environment: {},
+        runner: (dir, command, env, limits) async {
+          if (command.contains('--help')) return result('--user');
+          if (command.contains('token')) return result('token');
+          if (command[0] == 'gh') return result('bot');
+          if (command[0] == 'git') return result('');
+          return native.runner(dir, command, native.environment, limits);
+        },
+      );
+      final args = [
+        '',
+        'space quote " dollar \$ glob *',
+        'é',
+        List.filled(100000, 'x').join(),
+        if (!Platform.isWindows) decodeEscaped([0x80, 0xff]),
+      ];
+      final r = await transport.fenced('bot', [
+        bash,
+        '-c',
+        r'printf "%s\0" "$@"',
+        'capture',
+        ...args,
+      ]);
+      expect(r.exitCode, 0);
+      expect(r.stdout, encodeEscaped('${args.join('\x00')}\x00'));
+    },
+  );
+  test('typed lookup byte limit remains refusal for lower equal and larger outer caps', () async {
+    final transport = WorkflowTransport(
+      directory: 'repo',
+      environment: {'SPECWRIGHT_NET_MAX_BYTES': '10'},
+      runner: (dir, command, env, limits) async => GhResult(
+        exitCode: 125,
+        limit: BoundedLimit.responseTooLarge,
+        stdout: Uint8List(0),
+        stderr: Uint8List(0),
+      ),
+    );
+    for (final cap in [5, 10, 100])
       await expectLater(
         transport.fenced(
           'bot',
           ['capture'],
-          outer: const RunLimits(deadline: Duration(seconds: 1), maxBytes: 100),
+          outer: RunLimits(deadline: const Duration(seconds: 1), maxBytes: cap),
         ),
         throwsA(
           isA<PairStop>().having((s) => s.error, 'error', 'fence_refused'),
         ),
       );
-    },
-  );
+  });
 
   test(
     'typed inner deadline remains refusal before longer outer deadline',

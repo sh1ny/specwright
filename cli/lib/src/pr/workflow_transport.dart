@@ -92,7 +92,10 @@ class WorkflowTransport {
       final r = await runner(directory, cmd, Map.of(env), limits);
       checkOuter();
       final outerLimit = r.limit == BoundedLimit.responseTooLarge
-          ? outer != null && (inner == null || outer.maxBytes <= inner.maxBytes)
+          // The old outer wrapper captured the fence's final output, never
+          // its private lookup streams. A lookup byte stop is a fence refusal
+          // even when its cap equals the enclosing command's stream cap.
+          ? !lookup
           : enclosing;
       if (r.limit != null && (outerLimit || !lookup)) limited(r.limit!);
       return r;
