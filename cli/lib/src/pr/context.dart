@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../commit/paths.dart';
 import '../vcs/codec.dart';
+import '../vcs/scripts.dart' show TextResult, runText;
 import '../vcs/tool_runner.dart';
 import 'gh.dart';
 import 'text.dart';
@@ -33,6 +34,9 @@ typedef PrBounded = Future<GhResult> Function(
   List<String> command, {
   Map<String, String>? environment,
 });
+
+/// One `git <args>` run in a directory (the settings commands), its output decoded as text.
+typedef PrGit = Future<TextResult> Function(String dir, List<String> args);
 
 /// `mktemp [template]`: its path, usable by `sw` (on Windows in the drive form), or null when it failed.
 typedef PrMakeTemp = Future<String?> Function([String? template]);
@@ -70,6 +74,7 @@ class PrContext {
     this.helperCommand,
     this._gh,
     this._tool,
+    this._git,
     this._bounded,
     this._makeTemp,
     this._seconds,
@@ -87,6 +92,7 @@ class PrContext {
   final String cwd;
   final PrGh? _gh;
   final PrTool? _tool;
+  final PrGit? _git;
   final PrBounded? _bounded;
   final PrMakeTemp? _makeTemp;
   final int Function()? _seconds;
@@ -151,6 +157,14 @@ class PrContext {
 
   Future<ToolResult> _runTool(List<String> command) =>
       runTool(bash, cwd, command, environment: environment);
+
+  /// `git <args>` in [dir] (`pr-pair.sh`'s `git(d, ...)`): through bash like every tool, decoded as text. A directory
+  /// that cannot be entered is exit 127.
+  Future<TextResult> git(String dir, List<String> args) =>
+      (_git ?? _runGit)(dir, args);
+
+  Future<TextResult> _runGit(String dir, List<String> args) =>
+      runText(bash, dir, ['git', ...args]);
 
   /// `mktemp [template]` through bash, with the path converted by `cygpath -m` in the same bash call on Windows, so
   /// `sw` and Python can open it. Null when `mktemp` failed.

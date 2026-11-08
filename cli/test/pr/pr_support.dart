@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/context.dart';
+import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
@@ -13,11 +14,13 @@ GhResult answer(
   int exit = 0,
   String stderr = '',
   String? limitLine,
+  BoundedLimit? limit,
 }) => GhResult(
   exitCode: exit,
   stdout: encodeEscaped(stdout),
   stderr: encodeEscaped(stderr),
   limitLine: limitLine,
+  limit: limit,
 );
 
 /// What the commands ran against, with every call recorded: the answers come from [onGh], the temp files from

@@ -323,6 +323,9 @@ final RegExp _blockHeader = RegExp(r'^([|>])([+-]?)\p{Nd}*$', unicode: true);
 const String _sp =
     r'\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000';
 
+/// [_sp] for the other readers of the settings (the body of a regex character class).
+const String pySpaceClass = _sp;
+
 /// The `key: value` line: a quoted key or a plain one, then a colon and, after Python-space, the value.
 final RegExp _keyRe = RegExp(
   r'''^((?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^:''' +

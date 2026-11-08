@@ -137,7 +137,7 @@ Object duration(Object? v, Object fallback) {
 }
 
 /// `re.sub(r"\[bot\]$", "", login)`: Python's `$` also matches before a final newline.
-String _stripBot(String login) {
+String stripBot(String login) {
   if (login.endsWith('[bot]')) return login.substring(0, login.length - 5);
   if (login.endsWith('[bot]\n')) {
     return '${login.substring(0, login.length - 6)}\n';
@@ -165,7 +165,7 @@ Map<String, Reviewer> reviewersOf(
   if (raw is! Map) return out;
   for (final e in raw.entries) {
     final cfg = _map(e.value);
-    final name = _stripBot(pyStr(e.key));
+    final name = stripBot(pyStr(e.key));
     final (report, why) = _reportOf(cfg['report']);
     if (why != null && problems != null) {
       problems.add(SettingProblem('$where.$name.report', why));

@@ -3,6 +3,10 @@
 # PRs are expected, how they link, what watch does, and how an interrupted
 # feedback pass resumes. Every subcommand prints ONE JSON line.
 #
+# identity, vcs, tier, context and policy are a shim (ADR 0028): they run `sw pr <sub> --args-stdin` through the project's sw, found with
+# sw-path.sh (no sw: one `sw_missing` JSON document, exit 1). The other subcommands still run the embedded program below, until
+# native-cli-retire-scripts moves them. The Python probe stays in front of both: without Python 3.8+ every call, shimmed or not,
+# is exit 2 `no_python`.
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
 #   context --code <dir> [--store <dir>] [--only repos] [--branch b [--after-merge]]
@@ -10,7 +14,7 @@
 #                                     merge_ready (specwright.yaml + planning_store:); settle (pr.settle in seconds, default 300, strictly
 #                                     <int><s|m|h>, 1m to 1h);
 #                                     reviewer_config is the path of the repo's reviewer set written as canonical JSON
-#                                     {"format":1,"reviewers":[{login,role,timeout,report}]} (sorted keys and logins, no request) to
+#                                     {"format":2,"reviewers":[{login,role,timeout,report}]} (sorted keys and logins, no request) to
 #                                     <state dir>/reviewers/<sha256 of the bytes>.json, else <system temp>/specwright/reviewers/ when the
 #                                     state dir is unwritable (null only if neither is); equal settings give the same file, so the name
 #                                     is the digest of the rules;
@@ -134,6 +138,39 @@ export PR_PAIR_BASH
 PR_PAIR_DIR=$(cd "$(dirname "$0")" && pwd -P)
 if command -v cygpath >/dev/null 2>&1; then PR_PAIR_DIR=$(cygpath -m "$PR_PAIR_DIR"); fi
 export PR_PAIR_DIR
+
+# identity, vcs, tier, context and policy are `sw pr <sub> --args-stdin` (ADR 0028): sw-path.sh finds the project's sw, and this
+# directory, this bash and the arguments after the subcommand go to it as NUL-terminated stdin records. The other subcommands, and
+# no subcommand, stay in the program below until native-cli-retire-scripts.
+case "${1:-}" in
+  identity|vcs|tier|context|policy)
+    sub=$1
+    shift
+    SW_DIR=$PR_PAIR_DIR
+    SW_BASH=${BASH:-bash}
+    if command -v cygpath >/dev/null 2>&1; then SW_BASH=$(cygpath -w "$SW_BASH"); fi
+    # The project (D2): the directory --code names when it is one, else the current directory, then up to the first `.git`
+    # entry. identity's positional directory is never used: for a store it has no VERSION.
+    dir=
+    prev=
+    for a in "$@"; do
+      if [ "$prev" = --code ] && [ -d "$a" ]; then dir=$(cd "$a" && pwd -P); break; fi
+      prev=$a
+    done
+    [ -n "$dir" ] || dir=$(pwd -P)
+    proj=$dir
+    while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); done
+    [ -e "$proj/.git" ] || proj=$dir
+    # No temp file before sw runs (the evals fake the command): a resolver that fails is run once more to capture its stderr.
+    if ! sw=$("$BASH" "$SW_DIR/sw-path.sh" --code "$proj" 2>/dev/null); then
+      err=$("$BASH" "$SW_DIR/sw-path.sh" --code "$proj" 2>&1 >/dev/null || true)
+      printf '%s' "$err" | "$py" -I -X utf8 -c 'import json, sys; print(json.dumps({"ok": False, "error": "sw_missing", "message": sys.stdin.read().rstrip("\r\n")}, ensure_ascii=False))'
+      printf '%s\n' "$err" >&2
+      exit 1
+    fi
+    exec "$sw" pr "$sub" --args-stdin < <(printf '%s\0' "$SW_DIR" "$SW_BASH" "$@")
+    ;;
+esac
 
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import base64
