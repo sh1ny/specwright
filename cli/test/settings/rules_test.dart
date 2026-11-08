@@ -503,9 +503,12 @@ void main() {
       expect(read({'planning_store': 'oops'}).store, isNull);
     });
 
-    test('vcs keeps treating a planning_store that is not a mapping as absent', () {
-      expect(vcsChoices({'planning_store': 'oops'}).store, 'git');
-    });
+    test(
+      'vcs keeps treating a planning_store that is not a mapping as absent',
+      () {
+        expect(vcsChoices({'planning_store': 'oops'}).store, 'git');
+      },
+    );
   });
 
   group('vcsChoices', () {
