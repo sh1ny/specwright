@@ -326,7 +326,7 @@ class HeadCutoff(SnapCase):
 
 
 class ReviewerConfig(SnapCase):
-    """--reviewer-config FILE: validated before any gh call; the evaluator (reviewers.py) decides, the script names no bot."""
+    """--reviewer-config FILE: validated before any gh call; the evaluator (`sw pr reviewers`) decides, the script names no bot."""
 
     def refuse(self, *args, names=()):
         r = self.snapshot_run(*args)
@@ -337,7 +337,7 @@ class ReviewerConfig(SnapCase):
         self.assertEqual(self.gh_calls(), [], "no gh call")
 
     def raw_config(self, reviewer, name="bad.json"):
-        doc = {"format": 1, "reviewers": [reviewer]}
+        doc = {"format": 2, "reviewers": [reviewer]}
         path = self.tmp / name
         path.write_text(json.dumps(doc, sort_keys=True, separators=(",", ":")), encoding="utf-8", newline="\n")
         return snapfix.fixtures.posix(path)

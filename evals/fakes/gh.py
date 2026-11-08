@@ -542,6 +542,9 @@ def contents_answer(repo, path, ref):
     if files is None:
         return None
     path = path.strip("/")
+    if path in files and isinstance(files[path], dict):  # a hand-made answer, e.g. {"content": "not base64!"}
+        return {"type": "file", "encoding": "base64", "name": path.rpartition("/")[2], "path": path, "sha": "0" * 40, "size": 1,
+                **files[path]}
     if path in files:
         raw = base64.encodebytes(files[path].encode("utf-8")).decode("ascii")  # line breaks every 60 characters, as GitHub does
         return {"type": "file", "encoding": "base64", "name": path.rpartition("/")[2], "path": path,

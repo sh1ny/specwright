@@ -19,6 +19,10 @@ String decodeEscaped(List<int> bytes) => _decode(bytes, (units, run) {
   }
 });
 
+/// Whether [text] holds a byte [decodeEscaped] escaped: a name that is not UTF-8.
+bool hasEscapedBytes(String text) =>
+    text.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff);
+
 /// Encodes [text] back to the bytes [decodeEscaped] read: U+DC80..U+DCFF
 /// become the single bytes 0x80..0xFF, everything else is UTF-8. Any other
 /// lone surrogate is a [FormatException], as Python's `surrogateescape`

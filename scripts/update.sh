@@ -1607,9 +1607,21 @@ def download_sw(o):
 
 def store_is_jj(o):
     """planning_store.vcs is jj in the code repo's openspec/specwright.yaml (git when unset), as the download's
-    pr-pair.sh vcs reads it (every YAML form); a download without it falls back to the block form."""
+    pr-pair.sh vcs reads it (every YAML form); a download without it falls back to the block form. The download's own sw
+    reads it first: the download's pr-pair.sh hands `vcs` to the sw of the project's installed version, which an update
+    replaces. A download whose sw has no `pr vcs` (before 0.29.0) is read by its pr-pair.sh."""
     script = Path(o["download"]) / PR_PAIR_REL
     if script.is_file():
+        try:
+            sw = download_sw(o)
+            records = (script.parent.as_posix(), os.environ.get("UPDATE_BASH") or "bash", "--code", str(o["code"]))
+            r = subprocess.run([sw, "pr", "vcs", "--args-stdin"], input=b"".join(os.fsencode(x) + b"\0" for x in records),
+                               capture_output=True)
+            doc = json.loads(r.stdout.decode("utf-8", "replace"))
+        except (SwMissing, OSError, ValueError):
+            doc = {}
+        if doc.get("ok"):
+            return doc.get("store") == "jj"
         try:
             r = subprocess.run([os.environ.get("UPDATE_BASH") or "bash", script.as_posix(), "vcs", "--code", str(o["code"])],
                                capture_output=True)

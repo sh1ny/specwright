@@ -105,7 +105,7 @@ class WatchMerge(unittest.TestCase):
         run_dir, repo = self.fixture("eval-watch-agent-merge")
         # the fixture's reviewer posted "**Reviewed commit:** `<tip>`": a sha_pattern rule recognises that report
         config = run_dir / "reviewers.json"
-        config.write_text(json.dumps({"format": 1, "reviewers": [{
+        config.write_text(json.dumps({"format": 2, "reviewers": [{
             "login": "chatgpt-codex-connector", "role": "required", "timeout": 1200,
             "report": {"sha_pattern": "Reviewed commit:\\*\\* `([0-9a-f]{7,40})`"}}]},
             sort_keys=True, separators=(",", ":")), encoding="utf-8", newline="\n")
@@ -137,7 +137,9 @@ class WatchMerge(unittest.TestCase):
 
     def test_default_user_ready_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-watch-merge-default-user")
-        self.sh(repo, "bash " + fixtures.posix(fixtures.ROOT) + "/skills/specwright-pr/scripts/pr-pair.sh context --code .")
+        vcs_test_support.stamp_version(repo)  # the shim runs `sw` from the stamped project and the test home
+        self.sh(repo, f"export SPECWRIGHT_HOME={fixtures.posix(vcs_test_support.sw_home())} && bash "
+                      + fixtures.posix(fixtures.ROOT) + "/skills/specwright-pr/scripts/pr-pair.sh context --code .")
         res = self.grade("eval-watch-merge-default-user", run_dir, "PR #7 is ready to merge.")
         self.assertTrue(res and all(res.values()), [t for t, ok in res.items() if not ok])
 

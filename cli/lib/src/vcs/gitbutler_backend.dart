@@ -766,38 +766,8 @@ class GitButler {
     final branch = requireBranch(s);
     await requireApplied(branch);
     await requireSettingsPinned(branch);
-    final pinned = await scripts.run(null, 'pr-pair.sh', [
-      'context',
-      '--code',
-      s.request.code,
-      '--only',
-      'repos',
-      '--branch',
-      branch,
-    ]);
-    if (pinned.code != 0) {
-      // the single comparison lives in pr-pair.sh; its error passes through
-      Object? data;
-      try {
-        data = jsonDecode(pinned.stdout);
-      } on FormatException {
-        final said = pinned.stderr.trim();
-        data = {
-          'error': 'settings_error',
-          'message': said.isNotEmpty ? said : pinned.stdout.trim(),
-        };
-      }
-      final Map<Object?, Object?> map = data is Map ? data : const {};
-      throw VcsStop(
-        '${map['error'] ?? 'settings_error'}',
-        '${map['message'] ?? 'could not check the settings'}',
-        code: pinned.code < 3 ? pinned.code : 3,
-        extra: {
-          for (final e in map.entries)
-            if (e.key == 'file' || e.key == 'ref') e.key as String: e.value,
-        },
-      );
-    }
+    // the single comparison lives in the settings module; its stop passes through
+    await requirePinnedSettings(scripts, s.request.code, branch);
     final refspec = 'refs/heads/$branch:refs/heads/$branch';
     try {
       await networkGit(scripts, root, [

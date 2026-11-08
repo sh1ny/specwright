@@ -8,7 +8,7 @@ import '../process/platform_tree.dart';
 import '../vcs/codec.dart';
 import '../vcs/tool_runner.dart';
 
-/// What one bounded `gh` (or `reviewers.py`) call ended in. Without a [limit],
+/// What one bounded `gh` (or `sw pr reviewers`) call ended in. Without a [limit],
 /// the output and [exitCode] are the command's own; a call that could not
 /// start is exit 127 with the reason on [stderr].
 class GhResult {
@@ -40,7 +40,7 @@ final String boundedPrelude = vcsPrelude.replaceAll(
 /// Runs `gh <args>` in [cwd] under the bounded helper: a deadline, a byte bound
 /// on each stream and a stop of the whole process tree.
 ///
-/// Constraint C16: `gh` and `reviewers.py` arguments reach the command only as
+/// Constraint C16: `gh` and `sw pr reviewers` arguments reach the command only as
 /// escaped records on stdin, never through Dart's process arguments. The helper
 /// starts `bash -c '<prelude>; exec "$@"'`, which reads the working directory
 /// and the argument records the parent sends after the go byte, so on every OS
@@ -88,8 +88,8 @@ Future<GhResult> runGhFramed(
   helperCommand: helperCommand,
 );
 
-/// Runs `reviewers.py <args>` the same way (the script itself is the command,
-/// so the caller's [command] starts with its interpreter and path).
+/// Runs `sw pr reviewers <args>` the same way (the caller's [command] starts with
+/// the `sw` executable).
 Future<GhResult> runBoundedCommand(
   String bash,
   String cwd,

@@ -104,6 +104,7 @@ class Base(unittest.TestCase):
                                  encoding="utf-8")
         self.state_dir = self.tmp / "state"
         self.extra_env = {}
+        vcs_test_support.stamp_version(self.tmp)  # the shim's project is the current directory when --code names none
 
     # ---- environment -------------------------------------------------------------------------------------
     def env(self):
@@ -251,7 +252,7 @@ def rv(login, role="required", timeout=1200, report=None):
 
 def config_bytes(*entries):
     """The canonical bytes of a reviewer-config file for these entries."""
-    obj = {"format": 1, "reviewers": sorted(entries, key=lambda e: e["login"])}
+    obj = {"format": 2, "reviewers": sorted(entries, key=lambda e: e["login"])}
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
@@ -4557,7 +4558,7 @@ class Policy(PolicyBase):
         r = self.policy("--store", "--snapshot", own, "--reviewed-head", "store=" + self.HEAD)
         store = r["reported"]["main"]["store"]
         self.assertEqual((store["ok"], store["rules_mismatch"]), (False, False), "an empty set has no required reviewer")
-        self.assertEqual(read_config(r["reviewer_config"]["main"]["store"]), {"format": 1, "reviewers": []})
+        self.assertEqual(read_config(r["reviewer_config"]["main"]["store"]), {"format": 2, "reviewers": []})
 
 
 class PolicyReviewers(PolicyBase):
@@ -4720,6 +4721,16 @@ class PolicyReviewers(PolicyBase):
         c = r["reported"]["main"]["code"]
         self.assertEqual((c["ok"], c["rules_mismatch"], c["missing"]), (True, False, []))
         self.assertEqual(c["ok"], r["reported"]["head"]["code"]["ok"])
+
+    def test_format_1_snapshot_is_rules_mismatch(self):
+        """A snapshot whose digest is of the same rules in the old format 1 never matches: evidence decided under the old rules
+        is stale (native-cli-pr-pair D10)."""
+        self.seed_both(self.AGENT, self.AGENT)
+        old = hashlib.sha256(config_bytes(rv(self.CODEX)).replace(b'"format":2', b'"format":1', 1)).hexdigest()
+        self.assertNotEqual(old, config_digest(rv(self.CODEX)))
+        r = self.policy("--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX], config=old)))
+        c = r["reported"]["main"]["code"]
+        self.assertEqual((c["ok"], c["rules_mismatch"], c["missing"]), (False, True, []))
 
     def test_wait_started_with_the_work_trees_rules_is_rules_mismatch(self):
         main = self.AGENT.replace("{ role: required }", "{ role: required, report: { marker: m } }")

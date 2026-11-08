@@ -140,7 +140,7 @@ A configured reviewer with no `sha_pattern`, `check` or `marker` rule SHALL coun
 - **THEN** the snapshot reports it `reported` with `by: output`, exactly as for any other login
 
 ### Requirement: A report rule decides for its reviewer
-The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignore` (Python regular expressions, searched, case-sensitive), `marker` (a literal substring) and `check` (an exact check name, counted only from a check run of the reviewer's own GitHub App, whose slug is its login). With any of `sha_pattern`, `check` or `marker` set, only those and a review on the head commit SHALL decide `reported`. `ignore` SHALL exclude matching comment and review bodies from every rule.
+The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignore` (regular expressions in the dialect below), `marker` (a literal substring) and `check` (an exact check name, counted only from a check run of the reviewer's own GitHub App, whose slug is its login). With `sha_pattern`, `check` or `marker` set, only those and a review on the head commit SHALL decide `reported`. `ignore` SHALL exclude matching comment and review bodies from every rule.
 
 #### Scenario: Sha pattern names the head
 - **WHEN** `report.sha_pattern` is `Reviewed commit: ([0-9a-f]{7,40})` and the reviewer comments `Reviewed commit: 1a2b3c4` with head `1a2b3c4d...`
@@ -171,7 +171,7 @@ The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignor
 - **THEN** that comment does not match the marker
 
 ### Requirement: A bad report rule stops the snapshot
-An unknown `report` key, or a pattern that does not compile, SHALL stop the snapshot with exit 2 naming the reviewer and the key, before any `gh` call.
+An unknown `report` key, a pattern that does not compile, or a `sha_pattern` with no capture group SHALL stop the snapshot with exit 2 naming the reviewer and the key, before any `gh` call.
 
 #### Scenario: Bad rule
 - **WHEN** `report.sha_pattern` is `([0-9a-f`
@@ -180,6 +180,14 @@ An unknown `report` key, or a pattern that does not compile, SHALL stop the snap
 #### Scenario: Unknown key
 - **WHEN** `report` sets `checks: Bot Code Review`
 - **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and `checks`
+
+#### Scenario: Python-only syntax is refused
+- **WHEN** `report.sha_pattern` is `\Areviewed (?P<sha>[0-9a-f]{7,40})`, or `report.ignore` is `(?i)in progress`
+- **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and the key, before any `gh` call, and no reviewer state is decided with that pattern
+
+#### Scenario: Sha pattern without a capture group
+- **WHEN** `report.sha_pattern` is `reviewed [0-9a-f]+`
+- **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and `sha_pattern`
 
 ### Requirement: The snapshot shows each reviewer's evidence
 Each reviewer entry SHALL carry `evidence`: the reviewer's reviews, comments and named check runs on the current head, at most 10, newest first, each with its kind, time, state or conclusion and a body excerpt of at most 300 characters. The snapshot SHALL carry GitHub's current time as `now`. `reported`, `waiting` and `timed_out` SHALL NOT depend on the excerpt length.
@@ -227,7 +235,7 @@ Each reviewer entry SHALL carry `evidence`: the reviewer's reviews, comments and
 - **THEN** `context` and `policy` both read it, and the config files they write hold the same pattern
 
 ### Requirement: A snapshot names the reviewer rules it used
-The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config file it ran with. `policy` SHALL count required reviewers as reported for a set only when the snapshot's digest equals the digest of the config it writes for that set, and SHALL otherwise report `rules_mismatch` for that set.
+The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config file it ran with. `policy` SHALL count a set's required reviewers as reported only when that digest equals the digest of the config it writes for the set, and SHALL otherwise report `rules_mismatch` for the set. The config SHALL carry `"format": 2`, naming the JavaScript pattern dialect, and the evaluator SHALL refuse any other format, so a snapshot decided under the Python dialect (`"format": 1`) never matches.
 
 #### Scenario: Wait started with the work tree's rules
 - **WHEN** main gives required `rev-bot` a `marker` rule, the wait ran with a config from the work tree where `rev-bot` has no `report`, and the snapshot reports `rev-bot` `reported` `by: output`
@@ -236,3 +244,18 @@ The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config fil
 #### Scenario: Same rules
 - **WHEN** the work tree's reviewer settings equal main's and the snapshot reports every required reviewer `reported`
 - **THEN** the digests are equal, and `policy` reports `ok` for main's set
+
+#### Scenario: Snapshot from before the dialect change
+- **WHEN** main sets required `rev-bot` with `report.ignore: '\W'`, the work tree's settings are the same, and the saved snapshot reports `rev-bot` `reported` with the digest of the `"format": 1` config the Python evaluator ran with
+- **THEN** `policy` reports `rules_mismatch` for main's set and not `ok`, and no merge request is sent
+
+#### Scenario: Config of the earlier format
+- **WHEN** `sw pr reviewers --check-config cfg.json` runs and `cfg.json` holds `"format": 1`
+- **THEN** it exits 2 with `reviewers.py: format must be 2` on stderr, and `pr-snapshot.sh --reviewer-config cfg.json` exits 2 before any `gh` call
+
+### Requirement: Report patterns are JavaScript regular expressions
+`report.sha_pattern` and `report.ignore` SHALL be read as JavaScript regular expressions in Unicode mode, as Dart's `RegExp(pattern, unicode: true)` reads them (ADR 0030). They SHALL be searched, so a match anywhere in a body counts, case-sensitive and not multiline.
+
+#### Scenario: The repository's own pattern under the new dialect
+- **WHEN** `report.sha_pattern` is ``Reviewed commit:\*\* `([0-9a-f]{7,40})` `` and the reviewer comments ``**Reviewed commit:** `1a2b3c4` `` with head `1a2b3c4d...`
+- **THEN** the reviewer is `reported` with `by: sha_pattern`, as before this change

@@ -23,7 +23,7 @@ void main() {
     context: (scripts, bash) => f.ctx,
   );
 
-  test('only snapshot and reply with --args-stdin are commands', () async {
+  test('only the handoff commands with --args-stdin are commands', () async {
     for (final args in [
       <String>[],
       ['snapshot'],
@@ -33,7 +33,10 @@ void main() {
     ]) {
       f.err.clear();
       expect(await run(args, records(['s', 'b'])), 2, reason: '$args');
-      expect(f.stderr, 'usage: sw pr snapshot|reply --args-stdin\n');
+      expect(
+        f.stderr,
+        'usage: sw pr snapshot|reply|identity|vcs|tier|context|policy --args-stdin\n',
+      );
     }
   });
 
@@ -41,7 +44,9 @@ void main() {
     expect(await run(['reply', '--args-stdin'], utf8.encode('s\u0000b')), 2);
     expect(
       f.stderr,
-      startsWith('usage: sw pr snapshot|reply --args-stdin (stdin:'),
+      startsWith(
+        'usage: sw pr snapshot|reply|identity|vcs|tier|context|policy --args-stdin (stdin:',
+      ),
     );
     f.err.clear();
     expect(await run(['reply', '--args-stdin'], records(['only one'])), 2);
@@ -57,6 +62,24 @@ void main() {
     expect(await run(['snapshot', '--args-stdin'], records(['s', 'b'])), 3);
     expect(f.stderr, 'no repo\n');
     expect(f.ghCalls.first.take(2), ['repo', 'view']);
+  });
+
+  test('the settings and policy commands take the handoff too', () async {
+    for (final (name, message) in [
+      ('identity', 'identity <dir>'),
+      ('vcs', 'missing --code'),
+      ('tier', 'missing --code'),
+      ('context', 'missing --code'),
+      ('policy', 'missing --repo'),
+    ]) {
+      f.out.clear();
+      expect(await run([name, '--args-stdin'], records(['s', 'b'])), 2);
+      expect(jsonDecode(f.stdout), {
+        'ok': false,
+        'error': 'usage',
+        'message': message,
+      }, reason: name);
+    }
   });
 
   test('parsePrHandoff splits the records', () {

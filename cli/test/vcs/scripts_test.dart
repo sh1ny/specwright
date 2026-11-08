@@ -10,19 +10,11 @@ import 'package:test/test.dart';
 
 import 'bash_support.dart';
 
-/// A `pr-pair.sh` that logs its arguments (one line per call) and answers
-/// `vcs` and `context` from files next to it.
+/// A `pr-pair.sh` that logs its arguments (one line per call): settings are read in process, so it must never run.
 const _fakePrPair = r'''#!/usr/bin/env bash
 d=$(dirname "$0")
 for a in "$@"; do printf '%s|' "$a" >> "$d/calls.log"; done
 printf '\n' >> "$d/calls.log"
-case "$1" in
-  vcs|context)
-    [ -f "$d/$1.out" ] && cat "$d/$1.out"
-    [ -f "$d/$1.err" ] && cat "$d/$1.err" >&2
-    exit "$(cat "$d/$1.rc" 2>/dev/null || echo 0)"
-    ;;
-esac
 exit 9
 ''';
 
@@ -74,14 +66,22 @@ void main() {
     fail('expected a VcsStop');
   }
 
+  /// Writes `openspec/specwright.yaml` under the repo and makes it a Git repository with branch `trunk`.
+  void settings(String yaml) {
+    final f = File('${repo.path}/openspec/specwright.yaml');
+    f.parent.createSync(recursive: true);
+    f.writeAsStringSync(yaml);
+  }
+
+  void gitInit() {
+    final r = Process.runSync('git', ['init', '-q', '-b', 'trunk', repo.path]);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
+  }
+
   group('readSettings', () {
-    test('code role: reads the backend, main and login', () async {
-      put('vcs.out', '{"ok": true, "code": "jj", "store": "git"}\n');
-      put(
-        'context.out',
-        '{"ok": true, "code": {"login": "bot", "main": "trunk"}, '
-            '"store": {"login": "other", "main": "dev"}}\n',
-      );
+    test('code role: reads the backend, main and login in process', () async {
+      gitInit();
+      settings('vcs: jj\nmain_branch: trunk\ngithub:\n  login: bot\n');
       final s = await readSettings(
         scripts(),
         code: code(),
@@ -89,213 +89,69 @@ void main() {
         role: 'code',
       );
       expect((s.backend, s.main, s.login), ('jj', 'trunk', 'bot'));
-      expect(lines('calls.log'), [
-        'vcs|--code|${code()}|',
-        'context|--code|${code()}|--only|repos|',
-      ]);
+      expect(lines('calls.log'), isEmpty, reason: 'no pr-pair.sh process');
     }, skip: skip);
 
-    test(
-      'store role: reads the store backend and passes --store <repo>',
-      () async {
-        put('vcs.out', '{"ok": true, "code": "gitbutler", "store": "jj"}');
-        put(
-          'context.out',
-          '{"ok": true, "code": {"login": "bot", "main": "trunk"}, '
-              '"store": {"login": "keeper", "main": "dev"}}',
-        );
-        final storeDir = Directory('${tmp.path}/store')..createSync();
-        final store = posix(storeDir.path);
-        final s = await readSettings(
-          scripts(),
-          code: code(),
-          repo: store,
-          role: 'store',
-        );
-        expect((s.backend, s.main, s.login), ('jj', 'dev', 'keeper'));
-        expect(lines('calls.log'), [
-          'vcs|--code|${code()}|',
-          'context|--code|${code()}|--only|repos|--store|$store|',
-        ]);
-      },
-      skip: skip,
-    );
+    test('store role: reads the store backend, main and login', () async {
+      gitInit();
+      final storeDir = Directory('${tmp.path}/store')..createSync();
+      final store = posix(storeDir.path);
+      settings(
+        'vcs: git\nmain_branch: trunk\nplanning_store:\n  vcs: jj\n  main_branch: dev\n  login: keeper\n',
+      );
+      final s = await readSettings(
+        scripts(),
+        code: code(),
+        repo: store,
+        role: 'store',
+      );
+      expect((s.backend, s.main, s.login), ('jj', 'dev', 'keeper'));
+      expect(lines('calls.log'), isEmpty);
+    }, skip: skip);
 
-    test('an absent main or login is the empty string', () async {
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {"main": null}}');
+    test('an absent main is detected, an absent login is empty', () async {
+      gitInit();
+      settings('vcs: git\n');
       final s = await readSettings(
         scripts(),
         code: code(),
         repo: code(),
         role: 'code',
       );
-      expect((s.backend, s.main, s.login), ('git', '', ''));
-      put('context.out', '{"ok": true}');
-      final t = await readSettings(
+      expect((s.backend, s.main, s.login), ('git', 'main', ''));
+    }, skip: skip);
+
+    test('no settings file means Git', () async {
+      final s = await readSettings(
         scripts(),
         code: code(),
         repo: code(),
         role: 'code',
       );
-      expect((t.main, t.login), ('', ''));
+      expect((s.backend, s.login), ('git', ''));
     }, skip: skip);
 
-    test('pr-pair.sh vcs failing with a document keeps its error and message, exit capped at 3', () async {
-      put(
-        'vcs.out',
-        '{"ok": false, "error": "unknown_vcs", "message": "unknown code VCS \'svn\'"}',
-      );
-      for (final (rc, want) in [(1, 1), (2, 2), (3, 3), (7, 3)]) {
-        put('vcs.rc', '$rc');
-        final stop = await stopOf(
-          () =>
-              readSettings(scripts(), code: code(), repo: code(), role: 'code'),
-        );
-        expect(
-          (stop.error, stop.message, stop.code),
-          ('unknown_vcs', "unknown code VCS 'svn'", want),
-          reason: 'rc $rc',
-        );
-      }
-    }, skip: skip);
-
-    test(
-      'a failure document without error or message gets the defaults',
-      () async {
-        put('vcs.out', '{"ok": false}');
-        put('vcs.rc', '1');
-        final stop = await stopOf(
-          () =>
-              readSettings(scripts(), code: code(), repo: code(), role: 'code'),
-        );
-        expect(
-          (stop.error, stop.message, stop.code),
-          ('settings_error', 'could not read VCS settings', 1),
-        );
-      },
-      skip: skip,
-    );
-
-    test('pr-pair.sh vcs failing without JSON says what it printed', () async {
-      put('vcs.out', 'plain out\n');
-      put('vcs.err', '  boom on stderr \n');
-      put('vcs.rc', '2');
+    test('a refusal keeps its error code and exit status', () async {
+      settings('vcs: svn\n');
       var stop = await stopOf(
         () => readSettings(scripts(), code: code(), repo: code(), role: 'code'),
       );
-      expect(
-        (stop.error, stop.message, stop.code),
-        ('settings_error', 'boom on stderr', 2),
-      );
-      File('${scriptsDir.path}/vcs.err').deleteSync();
+      expect((stop.error, stop.code), ('unknown_vcs', 1));
+      expect(stop.message, startsWith('unknown code VCS '));
+      expect(stop.message, contains('svn'));
+      settings('planning_store:\n  vcs: gitbutler\n');
       stop = await stopOf(
         () => readSettings(scripts(), code: code(), repo: code(), role: 'code'),
       );
-      expect(stop.message, 'plain out');
-    }, skip: skip);
-
-    test(
-      'a missing pr-pair.sh is a settings_error with bash\'s words',
-      () async {
-        File('${scriptsDir.path}/pr-pair.sh').deleteSync();
-        final stop = await stopOf(
-          () =>
-              readSettings(scripts(), code: code(), repo: code(), role: 'code'),
-        );
-        expect(stop.error, 'settings_error');
-        expect(stop.message, isNotEmpty);
-        expect(stop.code, 3, reason: 'bash exits 127, capped at 3');
-      },
-      skip: skip,
-    );
-
-    test('invalid JSON from pr-pair.sh vcs is a settings_error', () async {
-      put('vcs.out', 'not json');
-      final stop = await stopOf(
+      expect(stop.error, 'unsupported_vcs');
+      settings('vcs: gitbutler\nfinish: local\n');
+      stop = await stopOf(
         () => readSettings(scripts(), code: code(), repo: code(), role: 'code'),
       );
-      expect(
-        (stop.error, stop.message, stop.code),
-        ('settings_error', 'pr-pair.sh vcs returned invalid JSON', 1),
-      );
+      expect(stop.error, 'unsupported_combination');
+      expect(stop.code, lessThanOrEqualTo(3));
+      expect(lines('calls.log'), isEmpty);
     }, skip: skip);
-
-    test('an unusable backend is a settings_error', () async {
-      for (final text in [
-        '{"ok": true, "code": "hg", "store": "git"}',
-        '{"ok": true, "store": "git"}',
-        '{"ok": true, "code": "git", "store": "gitbutler"}',
-      ]) {
-        put('vcs.out', text);
-        final stop = await stopOf(
-          () => readSettings(
-            scripts(),
-            code: code(),
-            repo: code(),
-            role: text.contains('"store": "gitbutler"') ? 'store' : 'code',
-          ),
-        );
-        expect(
-          (stop.error, stop.message, stop.code),
-          (
-            'settings_error',
-            'pr-pair.sh vcs did not return a valid backend',
-            1,
-          ),
-          reason: text,
-        );
-      }
-    }, skip: skip);
-
-    test(
-      'invalid JSON from pr-pair.sh context is checked before its exit',
-      () async {
-        put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-        put('context.out', 'nope');
-        put('context.rc', '1');
-        final stop = await stopOf(
-          () =>
-              readSettings(scripts(), code: code(), repo: code(), role: 'code'),
-        );
-        expect(
-          (stop.error, stop.message, stop.code),
-          ('settings_error', 'pr-pair.sh context returned invalid JSON', 1),
-        );
-      },
-      skip: skip,
-    );
-
-    test(
-      'pr-pair.sh context failing keeps its document, exit capped at 3',
-      () async {
-        put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-        put(
-          'context.out',
-          '{"ok": false, "error": "bad_setting", "message": "line 3: why"}',
-        );
-        put('context.rc', '2');
-        var stop = await stopOf(
-          () =>
-              readSettings(scripts(), code: code(), repo: code(), role: 'code'),
-        );
-        expect(
-          (stop.error, stop.message, stop.code),
-          ('bad_setting', 'line 3: why', 2),
-        );
-        put('context.out', '{"ok": false}');
-        put('context.rc', '9');
-        stop = await stopOf(
-          () =>
-              readSettings(scripts(), code: code(), repo: code(), role: 'code'),
-        );
-        expect(
-          (stop.error, stop.message, stop.code),
-          ('settings_error', 'could not read repository settings', 3),
-        );
-      },
-      skip: skip,
-    );
 
     test(
       'scripts under a directory whose name holds the byte 0xFF',
@@ -308,14 +164,8 @@ void main() {
           raw,
         ]);
         expect(made.exitCode, 0, reason: decodeEscaped(made.stderr));
-        put('vcs.out', '{"ok": true, "code": "jj", "store": "git"}');
-        put('context.out', '{"ok": true, "code": {"main": "m"}}');
-        await runTool(bash, posix(tmp.path), [
-          'cp',
-          '${posix(scriptsDir.path)}/vcs.out',
-          '${posix(scriptsDir.path)}/context.out',
-          raw,
-        ]);
+        gitInit();
+        settings('vcs: jj\nmain_branch: m\n');
         final s = await readSettings(
           VcsScripts(raw, bash),
           code: code(),
@@ -323,11 +173,6 @@ void main() {
           role: 'code',
         );
         expect((s.backend, s.main), ('jj', 'm'));
-        final log = await runTool(bash, posix(tmp.path), [
-          'cat',
-          '$raw/calls.log',
-        ]);
-        expect(decodeEscaped(log.stdout), startsWith('vcs|--code|'));
       },
       skip: Platform.isLinux ? skip : 'Linux only: macOS (APFS) and Windows refuse names that are not valid UTF-8',
     );
@@ -443,21 +288,9 @@ void main() {
       return (code, jsonDecode(utf8.decode(out)) as Map<String, Object?>);
     }
 
-    void gitInit() {
-      final r = Process.runSync('git', [
-        'init',
-        '-q',
-        '-b',
-        'trunk',
-        repo.path,
-      ]);
-      expect(r.exitCode, 0, reason: '${r.stderr}');
-    }
-
     test('a Git repository: backend, main and no jj_present', () async {
       gitInit();
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {"main": "release"}}');
+      settings('main_branch: release\n');
       final (code, doc) = await run('probe', []);
       expect(code, 0, reason: '$doc');
       expect(doc, {'ok': true, 'backend': 'git', 'main': 'release'});
@@ -465,15 +298,13 @@ void main() {
 
     test('main falls back to what the repository has, then to main', () async {
       gitInit();
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {}}');
+      settings('vcs: git\n');
       expect((await run('probe', [])).$2['main'], 'main');
     }, skip: skip);
 
     test('--main overrides the probed main', () async {
       gitInit();
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {"main": "release"}}');
+      settings('main_branch: release\n');
       final (_, doc) = await run('probe', ['--main', 'other']);
       expect(doc['main'], 'other');
     }, skip: skip);
@@ -481,8 +312,7 @@ void main() {
     test('a .jj directory in a Git repository is jj_present', () async {
       gitInit();
       Directory('${repo.path}/.jj').createSync();
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {}}');
+      settings('vcs: git\n');
       final (_, doc) = await run('probe', []);
       expect(doc, {
         'ok': true,
@@ -493,8 +323,7 @@ void main() {
     }, skip: skip);
 
     test('not a Git work tree is not_repository', () async {
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {}}');
+      settings('vcs: git\n');
       final (code, doc) = await run('probe', []);
       expect(code, 1);
       expect(doc['error'], 'not_repository');
@@ -514,8 +343,7 @@ void main() {
           'refs/heads/main',
         ]);
         expect(set.exitCode, 0);
-        put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-        put('context.out', '{"ok": true, "code": {}}');
+        settings('vcs: git\n');
         final (code, doc) = await run('probe', []);
         expect(code, 1);
         expect(doc['error'], 'gitbutler_workspace');
@@ -527,8 +355,7 @@ void main() {
       'gitbutler selected on a repo it does not manage is not_managed',
       () async {
         gitInit();
-        put('vcs.out', '{"ok": true, "code": "gitbutler", "store": "git"}');
-        put('context.out', '{"ok": true, "code": {}}');
+        settings('vcs: gitbutler\nfinish: pr\n');
         final (code, doc) = await run('probe', []);
         expect(code, 1);
         expect(doc['error'], 'not_managed');
@@ -544,19 +371,17 @@ void main() {
       'an unknown backend stops every subcommand before its handler',
       () async {
         gitInit();
-        put(
-          'vcs.out',
-          '{"ok": false, "error": "unknown_vcs", "message": "unknown code VCS \'svn\'"}',
-        );
-        put('vcs.rc', '1');
+        settings('vcs: svn\n');
         for (final command in ['probe', 'state', 'push']) {
           final (code, doc) = await run(command, []);
           expect(code, 1, reason: command);
-          expect(doc, {
-            'ok': false,
-            'error': 'unknown_vcs',
-            'message': "unknown code VCS 'svn'",
-          }, reason: command);
+          expect(doc['error'], 'unknown_vcs', reason: command);
+          expect(
+            doc['message'],
+            startsWith('unknown code VCS '),
+            reason: command,
+          );
+          expect(doc['message'], contains('svn'), reason: command);
         }
       },
       skip: skip,
@@ -564,8 +389,7 @@ void main() {
 
     test('the backend the settings name runs after the probe', () async {
       gitInit();
-      put('vcs.out', '{"ok": true, "code": "git", "store": "git"}');
-      put('context.out', '{"ok": true, "code": {}}');
+      settings('vcs: git\n');
       final (code, doc) = await run('state', []);
       expect(code, 0);
       expect(doc['ok'], true);

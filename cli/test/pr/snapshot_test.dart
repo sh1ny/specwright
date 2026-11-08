@@ -272,9 +272,9 @@ void main() {
         expect(f.stderr, 'cfg.json: bad\n');
         expect(f.ghCalls, isEmpty);
         expect(f.toolCalls.last, [
-          'python3',
-          '-I',
-          'scripts/reviewers.py',
+          Platform.resolvedExecutable,
+          'pr',
+          'reviewers',
           '--check-config',
           'cfg.json',
         ]);
@@ -302,6 +302,44 @@ void main() {
         'cfg.json',
       );
     });
+
+    test(
+      'a name that is not UTF-8 reaches the evaluator as a UTF-8 copy',
+      () async {
+        final name = [
+          ...utf8.encode('${f.tempDir.path}/reviewers-'),
+          0xff,
+          ...utf8.encode('.json'),
+        ];
+        File.fromRawPath(Uint8List.fromList(name)).writeAsStringSync('{"x":1}');
+        String? checked;
+        f.onTool = (c) {
+          if (c.contains('--check-config')) {
+            checked = c.last;
+            expect(File(c.last).readAsStringSync(), '{"x":1}');
+            return toolOut('{"ok":true,"logins":[]}\n');
+          }
+          return ToolResult0();
+        };
+        final escaped = '${f.tempDir.path}/reviewers-\uDCFF.json';
+        expect(await snapshot(['--reviewer-config', escaped]), 0);
+        expect(checked, isNot(escaped));
+        expect(
+          checked!.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff),
+          isFalse,
+        );
+        final config = f.boundedCalls.single;
+        expect(config[config.indexOf('--config') + 1], checked);
+        expect(
+          f.leftovers.where((n) => n.startsWith('tmp.')),
+          isEmpty,
+          reason: 'the copy is removed with the material file',
+        );
+      },
+      skip: Platform.isLinux
+          ? false
+          : 'a file name that is not UTF-8 needs Linux',
+    );
   });
 
   group('one snapshot', () {
@@ -364,9 +402,9 @@ void main() {
         expect(
           [...call.take(4), ...call.skip(5)],
           [
-            'python3',
-            '-I',
-            'scripts/reviewers.py',
+            Platform.resolvedExecutable,
+            'pr',
+            'reviewers',
             '--material',
             '--head',
             oid,
@@ -383,7 +421,7 @@ void main() {
       expect(f.leftovers, isEmpty);
     });
 
-    test('a limit on the evaluator names reviewers.py, not python', () async {
+    test('a limit on the evaluator names reviewers.py, not sw', () async {
       f.onBounded = (_) => answer(
         '',
         exit: 124,

@@ -6,7 +6,7 @@
 # and reviews, as one JSON line. Needs gh (uses gh's built-in --jq) and Python 3.8+:
 # sw's bounded runner gives every gh call a deadline and a size bound, so a hung call ends as
 # `deadline_exceeded` on stderr (exit 1 in a watch); without Python, exit 2 `no_python`.
-# The same bound runs the reviewer evaluator (reviewers.py, see below).
+# The same bound runs the reviewer evaluator (`sw pr reviewers`, see below).
 #
 # Usage: bash pr-snapshot.sh [PR-number|PR-url] [--repo owner/name] [--logs]
 #                            [--reviewer-config FILE]
@@ -15,12 +15,12 @@
 #   (no PR)   the PR for the current branch
 #   --reviewer-config  the reviewer config file pr-pair.sh writes (context / policy):
 #             which logins to watch, their role and timeout, and how each one's report
-#             is recognised. The file is checked by `reviewers.py --check-config` before
+#             is recognised. The file is checked by `sw pr reviewers --check-config` before
 #             any gh call: a missing file, bad JSON, a bad key or pattern exits 2 with one
 #             line naming the file or `<login>: report.<key>`. This script knows no
 #             reviewer by name: it gathers what the configured logins wrote, in full, into
 #             a system-temp file (removed on exit, also when the evaluator is stopped at its
-#             deadline) and reviewers.py decides, then adds "reviewers" (login, role,
+#             deadline) and `sw pr reviewers` decides, then adds "reviewers" (login, role,
 #             timeout, state, by, evidence), "reviewer_config" (the file's digest) and "now".
 #             Without the flag there are no reviewers ("reviewers": [], "reviewer_config":
 #             null). The removed flag '--reviewer' (LOGIN:ROLE:SECONDS) exits 2 naming the new flag.
