@@ -7,6 +7,7 @@ import '../finish/undo_plan.dart' show prefixOf;
 import '../settings/pyjson.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
 import '../settings/yaml.dart' show pyDecimalValue, pyStr;
+import '../vcs/codec.dart';
 import '../vcs/document.dart';
 
 // `sw pr reviewers`: the port of `reviewers.py`, the reviewer-detection evaluator behind the pr snapshot (design D5).
@@ -214,7 +215,7 @@ bool _looksLikeOption(String a) =>
   }
   final List<int> raw;
   try {
-    raw = File(path).readAsBytesSync();
+    raw = File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
   } on FileSystemException catch (e) {
     throw _ConfigError(
       '$path: cannot read: ${e.osError?.message ?? e.message}',

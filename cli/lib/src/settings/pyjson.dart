@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../vcs/codec.dart';
 import 'yaml.dart' show pyIntNormal;
 
 // A JSON reader that accepts what Python's `json.loads` accepts and refuses what it refuses (design D4): `NaN`,
@@ -40,7 +41,7 @@ Object? pyJsonDecode(String text, {String file = ''}) =>
 Object? pyJsonReadFile(String path) {
   final List<int> bytes;
   try {
-    bytes = File(path).readAsBytesSync();
+    bytes = File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
   } on FileSystemException catch (e) {
     final os = e.osError?.message.trim();
     throw PyJsonException(

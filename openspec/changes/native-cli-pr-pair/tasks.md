@@ -4,49 +4,49 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | Context with a matching sw | evals/pr-pair/test_pr_shims.py | test_context_runs_sw | red |
-| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | An unported subcommand keeps the script | evals/pr-pair/test_pr_shims.py | test_discover_keeps_the_script | red |
-| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | Identity of a store from the code checkout | evals/pr-pair/test_pr_shims.py | test_identity_of_a_store_from_the_code_checkout | red |
-| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | Missing subcommand | evals/pr-pair/test_pr_shims.py | test_pr_pair_without_subcommand_lists_all_19 | red |
-| pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | Policy with no sw | evals/pr-pair/test_pr_shims.py | test_policy_without_sw_runs_no_gh | red |
-| pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | An unported subcommand needs no sw | evals/pr-pair/test_pr_shims.py | test_branch_check_without_sw_answers | red |
-| pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | No Python | evals/pr-pair/test_pr_shims.py | test_pr_pair_no_python_runs_no_sw | red |
-| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Unchanged black-box evals pass on sw | evals/pr-pair/test_pr_pair.py, evals/vcs/* | every existing test of the five subcommands (CI, three OSes) | red |
-| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Differential run against the frozen script | evals/pr-pair/test_parity.py | PrPairParity (one case per subcommand) | red |
-| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | A malformed settings file names its line | evals/pr-pair/test_parity.py | test_context_tab_in_indentation_names_line_7 | red |
-| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Settings not pinned on GitButler | evals/pr-pair/test_pr_pair.py | test_unassigned_settings_edit_stops_context (existing, re-run through the shim) | red |
-| pr-script-runtime → Message text of the ported subcommands may be reworded | A reworded stop keeps its code | evals/pr-pair/test_parity.py | test_policy_bad_base64_keeps_lookup_failed | red |
-| pr-script-runtime → sw pr reviewers keeps the evaluator's contract | Unchanged evaluator tests | evals/pr-pair/test_reviewers.py | every existing test, run against `sw pr reviewers` (CI, three OSes) | red |
-| pr-script-runtime → sw pr reviewers keeps the evaluator's contract | Material that is not its head | evals/pr-pair/test_reviewers.py | test_head_mismatch_exit_1 (existing, re-run against sw) | red |
-| pr-script-runtime → Snapshots evaluate reviewers through sw | Reviewer states decided in sw | evals/pr-pair/test_pr_shims.py | test_snapshot_evaluates_reviewers_in_sw | red |
-| pr-script-runtime → Snapshots evaluate reviewers through sw | A pattern that backtracks past the deadline | evals/pr-pair/test_pr_shims.py | test_backtracking_pattern_stops_at_the_deadline | red |
-| pr-script-runtime → Snapshots evaluate reviewers through sw | Bad reviewer config | evals/pr-pair/test_pr_shims.py | test_bad_reviewer_config_exits_2_before_gh (existing, prefix assertion per D11) | red |
-| pr-script-runtime → sw pr snapshot and sw pr reply keep the scripts' contracts | Unchanged black-box evals pass on sw | evals/pr-pair/test_pr_snapshot.py, test_pr_reply.py | every existing test (CI, three OSes), with the format 2 digest and relayed `reviewers.py:` wording excepted | red |
+| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | Context with a matching sw | evals/pr-pair/test_pr_shims.py | test_context_runs_sw | green |
+| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | An unported subcommand keeps the script | evals/pr-pair/test_pr_shims.py | test_discover_keeps_the_script | green |
+| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | Identity of a store from the code checkout | evals/pr-pair/test_pr_shims.py | test_identity_of_a_store_from_the_code_checkout | green |
+| pr-script-runtime → pr-pair settings and policy subcommands run in the project's sw | Missing subcommand | evals/pr-pair/test_pr_shims.py | test_pr_pair_without_subcommand_lists_all_19 | green |
+| pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | Policy with no sw | evals/pr-pair/test_pr_shims.py | test_policy_without_sw_runs_no_gh | green |
+| pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | An unported subcommand needs no sw | evals/pr-pair/test_pr_shims.py | test_branch_check_without_sw_answers | green |
+| pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | No Python | evals/pr-pair/test_pr_shims.py | test_pr_pair_no_python_runs_no_sw | green |
+| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Unchanged black-box evals pass on sw | evals/pr-pair/test_pr_pair.py, evals/vcs/* | every existing test of the five subcommands (CI, three OSes) | green |
+| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Differential run against the frozen script | evals/pr-pair/test_parity.py | PrPairParity (one case per subcommand) | green |
+| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | A malformed settings file names its line | evals/pr-pair/test_parity.py | test_context_tab_in_indentation_names_line_7 | green |
+| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Settings not pinned on GitButler | evals/pr-pair/test_pr_pair.py | test_unassigned_settings_edit_stops_context (existing, re-run through the shim) | green |
+| pr-script-runtime → Message text of the ported subcommands may be reworded | A reworded stop keeps its code | evals/pr-pair/test_parity.py | test_policy_bad_base64_keeps_lookup_failed | green |
+| pr-script-runtime → sw pr reviewers keeps the evaluator's contract | Unchanged evaluator tests | evals/pr-pair/test_reviewers.py | every existing test, run against `sw pr reviewers` (CI, three OSes) | green |
+| pr-script-runtime → sw pr reviewers keeps the evaluator's contract | Material that is not its head | evals/pr-pair/test_reviewers.py | test_head_mismatch_exit_1 (existing, re-run against sw) | green |
+| pr-script-runtime → Snapshots evaluate reviewers through sw | Reviewer states decided in sw | evals/pr-pair/test_pr_shims.py | test_snapshot_evaluates_reviewers_in_sw | green |
+| pr-script-runtime → Snapshots evaluate reviewers through sw | A pattern that backtracks past the deadline | evals/pr-pair/test_pr_shims.py | test_backtracking_pattern_stops_at_the_deadline | green |
+| pr-script-runtime → Snapshots evaluate reviewers through sw | Bad reviewer config | evals/pr-pair/test_pr_shims.py | test_bad_reviewer_config_exits_2_before_gh (existing, prefix assertion per D11) | green |
+| pr-script-runtime → sw pr snapshot and sw pr reply keep the scripts' contracts | Unchanged black-box evals pass on sw | evals/pr-pair/test_pr_snapshot.py, test_pr_reply.py | every existing test (CI, three OSes), with the format 2 digest and relayed `reviewers.py:` wording excepted | green |
 | pr-script-runtime → sw pr snapshot and sw pr reply keep the scripts' contracts | Stale revision posts nothing | evals/pr-pair/test_pr_reply.py | test_reply_refuses_a_changed_rev (existing) | green |
 | pr-script-runtime → sw pr snapshot and sw pr reply keep the scripts' contracts | Removed reviewer flag | evals/pr-pair/test_pr_snapshot.py | test_reviewer_flag_exits_2_naming_reviewer_config (existing) | green |
 | pr-script-runtime → Unexpected failures keep the JSON error contract | Filesystem error during pass write | evals/pr-pair/test_pr_pair.py | test_unexpected_error_is_internal_error_json (existing) | green |
 | pr-script-runtime → Unexpected failures keep the JSON error contract | Existing structured stop | evals/pr-pair/test_pr_pair.py | test_pass_write_refuses_an_existing_record_and_misrouted_edits (existing) | green |
-| pr-script-runtime → Unexpected failures keep the JSON error contract | Unexpected failure in a ported subcommand | cli/test/pr/settings_commands_test.dart | context write failure is internal_error JSON without a stack trace | red |
-| pr-evidence → A report rule decides for its reviewer | Sha pattern names the head | evals/pr-pair/test_reviewers.py | test_sha_pattern_prefix_of_head_reports (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | Sha pattern names an older commit | evals/pr-pair/test_reviewers.py | test_sha_pattern_older_sha_waits (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | Named check | evals/pr-pair/test_reviewers.py | test_named_check_reports_other_name_does_not (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | Named check from another producer | evals/pr-pair/test_reviewers.py | test_named_check_counts_only_from_the_reviewers_own_app (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | Marker comment in progress | evals/pr-pair/test_reviewers.py | test_marker_ignored_until_edited_again (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | Review on the head under a marker rule | evals/pr-pair/test_reviewers.py | test_review_on_head_counts_under_marker_rule (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | Marker with regex characters | evals/pr-pair/test_reviewers.py | test_marker_is_literal (existing, re-run against sw) | red |
-| pr-evidence → A report rule decides for its reviewer | The repository's own pattern under the new dialect | evals/pr-pair/test_reviewers.py | test_repo_sha_pattern_under_the_js_dialect | red |
-| pr-evidence → A bad report rule stops the snapshot | Bad rule | evals/pr-pair/test_reviewers.py | test_config_bad_sha_pattern_regex (existing, re-run against sw) | red |
-| pr-evidence → A bad report rule stops the snapshot | Unknown key | evals/pr-pair/test_pr_snapshot.py | test_unknown_report_key_exits_2_without_gh (existing) | red |
-| pr-evidence → A bad report rule stops the snapshot | Python-only syntax is refused | evals/pr-pair/test_reviewers.py | test_python_only_syntax_is_refused | red |
-| pr-evidence → A bad report rule stops the snapshot | Sha pattern without a capture group | evals/pr-pair/test_reviewers.py | test_config_sha_pattern_without_group (existing, re-run against sw) | red |
-| pr-evidence → A snapshot names the reviewer rules it used | Wait started with the work tree's rules | evals/pr-pair/test_pr_pair.py | test_reported_check_digest_mismatch_is_rules_mismatch (existing, re-run through the shim) | red |
-| pr-evidence → A snapshot names the reviewer rules it used | Same rules | evals/pr-pair/test_pr_pair.py | test_reported_check_equal_digest_ok (existing, re-run through the shim) | red |
-| pr-evidence → A snapshot names the reviewer rules it used | Snapshot from before the dialect change | evals/pr-pair/test_pr_pair.py | test_format_1_snapshot_is_rules_mismatch | red |
-| pr-evidence → A snapshot names the reviewer rules it used | Config of the earlier format | evals/pr-pair/test_reviewers.py | test_config_wrong_format (changed: format 1 is refused) | red |
-| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Settings read through pr-pair.sh | evals/vcs/test_sw_scripts.py | test_settings_read_through_pr_pair (changed: no pr-pair.sh process started) | red |
-| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Unknown backend in the settings | evals/vcs/test_sw_scripts.py | test_unknown_backend_stops_as_before (existing, prefix assertion per D11) | red |
-| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Scripts installed under a non-UTF-8 directory | evals/vcs/test_sw_scripts.py | test_scripts_under_non_utf8_directory (existing) | red |
-| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Unpinned settings stop a GitButler push | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push (existing) | red |
+| pr-script-runtime → Unexpected failures keep the JSON error contract | Unexpected failure in a ported subcommand | cli/test/pr/settings_commands_test.dart | context write failure is internal_error JSON without a stack trace | green |
+| pr-evidence → A report rule decides for its reviewer | Sha pattern names the head | evals/pr-pair/test_reviewers.py | test_sha_pattern_prefix_of_head_reports (existing, re-run against sw) | green |
+| pr-evidence → A report rule decides for its reviewer | Sha pattern names an older commit | evals/pr-pair/test_reviewers.py | test_sha_pattern_older_sha_waits (existing, re-run against sw) | green |
+| pr-evidence → A report rule decides for its reviewer | Named check | evals/pr-pair/test_reviewers.py | test_named_check_reports_other_name_does_not (existing, re-run against sw) | green |
+| pr-evidence → A report rule decides for its reviewer | Named check from another producer | evals/pr-pair/test_reviewers.py | test_named_check_counts_only_from_the_reviewers_own_app (existing, re-run against sw) | green |
+| pr-evidence → A report rule decides for its reviewer | Marker comment in progress | evals/pr-pair/test_reviewers.py | test_marker_ignored_until_edited_again (existing, re-run against sw) | green |
+| pr-evidence → A report rule decides for its reviewer | Review on the head under a marker rule | evals/pr-pair/test_reviewers.py | test_review_on_head_counts_under_marker_rule (existing, re-run against sw) | green |
+| pr-evidence → A report rule decides for its reviewer | Marker with regex characters | evals/pr-pair/test_reviewers.py | test_marker_is_literal (existing, re-run against sw) | green |
+| pr-evidence → Report patterns are JavaScript regular expressions | The repository's own pattern under the new dialect | evals/pr-pair/test_reviewers.py | test_repo_sha_pattern_under_the_js_dialect | green |
+| pr-evidence → A bad report rule stops the snapshot | Bad rule | evals/pr-pair/test_reviewers.py | test_config_bad_sha_pattern_regex (existing, re-run against sw) | green |
+| pr-evidence → A bad report rule stops the snapshot | Unknown key | evals/pr-pair/test_pr_snapshot.py | test_unknown_report_key_exits_2_without_gh (existing) | green |
+| pr-evidence → A bad report rule stops the snapshot | Python-only syntax is refused | evals/pr-pair/test_reviewers.py | test_python_only_syntax_is_refused | green |
+| pr-evidence → A bad report rule stops the snapshot | Sha pattern without a capture group | evals/pr-pair/test_reviewers.py | test_config_sha_pattern_without_group (existing, re-run against sw) | green |
+| pr-evidence → A snapshot names the reviewer rules it used | Wait started with the work tree's rules | evals/pr-pair/test_pr_pair.py | test_reported_check_digest_mismatch_is_rules_mismatch (existing, re-run through the shim) | green |
+| pr-evidence → A snapshot names the reviewer rules it used | Same rules | evals/pr-pair/test_pr_pair.py | test_reported_check_equal_digest_ok (existing, re-run through the shim) | green |
+| pr-evidence → A snapshot names the reviewer rules it used | Snapshot from before the dialect change | evals/pr-pair/test_pr_pair.py | test_format_1_snapshot_is_rules_mismatch | green |
+| pr-evidence → A snapshot names the reviewer rules it used | Config of the earlier format | evals/pr-pair/test_reviewers.py | test_config_wrong_format (changed: format 1 is refused) | green |
+| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Settings read through pr-pair.sh | evals/vcs/test_sw_scripts.py | test_settings_read_through_pr_pair (changed: no pr-pair.sh process started) | green |
+| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Unknown backend in the settings | evals/vcs/test_sw_scripts.py | test_unknown_backend_stops_as_before (existing, prefix assertion per D11) | green |
+| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Scripts installed under a non-UTF-8 directory | evals/vcs/test_sw_scripts.py | test_scripts_under_non_utf8_directory (existing) | green |
+| vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Unpinned settings stop a GitButler push | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push (existing) | green |
 | vcs-backends → sw vcs reads settings and fences identity through the existing scripts | Fenced push | evals/vcs/test_sw_scripts.py | test_fenced_push_runs_through_as_sh (existing) | green |
 
 Rows marked `existing` start `red` when their implementation moves under them in this change. They turn green when they pass against `sw` in CI (task 7.1), with no assertion changed beyond D8, D10 and D11.
@@ -99,7 +99,7 @@ Rows marked `existing` start `red` when their implementation moves under them in
 
 ## 7. CI
 
-- [ ] 7.1 Open a draft PR early, and run the `pr-pair`, `vcs`, `cli` and `git-workflow` suites through its CI on Linux, Windows and macOS. Verify: all green; the Linux non-UTF-8 directory case and the GitButler push tests ran, not skipped; and `git diff main -- evals/` shows only the assertion changes D8, D10 and D11 allow. Flip every `red` row of the test map to `green`.
+- [x] 7.1 Open a draft PR early, and run the `pr-pair`, `vcs`, `cli` and `git-workflow` suites through its CI on Linux, Windows and macOS. Verify: all green; the Linux non-UTF-8 directory case and the GitButler push tests ran, not skipped; and `git diff main -- evals/` shows only the assertion changes D8, D10 and D11 allow. Flip every `red` row of the test map to `green`.
 
 ## 8. Release
 

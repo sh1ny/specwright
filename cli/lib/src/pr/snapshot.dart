@@ -71,6 +71,7 @@ class _Snapshot {
   String owner = '';
   String name = '';
   String? matFile;
+  String? cfgCopy;
   WatchClaim? claim;
 
   // `prepare_cfg`'s state, kept across polls.
@@ -99,7 +100,40 @@ class _Snapshot {
   void cleanup() {
     removeFile(matFile);
     matFile = null;
+    removeFile(cfgCopy);
+    cfgCopy = null;
     claim?.release();
+  }
+
+  /// [path], or a temp copy of its file when the name is not UTF-8. `sw pr reviewers` takes the path in its argv, and
+  /// the Dart VM does not start on an argument that is not UTF-8, so such a name never reaches it. The copy holds the
+  /// same bytes, so the digest is the same; it is removed with the material file. A file that cannot be read keeps its
+  /// own path, and the check reports it.
+  Future<String> utf8Named(String path) async {
+    if (!path.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff)) return path;
+    final List<int> bytes;
+    try {
+      bytes = rawFile(path).readAsBytesSync();
+    } on FileSystemException {
+      return path;
+    }
+    final copy = await ctx.makeTemp();
+    if (copy == null || copy.isEmpty) {
+      stop(
+        'pr-snapshot: cannot create a temp file for the reviewer evaluator',
+        1,
+      );
+    }
+    cfgCopy = copy;
+    try {
+      rawFile(copy).writeAsBytesSync(bytes);
+    } on FileSystemException {
+      stop(
+        'pr-snapshot: cannot create a temp file for the reviewer evaluator',
+        1,
+      );
+    }
+    return copy;
   }
 
   Future<GhResult> gh(List<String> args) => ctx.gh(args, environment: pollEnv);
@@ -180,7 +214,7 @@ class _Snapshot {
 
     // The reviewer config is checked before any gh call: its stderr line goes through and the exit is 2.
     if (rcfgSet) {
-      rcfgArg = await ctx.native(rcfg);
+      rcfgArg = await utf8Named(await ctx.native(rcfg));
       final check = await ctx.tool([
         Platform.resolvedExecutable,
         'pr',

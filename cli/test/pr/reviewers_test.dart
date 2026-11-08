@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/reviewers.dart';
 import 'package:test/test.dart';
@@ -29,6 +30,28 @@ void main() {
       {'login': 'rev-bot', 'role': 'required', 'timeout': 60, 'report': report},
     ],
   };
+
+  group('a name that is not UTF-8', () {
+    test(
+      'a config whose name is not UTF-8 is read through its bytes',
+      () {
+        final name = [
+          ...utf8.encode('${dir.path}/reviewers-'),
+          0xff,
+          ...utf8.encode('.json'),
+        ];
+        File.fromRawPath(
+          Uint8List.fromList(name),
+        ).writeAsStringSync(jsonEncode(config({'sha_pattern': '([0-9a-f]+)'})));
+        final r = run(['--check-config', '${dir.path}/reviewers-\uDCFF.json']);
+        expect(r.code, 0, reason: r.err);
+        expect(jsonDecode(r.out)['logins'], ['rev-bot']);
+      },
+      skip: Platform.isLinux
+          ? false
+          : 'a file name that is not UTF-8 needs Linux',
+    );
+  });
 
   group('the group count', () {
     int groups(String p) => groupCount(RegExp(p, unicode: true));
