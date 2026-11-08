@@ -52,9 +52,79 @@ void main() {
     });
 
     test('rejects values json.dumps would not write here', () {
-      expect(() => documentText(1.5), throwsArgumentError);
       expect(() => documentText(Object()), throwsArgumentError);
       expect(() => documentText({1: 'a'}), throwsArgumentError);
+    });
+
+    test('writes doubles in Python repr form (floats are not ints)', () {
+      // from CPython 3.14: repr(x) == json.dumps(x)
+      const want = <(double, String)>[
+        (1.5, '1.5'),
+        (100.0, '100.0'),
+        (1e15, '1000000000000000.0'),
+        (1e16, '1e+16'),
+        (1.2345e-7, '1.2345e-07'),
+        (0.0001, '0.0001'),
+        (0.00001, '1e-05'),
+        (123456789.123456789, '123456789.12345679'),
+        (1e22, '1e+22'),
+        (5e-324, '5e-324'),
+        (1.7976931348623157e308, '1.7976931348623157e+308'),
+        (0.1, '0.1'),
+        (2.5e-5, '2.5e-05'),
+        (1e100, '1e+100'),
+        (12345678901234567.0, '1.2345678901234568e+16'),
+        (0.3, '0.3'),
+        (-2.5, '-2.5'),
+        (-1e-7, '-1e-07'),
+        (0.0, '0.0'),
+        (1.0, '1.0'),
+        (123456789012345.0, '123456789012345.0'),
+        (9999999999999998.0, '9999999999999998.0'),
+      ];
+      for (final (x, text) in want) {
+        expect(documentText(x), text, reason: '$x');
+      }
+      expect(documentText(-0.0), '-0.0');
+    });
+
+    test('writes NaN, Infinity and -Infinity as json.dumps does', () {
+      expect(
+        documentText([double.nan, double.infinity, double.negativeInfinity]),
+        '[NaN, Infinity, -Infinity]',
+      );
+    });
+
+    test('compact separators are "," and ":"', () {
+      final doc = <String, Object?>{
+        'ok': true,
+        'list': [1, 'a', null, 1.5],
+        'nested': {'x': <String, Object?>{}, 'y': <Object?>[]},
+      };
+      expect(
+        documentText(doc, compact: true),
+        '{"ok":true,"list":[1,"a",null,1.5],"nested":{"x":{},"y":[]}}',
+      );
+      expect(
+        documentText(doc),
+        '{"ok": true, "list": [1, "a", null, 1.5], "nested": {"x": {}, "y": []}}',
+        reason: 'the default separators are unchanged',
+      );
+    });
+
+    test('compact and raw line separators together', () {
+      expect(
+        documentText(
+          {'k': 'a\u{2028}b'},
+          compact: true,
+          escapeLineSeparators: false,
+        ),
+        '{"k":"a\u{2028}b"}',
+      );
+      expect(
+        documentText({'k': 'a\u{2028}b'}, compact: true),
+        r'{"k":"a\u2028b"}',
+      );
     });
   });
 
@@ -111,6 +181,19 @@ void main() {
       expect(
         () => documentBytes({'s': '\ud800'}, lineEnd: ''),
         throwsFormatException,
+      );
+    });
+
+    test('passes compact through to the text', () {
+      expect(
+        documentBytes(
+          {
+            'a': [1, 2.5],
+          },
+          lineEnd: '',
+          compact: true,
+        ),
+        _hex('7b2261223a5b312c322e355d7d'),
       );
     });
 
