@@ -95,11 +95,12 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-The settings, reviewer-config and merge-policy reads of `pr-pair.sh` (`identity`, `vcs`, `tier`, `context` and `policy`) and the reviewer evaluator now run in the native `sw` binary, with unchanged JSON fields and exit codes. Some error messages are worded differently. `reviewers.py` is removed. Breaking: reviewer `report` patterns are now JavaScript regular expressions.
+0.29.0 moves the settings and merge-policy side of `pr-pair.sh` (`identity`, `vcs`, `tier`, `context` and `policy`) and the reviewer evaluator into the native `sw` binary. JSON fields and exit codes are unchanged, and some error messages are worded differently. `sw vcs` no longer starts `pr-pair.sh`, and `reviewers.py` is removed. Breaking: reviewer `report` patterns are now JavaScript regular expressions, and the reviewer config moves to format 2, so restart any watch that runs across the update.
 
 ### Changed
 
-- **Breaking:** `pr.reviewers.<login>.report.sha_pattern` and `ignore` are read as JavaScript regular expressions in Unicode mode (Dart's `RegExp`), no longer Python ones. Simple patterns, the documented ones included, are unaffected. Rewrite any pattern that uses `(?P<name>...)`, `\A`, `\Z`, `(?i)`, `{,n}`, or an escape of a character that needs none (`\:`). The snapshot now refuses such a pattern, naming the reviewer and the key. The reviewer config moves to format 2, so a snapshot taken before the update reports `rules_mismatch` and watch takes a fresh one; restart any watch that was running during the update (#148).
+- **Breaking:** `pr.reviewers.<login>.report.sha_pattern` and `ignore` are read as JavaScript regular expressions in Unicode mode (Dart's `RegExp`), no longer Python ones. Simple patterns, the documented ones included, are unaffected. Rewrite any pattern that uses `(?P<name>...)`, `\A`, `\Z`, `(?i)`, `{,n}`, or an escape of a character that needs none (`\:`). The snapshot now refuses such a pattern, naming the reviewer and the key (#148).
+- The reviewer config moves to format 2, so a snapshot taken before the update reports `rules_mismatch` and watch takes a fresh one; restart any watch that was running during the update (#148).
 
 - `pr-pair.sh identity`, `vcs`, `tier`, `context` and `policy` now run `sw pr <sub>`, the Dart port, with the same JSON fields, error codes and exit codes. Error messages keep their prefixes and may be worded differently. A missing or mismatched `sw` stops them with `sw missing or mismatched: rerun the install prompt` (#148).
 - `sw vcs` reads settings in-process, and `sw pr snapshot` decides reviewer states through `sw pr reviewers`, so neither starts `pr-pair.sh` or `reviewers.py` for them (#148). Run `pr-pair.sh` from the code checkout: from inside a store checkout, the ported subcommands stop with `sw_missing`.

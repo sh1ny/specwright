@@ -103,7 +103,7 @@ Rows marked `existing` start `red` when their implementation moves under them in
 
 ## 8. Release
 
-- [ ] 8.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.29.0` (a minor bump for a feature and a settings change, per `CONTRIBUTING.md`'s pre-1.0 rule), and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-pr-pair/proposal.md` both pass.
+- [x] 8.1 Run `bash skills/specwright-release/scripts/release.sh bump --to 0.29.0` (a minor bump for a feature and a settings change, per `CONTRIBUTING.md`'s pre-1.0 rule), and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-pr-pair/proposal.md` both pass.
 
 ## Workflow follow-up
 
