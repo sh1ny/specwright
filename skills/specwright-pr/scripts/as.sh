@@ -17,11 +17,26 @@ AS_DIR=$(cd "$(dirname "$0")" && pwd -P)
 AS_BASH=${BASH:-bash}
 if command -v cygpath >/dev/null 2>&1; then AS_DIR=$(cygpath -m "$AS_DIR"); AS_BASH=$(cygpath -w "$AS_BASH"); fi
 
-# The project: the current directory, then up to the first `.git` entry.
-dir=$(pwd -P)
-proj=$dir
-while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); done
-[ -e "$proj/.git" ] || proj=$dir
+# The optional selector chooses only the resolver's binary. It never changes
+# this process's cwd, target repository, login, stdin or remaining arguments.
+if [ "${1:-}" = --project ]; then
+  if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
+    echo 'as.sh: usage: as.sh [--project <code-checkout>] <login> <command> [args...] | --resolve' >&2
+    exit 2
+  fi
+  proj=$2
+  shift 2
+  if [ "${1:-}" = --project ]; then
+    echo 'as.sh: usage: only one leading --project is allowed' >&2
+    exit 2
+  fi
+else
+  # Default discovery: cwd, then up to the first `.git` entry.
+  dir=$(pwd -P)
+  proj=$dir
+  while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); done
+  [ -e "$proj/.git" ] || proj=$dir
+fi
 
 # No mktemp before sw runs (the evals fake it): a resolver that fails is run once more to capture its stderr.
 if ! sw=$("$BASH" "$AS_DIR/sw-path.sh" --code "$proj" 2>/dev/null); then
