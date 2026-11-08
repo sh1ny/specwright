@@ -870,42 +870,33 @@ void main() {
       );
     });
 
-    test('a pr-pair refusal passes through with its file and ref', () async {
-      File('${scriptsDir.path}/pp.rc').writeAsStringSync('2');
-      File('${scriptsDir.path}/pp.out').writeAsStringSync(
-        jsonEncode({
-          'ok': false,
-          'error': 'settings_mismatch',
-          'message': 'differs',
-          'file': _settings,
-          'ref': 'feat',
-          'other': 1,
-        }),
-      );
+    test('an unpinned work-tree edit stops with its file and ref', () async {
+      write(_settings, 'vcs: gitbutler\nvalidate: x\n');
       final stop = await stopOf(
         () => op('push', session(command: 'push', branch: 'feat')),
       );
       expectStop(
         stop,
-        'settings_mismatch',
-        code: 2,
-        message: 'differs',
-        extra: {'file': _settings, 'ref': 'feat'},
+        'settings_not_pinned',
+        messageHas: 'differs from the copy at refs/heads/feat',
+        extra: {'file': _settings, 'ref': 'refs/heads/feat'},
       );
-      expect(
-        log('pp'),
-        'context|--code|${posix(repoDir.path)}|--only|repos|--branch|feat|\n',
-      );
+      expect(log('pp'), '', reason: 'no pr-pair.sh process starts');
+      expect(sh(originDir.path, ['branch', '--list', 'feat']), '');
     });
 
-    test('a pr-pair failure that is not JSON is settings_error', () async {
-      File('${scriptsDir.path}/pp.rc').writeAsStringSync('9');
-      File('${scriptsDir.path}/pp.err').writeAsStringSync('boom\n');
-      final stop = await stopOf(
-        () => op('push', session(command: 'push', branch: 'feat')),
-      );
-      expectStop(stop, 'settings_error', code: 3, message: 'boom');
-    });
+    test(
+      'a work tree that matches the branch pushes without pr-pair.sh',
+      () async {
+        write(_settings, 'vcs: gitbutler\nvalidate: x\n');
+        gitIn(['add', '-A']);
+        gitIn(['commit', '-q', '-m', 'pin']);
+        gitIn(['branch', '-f', 'feat', 'HEAD']);
+        final doc = await op('push', session(command: 'push', branch: 'feat'));
+        expect(doc['ok'], true);
+        expect(log('pp'), '');
+      },
+    );
 
     test('pushes the branch ref to origin and nothing else', () async {
       final tip = gitIn(['rev-parse', 'feat']);

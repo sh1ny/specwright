@@ -1,5 +1,7 @@
-import 'dart:convert';
-
+import '../pr/context.dart';
+import '../pr/pair.dart';
+import '../pr/settings_commands.dart';
+import '../settings/rules.dart';
 import 'codec.dart';
 import 'stop.dart';
 import 'tool_runner.dart';
@@ -56,75 +58,63 @@ class VcsSettings {
   final String login;
 }
 
-/// `vcs.sh`'s `get_settings`: `pr-pair.sh vcs --code <code>` for the backend,
-/// then `pr-pair.sh context --code <code> --only repos` (`--store <repo>` for
-/// the store role) for the main branch and login. Every failure maps to the
-/// same stop: exit codes are capped at 3.
+/// `vcs.sh`'s `get_settings`, read in process (design D6): the backend the
+/// settings choose for [role] and the main branch and login of that role's
+/// repo, by the rules `sw pr vcs` and `sw pr context --only repos` use. No
+/// `pr-pair.sh` process starts, no reviewer config is written and no identity
+/// is looked up. A refusal keeps its error code and its exit status, capped
+/// at 3.
 Future<VcsSettings> readSettings(
   VcsScripts scripts, {
   required String code,
   required String repo,
   required String role,
 }) async {
-  final result = await scripts.run(null, 'pr-pair.sh', ['vcs', '--code', code]);
-  if (result.code != 0) {
-    Object? data;
-    try {
-      data = jsonDecode(result.stdout);
-    } on FormatException {
-      final said = result.stderr.trim();
-      data = {
-        'error': 'settings_error',
-        'message': said.isNotEmpty ? said : result.stdout.trim(),
-      };
-    }
-    throw VcsStop(
-      _text(_get(data, 'error') ?? 'settings_error'),
-      _text(_get(data, 'message') ?? 'could not read VCS settings'),
-      code: _cap(result.code),
-    );
-  }
-  final Object? choices;
   try {
-    choices = jsonDecode(result.stdout);
-  } on FormatException {
-    throw VcsStop('settings_error', 'pr-pair.sh vcs returned invalid JSON');
-  }
-  final backend = _get(choices, role == 'code' ? 'code' : 'store');
-  if (backend is! String ||
-      !const {'git', 'jj', 'gitbutler'}.contains(backend) ||
-      (backend == 'gitbutler' && role != 'code')) {
-    throw VcsStop(
-      'settings_error',
-      'pr-pair.sh vcs did not return a valid backend',
+    final read = await readVcsSettings(
+      _settingsContext(scripts),
+      code: code,
+      repo: repo,
+      role: role,
     );
+    return VcsSettings(read.backend, read.main, read.login);
+  } on SettingsStop catch (e) {
+    throw VcsStop(e.error, e.message, code: _cap(e.code));
   }
-  // login and main only: merge settings are not validated
-  final contextArgs = ['context', '--code', code, '--only', 'repos'];
-  if (role == 'store') contextArgs.addAll(['--store', repo]);
-  final context = await scripts.run(null, 'pr-pair.sh', contextArgs);
-  final Object? ctx;
-  try {
-    ctx = jsonDecode(context.stdout);
-  } on FormatException {
-    throw VcsStop('settings_error', 'pr-pair.sh context returned invalid JSON');
-  }
-  if (context.code != 0) {
-    throw VcsStop(
-      _text(_get(ctx, 'error') ?? 'settings_error'),
-      _text(_get(ctx, 'message') ?? 'could not read repository settings'),
-      code: _cap(context.code),
-    );
-  }
-  final item = _truthy(_get(ctx, role == 'store' ? 'store' : 'code'))
-      ? _get(ctx, role == 'store' ? 'store' : 'code')
-      : const <String, Object?>{};
-  return VcsSettings(
-    backend,
-    _str(_get(item, 'main')),
-    _str(_get(item, 'login')),
-  );
 }
+
+/// `context --only repos --branch <branch>` as the GitButler push runs it: the
+/// work-tree settings must be those of the change branch. The stop keeps its
+/// error code, its `file` and `ref`, and its exit status capped at 3.
+Future<void> requirePinnedSettings(
+  VcsScripts scripts,
+  String code,
+  String branch,
+) async {
+  try {
+    await requireSettingsPinnedTo(_settingsContext(scripts), code, branch);
+  } on SettingsStop catch (e) {
+    throw VcsStop(e.error, e.message, code: _cap(e.code));
+  } on PairStop catch (e) {
+    throw VcsStop(
+      e.error,
+      e.message,
+      code: _cap(e.code),
+      extra: {
+        for (final f in e.extra.entries)
+          if (f.key == 'file' || f.key == 'ref') f.key: f.value,
+      },
+    );
+  }
+}
+
+/// A `PrContext` for the in-process settings module: only its `git` runs.
+PrContext _settingsContext(VcsScripts scripts) => PrContext(
+  scriptsDir: scripts.dir,
+  bash: scripts.bash,
+  writeOut: (_) {},
+  writeErr: (_) {},
+);
 
 /// The login a network command runs as (`fence_login`, `network_git`): [login]
 /// when it is not empty; for a GitHub remote without one, the account
@@ -168,32 +158,3 @@ Future<TextResult> runAs(
 ) => scripts.run(repo, 'as.sh', [who, ...command]);
 
 int _cap(int code) => code < 3 ? code : 3;
-
-/// Python's `data.get(key)` on a decoded JSON value: anything but an object is
-/// the `AttributeError` that becomes `internal_error`.
-Object? _get(Object? data, String key) {
-  if (data is Map) return data[key];
-  final type = switch (data) {
-    null => 'NoneType',
-    List() => 'list',
-    String() => 'str',
-    int() => 'int',
-    double() => 'float',
-    bool() => 'bool',
-    _ => data.runtimeType.toString(),
-  };
-  throw StateError("'$type' object has no attribute 'get'");
-}
-
-bool _truthy(Object? v) =>
-    !(v == null ||
-        v == false ||
-        v == 0 ||
-        v == '' ||
-        (v is List && v.isEmpty) ||
-        (v is Map && v.isEmpty));
-
-/// `str(value or "")`.
-String _str(Object? v) => _truthy(v) ? _text(v) : '';
-
-String _text(Object? v) => v is String ? v : '$v';

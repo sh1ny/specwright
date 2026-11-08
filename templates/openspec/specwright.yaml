@@ -103,6 +103,9 @@ pr:
   #   check       - exact name of the check run the bot finishes
   #   marker      - literal text in a comment the bot edits when done
   #   ignore      - regex; comments and reviews it matches never count
+  # Regexes are JavaScript regular expressions in Unicode mode (ADR 0030),
+  # case-sensitive: Python-only syntax such as (?P<name>...), \A, \Z, (?i)
+  # or {,n}, and needless escapes such as \:, are refused.
   # Write patterns in single quotes so backslashes stay as written.
   # reviewers:
   #   tagged-bot: { role: required, request: "@tagged-bot review" }

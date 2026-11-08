@@ -181,6 +181,53 @@ Future<String> _pinRef(
   return target;
 }
 
+/// What `sw vcs` needs of `pr-pair.sh vcs` and `context --only repos`, read in process (D6): the backend the settings
+/// choose for [role], and the main branch and login of that role's repo. No reviewer-config write and no identity
+/// lookup. Throws [SettingsStop] as the script stopped.
+Future<({String backend, String main, String login})> readVcsSettings(
+  PrContext ctx, {
+  required String code,
+  required String repo,
+  required String role,
+}) async {
+  final text = await _settingsText(ctx, code);
+  final s = loadSettings(text);
+  final v = vcsChoices(s);
+  final backend = role == 'code' ? v.code : v.store;
+  final store = role == 'store' ? repo : null;
+  final mains = {
+    code: await _detectMain(ctx, code),
+    if (store != null && store.isNotEmpty) store: await _detectMain(ctx, store),
+  };
+  final c = contexts(
+    s,
+    code,
+    store,
+    detectMain: (d) => mains[d] ?? 'main',
+    checkMerge: false,
+  );
+  final item = role == 'store' ? c.store : c.code;
+  return (backend: backend, main: item?.main ?? '', login: item?.login ?? '');
+}
+
+/// `context --only repos --branch <branch>` as far as it checks the pin: on GitButler the work-tree settings must be
+/// those of `refs/heads/<branch>`. Throws [PairStop] (`settings_not_pinned` with `file` and `ref`, or `git_error`).
+Future<void> requireSettingsPinnedTo(
+  PrContext ctx,
+  String code,
+  String branch,
+) async {
+  if (await _gitbutlerPins(ctx, code)) {
+    await _settingsPinned(
+      ctx,
+      code,
+      await _pinRef(ctx, code, branch, false),
+      branch,
+      false,
+    );
+  }
+}
+
 /// `cmd_vcs`.
 Future<int> runVcs(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {

@@ -1,4 +1,4 @@
-"""sw vcs reads settings and fences identity through the scripts of the vcs.sh that started it (design D2, S2).
+"""sw vcs reads settings in-process (native-cli-pr-pair D6) and fences identity through the scripts of the vcs.sh that started it (design D2, S2).
 
 The tests run vcs.sh, the shim, against the tree's sw (SPECWRIGHT_SW=<built sw>, design D9). Each one copies the scripts directory and puts a recording wrapper in front of
 `pr-pair.sh` or `as.sh`, so it can see which script ran, from where and with which arguments.
@@ -81,22 +81,9 @@ class TestSettingsThroughPrPair(ScriptsCase):
         scripts = self.copy_scripts(wrap_pr_pair=True)
         log = self.root / "pr-pair.log"
         state, _ = self.invoke("state", repo=repo, scripts=scripts, env={"PR_PAIR_LOG": log.as_posix()})
+        # the same rules run in sw: the backend is the one `pr-pair.sh vcs` reports, and no pr-pair.sh process started
         self.assertEqual(state["backend"], "jj", state)
-        lines = self.records(log)
-        calls = [line[len("args:"):] for line in lines if line.startswith("args:")]
-        self.assertGreaterEqual(len(calls), 2, lines)
-        vcs_call, context_call = (call.rstrip("|").split("|") for call in calls[:2])
-        self.assertEqual(vcs_call[0], "vcs")
-        self.assertEqual(vcs_call[1], "--code")
-        self.assertEqual(Path(vcs_call[2]).resolve(), repo.resolve())
-        self.assertEqual(len(vcs_call), 3)
-        self.assertEqual(context_call[0], "context")
-        self.assertEqual(context_call[1], "--code")
-        self.assertEqual(Path(context_call[2]).resolve(), repo.resolve())
-        self.assertEqual(context_call[3:], ["--only", "repos"])
-        for script_line in (line for line in lines if not line.startswith("args:")):
-            self.assertEqual(Path(script_line).name, "pr-pair.sh")
-            self.assertEqual(Path(script_line).parent.resolve(), scripts.resolve(), "pr-pair.sh ran from the scripts dir")
+        self.assertEqual(self.records(log), [], "no pr-pair.sh process was started")
 
 
 class TestUnknownBackend(ScriptsCase):
@@ -115,7 +102,12 @@ class TestUnknownBackend(ScriptsCase):
 
         state, _ = self.invoke("state", expected=1)
 
-        self.assertEqual(state, {"ok": False, "error": "unknown_vcs", "message": expected["message"]})
+        # D11: the error code and the prefix are the script's; the words after it are sw's own
+        prefix = "unknown code VCS "
+        self.assertTrue(expected["message"].startswith(prefix), expected)
+        self.assertEqual(set(state), {"ok", "error", "message"})
+        self.assertEqual((state["ok"], state["error"]), (False, "unknown_vcs"))
+        self.assertTrue(state["message"].startswith(prefix), state)
         self.assertIn("svn", state["message"])
         self.shim.assert_no_writes()
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), head)
@@ -138,8 +130,6 @@ class TestNonUtf8ScriptsDirectory(ScriptsCase):
 
         self.assertEqual(result.returncode, 0)
         self.assertEqual(state["backend"], "jj", state)
-        raw = log.read_bytes()
-        self.assertIn(os.fsencode(scripts) + b"/pr-pair.sh", raw, "pr-pair.sh ran from the non-UTF-8 directory")
 
 
 class TestFencedPush(ScriptsCase):
