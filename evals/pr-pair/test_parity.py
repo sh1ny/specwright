@@ -676,6 +676,24 @@ class PairParity(PrParity):
             with self.subTest(d=d):
                 self.run_pair("identity", d, code=code)
 
+    @unittest.skipUnless(sys.platform == "win32", "platform: a Git Bash path form exists only on Windows")
+    def test_git_bash_paths_read_the_same_repo(self):
+        """A shim hands its arguments over stdin, so no MSYS conversion happens on the way: sw converts them itself."""
+        def msys(path):
+            return subprocess.run([bashexe.bash(), "-c", 'cygpath -u "$1"', "_", path], capture_output=True, text=True, check=True).stdout.strip()
+        code = self.repo("code", settings="vcs: jj\nfinish: pr\ngithub:\n  login: me\n")
+        store = self.repo("store", "https://github.com/o/plans.git", settings="planning_store:\n  login: bob\n")
+        m_code, m_store = msys(code), msys(store)
+        self.assertTrue(m_code.startswith("/"), m_code)
+        self.run_pair("identity", m_code, code=0)
+        self.assertEqual(self.run_pair("vcs", "--code", m_code, code=0)["code"], "jj")
+        self.run_pair("tier", "--code", m_code, code=0)
+        self.run_pair("context", "--code", m_code, "--store", m_store, code=0)
+        self.contents("main", self.AGENT)
+        self.contents(self.HEAD, self.AGENT)
+        self.run_pair(lambda which: ["policy", "--repo", self.SLUG, "--head", self.HEAD,
+                                     "--snapshot", "code=" + msys(self.reviewed(which, "rev"))], code=0)
+
     def test_identity_usage_exits_2(self):
         self.run_pair("identity", code=2)
         self.run_pair("identity", "a", "b", code=2)

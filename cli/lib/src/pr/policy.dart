@@ -317,7 +317,7 @@ Map<String, Object?> _reportedCheck(
 final RegExp _hex = RegExp(r'^[0-9a-fA-F]{7,40}$');
 
 /// `read_snapshots`: the `--snapshot code=<file>` and `store=<file>` arguments, each a JSON document.
-Map<String, Object?> _readSnapshots(PairArgs a) {
+Future<Map<String, Object?>> _readSnapshots(PrContext ctx, PairArgs a) async {
   final out = <String, Object?>{};
   for (final spec in a.lists['snapshot'] ?? const <String>[]) {
     final eq = spec.indexOf('=');
@@ -327,7 +327,7 @@ Map<String, Object?> _readSnapshots(PairArgs a) {
       pairUsage('--snapshot is code=<file> or store=<file>');
     }
     try {
-      out[name] = pyJsonReadFile(path);
+      out[name] = pyJsonReadFile(await ctx.native(path));
     } on FormatException catch (e) {
       throw PairStop('snapshot_unreadable', e.message, code: 2);
     }
@@ -375,7 +375,7 @@ Future<int> runPolicy(
   }
   reviewed.putIfAbsent('code', () => head);
   final sides = withStore ? ['code', 'store'] : ['code'];
-  final snaps = _readSnapshots(a);
+  final snaps = await _readSnapshots(ctx, a);
   for (final side in sides) {
     if (!snaps.containsKey(side)) {
       pairUsage('missing --snapshot $side=<file>');

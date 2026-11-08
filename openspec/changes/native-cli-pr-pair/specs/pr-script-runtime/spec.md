@@ -39,6 +39,14 @@ When the resolver stops, `pr-pair.sh identity`, `vcs`, `tier`, `context` and `po
 ### Requirement: The ported pr-pair subcommands keep the script's contracts
 `sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the arguments `pr-pair.sh` accepted and SHALL print a JSON line with the same field names and values and exit with the same status for the same settings files, repositories and GitHub answers. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
 
+#### Scenario: Policy's remote settings read is strict
+- **WHEN** `policy` reads a settings file from the remote and it holds a construct the strict reader cannot read whole
+- **THEN** `policy` stops with `lookup_failed` and merges nothing, and never decides from a best-effort parse
+
+#### Scenario: Git Bash path forms
+- **WHEN** on Windows a subcommand is given a directory or snapshot file as a Git Bash path such as `/c/work/repo`
+- **THEN** it reads the same repository or file as with `C:/work/repo`, and a path it reports is in the `C:/` form
+
 #### Scenario: Unchanged black-box evals pass on sw
 - **WHEN** the `evals/pr-pair` and `evals/vcs` tests that run these five subcommands run in CI on Linux, Windows and macOS against the `sw` built from the tree
 - **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); and assertions on free text, which check its prefix instead (see the message-text requirement). Every other field, error code and exit status is compared exactly

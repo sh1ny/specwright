@@ -11,6 +11,8 @@
 | pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | Policy with no sw | evals/pr-pair/test_pr_shims.py | test_policy_without_sw_runs_no_gh | green |
 | pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | An unported subcommand needs no sw | evals/pr-pair/test_pr_shims.py | test_branch_check_without_sw_answers | green |
 | pr-script-runtime → A missing or mismatched sw stops the ported pr-pair subcommands | No Python | evals/pr-pair/test_pr_shims.py | test_pr_pair_no_python_runs_no_sw | green |
+| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Policy's remote settings read is strict | evals/pr-pair/test_parity.py, test_pr_pair.py | test_policy_stops, the `lookup_failed` cases | green |
+| pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Git Bash path forms | evals/pr-pair/test_parity.py | test_git_bash_paths_read_the_same_repo | green |
 | pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Unchanged black-box evals pass on sw | evals/pr-pair/test_pr_pair.py, evals/vcs/* | every existing test of the five subcommands (CI, three OSes) | green |
 | pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Differential run against the frozen script | evals/pr-pair/test_parity.py | PrPairParity (one case per subcommand) | green |
 | pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | A malformed settings file names its line | evals/pr-pair/test_parity.py | test_context_tab_in_indentation_names_line_7 | green |

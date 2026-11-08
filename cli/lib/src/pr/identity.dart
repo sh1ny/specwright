@@ -79,5 +79,5 @@ Future<int> runIdentity(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {
       final a = parsePairArgs(argv, const {});
       if (a.positional.length != 1) pairUsage('identity <dir>');
-      return identityOf(ctx, a.positional[0]);
+      return identityOf(ctx, await ctx.native(a.positional[0]));
     });

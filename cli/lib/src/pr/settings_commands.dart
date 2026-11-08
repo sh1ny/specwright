@@ -190,6 +190,8 @@ Future<({String backend, String main, String login})> readVcsSettings(
   required String repo,
   required String role,
 }) async {
+  code = await ctx.native(code);
+  repo = await ctx.native(repo);
   final text = await _settingsText(ctx, code);
   final s = loadSettings(text);
   final v = vcsChoices(s);
@@ -217,6 +219,7 @@ Future<void> requireSettingsPinnedTo(
   String code,
   String branch,
 ) async {
+  code = await ctx.native(code);
   if (await _gitbutlerPins(ctx, code)) {
     await _settingsPinned(
       ctx,
@@ -233,7 +236,7 @@ Future<int> runVcs(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {
       final a = parsePairArgs(argv, const {'--code': 'code'});
       needArgs(a, ['code']);
-      final s = await _loadSettings(ctx, a['code']!);
+      final s = await _loadSettings(ctx, await ctx.native(a['code']!));
       try {
         final v = vcsChoices(s);
         return {'ok': true, 'code': v.code, 'store': v.store};
@@ -247,7 +250,7 @@ Future<int> runTier(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {
       final a = parsePairArgs(argv, const {'--code': 'code'});
       needArgs(a, ['code']);
-      return tierChoice(await _loadSettings(ctx, a['code']!));
+      return tierChoice(await _loadSettings(ctx, await ctx.native(a['code']!)));
     });
 
 /// `cmd_context`.
@@ -269,8 +272,10 @@ Future<int> runContext(
     },
   );
   needArgs(a, ['code']);
-  final code = a['code']!;
-  final store = a['store'];
+  // the shim hands these over stdin, so no MSYS conversion happened on the way
+  final code = await ctx.native(a['code']!);
+  final givenStore = a['store'];
+  final store = givenStore == null ? null : await ctx.native(givenStore);
   final branch = a['branch'];
   final only = a['only'];
   if (only != null && only != 'repos') pairUsage('--only takes repos');
