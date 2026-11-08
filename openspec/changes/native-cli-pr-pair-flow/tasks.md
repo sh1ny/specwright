@@ -56,8 +56,8 @@ The workflow parity test is parameterized over every one of the fourteen command
 
 ## 1. Record the accepted architecture and limitations
 
-- [ ] 1.1 Write ADR 0031 for direct native calls, explicit project selection and allowed isolation, carrying C1, C6, C9, C10 and C11. Preserve the selected scope: only branch-check fetch-main forwards its resolved code project through the existing VCS fence hop. Record the existing store-network gap and reviewer suggestion S-1 about store-started snapshot/reply resolution as limitations, not fixes this change claims. Verify the delivered ADR states all five constraints and cites the source/caller evidence; leave accepted ADRs 0028/0029 unchanged.
-- [ ] 1.2 Update the architecture's native component, Script I/O and identity sections and ADR index to describe this change and its temporary gaps; keep the approved M8 roadmap amendment. Verify links, the distinction between binary project and target cwd, and `openspec schema validate specwright`. After adding tracked files, verify `python -m unittest evals/runner/test_suite_map.py`.
+- [x] 1.1 Write ADR 0031 for direct native calls, explicit project selection and allowed isolation, carrying C1, C6, C9, C10 and C11. Preserve the selected scope: only branch-check fetch-main forwards its resolved code project through the existing VCS fence hop. Record the existing store-network gap and reviewer suggestion S-1 about store-started snapshot/reply resolution as limitations, not fixes this change claims. Verify the delivered ADR states all five constraints and cites the source/caller evidence; leave accepted ADRs 0028/0029 unchanged.
+- [x] 1.2 Update the architecture's native component, Script I/O and identity sections and ADR index to describe this change and its temporary gaps; keep the approved M8 roadmap amendment. Verify links, the distinction between binary project and target cwd, and `openspec schema validate specwright`. After adding tracked files, verify `python -m unittest evals/runner/test_suite_map.py`.
 
 ## 2. Native execution context and project-aware fence shim
 
