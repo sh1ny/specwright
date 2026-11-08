@@ -38,10 +38,13 @@ Object? pyJsonDecode(String text, {String file = ''}) =>
 
 /// Reads [path] as UTF-8 and decodes it. A file that cannot be read is `<path>: cannot read: <OS error>`, bytes that are
 /// not UTF-8 are `<path>: not valid UTF-8`, and a refused document names the path and the position.
-Object? pyJsonReadFile(String path) {
-  final List<int> bytes;
+Object? pyJsonReadFile(String path) =>
+    pyJsonDecodeBytes(pyJsonFileBytes(path), path);
+
+/// The bytes of [path]; a file that cannot be read is `<path>: cannot read: <OS error>`.
+List<int> pyJsonFileBytes(String path) {
   try {
-    bytes = File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
+    return File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
   } on FileSystemException catch (e) {
     final os = e.osError?.message.trim();
     throw PyJsonException(
@@ -49,6 +52,10 @@ Object? pyJsonReadFile(String path) {
       file: path,
     );
   }
+}
+
+/// [bytes], the content of [path], decoded as [pyJsonReadFile] decodes a file.
+Object? pyJsonDecodeBytes(List<int> bytes, String path) {
   final String text;
   try {
     final bom =

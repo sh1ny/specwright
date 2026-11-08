@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import '../commit/task_cover.dart' show pyStrip;
@@ -7,7 +6,6 @@ import '../finish/undo_plan.dart' show prefixOf;
 import '../settings/pyjson.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
 import '../settings/yaml.dart' show pyDecimalValue, pyStr;
-import '../vcs/codec.dart';
 import '../vcs/document.dart';
 
 // `sw pr reviewers`: the port of `reviewers.py`, the reviewer-detection evaluator behind the pr snapshot (design D5).
@@ -201,8 +199,11 @@ bool _looksLikeOption(String a) =>
 /// `<file>: <what>` with Python's wording kept for the three words a caller reads.
 ({List<_Reviewer> reviewers, String digest}) _loadConfig(String path) {
   final Object? cfg;
+  final List<int>
+  raw; // one read: the digest is of the bytes the rules came from
   try {
-    cfg = pyJsonReadFile(path);
+    raw = pyJsonFileBytes(path);
+    cfg = pyJsonDecodeBytes(raw, path);
   } on PyJsonException catch (e) {
     final prefix = '$path: ';
     if (e.message.startsWith('${prefix}cannot read: ')) {
@@ -212,14 +213,6 @@ bool _looksLikeOption(String a) =>
         ? e.message.substring(prefix.length)
         : e.message;
     throw _ConfigError('$path: not valid JSON: $what');
-  }
-  final List<int> raw;
-  try {
-    raw = File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
-  } on FileSystemException catch (e) {
-    throw _ConfigError(
-      '$path: cannot read: ${e.osError?.message ?? e.message}',
-    );
   }
   return (reviewers: _validateConfig(cfg, path), digest: sha256Hex(raw));
 }
