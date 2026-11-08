@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A report rule decides for its reviewer
-The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignore` (JavaScript regular expressions in Unicode mode, as Dart's `RegExp` reads them: searched, case-sensitive, not multiline), `marker` (a literal substring) and `check` (an exact check name, counted only from a check run of the reviewer's own GitHub App, whose slug is its login). With any of `sha_pattern`, `check` or `marker` set, only those and a review on the head commit SHALL decide `reported`. `ignore` SHALL exclude matching comment and review bodies from every rule.
+The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignore` (regular expressions in the dialect below), `marker` (a literal substring) and `check` (an exact check name, counted only from a check run of the reviewer's own GitHub App, whose slug is its login). With `sha_pattern`, `check` or `marker` set, only those and a review on the head commit SHALL decide `reported`. `ignore` SHALL exclude matching comment and review bodies from every rule.
 
 #### Scenario: Sha pattern names the head
 - **WHEN** `report.sha_pattern` is `Reviewed commit: ([0-9a-f]{7,40})` and the reviewer comments `Reviewed commit: 1a2b3c4` with head `1a2b3c4d...`
@@ -33,10 +33,6 @@ The optional `pr.reviewers.<login>.report` SHALL accept `sha_pattern` and `ignor
 - **WHEN** `report.marker` is `<!-- [bot] -->` and a comment contains `<!-- b -->` but not the marker text
 - **THEN** that comment does not match the marker
 
-#### Scenario: The repository's own pattern under the new dialect
-- **WHEN** `report.sha_pattern` is ``Reviewed commit:\*\* `([0-9a-f]{7,40})` `` and the reviewer comments ``**Reviewed commit:** `1a2b3c4` `` with head `1a2b3c4d...`
-- **THEN** the reviewer is `reported` with `by: sha_pattern`, as before this change
-
 ### Requirement: A bad report rule stops the snapshot
 An unknown `report` key, a pattern that does not compile, or a `sha_pattern` with no capture group SHALL stop the snapshot with exit 2 naming the reviewer and the key, before any `gh` call.
 
@@ -57,7 +53,7 @@ An unknown `report` key, a pattern that does not compile, or a `sha_pattern` wit
 - **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and `sha_pattern`
 
 ### Requirement: A snapshot names the reviewer rules it used
-The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config file it ran with. `policy` SHALL count required reviewers as reported for a set only when the snapshot's digest equals the digest of the config it writes for that set, and SHALL otherwise report `rules_mismatch` for that set. The config file SHALL carry `"format": 2`, which names the JavaScript pattern dialect, and the evaluator SHALL refuse any other format, so a snapshot decided under the earlier Python dialect (`"format": 1`) never matches.
+The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config file it ran with. `policy` SHALL count a set's required reviewers as reported only when that digest equals the digest of the config it writes for the set, and SHALL otherwise report `rules_mismatch` for the set. The config SHALL carry `"format": 2`, naming the JavaScript pattern dialect, and the evaluator SHALL refuse any other format, so a snapshot decided under the Python dialect (`"format": 1`) never matches.
 
 #### Scenario: Wait started with the work tree's rules
 - **WHEN** main gives required `rev-bot` a `marker` rule, the wait ran with a config from the work tree where `rev-bot` has no `report`, and the snapshot reports `rev-bot` `reported` `by: output`
@@ -74,3 +70,12 @@ The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config fil
 #### Scenario: Config of the earlier format
 - **WHEN** `sw pr reviewers --check-config cfg.json` runs and `cfg.json` holds `"format": 1`
 - **THEN** it exits 2 with `reviewers.py: format must be 2` on stderr, and `pr-snapshot.sh --reviewer-config cfg.json` exits 2 before any `gh` call
+
+## ADDED Requirements
+
+### Requirement: Report patterns are JavaScript regular expressions
+`report.sha_pattern` and `report.ignore` SHALL be read as JavaScript regular expressions in Unicode mode, as Dart's `RegExp(pattern, unicode: true)` reads them (ADR 0030). They SHALL be searched, so a match anywhere in a body counts, case-sensitive and not multiline.
+
+#### Scenario: The repository's own pattern under the new dialect
+- **WHEN** `report.sha_pattern` is ``Reviewed commit:\*\* `([0-9a-f]{7,40})` `` and the reviewer comments ``**Reviewed commit:** `1a2b3c4` `` with head `1a2b3c4d...`
+- **THEN** the reviewer is `reported` with `by: sha_pattern`, as before this change

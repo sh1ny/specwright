@@ -91,7 +91,7 @@ In the output of `sw pr identity`, `vcs`, `tier`, `context`, `policy` and `revie
 ## MODIFIED Requirements
 
 ### Requirement: sw pr snapshot and sw pr reply keep the scripts' contracts
-`sw pr snapshot` and `sw pr reply`, run through the scripts' shims, SHALL accept the arguments the scripts accepted before this change and SHALL print the same bytes on stdout, the same messages on stderr and the same exit statuses for the same GitHub answers: the snapshot line, `--full`, the `--wait` wake document, markers, revision checks, reactions and resolutions included. Two exceptions apply to `sw pr snapshot` only: its `reviewer_config` digest is that of the format 2 config (pr-evidence), and a `reviewers.py:` line it relays from the evaluator keeps its prefix and may be worded differently.
+`sw pr snapshot` and `sw pr reply`, run through the scripts' shims, SHALL take the scripts' arguments and print the same stdout bytes, stderr messages and exit statuses for the same GitHub answers: the snapshot line, `--full`, `--wait` wake documents, markers, revision checks, reactions and resolutions included. `sw pr snapshot` has two exceptions: its `reviewer_config` digest is that of the format 2 config, and an evaluator line it relays keeps its `reviewers.py:` prefix, its wording free.
 
 #### Scenario: Unchanged black-box evals pass on sw
 - **WHEN** `evals/pr-pair/test_pr_snapshot.py`, `test_pr_reply.py` and every other eval that runs the two scripts run in CI on Linux, Windows and macOS against the `sw` built from the tree
