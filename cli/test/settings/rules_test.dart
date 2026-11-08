@@ -457,6 +457,57 @@ void main() {
     });
   });
 
+  group('malformed sections', () {
+    String detect(String _) => 'main';
+    Contexts read(Map<String, Object?> s, {String? store}) =>
+        contexts(s, 'c', store, detectMain: detect);
+    Matcher stops(String type) => throwsA(
+      isA<SettingsStop>()
+          .having((e) => e.error, 'error', 'internal_error')
+          .having((e) => e.code, 'code', 1)
+          .having(
+            (e) => e.message,
+            'message',
+            "AttributeError: '$type' object has no attribute 'get'",
+          ),
+    );
+
+    test('a truthy section that is not a mapping stops as the script did', () {
+      expect(() => read({'pr': 'oops'}), stops('str'));
+      expect(() => read({'pr': 5}), stops('int'));
+      expect(() => read({'pr': 1.5}), stops('float'));
+      expect(() => read({'pr': true}), stops('bool'));
+      expect(
+        () => read({
+          'pr': ['a'],
+        }),
+        stops('list'),
+      );
+      expect(() => read({'github': 'oops'}), stops('str'));
+      expect(
+        () => read({
+          'github': {'review_request': 'oops'},
+        }),
+        stops('str'),
+      );
+      expect(() => read({'planning_store': 'oops'}, store: 's'), stops('str'));
+    });
+
+    test('a falsy section reads as empty', () {
+      for (final v in <Object?>[null, '', 0, false, <Object?>[]]) {
+        expect(read({'pr': v, 'github': v}).code.login, '');
+      }
+    });
+
+    test('planning_store is read only for the store repo', () {
+      expect(read({'planning_store': 'oops'}).store, isNull);
+    });
+
+    test('vcs keeps treating a planning_store that is not a mapping as absent', () {
+      expect(vcsChoices({'planning_store': 'oops'}).store, 'git');
+    });
+  });
+
   group('vcsChoices', () {
     test('defaults to git for both', () {
       final r = vcsChoices(parseYaml(''));
@@ -569,7 +620,9 @@ void main() {
       () {
         final raw = [...utf8.encode('${tmp.path}/co-'), 0xff];
         final dir = Uint8List.fromList([...raw, ...utf8.encode('/openspec')]);
-        Directory.fromRawPath(dir).createSync(recursive: true);
+        // a recursive create rebuilds the parents from a string, which loses the byte
+        Directory.fromRawPath(Uint8List.fromList(raw)).createSync();
+        Directory.fromRawPath(dir).createSync();
         File.fromRawPath(
           Uint8List.fromList([...dir, ...utf8.encode('/specwright.yaml')]),
         ).writeAsStringSync('x: 1\n');

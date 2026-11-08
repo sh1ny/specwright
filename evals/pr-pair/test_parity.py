@@ -736,6 +736,16 @@ class PairParity(PrParity):
         self.run_pair("context", "--code", code, "--store", store, code=0)
         self.run_pair("context", "--code", code, "--store", store, "--only", "repos", code=0)
 
+    def test_context_stops_on_a_section_that_is_not_a_mapping(self):
+        for i, text in enumerate(("pr: oops\n", "pr: 5\n", "pr: true\n", "pr: [a]\n", "github: oops\n", "github:\n  review_request: oops\n")):
+            code = self.repo(f"bad{i}", settings=text)
+            self.run_pair("context", "--code", code, code=1)
+        for i, text in enumerate(("pr: 0\n", "github: false\n", "planning_store: oops\n")):
+            code = self.repo(f"empty{i}", settings=text)
+            self.run_pair("context", "--code", code, code=0)
+        code, store = self.repo("code", settings="planning_store: oops\n"), self.repo("store", "https://github.com/o/plans.git")
+        self.run_pair("context", "--code", code, "--store", store, code=1)
+
     def test_context_stops_and_problems(self):
         cases = [
             ("pr:\n  merge: agent\n  merge_method: bogus\n", 2), ("pr:\n  merge: agent\n  delete_branch: maybe\n", 2),

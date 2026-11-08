@@ -64,6 +64,25 @@ Map<String, Object?> _map(Object? v) => v is Map<String, Object?>
     ? v.cast<String, Object?>()
     : const <String, Object?>{};
 
+/// A section the script read as `s.get(k) or {}` and then called `.get` on: a falsy value is empty, and a truthy value
+/// that is not a mapping stops with the `AttributeError` the script's catch-all reported as `internal_error`.
+Map<String, Object?> _section(Object? v) {
+  if (!pyTruthy(v)) return const <String, Object?>{};
+  if (v is Map) return _map(v);
+  final type = switch (v) {
+    String() => 'str',
+    bool() => 'bool',
+    int() || BigInt() => 'int',
+    double() => 'float',
+    List() => 'list',
+    _ => v.runtimeType.toString(),
+  };
+  throw SettingsStop(
+    'internal_error',
+    "AttributeError: '$type' object has no attribute 'get'",
+  );
+}
+
 /// `str(v or fallback)`.
 String _strOr(Object? v, [String fallback = '']) =>
     pyTruthy(v) ? pyStr(v) : fallback;
@@ -280,10 +299,12 @@ RepoContext repoContext(
   required String Function(String dir) detectMain,
   List<SettingProblem>? problems,
 }) {
-  final g = _map(s['github']);
-  final pr = _map(s['pr']);
-  final ps = _map(s['planning_store']);
-  final rr = _map(g['review_request']);
+  final g = _section(s['github']);
+  final rr = _section(g['review_request']);
+  final pr = _section(s['pr']);
+  final ps = which == 'store'
+      ? _section(s['planning_store'])
+      : const <String, Object?>{};
   final String login;
   final String main;
   final String validate;
@@ -392,7 +413,7 @@ Contexts contexts(
   bool checkMerge = true,
   List<SettingProblem>? problems,
 }) {
-  final pr = _map(s['pr']);
+  final pr = _section(s['pr']);
   final settle = settleOf(pr);
   if (settle.problem != null) problems?.add(settle.problem!);
   final codeContext = repoContext(
