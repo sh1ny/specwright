@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/settings/rules.dart';
 import 'package:specwright_cli/src/settings/yaml.dart';
@@ -562,6 +563,22 @@ void main() {
         ..writeAsBytesSync(bytes);
       return f.parent.parent.path;
     }
+
+    test(
+      'reads a checkout whose directory name is not UTF-8',
+      () {
+        final raw = [...utf8.encode('${tmp.path}/co-'), 0xff];
+        final dir = Uint8List.fromList([...raw, ...utf8.encode('/openspec')]);
+        Directory.fromRawPath(dir).createSync(recursive: true);
+        File.fromRawPath(
+          Uint8List.fromList([...dir, ...utf8.encode('/specwright.yaml')]),
+        ).writeAsStringSync('x: 1\n');
+        expect(readSettingsText(['${tmp.path}/co-\uDCFF']), 'x: 1\n');
+      },
+      skip: Platform.isLinux
+          ? false
+          : 'a file name that is not UTF-8 needs Linux',
+    );
 
     test('reads the first base that holds the file', () {
       final a = write('a', utf8.encode('x: 1\n'));

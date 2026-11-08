@@ -4,6 +4,7 @@ import '../commit/task_cover.dart' show pyStrip;
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
 import '../settings/yaml.dart';
+import '../vcs/codec.dart';
 import 'context.dart';
 import 'identity.dart';
 import 'pair.dart';
@@ -49,8 +50,10 @@ Future<String> _detectMain(PrContext ctx, String d) async {
 Future<String?> _settingsPath(PrContext ctx, String code) async {
   for (final base in [code, null]) {
     final dir = base ?? await _toplevel(ctx, code);
-    final f = File('$dir/openspec/specwright.yaml');
+    final f = rawFile('$dir/openspec/specwright.yaml');
     if (f.existsSync()) {
+      // Dart's resolved path is a string, which cannot hold a name that is not UTF-8
+      if (hasEscapedBytes(dir)) return '$dir/openspec/specwright.yaml';
       try {
         return f.resolveSymbolicLinksSync().replaceAll(r'\', '/');
       } on FileSystemException {
@@ -96,7 +99,9 @@ Future<void> _settingsPinned(
   if (path != null) {
     String resolvedTop = top;
     try {
-      resolvedTop = Directory(top).resolveSymbolicLinksSync();
+      if (!hasEscapedBytes(top)) {
+        resolvedTop = Directory(top).resolveSymbolicLinksSync();
+      }
     } on FileSystemException {
       // keep the top level as git printed it
     }
@@ -146,7 +151,7 @@ Future<bool> _gitbutlerPins(PrContext ctx, String code) async {
   final common = pyStrip(r.stdout);
   if (r.code != 0 || common.isEmpty) return false;
   final commonDir = Directory(common).isAbsolute ? common : '$code/$common';
-  if (!Directory('$commonDir/gitbutler').existsSync()) return false;
+  if (!rawDirectory('$commonDir/gitbutler').existsSync()) return false;
   final t = await ctx.git(code, [
     'config',
     '--get',

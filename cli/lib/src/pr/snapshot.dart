@@ -110,7 +110,7 @@ class _Snapshot {
   /// same bytes, so the digest is the same; it is removed with the material file. A file that cannot be read keeps its
   /// own path, and the check reports it.
   Future<String> utf8Named(String path) async {
-    if (!path.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff)) return path;
+    if (!hasEscapedBytes(path)) return path;
     final List<int> bytes;
     try {
       bytes = rawFile(path).readAsBytesSync();

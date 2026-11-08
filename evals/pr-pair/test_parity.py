@@ -715,6 +715,12 @@ class PairParity(PrParity):
             with self.subTest(settings=settings):
                 self.run_pair("tier", "--code", self.repo(f"t{i}", settings=settings), code=0)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a directory name that is not UTF-8 needs Linux")
+    def test_checkout_under_a_non_utf8_directory_reads_its_settings(self):
+        code = self.repo(os.fsdecode(b"co-\xff"), settings="vcs: jj\nfinish: pr\ngithub:\n  login: me\n")
+        self.assertEqual(self.run_pair("vcs", "--code", code, code=0)["code"], "jj")
+        self.run_pair("tier", "--code", code, code=0)
+
     def test_vcs_and_tier_usage_exit_2(self):
         for sub in ("vcs", "tier"):
             self.run_pair(sub, code=2)
