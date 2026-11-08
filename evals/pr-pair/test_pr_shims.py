@@ -16,7 +16,7 @@ import time
 import unittest
 
 import snapfix
-from snapfix import REPLY, ROOT, SNAPSHOT, SnapCase, fixtures
+from snapfix import REPLY, ROOT, SNAPSHOT, T0, SnapCase, fixtures, rev
 import bashexe  # noqa: E402
 
 STOP = "sw missing or mismatched: rerun the install prompt"
@@ -97,7 +97,28 @@ class TestWithoutSw(ShimCase):
         self.assertEqual(self.gh_calls(), [], "sw did not run")
 
 
+def command_lines():
+    """The command line of every running process, one per entry."""
+    if os.name == "nt":
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Get-CimInstance Win32_Process | ForEach-Object { $_.CommandLine }"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+    else:
+        r = subprocess.run(["ps", "-A", "-o", "args="], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.splitlines()
+
+
 class TestReviewerConfig(ShimCase):
+    def python_log(self):
+        """Put a python3 and python on PATH that log their arguments and run the real one; returns the log's path."""
+        log = self.tmp / "python-log.txt"
+        for name in ("python3", "python"):
+            wrapper = self.tmp / "bin" / name
+            wrapper.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{fixtures.posix(log)}"\nexec "{fixtures.posix(sys.executable)}" "$@"\n',
+                               encoding="utf-8", newline="\n")
+            wrapper.chmod(0o755)
+        return log
+
     def test_bad_reviewer_config_exits_2_before_gh(self):
         cfg = self.tmp / "bad.json"
         cfg.write_text("{not json", encoding="utf-8", newline="\n")
@@ -105,8 +126,48 @@ class TestReviewerConfig(ShimCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertEqual(r.stdout, "")
         self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+        self.assertTrue(r.stderr.startswith("reviewers.py: "), r.stderr)
         self.assertIn("bad.json", r.stderr)
+        self.assertIn("not valid JSON", r.stderr)
         self.assertEqual(self.gh_calls(), [], "no gh call ran")
+
+    def test_snapshot_evaluates_reviewers_in_sw(self):
+        """The evaluator is `sw pr reviewers`: the states come out right and no python process ran reviewers.py."""
+        log = self.python_log()
+        self.add_activity("a" * 40, T0)
+        self.advance(30)
+        self.add_comment("genrev", "looks good to me")
+        snap = self.snapshot(*self.cfg(rev("genrev"), rev("silent", role="advisory", timeout=3600)))
+        self.assertEqual({x["login"]: x["state"] for x in snap["reviewers"]}, {"genrev": "reported", "silent": "waiting"})
+        self.assertRegex(snap["reviewer_config"], "^[0-9a-f]{64}$")
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+        self.assertIn("sys.version_info", calls, "the wrapper was on the path (the version check ran python)")
+        self.assertNotIn("reviewers.py", calls, "no python process evaluated the reviewers")
+
+    def test_backtracking_pattern_stops_at_the_deadline(self):
+        """ADR 0022: a user pattern runs inside the poll's deadline. `(a+)+$` over a long run of a's and a b never ends in a
+        backtracking engine; the limit line names reviewers.py, the poll fails, nothing is left running or on disk."""
+        scratch = self.tmp / "scratch"
+        scratch.mkdir()
+        self.add_activity("a" * 40, T0)
+        self.advance(30)
+        self.add_comment("genrev", "a" * 64 + "b")
+        args = self.cfg(rev("genrev", ignore="(a+)+$"))
+        started = time.time()
+        r = self.snapshot_run(*args, env={"SPECWRIGHT_NET_DEADLINE": "10", "TMPDIR": fixtures.posix(scratch)})
+        took = time.time() - started
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(r.stdout.strip(), "")
+        self.assertIn("bounded: deadline_exceeded: reviewers.py", r.stderr)
+        self.assertLess(took, 60, "the evaluation was cut at the deadline")
+        self.assertEqual(list(scratch.iterdir()), [], "the material file is gone")
+        end = time.time() + 10
+        while True:  # the killed evaluator may take a moment to leave the process table
+            left = [c for c in command_lines() if "reviewers" in c and str(self.tmp.name) in c]
+            if not left or time.time() > end:
+                break
+            time.sleep(0.5)
+        self.assertEqual(left, [], "no evaluator process is left")
 
 
 class TestQueryTextArrivesWhole(ShimCase):
@@ -231,7 +292,7 @@ class TestHomeStateBaseOnWindows(ShimCase):
         first = self.claims()
         self.assertEqual(len(first), 1, first)
         self.assertTrue(first[0].startswith("1-"), first)
-        old = self.start(ORACLE / "pr-snapshot.sh", ORACLE_SW_DIR=fixtures.posix(snapfix.SCRIPTS))
+        old = self.start(ORACLE / "pr-snapshot.sh", ORACLE_SW_DIR=snapfix.oracle_sw_dir())
         _, err_new = new.communicate(timeout=90)
         self.assertEqual(new.returncode, 4, err_new)  # the old watcher saw the claim and took a higher one
         self.assertIn("took over", err_new)

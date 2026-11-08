@@ -1,6 +1,8 @@
-"""Tests for skills/specwright-pr/scripts/reviewers.py, the reviewer-detection evaluator behind pr-snapshot.sh.
+"""Tests for `sw pr reviewers`, the reviewer-detection evaluator behind pr-snapshot.sh (the port of reviewers.py,
+native-cli-pr-pair D5).
 
-Material and config fixtures go in (written to a tempdir per test); a compact snapshot comes out.
+Material and config fixtures go in (written to a tempdir per test); a compact snapshot comes out. The evaluator is the `sw`
+named by SPECWRIGHT_SW; without it the tests skip as `sw not built` (CI sets SPECWRIGHT_REQUIRE_SW=1).
 
 Run: python -m unittest evals/pr-pair/test_reviewers.py
 """
@@ -8,6 +10,7 @@ import base64
 import calendar
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -17,7 +20,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-SCRIPT = ROOT / "skills" / "specwright-pr" / "scripts" / "reviewers.py"
+sys.path.insert(0, str(ROOT / "evals" / "cli"))
+import swharness  # noqa: E402
+
+PREFIX = "reviewers.py: "
 
 HEAD = "1a2b3c4d" + "e" * 32
 PREV = "a" * 40
@@ -37,7 +43,7 @@ def reviewer(login, role="required", timeout=1200, report=None):
 
 
 def config(*reviewers):
-    return {"format": 1, "reviewers": list(reviewers)}
+    return {"format": 2, "reviewers": list(reviewers)}
 
 
 def item(kind, body="", created=None, edited=None, state=None, commit=None, id="1"):
@@ -87,8 +93,8 @@ class Base(unittest.TestCase):
         return p
 
     def run_py(self, *args):
-        return subprocess.run([sys.executable, "-I", str(SCRIPT), *map(str, args)], capture_output=True, text=True,
-                              encoding="utf-8", timeout=60)
+        return subprocess.run([swharness.require_sw(), "pr", "reviewers", *map(str, args)], capture_output=True, text=True,
+                              encoding="utf-8", timeout=60, cwd=self.tmp, env=swharness.fixture_env())
 
     def snap(self, cfg, mat, head=None, raw=False):
         args = []
@@ -112,12 +118,14 @@ class Base(unittest.TestCase):
         r = self.run_py("--check-config", self.write("bad.json", cfg))
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertEqual(r.stdout, "")
+        self.assertRegex(r.stderr, r"^reviewers\.py: [^\n]*\n$","one stderr line with the prefix")
         for n in needles:
             self.assertIn(n, r.stderr)
         # the evaluate mode refuses the same config the same way
         r2 = self.run_py("--config", self.tmp / "bad.json", "--material", self.write("m.json", material()), "--head", HEAD)
         self.assertEqual(r2.returncode, 2, r2.stderr)
         self.assertEqual(r2.stdout, "")
+        self.assertTrue(r2.stderr.startswith(PREFIX), r2.stderr)
 
 
 class GenericRules(Base):
@@ -388,10 +396,38 @@ class Output(Base):
 
 class ConfigValidation(Base):
     def test_config_wrong_format(self):
-        self.bad_config({"format": 2, "reviewers": []}, "format")
+        """Format 1 (an old pr-pair.sh's config, decided under the Python dialect) is refused (D10)."""
+        self.bad_config({"format": 1, "reviewers": []}, "format must be 2")
+        self.bad_config({"format": True, "reviewers": []}, "format must be 2")
+
+    def test_repo_sha_pattern_under_the_js_dialect(self):
+        """This repository's own sha_pattern (openspec/specwright.yaml) compiles and decides in the JavaScript dialect."""
+        text = (ROOT / "openspec" / "specwright.yaml").read_text(encoding="utf-8")
+        m = re.search(r"^\s*sha_pattern:\s*'([^'\n]*Reviewed commit[^'\n]*)'\s*$", text, re.M)
+        self.assertIsNotNone(m, "the repo's sha_pattern line")
+        pattern = m.group(1)
+        self.assertEqual(pattern, r"Reviewed commit:\*\* `([0-9a-f]{7,40})`")
+        rev = reviewer("rev-bot", report={"sha_pattern": pattern})
+        ok = self.write("ok.json", config(rev))
+        self.assertEqual(self.run_py("--check-config", ok).returncode, 0)
+        r = self.one(rev, [comment("**Reviewed commit:** `1a2b3c4d`", created=iso(5))])
+        self.assertEqual((r["state"], r["by"]), ("reported", "sha_pattern"))
+        r = self.one(rev, [comment("**Reviewed commit:** `" + PREV[:12] + "`", created=iso(5))])
+        self.assertEqual((r["state"], r["by"]), ("waiting", None))
+
+    def test_python_only_syntax_is_refused(self):
+        """Python-only regex syntax is refused as the JS dialect refuses it, naming the reviewer and the key (ADR 0030)."""
+        cases = [("sha_pattern", "(?P<sha>[0-9a-f]{7,40})"), ("sha_pattern", r"\A([0-9a-f]{7,40})"),
+                 ("sha_pattern", r"([0-9a-f]{7,40})\Z"), ("sha_pattern", "(?i)([0-9a-f]{7,40})"),
+                 ("sha_pattern", "([0-9a-f]{,3})"), ("ignore", "(?P<x>a)"), ("ignore", r"\Afoo"),
+                 ("ignore", r"foo\Z"), ("ignore", "(?i)foo"), ("ignore", "a{,3}")]
+        for key, pattern in cases:
+            with self.subTest(key=key, pattern=pattern):
+                self.bad_config(config(reviewer("rev-bot", report={key: pattern})), "rev-bot", "report." + key,
+                                "does not compile")
 
     def test_config_unknown_top_key(self):
-        self.bad_config({"format": 1, "reviewers": [], "extra": 1}, "extra")
+        self.bad_config({"format": 2, "reviewers": [], "extra": 1}, "extra")
 
     def test_config_unknown_reviewer_key(self):
         self.bad_config(config({"login": "rev-bot", "role": "required", "timeout": 1, "checks": "x"}), "rev-bot", "checks")
@@ -435,12 +471,14 @@ class ConfigValidation(Base):
         r = self.run_py("--check-config", self.tmp / "nope.json")
         self.assertEqual(r.returncode, 2)
         self.assertEqual(r.stdout, "")
+        self.assertTrue(r.stderr.startswith(PREFIX), r.stderr)
         self.assertIn("nope.json", r.stderr)
 
     def test_config_not_json(self):
         r = self.run_py("--check-config", self.write("x.json", "not json"))
         self.assertEqual(r.returncode, 2)
         self.assertEqual(r.stdout, "")
+        self.assertTrue(r.stderr.startswith(PREFIX), r.stderr)
         self.assertIn("x.json", r.stderr)
 
     def test_usage_error_exit_2(self):

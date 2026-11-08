@@ -28,7 +28,7 @@ typedef PrGh = Future<GhResult> Function(
 /// One external tool run through bash (`mktemp`, `ln`, `sleep`, `date`, `python3`).
 typedef PrTool = Future<ToolResult> Function(List<String> command);
 
-/// One bounded run of a command that is not `gh` (`reviewers.py`).
+/// One bounded run of a command that is not `gh` (`sw pr reviewers`).
 typedef PrBounded = Future<GhResult> Function(
   List<String> command, {
   Map<String, String>? environment,
@@ -126,7 +126,7 @@ class PrContext {
     helperCommand: helperCommand,
   );
 
-  /// A command that is not `gh` (`reviewers.py`), bounded the same way.
+  /// A command that is not `gh` (`sw pr reviewers`), bounded the same way.
   Future<GhResult> bounded(
     List<String> command, {
     Map<String, String>? environment,

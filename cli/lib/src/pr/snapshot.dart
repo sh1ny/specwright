@@ -22,7 +22,7 @@ final RegExp _pushPattern = RegExp(
 /// calls are the Dart functions of `text.dart`.
 ///
 /// Constraint C5: `mktemp`, `ln` and `sleep` run as external commands through bash, because the evals fake them on
-/// `PATH`; the evaluator's material file comes from `mktemp` too, and `reviewers.py` runs through the bounded helper with
+/// `PATH`; the evaluator's material file comes from `mktemp` too, and `sw pr reviewers` runs through the bounded helper with
 /// its limit named as the script named it. `native-cli-retire-scripts` replaces them together with those hooks. The poll's
 /// deadline needs no `date`: the script's `date +%s` fallback covered a bounded helper that printed nothing usable.
 ///
@@ -56,7 +56,6 @@ class _Snapshot {
 
   final PrContext ctx;
   String py = '';
-  String reviewers = '';
   String pr = '';
   String repo = '';
   String full = '';
@@ -114,7 +113,6 @@ class _Snapshot {
       );
     }
     py = python;
-    reviewers = '${await ctx.native(ctx.scriptsDir)}/reviewers.py';
 
     for (var i = 0; i < argv.length;) {
       final arg = argv[i];
@@ -184,9 +182,9 @@ class _Snapshot {
     if (rcfgSet) {
       rcfgArg = await ctx.native(rcfg);
       final check = await ctx.tool([
-        py,
-        '-I',
-        reviewers,
+        Platform.resolvedExecutable,
+        'pr',
+        'reviewers',
         '--check-config',
         rcfgArg,
       ]);
@@ -427,9 +425,13 @@ class _Snapshot {
     prJq(cfg, rtimes),
   ]);
 
-  /// The finished snapshot of the material [out]: `reviewers.py` decides the reviewers and appends their states to sig and
-  /// attn. It runs under the same deadline and byte bound as gh; a limit or any other failure fails the poll. The material
-  /// goes through the temp file, never through an argument.
+  /// The finished snapshot of the material [out]: `sw pr reviewers` decides the reviewers and appends their states to sig
+  /// and attn. It runs as a child of this process under the same deadline and byte bound as gh; a limit or any other
+  /// failure fails the poll. The material goes through the temp file, never through an argument.
+  ///
+  /// Invariant C1: `sw pr snapshot` must run every user report pattern under the poll's deadline, never in its own
+  /// process without a bound. A Dart regex cannot be interrupted, so a backtracking pattern would hang the watch
+  /// (ADR 0022); the child is killed at the deadline instead.
   Future<_Result> evaluate(String out) async {
     try {
       rawFile(matFile!).writeAsBytesSync(encodeEscaped('$out\n'));
@@ -437,9 +439,9 @@ class _Snapshot {
       return _Result(1);
     }
     final r = await ctx.bounded([
-      py,
-      '-I',
-      reviewers,
+      Platform.resolvedExecutable,
+      'pr',
+      'reviewers',
       if (rcfgArg.isNotEmpty) ...['--config', rcfgArg],
       '--material',
       matFile!,
@@ -447,7 +449,7 @@ class _Snapshot {
       headOidOf(out),
     ], environment: pollEnv);
     if (r.limit != null) {
-      // the script named reviewers.py in the limit line, not python
+      // the limit line names reviewers.py, as it did when the evaluator was that script, not sw
       ctx.err(
         limitLine(r.limit!, [
           'bash',

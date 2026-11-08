@@ -625,7 +625,7 @@ class _Planner {
       if (!await has(t, ad)) {
         throw VcsStop(
           'no_archive',
-          'The archive commit(s) ${adds.map((x) => _prefixOf(x, 9)).join(', ')} '
+          'The archive commit(s) ${adds.map((x) => prefixOf(x, 9)).join(', ')} '
               'of $change were reverted: $ad is not on $branch',
           extra: {'commits': adds},
         );
@@ -1249,8 +1249,8 @@ String _dirname(String path) {
 /// counts as one and a pair as one.
 String _dropPoints(String s, int n) => String.fromCharCodes(s.runes.skip(n));
 
-/// `s[:n]` in Python.
-String _prefixOf(String s, int n) => String.fromCharCodes(s.runes.take(n));
+/// `s[:n]` in Python: by code point, never half a surrogate pair (`sw pr reviewers` cuts its excerpts with it).
+String prefixOf(String s, int n) => String.fromCharCodes(s.runes.take(n));
 
 /// Python's `str.split()`: runs of whitespace separate the pieces.
 List<String> _pySplit(String s) {

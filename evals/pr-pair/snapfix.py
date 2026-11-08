@@ -6,6 +6,7 @@ add threads, comments, reviews and edits at a fake-clock time and advance the cl
 The fake hands the shipped --jq filters to an external evaluator: gojq when it is on PATH (what gh itself embeds), else jq.
 JQ_NAME says which one; `banner()` prints it, so a test run shows what evaluated the filters. A test needing neither is skipped.
 """
+import atexit
 import json
 import os
 import shutil
@@ -28,6 +29,32 @@ import vcs_test_support  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "evals" / "fakes"))
 import gh as fake_gh  # noqa: E402
+
+ORACLE = HERE / "oracle"
+_ORACLE_DIR = None
+
+
+def oracle_sw_dir():
+    """ORACLE_SW_DIR for the frozen scripts, made once per process: a temp directory with the tree's bounded.py, as.sh and
+    sw-path.sh and the oracle's reviewers.py (never the tree's, which native-cli-pr-pair D8 deleted)."""
+    global _ORACLE_DIR
+    if _ORACLE_DIR is None:
+        _ORACLE_DIR = Path(tempfile.mkdtemp(prefix="oracle-sw-"))
+        for name in ("bounded.py", "as.sh", "sw-path.sh"):
+            shutil.copyfile(SCRIPTS / name, _ORACLE_DIR / name)
+        shutil.copyfile(ORACLE / "reviewers.py", _ORACLE_DIR / "reviewers.py")
+    return fixtures.posix(_ORACLE_DIR)
+
+
+def forget_oracle_sw_dir():
+    """Delete the directory oracle_sw_dir made (the process exit does the same)."""
+    global _ORACLE_DIR
+    if _ORACLE_DIR is not None:
+        shutil.rmtree(_ORACLE_DIR, ignore_errors=True)
+        _ORACLE_DIR = None
+
+
+atexit.register(forget_oracle_sw_dir)
 
 JQ = shutil.which("gojq") or shutil.which("jq")
 JQ_NAME = Path(JQ).stem if JQ else None
@@ -124,9 +151,9 @@ class SnapCase(unittest.TestCase):
         self.mutate(lambda st: st["repos"][self.SLUG].setdefault("activity", []).append(
             {"ref": ref, "after": oid, "timestamp": timestamp}))
 
-    def write_config(self, *reviewers, name="reviewers.json", where=None):
-        """Write a reviewer config as pr-pair.sh does (canonical JSON, logins sorted) and return its path for bash."""
-        doc = {"format": 1, "reviewers": sorted(reviewers, key=lambda r: r["login"])}
+    def write_config(self, *reviewers, name="reviewers.json", where=None, fmt=2):
+        """Write a reviewer config as pr-pair.sh does (format 2, canonical JSON, logins sorted) and return its path for bash."""
+        doc = {"format": fmt, "reviewers": sorted(reviewers, key=lambda r: r["login"])}
         path = Path(where or self.tmp) / name
         path.write_text(json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False), encoding="utf-8", newline="\n")
         return fixtures.posix(path)

@@ -11,6 +11,7 @@ Each script runs from a stamped directory with SPECWRIGHT_HOME set, so the shims
 
 Run: python -m unittest evals/pr-pair/test_parity.py
 """
+import hashlib
 import json
 import os
 import re
@@ -40,19 +41,7 @@ import vcs_test_support  # noqa: E402
 SECRET = tas.SECRET
 
 
-_ORACLE_DIR = None
-
-
-def oracle_sw_dir():
-    """ORACLE_SW_DIR for the frozen scripts, made once per process: a temp directory with the tree's bounded.py, as.sh and
-    sw-path.sh and the oracle's reviewers.py (never the tree's, which a later task deletes)."""
-    global _ORACLE_DIR
-    if _ORACLE_DIR is None:
-        _ORACLE_DIR = Path(tempfile.mkdtemp(prefix="oracle-sw-"))
-        for name in ("bounded.py", "as.sh", "sw-path.sh"):
-            shutil.copyfile(SCRIPTS / name, _ORACLE_DIR / name)
-        shutil.copyfile(ORACLE / "reviewers.py", _ORACLE_DIR / "reviewers.py")
-    return fixtures.posix(_ORACLE_DIR)
+oracle_sw_dir = snapfix.oracle_sw_dir  # shared with test_pr_shims.py
 
 
 def setUpModule():
@@ -60,8 +49,7 @@ def setUpModule():
 
 
 def tearDownModule():
-    if _ORACLE_DIR is not None:
-        shutil.rmtree(_ORACLE_DIR, ignore_errors=True)
+    snapfix.forget_oracle_sw_dir()
 
 
 def run_script(script, args, env, cwd, stdin=None):
@@ -91,10 +79,18 @@ def said(stderr):
 
 
 class ParityAsserts:
-    def assertParity(self, pair, code=None):
+    def assertParity(self, pair, code=None, prefix=None):
+        """With `prefix`, stderr is free text after that fixed prefix (design D11): each side prints the same number of lines,
+        all starting with it; line endings are Python's text-mode ones on one side and are not compared."""
         new, old = pair
         self.assertEqual(new["stdout"], old["stdout"], "stdout bytes differ between the script and the oracle")
-        self.assertEqual(said(new["stderr"]), said(old["stderr"]), "stderr bytes differ between the script and the oracle")
+        if prefix is None:
+            self.assertEqual(said(new["stderr"]), said(old["stderr"]), "stderr bytes differ between the script and the oracle")
+        else:
+            lines = [side["stderr"].decode("utf-8", "replace").splitlines() for side in (new, old)]
+            self.assertEqual(len(lines[0]), len(lines[1]), lines)
+            for line in lines[0] + lines[1]:
+                self.assertTrue(line.startswith(prefix), line)
         self.assertEqual(new["code"], old["code"], "exit codes differ between the script and the oracle")
         self.assertEqual(new["calls"], old["calls"], "the gh calls differ between the script and the oracle")
         self.assertEqual(new["state"], old["state"], "the fake gh state differs after the run")
@@ -119,18 +115,43 @@ class PrParity(SnapCase, ParityAsserts):
         return {"code": code, "stdout": out, "stderr": err,
                 "calls": calls_of(self.gh_log, lambda c: temp_names(c["argv"])), "state": self.gh_state.read_bytes()}
 
-    def pair(self, script, *args, login="me", env=None):
-        """(the tree's script, the oracle) on the same fake-gh state: the state is put back before the second run."""
+    def pair(self, script, *args, login="me", env=None, old_args=None):
+        """(the tree's script, the oracle) on the same fake-gh state: the state is put back before the second run.
+        `old_args` are the oracle's arguments when they differ from the script's (a format 1 reviewer config)."""
         before = self.gh_state.read_bytes()
         calls_of(self.gh_log, lambda c: c)
         new = self.one(script, args, "new", login, env)
         self.gh_state.write_bytes(before)
-        old = self.one(script, args, "old", login, env)
+        old = self.one(script, args if old_args is None else old_args, "old", login, env)
         self.gh_state.write_bytes(before)
         return new, old
 
     def snapshot_pair(self, *args, **kw):
         return self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, *args, **kw)
+
+    def config_pair(self, *reviewers, name="reviewers.json"):
+        """The same reviewer rules as a format 2 file for the script and a format 1 file for the oracle (design D8): returns
+        (script's path, oracle's path), same file name in two directories."""
+        paths = []
+        for fmt in (2, 1):
+            d = self.tmp / f"cfg-format{fmt}"
+            d.mkdir(exist_ok=True)
+            paths.append(self.write_config(*reviewers, name=name, where=d, fmt=fmt))
+        return tuple(paths)
+
+    def reviewer_snapshot_pair(self, new_cfg, old_cfg):
+        """A snapshot of both sides over their own config. Each side's `reviewer_config` must be the SHA-256 of its own bytes;
+        the digests differ by design (format 2 vs 1), so they are masked, and everything else is compared exactly."""
+        new, old = self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, "--reviewer-config", new_cfg,
+                             old_args=(self.PR, "--repo", self.SLUG, "--reviewer-config", old_cfg))
+        if new["code"] == 0 and old["code"] == 0:
+            for side, path in ((new, new_cfg), (old, old_cfg)):
+                digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                doc = json.loads(side["stdout"])
+                self.assertEqual(doc["reviewer_config"], digest)
+                side["stdout"] = side["stdout"].replace(digest.encode(), b"DIGEST")
+            self.assertNotEqual(hashlib.sha256(Path(new_cfg).read_bytes()).digest(), hashlib.sha256(Path(old_cfg).read_bytes()).digest())
+        return new, old
 
     def body(self, text="done"):
         f = self.tmp / "body.md"
@@ -227,8 +248,8 @@ class SnapshotParity(PrParity):
         self.advance(30)
         self.add_comment("genrev", "looks good to me")
         self.add_comment("slowbot", "working on it")
-        cfg = self.cfg(rev("genrev"), rev("slowbot", timeout=60), rev("silent", role="advisory", timeout=20))
-        new, old = self.snapshot_pair(*cfg)
+        new_cfg, old_cfg = self.config_pair(rev("genrev"), rev("slowbot", timeout=60), rev("silent", role="advisory", timeout=20))
+        new, old = self.reviewer_snapshot_pair(new_cfg, old_cfg)
         self.assertParity((new, old), 0)
         self.assertEqual(len(json.loads(old["stdout"])["reviewers"]), 3, "the evaluator really ran")
 
@@ -238,22 +259,22 @@ class SnapshotParity(PrParity):
         for path in (fixtures.posix(bad), fixtures.posix(self.tmp / "missing.json")):
             with self.subTest(path=path):
                 new, old = self.snapshot_pair("--reviewer-config", path)
-                self.assertParity((new, old), 2)
+                self.assertParity((new, old), 2, prefix="reviewers.py: ")
                 self.assertEqual(old["calls"], [], "no gh call before the config check")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs Linux")
     def test_config_name_with_a_non_utf8_byte_for_the_check_and_the_evaluation(self):
         name = os.fsdecode(b"reviewers-\xff.json")
-        good = self.write_config(rev("genrev"), name=name)
+        good, good_old = self.config_pair(rev("genrev"), name=name)
         self.add_activity("a" * 40, T0)
         self.add_comment("genrev", "looks good")
-        new, old = self.snapshot_pair("--reviewer-config", good)  # the evaluation
+        new, old = self.reviewer_snapshot_pair(good, good_old)  # the evaluation
         self.assertParity((new, old), 0)
         self.assertEqual(json.loads(old["stdout"])["reviewers"][0]["login"], "genrev")
         bad = self.tmp / os.fsdecode(b"bad-\xff.json")
         bad.write_text("{not json", encoding="utf-8")
         new, old = self.snapshot_pair("--reviewer-config", fixtures.posix(bad))  # the check
-        self.assertParity((new, old), 2)
+        self.assertParity((new, old), 2, prefix="reviewers.py: ")
         # reviewers.py opened the file by its bytes (a lost byte would be "No such file"); Python's stderr writes the name
         # with backslashreplace, so the byte shows as \udcff in both
         self.assertIn(b"not valid JSON", new["stderr"], "the check opened the file by its bytes")

@@ -272,9 +272,9 @@ void main() {
         expect(f.stderr, 'cfg.json: bad\n');
         expect(f.ghCalls, isEmpty);
         expect(f.toolCalls.last, [
-          'python3',
-          '-I',
-          'scripts/reviewers.py',
+          Platform.resolvedExecutable,
+          'pr',
+          'reviewers',
           '--check-config',
           'cfg.json',
         ]);
@@ -364,9 +364,9 @@ void main() {
         expect(
           [...call.take(4), ...call.skip(5)],
           [
-            'python3',
-            '-I',
-            'scripts/reviewers.py',
+            Platform.resolvedExecutable,
+            'pr',
+            'reviewers',
             '--material',
             '--head',
             oid,
@@ -383,7 +383,7 @@ void main() {
       expect(f.leftovers, isEmpty);
     });
 
-    test('a limit on the evaluator names reviewers.py, not python', () async {
+    test('a limit on the evaluator names reviewers.py, not sw', () async {
       f.onBounded = (_) => answer(
         '',
         exit: 124,
