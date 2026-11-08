@@ -16,11 +16,12 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 
 **Changes** (in order; each about one PR):
 1. `native-cli-pr-io` - port `as.sh`, `pr-reply.sh` and `pr-snapshot.sh` to `sw`, with the fenced identity and the exact reply bytes intact; carries #202.
-2. `native-cli-pr-pair` - port `pr-pair.sh` and `reviewers.py` (discovery, context, merge, cleanup, policy and reviewer receipts).
-3. `native-cli-review` - port `review-run.sh`: reviewer routes, selection, isolation and result validation.
-4. `native-cli-release` - port `release.sh`: bump, check, notes, untagged and publish; carries #211.
-5. `native-cli-update` - port `scripts/update.sh` and complete the bootstrap, so an install needs only `sw`.
-6. `native-cli-retire-scripts` - switch the skills to call `sw` directly, then remove the shims, the `bounded.py` copies and the Python and bash prerequisites once parity is proven.
+2. `native-cli-pr-pair` - port the settings and policy side of `pr-pair.sh` (`identity`, `vcs`, `tier`, `context` and `policy`, with the strict settings reader they share) and `reviewers.py`.
+3. `native-cli-pr-pair-flow` - port the 14 `pr-pair.sh` subcommands left in Python: `discover`, `expected`, `ensure-pr`, `closing-check`, `closed-check`, `link`, `pair-state`, `rounds`, `pass`, `cleanup-plan`, `branch-check`, `merge`, `delete-remote` and `item-issues`.
+4. `native-cli-review` - port `review-run.sh`: reviewer routes, selection, isolation and result validation.
+5. `native-cli-release` - port `release.sh`: bump, check, notes, untagged and publish; carries #211.
+6. `native-cli-update` - port `scripts/update.sh` and complete the bootstrap, so an install needs only `sw`.
+7. `native-cli-retire-scripts` - switch the skills to call `sw` directly, then remove the shims, the `bounded.py` copies and the Python and bash prerequisites once parity is proven.
 
 ## Next: M9 - Adoption and configuration
 
