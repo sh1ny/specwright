@@ -104,6 +104,7 @@ class Base(unittest.TestCase):
                                  encoding="utf-8")
         self.state_dir = self.tmp / "state"
         self.extra_env = {}
+        vcs_test_support.stamp_version(self.tmp)  # the shim's project is the current directory when --code names none
 
     # ---- environment -------------------------------------------------------------------------------------
     def env(self):

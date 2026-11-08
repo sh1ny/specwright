@@ -3,8 +3,9 @@
 stdout bytes and stderr bytes, exit with the same code, leave the same fake-gh state and make the same gh calls.
 
 Before the port the tree's scripts are the oracle's twins, so this passes; after it, it proves the `sw` behind the shims.
-The oracle is test-only and ships nowhere; ORACLE_SW_DIR points its helpers (bounded.py, reviewers.py) at the tree's scripts
-directory. native-cli-retire-scripts deletes it together with the shims.
+The oracle is test-only and ships nowhere; ORACLE_SW_DIR points its helpers at a temp directory that holds
+the tree's bounded.py, as.sh and sw-path.sh and the oracle's own reviewers.py, so the frozen pr-snapshot.sh keeps the old
+evaluator after reviewers.py leaves the tree (native-cli-pr-pair D8). native-cli-retire-scripts deletes it with the shims.
 
 Each script runs from a stamped directory with SPECWRIGHT_HOME set, so the shims find the CI-built `sw`.
 
@@ -13,9 +14,11 @@ Run: python -m unittest evals/pr-pair/test_parity.py
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -37,8 +40,28 @@ import vcs_test_support  # noqa: E402
 SECRET = tas.SECRET
 
 
+_ORACLE_DIR = None
+
+
+def oracle_sw_dir():
+    """ORACLE_SW_DIR for the frozen scripts, made once per process: a temp directory with the tree's bounded.py, as.sh and
+    sw-path.sh and the oracle's reviewers.py (never the tree's, which a later task deletes)."""
+    global _ORACLE_DIR
+    if _ORACLE_DIR is None:
+        _ORACLE_DIR = Path(tempfile.mkdtemp(prefix="oracle-sw-"))
+        for name in ("bounded.py", "as.sh", "sw-path.sh"):
+            shutil.copyfile(SCRIPTS / name, _ORACLE_DIR / name)
+        shutil.copyfile(ORACLE / "reviewers.py", _ORACLE_DIR / "reviewers.py")
+    return fixtures.posix(_ORACLE_DIR)
+
+
 def setUpModule():
     snapfix.banner()
+
+
+def tearDownModule():
+    if _ORACLE_DIR is not None:
+        shutil.rmtree(_ORACLE_DIR, ignore_errors=True)
 
 
 def run_script(script, args, env, cwd, stdin=None):
@@ -90,7 +113,7 @@ class PrParity(SnapCase, ParityAsserts):
     def one(self, script, args, which, login, env, stdin=None):
         extra = {"SPECWRIGHT_HOME": str(self.home), "SPECWRIGHT_STATE_DIR": str(self.tmp / f"state-{which}"), **(env or {})}
         if which == "old":
-            extra["ORACLE_SW_DIR"] = fixtures.posix(SCRIPTS)
+            extra["ORACLE_SW_DIR"] = oracle_sw_dir()
         e = self.env(login, **extra)
         code, out, err = run_script((ORACLE if which == "old" else SCRIPTS) / script, args, e, self.tmp, stdin)
         return {"code": code, "stdout": out, "stderr": err,
@@ -321,7 +344,7 @@ class WatcherTakeover(PrParity):
     def start(self, which, timeout):
         script = (ORACLE if which == "old" else SCRIPTS) / "pr-snapshot.sh"
         env = self.env(SPECWRIGHT_HOME=str(self.home), SPECWRIGHT_STATE_DIR=str(self.state_dir),
-                       **({"ORACLE_SW_DIR": fixtures.posix(SCRIPTS)} if which == "old" else {}))
+                       **({"ORACLE_SW_DIR": oracle_sw_dir()} if which == "old" else {}))
         p = subprocess.Popen([bashexe.bash(), str(script), str(self.PR), "--repo", self.SLUG, "--wait", "--interval", "1",
                               "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                              encoding="utf-8", env=env, cwd=self.tmp)
@@ -367,7 +390,7 @@ class AsParity(tas.AsShCase, ParityAsserts):
             e = self.env()
             e.update({"SPECWRIGHT_HOME": str(self.home), **(env or {})})
             if which == "old":
-                e["ORACLE_SW_DIR"] = fixtures.posix(SCRIPTS)
+                e["ORACLE_SW_DIR"] = oracle_sw_dir()
             Recorder = tas.Recorder
             Recorder.seen = []
             calls_of(self.tmp / "gh-log.jsonl", lambda c: c)
