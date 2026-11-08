@@ -9,11 +9,11 @@ It advances M8's agent-verified PR-operation parity, direct-call and credential/
 ## What Changes
 
 - Add native implementations of `discover`, `expected`, `ensure-pr`, `closing-check`, `closed-check`, `link`, `pair-state`, `rounds`, `pass`, `cleanup-plan`, `branch-check`, `merge`, `delete-remote` and `item-issues`. `pass` includes write, plan, done and adopt.
-- Replace `pr-pair.sh`'s remaining embedded Python with an ADR 0028 shim. Keep its path, arguments, JSON fields, error codes, exit statuses and persisted formats. With a matching `sw`, missing or unknown commands still produce the existing usage response. The fourteen newly ported commands now require that matching binary; resolution failure returns `sw_missing`, never a Python fallback.
+- Replace `pr-pair.sh`'s remaining embedded Python with an ADR 0028 shim. Keep its path and arguments. Keep JSON fields, error codes and exit statuses unless S2's documented coordinated producer/consumer change applies, and keep persisted records interoperable. With a matching `sw`, missing or unknown commands still produce the existing usage response. The fourteen newly ported commands now require that matching binary; resolution failure returns `sw_missing`, never a Python fallback.
 - Call existing native settings, fence and VCS operations directly. Preserve the caller's deadline boundaries, target checkout, argument bytes and credential scope. The PR flow's bounded fenced reads share their existing budget through identity checks and execution; VCS state and planning calls retain their current unbounded behavior.
 - Add the optional leading `--project <code-checkout>` prefix to `pr-pair.sh` and `as.sh`. It chooses only the project's exact-version binary; the command still starts in the caller's working directory. Update store callers and printed cleanup commands to pass it explicitly, including through the retained nested VCS fence hop.
 - Keep feedback-record names, version 2 contents, ownership, legacy migration, exclusive publication, locks and recovery behavior. Keep mutation/read-back sequencing, including one merge attempt and guarded branch deletion.
-- Extend the frozen-oracle differential coverage to all fourteen commands, including side effects, records and failures. Preserve assertions except free text after stable prefixes, existing format-2 reviewer-config normalization, the intended matching-binary requirement for formerly unported/invalid calls, and the approved project-selector prefix in printed commands. Check every other command-array argument and working directory exactly.
+- Extend differential and product-workflow coverage to all fourteen commands, including side effects, records and failures. The frozen oracle is evidence of the existing workflow, not a requirement to reproduce incidental Python formatting or parser quirks. Producer and consuming skills may change together when explicit contract tests prove the same workflow outcomes, safety and recovery. Record each such change and its consumer coverage rather than silently removing assertions.
 - Record the direct-call and intentional isolation rule in a new ADR during apply. Retain the reviewed M8 roadmap amendment in this change.
 
 ## Capabilities
@@ -29,7 +29,7 @@ None.
 
 ## Impact
 
-Changes will affect `cli/lib/src/commands/pr.dart`, native PR modules under `cli/lib/src/pr/`, the reusable fence boundary under `cli/lib/src/fence/`, VCS integration, the `pr-pair.sh` and `as.sh` shims, store-caller instructions, relevant PR/VCS evals and native unit tests. Apply will add ADR 0031, update the architecture and bump to 0.30.0. The oracle stays test-only, and no new runtime dependency is planned.
+Changes will affect `cli/lib/src/commands/pr.dart`, native PR modules under `cli/lib/src/pr/`, the reusable fence boundary under `cli/lib/src/fence/`, VCS integration, the `pr-pair.sh` and `as.sh` shims, store-caller instructions, relevant PR/VCS evals and native unit tests. Apply will add ADR 0031, update the architecture and bump to 0.30.0. The oracle stays test-only. The user approved the Dart `html` parser package, subject to licence, build-hook and workflow checks; it compiles into `sw` and adds no separately installed runtime. Other package-adoption decisions require the user's approval.
 
 ## Decision Making
 
@@ -44,13 +44,13 @@ DECISION_MAKING: important
 - **Important:** yes, binds the scope of later M8 changes.
 - **Chosen by:** user, through the approved M8 amendment and request to continue this change.
 
-### S2: Preserve program-readable behavior
+### S2: Preserve the product workflow across coordinated producer and consumer changes
 
-- **Choice:** Keep field names and values, statuses, stored formats and effects exact. Free messages may be reworded after stable prefixes. Retain discovered defects for parity and track them separately unless they prevent parity on a CI platform.
-- **Rejected:** Fix unrelated behavior during the port or reproduce incidental Python exception wording.
+- **Choice:** Preserve overall PR workflow outcomes, identity checks, mutation guards, deadlines, ownership and recovery. We control the scripts/CLI and their consuming skills, so incidental formatting, parser quirks and custom compatibility behavior need not be reproduced byte for byte. Change producers and consumers together with explicit workflow tests when that removes unnecessary custom code. Existing persisted records must remain usable for interrupted-pass recovery. Keep existing interfaces unless a concrete coordinated simplification is documented; this is not permission for unrelated rewrites or unapproved library adoption.
+- **Rejected:** Treat every Python quirk or serialized byte as a product requirement, or change a producer without its consumers and workflow tests.
 - **Reversal cost:** low
 - **Important:** yes, changes the acceptance contract for this migration.
-- **Chosen by:** user, carrying forward the recorded M8 choice "Fields exact, messages free".
+- **Chosen by:** user, superseding the earlier "Fields exact, messages free" choice: "we control both sides - the scripts/cli and the skills" and "the same behavior of the overall product, NOT byte for byte replica".
 
 ### S3: Keep later M8 work separate
 
@@ -70,7 +70,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-0.30.0 moves the remaining fourteen PR workflow commands into `sw`, preserving their JSON, exit codes, feedback records and recovery behavior. The PR workflow calls native settings, fence and VCS operations directly. The script remains a compatibility shim and now requires the matching installed `sw` for every command.
+0.30.0 moves the remaining fourteen PR workflow commands into `sw`, preserving their workflow outcomes, feedback records and recovery behavior. The PR workflow calls native settings, fence and VCS operations directly. The script remains a compatibility shim and now requires the matching installed `sw` for every command.
 
 ### Changed
 

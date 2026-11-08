@@ -7,7 +7,7 @@
 | T1 Components | yes | The remaining dispatch crosses GitHub, records and VCS: `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`, `2634-2676`. |
 | T2 State | yes | Feedback records include heads, marker and owner: `skills/specwright-pr/scripts/pr-pair.sh:2160-2186`. |
 | T3 Concurrency | yes | Exclusive publication and record locks: `skills/specwright-pr/scripts/pr-pair.sh:1930-1955`, `2013-2030`. |
-| T4 Boundaries | yes | Shim handoff and native dispatch: `cli/lib/src/commands/pr.dart:11-24`, `48-75`; merge read-back: `skills/specwright-pr/scripts/pr-pair.sh:2743-2766`. |
+| T4 Boundaries | yes | Shim handoff and native dispatch: `cli/lib/src/commands/pr.dart:12-26`, `54-87`; merge read-back: `skills/specwright-pr/scripts/pr-pair.sh:2743-2766`. |
 | T5 Volume | yes | Paged issue read and marker index: `skills/specwright-pr/scripts/pr-pair.sh:2996-3014`. |
 | T6 Risk | yes | Per-login credentials: `skills/specwright-pr/scripts/pr-pair.sh:357-371`; remote deletion: `2954-2984`. |
 
@@ -15,7 +15,7 @@ TIER: FULL
 
 ## Context
 
-Scope and milestone boundaries are in proposal.md. The five settings/policy commands already dispatch natively in `cli/lib/src/commands/pr.dart:67-74`; the other commands remain in the Python dispatch at `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`.
+Scope and milestone boundaries are in proposal.md. The five settings/policy commands already dispatch natively in `cli/lib/src/commands/pr.dart:76-79`, `86`; the other commands remain in the Python dispatch at `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`.
 
 `PairStop`, argument parsing and the single-JSON error boundary are reusable (`cli/lib/src/pr/pair.dart:9-25`, `44-77`, `81-114`). VCS exposes its handlers, session and state document (`cli/lib/src/commands/vcs.dart:43-56`, `74-100`). The fence exposes injected GitHub, Git and launch callbacks (`cli/lib/src/fence/fence.dart:22-38`) and the credential/remote/launch sequence (`536-577`). These are the integration points; the sole temporary indirect VCS fence exception is D5.
 
@@ -37,7 +37,7 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 
 ### D2: Preserve the feedback storage protocol
 
-- **Choice:** Keep the keys, version 2, owner fields, timestamps, record JSON semantics, LF bytes, exclusive create, atomic replacement and existing legacy migration. Implement private filesystem adapters using POSIX link/mkdir/open-with-O_EXCL/rename and Windows CreateHardLinkW/CreateDirectoryW/CreateFileW-with-CREATE_NEW/MoveFileExW-with-replacement. Distinguish an existing destination from another hard-link failure; only the latter enables exclusive-create fallback. Lock acquisition uses one OS directory-create operation, never Directory.exists followed by Directory.create. Keep write's publication path separate from adopt/done's locked mutations. Reuse the existing codec/JSON helpers where they match the protocol; retain Python ordering and escaping when the stored bytes are observable.
+- **Choice:** Keep the keys, version 2, owner fields, timestamps, record JSON semantics, LF bytes, exclusive create, atomic replacement and existing legacy migration. Implement private filesystem adapters using POSIX link/mkdir/open-with-O_EXCL/rename and Windows CreateHardLinkW/CreateDirectoryW/CreateFileW-with-CREATE_NEW/MoveFileExW-with-replacement. Distinguish an existing destination from another hard-link failure; only the latter enables exclusive-create fallback. Lock acquisition uses one OS directory-create operation, never Directory.exists followed by Directory.create. Keep write's publication path separate from adopt/done's locked mutations. Reuse the existing codec/JSON helpers. JSON key order, indentation and non-ASCII escaping are not part of the protocol: readers parse the record (`skills/specwright-pr/scripts/pr-pair.sh:2037-2043`). Legacy migration compares and moves existing file bytes (`1979`, `1995`), so migration copies them unchanged, but a native writer need not reproduce Python's serialized form.
 - **Rejected:** A new database, record version or lock protocol. They would make an interrupted pass depend on a migration unrelated to the port.
 - **Reversal cost:** low for implementation, high for changing the stored protocol.
 - **Important:** yes, the stored protocol binds future changes; the user already chose preservation in S2. The private OS adapter is an implementation of that choice.
@@ -45,7 +45,7 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 
 ### D3: Cohesive workflow collaborators
 
-- **Choice:** Extend `commands/pr.dart` and keep request-scoped logic in proposed `pr/workflow.dart`, `pr/workflow_transport.dart`, `pr/closing.dart`, `pr/feedback_record.dart` and `pr/feedback_pass.dart`. Keep discovery/creation/linking/state/rounds in workflow code, rendering and closing references in closing code, and record persistence separate from evidence planning. Factor further only when a cohesive tested responsibility needs it. No new package or public settings key is needed.
+- **Choice:** Extend `commands/pr.dart` and keep request-scoped logic in proposed `pr/workflow.dart`, `pr/workflow_transport.dart`, `pr/closing.dart`, `pr/feedback_record.dart` and `pr/feedback_pass.dart`. Keep discovery/creation/linking/state/rounds in workflow code, rendering and closing references in closing code, and record persistence separate from evidence planning. Factor further only when a cohesive tested responsibility needs it. No public settings key is needed. The earlier no-new-package assumption is withdrawn by the user; D6 governs the approved HTML parser dependency.
 - **Rejected:** One translated multi-thousand-line dispatch, or a subprocess adapter per old function. Both retain the old coupling and make byte, ownership and budget tests harder to target.
 - **Reversal cost:** low, internal file layout and private interfaces.
 - **Important:** no, tactical organization without a new public contract.
@@ -67,12 +67,20 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 - **Important:** yes, a deliberate exception to the cross-module rule.
 - **Chosen by:** user, "Keep that existing nested path until the next retrofit; document and test the temporary exception".
 
+### D6: Use the approved HTML parser and test the product contract
+
+- **Choice:** Use the public API of Dart's `html` package to parse rendered descriptions and decode entities. Write only the closing-reference and prose-boundary adapter needed by this workflow, not an HTML tokenizer/parser or copied entity table. Verify the resolved package graph has no build hooks, review licences/notices and SDK/platform support, and use the existing recordings plus focused workflow cases for code exclusion, entities, Unicode and line boundaries. Standard library parsing behavior may replace incidental Python quirks when producers/consumers remain coherent and tests prove the same workflow outcomes. Document any concrete differences with their consumer checks; do not weaken mutation guards, identity, resource bounds or interrupted-pass recovery. A difference that changes a product outcome returns to the user. Other dependency adoptions also return to the user.
+- **Rejected:** Write an HTML parser or entity table solely to reproduce Python internals; choose another package without the user's approval; replace workflow assertions with unchecked normalization.
+- **Reversal cost:** medium, parser dependency and its adapter tests.
+- **Important:** yes, changes the parser technology and the acceptance contract.
+- **Chosen by:** user, "Approve html package, subject to checks" and "the same behavior of the overall product, NOT byte for byte replica".
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
 |---|---|---|---|---|---|---|
 | S1 | Workflow scope | All fourteen commands, four pass operations | Another split | low | yes | user |
-| S2 | Parity | Exact structured values/effects, stable message prefixes | Unrelated fixes; exact Python prose | low | yes | user |
+| S2 | Workflow preservation | Same product outcomes with coordinated producer/consumer changes | Byte replicas; producer-only changes | low | yes | user |
 | S3 | Milestone boundaries | Retrofit, launcher and remaining ports stay separate | Whole migration in this PR | low | yes | user |
 | S4 | Store binary selection | Leading --project; preserve store cwd and nested hop | Store inference; move cwd | medium | yes | user |
 | D1 | Internal integration | Direct calls, explicit target and caller budget | Shims/self-launch; global cwd/env | medium | yes | user |
@@ -80,6 +88,7 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 | D3 | Organization | Cohesive native workflow collaborators | One translation or subprocess per function | low | no | agent |
 | D4 | Shim dispatch/project | Explicit selector, existing handoff and native dispatch | Inference; moved cwd; Python fallback; direct argv now | medium | yes | user |
 | D5 | Nested VCS fence | Retain fetch-main hop; resolved --code selects project for login resolution and fetch | Pull retrofit into this port | low | yes | user |
+| D6 | HTML parsing and acceptance | Approved html package, workflow contracts and consumer checks | Custom HTML parser; unapproved dependencies; unchecked normalization | medium | yes | user |
 
 ## Assumptions
 
@@ -98,6 +107,8 @@ None. The new interfaces and modules above are proposed additions, not claims th
 - **C9:** Non-Git branch-check retains the nested VCS fetch-main fence hop only until native-cli-internal-calls, forwarding the code-project selector while preserving target cwd and login. Kind: deliberate gap. Destination: ADR 0031.
 - **C10:** Explicit binary project selection does not select the target repo or login and never changes cwd; store callers and nested resolver invocations must name it. Kind: invariant. Destination: ADR 0031.
 - **C11:** Network operations run through `sw vcs` on a GitHub-origin store other than D5's branch-check fetch-main, including the `vcs.sh pull` that cleanup-plan prints for a jj store, keep their existing as.sh hop without a project selector, so they still stop with sw_missing from the store until native-cli-internal-calls. Kind: deliberate gap. Destination: ADR 0031.
+- **C12:** Closing prose comes from the `html` package's public parser plus a closing-reference adapter. No HTML tokenizer, parser or entity table is authored to match Python, and each observed parser difference is listed here with its consumer check. Kind: rejected alternative. Destination: doc comment: cli/lib/src/pr/closing.dart renderedLines.
+- **C13:** Each representation difference from the frozen oracle is listed with its producer/consumer contract test, and one that changes a workflow outcome needs the user's decision. Kind: invariant. Destination: doc comment: evals/pr-pair/test_workflow_parity.py WorkflowParity.
 
 ## Diagrams (FULL)
 
@@ -186,7 +197,7 @@ flowchart LR
 | Shim/dispatch | Missing binary, invalid handoff or command | Resolver refusal or native usage | Read-only retry after correction | Agent sees JSON/status |
 | Transport/fence | Limit, wrong identity, unsafe target or failed lookup | Structured stop, no guessed evidence | Reads may repeat; writes follow command-specific read-back | Agent sees existing error and unknown fields |
 | PR create/link | Side effect may precede lost response | Re-discover existing PR/own marker | Preserve original rerun behavior; no blind loop | Agent sees result/failure |
-| Closing parser | Render read fails | Unknown result; no closing proof | Read may repeat | Agent sees exit 3 |
+| Closing parser | Render read fails, or the parser or adapter raises | Render read: unknown result, no closing proof. Parser or adapter error: internal_error, no closing proof | Read may repeat | Agent sees exit 3, or internal_error exit 1; never `match` |
 | Record publisher | Concurrent write or failed publication | Exclusive refusal; cleanup own incomplete fallback/temp file | Retry only after observing record | Agent sees record_exists/internal_error |
 | Locked record mutation | Held lock or cleanup failure | Refuse held lock; report lock_left without replacing primary outcome | Never delete another owner's lock | Agent sees owner/lock fields |
 | Pass planner | Partial edit/commit/push/reply or stale snapshot | Return resume, ask or stop rows from evidence | Plan is repeatable; actions follow plan | Agent sees rows and needs_user |
@@ -202,6 +213,7 @@ This section owns the proposed execution-budget policy. Reuse the configured def
 | One fenced Git read previously wrapped in net | One monotonic outer deadline beginning at the old wrapper boundary; each nested lookup also keeps its own smaller applicable limit | Stop active runner and descendants; map outer limit to PR error | No resetting the outer budget between lookup, target checks and command. Existing preflight token lookup outside that wrapper keeps its own bound |
 | Secret lookups | Existing secret-mode bounds; memory only | Refuse without outputting captured credentials | No token in files, diagnostics, parent environment or unrelated login |
 | Manual reaction paging | Existing 50-page limit | response_too_large, never absence | Network limits apply to every read |
+| Rendered description parse | Render output within the existing 32 MiB stream bound; one DOM per check, released after line extraction | Limited read stays unknown; a parser or adapter error is internal_error and gives no closing proof | Memory grows with response size up to the bound; the adapter walks the DOM iteratively, so nesting depth cannot overflow its stack |
 | Local Git/VCS state and plan | Existing unbounded calls | No new cap | Deliberate parity constraint; history can increase memory/time at 10x/100x |
 | Input snapshots, intent, record and derived rows | Existing whole-file/whole-result reads, no new cap | Preserve current validation and errors | Deliberately unchanged; 10x/100x consumes proportional memory and may fail. Do not silently introduce truncation or a new size policy |
 | Request token, repo-identity caches | One entry per identity/repo touched by the invocation | No cross-request retention | Grows only with this invocation's inputs |
@@ -222,7 +234,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 - Keep failed lock-cleanup paths in a request-owned list. The outer JSON boundary appends `lock_left` to either a successful document or a structured/unexpected error, preserving the original outcome rather than replacing it with a cleanup failure.
 - Keep merge's single mutation and read-back, deletion's head/base guards and creation/link marker discovery. No generic retry engine is added.
 - Cleanup plans may still name scripts and native VCS plans may still print shell commands; these are output data until retirement, not proof of an internal launch.
-- Compare the frozen oracle with project selectors stripped only from the exact approved shim positions in emitted command arrays; assert the removed values equal the code project and every remaining argument/cwd matches. For random owner ids, timestamps and temp names, bind generated values consistently across output, record and later reads, assert their formats/relationships, and compare stable fields exactly rather than ignoring those fields wholesale.
+- Use the frozen oracle to expose workflow differences. Existing exact comparisons remain useful where the interface is retained. When removing unnecessary custom compatibility, record the concrete representation/parser difference and test the coordinated CLI/skill contract and workflow outcome instead of insisting on byte equality. Never normalize away identity, ownership, mutation order/guards, deadline outcomes or recovery evidence. Bind generated owner ids, timestamps and temporary names consistently across output and later reads. Printed command tests must still prove the correct target, login and argument values reach execution.
 
 ## Mechanism Ledger (FULL)
 
@@ -233,14 +245,14 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 | Exclusive publication and owned locks | yes | Concurrent writers and interrupted pass recovery already exist | New owner-approved storage protocol |
 | Private filesystem primitive adapter | yes | Hard-link destination-exists must differ from fallback failure; lock acquisition must be one exclusive OS operation | Concurrent adopt/done and fallback failure tests disprove parity; fix before proceeding |
 | Leading project selector and forwarding | yes | Store has no project VERSION; resolving from store cwd otherwise blocks workflow dispatch | Store-started fenced and unfenced command tests |
-| Native closing-text parser | yes | Closing checks must preserve code spans, rendered entities and line boundaries | Existing corpus/oracle disproves proposed parser; fix before implementation proceeds |
+| Library HTML parser and workflow adapter | yes | Approved html package handles HTML/entities; adapter extracts closing prose with code and line boundaries | A library difference changes the workflow outcome; ask the user before changing that outcome |
 | Frozen oracle and black-box native dispatch tests | yes | Port can match common outputs yet change calls, persistence or failure sequencing | Retire only after every port proves parity |
 | New persistent cache, record schema, background worker or automatic lock recovery | no | No requirement needs it; each would alter storage or recovery | Separately approved feature |
 | All-port retrofit, native shell replacement, new direct CLI argv protocol | no, named later changes | Already approved milestone boundaries | User amendment of M8 |
 
 ## Risks / Trade-offs
 
-- Python Unicode matching, HTML entity decoding, newline handling and shell command splitting can differ from Dart. Use the existing rendered-body corpus (`evals/pr-pair/closing_bodies.py:1-42`) and differential cases with non-ASCII, malformed markup and printed command arrays. No new regex dialect change is authorized for internal parsers.
+- Standard HTML5 parsing can differ from Python's event parser on malformed markup. Use the existing rendered-body corpus (`evals/pr-pair/closing_bodies.py:1-42`) and focused cases with non-ASCII, entities, code and line boundaries to prove intended closing behavior. Document incidental differences and their consumer tests rather than adding custom HTML parsing to reproduce them. Changes to actual closing targets, mutation decisions or safety require the user's decision. Regex dialect, numeric/text formatting and other compatibility code may be simplified only with the same coordinated workflow evidence, not silently rewritten throughout the repository.
 - Filesystem atomicity and byte-preserving paths differ by OS. Use native filesystem adapters, concurrent-process tests and cross-implementation record fixtures on all CI platforms. Local success alone does not prove the matrix.
 - Sharing fence logic must not change the standalone `sw as` contract. Add a captured, budget-aware native adapter without changing its inherited-stdio/default unbounded mode, and run existing fence/VCS coverage in CI.
 

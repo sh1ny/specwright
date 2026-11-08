@@ -12,7 +12,7 @@ The `pr-pair.sh` shim SHALL still accept Python 3.8 at its existing prerequisite
 - **THEN** it reports that interpreter check as skipped, and an always-run test verifies native pass-write dispatch and UTF-8/LF records without relying on embedded Python source
 
 ### Requirement: Message text of the ported subcommands may be reworded
-In every `sw pr` command dispatched by `pr-pair.sh`, and in `reviewers`, free text SHALL keep its stable prefix and MAY use different wording. Free text includes `message`, `settings_problem` after `line N:` and stderr after its script prefix. Every other field, error code and exit status SHALL remain unchanged. This permission SHALL NOT apply to command arrays, record fields, exact reply bodies or markers.
+Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after stable prefixes. Other representations MAY change with their consuming skills when explicit contract tests prove the same workflow outcomes. Identity, mutation guards, ownership and recovery SHALL remain intact. Retained interfaces keep their existing values/statuses; persisted records remain interoperable. Incidental Python formatting and parser quirks SHALL NOT require byte-for-byte replicas.
 
 #### Scenario: A reworded stop keeps its code
 - **WHEN** `pr-pair.sh policy` reads a default-branch settings file whose content is not valid base64
@@ -82,11 +82,11 @@ When resolution fails, every `pr-pair.sh` invocation SHALL return one JSON line 
 
 
 ### Requirement: Native PR workflow commands preserve their effects
-The fourteen newly native workflow commands SHALL preserve the frozen script's structured results, effects and calls. Exceptions SHALL be limited to existing format-2 normalization and free message wording, the matching-binary prerequisite, and approved project-selector prefixes in cleanup arrays. Every other array argument and cwd SHALL stay exact. Failed or limited reads SHALL retain command-specific unknown/unreadable/refusal behavior without speculative mutation.
+The fourteen newly native commands SHALL preserve product workflow outcomes, effects, mutation sequencing, identity and recovery. Producer/consumer representations MAY change together with explicit contract tests and documented differences. The frozen script is comparison evidence, not a byte-format mandate. Printed commands SHALL execute in the intended cwd with correct arguments/login. Failed or limited reads SHALL retain unknown/unreadable/refusal decisions without speculative mutation.
 
 #### Scenario: Every workflow command has differential coverage
 - **WHEN** differential cases run discovery, expected-set, creation, closing checks, linking, pair-state, rounds, all four pass operations, cleanup, branch-check, merge, delete-remote and item-issues through both implementations
-- **THEN** outputs, calls, state changes and exit statuses match under the stated normalization, including success and failure cases for each command
+- **THEN** workflow decisions, effects, identity, mutation guards and recovery agree, including success and failure cases for each command; any representation difference has explicit producer/consumer contract coverage
 
 #### Scenario: Unknown read permits no follow-on mutation
 - **WHEN** discovery or an issue-state read fails or exceeds its deadline or byte bound
@@ -102,7 +102,7 @@ The fourteen newly native workflow commands SHALL preserve the frozen script's s
 
 #### Scenario: Rendered closing lines preserve code boundaries
 - **WHEN** closing-check reads a rendered description containing code spans, code blocks, entities and closing-list prose
-- **THEN** it identifies the same intended issues and mismatch state as the frozen script, without treating code as a closing directive
+- **THEN** `intended`, `missing`, `extra` and `status` name the same issues and state as the frozen script for that rendered body, a reference inside code is not an intended issue, and a code span between references ends the closing list
 
 ### Requirement: Feedback records interoperate across the port
 Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Write SHALL publish exclusively; adopt and done SHALL hold their own record lock and never remove another call's lock. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner.
