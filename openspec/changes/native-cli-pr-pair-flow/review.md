@@ -2,118 +2,117 @@
 
 ## Metadata
 
-- **Round:** 5 (full review after the owner-approved SDK-exclusive file creation amendment)
-- **Prior round:** Round 4, APPROVE_WITH_CHANGES, marked applied by the coordinator. The D2 amendment voids that verdict. This round checked all nine Required Changes independently.
+- **Round:** 6 (full review after the owner-approved raw POSIX feedback environment amendment)
+- **Prior round:** Round 5, APPROVE_WITH_CHANGES. Required Changes 1-7 were independently rechecked and marked applied. The D2 and C16 amendment voids that verdict.
 - **Reviewer:** fresh-context Claude agent (`claude-opus-5-5`)
-- **Recheck:** fresh-context Claude agent (`claude-opus-5-5`) rechecked only Required Changes 1-7. It is not a new round. See "Reviewer recheck of Required Changes" under Rebuttals.
+- **Recheck:** Round 6 Required Changes 1-10 only, by a Claude agent (`claude-opus-5-5`) in a new run. This is not a new round. Evidence is under Required Changes.
 - **Reviewed:**
-  - **Rules and artifacts:** `AGENTS.md`, `schemas/specwright/schema.yaml`, `schemas/specwright/templates/review.md`, and the change's `proposal.md`, `design.md`, `tasks.md`, `review.md`, all three delta specs and `evidence/html-dependency-check.md`
-  - **Baseline and ADRs:** `openspec/specs/feedback-passes/spec.md`, ADR 0031, the existence of ADR 0032, and lock references in `openspec/architecture.md`
-  - **Frozen protocol:** `skills/specwright-pr/scripts/pr-pair.sh:1908-2043`, `2114-2186`, `2514-2562`, `3023-3033`, and every other range cited in `design.md`
-  - **Native code:** `cli/lib/src/commands/pr.dart`, `pr/pair.dart`, `pr/context.dart:100-111, 218-229`, `commands/vcs.dart:1-105`, `fence/fence.dart` cited ranges, `process/limits.dart`, `vcs/codec.dart`, `settings/reviewer_config.dart:140-175`, `native/kernel32.dart` and `process/windows_tree.dart` `lastError` uses, `mise.toml`
-  - **Tests:** `evals/pr-pair/test_pr_pair.py:2425-2558, 2628-2640, 2881-2991`, `evals/update/test_sw_install.py` notice and manifest cases, `evals/cli` notice test names, `cli/test/pr/closing_test.dart:47-48`
-  - **Packaging:** `sw-build.yml`, `attach_release.py`, `update.sh` and `install-sw.sh` notice paths, `.gitattributes`
-  - **Consumer text:** `skills/specwright-pr/SKILL.md:102, 123`
+  - **Rules and artifacts:** `AGENTS.md`, `openspec/schemas/specwright/schema.yaml`, `templates/review.md`, and the change's `proposal.md`, `design.md`, `tasks.md`, `review.md` and all four delta specs
+  - **Native code:** `pr/feedback_pass.dart`, `pr/feedback_record.dart`, `pr/feedback_record_files.dart`, `pr/context.dart`, `pr/pair.dart`, `pr/watch_state.dart:14-23`, `pr/workflow.dart:1-300, 800-830, 1386-1393`, `pr/settings_commands.dart:345-378`, `commands/pr.dart`, `commands/vcs.dart:40-103`, `settings/reviewer_config.dart:78-105, 120-208`, `vcs/codec.dart`, `vcs/document.dart` (searched), and the `fence/fence.dart` and `process/limits.dart` cited ranges
+  - **Frozen script and shims:** every `pr-pair.sh` range cited in `design.md`, plus `:239-242`, `:966`, `:1909` and `:2245-2261`; `sw-path.sh`
+  - **Tests and CI:** `cli/test/pr/feedback_pass_test.dart:30-99`, `cli/test/pr/feedback_record_test.dart:566-589`, `evals/pr-pair/test_workflow_records.py:1-75` and its test list, `evals/pr-pair/test_pr_pair.py` environment setup (searched), `evals/pr-pair/closing_bodies.py:1-42`, `evals/suites.json` (searched), `.github/workflows/evals.yml`, `cli.yml`, `sw-build.yml:1-70`, `mise.toml`, `cli/pubspec.yaml`
 - **Verification limits:**
-  - Nothing was edited, installed, run or built, and no Git mutation occurred. The Orca audit was not contacted.
-  - The three untracked group 5 files were not opened and are not treated as implementation.
-  - `git ls-files` was not available, so tracked status rests on the supplied Git status snapshot.
-  - The SDK behaviour (exclusive create across 8 isolates, the different exception for a directory) and Dart issue 38832 come from the brief. SDK C++ source is not in this repository.
-  - `openspec validate` was not run. M-1 is a character count against the schema's rule.
-  - Group 4's test results come from the brief and the evidence file. They were not re-run.
+  - Nothing was edited, installed, built or run, and no Git mutation occurred. The Orca audit was not contacted.
+  - `git ls-files` was not available, so tracked status rests on the supplied Git status. `feedback_pass.dart`, its test and `test_workflow_records.py` are untracked and were read at the owner's direction. `design.md` cites none of them.
+  - Dart's `Platform.environment` behaviour, the Python `Path.home` passwd fallback and the group 6 test results come from the brief. They were not reproduced.
+  - No raw environment reader exists yet, so this round reviews its design and its fit with the current code.
+  - That APFS refuses non-UTF-8 names is outside knowledge. This repository cannot confirm it.
 
 ## Findings
 
 ### Critical (blocking)
 
-None. The approved design is safe at its core:
+None. The adapter is sound at its core:
 
-- Python's `os.mkdir` (`pr-pair.sh:2019`) refuses a native lock file as `record_busy`.
-- SDK exclusive creation cannot overwrite an occupied path.
-- Any failed hard link falls through to a creation that refuses occupancy, which gives the same outcome as `publish` (`:1933-1941`) without classifying the link error.
-- `SKILL.md:102, 123` say only "a `.lock` is left" and "never remove a lock without the user", so no consumer assumes a directory.
+- **Production reaches it.** `commands/pr.dart:73-78` builds `PrContext` with no environment, so the process branch is the production path.
+- **Injection stays distinguishable.** `PrContext.environment` is nullable (`context.dart:90`).
+- **The bytes round-trip.** `decodeEscaped` and `encodeEscaped` are inverses for these bytes (`codec.dart:16-20, 30-65`), and paths reach the filesystem through raw constructors (`feedback_record.dart:57`, `feedback_record_files.dart:46`).
+- **No environment mutation exists.** `cli/lib` contains no `setenv`, `putenv` or `unsetenv`.
 
 ### Moderate
 
-**M-1. The amended requirement breaks strict validation and states several behaviours.**
+**M-1. "Existing resolver boundary" does not name one behaviour, although three exist.**
 
-- `specs/pr-script-runtime/spec.md:112` sits under `## ADDED Requirements` and its description is over 800 characters.
-- `schema.yaml:201` limits a description to 500 characters and says `openspec validate --strict` fails above that. It also asks for one behaviour per requirement.
-- Tasks 8.4 and 9.1 both depend on strict validation passing.
-- The same text names an implementation choice ("SDK-exclusively"), which `schema.yaml:154` excludes from specs. D2 already owns that choice.
+| Resolver | Behaviour with `HOME` unset | Evidence |
+|---|---|---|
+| Frozen `record_dir` | Passwd fallback through `Path.home()` | `pr-pair.sh:1909` |
+| Native `_home` and `_directory` | Refuses | `reviewer_config.dart:83-99`, `feedback_pass.dart:141-154` |
+| Native `stateBase` | Substitutes `/.cache/specwright` | `watch_state.dart:18-20` |
 
-**M-2. Two scenarios assign the wrong error to `pass write` on an unreadable new-key record.**
+D2's sentence at `design.md:46` leaves an implementer to guess which one applies.
 
-- `pass_write` checks `path.exists()` and returns `record_exists` before reading the record (`pr-pair.sh:2127-2129`).
-- Only `pass plan` (`:2318`), `adopt` (`:2541`) and `done` (`:2521`) reach `load_record` and return `record_unreadable`. `pass write` does so only for a sole unreadable legacy file, through `locate_record` (`:1984-1989`, `test_pr_pair.py:2510-2519`).
-- "Interrupted SDK publication stays recoverable" (`spec.md:138-140`) and "Unreadable record blocks a new pass" (`:142-144`) both say otherwise. C8 says the same at `design.md:117`.
-- The amendment makes this path more likely, so an implementer following the spec would diverge from the frozen workflow.
+**Assessment: no further owner decision or passwd binding is needed while the refusal stands.** It fits the owner's "no new policy" limit for these reasons:
 
-**M-3. A failed POSIX permission change after exclusive creation has no defined outcome.**
+- Through the shim, unset `HOME` already aborts `sw-path.sh` under `set -u` (`:24, :60`) unless `SPECWRIGHT_HOME` is set (`:58`).
+- Past that point, `context` calls `writeReviewerConfig` unconditionally (`settings_commands.dart:364`). `_home` runs outside its `try` (`reviewer_config.dart:167`), so the command stops with `internal_error` unless a state override exists. `SKILL.md:53-73` names `context` before the pass steps at `:102-104`.
+- The remaining path is a direct `pass` call with `SPECWRIGHT_HOME` set, `HOME` unset and no override. A record the frozen script wrote under the passwd home then gets `internal_error`, exit 1. Nothing is lost or created, and setting `HOME` or the state directory recovers it.
 
-- D2 requires private permissions before content, and `File.createSync` takes no mode, so the fallback must create, set permissions, then write.
-- D2, C8, the requirement and task 5.1 cover only open, write and close failures. A failed `chmod` would leave an empty file that blocks every later pass for that change.
-- This is reachable. The fallback exists for filesystems without hard links, and those can also reject mode changes. Python's fallback never changed the mode (`:1941`), so this step is new.
-- D2's rule implies failing closed, but the design must say so and test it.
+The refusal does differ from the frozen outcome, so it must be recorded. Restoring passwd parity would be new ABI work needing separate owner approval.
 
-**M-4. Rejected alternatives that a future change could reintroduce are not carried.**
+**M-2. Workflow limits of a feedback-only reader are not carried (`schema.yaml:527-529`).**
 
-- `schema.yaml:527-529` makes an uncarried rejected alternative a Moderate finding.
-- C8 omits D2's rejection of numeric error branching across FFI calls. A public accessor already exists (`cli/lib/src/native/kernel32.dart:108`), so reintroducing it would be easy.
-- Neither D2 nor C8 mentions the owner's rule against changing the global umask. C8 also omits the exists-then-create ban, which only D2 states.
+Other commands still read `ctx.env`, backed by `Platform.environment` (`context.dart:106`):
 
-**M-5. The baseline `feedback-passes` capability describes only a lock directory, and this change has no delta for it.**
+- With a raw state value and a usable `HOME`, the workflow proceeds. `context` writes reviewer config under the default directory, which is harmless because that file is content-addressed.
+- With a raw `HOME` and no override, `context` stops with `internal_error` before any pass, because the entry is omitted. D2's raw `HOME` path therefore helps direct pass calls, not the ordinary skill flow.
 
-- `openspec/specs/feedback-passes/spec.md:31-33` says "finds the record's lock directory already present". After the port, a native interrupted handover leaves a file, which that scenario does not cover.
-- The proposal's Capabilities section (`proposal.md:25-29`) omits this capability, and a search of the change finds no mention of it.
-- After archive, the main spec would misdescribe the state an operator finds. This only aligns the baseline with the approved decision and does not broaden scope.
+Both follow from the "no general retrofit" instruction. A future change could still mistake this for full raw-path support.
 
-**M-6. The test map does not reach the real script boundary for two scenarios.**
+**M-3. The design does not say which root the first-seen read uses, and the current reuse creates a writer/reader split.**
 
-- "Native and legacy locks exclude each other" covers a legacy script call finding a native lock file, but it maps only to `cli/test/pr/feedback_record_test.dart` (`tasks.md:41`). A Dart directory call cannot prove what Python's `os.mkdir` does (`schema.yaml:619-621`).
-- "Interrupted SDK publication stays recoverable" needs the command-level error codes from M-2, and only a store-level Dart test maps to it (`tasks.md:42`).
+- `_firstSeen` derives its root from `_directory` (`feedback_pass.dart:554`), so a raw-aware `_directory` silently changes it. The frozen script reads the same raw root (`pr-pair.sh:2248`), so that is the correct target.
+- The native writer `stateBase` still uses the map (`watch_state.dart:17-20`). In a raw-state run, heads are written under the default directory and read from the raw one.
+- When the push time is absent, the cutoff then falls from `first_seen` to `pass_written` (`pr-pair.sh:2257-2260`, `feedback_pass.dart:589-597`). A later cutoff can miss an existing re-request and report it as todo.
+- The frozen read and the native snapshot writer already differ this way, so preserving it is acceptable. It must be stated and tested.
 
-**M-7. Failure visibility omits process death during the fallback.**
+**M-4. Test scenarios do not reach all four process-environment branches.**
 
-- The "Record publisher" row (`design.md:220`) lists `record_exists` and `internal_error`. It does not cover a process dying between creation and the end of the write, or `record_unreadable`.
-- The T2 diagram has no path from `Absent` to `Refused` for that case (`design.md:150, 156`). `schema.yaml:378-381` requires this per component.
+- D2 covers `HOME`, but the only raw scenario covers the state directory (`spec.md:122-124`, `tasks.md:38`).
+- The owner requires that a state override works without home. The only existing check is injected (`feedback_pass_test.dart:50-55`), which cannot exercise `getenv` order.
+- Missing-home refusal is tested only under Windows and only through injection (`feedback_pass_test.dart:74-80`).
+- The harness can undermine these cases:
+  - `NativePass.command` merges environments and cannot remove `HOME` (`test_workflow_records.py:26`).
+  - It encodes arguments as strict UTF-8 (`:30`).
+  - `pp` strictly decodes stdout (`:42`), while both implementations print raw path bytes (`pr-pair.sh:175, 241`, `document.dart:42-45`).
+- The evals matrix includes `macos-latest` (`evals.yml:37`). Filesystem-dependent assertions need a visible capability check there.
 
-**M-8. Group 4 moved the `commands/pr.dart` lines the design cites.**
+The CI approach itself is right: evals build the shipped binary with the pinned SDK and require it (`evals.yml:139-152`).
 
-- `design.md:10` cites `12-26` and `54-87`, and `design.md:18` cites `76-79` and `86`.
-- Handoff commands now span `12-31` and dispatch `59-97`. The five commands are at `81-84` and `96`, while line `86` now reads `'ensure-pr' ||`.
-- `schema.yaml:521-524` makes a moved citation a finding. No decision depends on the old position, so it is not Critical.
+**M-5. Task ordering and constraint tracking are incomplete.**
+
+- Task 6.2 (`tasks.md:128`) introduces both the reader and its tests, while the schema requires the failing test first (`schema.yaml:677-678`). Task 6.1 (`tasks.md:127`) lists none of the environment cases.
+- Task 8.4 (`tasks.md:142`) omits C16 from its destination check.
+
+**M-6. The amendment does not meet the decision record rules.**
+
+- The paragraph at `design.md:46` has no rejected alternative, reversal cost, importance or owner quote (`schema.yaml:326-343`). D2's `Chosen by` still quotes only the SDK decision (`design.md:44`).
+- The summary row (`design.md:99`) is unchanged, contrary to `schema.yaml:365-370`.
+- The Mechanism Ledger has no reader row, and Failure & Visibility has no directory-selection row (`schema.yaml:378-396`).
+
+**M-7. Uncommitted group 6 moved the cited `commands/pr.dart` lines.**
+
+| Location | Current citation | Actual lines |
+|---|---|---|
+| `design.md:10` | `12-31`, `59-97` | Handoff list `12-32`, dispatch `60-99` |
+| `design.md:18` | `81-84`, `96` | The five commands are at `82-85` and `98`. Line `96` now reads `'item-issues' \|\|` |
+
+No decision depends on the old positions, so this is not Critical.
 
 ### Suggestions
 
-- **S-1.** In task 5.1, treat the SDK's path-exists exception as busy without a follow-up check. Use the post-failure check, without following links, only for other exception types. Otherwise a holder releasing between the failed create and the check can produce a spurious `internal_error` in the concurrent tests.
-- **S-2.** `File.fromRawPath` supports the raw-path requirement, and `rawFile` already provides it (`pr/context.dart:223`). The state directory, however, arrives as a Dart string from `Platform.environment` (`:105-106`), whereas Python's `record_dir` reads `os.environ` (`pr-pair.sh:1909`). Whether non-UTF-8 environment bytes survive was not verified. Task 5.1's raw-path check should start from that same environment input, not only from a prebuilt escaped string.
+- **S-1.** Branch on `ctx.environment == null`, not `ctx.env`. `ctx.env` already substitutes `Platform.environment` (`context.dart:106`) and loses the signal C16 depends on.
+- **S-2.** Have the reader return the state root and derive `/feedback` from it, instead of stripping a suffix at `feedback_pass.dart:554`.
+- **S-3.** Directory resolution currently runs in the constructor (`feedback_pass.dart:130`, `workflow.dart:812-817`), before argument parsing. With no home, a malformed call gets exit 1 instead of usage exit 2, whereas the frozen script parses first (`pr-pair.sh:2515-2517`). Resolving lazily removes this difference.
+- **S-4.** `feedback_record_test.dart:569-587` skips only Windows. If macOS CI refuses its raw directory, apply the probe from Required Change 3 there.
 
 ### Confirmed intact
 
-- **Round 4 Required Changes 1-9, independently verified:**
-
-| # | Evidence |
-|---|---|
-| 1 | D7 version gate at `design.md:82`; `sw-build.yml:71-79`; `.gitattributes:7` |
-| 2 | D7 placement order at `design.md:82`; `update.sh:3177-3195, 3280-3295` |
-| 3 | `specs/native-cli/spec.md:4, 15, 30, 60, 74-84` |
-| 4 | `design.md:190-194, 207, 219, 236, 247, 270` |
-| 5 | `design.md:285`; `proposal.md:33`; ADR 0032 exists |
-| 6 | Task 4.5 text; fixture tag selection in `TestNotices` |
-| 7 | Map at `tasks.md:5, 9-77`; duplicate-name variant at `test_sw_install.py:487`; old-manifest case at `:497-501` |
-| 8 | D7, task 4.4 and C14 text; evidence lists all eight runtime packages plus the Dart SDK |
-| 9 | Tasks 8.1, 8.2 and 8.5 text |
-
-- **Round 4 suggestions:** the raw-table test now asserts `o/r#1` (`closing_test.dart:47-48`), and the `update.sh` wording was updated (`:3080`, `:3270`).
-- **Round 4 open item:** `MAX_PAGES = 50` (`bounded.py:62`) confirms the 50-page figure at `design.md:227`.
-- **Design citations:** apart from M-8, every cited range supports its claim.
-- **Coherence:**
-  - D2, its summary row, State & Ownership, the Mechanism Ledger, Resource Bounds and Flow gaps agree on the approved design.
-  - ADR 0031 stays unedited. Task 5.2 records the refinement additively.
-  - The record key, version 2, legacy byte handling and `lock_left` boundary are preserved (`pr-pair.sh:1916-1927, 1979, 1995, 3028-3033`).
-- **Task order:** primitives in group 5, pass operations in group 6 and final shim, Python 3.8 and source-extraction checks in 8.1, 8.2 and 8.5 are correctly sequenced. Local verification stays within named test files and modules.
-- **Scope:** no new package, unrelated port or product feature is added. None of the Required Changes reverses a `Chosen by: user` decision.
+- **Injected authority and credential isolation:** D2 and C16 keep raw values out of credential maps, and no process mutation is proposed.
+- **Design citations:** every range other than M-7 supports its claim, including all `pr-pair.sh`, fence, VCS, limits, pair and corpus ranges.
+- **Binding choices are unchanged:** product workflow over byte replica, html 0.15.7 raw-table interpretation, sidecar notices from 0.30, SDK-exclusive locks with legacy directories blocking, hard-link then exclusive fallback with explicit interruption recovery, no cross-FFI numeric branching and no umask change.
+- **Network preflight:** `tokenFor` before the bounded segment (`workflow.dart:112-121`) matches `pr-pair.sh:324-325`.
+- **Scope:** `ffi` is already a dependency (`pubspec.yaml:17`), and no package, handoff record or unrelated port is added. `cli/lib/src/pr/**` already routes to the suite map (`suites.json:33`).
+- **Required Changes and owner decisions:** none reverses a `Chosen by: user` decision. Required Change 1 states the refusal D2 already implies.
 
 ## Verdict
 
@@ -121,131 +120,104 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. **`specs/pr-script-runtime/spec.md`, split the requirement (M-1, M-2, M-3).**
-   - Replace the description at line 112 with:
+1. **`design.md:46`, D2 (M-1, M-3, M-6).** Replace "HOME-absent resolution remains the existing resolver boundary; this amendment does not authorize silently choosing a root cache or a new home-directory policy." with:
 
-     > Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner.
+   > A state-directory override never consults home. With no nonempty state value and no usable home, feedback path selection refuses as `_home` does (`cli/lib/src/settings/reviewer_config.dart:83-99`): the command reports internal_error with exit 1, writes no record and chooses no substitute directory. POSIX has no passwd lookup for an unset `HOME`; this differs from the frozen `Path.home()` fallback (`skills/specwright-pr/scripts/pr-pair.sh:1909`), and adding one needs separate owner approval. The first-seen head read uses the same selected state root as the frozen script (`skills/specwright-pr/scripts/pr-pair.sh:2248`).
 
-   - Replace the THEN of "Unreadable record blocks a new pass", and change its WHEN to say "a new-key record or a sole matching legacy record":
+   Then append directly after that paragraph:
 
-     > **THEN** `pass plan`, `pass adopt` and `pass done` return record_unreadable; `pass write` returns record_unreadable for a sole legacy record and record_exists for a new-key record; and the file is left in place
+   > - **Rejected:** `Platform.environment` alone, which omits non-UTF-8 entries and would select a different default directory; a general environment retrofit; a new package; passwd ABI bindings for an unset `HOME`.
+   > - **Reversal cost:** low
+   > - **Important:** yes, changes where records are found and how a missing home is reported.
+   > - **Chosen by:** user, "Preserve raw paths with the small adapter".
 
-   - Add this requirement after that block, and move "Concurrent mutations acquire one lock", "Native and legacy locks exclude each other" and "Interrupted SDK publication stays recoverable" under it:
+2. **`design.md:99`, D2 summary row (M-6).**
+   - In the Choice cell, append: `; raw POSIX feedback environment reader, injected environments authoritative`.
+   - In the Rejected cell, append: `; Platform.environment alone; general environment retrofit; passwd bindings`.
 
-     > ### Requirement: Feedback record locks and fallback publication stay exclusive
-     > Write SHALL publish exclusively; adopt and done SHALL hold their own record lock and never remove another call's lock. Native locks SHALL be exclusively created files at the existing `.lock` path; legacy lock directories SHALL still block and SHALL never be removed automatically. A failed hard link MAY fall back to exclusive creation that refuses an occupied destination. An ordinary failure after that creation SHALL remove only the file the request created.
+3. **`specs/pr-script-runtime/spec.md`, after line 128, and `tasks.md`, after line 39 (M-3, M-4).** Add these scenarios:
 
-   - Replace the THEN of "Interrupted SDK publication stays recoverable" with:
+   > #### Scenario: Raw POSIX home keeps the record location
+   > - **WHEN** a POSIX feedback call has no nonempty process state-directory value and a process `HOME` containing non-UTF-8 bytes
+   > - **THEN** native and frozen calls find the same record location under that home
+   >
+   > #### Scenario: Process state override does not need a home
+   > - **WHEN** a POSIX feedback call has a nonempty process state-directory value and `HOME` is unset
+   > - **THEN** the record is located under the state directory and the call does not stop for a missing home
+   >
+   > #### Scenario: Missing home refuses without choosing a directory
+   > - **WHEN** a POSIX process feedback call has a missing or empty state-directory value and `HOME` is unset or empty
+   > - **THEN** it returns internal_error with exit 1, creates no record and uses no substitute directory
+   >
+   > #### Scenario: First-seen read follows the raw state directory
+   > - **WHEN** a POSIX pass plan has a non-UTF-8 process state-directory value, a head record under it and no matching push activity
+   > - **THEN** native and frozen plans report `cutoff_source` first_seen with the same cutoff
 
-     > **THEN** the empty or partial record remains in place, `pass write` refuses with record_exists, and `pass plan`, `pass adopt` and `pass done` return record_unreadable
+   Add these map rows:
 
-   - Add this scenario to the new requirement:
+   | Requirement | Scenario | Test file | Test name | State |
+   |---|---|---|---|---|
+   | pr-script-runtime - Feedback records interoperate across the port | Raw POSIX home keeps the record location | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_raw_posix_home_keeps_the_record_location | red |
+   | pr-script-runtime - Feedback records interoperate across the port | Process state override does not need a home | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_process_state_override_does_not_need_a_home | red |
+   | pr-script-runtime - Feedback records interoperate across the port | Missing home refuses without choosing a directory | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_missing_home_refuses_without_choosing_a_directory | red |
+   | pr-script-runtime - Feedback records interoperate across the port | First-seen read follows the raw state directory | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_first_seen_read_follows_the_raw_state_directory | red |
 
-     > #### Scenario: Fallback permission failure leaves no record
-     > - **WHEN** the publication fallback exclusively creates a POSIX record and setting its private permissions fails
-     > - **THEN** the error is reported, no record content was written, only the created file is removed, and a later `pass write` can create the record
+4. **`tasks.md:127`, append to task 6.1 (M-4, M-5):**
 
-   - In `tasks.md:40-42`, change the requirement column of the three moved scenarios to the new requirement, and add this row:
+   > Add failing POSIX child-process cases to `test_workflow_records.py` for every raw-environment, no-home and missing-home map row. Pass non-UTF-8 values only through the child's real environment, never through arguments or injected escaped strings, and build the no-`HOME` environment without that key. Decode child stdout with `surrogateescape`. Probe raw-path support with a bytes `os.mkdir`: on Linux the probe must succeed, a filesystem refusal elsewhere reports a skip naming the OS, and Windows reports a skip. Add the failing injected-precedence case to `cli/test/pr/feedback_pass_test.dart`: with the test process's own `HOME` present, an empty injected map refuses, and missing or empty injected state values do not use an ambient value. Verify each changed file red.
 
-     | Requirement | Scenario | Test file | Test name | State |
-     |---|---|---|---|---|
-     | pr-script-runtime - Feedback record locks and fallback publication stay exclusive | Fallback permission failure leaves no record | cli/test/pr/feedback_record_test.dart | fallback permission failure leaves no record | red |
+5. **`tasks.md:128`, task 6.2 (M-1, M-2, M-5).**
+   - Replace "with actual raw-environment child-process coverage through the pinned SDK and injected-environment precedence checks" with "turning the raw-environment and injected-precedence rows from 6.1 green against the `sw` built by the pinned SDK".
+   - Replace "Write C16 at its destination." with "Write C16 and C17 at their destination. After adding `feedback_environment.dart`, run the suite-map test."
 
-2. **Permission failure (M-3).**
-   - In D2 (`design.md:40`), replace "ordinary open/write/close failures remove only the file this request created." with:
+6. **`tasks.md:142`, task 8.4 (M-5).** Change `C4/C5/C7/C8/C12/C13/C15` to `C4/C5/C7/C8/C12/C13/C15/C16/C17`.
 
-     > Set private POSIX permissions on a created file through the minimal adapter before opening it for content, and never change the process umask. Ordinary failures after exclusive creation, including a failed permission change or an open, write or close failure, remove only the file this request created and report a generic filesystem error; a failed permission change writes no content.
+7. **`design.md`, after line 127 (M-1, M-2, M-3).** Add:
 
-   - In C8 (`design.md:117`), replace "Interruption can leave an empty or partial record, which is refused as unreadable, never treated as absent or silently replaced. Ordinary open/write/close failure cleans up only the request-created file." with:
+   > - **C17:** The raw reader covers only feedback record paths and the first-seen head read. `context`'s reviewer-config writer and `stateBase` still read `Platform.environment`: with a non-UTF-8 state value they use the default directory, so a head written there is not found by pass plan, and with a non-UTF-8 or unset `HOME` and no override `context` stops with internal_error before a pass starts. An unset POSIX `HOME` has no passwd fallback, unlike the frozen script. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/feedback_environment.dart feedbackDirectory.
 
-     > Interruption can leave an empty or partial record: `pass write` refuses it as record_exists, the other pass operations as record_unreadable, and it is never treated as absent or silently replaced. An ordinary permission, open, write or close failure cleans up only the request-created file.
+8. **`design.md`, Failure & Visibility, after line 225 (M-6).** Add:
 
-   - In task 5.1, after "exclusive-create open/write/close cleanup", add "and permission-failure cleanup through an injected adapter failure".
+   | Component | Fails / dies mid-operation | Recovery | Retry safe? | Who finds out |
+   |---|---|---|---|---|
+   | Feedback directory selection | No usable state value or home, or the POSIX reader cannot be bound | Set `HOME` or `SPECWRIGHT_STATE_DIR` and rerun | Yes; nothing was written | Agent sees internal_error, exit 1 |
 
-3. **Failure visibility (M-7).**
-   - In the Failure & Visibility "Record publisher" row, replace the failure, recovery and visibility cells with: "Concurrent write, failed publication, or death during the SDK fallback", "Exclusive refusal; cleanup own incomplete fallback/temp file on ordinary failure; a record left by death stays for explicit recovery", and "Agent sees record_exists, record_unreadable or internal_error".
-   - Add this edge to the T2 diagram: `Absent --> Refused: interrupted fallback leaves empty or partial record`.
+9. **`design.md`, Mechanism Ledger, after line 272 (M-6).** Add:
 
-4. **Carried constraint (M-4).** Add to `## Carried constraints`:
+   | Mechanism | Built? | Concrete reason | Evidence that would change the call |
+   |---|---|---|---|
+   | POSIX feedback environment reader | yes | `Platform.environment` omits non-UTF-8 entries, so a raw state directory would silently select the default record location | Dart exposes raw environment bytes, or a later change owns a general environment boundary |
 
-   > - **C15:** The feedback record store classifies outcomes from SDK exceptions, post-failure occupancy and one-call OS success results. Numeric `errno` or `GetLastError` branching across FFI calls (dart-lang/sdk#38832), exists-then-create exclusivity and process-wide umask changes stay rejected. Kind: rejected alternative. Destination: doc comment: cli/lib/src/pr/feedback_record.dart FeedbackRecordStore.
+10. **Citations (M-7).**
+    - At `design.md:10`, change `cli/lib/src/commands/pr.dart:12-31`, `59-97` to `cli/lib/src/commands/pr.dart:12-32`, `60-99`.
+    - At `design.md:18`, change `cli/lib/src/commands/pr.dart:81-84`, `96` to `cli/lib/src/commands/pr.dart:82-85`, `98`.
 
-   In task 5.2, change "Write C8 at its destination" to "Write C8 and C15 at their destination". In task 8.4, add C15 to the code-comment list.
+### Reviewer resolution evidence
 
-5. **`feedback-passes` delta (M-5).**
-   - Add `specs/feedback-passes/spec.md` with `## MODIFIED Requirements`, containing the whole block from baseline lines 8-41 with one change. The WHEN at line 32 becomes:
+Line numbers below are current. The original positions in Required Changes 1-10 have shifted because of the edits themselves.
 
-     > **WHEN** a handover or removal finds the record's `.lock` path already occupied, by a native lock file or a legacy lock directory
+| # | Result | Evidence |
+|---|---|---|
+| 1 | Applied | `design.md:46` carries the replacement text and the old "existing resolver boundary" sentence is gone. It records the missing-`HOME` refusal, the difference from the frozen `Path.home()` fallback, no substitute directory and the first-seen state root. The four decision bullets are at `design.md:48-51`. |
+| 2 | Applied | Both appended clauses are in the D2 row at `design.md:104`. The row has minor spacing differences around the separators (`fallback ; raw`, `authoritative\|`), which do not change the table or its meaning. |
+| 3 | Applied | All four scenarios are at `specs/pr-script-runtime/spec.md:131-145`, within the requested requirement. All four map rows are at `tasks.md:91-94`, in state `red`, with the required file and test names. The rows sit at the end of the map instead of after line 39. The map is not ordered by requirement (for example `tasks.md:61, 80-82`), and the schema requires each scenario to be mapped, not a row position (`schema.yaml:613-615`). |
+| 4 | Applied | The full required text is appended to task 6.1 at `tasks.md:131`, including real child environments, a no-`HOME` environment without the key, `surrogateescape` decoding, the bytes `os.mkdir` probe with its OS outcomes, and the injected-precedence case. |
+| 5 | Applied | Task 6.2 at `tasks.md:132` has both replacements, and the replaced wording is gone. |
+| 6 | Applied | Task 8.4 at `tasks.md:146` lists `C4/C5/C7/C8/C12/C13/C15/C16/C17`. |
+| 7 | Applied | C17 at `design.md:133` directly follows C16, with the exact text, the feedback-only reader's writer and `context` limits, and the required destination. |
+| 8 | Applied | The feedback directory selection row is at `design.md:232`, directly after the record publisher row. |
+| 9 | Applied | The POSIX feedback environment reader row is at `design.md:280`, directly after the private filesystem primitive adapter row. |
+| 10 | Applied | `design.md:10` cites `12-32`, `60-99`, and `design.md:18` cites `82-85`, `98`. These match the handoff list, dispatch and five settings/policy entries in `cli/lib/src/commands/pr.dart`. |
 
-   - Add to `proposal.md` Modified Capabilities:
+**Recheck limits:**
 
-     > - `feedback-passes`: an occupied `.lock` path may be a native lock file or a legacy lock directory; both remain `record_busy` and are never removed automatically.
-
-   - At `tasks.md:5`, change "all three deltas" to "all four deltas", and add these rows:
-
-     | Requirement | Scenario | Test file | Test name | State |
-     |---|---|---|---|---|
-     | feedback-passes - A feedback pass has one owner | Two sessions start a pass for one change | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_concurrent_writers_publish_one_record | red |
-     | feedback-passes - A feedback pass has one owner | Resume by the owning session | evals/pr-pair/test_pr_pair.py | PassOwnership.test_pass_owner_plans_and_completes | green |
-     | feedback-passes - A feedback pass has one owner | Record left by another session | evals/pr-pair/test_pr_pair.py | PassOwnership.test_pass_plan_reports_foreign_owner | green |
-     | feedback-passes - A feedback pass has one owner | User confirms the owner is gone | evals/pr-pair/test_pr_pair.py | PassOwnership.test_pass_adopt_hands_over_the_record | green |
-     | feedback-passes - A feedback pass has one owner | Handover races another session | evals/pr-pair/test_pr_pair.py | PassOwnership.test_pass_adopt_refuses_a_stale_from | green |
-     | feedback-passes - A feedback pass has one owner | Lock left by an interrupted handover | cli/test/pr/feedback_record_test.dart | native and legacy locks exclude each other | red |
-     | feedback-passes - A feedback pass has one owner | Record write fails while it is created | cli/test/pr/feedback_record_test.dart | fallback write failure leaves no record | red |
-     | feedback-passes - A feedback pass has one owner | Removal by a non-owner | evals/pr-pair/test_pr_pair.py | PassOwnership.test_pass_done_refuses_a_non_owner | green |
-
-   - Append to task 8.2: "Rerun the green `PassOwnership` rows through the native shim."
-
-6. **Real boundary rows (M-6).**
-   - Add these rows to the test map:
-
-     | Requirement | Scenario | Test file | Test name | State |
-     |---|---|---|---|---|
-     | pr-script-runtime - Feedback record locks and fallback publication stay exclusive | Native and legacy locks exclude each other | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_frozen_script_refuses_a_native_lock_file | red |
-     | pr-script-runtime - Feedback record locks and fallback publication stay exclusive | Interrupted SDK publication stays recoverable | evals/pr-pair/test_workflow_records.py | WorkflowRecords.test_interrupted_record_is_refused_by_each_pass_operation | red |
-
-   - Append to task 6.1: "Run the frozen script's adopt and done against a regular file at the `.lock` path, expecting record_busy with the file unchanged. Run all four native pass operations against empty and partial new-key records, expecting the codes in the interrupted-publication scenario."
-
-7. **Citations (M-8).**
-   - At `design.md:10`, change `cli/lib/src/commands/pr.dart:12-26`, `54-87` to `cli/lib/src/commands/pr.dart:12-31`, `59-97`.
-   - At `design.md:18`, change `cli/lib/src/commands/pr.dart:76-79`, `86` to `cli/lib/src/commands/pr.dart:81-84`, `96`.
+- This recheck read the artifacts and `commands/pr.dart` only. It ran no tests, builds or validators, so the strict validation pass is the coordinator's report and was not reproduced.
+- The raw reader remains unimplemented. The new map rows are planned `red` tests, and nothing here claims they pass.
+- No passwd binding or new package was adopted in the rechecked text. D2 rejects both, and C17 records the absent passwd fallback.
+- This recheck added no new requirements. The earlier assessment that retained refusal needs no further owner decision is unchanged.
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-Coordinator application of Required Changes, awaiting reviewer recheck:
-
-1. Split the long description into record interoperability and exclusive lock/publication requirements. Moved the three scenarios, corrected per-operation interrupted/unreadable codes, added permission failure and its map row. Strict validation passes.
-2. D2 and C8 now cover permission failure before content, cleanup of only the created file and no global umask change; task 5.1 includes injected permission failure.
-3. The state diagram and record-publisher failure row now show death during fallback and explicit recovery.
-4. C15 records the rejected cross-FFI numeric error branching, exists-then-create exclusivity and process-wide umask change. Tasks 5.2 and 8.4 carry its destination.
-5. Added the full owned baseline requirement as the feedback-passes delta, changing only the held-lock trigger. Proposal, all-four-delta map and task 8.2 cover it.
-6. Added both real-boundary group 6 map rows and task 6.1 checks against the frozen script and all four native pass operations.
-7. Updated the moved commands/pr.dart citation ranges.
-
-Suggestions S-1 and S-2 were passed to the fresh implementation worker: SDK path-exists exceptions classify occupied paths directly; other post-failure checks preserve raw paths, with environment-path coverage to be checked rather than assumed.
-
-### Reviewer recheck of Required Changes
-
-Rechecked by a fresh-context Claude agent (`claude-opus-5-5`). Only Required Changes 1-7 were in scope. Each item was compared with the current files and is resolved as written. Line numbers refer to the current files.
-
-| # | Resolved by | Reviewer-verified evidence |
-|---|---|---|
-| 1 | M-1, M-2, M-3 | The description is replaced at `specs/pr-script-runtime/spec.md:112`. The "Unreadable record blocks a new pass" WHEN and THEN are at `:131-132`. The new requirement, within the 500-character limit, is at `:134-135`. The three moved scenarios appear once each, at `:137-147`, with the Interrupted THEN at `:147`. The permission scenario is at `:149-151`. The requirement column is updated at `tasks.md:40-42`, and the new row is at `tasks.md:78`. |
-| 2 | M-3 | The D2 replacement is at `design.md:40`, the C8 replacement at `design.md:117`, and the task 5.1 addition at `tasks.md:120`. |
-| 3 | M-7 | The three "Record publisher" cells match at `design.md:222`, with the retry cell unchanged. The T2 edge is at `design.md:152`. |
-| 4 | M-4 | C15 matches at `design.md:124`. Task 5.2 carries it at `tasks.md:121` and task 8.4 at `tasks.md:140`. |
-| 5 | M-5 | `specs/feedback-passes/spec.md:1-36` has `## MODIFIED Requirements` and the entire block from baseline `openspec/specs/feedback-passes/spec.md:8-41`. The only difference is the required WHEN at delta line 27, which replaces baseline line 32. The proposal entry is at `proposal.md:30`. "All four deltas" is at `tasks.md:5`, all eight rows are at `tasks.md:81-88`, and the task 8.2 sentence is at `tasks.md:138`. The five green rows name existing tests at `evals/pr-pair/test_pr_pair.py:2583, 2599, 2609, 2622, 2642`, in `PassOwnership` (`:2378`). |
-| 6 | M-6 | Both rows are at `tasks.md:79-80`, and the task 6.1 sentences are at `tasks.md:125`. |
-| 7 | M-8 | The citations are updated at `design.md:10` and `design.md:18`. They match `cli/lib/src/commands/pr.dart`: handoff list `12-31`, dispatch `59-97`, native commands `81-84` and `96`. |
-
-Recheck limits:
-
-- Nothing was edited, installed, run or built, and no Git mutation occurred. The Orca audit was not contacted.
-- The strict validation pass is the coordinator's report and was not re-run here.
-- The new red rows stay red until their assigned groups are implemented. This recheck does not claim they pass.
-- The green rows' results and group 4's verification and commit come from the existing record and the brief. They were not re-run.
-- The untracked group 5 files were not opened and are not delivered implementation.
-- S-1 and S-2, including the environment raw-path input, remain with the fresh implementation worker and are not resolved by this recheck.
-- `design.md:40` has a capital "Set" after a semicolon. That comes from applying the required text literally, and it is cosmetic.
+None yet.

@@ -119,6 +119,31 @@ Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, 
 - **WHEN** native pass-write writes a record and the frozen script reads it
 - **THEN** the script reads the same intent, owner and state, with UTF-8/LF contents and the same record key
 
+#### Scenario: Raw POSIX state directory keeps the record location
+- **WHEN** a POSIX feedback call uses a process state-directory environment value containing non-UTF-8 path bytes
+- **THEN** native and frozen calls find the same record location, and no record is created in a different default directory
+
+#### Scenario: Injected environment does not inherit an ambient directory
+- **WHEN** a call supplies an explicit environment while the process has a different state-directory value
+- **THEN** feedback path selection uses only the supplied environment, including its missing or empty values
+
+
+#### Scenario: Raw POSIX home keeps the record location
+- **WHEN** a POSIX feedback call has no nonempty process state-directory value and a process `HOME` containing non-UTF-8 bytes
+- **THEN** native and frozen calls find the same record location under that home
+
+#### Scenario: Process state override does not need a home
+- **WHEN** a POSIX feedback call has a nonempty process state-directory value and `HOME` is unset
+- **THEN** the record is located under the state directory and the call does not stop for a missing home
+
+#### Scenario: Missing home refuses without choosing a directory
+- **WHEN** a POSIX process feedback call has a missing or empty state-directory value and `HOME` is unset or empty
+- **THEN** it returns internal_error with exit 1, creates no record and uses no substitute directory
+
+#### Scenario: First-seen read follows the raw state directory
+- **WHEN** a POSIX pass plan has a non-UTF-8 process state-directory value, a head record under it and no matching push activity
+- **THEN** native and frozen plans report `cutoff_source` first_seen with the same cutoff
+
 #### Scenario: Concurrent writers publish one record
 - **WHEN** two valid pass-write calls race for the same record
 - **THEN** exactly one complete record is published, and the losing call reports the frozen script's refusal rather than overwriting it

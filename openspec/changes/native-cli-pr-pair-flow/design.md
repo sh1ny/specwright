@@ -7,7 +7,7 @@
 | T1 Components | yes | The remaining dispatch crosses GitHub, records and VCS: `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`, `2634-2676`. |
 | T2 State | yes | Feedback records include heads, marker and owner: `skills/specwright-pr/scripts/pr-pair.sh:2160-2186`. |
 | T3 Concurrency | yes | Exclusive publication and record locks: `skills/specwright-pr/scripts/pr-pair.sh:1930-1955`, `2013-2030`. |
-| T4 Boundaries | yes | Shim handoff and native dispatch: `cli/lib/src/commands/pr.dart:12-31`, `59-97`; merge read-back: `skills/specwright-pr/scripts/pr-pair.sh:2743-2766`. |
+| T4 Boundaries | yes | Shim handoff and native dispatch: `cli/lib/src/commands/pr.dart:12-32`, `60-99`; merge read-back: `skills/specwright-pr/scripts/pr-pair.sh:2743-2766`. |
 | T5 Volume | yes | Paged issue read and marker index: `skills/specwright-pr/scripts/pr-pair.sh:2996-3014`. |
 | T6 Risk | yes | Per-login credentials: `skills/specwright-pr/scripts/pr-pair.sh:357-371`; remote deletion: `2954-2984`. |
 
@@ -15,7 +15,7 @@ TIER: FULL
 
 ## Context
 
-Scope and milestone boundaries are in proposal.md. The five settings/policy commands already dispatch natively in `cli/lib/src/commands/pr.dart:81-84`, `96`; the other commands remain in the Python dispatch at `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`.
+Scope and milestone boundaries are in proposal.md. The five settings/policy commands already dispatch natively in `cli/lib/src/commands/pr.dart:82-85`, `98`; the other commands remain in the Python dispatch at `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`.
 
 `PairStop`, argument parsing and the single-JSON error boundary are reusable (`cli/lib/src/pr/pair.dart:9-25`, `44-77`, `81-114`). VCS exposes its handlers, session and state document (`cli/lib/src/commands/vcs.dart:43-56`, `74-100`). The fence exposes injected GitHub, Git and launch callbacks (`cli/lib/src/fence/fence.dart:22-38`) and the credential/remote/launch sequence (`536-577`). These are the integration points; the sole temporary indirect VCS fence exception is D5.
 
@@ -42,6 +42,13 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 - **Reversal cost:** low for implementation, high for changing the stored protocol.
 - **Important:** yes, the stored protocol binds future changes; the lock representation is an explicitly approved refinement of S2.
 - **Chosen by:** user, "Use the SDK approach", approving exclusive lock files, legacy directory blocking and create-then-open fallback without a new package.
+
+The owner additionally approved a small POSIX environment reader for feedback-directory paths. When using the process environment, read `SPECWRIGHT_STATE_DIR` and `HOME` through `getenv`, copy their bytes, and decode with the existing escaped-byte codec. This preserves a configured directory even when `Platform.environment` omits a non-UTF-8 value. An explicitly supplied `PrContext.environment` remains authoritative, including absent or empty values; never supplement it with ambient values. Windows keeps its existing Unicode environment handling. Keep these raw values local to feedback path selection, never merge them into credential environments or mutate the process environment. Reuse the existing `ffi` dependency and add a pinned-SDK POSIX child-process test starting from actual raw environment bytes. No package or handoff field is added. A state-directory override never consults home. With no nonempty state value and no usable home, feedback path selection refuses as `_home` does (`cli/lib/src/settings/reviewer_config.dart:83-99`): the command reports internal_error with exit 1, writes no record and chooses no substitute directory. POSIX has no passwd lookup for an unset `HOME`; this differs from the frozen `Path.home()` fallback (`skills/specwright-pr/scripts/pr-pair.sh:1909`), and adding one needs separate owner approval. The first-seen head read uses the same selected state root as the frozen script (`skills/specwright-pr/scripts/pr-pair.sh:2248`).
+
+- **Rejected:** `Platform.environment` alone, which omits non-UTF-8 entries and would select a different default directory; a general environment retrofit; a new package; passwd ABI bindings for an unset `HOME`.
+- **Reversal cost:** low
+- **Important:** yes, changes where records are found and how a missing home is reported.
+- **Chosen by:** user, "Preserve raw paths with the small adapter".
 
 ### D3: Cohesive workflow collaborators
 
@@ -94,7 +101,7 @@ The user also chose "Use the library's HTML5 interpretation" for malformed HTML.
 | S3 | Milestone boundaries | Retrofit, launcher and remaining ports stay separate | Whole migration in this PR | low | yes | user |
 | S4 | Store binary selection | Leading --project; preserve store cwd and nested hop | Store inference; move cwd | medium | yes | user |
 | D1 | Internal integration | Direct calls, explicit target and caller budget | Shims/self-launch; global cwd/env | medium | yes | user |
-| D2 | Feedback persistence | Existing record protocol, SDK-exclusive lock files and publication fallback | New store/version; FFI error-code branching; lock stealing | low implementation; high protocol | yes | user |
+| D2 | Feedback persistence | Existing record protocol, SDK-exclusive lock files and publication fallback ; raw POSIX feedback environment reader, injected environments authoritative| New store/version; FFI error-code branching; lock stealing ; Platform.environment alone; general environment retrofit; passwd bindings| low implementation; high protocol | yes | user |
 | D3 | Organization | Cohesive native workflow collaborators | One translation or subprocess per function | low | no | agent |
 | D4 | Shim dispatch/project | Explicit selector, existing handoff and native dispatch | Inference; moved cwd; Python fallback; direct argv now | medium | yes | user |
 | D5 | Nested VCS fence | Retain fetch-main hop; resolved --code selects project for login resolution and fetch | Pull retrofit into this port | low | yes | user |
@@ -122,6 +129,8 @@ None. The new interfaces and modules above are proposed additions, not claims th
 - **C13:** Each representation difference from the frozen oracle is listed with its producer/consumer contract test, and one that changes a workflow outcome needs the user's decision. Kind: invariant. Destination: doc comment: evals/pr-pair/test_workflow_parity.py WorkflowParity.
 - **C14:** From 0.30.0, the checksummed third-party notice accompanies the binary in release artifacts and installs; it is verified before executing a downloaded binary, and older release manifests remain usable. A change to the compiled dependency set updates the notice. Kind: invariant. Destination: ADR 0032.
 - **C15:** The feedback record store classifies outcomes from SDK exceptions, post-failure occupancy and one-call OS success results. Numeric `errno` or `GetLastError` branching across FFI calls (dart-lang/sdk#38832), exists-then-create exclusivity and process-wide umask changes stay rejected. Kind: rejected alternative. Destination: doc comment: cli/lib/src/pr/feedback_record.dart FeedbackRecordStore.
+- **C16:** Feedback path selection preserves raw POSIX process-environment values through the existing byte codec. Injected environments remain authoritative; no ambient supplementation, credential-map overlay or process-environment mutation is allowed. Kind: invariant. Destination: doc comment: cli/lib/src/pr/feedback_environment.dart feedbackDirectory.
+- **C17:** The raw reader covers only feedback record paths and the first-seen head read. `context`'s reviewer-config writer and `stateBase` still read `Platform.environment`: with a non-UTF-8 state value they use the default directory, so a head written there is not found by pass plan, and with a non-UTF-8 or unset `HOME` and no override `context` stops with internal_error before a pass starts. An unset POSIX `HOME` has no passwd fallback, unlike the frozen script. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/feedback_environment.dart feedbackDirectory.
 
 ## Diagrams (FULL)
 
@@ -220,6 +229,7 @@ flowchart LR
 | Closing parser | Render read fails, or the parser or adapter raises | Render read: unknown result, no closing proof. Parser or adapter error: internal_error, no closing proof | Read may repeat | Agent sees exit 3, or internal_error exit 1; never `match` |
 | Notice delivery | Missing, corrupt, unplaceable or concurrently replaced notice | Rerun the install; a sealed release lacking its notice needs its owner | Yes; placement is idempotent | User sees `ok: false` with the code and release; a concurrent identical result continues |
 | Record publisher | Concurrent write, failed publication, or death during the SDK fallback | Exclusive refusal; cleanup own incomplete fallback/temp file on ordinary failure; a record left by death stays for explicit recovery | Retry only after observing record | Agent sees record_exists, record_unreadable or internal_error |
+| Feedback directory selection | No usable state value or home, or the POSIX reader cannot be bound | Set `HOME` or `SPECWRIGHT_STATE_DIR` and rerun | Yes; nothing was written | Agent sees internal_error, exit 1 |
 | Locked record mutation | Held lock or cleanup failure | Refuse held lock; report lock_left without replacing primary outcome | Never delete another owner's lock | Agent sees owner/lock fields |
 | Pass planner | Partial edit/commit/push/reply or stale snapshot | Return resume, ask or stop rows from evidence | Plan is repeatable; actions follow plan | Agent sees rows and needs_user |
 | Merge/delete | Server accepted write but answer lost | Existing read-back/unknown sequencing | Never add a second merge PUT or speculative delete | Agent sees merged/refused/unknown or retained branch |
@@ -267,6 +277,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 | Caller-budget adapter | yes | Replacing one bounded script with separately timed callbacks can exceed the prior deadline | New owner-approved runtime contract |
 | Exclusive publication and owned locks | yes | Concurrent writers and interrupted pass recovery already exist | New owner-approved storage protocol |
 | Private filesystem primitive adapter | yes | SDK-exclusive lock/publication creation; minimal hard-link/atomic-replace adapter without cross-FFI error-code branching | Concurrent callers, legacy lock, occupied destination, open/write/close cleanup, private permissions and replacement OS tests |
+| POSIX feedback environment reader | yes | `Platform.environment` omits non-UTF-8 entries, so a raw state directory would silently select the default record location | Dart exposes raw environment bytes, or a later change owns a general environment boundary |
 | Leading project selector and forwarding | yes | Store has no project VERSION; resolving from store cwd otherwise blocks workflow dispatch | Store-started fenced and unfenced command tests |
 | Library HTML parser and workflow adapter | yes | Approved html package handles HTML/entities; adapter extracts closing prose with code and line boundaries | A library difference changes the workflow outcome; ask the user before changing that outcome |
 | Automated notice-completeness check | no | Task 4.4's evidence and C14 cover this change; it would need a runtime-graph-to-licence mapping | A dependency change ships with a stale notice |
