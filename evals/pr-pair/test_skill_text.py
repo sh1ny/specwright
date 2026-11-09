@@ -21,7 +21,7 @@ TEXT = SKILL.read_text(encoding="utf-8")
 
 def sub(name):
     """Pattern for `pr-pair.sh <name>` however the path before it is written (bash scripts/..., a variable)."""
-    return re.compile(r"pr-pair\.sh[`\"']?\s+" + name + r"\b")
+    return re.compile(r"pr-pair\.sh[`\"']?\s+(?:--project\s+(?:\"[^\"]+\"|\S+)\s+)?" + name + r"\b")
 
 
 def sections(text):
@@ -64,6 +64,26 @@ def positions(pattern, text=TEXT):
 
 
 class SkillText(unittest.TestCase):
+    def test_store_callers_select_both_resolvers(self):
+        finish = SKILL.parents[1] / 'specwright-finish' / 'SKILL.md'
+        for path, text in ((SKILL, TEXT), (finish, finish.read_text(encoding='utf-8'))):
+            with self.subTest(skill=path.name, folder=path.parent.name):
+                self.assertRegex(text, r'as\.sh --project "<code toplevel>" <store login>')
+                self.assertRegex(text, r'pr-pair\.sh --project "<code toplevel>" discover --repo')
+                self.assertIn('cd "<store toplevel>" &&', text)
+                self.assertIn('does not change cwd or login', text)
+                self.assertIn('each shim resolves its own binary', text)
+
+    def test_store_selector_instructions_preserve_known_limitations(self):
+        finish = SKILL.parents[1] / 'specwright-finish' / 'SKILL.md'
+        for text in (TEXT, finish.read_text(encoding='utf-8')):
+            self.assertIn('pr-snapshot.sh', text)
+            self.assertIn('pr-reply.sh', text)
+            self.assertIn('S-1', text)
+            self.assertIn('C11', text)
+            self.assertIn('native-cli-internal-calls', text)
+            self.assertIn('sw_missing', text)
+
     def section(self, title):
         self.assertIn(title, SECTIONS, f"SKILL.md has no '## {title}' section; found {sorted(SECTIONS)}")
         return SECTIONS[title][1]
@@ -463,8 +483,13 @@ class RunLogin(unittest.TestCase):
         # pass, rounds, pair-state and cleanup-plan read GitHub (and the remote they start in) as the fenced
         # login, and cleanup-plan names that login in the pulls it emits; only the local calls run bare
         local = {"identity", "context", "branch-check"}
-        bad = [m.group(0) for m in re.finditer(r"(\[as\] )?bash scripts/pr-pair\.sh ([a-z-]+)", TEXT)
-               if not m.group(1) and m.group(2) not in local]
+        bad = []
+        pattern = re.compile(r'(\[as\] )?bash scripts/pr-pair\.sh (?:--project (?:"[^"]+"|\S+) )?([a-z][a-z-]*)')
+        for line in TEXT.splitlines():
+            for m in pattern.finditer(line):
+                selected_fence = re.search(r'bash scripts/as\.sh --project "<code toplevel>" <store login> $', line[:m.start()])
+                if not (m.group(1) or selected_fence) and m.group(2) not in local:
+                    bad.append(m.group(0))
         self.assertFalse(bad, f"pr-pair.sh calls without `[as]`: {bad}")
 
     def watch_bullets(self):

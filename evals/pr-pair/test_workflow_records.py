@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -56,6 +57,65 @@ class WorkflowRecords(NativePass, original.PassBase):
     adopted_code_pr = original.PassPlan.adopted_code_pr
     link_args = original.PassPlan.link_args
     markers = original.PassPlan.markers
+
+    def test_native_runtime_has_no_embedded_workflow(self):
+        text = original.SCRIPT.read_text(encoding='utf-8')
+        self.assertNotIn("<<'PYSRC'", text)
+        self.assertNotIn('def pass_write(', text)
+        self.assertNotIn('class _Bounded:', text)
+        for command in ('identity', 'context', 'vcs', 'tier', 'policy', 'discover',
+                        'expected', 'ensure-pr', 'link', 'pair-state', 'rounds',
+                        'closing-check', 'closed-check', 'merge', 'delete-remote',
+                        'item-issues', 'pass', 'cleanup-plan', 'branch-check'):
+            self.assertIn(command, text)
+
+    def test_native_pass_write_uses_utf8_lf_without_python38(self):
+        f = self.write_json('native-lf-intent.json', self.intent([]))
+        result = self.pp('pass', 'write', *self.common(), '--intent', f)
+        self.assertTrue(result['ok'])
+        data = self.record_path().read_bytes()
+        self.assertNotIn(b'\r', data)
+        self.assertEqual(json.loads(data.decode('utf-8'))['change'], original.CHANGE)
+
+    def python38(self):
+        py = original.find_py38()
+        if not py:
+            self.skipTest('no Python 3.8 interpreter (set SPECWRIGHT_PY38, or `uv python install 3.8`)')
+        return py
+
+    def test_no_python_3_8_available_to_the_test(self):
+        # Test the conditional check's reported outcome rather than returning
+        # successfully when this machine has no minimum-version interpreter.
+        case = unittest.FunctionTestCase(self.python38)
+        result = unittest.TestResult()
+        with mock.patch.object(original, 'find_py38', return_value=None):
+            case.run(result)
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(len(result.skipped), 1)
+        self.assertIn('no Python 3.8 interpreter', result.skipped[0][1])
+        self.assertEqual(result.failures + result.errors, [])
+
+    def test_pass_write_on_python_3_8(self):
+        py = self.python38()
+        shims = self.tmp / 'py38bin'
+        shims.mkdir()
+        for name in ('python3', 'python'):
+            wrapper = shims / name
+            wrapper.write_text(f'#!/bin/sh\nexec "{original.fixtures.posix(py)}" "$@"\n', encoding='utf-8', newline='\n')
+            wrapper.chmod(0o755)
+        environment = {**self.env(), 'PATH': str(shims) + os.pathsep + self.env()['PATH']}
+        probe = subprocess.run([parity.bashexe.bash(), '-c', "python3 -c 'import sys; print(sys.version_info[:2])'"],
+                               capture_output=True, text=True, env=environment, timeout=30)
+        self.assertEqual(probe.stdout.strip(), '(3, 8)', probe.stdout + probe.stderr)
+        intent = self.write_json('py38-intent.json', self.intent([]))
+        result = subprocess.run([parity.bashexe.bash(), str(original.SCRIPT), 'pass', 'write',
+                                 *map(str, self.common()), '--intent', str(intent)],
+                                capture_output=True, text=True, env=environment, cwd=self.tmp, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)['ok'])
+        data = self.record_path().read_bytes()
+        self.assertNotIn(b'\r', data)
+        self.assertEqual(json.loads(data.decode('utf-8'))['change'], original.CHANGE)
 
     def raw_root(self, name):
         path = os.fsencode(self.tmp) + b'/' + name + b'-\xff'

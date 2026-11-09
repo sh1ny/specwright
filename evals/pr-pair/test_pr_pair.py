@@ -599,7 +599,6 @@ class Context(Base):
 
     def test_readme_and_template_report_examples_pass_both_readers(self):
         import textwrap
-        ns = PublishFallback.namespace()
         examples = {"README.md": [], "templates/openspec/specwright.yaml": []}
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         for m in re.finditer(r"^[ \t]*```(?:yaml|yml)[^\n]*\n(.*?)^[ \t]*```", readme, re.S | re.M):
@@ -620,26 +619,25 @@ class Context(Base):
             self.assertTrue(found, f"{name} needs at least one `report:` example")
             for text in found:
                 with self.subTest(file=name, example=text):
-                    self.assertIsNone(ns["yaml_problem"](text))
-                    tree = ns["parse_yaml"](text)
-                    reports = []
-
-                    def walk(node):
-                        if isinstance(node, dict):
-                            for k, v in node.items():
-                                if k == "report":
-                                    reports.append(v)
-                                walk(v)
-
-                    walk(tree)
+                    # The shipped strict reader produces the config consumed by
+                    # snapshot/reviewer evaluation, including literal backslashes.
+                    settings = text if re.search(r"^pr:|^planning_store:", text, re.M) else "pr:\n" + textwrap.indent(text, "  ")
+                    self.settings(settings)
+                    result = self.pp("context", "--code", self.code)
+                    self.assertNotIn("settings_problem", result, result)
+                    configs = [read_config(result[side]["reviewer_config"])
+                               for side in ("code", "store") if result.get(side)]
+                    reports = [reviewer["report"] for config in configs
+                               for reviewer in config["reviewers"] if "report" in reviewer]
                     self.assertTrue(reports, text)
                     for rep in reports:
                         self.assertIsInstance(rep, dict, text)
                         for key, value in rep.items():
                             self.assertIsInstance(value, str, f"{key} in {text}")
                             single = re.search(r"^\s*" + re.escape(key) + r":\s*'((?:[^']|'')*)'\s*$", text, re.M)
-                            if single:  # single-quoted as written: the lenient value is the text between the quotes
+                            if single:
                                 self.assertEqual(value, single.group(1).replace("''", "'"))
+
 
 
 class ContextPin(Base):
@@ -2450,42 +2448,6 @@ class PassOwnership(PassBase):
             self.assertTrue(d["deleted"])
             self.assertFalse(path.exists())
 
-        # where the OS answers ENAMETOOLONG (POSIX) instead of "no such file" (Windows), the old path counts as absent
-        import errno
-        from unittest import mock
-        ns = PublishFallback.namespace()
-        real_exists = Path.exists
-
-        def exists(p):
-            if p.name == legacy_key(repo, "d" * 120):
-                raise OSError(errno.ENAMETOOLONG, "File name too long", str(p))
-            return real_exists(p)
-
-        with mock.patch.dict(os.environ, {"SPECWRIGHT_STATE_DIR": str(self.state_dir)}), mock.patch.object(Path, "exists", exists):
-            path, ignored = ns["locate_record"](repo, "d" * 120)
-        self.assertEqual((Path(path).name, ignored), (record_key(repo, "d" * 120), None))
-
-    def test_legacy_move_finished_by_another_caller(self):
-        # another call sees our published copy identical to the old file and removes the old file before our unlink
-        from unittest import mock
-        ns = PublishFallback.namespace()
-        rec = {"version": 1, "code_repo": CODE, "change": CHANGE, "round": 2, "findings": []}
-        legacy = self.state_dir / "feedback" / legacy_key(CODE, CHANGE)
-        legacy.parent.mkdir(parents=True)
-        legacy.write_text(json.dumps(rec, indent=2), encoding="utf-8")
-        real_publish = ns["publish"]
-
-        def publish_then_other_caller_removes_old(src, dst):
-            real_publish(src, dst)
-            os.unlink(src)
-
-        with mock.patch.dict(os.environ, {"SPECWRIGHT_STATE_DIR": str(self.state_dir)}):
-            ns["publish"] = publish_then_other_caller_removes_old
-            path, ignored = ns["locate_record"](CODE, CHANGE)
-        self.assertEqual((Path(path).name, ignored), (record_key(CODE, CHANGE), None))
-        self.assertTrue(Path(path).exists())
-        self.assertFalse(legacy.exists())
-
     def test_legacy_record_of_another_identity_is_left_alone(self):
         self.write_record([self.finding()])
         self.owner = None
@@ -2527,35 +2489,6 @@ class PassOwnership(PassBase):
         self.assertEqual(legacy.read_bytes(), b"not json")
         d = self.plan(sub="done", expect=1)  # the pass is not complete, but the legacy file does not stop it
         self.assertEqual(d["error"], "not_complete")
-
-    def test_denied_legacy_record_is_unreadable(self):
-        # the old file cannot be read at all (a permission error): its identity is unknown, like a cut-off file
-        import errno
-        from unittest import mock
-        ns = PublishFallback.namespace()
-        legacy = self.legacy_file(b"{}")
-        real_text, real_bytes = Path.read_text, Path.read_bytes
-
-        def denied(real):
-            def read(p, *a, **k):
-                if p.name == legacy.name:
-                    raise PermissionError(errno.EACCES, "Permission denied", str(p))
-                return real(p, *a, **k)
-            return read
-
-        env = {"SPECWRIGHT_STATE_DIR": str(self.state_dir)}
-        reads = (mock.patch.dict(os.environ, env), mock.patch.object(Path, "read_text", denied(real_text)),
-                 mock.patch.object(Path, "read_bytes", denied(real_bytes)))
-        with reads[0], reads[1], reads[2]:
-            with self.assertRaises(ns["Stop"]) as cm:
-                ns["locate_record"](CODE, CHANGE)
-        self.assertEqual(cm.exception.error, "record_unreadable")
-        self.assertIn(legacy.name, cm.exception.message)
-        self.assertFalse(self.record_path().exists())
-        self.write_record([self.finding()])
-        with reads[0], reads[1], reads[2]:
-            path, ignored = ns["locate_record"](CODE, CHANGE)  # beside a valid record it is ignored, not fatal
-        self.assertEqual((Path(path).name, Path(ignored).name), (record_key(CODE, CHANGE), legacy.name))
 
     def test_pass_write_is_exclusive_under_concurrency(self):
         f = self.write_json("intent.json", self.intent([self.finding()]))
@@ -2878,24 +2811,6 @@ class PassRepoLocal(Base):
         return rows[0]
 
 
-def embedded_python():
-    text = SCRIPT.read_text(encoding="utf-8")
-    start = text.index("<<'PYSRC'\n") + len("<<'PYSRC'\n")
-    return text[start:text.index("\nPYSRC", start)]
-
-
-def calls(src, name):
-    """The full argument text of every `.name(...)` call, matching nested parentheses."""
-    out = []
-    for m in re.finditer(r"\." + name + r"\(", src):
-        depth, i = 1, m.end()
-        while depth and i < len(src):
-            depth += {"(": 1, ")": -1}.get(src[i], 0)
-            i += 1
-        out.append(src[m.end():i - 1])
-    return out
-
-
 def find_py38():
     """A Python 3.8 interpreter: SPECWRIGHT_PY38, then `uv python find 3.8`, then `py -3.8`; None if none."""
     cands = [os.environ.get("SPECWRIGHT_PY38")]
@@ -2913,92 +2828,8 @@ def find_py38():
     return None
 
 
-class RecordLock(unittest.TestCase):
-    """record_lock: a lock directory that cannot be removed never replaces the outcome of the work done under it."""
-
-    def setUp(self):
-        self.ns = PublishFallback.namespace()
-        self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(fixtures.rmtree, self.tmp)
-        self.path = self.tmp / "rec.json"
-
-    def held(self, body, path):
-        from unittest import mock
-        with mock.patch.object(self.ns["os"], "rmdir", side_effect=PermissionError(13, "denied")):
-            with self.ns["record_lock"](path):
-                body()
-
-    def test_failed_lock_removal_keeps_the_outcome(self):
-        self.held(lambda: None, self.path)  # the work succeeded: no exception, the lock is reported as left behind
-        self.assertEqual(self.ns["LEFT_LOCKS"], [self.ns["norm"](Path(str(self.path) + ".lock"))])
-        with self.assertRaises(self.ns["Stop"]) as busy:  # the lock that was left stops the next call, as for any held lock
-            self.held(lambda: None, self.path)
-        self.assertEqual(busy.exception.obj()["error"], "record_busy")
-        Stop = self.ns["Stop"]
-
-        def fail():
-            raise Stop("not_owner", "someone else")
-
-        with self.assertRaises(Stop) as cm:  # the body's own stop is what the caller sees
-            self.held(fail, self.tmp / "other.json")
-        self.assertEqual(cm.exception.obj()["error"], "not_owner")
-
-
-class PublishFallback(unittest.TestCase):
-    """publish() without hard links creates the destination with O_EXCL and writes it; a failed write leaves no record behind."""
-
-    @staticmethod
-    def namespace():
-        text = SCRIPT.read_text(encoding="utf-8")
-        src = text.split("<<'PYSRC'\n", 1)[1].rsplit("\nPYSRC", 1)[0]
-        src = src.split("\nargs = sys.argv[1:]", 1)[0]  # the definitions, not the dispatch
-        ns = {"__name__": "pr_pair_under_test"}
-        exec(compile(src, str(SCRIPT), "exec"), ns)
-        return ns
-
-    def test_failed_fallback_publish_leaves_no_record(self):
-        import errno
-        from unittest import mock
-        publish = self.namespace()["publish"]
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(fixtures.rmtree, tmp)
-        src, dst = tmp / "src.json", tmp / "dst.json"
-        src.write_bytes(b'{"a": 1}')
-        real_fdopen = os.fdopen
-
-        class Failing:
-            def __init__(self, f):
-                self.f = f
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                self.f.close()
-
-            def write(self, data):
-                raise OSError(errno.ENOSPC, "No space left on device")
-
-        def failing_fdopen(fd, mode="r", *a, **k):
-            return Failing(real_fdopen(fd, mode, *a, **k))
-
-        with mock.patch.object(os, "link", side_effect=OSError(errno.EPERM, "links unsupported")), \
-                mock.patch.object(os, "fdopen", side_effect=failing_fdopen):
-            with self.assertRaises(OSError):
-                publish(str(src), str(dst))
-        self.assertFalse(dst.exists(), "the fallback left a partly written destination that would read as record_unreadable")
-        publish(str(src), str(dst))  # and the next attempt can create it
-        self.assertEqual(dst.read_bytes(), b'{"a": 1}')
-
-
 class PassRuntime(PassBase):
-    """pass write on the minimum Python the script accepts, and its JSON error contract for unexpected failures."""
-
-    def test_embedded_python_passes_no_newline_kwarg(self):
-        src = embedded_python()
-        found = [f"{n}({a})" for n in ("write_text", "read_text") for a in calls(src, n) if re.search(r"\bnewline\s*=", a)]
-        self.assertTrue(calls(src, "read_text"), "no read_text call found; the scan would be vacuous")
-        self.assertEqual(found, [], "Path.write_text/read_text take newline= only on Python 3.10+")
+    """The native shim retains the JSON error contract for unexpected failures."""
 
     def test_unexpected_error_is_internal_error_json(self):
         self.state_dir.mkdir(parents=True)
@@ -3012,29 +2843,6 @@ class PassRuntime(PassBase):
         out = json.loads(lines[0])
         self.assertEqual((r.returncode, out["ok"], out["error"]), (1, False, "internal_error"), out)
         self.assertTrue(out.get("message"), out)
-
-    def test_pass_write_on_python38(self):
-        py = find_py38()
-        if not py:
-            self.skipTest("no Python 3.8 interpreter (set SPECWRIGHT_PY38, or `uv python install 3.8`)")
-        shims = self.tmp / "py38bin"
-        shims.mkdir()
-        for name in ("python3", "python"):
-            (shims / name).write_text(f'#!/bin/sh\nexec "{fixtures.posix(py)}" "$@"\n', encoding="utf-8", newline="\n")
-            os.chmod(shims / name, 0o755)
-        e = self.env()
-        e["PATH"] = str(shims) + os.pathsep + e["PATH"]
-        v = subprocess.run([bashexe.bash(), "-c", "python3 -c 'import sys; print(sys.version_info[:2])'"], capture_output=True, text=True, env=e)
-        self.assertEqual(v.stdout.strip(), "(3, 8)", f"the shim does not reach 3.8: {v.stdout!r} {v.stderr!r}")
-        f = self.write_json("intent.json", self.intent([self.finding()]))
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
-                           capture_output=True, text=True, env=e, cwd=self.tmp)
-        self.assertEqual(r.returncode, 0, f"stdout: {r.stdout}\nstderr: {r.stderr}")
-        self.assertTrue(json.loads(r.stdout.strip().splitlines()[0])["ok"], r.stdout)
-        data = self.record_path().read_bytes()
-        self.assertNotIn(b"\r", data)
-        self.assertEqual(json.loads(data.decode("utf-8"))["change"], CHANGE)
-
 
 # =======================================================================================================
 class Cleanup(Base):
@@ -3055,19 +2863,17 @@ class Cleanup(Base):
     def cmds(entry):
         return [c["cmd"] for c in entry["commands"]]
 
-    @staticmethod
-    def fenced_pull(login):
+    def fenced_pull(self, login):
         """The fenced pull cleanup-plan emits: as.sh runs git pull as the login that reads the repo."""
-        return ["bash", str(SCRIPT.parent / "as.sh").replace("\\", "/"), login, "git", "pull", "--ff-only"]  # bare-bash: not started
+        return ["bash", str(SCRIPT.parent / "as.sh").replace("\\", "/"), "--project", str(self.code).replace("\\", "/"), login, "git", "pull", "--ff-only"]  # bare-bash: not started
 
     def same_cmds(self, got, want):
         fold = lambda cs: [[x.lower() if i == 1 and c[:1] == ["bash"] else x for i, x in enumerate(c)] for c in cs]  # bare-bash: not started
         self.assertEqual(fold(got), fold(want))
 
-    @staticmethod
-    def check_cmd(entry, head, main="main"):
+    def check_cmd(self, entry, head, main="main"):
         """The branch-check command a merged side runs after the pull: --head is the merged PR's head commit."""
-        return ["pr-pair.sh", "branch-check", "--dir", entry["dir"], "--branch", BRANCH, "--main", main, "--head", head]
+        return ["pr-pair.sh", "--project", str(self.code).replace("\\", "/"), "branch-check", "--dir", entry["dir"], "--branch", BRANCH, "--main", main, "--head", head]
 
     def test_cleanup_plan_both_merged(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)  # squash: not the local tip
@@ -3150,7 +2956,7 @@ class Cleanup(Base):
         self.add_pull(STORE, 2)  # open
         p = self.plan()
         self.assertTrue(p["code"]["merged"])
-        self.assertEqual(self.cmds(p["code"])[-1][:2], ["pr-pair.sh", "branch-check"])
+        self.assertEqual(self.cmds(p["code"])[-1][:4], ["pr-pair.sh", "--project", str(self.code).replace("\\", "/"), "branch-check"])
         self.assertEqual(p["code"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertFalse(p["store"]["merged"])
         self.assertEqual(p["store"]["commands"], [])
@@ -3203,7 +3009,7 @@ class Cleanup(Base):
         self.git(self.store, "remote", "remove", "origin")
         self.add_pull(CODE, 5, state="closed", merged=self.merged)
         p = self.plan()
-        self.assertEqual(self.cmds(p["code"])[-1][:2], ["pr-pair.sh", "branch-check"])
+        self.assertEqual(self.cmds(p["code"])[-1][:4], ["pr-pair.sh", "--project", str(self.code).replace("\\", "/"), "branch-check"])
         self.assertEqual(p["store"]["commands"], [])
         self.assertEqual([(k["repo"], k["state"], k["branch"]) for k in p["keep"]], [("store", "SHARE_BY_HAND", BRANCH)])
 

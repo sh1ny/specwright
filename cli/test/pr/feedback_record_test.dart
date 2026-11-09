@@ -16,11 +16,17 @@ class FaultFiles implements RecordFiles {
       failWrite = false,
       failClose = false,
       failRmdir = false,
-      failReplace = false;
+      failReplace = false,
+      removeLinkedSource = false;
+  String? deniedRead;
   @override
   void acquireLock(String p) => actual.acquireLock(p);
   @override
-  List<int> readBytes(String p) => actual.readBytes(p);
+  List<int> readBytes(String p) {
+    if (p == deniedRead) throw FileSystemException('permission denied', p);
+    return actual.readBytes(p);
+  }
+
   @override
   void releaseLock(String p) {
     if (failRmdir) throw FileSystemException('denied', p);
@@ -31,6 +37,7 @@ class FaultFiles implements RecordFiles {
   void link(String a, String b) {
     if (noLinks) throw FileSystemException('links unavailable');
     actual.link(a, b);
+    if (removeLinkedSource) actual.delete(a);
   }
 
   @override
@@ -333,7 +340,66 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
     expect(File(path).existsSync(), false);
+    faults.failWrite = false;
+    store.publish(source.path, path);
+    expect(File(path).readAsBytesSync(), source.readAsBytesSync());
   });
+  test('too-long legacy filename is absent without losing the bounded key', () {
+    final store = FeedbackRecordStore(tmp.path);
+    final repo = 'org/${List.filled(100, 'repo').join()}';
+    final change = List.filled(120, 'd').join();
+    final old = store.legacyPath(repo, change);
+    expect(FileSystemEntity.isFileSync(old), false);
+    final location = store.locate(repo, change);
+    expect(location.path, store.recordPath(repo, change));
+    expect(location.ignoredLegacy, isNull);
+    expect(File(location.path).existsSync(), false);
+  });
+  test('legacy migration tolerates another caller removing the source after publication', () {
+    final faults = FaultFiles()..removeLinkedSource = true;
+    final store = FeedbackRecordStore(tmp.path, files: faults);
+    final old = File(store.legacyPath('o/r', 'change'));
+    final bytes = utf8.encode(
+      '{"code_repo":"o/r","change":"change","version":1}',
+    );
+    old.writeAsBytesSync(bytes);
+    final location = store.locate('o/r', 'change');
+    expect(location.path, store.recordPath('o/r', 'change'));
+    expect(location.ignoredLegacy, isNull);
+    expect(File(location.path).readAsBytesSync(), bytes);
+    expect(old.existsSync(), false);
+  });
+  test(
+    'denied legacy reads refuse alone and are ignored beside a valid record',
+    () {
+      final faults = FaultFiles();
+      final store = FeedbackRecordStore(tmp.path, files: faults);
+      final old = File(store.legacyPath('o/r', 'change'))
+        ..writeAsStringSync('{}');
+      faults.deniedRead = old.path;
+      expect(
+        () => store.locate('o/r', 'change'),
+        throwsA(
+          isA<PairStop>()
+              .having((e) => e.error, 'error', 'record_unreadable')
+              .having((e) => e.message, 'message', contains(old.path)),
+        ),
+      );
+      final path = store.recordPath('o/r', 'change');
+      expect(File(path).existsSync(), false);
+      store.writeNew(path, {
+        'version': 2,
+        'code_repo': 'o/r',
+        'change': 'change',
+      });
+      final before = File(path).readAsBytesSync();
+      final location = store.locate('o/r', 'change');
+      expect(location.path, path);
+      expect(location.ignoredLegacy, old.path.replaceAll(r'\', '/'));
+      expect(File(path).readAsBytesSync(), before);
+      expect(old.readAsStringSync(), '{}');
+    },
+  );
   test('a close failure never replaces the primary write failure', () {
     final source = File('${tmp.path}/source')..writeAsStringSync('complete');
     final faults = FaultFiles()

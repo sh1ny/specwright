@@ -6,6 +6,7 @@ import '../pr/reviewers.dart';
 import '../pr/reply.dart';
 import '../pr/snapshot.dart';
 import '../pr/workflow.dart';
+import '../pr/pair.dart';
 import 'vcs.dart' show readAllStdin;
 
 /// The commands that take the shim's handoff on stdin.
@@ -31,6 +32,7 @@ const List<String> _handoffCommands = [
   'pass',
   'cleanup-plan',
   'branch-check',
+  'pair', // Internal invalid-call entry; the shim preserves its original records.
 ];
 
 final String _usage = 'usage: sw pr ${_handoffCommands.join('|')} --args-stdin';
@@ -79,6 +81,11 @@ Future<int> runPrCommand(
         writeErr: writeErr,
       );
   return switch (args[0]) {
+    'pair' => runPairCommand(ctx, () async {
+      pairUsage(
+        'subcommand: identity | context | tier | vcs | discover | expected | ensure-pr | closing-check | closed-check | link | pair-state | rounds | pass | cleanup-plan | branch-check | merge | delete-remote | policy | item-issues',
+      );
+    }),
     'snapshot' => runSnapshot(ctx, handoff.args),
     'reply' => runReply(ctx, handoff.args),
     'identity' => runIdentity(ctx, handoff.args),

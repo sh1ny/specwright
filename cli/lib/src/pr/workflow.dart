@@ -943,8 +943,10 @@ class Workflow {
       '--branch': 'branch',
     });
     needArgs(a, ['code', 'store', 'branch']);
-    final code = await ctx.native(a['code']!),
-        store = await ctx.native(a['store']!),
+    String printedPath(String value) =>
+        Platform.isWindows ? value.replaceAll(r'\', '/') : value;
+    final code = printedPath(await ctx.native(a['code']!)),
+        store = printedPath(await ctx.native(a['store']!)),
         branch = a['branch']!;
     final e = await expected(code, store, branch),
         contexts = await workflowContexts(ctx, code, store);

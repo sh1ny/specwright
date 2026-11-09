@@ -90,4 +90,4 @@ DECISION_MAKING: important
 
 ### Removed
 
-- The remaining embedded Python implementation in `pr-pair.sh`; Bash and Python prerequisites remain until later M8 changes remove their remaining uses (#148).
+- The remaining embedded Python implementation in `pr-pair.sh`. All nineteen entry points and invalid-call usage use native dispatch; Bash and Python prerequisite probes remain until later M8 changes remove their remaining uses (#148).
