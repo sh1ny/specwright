@@ -19,6 +19,10 @@
 ### Requirement: sw vcs documents keep their values and name bytes
 Each document `sw vcs` prints SHALL parse to the same keys, key order and values as the one `vcs.sh` printed for the same inputs. A name's bytes SHALL round-trip through arguments, directory listings, `git` and `jj` output and the document even when they are not valid UTF-8; `but` output is read as before.
 
+#### Scenario: Line separators parse back
+- **WHEN** a message or path in the output holds U+2028 or U+2029
+- **THEN** the parsed JSON string holds that character
+
 #### Scenario: Line separators stay escaped
 - **WHEN** a message or path in the output holds U+2028 or U+2029
 - **THEN** the parsed JSON string holds that character

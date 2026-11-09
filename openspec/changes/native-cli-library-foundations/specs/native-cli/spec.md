@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: sw documents are compact JSON ending in one line feed
-Every JSON document `sw` prints SHALL be one compact JSON value followed by a single LF on every operating system. Consumers SHALL read a document by parsing it, never by matching its text.
+Every JSON document `sw` prints SHALL be one compact JSON value followed by a single LF on every operating system. Consumers SHALL read a document by parsing it, never by matching its text, except the temporary snapshot regex readers retained until `native-cli-internal-calls`; those readers retain the compact keys they require.
 
 #### Scenario: Document on Windows
 - **WHEN** `sw vcs probe` prints its document on Windows
@@ -16,7 +16,7 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 - **THEN** stdout is one JSON document with `"ok": false` and `"error": "internal_error"`, the exit status is 1, and no stack trace is printed
 
 ### Requirement: JSON input that is not plain JSON is refused
-`sw` SHALL read JSON files and `gh` responses as standard JSON and SHALL stop with the command's existing unreadable-input error, deciding nothing from the input, when it is malformed or holds a form outside the standard. No integer beyond 64 bits SHALL reach a document: such a setting stops as a `bad_setting` problem, and in `sw commit task-cover` a task, subject, trailer or numbered heading with such a group number is ignored.
+`sw` SHALL read files and gh responses as standard JSON, preserving command-specific unreadable-input refusals. No BigInt SHALL reach a document: integer settings follow the caller-specific problem/default rules below; oversized raw policy values use settingText. Task-cover SHALL ignore oversized task, subject, trailer and heading group numbers.
 
 #### Scenario: Well-formed input
 - **WHEN** `sw pr reviewers --material m.json --head <oid>` reads a valid JSON material file
@@ -31,20 +31,48 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 - **THEN** the command stops with its unreadable-input error or reads the input whole; it never crashes with a stack trace
 
 #### Scenario: An integer that cannot be held exactly
-- **WHEN** a field the workflow compares as an integer holds a number beyond 64 bits
-- **THEN** the command does not compare a rounded value: it stops with its unreadable-input error
+- **WHEN** a reviewer-config timeout holds an integer beyond signed 64-bit range
+- **THEN** reviewers reports its config error with exit 2 and nothing on stdout, without comparing a rounded value
 
 #### Scenario: A JSON file over the size limit
-- **WHEN** a reviewer material file, reviewer config or policy snapshot file is larger than 32 MiB
+- **WHEN** a reviewer material file, reviewer config, policy snapshot, workflow snapshot, feedback intent or feedback record file is larger than 32 MiB
 - **THEN** the command stops with its unreadable-input error naming the file, without decoding it
 
 #### Scenario: An integer setting beyond 64 bits
-- **WHEN** `openspec/specwright.yaml` sets a reviewer timeout to a number beyond 64 bits
-- **THEN** the command reports a `bad_setting` problem naming that key, writes no reviewer config, and no stack trace is printed
+- **WHEN** context reads openspec/specwright.yaml with a reviewer timeout beyond signed 64-bit range
+- **THEN** it stops with bad_setting, exit 2, naming the key before writing any reviewer config; the rules layer supplies timeout default 1200 and no BigInt escapes
 
 #### Scenario: Reviewer config for ordinary values
 - **WHEN** a reviewer config is built from values within 64 bits
 - **THEN** its bytes and digest equal those written before this change
+
+#### Scenario: An oversized feedback record stays unreadable
+- **WHEN** a new-key or matching legacy feedback record exceeds 32 MiB
+- **THEN** the command retains its existing occupied/unreadable-record refusal, leaves the record untouched, and starts no replacement pass
+
+#### Scenario: Oversized workflow and intent files
+- **WHEN** a workflow snapshot or feedback intent exceeds 32 MiB, including at a raw POSIX path
+- **THEN** its existing unreadable-input error and exit status are retained, and the intended file is neither truncated nor treated as absent
+
+#### Scenario: Feedback integers are exact
+- **WHEN** a feedback intent round exceeds the signed 64-bit range
+- **THEN** pass-write reports invalid_intent and publishes no record instead of comparing a rounded value
+
+#### Scenario: rounds with max_fix_rounds beyond 64 bits stops with bad_setting
+- **WHEN** rounds reads max_fix_rounds beyond signed 64-bit range
+- **THEN** the rules layer reports bad_setting and substitutes 2, and workflowContexts collects the problem so rounds stops with bad_setting and exit 2 instead of encoding or comparing a BigInt; pass callers use the same rule
+
+#### Scenario: policy lists an oversized head integer in invalid and exits 0
+- **WHEN** main has valid settings and the head sets a reviewer timeout beyond signed 64-bit range
+- **THEN** policy exits 0, names the key in invalid, and its values, drift comparison, pr.reviewers and reviewer config use default 1200 without a BigInt; the same problem on main stops through its bads path
+
+#### Scenario: Lone surrogate keeps its pre-change digest
+- **WHEN** a reviewer report string holds a lone surrogate
+- **THEN** reviewer-config bytes and digest equal the fixed baseline captured before the change, replacing the surrogate with ? even if JsonEncoder needs the D1 string fallback
+
+#### Scenario: Watcher compact keys remain readable
+- **WHEN** reviewers prints a document consumed by the snapshot regex readers
+- **THEN** its compact keys remain readable by loginsOf, recheck, fail_names, fail_run_ids, merge_state, ci_pending and complete until native-cli-internal-calls replaces that boundary
 
 ### Requirement: sw options follow one parsing rule
 `sw vcs`, `sw finish` and `sw pr` SHALL accept `--name value` and `--name=value`, SHALL take the next word as an option's value whatever it looks like, SHALL keep every value of a repeated list option without splitting on commas, and SHALL stop with their `usage` error and exit 2 on an unknown or incomplete option. Option names SHALL NOT be abbreviated. Removing an accidental form that no shipped caller uses SHALL NOT change `interface`.

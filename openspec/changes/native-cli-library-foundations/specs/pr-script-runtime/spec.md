@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Paginated GitHub lists read every page or decide nothing
-A list read that spans pages SHALL use `gh api --paginate --slurp`, flatten the returned array of pages into one list in page order, and on any response other than an array of arrays SHALL report the read as unknown. An unknown read SHALL NOT lead to a GitHub mutation.
+A list read that decodes whole pages SHALL use `gh api --paginate --slurp`, flatten the returned array of pages into one list in page order, and on any response other than an array of arrays SHALL report the read as unknown. An unknown read SHALL NOT lead to a GitHub mutation. `item-issues` retains `--paginate --jq` per-page output and its existing `unreadable response` refusal.
 
 #### Scenario: Several pages
 - **WHEN** `gh` returns three pages holding 100, 100 and 7 items for a list read
@@ -37,7 +37,7 @@ The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userl
 - **THEN** the install completes and its report includes `PR workflow not ready: gh 2.48+`
 
 ### Requirement: The ported pr-pair subcommands keep the script's contracts
-`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the argument forms shipped callers use and SHALL print a JSON line with the same parsed field names and values and exit with the same status for the same settings files, repositories and GitHub answers. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
+`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the argument forms shipped callers use and SHALL print a JSON line with the same parsed field names and values and exit with the same status for the same settings files, repositories and GitHub answers. The JSON/input and option differences in native-cli apply: compact JSON/LF, non-standard JSON refusal, oversized file/integer refusal, equals-form options and no abbreviated names. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
 
 #### Scenario: Policy's remote settings read is strict
 - **WHEN** `policy` reads a settings file from the remote and it holds a construct the strict reader cannot read whole
@@ -49,11 +49,11 @@ The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userl
 
 #### Scenario: Unchanged black-box evals pass on sw
 - **WHEN** the `evals/pr-pair` and `evals/vcs` tests that run these five subcommands run in CI on Linux, Windows and macOS against the `sw` built from the tree
-- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); and assertions on stdout bytes, which compare the parsed value instead. Every other field, error code and exit status is compared exactly
+- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); and assertions on stdout bytes, which compare the parsed value instead. The native-cli JSON/input and option differences have explicit outcome tests; every other field, error code and exit status is compared exactly
 
 #### Scenario: Differential run against the frozen script
 - **WHEN** the parity eval runs a case of each subcommand through the frozen copy of `pr-pair.sh` and through the shim, against the same repositories and fake-gh state
-- **THEN** both exit with the same status, make the same `gh` calls, and print stderr with the same lines up to each line's prefix. Their stdout parses to the same JSON value, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest
+- **THEN** both exit with the same status and make the same `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals have explicit difference tests. For retained inputs they print stderr with the same lines up to each line's prefix. Their stdout parses to the same JSON value, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest
 
 #### Scenario: A malformed settings file names its line
 - **WHEN** `openspec/specwright.yaml` holds a tab in its indentation on line 7 and `pr-pair.sh context --code <code>` runs
@@ -64,12 +64,47 @@ The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userl
 - **THEN** it exits 1 with `"error": "settings_not_pinned"`, naming the file and the ref, as before this change
 
 ### Requirement: sw pr reviewers keeps the evaluator's contract
-`sw pr reviewers --check-config FILE` and `sw pr reviewers --config FILE --material FILE --head OID` SHALL print the same parsed output fields, one stderr line prefixed `reviewers.py:` where `reviewers.py` printed one, naming the same reviewer and key, and exit with the same status as `reviewers.py` did, except where a report pattern compiles differently, the config's format is not 2 (see pr-evidence), or the input holds a form JSON does not allow.
+`sw pr reviewers --check-config FILE` and `sw pr reviewers --config FILE --material FILE --head OID` SHALL print the same parsed output fields, one stderr line prefixed `reviewers.py:` where `reviewers.py` printed one, naming the same reviewer and key, and exit with the same status as `reviewers.py` did, except where a report pattern compiles differently, the config's format is not 2 (see pr-evidence), or the native-cli JSON/input or option contract explicitly changes an accepted form.
 
 #### Scenario: Unchanged evaluator tests
 - **WHEN** `evals/pr-pair/test_reviewers.py` runs against `sw pr reviewers` in CI on Linux, Windows and macOS
-- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); and assertions on stdout bytes, which compare the parsed value instead. Every other field, error code and exit status is compared exactly
+- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); and assertions on stdout bytes, which compare the parsed value instead. The native-cli JSON/input and option differences have explicit outcome tests; every other field, error code and exit status is compared exactly
 
 #### Scenario: Material that is not its head
 - **WHEN** `sw pr reviewers --config cfg.json --material m.json --head <oid>` runs and `m.json` is for another head
 - **THEN** it exits 1 with nothing on stdout, as `reviewers.py` did
+
+### Requirement: Native PR workflow commands preserve their effects
+The fourteen newly native commands SHALL preserve product workflow outcomes, effects, mutation sequencing, identity and recovery. Producer/consumer representations MAY change together with explicit contract tests and documented differences. The frozen script is comparison evidence, not a byte-format mandate. Printed commands SHALL execute in the intended cwd with correct arguments/login. Failed or limited reads SHALL retain unknown/unreadable/refusal decisions without speculative mutation.
+
+#### Scenario: Every workflow command has differential coverage
+- **WHEN** differential cases run discovery, expected-set, creation, closing checks, linking, pair-state, rounds, all four pass operations, cleanup, branch-check, merge, delete-remote and item-issues through both implementations
+- **THEN** workflow decisions, effects, identity, mutation guards and recovery agree, including success and failure cases for each command; any representation difference has explicit producer/consumer contract coverage
+
+#### Scenario: Unknown read permits no follow-on mutation
+- **WHEN** discovery or an issue-state read fails or exceeds its deadline or byte bound
+- **THEN** the native command retains the frozen script's error, unknown fields and exit status, and makes no follow-on create, merge or delete call
+
+#### Scenario: Merge is attempted once then read back
+- **WHEN** the merge request is cut off after GitHub accepted it
+- **THEN** the command makes one merge request and a read-back, returning the merged result when confirmed, or unknown when the read-back fails, without a second merge request
+
+#### Scenario: Moved remote branch is retained
+- **WHEN** delete-remote finds that the branch no longer points to the supplied merged head
+- **THEN** it reports the moved state and performs no delete request
+
+#### Scenario: Rendered closing lines preserve code boundaries
+- **WHEN** closing-check reads a rendered description containing code spans, code blocks, entities and closing-list prose
+- **THEN** `intended`, `missing`, `extra` and `status` describe the issues and state from standard HTML5 interpretation, text rendered as code is not an intended issue, and a code span between references ends the closing list
+
+#### Scenario: Malformed table text follows HTML5 interpretation
+- **WHEN** closing prose is extracted from malformed HTML `Fixes <table>#1</table>`
+- **THEN** issue 1 in the description's own repository is an intended closing reference under HTML5 tree construction
+
+#### Scenario: Feedback round counters remain encodable
+- **WHEN** rounds reads no feedback trailers or ordinary in-range Feedback-Round trailers
+- **THEN** rounds and per-repository max_trailer are exact JSON integers, including zero, and the workflow decision is preserved
+
+#### Scenario: Oversized feedback-round trailer is refused
+- **WHEN** rounds reads a Feedback-Round trailer exceeding signed 64-bit range
+- **THEN** it stops with its unknown-read error, without ignoring, rounding or wrapping the trailer, and makes no mutation
