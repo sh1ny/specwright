@@ -124,7 +124,7 @@ class WorkflowRecords(NativePass, original.PassBase):
         except OSError as error:
             if sys.platform.startswith('linux'):
                 self.fail(f'Linux raw-path probe must succeed: {error}')
-            self.skipTest(f'{sys.platform} filesystem refuses raw path bytes: {error}')
+            self.skipTest(f'platform: {sys.platform} filesystem refuses raw path bytes: {error}')
         return path
 
     def raw_environment(self, state=None, home=None):
@@ -152,7 +152,7 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertEqual(result.returncode, expect, (result.stdout, result.stderr))
         return json.loads(result.stdout.decode('utf-8', errors='surrogateescape'))
 
-    @unittest.skipIf(os.name == 'nt', 'raw POSIX process environment is unavailable on Windows')
+    @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_raw_posix_state_directory_keeps_the_record_location(self):
         root = self.raw_root(b'raw-state')
         home = os.fsencode(self.tmp / 'unused-home')
@@ -169,7 +169,7 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertFalse(os.path.exists(home + b'/.cache/specwright/feedback'))
         self.assertFalse(self.record_path().exists())
 
-    @unittest.skipIf(os.name == 'nt', 'raw POSIX process environment is unavailable on Windows')
+    @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_raw_posix_home_keeps_the_record_location(self):
         home = self.raw_root(b'raw-home')
         for index, state in enumerate((None, b'')):
@@ -196,7 +196,7 @@ class WorkflowRecords(NativePass, original.PassBase):
                 self.assertEqual(refused['owner']['id'], 'frozen')
                 self.assertEqual(Path(os.fsdecode(expected)).read_bytes(), before)
 
-    @unittest.skipIf(os.name == 'nt', 'raw POSIX process environment is unavailable on Windows')
+    @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_process_state_override_does_not_need_a_home(self):
         root = self.raw_root(b'no-home-state')
         environment = self.raw_environment(state=root)
@@ -210,7 +210,7 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertTrue(frozen['record'])
         self.assertEqual(os.fsencode(frozen['path']), expected)
 
-    @unittest.skipIf(os.name == 'nt', 'raw POSIX process environment is unavailable on Windows')
+    @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_missing_home_refuses_without_choosing_a_directory(self):
         intent = self.write_json('raw-intent.json', self.intent([]))
         for state in (None, b''):
@@ -225,7 +225,7 @@ class WorkflowRecords(NativePass, original.PassBase):
                     usage = self.raw_pp(['pass', *operation], environment, expect=2)
                     self.assertEqual(usage['error'], 'usage')
 
-    @unittest.skipIf(os.name == 'nt', 'raw POSIX process environment is unavailable on Windows')
+    @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_first_seen_read_follows_the_raw_state_directory(self):
         root = self.raw_root(b'first-seen-state')
         environment = self.raw_environment(state=root, home=os.fsencode(self.tmp / 'unused-home'))
@@ -238,6 +238,7 @@ class WorkflowRecords(NativePass, original.PassBase):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'wb') as output:
             output.write(b'Thu, 08 Oct 2026 12:00:00 GMT\n')
+        self.seed_pulls(original.STORE, [])
         self.add_comment(original.STORE, 3, '@codex review', 'KintsugiBot', 2001, created_at='2026-10-08T12:05:00Z')
         args = ['pass', 'plan', *self.common(), '--owner', written['owner'],
                 *self.snapshots(original.snap(threads=[original.thread()]))]

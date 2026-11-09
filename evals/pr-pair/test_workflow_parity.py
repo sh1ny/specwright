@@ -177,7 +177,7 @@ class WorkflowParity(parity.PairParity):
                 self.assertEqual(entry['cwd'], got[side]['dir'])
         for side in ['code', 'store']:
             delete = expected[side].get('delete', [])
-            if delete[:1] == ['bash']:
+            if delete[:1] == ['bash']:  # bare-bash: not started
                 self.assertEqual(delete[1], parity.fixtures.posix(Path(parity.oracle_sw_dir()) / 'vcs.sh'))
                 self.assertEqual(got[side]['delete'][1], parity.fixtures.posix(parity.SCRIPTS / 'vcs.sh'))
                 delete[1] = got[side]['delete'][1]
