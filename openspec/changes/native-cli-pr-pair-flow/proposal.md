@@ -73,7 +73,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-0.30.0 moves the remaining fourteen PR workflow commands into `sw`, preserving their workflow outcomes, feedback records and recovery behavior. The PR workflow calls native settings, fence and VCS operations directly. The script remains a compatibility shim and now requires the matching installed `sw` for every command.
+0.30.0 moves all fourteen remaining PR workflow commands and all four feedback-pass operations into `sw`, preserving identity, deadlines, ownership and recovery. Store callers select the code project's exact-version binary without changing their working directory. Closing checks use HTML5 interpretation, feedback paths preserve raw POSIX environment bytes, and binary distributions carry verified third-party notices. Bash/Python probes, the non-Git fetch fence hop and documented context/snapshot store limits remain for later M8 work.
 
 ### Changed
 
