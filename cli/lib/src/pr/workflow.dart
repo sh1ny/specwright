@@ -9,6 +9,10 @@ import 'identity.dart';
 import 'settings_commands.dart';
 import 'workflow_transport.dart';
 import 'closing.dart';
+import 'feedback_pass.dart';
+import '../commands/vcs.dart';
+import '../vcs/args.dart';
+import '../vcs/stop.dart';
 import '../process/limits.dart';
 
 Never workflowUnknown(String why) => throw PairStop(
@@ -24,6 +28,19 @@ class Workflow {
   final _repoLogin = <String, String>{};
   final _tokens = <String, String>{};
   String? _ambient;
+
+  /// The native VCS boundary keeps the old wrapper's exit reduction.
+  /// State and plan remain unbounded; only fetch paths carry network budgets.
+  Future<Map<String, Object?>> vcs(List<String> argv) async {
+    try {
+      final request = parseVcsArguments(argv);
+      return await vcsHandlers[request.command]!(
+        VcsContext(request, ctx.scriptsDir, ctx.bash),
+      );
+    } on VcsStop catch (e) {
+      throw PairStop(e.error, e.message, code: e.code == 3 ? 3 : 1);
+    }
+  }
 
   Future<String> ambientLogin() async {
     if (_ambient != null) return _ambient!;
@@ -92,6 +109,9 @@ class Workflow {
       );
     }
     login ??= await ambientLogin();
+    // The frozen git_net calls token_for before its bounded net segment.
+    // Keep that preflight here; the fence's own target-cwd credential lookup,
+    // remote checks and launched command share the net budget below.
     await tokenFor(login);
     return WorkflowTransport.native(
       directory: dir,
@@ -788,6 +808,14 @@ class Workflow {
   }
 
   Future<Map<String, Object?>> run(String command, List<String> argv) async {
+    if (command == 'pass') {
+      return FeedbackPass(
+        this,
+        readAs: (repo, login) {
+          _repoLogin[repo.toLowerCase()] = login;
+        },
+      ).run(argv);
+    }
     if (command == 'closing-check' || command == 'closed-check') {
       return closingCheck(command, argv);
     }

@@ -566,25 +566,51 @@ void main() {
     expect(opens, 2);
     expect(File(path).statSync().mode & 0x1ff, 0x180);
   }, skip: Platform.isWindows ? 'POSIX permission bits' : false);
-  test(
-    'raw POSIX parent bytes survive locking publication and replacement',
-    () async {
-      final directory = decodeEscaped([...utf8.encode(tmp.path), 47, 0xff]);
-      rawDirectory(directory).createSync();
-      final store = FeedbackRecordStore('$directory/new/nested');
-      final record = store.recordPath('o/r', 'raw-path');
-      store.writeNew(record, {'version': 2, 'owner': 'before'});
-      await store.withLock(record, () {
-        expect(rawFile('$record.lock').existsSync(), true);
-        store.replaceRecord(record, {'version': 2, 'owner': 'after'});
-      });
-      expect(rawFile('$record.lock').existsSync(), false);
-      expect((store.load(record) as Map)['owner'], 'after');
-      rawFile(record).deleteSync();
-      rawDirectory(directory).deleteSync(recursive: true);
-    },
-    skip: Platform.isWindows ? 'POSIX filename bytes' : false,
-  );
+  test('raw POSIX parent bytes survive locking publication and replacement', () async {
+    // Probe the filesystem with actual Python bytes first. A successful OS
+    // probe must still be followed by the Dart assertions below; never turn
+    // an SDK path-handling failure into a skip.
+    final probe = await Process.run('python3', [
+      '-c',
+      r'''
+import json, os, sys
+path = os.fsencode(sys.argv[1]) + b'/\xff'
+try:
+    os.mkdir(path)
+except OSError as error:
+    print(json.dumps({'ok': False, 'error': str(error)}))
+else:
+    os.rmdir(path)
+    print(json.dumps({'ok': True}))
+''',
+      tmp.path,
+    ]);
+    expect(probe.exitCode, 0, reason: '${probe.stdout}\n${probe.stderr}');
+    final capability =
+        jsonDecode(probe.stdout as String) as Map<String, dynamic>;
+    if (capability['ok'] != true) {
+      if (Platform.isLinux) {
+        fail('Linux raw-path probe must succeed: ${capability['error']}');
+      }
+      markTestSkipped(
+        '${Platform.operatingSystem} filesystem refuses raw path bytes: ${capability['error']}',
+      );
+      return;
+    }
+    final directory = decodeEscaped([...utf8.encode(tmp.path), 47, 0xff]);
+    rawDirectory(directory).createSync();
+    final store = FeedbackRecordStore('$directory/new/nested');
+    final record = store.recordPath('o/r', 'raw-path');
+    store.writeNew(record, {'version': 2, 'owner': 'before'});
+    await store.withLock(record, () {
+      expect(rawFile('$record.lock').existsSync(), true);
+      store.replaceRecord(record, {'version': 2, 'owner': 'after'});
+    });
+    expect(rawFile('$record.lock').existsSync(), false);
+    expect((store.load(record) as Map)['owner'], 'after');
+    rawFile(record).deleteSync();
+    rawDirectory(directory).deleteSync(recursive: true);
+  }, skip: Platform.isWindows ? 'POSIX filename bytes' : false);
   test('missing records differ from unreadable files and directories', () {
     final store = FeedbackRecordStore(tmp.path);
     expect(store.load(path), null);

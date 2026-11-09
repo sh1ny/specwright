@@ -24,7 +24,7 @@ Future<Contexts> workflowContexts(
 ) async {
   final mains = {
     code: await _detectMain(ctx, code),
-    if (store != null) store: await _detectMain(ctx, store),
+    ?store: await _detectMain(ctx, store),
   };
   try {
     return contexts(
@@ -258,18 +258,26 @@ Future<void> requireSettingsPinnedTo(
   }
 }
 
+/// Backend choices for native workflow callers, without a printed document.
+Future<({String code, String store})> workflowVcsChoices(
+  PrContext ctx,
+  String code,
+) async {
+  final settings = await _loadSettings(ctx, await ctx.native(code));
+  try {
+    return vcsChoices(settings);
+  } on SettingsStop catch (e) {
+    throw _stopOf(e);
+  }
+}
+
 /// `cmd_vcs`.
 Future<int> runVcs(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {
       final a = parsePairArgs(argv, const {'--code': 'code'});
       needArgs(a, ['code']);
-      final s = await _loadSettings(ctx, await ctx.native(a['code']!));
-      try {
-        final v = vcsChoices(s);
-        return {'ok': true, 'code': v.code, 'store': v.store};
-      } on SettingsStop catch (e) {
-        throw _stopOf(e);
-      }
+      final v = await workflowVcsChoices(ctx, a['code']!);
+      return {'ok': true, 'code': v.code, 'store': v.store};
     });
 
 /// `cmd_tier`.

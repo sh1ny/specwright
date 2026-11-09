@@ -96,6 +96,8 @@ Native PR integration (ADR 0031) separates binary project selection from the exe
 
 The owner-approved feedback refinement of ADR 0031 uses SDK-exclusive lock files at the existing `.lock` path from 0.30.0. Native files and legacy directories block each other; a call removes only its own file. Version-2 records, keys, ownership and legacy migration remain unchanged. Publication prefers a hard link, then SDK-exclusive creation; interruption can leave an empty or partial record for explicit recovery. Write refuses an existing new-key record with `record_exists`; plan, adopt and done report `record_unreadable` for unreadable contents. Ordinary permission/open/write/close failures clean up only the created file. POSIX permissions are set before content, without changing the process umask. Feedback adapters never classify failures from numeric error values read across FFI calls (C8, C15).
 
+Feedback path selection reads POSIX `SPECWRIGHT_STATE_DIR` and `HOME` bytes directly when using the process environment, then decodes them through the existing path codec. Explicit environments remain authoritative and raw values never enter credential maps (C16). The record and first-seen head read use that selected state root. Existing `context` reviewer-config and snapshot head writers still use the SDK environment map: raw state values can send those writers to the default directory, and raw or missing home values can stop `context`. Feedback calls without a usable state override or home refuse without selecting a substitute directory; no passwd lookup is added (C17).
+
 ## State ownership
 
 | State | Sole writer | Lifetime | Invalidation / rebuild | Authoritative copy |
