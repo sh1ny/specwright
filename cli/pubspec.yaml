@@ -14,8 +14,10 @@ executables:
 # test/no_build_hooks_test.dart enforces it.
 dependencies:
   args: ^2.7.0
+  crypto: ^3.0.8
   ffi: ^2.1.0
   html: ^0.15.7
+  path: ^1.9.1
 
 dev_dependencies:
   lints: ^6.0.0

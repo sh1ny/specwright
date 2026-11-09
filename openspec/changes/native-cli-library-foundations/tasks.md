@@ -75,9 +75,9 @@ Refreshed against main `3fc5454` on 2026-11-10. Green rows name existing cases b
 
 ## 1. Refresh and dependencies
 
-- [ ] 1.1 Confirm the 2026-11-10 refresh baseline `3fc5454` is still current before apply; A6 is verified at `workflow.dart:324-368`, VERSION is 0.30.0, and the notice already ships. Recheck changed citations/callers if main moved; preserve the merged MODIFIED requirements and exact test names. Verify with strict `openspec validate native-cli-library-foundations`.
-- [ ] 1.2 Verify A8 and add `crypto` and `path` to `cli/pubspec.yaml`: run `dart pub get`, then `mise exec -- dart test test/no_build_hooks_test.dart` from `cli/`, and confirm the test passes with the new lock file.
-- [ ] 1.3 Carry C6: confirm ADR 0033 states that focused packages need approval and no build hooks, and that a port preserves workflow guarantees and not Python bytes. Verify by reading the accepted ADR.
+- [x] 1.1 Confirm the 2026-11-10 refresh baseline `3fc5454` is still current before apply; A6 is verified at `workflow.dart:324-368`, VERSION is 0.30.0, and the notice already ships. Recheck changed citations/callers if main moved; preserve the merged MODIFIED requirements and exact test names. Verify with strict `openspec validate native-cli-library-foundations`.
+- [x] 1.2 Verify A8 and add `crypto` and `path` to `cli/pubspec.yaml`: run `dart pub get`, then `mise exec -- dart test test/no_build_hooks_test.dart` from `cli/`, and confirm the test passes with the new lock file.
+- [x] 1.3 Carry C6: confirm ADR 0033 states that focused packages need approval and no build hooks, and that a port preserves workflow guarantees and not Python bytes. Verify by reading the accepted ADR.
 
 ## 2. JSON wrapper, integers and crypto
 
