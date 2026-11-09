@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import shlex
 import signal
 import sys
 import time
@@ -13,6 +14,101 @@ from test_bounded import pid_alive
 
 
 class WorkflowTransport(wp.WorkflowParity):
+    def native_document(self, args, cwd=None):
+        result = self.side('new', args, cwd or self.tmp)
+        self.assertTrue(result['stdout'], result)
+        return result, json.loads(result['stdout'])
+
+    def test_internal_scripts_are_not_launched(self):
+        code, store = self.merged_pair()
+        scripts = self.tmp / 'sentinel-scripts'
+        scripts.mkdir()
+        for name in ['pr-pair.sh', 'vcs.sh', 'as.sh']:
+            (scripts / name).write_text('#!/bin/sh\necho unexpected-script >&2\nexit 92\n', encoding='utf-8')
+        self.workflow_scripts = scripts
+        self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[]))
+        result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
+        self.assertEqual(result['code'], 0, doc)
+        self.assertEqual(doc['code']['commands'][-1]['cmd'], ['git', 'branch', '-d', 'feat/x'])
+        self.assertNotIn(b'unexpected-script', result['stderr'])
+
+    def test_direct_vcs_failures_retain_wrapper_mapping(self):
+        code, store = self.merged_pair()
+        self.select_backend(code, store, 'gitbutler')
+        self.mutate(lambda st: st['repos'][self.SLUG]['pulls'][0].update(merge_commit_sha='bad-proof'))
+        result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
+        self.assertEqual(result['code'], 1, result)
+        self.assertEqual(doc['error'], 'usage')
+        self.assertIn('--merged-commit', doc['message'])
+
+    def test_unbounded_vcs_calls_remain_unbounded(self):
+        code, store = self.merged_pair()
+        self.extra_env['SPECWRIGHT_NET_DEADLINE'] = '2'
+        delayed = self.tmp / 'delayed-vcs-calls'
+        self.extra_env['WF_VCS_DELAY_LOG'] = delayed.as_posix()
+        real = shutil.which('git').replace('\\', '/')
+        script = self.tmp / 'bin' / 'git'
+        script.write_text('#!/bin/sh\nif [ "$1" = status ]; then echo git-state >> "$WF_VCS_DELAY_LOG"; sleep 3; fi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
+        script.chmod(0o755)
+        self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[]))
+        result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
+        self.assertEqual(result['code'], 0, doc)
+        self.assertIn('git-state', delayed.read_text().splitlines())
+        delayed.unlink()
+        self.select_backend(code, store, 'jj')
+        jj = self.tmp / 'bin' / 'jj'
+        jj.write_text(jj.read_text().replace('case ', 'echo jj-plan >> "$WF_VCS_DELAY_LOG"\nsleep 3\ncase ', 1), encoding='utf-8')
+        def restore_code_pr(st):
+            pull = wp.copy.deepcopy(st['repos']['o/plans']['pulls'][0])
+            pull['head']['repo']['full_name'] = self.SLUG
+            st['repos'][self.SLUG]['pulls'] = [pull]
+        self.mutate(restore_code_pr)
+        result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
+        self.assertEqual(result['code'], 0, doc)
+        self.assertIn('jj-plan', delayed.read_text().splitlines())
+
+    def test_nested_vcs_fetch_retains_its_temporary_fence_hop(self):
+        code, store = self.pair_repos()
+        self.select_backend(code, store, 'jj', role='store', logins=False)
+        (Path(store) / 'openspec' / '.specwright' / 'VERSION').unlink()
+        real = shutil.which('git').replace('\\', '/')
+        fetch = self.tmp / 'fetch-calls'
+        shim = self.tmp / 'bin' / 'git'
+        shim.write_text('#!/bin/sh\nif [ "$1" = fetch ]; then\n'
+            ' target="$PWD"; if command -v cygpath >/dev/null 2>&1; then target=$(cygpath -m "$PWD"); fi\n'
+            ' printf "%s|%s\\n" "$target" "${GH_TOKEN-unset}" >> "$WF_FETCH_LOG"\n'
+            ' printf "%s\\n" "$WF_SHA" > "$WF_FETCH_HEAD"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
+        shim.chmod(0o755)
+        scripts = self.tmp / 'fetch-scripts'
+        scripts.mkdir()
+        fence_log = self.tmp / 'fence-argv'
+        (scripts / 'as.sh').write_text('#!/bin/sh\nprintf "%s\\0" "$@" >> "$WF_FENCE_LOG"\n'
+            'printf "\\n" >> "$WF_FENCE_LOG"\nexec bash '+shlex.quote(str(wp.parity.SCRIPTS / 'as.sh').replace('\\', '/'))+' "$@"\n', encoding='utf-8')
+        self.workflow_scripts = scripts
+        self.extra_env.update(WF_FETCH_LOG=fetch.as_posix(), WF_FENCE_LOG=fence_log.as_posix(),
+            WF_SHA=self.git(store, 'rev-parse', 'HEAD'), WF_FETCH_HEAD=str(Path(store) / '.git' / 'FETCH_HEAD'))
+        for login in [None, 'other']:
+            with self.subTest(login=login):
+                fence_log.unlink(missing_ok=True)
+                fetch.unlink(missing_ok=True)
+                args = ['branch-check', '--dir', store, '--branch', 'feat/x', '--main', 'main',
+                        '--code', 'code', '--role', 'store']
+                if login:
+                    args += ['--login', login]
+                result, doc = self.native_document(args, cwd=self.tmp)
+                self.assertEqual(result['code'], 0, doc)
+                self.assertTrue(doc['delete'])
+                calls = [[x.decode() for x in line.split(b'\0')[:-1]] for line in fence_log.read_bytes().splitlines()]
+                self.assertEqual(len(calls), 1 if login else 2, calls)
+                for call in calls:
+                    self.assertEqual(call[:2], ['--project', str(Path(code).resolve())])
+                if not login:
+                    self.assertEqual(calls[0][2:], ['--resolve'])
+                self.assertEqual(calls[-1][2], login or 'me')
+                self.assertEqual(calls[-1][3:5], ['git', 'fetch'])
+                target, token = fetch.read_text().strip().split('|')
+                self.assertEqual(Path(target).resolve(), Path(store).resolve())
+                self.assertEqual(token, 'tok-other' if login else 'tok-me')
     def test_fenced_read_uses_one_deadline(self):
         code, store = self.setup_remote(github=True)
         self.git(code, 'add', 'openspec/specwright.yaml')

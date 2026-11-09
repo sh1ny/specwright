@@ -13,6 +13,8 @@ import 'feedback_pass.dart';
 import '../commands/vcs.dart';
 import '../vcs/args.dart';
 import '../vcs/stop.dart';
+import '../vcs/plan.dart';
+import '../vcs/scripts.dart' show TextResult;
 import '../process/limits.dart';
 
 Never workflowUnknown(String why) => throw PairStop(
@@ -31,11 +33,19 @@ class Workflow {
 
   /// The native VCS boundary keeps the old wrapper's exit reduction.
   /// State and plan remain unbounded; only fetch paths carry network budgets.
-  Future<Map<String, Object?>> vcs(List<String> argv) async {
+  Future<Map<String, Object?>> vcs(
+    List<String> argv, {
+    bool branchFetchProject = false,
+  }) async {
     try {
       final request = parseVcsArguments(argv);
       return await vcsHandlers[request.command]!(
-        VcsContext(request, ctx.scriptsDir, ctx.bash),
+        VcsContext(
+          request,
+          ctx.scriptsDir,
+          ctx.bash,
+          branchFetchProject: branchFetchProject,
+        ),
       );
     } on VcsStop catch (e) {
       throw PairStop(e.error, e.message, code: e.code == 3 ? 3 : 1);
@@ -807,7 +817,332 @@ class Workflow {
     };
   }
 
+  Future<Map<String, Object?>> branchCheck(List<String> argv) async {
+    final a = parsePairArgs(argv, {
+      '--dir': 'dir',
+      '--branch': 'branch',
+      '--main': 'main',
+      '--head': 'head',
+      '--code': 'code',
+      '--role': 'role',
+      '--login': 'login',
+    });
+    needArgs(a, ['dir', 'branch', 'main']);
+    final d = await ctx.native(a['dir']!), b = a['branch']!, head = a['head'];
+    var main = a['main']!, backend = 'git';
+    if (a['code']?.isNotEmpty == true) {
+      final role = a['role']?.isNotEmpty == true ? a['role']! : 'code';
+      if (!['code', 'store'].contains(role)) {
+        pairUsage('--role must be code or store');
+      }
+      final choices = await workflowVcsChoices(ctx, a['code']!);
+      backend = role == 'code' ? choices.code : choices.store;
+      if (backend != 'git') {
+        main =
+            (await vcs([
+                  'fetch-main',
+                  '--repo',
+                  d,
+                  '--role',
+                  role,
+                  '--code',
+                  a['code']!,
+                  if (a['login']?.isNotEmpty == true) ...[
+                    '--login',
+                    a['login']!,
+                  ],
+                ], branchFetchProject: true))['commit']
+                as String;
+      }
+    }
+    if (head != null && !RegExp(r'^[0-9a-fA-F]{4,64}$').hasMatch(head)) {
+      pairUsage('--head must be a commit id');
+    }
+    Never fail(String what, TextResult r) => throw PairStop(
+      'git_error',
+      '$what in $d: ${(r.stderr.isNotEmpty ? r.stderr : r.stdout).trim()}',
+    );
+    if (!await hasRef(d, 'refs/heads/$b')) {
+      if (a['code']?.isNotEmpty != true) {
+        backend = (await workflowVcsChoices(ctx, d)).code;
+      }
+      if (backend == 'gitbutler') {
+        return {
+          'ok': true,
+          'delete': true,
+          'reason': 'already_deleted',
+          'lacking': [],
+        };
+      }
+    }
+    final byCommit =
+        RegExp(r'^[0-9a-fA-F]{7,40}$').hasMatch(main) &&
+        !await hasRef(d, 'refs/heads/$main');
+    final tip = 'refs/heads/$b', mref = byCommit ? main : 'refs/heads/$main';
+    for (final ref in [tip, mref]) {
+      final r = await ctx.git(d, [
+        'rev-parse',
+        '--verify',
+        '-q',
+        '$ref^{commit}',
+      ]);
+      if (r.code != 0) fail('cannot resolve $ref', r);
+    }
+    Future<bool> ancestor(String x, String y) async {
+      final r = await ctx.git(d, ['merge-base', '--is-ancestor', x, y]);
+      if (r.code != 0 && r.code != 1) fail('cannot compare $x with $y', r);
+      return r.code == 0;
+    }
+
+    Future<List<Map<String, String>>> lacking(List<String> range) async {
+      final r = await ctx.git(d, ['log', '--format=%H%x1f%s%x1e', ...range]);
+      if (r.code != 0) fail('git log failed', r);
+      return [
+        for (final rec in r.stdout.split('\x1e'))
+          if (rec.trim().isNotEmpty)
+            (() {
+              final fields = rec
+                  .replaceAll(RegExp(r'^\n+|\n+$'), '')
+                  .split('\x1f');
+              return {
+                'sha': fields.first.trim(),
+                'subject': fields.length > 1 ? fields[1] : '',
+              };
+            })(),
+      ];
+    }
+
+    Map<String, Object?> result(
+      bool delete,
+      String reason,
+      List<dynamic> missing,
+    ) => {'ok': true, 'delete': delete, 'reason': reason, 'lacking': missing};
+    if (await ancestor(tip, mref)) return result(true, 'on_main', []);
+    final known =
+        head != null &&
+        head.isNotEmpty &&
+        (await ctx.git(d, ['cat-file', '-e', '$head^{commit}'])).code == 0;
+    if (!known) {
+      return result(false, 'head_unknown', await lacking(['$mref..$tip']));
+    }
+    if (await ancestor(tip, head)) return result(true, 'pr_head', []);
+    return result(
+      false,
+      'lacking',
+      await lacking(['$mref..$tip', '--not', head]),
+    );
+  }
+
+  /// C4: cleanup prints script commands until retirement. Only as.sh and
+  /// pr-pair.sh gain the binary-project prefix; all arguments and cwd retain
+  /// their targets. The C11 VCS store-network limitation remains deliberate.
+  Future<Map<String, Object?>> cleanupPlan(List<String> argv) async {
+    final a = parsePairArgs(argv, {
+      '--code': 'code',
+      '--store': 'store',
+      '--branch': 'branch',
+    });
+    needArgs(a, ['code', 'store', 'branch']);
+    final code = await ctx.native(a['code']!),
+        store = await ctx.native(a['store']!),
+        branch = a['branch']!;
+    final e = await expected(code, store, branch),
+        contexts = await workflowContexts(ctx, code, store);
+    final choices = await workflowVcsChoices(ctx, code);
+    final members = e['set'] as List,
+        keep = <Map<String, Object?>>[],
+        out = <String, Object?>{};
+    final allMerged =
+        members.isNotEmpty &&
+        members.every(
+          (k) => ((e[k] as Map)['pr'] as Map?)?['state'] == 'MERGED',
+        );
+    Future<List<String>> plan(
+      String cwd,
+      String role,
+      String operation,
+      String branch,
+      List<String> extra,
+    ) async {
+      try {
+        final session = await openSession(
+          VcsContext(
+            parseVcsArguments([
+              'plan',
+              '--repo',
+              cwd,
+              '--role',
+              role,
+              '--code',
+              code,
+              '--operation',
+              operation,
+              '--branch',
+              branch,
+              ...extra,
+            ]),
+            ctx.scriptsDir,
+            ctx.bash,
+          ),
+        );
+        return planArguments(session)
+            .map(
+              (x) => RegExp(r'^[A-Za-z]:\\').hasMatch(x)
+                  ? x.replaceAll('\\', '/')
+                  : x,
+            )
+            .toList();
+      } on VcsStop catch (err) {
+        // The old printed-plan reader reduced every plan refusal to exit 1.
+        throw PairStop(err.error, err.message);
+      }
+    }
+
+    for (final k in ['code', 'store']) {
+      final cwd = k == 'code' ? code : store,
+          side = e[k] as Map,
+          main = (e[k] as Map)['main'] as String;
+      final pr = side['pr'] as Map?,
+          exists = await hasRef(cwd, 'refs/heads/$branch');
+      final backend = k == 'code' ? choices.code : choices.store,
+          nonGit = backend != 'git',
+          gb = backend == 'gitbutler';
+      final commands = <Map<String, Object?>>[];
+      final ent = <String, Object?>{
+        'expected': side['expected'],
+        'repo': side['repo'],
+        'dir': cwd,
+        'merged': false,
+        'branch_exists': exists,
+        'pr': pr,
+        'commands': commands,
+      };
+      Map<String, Object?> command(List<String> args) => {
+        'cmd': args,
+        'cwd': cwd,
+      };
+      if (side['expected'] == true && pr?['state'] == 'MERGED') {
+        ent['merged'] = true;
+        if (exists) {
+          final check = [
+            'pr-pair.sh',
+            '--project',
+            code,
+            'branch-check',
+            '--dir',
+            cwd,
+            '--branch',
+            branch,
+            '--main',
+            main,
+            if ((pr?['head_sha'] as String?)?.isNotEmpty == true) ...[
+              '--head',
+              pr!['head_sha'] as String,
+            ],
+          ];
+          final configured = k == 'code'
+              ? contexts.code.login
+              : contexts.store!.login;
+          final login = configured.isNotEmpty
+              ? configured
+              : await ambientLogin();
+          if (nonGit) {
+            if (gb) {
+              check.addAll(['--code', code, '--role', k, '--login', login]);
+            }
+            commands.add(command(await plan(cwd, k, 'switch', main, [])));
+            commands.add(
+              command(
+                await plan(cwd, k, 'pull', gb ? branch : main, [
+                  '--login',
+                  login,
+                ]),
+              ),
+            );
+            commands.add(command(check));
+            ent['delete'] = await plan(cwd, k, 'delete-branch', branch, [
+              '--force',
+              if (gb &&
+                  (pr?['merge_commit_sha'] as String?)?.isNotEmpty == true) ...[
+                '--merged-commit',
+                pr!['merge_commit_sha'] as String,
+              ],
+            ]);
+          } else {
+            commands.addAll([
+              command(['git', 'checkout', main]),
+              command([
+                'bash',
+                '${ctx.scriptsDir}/as.sh',
+                '--project',
+                code,
+                login,
+                'git',
+                'pull',
+                '--ff-only',
+              ]),
+              command(check),
+            ]);
+            ent['delete'] = ['git', 'branch', '-D', branch];
+          }
+        }
+      } else if (side['expected'] == true) {
+        keep.add({
+          'repo': k,
+          'slug': side['repo'],
+          'state': pr?['state'] ?? 'NONE',
+          'branch': branch,
+          'url': pr?['url'],
+        });
+      } else if (k == 'store' &&
+          exists &&
+          side['reason'] == 'no_github_origin') {
+        keep.add({
+          'repo': k,
+          'slug': null,
+          'state': 'SHARE_BY_HAND',
+          'branch': branch,
+          'url': null,
+        });
+      } else if (k == 'code' && exists && allMerged) {
+        final current = (await vcs([
+          'state',
+          '--repo',
+          cwd,
+          '--role',
+          k,
+          '--code',
+          code,
+        ]))['branch'];
+        if (nonGit) {
+          if (current == branch) {
+            commands.add(command(await plan(cwd, k, 'switch', main, [])));
+          }
+          commands.add(
+            command(await plan(cwd, k, 'delete-branch', branch, [])),
+          );
+        } else {
+          if (current == branch) {
+            commands.add(command(['git', 'checkout', main]));
+          }
+          commands.add(command(['git', 'branch', '-d', branch]));
+        }
+      }
+      out[k] = ent;
+    }
+    return {
+      'ok': true,
+      'branch': branch,
+      'set': members,
+      'code': out['code'],
+      'store': out['store'],
+      'keep': keep,
+    };
+  }
+
   Future<Map<String, Object?>> run(String command, List<String> argv) async {
+    if (command == 'cleanup-plan') return cleanupPlan(argv);
+    if (command == 'branch-check') return branchCheck(argv);
     if (command == 'pass') {
       return FeedbackPass(
         this,

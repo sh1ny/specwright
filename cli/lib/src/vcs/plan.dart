@@ -13,7 +13,7 @@ String shellQuote(String s) {
 /// `vcs.sh`'s `plan`: the one `bash <scripts dir>/vcs.sh ...` line that
 /// carries out `--operation` (`switch`, `pull` or `delete-branch`). It runs
 /// nothing.
-Future<Map<String, Object?>> planDocument(VcsSession s) async {
+List<String> planArguments(VcsSession s) {
   final request = s.request;
   final operation = request.operation;
   if (operation != 'switch' &&
@@ -54,6 +54,11 @@ Future<Map<String, Object?>> planDocument(VcsSession s) async {
     }
     args.addAll(['--merged-commit', merged]);
   }
+  return args;
+}
+
+Future<Map<String, Object?>> planDocument(VcsSession s) async {
+  final args = planArguments(s);
   return {
     'ok': true,
     'backend': s.info.backend,

@@ -85,6 +85,7 @@ DECISION_MAKING: important
 - Closing checks use the approved HTML5 parser; merge read-back, guarded remote deletion and issue-marker lookup preserve workflow decisions (#148).
 - Feedback locks use exclusive file creation while respecting legacy directory locks; interrupted records retain the existing ownership and recovery decisions (#148).
 - Native feedback passes preserve owner handover and evidence-based completion across interrupted work. Direct record paths retain raw POSIX environment bytes, with the existing context and snapshot limits recorded (#148).
+- Cleanup plans preserve target directories and guarded branch deletion. The retained non-Git branch check selects the code project's binary for its fenced fetch (#148).
 - Releases from 0.30.0 include a checksummed third-party notice file, installed alongside `sw` without a new CLI command (#148).
 
 ### Removed

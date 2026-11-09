@@ -30,7 +30,12 @@ Future<TextResult> runText(
 /// The scripts `sw vcs` calls until they are ported (design D2, S2): the
 /// directory of the `vcs.sh` that started it and the bash running that shim.
 class VcsScripts {
-  VcsScripts(this.dir, this.bash);
+  VcsScripts(this.dir, this.bash, {this.fenceProject});
+
+  // Only the temporary non-Git branch-check fetch carries a binary selector.
+  final String? fenceProject;
+  List<String> get fencePrefix =>
+      fenceProject == null ? [] : ['--project', fenceProject!];
 
   final String dir;
   final String bash;
@@ -128,7 +133,10 @@ Future<String> fenceLogin(
 }) async {
   var who = login ?? '';
   if (github && who.isEmpty) {
-    final resolved = await scripts.run(repo, 'as.sh', ['--resolve']);
+    final resolved = await scripts.run(repo, 'as.sh', [
+      ...scripts.fencePrefix,
+      '--resolve',
+    ]);
     if (resolved.code != 0) {
       final said = resolved.stderr.trim();
       throw VcsStop(
@@ -155,6 +163,6 @@ Future<TextResult> runAs(
   String repo,
   String who,
   List<String> command,
-) => scripts.run(repo, 'as.sh', [who, ...command]);
+) => scripts.run(repo, 'as.sh', [...scripts.fencePrefix, who, ...command]);
 
 int _cap(int code) => code < 3 ? code : 3;
