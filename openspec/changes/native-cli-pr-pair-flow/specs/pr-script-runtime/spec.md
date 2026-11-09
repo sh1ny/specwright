@@ -102,7 +102,11 @@ The fourteen newly native commands SHALL preserve product workflow outcomes, eff
 
 #### Scenario: Rendered closing lines preserve code boundaries
 - **WHEN** closing-check reads a rendered description containing code spans, code blocks, entities and closing-list prose
-- **THEN** `intended`, `missing`, `extra` and `status` name the same issues and state as the frozen script for that rendered body, a reference inside code is not an intended issue, and a code span between references ends the closing list
+- **THEN** `intended`, `missing`, `extra` and `status` describe the issues and state from standard HTML5 interpretation, text rendered as code is not an intended issue, and a code span between references ends the closing list
+
+#### Scenario: Malformed table text follows HTML5 interpretation
+- **WHEN** closing prose is extracted from malformed HTML `Fixes <table>#1</table>`
+- **THEN** issue 1 in the description's own repository is an intended closing reference under HTML5 tree construction
 
 ### Requirement: Feedback records interoperate across the port
 Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Write SHALL publish exclusively; adopt and done SHALL hold their own record lock and never remove another call's lock. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner.

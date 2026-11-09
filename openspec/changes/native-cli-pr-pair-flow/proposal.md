@@ -26,10 +26,11 @@ None.
 
 - `pr-script-runtime`: complete native `pr-pair.sh` dispatch; matching-binary refusal, workflow parity, feedback-record interoperability and direct native fence/VCS calls with the existing bounds.
 - `github-identity`: explicit binary-project selection for store-started fence calls, preserving the caller's target directory and authentication rules.
+- `native-cli`: release and install the third-party notice file alongside binaries, preserving checksum verification, immutable release seals and installation of older releases.
 
 ## Impact
 
-Changes will affect `cli/lib/src/commands/pr.dart`, native PR modules under `cli/lib/src/pr/`, the reusable fence boundary under `cli/lib/src/fence/`, VCS integration, the `pr-pair.sh` and `as.sh` shims, store-caller instructions, relevant PR/VCS evals and native unit tests. Apply will add ADR 0031, update the architecture and bump to 0.30.0. The oracle stays test-only. The user approved the Dart `html` parser package, subject to licence, build-hook and workflow checks; it compiles into `sw` and adds no separately installed runtime. Other package-adoption decisions require the user's approval.
+Changes will affect `cli/lib/src/commands/pr.dart`, native PR modules under `cli/lib/src/pr/`, the reusable fence boundary under `cli/lib/src/fence/`, VCS integration, the `pr-pair.sh` and `as.sh` shims, store-caller instructions, relevant PR/VCS evals and native unit tests. Apply will add ADRs 0031 and 0032, update the architecture and bump to 0.30.0. Packaging also affects `.github/workflows/sw-build.yml`, `cli/tool/attach_release.py`, `scripts/update.sh`, `scripts/install-sw.sh` and `cli/THIRD_PARTY_NOTICES.txt`. The oracle stays test-only. The user approved the Dart `html` parser package, subject to licence, build-hook and workflow checks; it compiles into `sw` and adds no separately installed runtime. Other package-adoption decisions require the user's approval.
 
 ## Decision Making
 
@@ -79,6 +80,7 @@ DECISION_MAKING: important
 - `as.sh` and `pr-pair.sh` accept a leading `--project <code-checkout>` for store-started calls. Updated store callers and cleanup plans select the code project's binary while preserving the store working directory (#148).
 - Native fenced workflow reads use private per-login environments and one caller-owned budget through identity checks and execution; standalone unbounded fence calls retain their existing behavior (#148).
 - Discovery, expected PR sets, creation, linking, pair state and feedback-round decisions preserve paginated reads, per-repository credentials and unknown-read mutation guards (#148).
+- Releases from 0.30.0 include a checksummed third-party notice file, installed alongside `sw` without a new CLI command (#148).
 
 ### Removed
 

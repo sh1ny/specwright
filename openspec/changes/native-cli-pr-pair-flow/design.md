@@ -75,6 +75,16 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 - **Important:** yes, changes the parser technology and the acceptance contract.
 - **Chosen by:** user, "Approve html package, subject to checks" and "the same behavior of the overall product, NOT byte for byte replica".
 
+The user also chose "Use the library's HTML5 interpretation" for malformed HTML. In particular, `Fixes <table>#1</table>` recognizes issue 1 after HTML5 tree construction moves the table text. Do not add an event-parser compatibility workaround for this case or other malformed-markup normalization covered by that choice. Record observed differences and their workflow tests; changes to closing business rules or safety beyond this approved HTML5 interpretation still return to the user.
+
+### D7: Ship the notice file beside the binary
+
+- **Choice:** Ship `THIRD_PARTY_NOTICES.txt` beside `sw`. Keep the source notice at `cli/THIRD_PARTY_NOTICES.txt`, covering every direct and transitive package compiled into `sw`, plus the Dart runtime embedded by `dart compile exe` when its licence requires a notice. Packaging is gated by a numeric MAJOR.MINOR.PATCH comparison of the VERSION at the ref being built or released, never by whether a notice is present. At 0.30.0 or later, each build artifact includes byte-identical `THIRD_PARTY_NOTICES.txt` and `THIRD_PARTY_NOTICES.txt.sha256`, and a missing source notice fails the build. Below 0.30.0, the build packages no notice, so a manual run for an older tag still reaches its sealed-release result. `.gitattributes` pins `cli/THIRD_PARTY_NOTICES.txt` to `text eol=lf`. From release 0.30.0, attach/read back the notice with the five unchanged binary names, include its hash in `SHA256SUMS`, and upload that seal last. A sealed new-format release missing its notice is incomplete and is never repaired automatically. Keep old five-binary manifests and sealed releases valid before 0.30.0. For a release at 0.30.0 or later, the downloader verifies the notice and binary hashes before quarantine removal or the first run. After the part binary passes every check, and before the kept-binary decision or binary rename, it places the notice once. A notice already matching the manifest is left untouched. Otherwise a `.sw-<token>.notice.part` file replaces it. If that replacement fails and the final notice now matches, the run continues; otherwise it stops with `notice_write_failed` and the binary is not replaced. A new-format `SHA256SUMS` without a notice line is `sums_invalid`, a 404 for the notice is `asset_missing`, and a wrong notice hash is `checksum_mismatch`. The source-build installer uses the same order: check the build, place the notice, rename the binary, then run the final resolver check. Do not add `sw licenses`. Record this additive distribution decision in ADR 0032 and update architecture/build/install documentation without editing accepted ADR 0027.
+- **Rejected:** Embed notices behind a new CLI command, leave notices only in the repository, mutate a sealed release, or require notices retrospectively from old releases.
+- **Reversal cost:** medium, release manifest and both installation paths.
+- **Important:** yes, changes the distributed asset/install contract.
+- **Chosen by:** user, "Ship a notice file alongside the binary".
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -89,6 +99,7 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 | D4 | Shim dispatch/project | Explicit selector, existing handoff and native dispatch | Inference; moved cwd; Python fallback; direct argv now | medium | yes | user |
 | D5 | Nested VCS fence | Retain fetch-main hop; resolved --code selects project for login resolution and fetch | Pull retrofit into this port | low | yes | user |
 | D6 | HTML parsing and acceptance | Approved html package, workflow contracts and consumer checks | Custom HTML parser; unapproved dependencies; unchecked normalization | medium | yes | user |
+| D7 | Notice delivery | Checksummed sidecar at release and install, old releases supported | Embedded CLI command; repo-only notice; sealed-release edits | medium | yes | user |
 
 ## Assumptions
 
@@ -109,6 +120,7 @@ None. The new interfaces and modules above are proposed additions, not claims th
 - **C11:** Network operations run through `sw vcs` on a GitHub-origin store other than D5's branch-check fetch-main, including the `vcs.sh pull` that cleanup-plan prints for a jj store, keep their existing as.sh hop without a project selector, so they still stop with sw_missing from the store until native-cli-internal-calls. Kind: deliberate gap. Destination: ADR 0031.
 - **C12:** Closing prose comes from the `html` package's public parser plus a closing-reference adapter. No HTML tokenizer, parser or entity table is authored to match Python, and each observed parser difference is listed here with its consumer check. Kind: rejected alternative. Destination: doc comment: cli/lib/src/pr/closing.dart renderedLines.
 - **C13:** Each representation difference from the frozen oracle is listed with its producer/consumer contract test, and one that changes a workflow outcome needs the user's decision. Kind: invariant. Destination: doc comment: evals/pr-pair/test_workflow_parity.py WorkflowParity.
+- **C14:** From 0.30.0, the checksummed third-party notice accompanies the binary in release artifacts and installs; it is verified before executing a downloaded binary, and older release manifests remain usable. A change to the compiled dependency set updates the notice. Kind: invariant. Destination: ADR 0032.
 
 ## Diagrams (FULL)
 
@@ -175,6 +187,11 @@ flowchart LR
   Command <--> GitHub[GitHub reads and guarded writes]
   Command <--> Disk[Same record key and version 2 JSON]
   Command --> Plans[Existing command arrays, not execution]
+  Build[Five build artifacts, identical notice bytes] --> Attach[Attach binaries and notice]
+  Attach --> ReadBack[Verify every release asset by read-back]
+  ReadBack --> Seal[Upload SHA256SUMS last]
+  Seal --> Install[Verify downloads, place notice, then binary]
+  Install --> Beside[Version directory: sw and notice sidecar]
 ```
 
 ## State & Ownership (FULL)
@@ -187,6 +204,7 @@ flowchart LR
 | Record lock | Call that created the directory | One locked mutation | Remove only own lock; report cleanup failure | Lock directory |
 | Sibling temp record / render request | Call that created it | One operation | Finally cleanup; interrupted leftovers never treated as a live record | Published record / GitHub response |
 | Reviewer config | Existing content-addressed settings writer | Shared immutable content | Different config gives a different digest | Existing format-2 bytes |
+| Installed notice | `sw-install` or the source-build installer | Beside its version's binary | Replaced only when absent or not matching the release hash; source installs use the tree notice | Release `SHA256SUMS` for release installs; `cli/THIRD_PARTY_NOTICES.txt` for source builds |
 | GitHub PRs, comments, issues and refs | GitHub, with other actors allowed | External | Read-back and next snapshot | Current GitHub state |
 | Resume plan / rounds / cleanup plan | One command, read-only derived result | Invocation | Recompute; never replay stale results as proof | Current snapshots, history and refs |
 
@@ -198,6 +216,7 @@ flowchart LR
 | Transport/fence | Limit, wrong identity, unsafe target or failed lookup | Structured stop, no guessed evidence | Reads may repeat; writes follow command-specific read-back | Agent sees existing error and unknown fields |
 | PR create/link | Side effect may precede lost response | Re-discover existing PR/own marker | Preserve original rerun behavior; no blind loop | Agent sees result/failure |
 | Closing parser | Render read fails, or the parser or adapter raises | Render read: unknown result, no closing proof. Parser or adapter error: internal_error, no closing proof | Read may repeat | Agent sees exit 3, or internal_error exit 1; never `match` |
+| Notice delivery | Missing, corrupt, unplaceable or concurrently replaced notice | Rerun the install; a sealed release lacking its notice needs its owner | Yes; placement is idempotent | User sees `ok: false` with the code and release; a concurrent identical result continues |
 | Record publisher | Concurrent write or failed publication | Exclusive refusal; cleanup own incomplete fallback/temp file | Retry only after observing record | Agent sees record_exists/internal_error |
 | Locked record mutation | Held lock or cleanup failure | Refuse held lock; report lock_left without replacing primary outcome | Never delete another owner's lock | Agent sees owner/lock fields |
 | Pass planner | Partial edit/commit/push/reply or stale snapshot | Return resume, ask or stop rows from evidence | Plan is repeatable; actions follow plan | Agent sees rows and needs_user |
@@ -214,6 +233,7 @@ This section owns the proposed execution-budget policy. Reuse the configured def
 | Secret lookups | Existing secret-mode bounds; memory only | Refuse without outputting captured credentials | No token in files, diagnostics, parent environment or unrelated login |
 | Manual reaction paging | Existing 50-page limit | response_too_large, never absence | Network limits apply to every read |
 | Rendered description parse | Render output within the existing 32 MiB stream bound; one DOM per check, released after line extraction | Limited read stays unknown; a parser or adapter error is internal_error and gives no closing proof | Memory grows with response size up to the bound; the adapter walks the DOM iteratively, so nesting depth cannot overflow its stack |
+| Notice download | Existing per-download 120 s and 64 MiB bounds | Stop, delete the part, report the limit | One small file per install; unchanged at 10x or 100x installs |
 | Local Git/VCS state and plan | Existing unbounded calls | No new cap | Deliberate parity constraint; history can increase memory/time at 10x/100x |
 | Input snapshots, intent, record and derived rows | Existing whole-file/whole-result reads, no new cap | Preserve current validation and errors | Deliberately unchanged; 10x/100x consumes proportional memory and may fail. Do not silently introduce truncation or a new size policy |
 | Request token, repo-identity caches | One entry per identity/repo touched by the invocation | No cross-request retention | Grows only with this invocation's inputs |
@@ -224,6 +244,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 
 ## Flow & State Gaps (FULL)
 
+- If an install dies after notice placement but before binary rename, the correct notice remains; the next run repeats binary placement and preserves a notice already matching its manifest.
 - Preserve the old sequence rather than parallelizing GitHub reads/writes. A head change or stale snapshot returns the same refresh/stop decision. Differential tests cover the ordering.
 - Preserve pass-write's exclusive publish and native/script interoperability. For unsupported hard links, reproduce exclusive-create fallback behavior and cleanup on ordinary failure; do not silently strengthen its documented crash behavior.
 - An adopt request names the owner it saw; recheck under the lock. A done request re-plans completion under the lock before deleting. A held or abandoned lock stays the owner's recovery decision.
@@ -246,6 +267,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 | Private filesystem primitive adapter | yes | Hard-link destination-exists must differ from fallback failure; lock acquisition must be one exclusive OS operation | Concurrent adopt/done and fallback failure tests disprove parity; fix before proceeding |
 | Leading project selector and forwarding | yes | Store has no project VERSION; resolving from store cwd otherwise blocks workflow dispatch | Store-started fenced and unfenced command tests |
 | Library HTML parser and workflow adapter | yes | Approved html package handles HTML/entities; adapter extracts closing prose with code and line boundaries | A library difference changes the workflow outcome; ask the user before changing that outcome |
+| Automated notice-completeness check | no | Task 4.4's evidence and C14 cover this change; it would need a runtime-graph-to-licence mapping | A dependency change ships with a stale notice |
 | Frozen oracle and black-box native dispatch tests | yes | Port can match common outputs yet change calls, persistence or failure sequencing | Retire only after every port proves parity |
 | New persistent cache, record schema, background worker or automatic lock recovery | no | No requirement needs it; each would alter storage or recovery | Separately approved feature |
 | All-port retrofit, native shell replacement, new direct CLI argv protocol | no, named later changes | Already approved milestone boundaries | User amendment of M8 |
@@ -260,6 +282,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 
 - **In force:** 0008 (identity), 0014 (bounds), 0018 and its applicable additions (VCS interfaces), 0020 (trusted merge policy), 0022/0030 (reviewer evidence), 0025/0026 (grounding and carried constraints), 0027/0028/0029 (native runner and shim handoff). These are preserved, not superseded by this port.
 - **To record during apply:** ADR 0031, direct native calls, explicit shim project selection and retained isolation boundaries/temporary nested VCS exception, adding to 0027/0028/0029. Update the architecture's native component, Script I/O and identity boundary. The accepted ADRs stay immutable.
+- ADR 0032, third-party notice distribution, carrying C14 and adding to 0027.
 
 ## Open Questions
 
