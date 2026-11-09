@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/pr/pair.dart';
 import 'package:specwright_cli/src/pr/workflow_transport.dart';
+import 'package:specwright_cli/src/pr/workflow.dart';
 import 'package:specwright_cli/src/process/limits.dart';
 import 'package:specwright_cli/src/process/limit_line.dart';
 
@@ -21,6 +22,35 @@ GhResult result(String text, [int code = 0]) => GhResult(
 );
 
 void main() {
+  test('workflow JSON reader preserves raw POSIX snapshot paths', () async {
+    final directory = Directory.systemTemp.createTempSync('workflow-json-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final rawDirectory = Uint8List.fromList([
+      ...encodeEscaped(directory.path),
+      0x2f,
+      0x80,
+    ]);
+    Directory.fromRawPath(rawDirectory).createSync();
+    final rawFile = Uint8List.fromList([...rawDirectory, 0x2f, 0xff]);
+    File.fromRawPath(rawFile).writeAsStringSync('{"value":"é"}');
+    expect(await readWorkflowJson(decodeEscaped(rawFile)), {'value': 'é'});
+  }, skip: Platform.isWindows ? 'POSIX byte paths' : false);
+
+  test(
+    'workflow JSON reader retains Unicode and unreadable-file errors',
+    () async {
+      final directory = Directory.systemTemp.createTempSync('workflow-json-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final file = File('${directory.path}/snapshot-é.json');
+      file.writeAsStringSync('{"value":"é"}');
+      expect(await readWorkflowJson(file.path), {'value': 'é'});
+      await expectLater(
+        readWorkflowJson('${file.path}.missing'),
+        throwsA(isA<FileSystemException>()),
+      );
+    },
+  );
+
   test(
     'real workflow command preserves empty long and raw argument bytes',
     () async {
