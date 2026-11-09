@@ -82,6 +82,7 @@ DECISION_MAKING: important
 - Native fenced workflow reads use private per-login environments and one caller-owned budget through identity checks and execution; standalone unbounded fence calls retain their existing behavior (#148).
 - Discovery, expected PR sets, creation, linking, pair state and feedback-round decisions preserve paginated reads, per-repository credentials and unknown-read mutation guards (#148).
 - Closing checks use the approved HTML5 parser; merge read-back, guarded remote deletion and issue-marker lookup preserve workflow decisions (#148).
+- Feedback locks use exclusive file creation while respecting legacy directory locks; interrupted records retain the existing ownership and recovery decisions (#148).
 - Releases from 0.30.0 include a checksummed third-party notice file, installed alongside `sw` without a new CLI command (#148).
 
 ### Removed
