@@ -18,8 +18,10 @@ The install prompt installs tags and `main`, and a `main` install places no `sw`
 3. Run the install prompt's Step 7 checks: `openspec schema validate specwright`, and the installed skills and agents match the tree.
 4. Only when they pass, copy `VERSION` to `openspec/.specwright/VERSION` (the stamp). `finish` refuses with `not_stamped` until it reads the new version.
 5. Run the same `update.sh` command with `finish`.
-6. Run `mise run install-sw`. It builds `cli/`, checks the build, and places it at `<home>/.specwright/bin/<VERSION>/sw[.exe]`; it prints that path.
+6. Run `mise run install-sw`. It builds `cli/`, checks the build, and places it at `<home>/.specwright/bin/<VERSION>/sw[.exe]`, with `cli/THIRD_PARTY_NOTICES.txt` beside it; it prints the binary path.
 7. Run `bash skills/specwright-pr/scripts/sw-path.sh --code .`. It prints the same path when the checkout's `VERSION` matches the placed binary.
+
+The build workflow packages the same LF notice bytes and SHA-256 sidecar for every target from version 0.30.0. Release attachment reads back the notice and five binaries before uploading `SHA256SUMS` last. Old tags keep the five-binary format. When changing runtime dependencies or the embedded SDK, review their licences and update `cli/THIRD_PARTY_NOTICES.txt` (ADR 0032); an integrity hash does not check attribution completeness.
 
 ## Source vs. installed copies
 

@@ -22,9 +22,22 @@ version=${2:-$(tr -d '\r\n' < "$root/VERSION")}
 
 dest=$home/.specwright/bin/$version/sw$ext
 mkdir -p "$(dirname "$dest")"
-part=$dest.$$.part
-trap 'rm -f "$part"' EXIT
+part=$(dirname "$dest")/.sw-$$.part
+notice=$(dirname "$dest")/THIRD_PARTY_NOTICES.txt
+notice_part=$(dirname "$dest")/.sw-$$.notice.part
+source_notice=$root/cli/THIRD_PARTY_NOTICES.txt
+trap 'rm -f "$part" "$notice_part"' EXIT
 cp "$build" "$part"
 chmod 0755 "$part"
+# A matching notice keeps its mtime. Place the notice before replacing the binary.
+if ! cmp -s "$source_notice" "$notice"; then
+  cp "$source_notice" "$notice_part"
+  if [ -d "$notice" ] || ! mv -f "$notice_part" "$notice"; then
+    if ! cmp -s "$source_notice" "$notice"; then
+      echo "notice_write_failed: THIRD_PARTY_NOTICES.txt for $version cannot be placed" >&2
+      exit 1
+    fi
+  fi
+fi
 mv -f "$part" "$dest"
 "$BASH" "$resolver" --file "$dest" --version "$version"

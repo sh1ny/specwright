@@ -1,7 +1,7 @@
 """`mise run install-sw` places a tree-built sw where the resolver looks for it (native-cli-vcs D5, task 8.6).
 
-Row one runs the real task (it builds cli/, so it needs mise and Dart) against a temp SPECWRIGHT_HOME. Row two runs
-scripts/install-sw.sh, the task's body, with the built sw and a version it does not report.
+The tests check task wiring and run its body against a temporary SPECWRIGHT_HOME,
+using SPECWRIGHT_SW so they do not overwrite another worker's build. A mismatched version must preserve the old file.
 
 Run: SPECWRIGHT_SW=<path> python -m unittest evals/cli/test_install_sw.py
 """
@@ -35,7 +35,7 @@ class TestInstallSw(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.home = self.tmp / "home"
         self.home.mkdir()
-        self.env = {**os.environ, "SPECWRIGHT_HOME": str(self.home)}
+        self.env = {**os.environ, "SPECWRIGHT_HOME": self.home.as_posix()}
         self.version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
     def test_build_placed_and_resolved(self):
@@ -44,8 +44,7 @@ class TestInstallSw(unittest.TestCase):
         task = (ROOT / "mise.toml").read_text(encoding="utf-8").split("[tasks.install-sw]", 1)[1].split("[tasks.", 1)[0]
         self.assertIn('depends = ["build"]', task)
         self.assertIn('run = "bash scripts/install-sw.sh"', task)
-        swharness.require_sw()  # skips as `sw not built` (fails under SPECWRIGHT_REQUIRE_SW=1) without cli/build's sw
-        done = subprocess.run([self.bash, str(ROOT / "scripts" / "install-sw.sh")], cwd=ROOT, env=self.env,
+        done = subprocess.run([self.bash, INSTALL.as_posix(), Path(swharness.require_sw()).as_posix(), self.version], cwd=ROOT, env=self.env,
                               capture_output=True, text=True, encoding="utf-8", timeout=600)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         placed = self.home / ".specwright" / "bin" / self.version / EXE
@@ -59,6 +58,20 @@ class TestInstallSw(unittest.TestCase):
         self.assertEqual(os.path.normcase(os.path.realpath(found.stdout.strip())), os.path.normcase(os.path.realpath(placed)))
         printed = done.stdout.strip().splitlines()[-1]
         self.assertEqual(os.path.normcase(os.path.realpath(printed)), os.path.normcase(os.path.realpath(placed)))
+
+    def test_source_build_places_notice_beside_binary(self):
+        built = swharness.require_sw()
+        done = subprocess.run([self.bash, INSTALL.as_posix(), Path(built).as_posix(), self.version], env=self.env,
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        notice = self.home / ".specwright/bin" / self.version / "THIRD_PARTY_NOTICES.txt"
+        self.assertEqual(notice.read_bytes(), (ROOT / "cli/THIRD_PARTY_NOTICES.txt").read_bytes())
+        before = notice.stat().st_mtime_ns
+        done = subprocess.run([self.bash, INSTALL.as_posix(), Path(built).as_posix(), self.version], env=self.env,
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(notice.stat().st_mtime_ns, before)
+        self.assertEqual(sorted(p.name for p in notice.parent.iterdir()), ["THIRD_PARTY_NOTICES.txt", EXE])
 
     def test_mismatched_build_leaves_existing_file(self):
         built = swharness.require_sw()

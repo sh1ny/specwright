@@ -42,6 +42,14 @@ WINDOWS = os.name == "nt"
 EXE = "sw.exe" if WINDOWS else "sw"
 SWPATH_REL = Path("skills") / "specwright-pr" / "scripts" / "sw-path.sh"
 TARGETS = ("linux-x64", "linux-arm64", "windows-x64", "macos-arm64", "macos-x64")
+NOTICE = "THIRD_PARTY_NOTICES.txt"
+NOTICE_BYTES = b"Fixture third-party notice\n"
+
+
+def has_notice(tag):
+    return tuple(map(int, tag.lstrip("v").split("."))) >= (0, 30, 0)
+
+
 STOP = "sw missing or mismatched: rerun the install prompt"
 
 
@@ -116,13 +124,15 @@ class Base(unittest.TestCase):
 
     # --- the fixture release ---
 
-    def sums(self, binary=None, target=None, hash_override=None):
+    def sums(self, binary=None, target=None, hash_override=None, tag=None):
         """SHA256SUMS text: five lines, the host's real (or overridden) and four made up."""
         target = target or self.target
         lines = []
         for t in TARGETS:
             h = (hash_override or sha(binary if binary is not None else self.binary)) if t == target else sha(t.encode())
             lines.append("%s  %s" % (h, asset_of(t)))
+        if has_notice(tag or self.tag):
+            lines.append("%s  %s" % (sha(NOTICE_BYTES), NOTICE))
         return "\n".join(sorted(lines, key=lambda l: l.split("  ")[1])) + "\n"
 
     def release(self, binary=None, target=None, sums=True, asset=True, sums_text=None, tag=None):
@@ -131,8 +141,10 @@ class Base(unittest.TestCase):
         d.mkdir(parents=True, exist_ok=True)
         if asset:
             (d / asset_of(target)).write_bytes(self.binary if binary is None else binary)
+        if has_notice(tag or self.tag):
+            (d / NOTICE).write_bytes(NOTICE_BYTES)
         if sums:
-            (d / "SHA256SUMS").write_text(sums_text if sums_text is not None else self.sums(binary, target), encoding="utf-8", newline="")
+            (d / "SHA256SUMS").write_text(sums_text if sums_text is not None else self.sums(binary, target, tag=tag), encoding="utf-8", newline="")
         return d
 
     def serve(self, **behaviour):
@@ -226,6 +238,125 @@ class Base(unittest.TestCase):
         return json.loads(r.stdout)["version"]
 
 
+class TestNotices(Base):
+    """Installer-only executable fixture reports the chosen tag through the real resolver.
+
+    The real production binary/version/interface mismatch checks remain in TestStops.
+    """
+    @classmethod
+    def setUpClass(cls):
+        swharness.require_sw()
+        cls.scratch = tempfile.TemporaryDirectory(prefix="sw-notice-fixture-")
+        cls.addClassCleanup(cls.scratch.cleanup)
+        source = Path(cls.scratch.name) / "fixture.dart"
+        source.write_text("""import 'dart:convert';
+import 'dart:io';
+void main(List<String> args) {
+  final marker = Platform.environment['SW_NOTICE_MARKER'];
+  if (marker != null) File(marker).writeAsStringSync('executed\\n', mode: FileMode.append);
+  print(jsonEncode({'version': Platform.environment['SW_NOTICE_VERSION'] ?? '0.30.0', 'interface': 1}));
+}
+""", encoding="utf-8")
+        cls.fixture = Path(cls.scratch.name) / EXE
+        result = subprocess.run(["mise", "exec", "--", "dart", "compile", "exe", str(source), "-o", str(cls.fixture)],
+                                cwd=ROOT / "cli", capture_output=True, text=True, timeout=180)
+        if result.returncode:
+            raise AssertionError(result.stdout + result.stderr)
+
+    def setUp(self):
+        super().setUp()
+        self.choose_version("0.30.0")
+
+    def choose_version(self, version):
+        self.version, self.tag = version, "v" + version
+        self.binary = self.fixture.read_bytes()
+        self.bin = self.home / ".specwright/bin" / version
+        self.final = self.bin / EXE
+        (self.dl / "VERSION").write_text(version + "\n")
+
+    def env(self, **extra):
+        return super().env(SW_NOTICE_VERSION=self.version, **extra)
+
+    def test_download_installs_notice_before_binary_execution(self):
+        self.release()
+        marker = self.tmp / "executed"
+        # Both hashes must be verified before first execution. Placement itself is
+        # after the part passes checks, but before the final binary rename.
+        self.installed(SW_NOTICE_MARKER=str(marker))
+        self.assertTrue(marker.exists())
+        self.assertEqual((self.bin / NOTICE).read_bytes(), NOTICE_BYTES)
+        self.final.unlink()
+        code, _, _, _ = self.sw_install(SPECWRIGHT_TEST_RENAME="die")
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self.final.exists())
+        self.assertEqual((self.bin / NOTICE).read_bytes(), NOTICE_BYTES)
+        self.installed()
+        self.assertEqual(self.final.read_bytes(), self.binary)
+
+    def test_notice_failure_preserves_existing_binary(self):
+        marker = self.tmp / "executed"
+        self.bin.mkdir(parents=True)
+        self.final.write_bytes(b"existing")
+        for case, error in (("line", "sums_invalid"), ("missing", "asset_missing"), ("hash", "checksum_mismatch"), ("write", "notice_write_failed")):
+            with self.subTest(case=case):
+                folder = self.release()
+                marker.unlink(missing_ok=True)
+                if case == "line":
+                    (folder / "SHA256SUMS").write_text(self.sums(tag="v0.29.0"))
+                elif case == "missing":
+                    (folder / NOTICE).unlink()
+                elif case == "hash":
+                    (folder / NOTICE).write_bytes(b"corrupt")
+                extra = {"SW_NOTICE_MARKER": str(marker)}
+                if case == "write":
+                    extra["SPECWRIGHT_TEST_NOTICE_RENAME"] = "fail"
+                self.stopped(error, NOTICE, self.tag, **extra)
+                self.assertEqual(self.final.read_bytes(), b"existing")
+                if case != "write":
+                    self.assertFalse(marker.exists(), "notice is verified before execution")
+                self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE])
+
+    def test_kept_binary_repairs_notice(self):
+        self.release()
+        self.installed()
+        before = self.final.stat().st_mtime_ns
+        notice = self.bin / NOTICE
+        for previous in (None, b"stale"):
+            if previous is None:
+                notice.unlink()
+            else:
+                notice.write_bytes(previous)
+            self.assertEqual(self.installed()["action"], "kept")
+            self.assertEqual(notice.read_bytes(), NOTICE_BYTES)
+            self.assertEqual(self.final.stat().st_mtime_ns, before)
+        unchanged = notice.stat().st_mtime_ns
+        self.installed()
+        self.assertEqual(notice.stat().st_mtime_ns, unchanged)
+        notice.unlink()
+        self.installed(SPECWRIGHT_TEST_NOTICE_RENAME="race")
+        self.assertEqual(notice.read_bytes(), NOTICE_BYTES)
+
+    def test_concurrent_notice_installs_both_succeed(self):
+        self.release()
+        results = []
+        workers = [threading.Thread(target=lambda: results.append(self.sw_install())) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(300)
+        self.assertEqual(len(results), 2)
+        for code, doc, out, err in results:
+            self.assertEqual(code, 0, out + err)
+        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([NOTICE, EXE]))
+        self.assertEqual((self.bin / NOTICE).read_bytes(), NOTICE_BYTES)
+
+    def test_pre_030_release_installs_without_notice(self):
+        self.choose_version("0.29.0")
+        self.release()
+        self.installed()
+        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE])
+
+
 class TestInstall(Base):
     def test_tag_install_places_checked_binary(self):
         self.release()
@@ -239,7 +370,7 @@ class TestInstall(Base):
         if not WINDOWS:
             self.assertTrue(os.access(self.final, os.X_OK))
         self.assertEqual(self.reported_version(self.final), self.version)
-        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE], "no part file may be left")
+        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])), "no part file may be left")
 
     def test_specwright_home_is_the_root(self):
         self.release()
@@ -353,6 +484,7 @@ class TestStops(Base):
             "short hash": h[:63] + "  " + asset_of(self.target),
             "single space": h + " " + asset_of(self.target),
             "name outside the five": h + "  sw-freebsd-x64",
+            "duplicate name": good[(host + 1) % len(good)],
         }
         for label, line in variants.items():
             with self.subTest(label):
@@ -361,6 +493,12 @@ class TestStops(Base):
                 self.release(sums_text="\n".join(lines) + "\n")
                 self.stopped("sums_invalid", self.tag)
                 self.assert_nothing_placed()
+
+    def test_old_manifest_rejects_notice_name(self):
+        self.release(tag="v0.29.0", sums_text=self.sums(tag="v0.29.0") + sha(NOTICE_BYTES) + "  " + NOTICE + "\n")
+        self.dl = self.make_download(self.tmp / "old-dl", version="0.29.0")
+        self.stopped("sums_invalid", "v0.29.0", ref="v0.29.0")
+        self.assert_nothing_placed()
 
     def test_no_github_origin_stops(self):
         self.stopped("no_github_origin", base=False)
@@ -515,7 +653,7 @@ class TestPlacement(Base):
             self.assertEqual(code, 0, out + err)
             self.assertIn(doc["action"], ("installed", "replaced", "kept"))
         self.assertEqual(sha(self.final.read_bytes()), sha(self.binary))
-        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE])
+        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])))
 
     def test_blocked_rename_with_matching_file_is_kept(self):
         self.release()
@@ -524,7 +662,7 @@ class TestPlacement(Base):
         doc = self.installed(SPECWRIGHT_TEST_RENAME="race")  # another run placed the file while this rename failed
         self.assertEqual(doc["action"], "kept")
         self.assertEqual(self.final.read_bytes(), self.binary)
-        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE], "this run's part file is deleted")
+        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])), "this run's part file is deleted")
 
     def test_blocked_rename_with_other_file_stops_sw_in_use(self):
         self.release()
@@ -532,19 +670,23 @@ class TestPlacement(Base):
         self.final.write_bytes(b"stale")
         self.stopped("sw_in_use", EXE, SPECWRIGHT_TEST_RENAME="fail")
         self.assertEqual(self.final.read_bytes(), b"stale")
-        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE])
+        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])))
 
     def test_only_old_part_files_are_cleaned(self):
         self.release()
         self.bin.mkdir(parents=True)
         old, fresh, other = self.bin / ".sw-aaaa.part", self.bin / ".sw-bbbb.part", self.bin / "notes.txt"
-        for p in (old, fresh, other):
+        old_notice, fresh_notice = self.bin / ".sw-aaaa.notice.part", self.bin / ".sw-bbbb.notice.part"
+        for p in (old, fresh, other, old_notice, fresh_notice):
             p.write_bytes(b"x")
         two_hours = time.time() - 7200
         os.utime(old, (two_hours, two_hours))
+        os.utime(old_notice, (two_hours, two_hours))
         os.utime(other, (two_hours, two_hours))
         self.installed()
         self.assertFalse(old.exists())
+        self.assertFalse(old_notice.exists())
+        self.assertTrue(fresh_notice.exists())
         self.assertTrue(fresh.exists(), "a part modified within the hour belongs to another run")
         self.assertTrue(other.exists())
 

@@ -8,6 +8,7 @@ import 'pair.dart';
 import 'identity.dart';
 import 'settings_commands.dart';
 import 'workflow_transport.dart';
+import 'closing.dart';
 import '../process/limits.dart';
 
 Never workflowUnknown(String why) => throw PairStop(
@@ -28,8 +29,9 @@ class Workflow {
     if (_ambient != null) return _ambient!;
     final r = await gh(['api', 'user', '--jq', '.login']);
     final login = decodeReplacing(r.stdout).trim();
-    if (r.exitCode != 0 || login.isEmpty)
+    if (r.exitCode != 0 || login.isEmpty) {
       workflowUnknown('cannot read the ambient gh login');
+    }
     return _ambient = login;
   }
 
@@ -43,7 +45,9 @@ class Workflow {
   }
 
   Map<String, String> unfencedEnvironment() {
-    if (!ctx.env.containsKey('AS_SH_ORIG_SET')) return Map.of(ctx.env);
+    if (!ctx.env.containsKey('AS_SH_ORIG_SET')) {
+      return Map<String, String>.of(ctx.env);
+    }
     final filter = RegExp(
       r'^(?:GH_TOKEN|GIT_SSH_COMMAND|GIT_TERMINAL_PROMPT|GCM_INTERACTIVE|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG_COUNT|GIT_CONFIG_(?:KEY|VALUE)_\d+|AS_SH_ORIG_\w+)$',
     );
@@ -58,7 +62,7 @@ class Workflow {
   Future<GhResult> gitNetwork(String dir, List<String> args) async {
     final slug = await fetchRepo(dir);
     final limits = resolveLimits(ctx.env, paged: false);
-    if (slug == null)
+    if (slug == null) {
       return runBoundedCommand(
         ctx.bash,
         dir,
@@ -67,6 +71,7 @@ class Workflow {
         limits: limits,
         helperCommand: ctx.helperCommand,
       );
+    }
     var login = _repoLogin[slug.toLowerCase()];
     final top = (await ctx.git(dir, [
       'rev-parse',
@@ -76,7 +81,7 @@ class Workflow {
       'rev-parse',
       '--show-toplevel',
     ])).stdout.trim();
-    if (login == null && top.isNotEmpty && top == started)
+    if (login == null && top.isNotEmpty && top == started) {
       return runBoundedCommand(
         ctx.bash,
         dir,
@@ -85,6 +90,7 @@ class Workflow {
         limits: limits,
         helperCommand: ctx.helperCommand,
       );
+    }
     login ??= await ambientLogin();
     await tokenFor(login);
     return WorkflowTransport.native(
@@ -101,13 +107,14 @@ class Workflow {
       'origin',
       'refs/heads/$branch',
     ]);
-    if (r.exitCode != 0 || r.limit != null)
+    if (r.exitCode != 0 || r.limit != null) {
       throw PairStop(
         'remote_unreadable',
         'git ls-remote origin failed in $dir: ${decodeReplacing(r.stderr).trim()}',
         code: 3,
         extra: {'unknown': true},
       );
+    }
     final line = decodeReplacing(r.stdout).trim().split('\n').first.trim();
     if (line.isEmpty) return false;
     final remote = line.split(RegExp(r'\s+')).first;
@@ -172,45 +179,52 @@ class Workflow {
       '--user',
       login,
     ], environment: bare);
-    if (r.limit != null)
+    if (r.limit != null) {
       throw PairStop(
         r.limit!.label,
         'GitHub state unknown: ${r.limit!.label}: gh auth',
         code: 3,
         extra: {'unknown': true},
       );
+    }
     final token = r.exitCode == 0 ? decodeReplacing(r.stdout).trim() : '';
-    if (token.isEmpty)
+    if (token.isEmpty) {
       throw PairStop(
         'no_credential',
         "no gh credential for '$login' (planning_store.login); run gh auth login",
         code: 3,
         extra: {'login': login},
       );
+    }
     final who = await ctx.gh(
       ['api', '--hostname', 'github.com', 'user', '--jq', '.login'],
       environment: {...bare, 'GH_TOKEN': token},
     );
-    if (who.limit != null)
+    if (who.limit != null) {
       throw PairStop(
         who.limit!.label,
         'GitHub state unknown: ${who.limit!.label}: gh api',
         code: 3,
         extra: {'unknown': true},
       );
+    }
     final actual = decodeReplacing(who.stdout).trim();
-    if (actual != login)
+    if (actual != login) {
       throw PairStop(
         'identity_mismatch',
         "the token for '$login' resolves to '$actual'; refusing",
         code: 3,
         extra: {'login': login},
       );
+    }
     return _tokens[login] = token;
   }
 
-  Future<GhResult> gh(List<String> args) async {
-    String? repo;
+  Future<GhResult> gh(
+    List<String> args, {
+    String? repo,
+    bool limitOk = false,
+  }) async {
     for (var i = 0; i < args.length; i++) {
       final m = RegExp(r'^/?repos/([^/]+/[^/?]+)').firstMatch(args[i]);
       if (m != null) {
@@ -224,7 +238,7 @@ class Workflow {
     }
     final login = _repoLogin[repo?.toLowerCase()];
     Map<String, String>? env;
-    if (login != null)
+    if (login != null) {
       env = {...ctx.env, 'GH_TOKEN': await tokenFor(login)}
         ..removeWhere(
           (k, v) => [
@@ -233,18 +247,20 @@ class Workflow {
             'GITHUB_ENTERPRISE_TOKEN',
           ].contains(k),
         );
+    }
     final r = await ctx.gh(
       args,
       paged: args.contains('--paginate'),
       environment: env,
     );
-    if (r.limit != null)
+    if (r.limit != null && !limitOk) {
       throw PairStop(
         r.limit!.label,
         'GitHub state unknown: ${r.limit!.label}: gh ${args.first}',
         code: 3,
         extra: {'unknown': true},
       );
+    }
     return r;
   }
 
@@ -309,7 +325,7 @@ class Workflow {
     return items;
   }
 
-  Map<String, dynamic> normalize(Map p) => {
+  Map<String, dynamic> normalize(Map<dynamic, dynamic> p) => {
     'number': p['number'],
     'url': p['html_url'],
     'state': p['merged_at'] != null
@@ -317,8 +333,8 @@ class Workflow {
         : p['state'] == 'open'
         ? 'OPEN'
         : 'CLOSED',
-    'base': (p['base'] as Map?)?['ref'],
-    'head_sha': (p['head'] as Map?)?['sha'],
+    'base': (p['base'] as Map<dynamic, dynamic>?)?['ref'],
+    'head_sha': (p['head'] as Map<dynamic, dynamic>?)?['sha'],
     'merged_at': p['merged_at'],
     'merge_commit_sha': p['merge_commit_sha'],
     'title': p['title'] ?? '',
@@ -336,23 +352,28 @@ class Workflow {
     );
     final own = <int, Map<String, dynamic>>{};
     for (final p in items) {
-      final h = p['head'] as Map? ?? {};
-      if (((h['repo'] as Map?)?['full_name'] ?? '').toString().toLowerCase() ==
+      final h = p['head'] as Map<dynamic, dynamic>? ?? {};
+      if (((h['repo'] as Map<dynamic, dynamic>?)?['full_name'] ?? '')
+                  .toString()
+                  .toLowerCase() ==
               repo.toLowerCase() &&
-          h['ref'] == branch)
-        own[p['number'] as int] = normalize(p as Map);
+          h['ref'] == branch) {
+        own[p['number'] as int] = normalize(p as Map<dynamic, dynamic>);
+      }
     }
     var prs = own.values.toList()
       ..sort((a, b) => (b['number'] as int).compareTo(a['number'] as int));
     final other = base == null || base.isEmpty
-        ? []
+        ? <Map<String, dynamic>>[]
         : prs.where((p) => p['base'] != base).toList();
-    if (base != null && base.isNotEmpty)
+    if (base != null && base.isNotEmpty) {
       prs = prs.where((p) => p['base'] == base).toList();
-    if (states != null && !states.contains('all'))
+    }
+    if (states != null && !states.contains('all')) {
       prs = prs
           .where((p) => states.contains((p['state'] as String).toLowerCase()))
           .toList();
+    }
     return {
       'ok': true,
       'repo': repo,
@@ -364,9 +385,418 @@ class Workflow {
     };
   }
 
+  static const closingQuery =
+      'query(\$owner: String!, \$name: String!, \$number: Int!) { repository(owner: \$owner, name: \$name) { defaultBranchRef { name } pullRequest(number: \$number) { body baseRefName closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage } } } } }';
+  static const closedPrQuery =
+      'query(\$owner: String!, \$name: String!, \$number: Int!) { repository(owner: \$owner, name: \$name) { defaultBranchRef { name } pullRequest(number: \$number) { state url body baseRefName mergedAt } } }';
+  static const closedIssueQuery =
+      'query(\$owner: String!, \$name: String!, \$number: Int!) { repository(owner: \$owner, name: \$name) { issue(number: \$number) { state timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { createdAt } } } } } }';
+
+  Future<Map<dynamic, dynamic>> graphql(
+    String query,
+    String repo,
+    String number,
+  ) async {
+    final parts = repo.split('/');
+    final r = await gh([
+      'api',
+      'graphql',
+      '-f',
+      'query=$query',
+      '-f',
+      'owner=${parts[0]}',
+      '-f',
+      'name=${parts[1]}',
+      '-F',
+      'number=$number',
+    ], repo: repo);
+    if (r.exitCode != 0) workflowUnknown(reason(r));
+    try {
+      final data = jsonDecode(decodeReplacing(r.stdout));
+      if (data is! Map<dynamic, dynamic> || data['errors'] != null) {
+        workflowUnknown(
+          'GraphQL errors: ${data is Map<dynamic, dynamic> ? data['errors'] : data}',
+        );
+      }
+      return data;
+    } on FormatException {
+      workflowUnknown('unreadable GraphQL response');
+    }
+  }
+
+  Future<List<String>> closingTargets(String body, String repo) async {
+    if (body.trim().isEmpty) return [];
+    final temp = await Directory.systemTemp.createTemp('sw-closing-');
+    try {
+      final file = File('${temp.path}/render.json');
+      await file.writeAsString(
+        jsonEncode({'text': body, 'mode': 'gfm', 'context': repo}),
+      );
+      final r = await gh([
+        'api',
+        '-X',
+        'POST',
+        'markdown',
+        '--input',
+        file.path,
+      ], repo: repo);
+      if (r.exitCode != 0) workflowUnknown(reason(r));
+      return intendedReferences(decodeReplacing(r.stdout), repo);
+    } finally {
+      await temp.delete(recursive: true);
+    }
+  }
+
+  Future<Map<String, Object?>> closingCheck(
+    String command,
+    List<String> argv,
+  ) async {
+    final closed = command == 'closed-check';
+    final a = parsePairArgs(argv, {
+      '--repo': 'repo',
+      '--pr': 'pr',
+      if (closed) '--repos': 'repos',
+      if (closed) '--login': '+login',
+    });
+    needArgs(a, ['repo', 'pr', if (closed) 'repos']);
+    bool slug(String s) => RegExp(r'^[^/\s]+/[^/\s]+$').hasMatch(s);
+    final repo = a['repo']!, number = a['pr']!;
+    final scope = closed
+        ? a['repos']!.split(',').where((s) => s.isNotEmpty).toList()
+        : <String>[];
+    if (!slug(repo) ||
+        !RegExp(r'^\d+$').hasMatch(number) ||
+        (closed && (scope.isEmpty || !scope.every(slug)))) {
+      pairUsage('--repo is owner/name and --pr a number');
+    }
+    for (final pair in a.lists['login'] ?? <String>[]) {
+      final at = pair.indexOf('=');
+      if (at < 1 || at == pair.length - 1 || !slug(pair.substring(0, at))) {
+        pairUsage('--login is owner/name=login');
+      }
+      _repoLogin[pair.substring(0, at).toLowerCase()] = pair.substring(at + 1);
+    }
+    final data = await graphql(
+      closed ? closedPrQuery : closingQuery,
+      repo,
+      number,
+    );
+    late Map<dynamic, dynamic> pr;
+    late String base, defaultBranch, body;
+    List<String> linked = [];
+    try {
+      final rep = data['data']['repository'];
+      pr = rep['pullRequest'] as Map<dynamic, dynamic>;
+      if (!pr.containsKey('body') ||
+          (closed &&
+              (pr['state'] is! String ||
+                  pr['url'] is! String ||
+                  !pr.containsKey('mergedAt')))) {
+        throw const FormatException('missing PR evidence');
+      }
+      base = pr['baseRefName'] as String;
+      defaultBranch = rep['defaultBranchRef']['name'] as String;
+      body = (pr['body'] ?? '') as String;
+      if (!closed) {
+        final refs = pr['closingIssuesReferences'];
+        if (refs['pageInfo']['hasNextPage'] as bool) {
+          workflowUnknown(
+            'the PR closes more than 100 issues; the closing list is cut off',
+          );
+        }
+        linked = [
+          for (final n in refs['nodes'] as List<dynamic>)
+            '${n['repository']['nameWithOwner']}#${n['number']}',
+        ];
+      }
+    } on PairStop {
+      rethrow;
+    } on Object {
+      workflowUnknown(
+        'unexpected GraphQL response shape (PR, default branch or closing list missing)',
+      );
+    }
+    final intended = await closingTargets(body, repo);
+    if (!closed) {
+      final lowLinked = linked.map((s) => s.toLowerCase()).toSet(),
+          lowIntended = intended.map((s) => s.toLowerCase()).toSet();
+      final missing = base == defaultBranch
+          ? intended.where((s) => !lowLinked.contains(s.toLowerCase())).toList()
+          : <String>[];
+      final extra = base == defaultBranch
+          ? linked.where((s) => !lowIntended.contains(s.toLowerCase())).toList()
+          : <String>[];
+      return {
+        'ok': true,
+        'intended': intended,
+        'linked': linked,
+        'base': base,
+        'default_branch': defaultBranch,
+        'status': base != defaultBranch
+            ? 'not_default_base'
+            : missing.isEmpty
+            ? 'match'
+            : 'mismatch',
+        'missing': missing,
+        'extra': extra,
+      };
+    }
+    final out = <String, Object?>{
+      'ok': true,
+      'status': 'merged',
+      'pr_url': pr['url'],
+      'base': base,
+      'default_branch': defaultBranch,
+      'intended': intended,
+      'open': <String>[],
+      'reopened': <String>[],
+      'closed': <String>[],
+      'outside': <String>[],
+    };
+    if (pr['state'] != 'MERGED') return {...out, 'status': 'not_merged'};
+    final merged = pr['mergedAt'];
+    if (merged is! String || merged.isEmpty) {
+      workflowUnknown('the merged PR has no mergedAt');
+    }
+    if (base != defaultBranch) return {...out, 'status': 'not_default_base'};
+    for (final target in intended) {
+      final split = target.lastIndexOf('#'),
+          slug = target.substring(0, target.lastIndexOf('#'));
+      if (!scope.any((s) => s.toLowerCase() == slug.toLowerCase())) {
+        (out['outside'] as List).add(target);
+        continue;
+      }
+      final read = await graphql(
+        closedIssueQuery,
+        slug,
+        target.substring(split + 1),
+      );
+      late String state;
+      String? last;
+      try {
+        final issue = read['data']['repository']['issue'];
+        state = issue['state'] as String;
+        final events = issue['timelineItems']['nodes'] as List;
+        last = events.isEmpty ? null : events.last['createdAt'] as String?;
+      } on Object {
+        workflowUnknown('unexpected GraphQL response shape for $target');
+      }
+      if (state == 'CLOSED') {
+        (out['closed'] as List).add(target);
+      } else if (state == 'OPEN') {
+        (out[last != null && last.compareTo(merged) >= 0 ? 'reopened' : 'open']
+                as List)
+            .add(target);
+      } else {
+        workflowUnknown('$target has unexpected state $state');
+      }
+    }
+    return out;
+  }
+
+  int? httpStatus(GhResult r) {
+    final m = RegExp(r'\(HTTP (\d{3})\)').firstMatch(decodeReplacing(r.stderr));
+    return m == null ? null : int.parse(m[1]!);
+  }
+
+  String replyMessage(GhResult r) {
+    try {
+      final d = jsonDecode(decodeReplacing(r.stdout));
+      if (d is Map<dynamic, dynamic> &&
+          d['message'] is String &&
+          (d['message'] as String).isNotEmpty) {
+        return d['message'] as String;
+      }
+    } on FormatException {
+      /* An unreadable message falls back to stderr/exit status. */
+    }
+    return reason(r);
+  }
+
+  Future<Map<String, Object?>> merge(List<String> argv) async {
+    final a = parsePairArgs(argv, {
+      '--repo': 'repo',
+      '--pr': 'pr',
+      '--method': 'method',
+      '--head': 'head',
+    });
+    needArgs(a, ['repo', 'pr', 'method', 'head']);
+    final repo = a['repo']!,
+        number = a['pr']!,
+        method = a['method']!,
+        head = a['head']!;
+    if (!RegExp(r'^[1-9][0-9]*$').hasMatch(number)) {
+      pairUsage('--pr must be a positive integer');
+    }
+    if (!{'merge', 'squash', 'rebase'}.contains(method)) {
+      pairUsage('--method must be merge, squash or rebase');
+    }
+    if (!RegExp(r'^[0-9a-fA-F]{7,40}$').hasMatch(head)) {
+      pairUsage('--head must be a commit id of 7 to 40 hex digits');
+    }
+    final n = int.parse(number),
+        r = await gh([
+          'api',
+          '-X',
+          'PUT',
+          'repos/$repo/pulls/$number/merge',
+          '-f',
+          'merge_method=$method',
+          '-f',
+          'sha=$head',
+        ], limitOk: true);
+    final status = httpStatus(r), message = replyMessage(r);
+    late Map<dynamic, dynamic> pr;
+    try {
+      pr = await object('repos/$repo/pulls/$number') as Map<dynamic, dynamic>;
+    } on PairStop catch (e) {
+      throw PairStop(
+        e.error,
+        e.message,
+        code: e.code,
+        extra: {...e.extra, 'status': 'unknown'},
+      );
+    }
+    if (pr['merged_at'] != null) {
+      return {
+        'ok': true,
+        'status': 'merged',
+        'repo': repo,
+        'pr': n,
+        'head_sha': (pr['head'] as Map<dynamic, dynamic>?)?['sha'],
+        'merge_commit_sha': pr['merge_commit_sha'],
+      };
+    }
+    if (r.exitCode == 0 || status == null || status >= 500) {
+      throw PairStop(
+        'lookup_failed',
+        'GitHub state unknown: merge of $repo#$number is not confirmed: $message',
+        code: 3,
+        extra: {'unknown': true, 'status': 'unknown'},
+      );
+    }
+    throw PairStop(
+      'refused',
+      message,
+      extra: {
+        'status': 'refused',
+        'reason': status == 409 ? 'head_changed' : 'refused',
+        'http_status': status,
+        'repo': repo,
+        'pr': n,
+      },
+    );
+  }
+
+  Future<Map<String, Object?>> deleteRemote(List<String> argv) async {
+    final a = parsePairArgs(argv, {
+      '--repo': 'repo',
+      '--branch': 'branch',
+      '--head': 'head',
+    });
+    needArgs(a, ['repo', 'branch', 'head']);
+    final repo = a['repo']!, branch = a['branch']!, head = a['head']!;
+    if (!RegExp(r'^[0-9a-fA-F]{40}$').hasMatch(head)) {
+      pairUsage('--head must be a full 40-digit commit id');
+    }
+    final path = branch.split('/').map(Uri.encodeComponent).join('/'),
+        base = <String, Object?>{'repo': repo, 'branch': branch};
+    var r = await gh(['api', 'repos/$repo/git/ref/heads/$path']);
+    if (r.exitCode != 0) {
+      if (httpStatus(r) == 404) return {'ok': true, 'status': 'gone', ...base};
+      workflowUnknown(replyMessage(r));
+    }
+    Object? sha;
+    try {
+      sha = (jsonDecode(
+        decodeReplacing(r.stdout),
+      ) as Map<dynamic, dynamic>)['object']['sha'];
+    } on Object {
+      workflowUnknown('unreadable ref response');
+    }
+    if (sha is! String || sha.toLowerCase() != head.toLowerCase()) {
+      return {'ok': true, 'status': 'moved', ...base, 'sha': sha};
+    }
+    final based = await list(
+      'repos/$repo/pulls?state=open&base=${Uri.encodeComponent(branch)}&per_page=100',
+    );
+    if (based.isNotEmpty) {
+      return {
+        'ok': true,
+        'status': 'based_on',
+        ...base,
+        'prs': [for (final p in based) p['number']],
+      };
+    }
+    r = await gh(['api', '-X', 'DELETE', 'repos/$repo/git/refs/heads/$path']);
+    if (r.exitCode == 0) return {'ok': true, 'status': 'deleted', ...base};
+    final status = httpStatus(r), message = replyMessage(r);
+    if (status == null) workflowUnknown(message);
+    if (status == 422 && message.toLowerCase().contains('does not exist')) {
+      return {'ok': true, 'status': 'gone', ...base};
+    }
+    throw PairStop(
+      'kept',
+      message,
+      extra: {'status': 'kept', 'http_status': status, ...base},
+    );
+  }
+
+  Future<Map<String, Object?>> itemIssues(List<String> argv) async {
+    final a = parsePairArgs(argv, {'--repo': 'repo', '--item': '+items'});
+    needArgs(a, ['repo']);
+    final items = a.lists['items'] ?? <String>[];
+    if (items.isEmpty) pairUsage('missing --items');
+    final r = await gh([
+      'api',
+      '--paginate',
+      'repos/${a['repo']}/issues?state=all&per_page=100',
+      '--jq',
+      '.[] | select(.pull_request == null and ((.body // "") | contains("specwright:pr-item "))) | {number, body}',
+    ], repo: a['repo']);
+    if (r.exitCode != 0) workflowUnknown(reason(r));
+    final markers = <String, int>{};
+    for (final raw in decodeReplacing(r.stdout).split('\n')) {
+      if (raw.trim().isEmpty) continue;
+      try {
+        final issue = jsonDecode(raw) as Map<dynamic, dynamic>;
+        final number = issue['number'] as int;
+        final body = (issue['body'] ?? '') as String;
+        for (final text in body.split('\n')) {
+          final line = text.trim();
+          if (line.startsWith('specwright:pr-item ')) {
+            final old = markers[line];
+            if (old == null || number < old) markers[line] = number;
+          }
+        }
+      } on Object {
+        workflowUnknown('unreadable response');
+      }
+    }
+    return {
+      'ok': true,
+      'found': {
+        for (final item in items)
+          if (markers.containsKey('specwright:pr-item $item'))
+            item: markers['specwright:pr-item $item'],
+      },
+      'missing': [
+        for (final item in items)
+          if (!markers.containsKey('specwright:pr-item $item')) item,
+      ],
+    };
+  }
+
   Future<Map<String, Object?>> run(String command, List<String> argv) async {
-    if (command == 'expected' || command == 'pair-state')
+    if (command == 'closing-check' || command == 'closed-check') {
+      return closingCheck(command, argv);
+    }
+    if (command == 'merge') return merge(argv);
+    if (command == 'delete-remote') return deleteRemote(argv);
+    if (command == 'item-issues') return itemIssues(argv);
+    if (command == 'expected' || command == 'pair-state') {
       return expectedCommand(command, argv);
+    }
     if (command == 'rounds') return rounds(argv);
     if (command == 'discover') {
       final a = parsePairArgs(argv, {
@@ -399,22 +829,25 @@ class Workflow {
       final prs = (await discover(repo, branch))['prs'] as List;
       final opens = prs.where((p) => p['state'] == 'OPEN').toList();
       for (final p in opens) {
-        if (p['base'] != base)
+        if (p['base'] != base) {
           throw PairStop(
             'wrong_base',
             'PR #${p['number']} ${p['url']} targets ${p['base']}, not $base; nothing was opened or linked',
             extra: {'pr': p, 'base': p['base']},
           );
+        }
       }
-      if (opens.isNotEmpty)
+      if (opens.isNotEmpty) {
         return {'ok': true, 'action': 'found', 'pr': opens.first};
+      }
       final based = prs.where((p) => p['base'] == base).toList();
-      if (based.isNotEmpty && based.first['state'] == 'MERGED')
+      if (based.isNotEmpty && based.first['state'] == 'MERGED') {
         throw PairStop(
           'already_merged',
           'PR #${based.first['number']} ${based.first['url']} from $branch is already merged; not opening another',
           extra: {'pr': based.first},
         );
+      }
       final r = await gh([
         'pr',
         'create',
@@ -432,11 +865,12 @@ class Workflow {
       if (r.exitCode != 0) throw PairStop('create_failed', reason(r));
       final m = RegExp(r'(https://\S+/pull/(\d+))')
           .firstMatch(decodeReplacing(r.stdout));
-      if (m == null)
+      if (m == null) {
         throw PairStop(
           'create_failed',
           'gh pr create printed no PR URL: ${decodeReplacing(r.stdout).trim()}',
         );
+      }
       return {
         'ok': true,
         'action': 'created',
@@ -477,10 +911,11 @@ class Workflow {
         '--count',
         '$mref..refs/heads/$branch',
       ]);
-      if (r.code == 0)
+      if (r.code == 0) {
         commits = int.parse(r.stdout.trim().isEmpty ? '0' : r.stdout.trim());
+      }
     }
-    dynamic selected(List prs) {
+    dynamic selected(List<dynamic> prs) {
       for (final p in prs) {
         if (p['state'] == 'OPEN') return p;
       }
@@ -518,8 +953,9 @@ class Workflow {
     if (sid != null) {
       final slug = sid['repo'] as String;
       final s = c.store!.login, login = c.code.login;
-      if (s.isNotEmpty && s.toLowerCase() != login.toLowerCase())
+      if (s.isNotEmpty && s.toLowerCase() != login.toLowerCase()) {
         _repoLogin[slug.toLowerCase()] = s;
+      }
       final sd = await discover(slug, branch, base: c.store!.main);
       ss['pr'] = selected(sd['prs'] as List);
       ss['other_base'] = sd['other_base'];
@@ -569,28 +1005,33 @@ class Workflow {
       a['branch']!,
     );
     if (command == 'expected') return e;
-    final carry = a.lists['carry'] ?? [];
-    if (carry.any((k) => !['code', 'store'].contains(k)))
+    final carry = a.lists['carry'] ?? <String>[];
+    if (carry.any((k) => !['code', 'store'].contains(k))) {
       pairUsage(
         '--carry-over is code or store: the side whose archive head carries its reviewers\' reports over',
       );
-    final snaps = <String, Map>{};
+    }
+    final snaps = <String, Map<dynamic, dynamic>>{};
     for (final spec in a.lists['snapshot'] ?? <String>[]) {
       final at = spec.indexOf('=');
       if (at < 0 ||
           !['code', 'store'].contains(spec.substring(0, at)) ||
-          at == spec.length - 1)
+          at == spec.length - 1) {
         pairUsage('--snapshot is code=<file> or store=<file>');
+      }
       final path = spec.substring(at + 1);
       try {
-        snaps[spec.substring(0, at)] = await readWorkflowJson(path) as Map;
+        snaps[spec.substring(0, at)] =
+            await readWorkflowJson(path) as Map<dynamic, dynamic>;
       } on Object catch (err) {
         throw PairStop('snapshot_unreadable', '$path: $err', code: 2);
       }
     }
-    final dropped = a.lists['dropped'] ?? [];
+    final dropped = a.lists['dropped'] ?? <String>[];
     final members = e['set'] as List<String>;
-    final prs = {for (final k in members) k: (e[k] as Map)['pr']};
+    final prs = {
+      for (final k in members) k: (e[k] as Map<dynamic, dynamic>)['pr'],
+    };
     final states = {for (final k in members) k: prs[k]?['state']};
     final missing = members.where((k) => states[k] == null).toList();
     final merged = members.where((k) => states[k] == 'MERGED').toList();
@@ -621,69 +1062,77 @@ class Workflow {
     };
     if (members.isEmpty) return {...r, 'action': 'no_watch'};
     if (missing.isNotEmpty) return {...r, 'action': 'ship'};
-    if (merged.isNotEmpty || closed.isNotEmpty)
+    if (merged.isNotEmpty || closed.isNotEmpty) {
       return {
         ...r,
         'action': open.isNotEmpty ? 'split_hand_off' : 'cleanup',
         'stop_waits': true,
       };
+    }
     for (final k in members) {
-      final s = snaps[k], p = prs[k] as Map;
+      final s = snaps[k], p = prs[k] as Map<dynamic, dynamic>;
       final b = <String>[];
-      if (s == null)
+      if (s == null) {
         b.add('no_snapshot');
-      else {
+      } else {
         if (s['complete'] == false) b.add('incomplete');
         if (s['pending_review'] == true) b.add('pending_review');
         if ((s['state'] ?? 'OPEN') != 'OPEN') b.add('not_open');
         if (s['mergeable'] != 'MERGEABLE') b.add('not_mergeable');
-        final ck = s['checks'] as Map? ?? {};
+        final ck = s['checks'] as Map<dynamic, dynamic>? ?? {};
         bool truth(dynamic v) =>
             v != null &&
             v != false &&
             v != 0 &&
             v != '' &&
             !(v is Iterable && v.isEmpty) &&
-            !(v is Map && v.isEmpty);
+            !(v is Map<dynamic, dynamic> && v.isEmpty);
         final ciDone = ck['ci_pending'] == 0 && !truth(ck['failing']);
         if (!(s['merge_state'] == 'CLEAN' ||
-            s['merge_state'] == 'UNSTABLE' && ciDone))
+            s['merge_state'] == 'UNSTABLE' && ciDone)) {
           b.add('merge_state:${s['merge_state'] ?? 'None'}');
-        if (truth(ck[carry.contains(k) ? 'ci_pending' : 'pending']))
+        }
+        if (truth(ck[carry.contains(k) ? 'ci_pending' : 'pending'])) {
           b.add('checks_pending');
+        }
         if (truth(ck['failing'])) b.add('checks_failing');
         for (final kind in ['threads', 'comments', 'reviews']) {
-          if ((s[kind] as List? ?? []).any(
+          if ((s[kind] as List<dynamic>? ?? <dynamic>[]).any(
             (i) => !dropped.contains('${i['id']}@${i['rev']}'),
-          ))
+          )) {
             b.add(kind);
+          }
         }
-        if (!carry.contains(k))
-          for (final reviewer in s['reviewers'] as List? ?? []) {
+        if (!carry.contains(k)) {
+          for (final reviewer
+              in s['reviewers'] as List<dynamic>? ?? <dynamic>[]) {
             if ((reviewer['role'] ?? 'required') == 'required' &&
                     reviewer['state'] != 'reported' ||
                 reviewer['role'] == 'advisory' &&
-                    reviewer['state'] == 'waiting')
+                    reviewer['state'] == 'waiting') {
               b.add('reviewer:${reviewer['login']}:${reviewer['state']}');
+            }
           }
+        }
         String? stale;
         final re = RegExp(r'https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)');
-        final got = re.firstMatch(s['url'] is String ? s['url'] : ''),
-            want = re.firstMatch(p['url'] ?? '');
+        final got = re.firstMatch(s['url'] is String ? s['url'] as String : ''),
+            want = re.firstMatch((p['url'] ?? '') as String);
         if (s['number'] != p['number'] ||
             got == null ||
             want == null ||
             got[1]!.toLowerCase() != want[1]!.toLowerCase()) {
           var n = s['number']?.toString() ?? '?';
-          if (s['number'] == p['number'] && got != null)
+          if (s['number'] == p['number'] && got != null) {
             n = '${got[1]}#${s['number']}';
+          }
           stale = 'refresh:pr:$n!=${p['number']}';
-        } else if ((s['head_oid'] ?? '').isEmpty ||
+        } else if (((s['head_oid'] ?? '') as String).isEmpty ||
             s['head_oid'] != p['head_sha']) {
           String short(String v) =>
               v.isEmpty ? '?' : v.substring(0, v.length < 7 ? v.length : 7);
           stale =
-              'refresh:head:${short(s['head_oid'] ?? '')}!=${short(p['head_sha'] ?? '')}';
+              'refresh:head:${short((s['head_oid'] ?? '') as String)}!=${short((p['head_sha'] ?? '') as String)}';
         }
         if (stale != null) {
           b.insert(0, stale);
@@ -724,10 +1173,7 @@ class Workflow {
     final trailers = <String, Map<String, BigInt>>{};
     var top = BigInt.zero;
     var legacy = 0;
-    for (final entry in {
-      'code': code,
-      if (store != null) 'store': store,
-    }.entries) {
+    for (final entry in {'code': code, 'store': ?store}.entries) {
       final main = entry.key == 'code' ? c.code.main : c.store!.main;
       final mref = await mainRef(entry.value, main);
       var count = 0;
@@ -740,7 +1186,7 @@ class Workflow {
           '$mref..refs/heads/${a['branch']}',
           '--format=%H%x1f%s%x1f%B%x1e',
         ]);
-        if (r.code == 0)
+        if (r.code == 0) {
           for (final rec in r.stdout.split('\x1e')) {
             if (rec.trim().isEmpty) continue;
             final parts = rec
@@ -751,8 +1197,9 @@ class Workflow {
             if (RegExp(
               'address review feedback',
               caseSensitive: false,
-            ).hasMatch(parts[1]))
+            ).hasMatch(parts[1])) {
               count++;
+            }
             for (final m in RegExp(
               r'^Feedback-Round:[ \t]*(\d+)[ \t]*$',
               multiLine: true,
@@ -763,6 +1210,7 @@ class Workflow {
             }
             bySha[parts[0].trim()] = number;
           }
+        }
       }
       if (maxTrailer > top) top = maxTrailer;
       if (count > legacy) legacy = count;
@@ -777,21 +1225,21 @@ class Workflow {
         final s = c.store!.login;
         if (slug != null &&
             s.isNotEmpty &&
-            s.toLowerCase() != c.code.login.toLowerCase())
+            s.toLowerCase() != c.code.login.toLowerCase()) {
           _repoLogin[slug.toLowerCase()] = s;
-        if (slug != null && _repoLogin[slug.toLowerCase()] != null)
+        }
+        if (slug != null && _repoLogin[slug.toLowerCase()] != null) {
           await tokenFor(_repoLogin[slug.toLowerCase()]!);
+        }
       }
-      for (final e in {
-        'code': code,
-        if (store != null) 'store': store,
-      }.entries) {
+      for (final e in {'code': code, 'store': ?store}.entries) {
         final missing = <String>[];
         try {
           for (final t in trailers[e.key]!.entries) {
             if (t.value == top &&
-                !await remoteContains(e.value, a['branch']!, t.key))
+                !await remoteContains(e.value, a['branch']!, t.key)) {
               missing.add(t.key);
+            }
           }
         } on PairStop catch (err) {
           // The old rounds wrapper catches outer read/transport failures as
@@ -827,37 +1275,42 @@ class Workflow {
     needArgs(a, ['repo', 'pr', 'kind', 'peer']);
     final repo = a['repo']!, n = a['pr']!, kind = a['kind']!, peer = a['peer']!;
     if (kind != 'code' && kind != 'store') pairUsage('--kind is store or code');
-    final pr = await object('repos/$repo/pulls/$n') as Map;
-    if ((pr['body'] ?? '').toString().contains(peer))
+    final pr = await object('repos/$repo/pulls/$n') as Map<dynamic, dynamic>;
+    if ((pr['body'] ?? '').toString().contains(peer)) {
       return {'ok': true, 'action': 'skipped', 'reason': 'description'};
-    final found = <Map>[];
+    }
+    final found = <Map<dynamic, dynamic>>[];
     final marker = RegExp(
       r'<!--\s*specwright:link\s+(store|code)\s+(\S+)\s*-->',
     );
     for (final c in await list('repos/$repo/issues/$n/comments?per_page=100')) {
       final m = marker.firstMatch((c['body'] ?? '').toString());
       if (m != null && m[1] == kind) {
-        if (m[2] == peer)
+        if (m[2] == peer) {
           return {
             'ok': true,
             'action': 'skipped',
             'reason': 'marker',
             'comment_id': c['id'],
           };
-        found.add(c as Map);
+        }
+        found.add(c as Map<dynamic, dynamic>);
       }
     }
     var login = a['login'];
     if (login == null || login.isEmpty) {
       final r = await gh(['api', 'user', '--jq', '.login']);
       login = decodeReplacing(r.stdout).trim();
-      if (r.exitCode != 0 || login.isEmpty)
+      if (r.exitCode != 0 || login.isEmpty) {
         workflowUnknown('cannot read the ambient gh login');
+      }
     }
     final mine = found
         .where(
           (c) =>
-              ((c['user'] as Map?)?['login'] ?? '').toString().toLowerCase() ==
+              ((c['user'] as Map<dynamic, dynamic>?)?['login'] ?? '')
+                  .toString()
+                  .toLowerCase() ==
               login!.toLowerCase(),
         )
         .toList();
@@ -885,8 +1338,12 @@ class Workflow {
       ]);
       if (r.exitCode != 0) throw PairStop('link_failed', reason(r));
       try {
-        cid ??= (jsonDecode(decodeReplacing(r.stdout)) as Map)['id'];
-      } on FormatException {}
+        cid ??= (jsonDecode(
+          decodeReplacing(r.stdout),
+        ) as Map<dynamic, dynamic>)['id'];
+      } on FormatException {
+        /* An unreadable message falls back to stderr/exit status. */
+      }
       return {
         'ok': true,
         'action': update ? 'updated' : 'created',

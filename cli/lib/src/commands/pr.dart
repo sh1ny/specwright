@@ -23,6 +23,11 @@ const List<String> _handoffCommands = [
   'expected',
   'pair-state',
   'rounds',
+  'closing-check',
+  'closed-check',
+  'merge',
+  'delete-remote',
+  'item-issues',
 ];
 
 final String _usage = 'usage: sw pr ${_handoffCommands.join('|')} --args-stdin';
@@ -82,7 +87,12 @@ Future<int> runPrCommand(
     'link' ||
     'expected' ||
     'pair-state' ||
-    'rounds' => runWorkflow(ctx, args[0], handoff.args),
+    'rounds' ||
+    'closing-check' ||
+    'closed-check' ||
+    'merge' ||
+    'delete-remote' ||
+    'item-issues' => runWorkflow(ctx, args[0], handoff.args),
     _ => runPolicy(ctx, handoff.args),
   };
 }
