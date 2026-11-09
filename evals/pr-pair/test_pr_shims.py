@@ -510,7 +510,11 @@ class TestHomeStateBaseOnWindows(ShimCase):
         self.assertEqual(new.returncode, 4, err_new)  # the old watcher saw the claim and took a higher one
         self.assertIn("took over", err_new)
         self.assertTrue(any(c.startswith("2-") for c in self.claims()), self.claims())
-        self.stop(old)
+        # The successful takeover is already established. Let this bounded
+        # oracle wait finish and drain its inherited pipes naturally rather
+        # than racing taskkill against its Bash/Python descendants on Windows.
+        out_old, err_old = old.communicate(timeout=90)
+        self.assertEqual(old.returncode, 0, (out_old, err_old))
 
 
 if __name__ == "__main__":

@@ -270,8 +270,14 @@ class WorkflowParity(parity.PairParity):
         for role in ['code', 'store']:
             entry = plan[role]
             for printed in entry['commands'][:2]:
-                result = subprocess.run(printed['cmd'], cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(printed['cmd'][0], ['git', 'bash'])
+                # Resolve the asserted interpreter through the same Git Bash
+                # selector as every other eval. bin/bash.exe resets PATH and
+                # hides the fake git that records this consumer's effects.
+                command = ([parity.bashexe.bash(), *printed['cmd'][1:]]
+                           if printed['cmd'][0] == 'bash' else printed['cmd'])
+                result = subprocess.run(command, cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
+                self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
             printed = entry['commands'][2]
             self.assertEqual(printed['cmd'][:3], ['pr-pair.sh', '--project', code])
             # Until group8 switches the shim, consume its exact selector and
