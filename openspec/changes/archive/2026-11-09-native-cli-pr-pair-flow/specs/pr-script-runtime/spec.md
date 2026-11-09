@@ -235,4 +235,4 @@ Native PR workflow code SHALL call ported settings, fence and VCS operations dir
 
 #### Scenario: Malformed project prefix is refused
 - **WHEN** the leading --project prefix lacks a nonempty value or is repeated as a leading selector
-- **THEN** after the existing Python prerequisite check, the shim returns usage exit 2 before resolution, authentication or state changes
+- **THEN** after the existing Python prerequisite check, the shim returns one JSON line with `"error": "usage"` and exit 2 before resolution, authentication or state changes
