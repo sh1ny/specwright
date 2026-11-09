@@ -1,4 +1,8 @@
 [tools]
+# C18: THIRD_PARTY_NOTICES.txt covers the runtime embedded by dart compile exe.
+# Its inventory uses this pinned SDK and its default desktop build.
+# Changing this SDK pin or build flags requires a new runtime notice inventory;
+# binary hashes cannot detect stale attribution.
 dart = "3.13.7"
 
 [tasks.deps]

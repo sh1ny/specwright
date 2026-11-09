@@ -29,7 +29,7 @@ Writing a feedback pass record SHALL fail when a record for the same repository 
 - **THEN** the handover is refused with `not_owner`, and the record is unchanged
 
 #### Scenario: Lock left by an interrupted handover
-- **WHEN** a handover or removal finds the record's lock directory already present
+- **WHEN** a handover or removal finds the record's `.lock` path already occupied, by a native lock file or a legacy lock directory
 - **THEN** it exits with `record_busy` naming the lock path, the record and the lock are unchanged, and the lock is not removed automatically
 
 #### Scenario: Record write fails while it is created

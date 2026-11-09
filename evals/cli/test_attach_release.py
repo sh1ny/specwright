@@ -71,6 +71,48 @@ class AttachReleaseTests(unittest.TestCase):
     def uploads(self):
         return [call for call in self.calls() if call[:2] == ["release", "upload"]]
 
+    def new_release(self):
+        self.version_file.write_text("0.30.0\n", encoding="utf-8")
+        name = "THIRD_PARTY_NOTICES.txt"
+        data = b"Third-party notices\n"
+        (self.dist / name).write_bytes(data)
+        (self.dist / (name + ".sha256")).write_text("%s  %s\n" % (sha(data), name), encoding="utf-8")
+        return self.release(tag="v0.30.0")
+
+    def test_new_release_notice_is_verified_before_seal(self):
+        folder = self.new_release()
+        result = self.run_tool(tag="v0.30.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        notice = "THIRD_PARTY_NOTICES.txt"
+        self.assertEqual((folder / notice).read_bytes(), (self.dist / notice).read_bytes())
+        lines = (folder / "SHA256SUMS").read_text().splitlines()
+        self.assertEqual(len(lines), 6)
+        self.assertEqual([line.split("  ")[1] for line in lines], sorted(NAMES + [notice]))
+        calls = self.calls()
+        readback = next(i for i, c in enumerate(calls) if c[:2] == ["release", "download"] and notice in c)
+        seal = next(i for i, c in enumerate(calls) if c[:2] == ["release", "upload"] and any(Path(a).name == "SHA256SUMS" for a in c))
+        self.assertLess(readback, seal)
+
+    def test_sealed_new_release_missing_notice_is_unchanged(self):
+        folder = self.new_release()
+        for name in NAMES + ["SHA256SUMS"]:
+            (folder / name).write_bytes(b"published")
+        before = {p.name: p.read_bytes() for p in folder.iterdir()}
+        result = self.run_tool(tag="v0.30.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("THIRD_PARTY_NOTICES.txt", result.stderr)
+        self.assertEqual(self.uploads(), [])
+        self.assertEqual({p.name: p.read_bytes() for p in folder.iterdir()}, before)
+
+    def test_notice_readback_mismatch_writes_no_seal(self):
+        folder = self.new_release()
+        result = self.run_tool(tag="v0.30.0", FAKE_REL_CORRUPT="THIRD_PARTY_NOTICES.txt")
+        self.assertNotEqual(result.returncode, 0)
+        data = (self.dist / "THIRD_PARTY_NOTICES.txt").read_bytes()
+        for mention in ("THIRD_PARTY_NOTICES.txt", sha(data), sha(data + b"tampered")):
+            self.assertIn(mention, result.stderr)
+        self.assertFalse((folder / "SHA256SUMS").exists())
+
     def test_unsealed_release_gets_five_binaries_then_sums(self):
         folder = self.release()
         result = self.run_tool()

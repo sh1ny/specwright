@@ -11,6 +11,8 @@ List<int> records(List<String> parts) => [
 ];
 
 void main() {
+  const commands =
+      'snapshot|reply|identity|vcs|tier|context|policy|discover|ensure-pr|link|expected|pair-state|rounds|closing-check|closed-check|merge|delete-remote|item-issues|pass|cleanup-plan|branch-check|pair';
   late Fixture f;
   setUp(() => f = Fixture());
   tearDown(() => f.dispose());
@@ -33,21 +35,13 @@ void main() {
     ]) {
       f.err.clear();
       expect(await run(args, records(['s', 'b'])), 2, reason: '$args');
-      expect(
-        f.stderr,
-        'usage: sw pr snapshot|reply|identity|vcs|tier|context|policy --args-stdin\n',
-      );
+      expect(f.stderr, 'usage: sw pr $commands --args-stdin\n');
     }
   });
 
   test('a handoff that is not NUL-terminated records exits 2', () async {
     expect(await run(['reply', '--args-stdin'], utf8.encode('s\u0000b')), 2);
-    expect(
-      f.stderr,
-      startsWith(
-        'usage: sw pr snapshot|reply|identity|vcs|tier|context|policy --args-stdin (stdin:',
-      ),
-    );
+    expect(f.stderr, startsWith('usage: sw pr $commands --args-stdin (stdin:'));
     f.err.clear();
     expect(await run(['reply', '--args-stdin'], records(['only one'])), 2);
   });
@@ -93,4 +87,50 @@ void main() {
       ],
     );
   });
+  test(
+    'internal pair dispatch keeps original public usage for invalid calls',
+    () async {
+      for (final args in [
+        <String>[],
+        ['bogus', 'a b', '', r'$x *', 'é'],
+      ]) {
+        f.out.clear();
+        expect(
+          await run(['pair', '--args-stdin'], records(['s', 'b', ...args])),
+          2,
+        );
+        final doc = jsonDecode(f.stdout) as Map;
+        expect(doc['ok'], false);
+        expect(doc['error'], 'usage');
+        expect(
+          (doc['message'] as String)
+              .substring('subcommand: '.length)
+              .split(' | '),
+          [
+            'identity',
+            'context',
+            'tier',
+            'vcs',
+            'discover',
+            'expected',
+            'ensure-pr',
+            'closing-check',
+            'closed-check',
+            'link',
+            'pair-state',
+            'rounds',
+            'pass',
+            'cleanup-plan',
+            'branch-check',
+            'merge',
+            'delete-remote',
+            'policy',
+            'item-issues',
+          ],
+        );
+        expect(f.ghCalls, isEmpty);
+        expect(f.stderr, isEmpty);
+      }
+    },
+  );
 }

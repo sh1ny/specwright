@@ -231,7 +231,15 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             argvs = [c["cmd"] for c in code["commands"]] + [code["delete"]]
             self.assertFalse([argv for argv in argvs if "git" in argv or argv[0] == "git" or "as.sh" in argv[1].lower()],
                              "a Git command in the GitButler code repo's plan: %s" % argvs)
-            subs = [argv[2] if argv[0] == "bash" and argv[1].lower().endswith("vcs.sh") else argv[1] for argv in argvs]
+            subs = []
+            for argv in argvs:
+                if argv[0] == "pr-pair.sh":
+                    self.assertEqual(argv[:4], ["pr-pair.sh", "--project", repo.path.as_posix(), "branch-check"])
+                    subs.append(argv[3])
+                else:
+                    self.assertEqual(argv[0], "bash")
+                    self.assertTrue(argv[1].lower().endswith("vcs.sh"), argv)
+                    subs.append(argv[2])
             self.assertEqual(subs, ["switch", "pull", "branch-check", "delete-branch"], argvs)
 
             def option(argv, name):

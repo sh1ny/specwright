@@ -13,7 +13,14 @@ import '../vcs/stop.dart';
 /// What a subcommand handler gets: the parsed request and the two values the
 /// shim handed over (design D2).
 class VcsContext {
-  VcsContext(this.request, this.scriptsDir, this.bash);
+  VcsContext(
+    this.request,
+    this.scriptsDir,
+    this.bash, {
+    this.branchFetchProject = false,
+  });
+
+  final bool branchFetchProject;
 
   final VcsRequest request;
   final String scriptsDir;
@@ -44,9 +51,13 @@ class VcsSession {
 /// backend, apply `--main`.
 Future<VcsSession> openSession(VcsContext ctx) async {
   final request = ctx.request;
-  final scripts = VcsScripts(ctx.scriptsDir, ctx.bash);
   final repo = await resolvePath(ctx.bash, request.repo);
   final code = await resolvePath(ctx.bash, request.code);
+  final scripts = VcsScripts(
+    ctx.scriptsDir,
+    ctx.bash,
+    fenceProject: ctx.branchFetchProject ? code : null,
+  );
   final info = await probe(scripts, repo, code, request.role);
   final main = request.main;
   if (main != null && main.isNotEmpty) info.main = main;

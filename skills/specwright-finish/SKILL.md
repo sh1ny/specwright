@@ -2,7 +2,7 @@
 name: specwright-finish
 description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:archive, /opsx:bulk-archive, openspec-archive-change, `openspec archive`, or the user asks to archive/finish a change. Commits the archive move, then merges locally (finish: local) or pushes to the PR (finish: pr). Also handles 'the PR was merged' cleanup."
 metadata:
-  version: 0.29.0
+  version: 0.30.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *) Bash(bash *)
 ---
@@ -14,6 +14,16 @@ Start only after the vanilla archive workflow reports success (for bulk archive:
 Commit type: the branch prefix, except `bugfix` → `fix`. Archive paths, in the planning repo: `<P>/changes/<change-name>/` (now removed), `<P>/changes/archive/<archived-name>/`, and for each delta `specs/<capability-path>/spec.md` inside the archived change, the main spec `<P>/specs/<capability-path>/spec.md` it updated or created - by file, never the whole `<P>/specs/` directory. Other files are the user's: never stage them.
 
 **Run login.** `[as]` below is `bash <specwright-pr>/scripts/as.sh <run login>` (`<specwright-pr>` being that skill's folder). The run login is the one this step was handed (`run login: <login>`, or `run login: none`: no gh account, so local refs only); otherwise `github.login`, and with that empty, when the user started this step, the one `bash <specwright-pr>/scripts/as.sh --resolve` prints once, run only when a GitHub call below first needs it (the `pr` path, or a fetch or pull from a github.com remote). The `local` merge makes no GitHub call, so it never resolves; with no login there, the run login is `none`, and a failed `--resolve` on that path is not a stop. A handed-off step that cannot find it stops before any GitHub call and asks the user; it never resolves again. That run login is the code repo's: in the store, `[as]` takes the store login, `planning_store.login`, else that run login, never a login handed for the code repo in its place. Every fetch and pull below goes through `[vcs] pull --login <run login>` (or `fetch-main`), which fences the call when the fetch URL of the remote (`git remote get-url <remote>`) is on github.com (`github.com.`, the trailing-dot form, counts as github.com), whatever its push URLs and not by `pr-pair.sh identity`, and runs plain for any other host; with `run login: none` make no such call to a github.com remote. A non-zero exit stops the step: delete no branch and show the error `message`.
+
+**Store binary selection.** In a store, `[as]` means `bash <specwright-pr>/scripts/as.sh --project "<code toplevel>" <store login>`, with the store login chosen above. Every store-started `pr-pair.sh` call also takes the selector before its subcommand: each shim resolves its own binary. The selector does not change cwd or login. For example, keep discovery inside the store, including every existing option:
+
+```bash
+cd "<store toplevel>" && bash <specwright-pr>/scripts/as.sh --project "<code toplevel>" <store login> bash <specwright-pr>/scripts/pr-pair.sh --project "<code toplevel>" discover --repo <store owner>/<store name> --branch <branch> --base <store main>
+```
+
+Use the same leading selector on both resolvers for all other store PR commands and printed cleanup checks; an explicit project selects only the matching binary. It never replaces a target `--dir`, `--repo`, `--code`, or the caller's login. A missing, empty or repeated leading selector is usage exit 2 after the Python prerequisite probe; a missing or mismatched selected binary stops with `sw_missing` without fallback.
+
+Known limitations from ADR 0031 remain: **S-1**, `pr-snapshot.sh` and `pr-reply.sh` have no selector and still stop with `sw_missing` from a store without VERSION, even inside a selected outer fence. **C11**, store network operations through `vcs.sh` other than branch-check's approved fetch-main hop keep an unselected fence, including cleanup's jj store pull. `native-cli-internal-calls` owns those follow-ups; this convention does not fix those separate paths.
 
 **Branch reads and writes.** `[vcs] <sub>` is `bash <specwright-pr>/scripts/vcs.sh <sub> --repo <toplevel> --role code`, and for the store `--repo "<store toplevel>" --role store --code "<code toplevel>"`. It works on Git, on a colocated jj repo and on GitButler alike and prints one JSON document (`ok`, `backend`, and on a stop `error` and `message`; exit 1 stops, exit 3 is a network or fence refusal). `state` reads `branch`, `main`, `on_main`, `clean`, `dirty_paths`; `switch`, `branch-create`, `commit`, `merge`, `delete-branch` and `pull` write. Read-only `git` (`log`, `show`, `ls-tree`, `merge-base`, `rev-parse`) stays as written. Never run `git checkout`, `git commit`, `git merge`, `git branch -d`, `git branch -D` or `git pull` yourself. On jj the branch is a bookmark: `delete-branch` forgets it locally, and `--force` is the guarded delete that the `branch-check` result allows.
 
@@ -112,7 +122,7 @@ OpenSpec decides where planning lives: in this repo, in a folder nested in it, o
 
 **Paths.** `<P>` is `<root.path>/openspec` made relative to the planning repo's toplevel (`openspec` in the usual layout, `planning/openspec` for a nested root). Stage and `ls-tree` planning files as `<P>/...` in the planning repo.
 
-**Where commands run.** Git, `gh`, `as.sh` and `vcs.sh` commands on the store run in one shell call that starts with `cd "<store toplevel>" &&` (`as.sh` only fences the repo it starts in). `openspec templates` and `openspec schema validate` have no root selection: run them with `cd "<root.path>" &&`. `git -C` is for read-only queries only (`rev-parse`, `status`, `log`, `ls-tree`).
+**Where commands run.** Git, `gh`, `as.sh` and `vcs.sh` commands on the store run in one shell call that starts with `cd "<store toplevel>" &&` (`as.sh` only fences the repo it starts in). Use the **Store binary selection** convention on both the outer fence and any nested `pr-pair.sh`, preserving the store login and every repository argument. `openspec templates` and `openspec schema validate` have no root selection: run them with `cd "<root.path>" &&`. `git -C` is for read-only queries only (`rev-parse`, `status`, `log`, `ls-tree`).
 
 **Archive name.** Use `archivedAs` from the archive output when you have it. Otherwise it is the change name if that starts with `YYYY-MM-DD-`, else `YYYY-MM-DD-<change-name>`: `<P>/changes/archive/<archived-name>/`.
 

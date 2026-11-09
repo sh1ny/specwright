@@ -15,6 +15,7 @@ executables:
 dependencies:
   args: ^2.7.0
   ffi: ^2.1.0
+  html: ^0.15.7
 
 dev_dependencies:
   lints: ^6.0.0

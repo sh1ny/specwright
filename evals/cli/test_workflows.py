@@ -1,7 +1,11 @@
-"""The CLI build workflows: text checks only (standard library, no YAML parser).
+"""The CLI build workflows: contract and artifact checks (standard library, no YAML parser).
 
 sw-build.yml is the one build-and-check workflow that pull requests (cli.yml) and releases (release.yml) both call.
 """
+import shutil
+import subprocess
+import tempfile
+import textwrap
 import re
 import unittest
 from pathlib import Path
@@ -45,6 +49,48 @@ def job(text, name):
 
 
 class SwBuildTests(unittest.TestCase):
+    def package(self, version, notice=True, target="linux-x64"):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        (root / "cli/build").mkdir(parents=True)
+        (root / "VERSION").write_text(version + "\n")
+        ext = ".exe" if target.startswith("windows") else ""
+        (root / ("cli/build/sw" + ext)).write_bytes(b"binary")
+        source = ROOT / "cli/THIRD_PARTY_NOTICES.txt"
+        if notice:
+            (root / "cli/THIRD_PARTY_NOTICES.txt").write_bytes(source.read_bytes())
+        text = read("sw-build.yml")
+        step = text.split("      - name: Name the artifact and write its SHA-256\n", 1)[1].split("      - uses:", 1)[0]
+        script = textwrap.dedent(step.split("run: |\n", 1)[1])
+        script = script.replace("${{ matrix.target }}", target).replace("${{ matrix.ext }}", ext)
+        bash = shutil.which("bash")
+        self.assertIsNotNone(bash, "workflow fixture needs bash")
+        result = subprocess.run([bash, "-e", "-c", script], cwd=root, capture_output=True, text=True, timeout=60)
+        return root, result
+
+    def test_build_packages_identical_notice(self):
+        import hashlib
+        expected = (ROOT / "cli/THIRD_PARTY_NOTICES.txt").read_bytes()
+        self.assertNotIn(b"\r", expected)
+        self.assertIn("cli/THIRD_PARTY_NOTICES.txt text eol=lf", (ROOT / ".gitattributes").read_text())
+        for target in TARGETS:
+            root, result = self.package("0.30.0", target=target)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((root / "dist/THIRD_PARTY_NOTICES.txt").read_bytes(), expected)
+            self.assertEqual((root / "dist/THIRD_PARTY_NOTICES.txt.sha256").read_text(),
+                             hashlib.sha256(expected).hexdigest() + "  THIRD_PARTY_NOTICES.txt\n")
+        root, result = self.package("0.30.0", notice=False)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_older_tag_build_requires_no_notice(self):
+        # Numeric comparison also handles 0.9.0 correctly.
+        for version in ("0.29.0", "0.9.0"):
+            root, result = self.package(version, notice=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(sorted(p.name for p in (root / "dist").iterdir()),
+                             ["sw-linux-x64", "sw-linux-x64.sha256"])
+
     def test_build_matrix_has_five_native_targets(self):
         text = read("sw-build.yml")
         for name in ("build", "verify"):

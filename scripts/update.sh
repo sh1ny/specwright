@@ -3076,9 +3076,11 @@ def sw_asset(target):
     return f"sw-{target}" + (".exe" if target.startswith("windows") else "")
 
 
-def sw_sums(text):
-    """{asset: hash} from SHA256SUMS, or None when any line is not `<64 lowercase hex digits>  <one of the five asset names>`."""
+def sw_sums(text, with_notice=False):
+    """Reject malformed, duplicate or unknown names; new manifests must include the notice."""
     assets = {sw_asset(t) for t in SW_TARGETS}
+    if with_notice:
+        assets.add("THIRD_PARTY_NOTICES.txt")
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
@@ -3088,6 +3090,8 @@ def sw_sums(text):
         if not m or m.group(2) not in assets or m.group(2) in out:
             return None
         out[m.group(2)] = m.group(1)
+    if with_notice and "THIRD_PARTY_NOTICES.txt" not in out:
+        return None
     return out or None
 
 
@@ -3170,6 +3174,28 @@ def file_sha(path):
     return h.hexdigest()
 
 
+def sw_place_notice(part, final, expected, ref):
+    """Place once after the binary checks; a concurrent matching notice is success."""
+    def matches():
+        try:
+            return final.is_file() and file_sha(final) == expected
+        except OSError:
+            return False
+    if matches():
+        return
+    try:
+        hook = os.environ.get("SPECWRIGHT_TEST_NOTICE_RENAME", "")  # evals only: fail | race
+        if hook in ("fail", "race"):
+            if hook == "race":
+                shutil.copyfile(part, final)
+            raise PermissionError("notice rename blocked")
+        os.replace(part, final)
+    except OSError as error:
+        if not matches():
+            raise SwStop("notice_write_failed", f"THIRD_PARTY_NOTICES.txt of release {ref} cannot be placed at {final}: {error}; "
+                         "the binary was not replaced")
+
+
 def sw_unquarantine(part, asset, ref):
     """Remove com.apple.quarantine from the checked part file and confirm it is gone, or stop before the file first runs (C16)."""
     xattr = shutil.which("xattr")
@@ -3193,7 +3219,8 @@ def sw_install(o):
     `xattr -d com.apple.quarantine`, chmod 0755, `sw-path.sh --file` on the part, and a rename onto the final path. A final file
     is kept only with the release's SHA-256 and a passing check; any other file there is replaced by the rename. When the rename
     fails (Windows, a running sw.exe) the final file is checked again: kept, or sw_in_use. The SHA-256 comes before the quarantine
-    removal and before the file first runs (C16), and the checks come before the rename (C17). Every stop deletes this run's parts.
+    removal and before the file first runs (C16), and the checks come before the rename (C17). From 0.30.0 the notice hash is
+    also verified before execution, then the notice is placed before the binary decision (ADR 0032). Every stop deletes owned parts.
     C4: nothing prunes other versions under bin/ (another project on the machine may pin any of them). C5: SHA256SUMS comes from
     the same release as the binary, so the checksum proves integrity, not authorship; authenticity waits for ADR 0027's signing."""
     ref = o.get("ref") or ""
@@ -3212,6 +3239,8 @@ def sw_install(o):
         raise SwStop("unsupported_platform", f"this host ({system} {machine}) has no sw binary for release {ref}; the release ships "
                      f"{', '.join(SW_TARGETS)}")
     asset = sw_asset(target)
+    with_notice = tuple(map(int, version.split("."))) >= (0, 30, 0)
+    notice = "THIRD_PARTY_NOTICES.txt"
     base = sw_base(o)
     bounded = sw_bounded(o)
     vdir = Path(sw_home()) / ".specwright" / "bin" / version
@@ -3226,18 +3255,19 @@ def sw_install(o):
             pass
     token = os.urandom(6).hex()
     part, sums_part = vdir / f".sw-{token}.part", vdir / f".sw-{token}.sums.part"
+    notice_part = vdir / f".sw-{token}.notice.part"
     url = f"{base}/releases/download/{ref}/"
     try:
         if not sw_download(bounded, url + "SHA256SUMS", sums_part, "SHA256SUMS", ref):
             raise SwStop("assets_not_uploaded", f"the binaries of release {ref} are not uploaded yet (no SHA256SUMS): rerun the install "
                          "once the release workflow has attached them")
         try:
-            sums = sw_sums(sums_part.read_bytes().decode("utf-8"))
+            sums = sw_sums(sums_part.read_bytes().decode("utf-8"), with_notice)
         except UnicodeDecodeError:
             sums = None
         if sums is None:
             raise SwStop("sums_invalid", f"SHA256SUMS of release {ref} is not made of lines `<64 lowercase hex digits>  <asset name>` "
-                         "for the five assets; no hash is used from it")
+                         f"for the five binary assets{' and ' + notice if with_notice else ''}; no hash is used from it")
         if asset not in sums:
             raise SwStop("assets_not_uploaded", f"SHA256SUMS of release {ref} has no line for {asset}: rerun the install once the "
                          "release workflow has attached the binaries")
@@ -3247,6 +3277,13 @@ def sw_install(o):
         if got != sums[asset]:
             raise SwStop("checksum_mismatch", f"{asset} of release {ref}: SHA-256 {got} differs from the SHA256SUMS line {sums[asset]}; "
                          "the file was not run and nothing was placed")
+        if with_notice:
+            if not sw_download(bounded, url + notice, notice_part, notice, ref):
+                raise SwStop("asset_missing", f"release {ref} has SHA256SUMS but no {notice}; the sealed release needs its owner")
+            got_notice = file_sha(notice_part)
+            if got_notice != sums[notice]:
+                raise SwStop("checksum_mismatch", f"{notice} of release {ref}: SHA-256 {got_notice} differs from the SHA256SUMS line "
+                             f"{sums[notice]}; the binary was not run and nothing was placed")
         if system.lower() == "darwin":  # only now: the file has the release's hash
             sw_unquarantine(part, asset, ref)
         if os.name != "nt":
@@ -3254,6 +3291,8 @@ def sw_install(o):
         ok, detail = sw_check(o, part, version)
         if not ok:
             raise SwStop("sw_check_failed", f"{asset} of release {ref} did not pass the version check: {detail}")
+        if with_notice:
+            sw_place_notice(notice_part, vdir / notice, sums[notice], ref)
         action = "installed"
         if final.is_file():
             action = "replaced"
@@ -3280,7 +3319,7 @@ def sw_install(o):
         return {"ok": True, "interface": INTERFACE, "subcommand": "sw-install", "action": action, "path": final.as_posix(),
                 "asset": asset, "version": version, "ref": ref}
     finally:
-        for p in (part, sums_part):
+        for p in (part, sums_part, notice_part):
             try:
                 p.unlink()
             except OSError:

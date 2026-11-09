@@ -5,6 +5,8 @@ import '../pr/settings_commands.dart';
 import '../pr/reviewers.dart';
 import '../pr/reply.dart';
 import '../pr/snapshot.dart';
+import '../pr/workflow.dart';
+import '../pr/pair.dart';
 import 'vcs.dart' show readAllStdin;
 
 /// The commands that take the shim's handoff on stdin.
@@ -16,6 +18,21 @@ const List<String> _handoffCommands = [
   'tier',
   'context',
   'policy',
+  'discover',
+  'ensure-pr',
+  'link',
+  'expected',
+  'pair-state',
+  'rounds',
+  'closing-check',
+  'closed-check',
+  'merge',
+  'delete-remote',
+  'item-issues',
+  'pass',
+  'cleanup-plan',
+  'branch-check',
+  'pair', // Internal invalid-call entry; the shim preserves its original records.
 ];
 
 final String _usage = 'usage: sw pr ${_handoffCommands.join('|')} --args-stdin';
@@ -64,12 +81,31 @@ Future<int> runPrCommand(
         writeErr: writeErr,
       );
   return switch (args[0]) {
+    'pair' => runPairCommand(ctx, () async {
+      pairUsage(
+        'subcommand: identity | context | tier | vcs | discover | expected | ensure-pr | closing-check | closed-check | link | pair-state | rounds | pass | cleanup-plan | branch-check | merge | delete-remote | policy | item-issues',
+      );
+    }),
     'snapshot' => runSnapshot(ctx, handoff.args),
     'reply' => runReply(ctx, handoff.args),
     'identity' => runIdentity(ctx, handoff.args),
     'vcs' => runVcs(ctx, handoff.args),
     'tier' => runTier(ctx, handoff.args),
     'context' => runContext(ctx, handoff.args),
+    'discover' ||
+    'ensure-pr' ||
+    'link' ||
+    'expected' ||
+    'pair-state' ||
+    'rounds' ||
+    'closing-check' ||
+    'closed-check' ||
+    'merge' ||
+    'delete-remote' ||
+    'item-issues' ||
+    'pass' ||
+    'cleanup-plan' ||
+    'branch-check' => runWorkflow(ctx, args[0], handoff.args),
     _ => runPolicy(ctx, handoff.args),
   };
 }

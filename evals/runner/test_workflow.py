@@ -87,7 +87,10 @@ class TestWorkflow(unittest.TestCase):
                                               ("windows-latest", 35, 1800)):
             self.assertRegex(suite, r"- os: %s\n\s+timeout: %d\n\s+run_timeout: %d\b"
                              % (re.escape(os_name), timeout, run_timeout))
-        self.assertRegex(suite, r"(?m)^    timeout-minutes: \$\{\{ matrix\.timeout \}\}$")
+        # The Windows PR-pair job includes several serial files after the
+        # parallel batch. Its total job budget must outlast one file's bound;
+        # every file still gets the same 1800-second limit below.
+        self.assertIn("timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.suite == 'pr-pair' && 60 || matrix.timeout }}", suite)
         self.assertIn("python evals/run.py --timeout ${{ matrix.run_timeout }} ${{ matrix.suite }}", suite)
 
     def test_one_failing_suite_does_not_cancel_the_others(self):

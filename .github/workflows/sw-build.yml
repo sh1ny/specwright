@@ -68,6 +68,20 @@ jobs:
           cp "cli/build/sw${{ matrix.ext }}" "dist/$name"
           python -c 'import hashlib, sys; print("%s  %s" % (hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest(), sys.argv[2]))' "dist/$name" "$name" > "dist/$name.sha256"
           cat "dist/$name.sha256"
+          # Read VERSION at the checked-out ref; old tags have no notice source.
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          version = tuple(map(int, Path("VERSION").read_text().strip().split(".")))
+          if len(version) != 3:
+              raise SystemExit("VERSION must be MAJOR.MINOR.PATCH")
+          if version >= (0, 30, 0):
+              name = "THIRD_PARTY_NOTICES.txt"
+              data = (Path("cli") / name).read_bytes()
+              (Path("dist") / name).write_bytes(data)
+              (Path("dist") / (name + ".sha256")).write_bytes(
+                  (hashlib.sha256(data).hexdigest() + "  " + name + "\n").encode("utf-8"))
+          PY
       - uses: actions/upload-artifact@v7
         with:
           name: sw-${{ matrix.target }}

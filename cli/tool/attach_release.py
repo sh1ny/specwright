@@ -2,13 +2,13 @@
 
   python cli/tool/attach_release.py --tag vX.Y.Z --version-file VERSION --dist <dir> [--repo owner/name]
 
-Asset contract (C1): a release carries exactly five binaries named sw-linux-x64, sw-linux-arm64, sw-windows-x64.exe,
+Asset contract (C1, ADR 0032): a release carries five binaries named sw-linux-x64, sw-linux-arm64, sw-windows-x64.exe,
 sw-macos-arm64 and sw-macos-x64, and one SHA256SUMS file with a line `<sha256>  <name>` for each, sorted by name.
---dist holds those binaries and a <name>.sha256 file for each (the build's output).
+From 0.30.0, THIRD_PARTY_NOTICES.txt is a sixth required asset. --dist holds every required asset and its <name>.sha256 sidecar.
 
-Seal rule (C9): SHA256SUMS is uploaded last and seals the release. A sealed release never changes: if it holds all five
-binaries the script reports it complete and exits 0, if one is missing it fails and uploads nothing. Before the seal
-the binaries may be replaced (uploaded with --clobber). Each binary is downloaded back and its SHA-256 compared with
+Seal rule (C9): SHA256SUMS is uploaded last and seals the release. A sealed release never changes: if it holds every required
+asset the script reports it complete and exits 0, if one is missing it fails and uploads nothing. Before the seal
+the assets may be replaced (uploaded with --clobber). Each asset is downloaded back and its SHA-256 compared with
 the local file before the seal is written; a difference fails and no seal is uploaded.
 
 The VERSION file (read at the tag) must equal the tag without its `v`, else nothing is uploaded.
@@ -16,6 +16,7 @@ The VERSION file (read at the tag) must equal the tag without its `v`, else noth
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 BINARIES = ["sw-linux-arm64", "sw-linux-x64", "sw-macos-arm64", "sw-macos-x64", "sw-windows-x64.exe"]
+NOTICE = "THIRD_PARTY_NOTICES.txt"
 SUMS = "SHA256SUMS"
 TIMEOUT = 300  # seconds per gh call, so a hung call fails
 
@@ -58,6 +60,10 @@ def attach(args):
     if version != wanted:
         raise Failure("tag %s says version %s but VERSION says %s" % (args.tag, wanted, version))
 
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        raise Failure("VERSION must be MAJOR.MINOR.PATCH")
+    required = BINARIES + ([NOTICE] if tuple(map(int, version.split("."))) >= (0, 30, 0) else [])
+
     gh = Gh(args.repo)
     try:
         view = gh.run("release", "view", args.tag, "--json", "assets")
@@ -66,7 +72,7 @@ def attach(args):
     present = {asset["name"] for asset in json.loads(view)["assets"]}
 
     if SUMS in present:
-        missing = [name for name in BINARIES if name not in present]
+        missing = [name for name in required if name not in present]
         if missing:
             raise Failure("release %s is sealed but lacks %s" % (args.tag, ", ".join(missing)))
         print("release %s is sealed and complete; nothing to do" % args.tag)
@@ -74,7 +80,7 @@ def attach(args):
 
     dist = Path(args.dist)
     local = {}
-    for name in BINARIES:
+    for name in required:
         binary, sidecar = dist / name, dist / (name + ".sha256")
         if not binary.is_file() or not sidecar.is_file():
             raise Failure("%s or %s.sha256 is missing from %s" % (name, name, dist))
@@ -84,10 +90,10 @@ def attach(args):
             raise Failure("%s does not match its .sha256 file: file %s, listed %s" % (name, actual, tokens[:1]))
         local[name] = actual
 
-    gh.run("release", "upload", args.tag, *[str(dist / name) for name in BINARIES], "--clobber")
+    gh.run("release", "upload", args.tag, *[str(dist / name) for name in required], "--clobber")
 
     with tempfile.TemporaryDirectory(prefix="attach-release-") as scratch:
-        for name in BINARIES:
+        for name in required:
             back = Path(scratch) / name
             if back.exists():
                 back.unlink()
@@ -99,10 +105,10 @@ def attach(args):
                 raise Failure("read-back mismatch for %s: local %s, release %s" % (name, local[name], got))
         sums = Path(scratch) / SUMS
         with open(sums, "w", encoding="utf-8", newline="\n") as handle:
-            for name in sorted(BINARIES):
+            for name in sorted(required):
                 handle.write("%s  %s\n" % (local[name], name))
         gh.run("release", "upload", args.tag, str(sums))
-    print("release %s sealed with %d binaries" % (args.tag, len(BINARIES)))
+    print("release %s sealed with %d assets" % (args.tag, len(required)))
 
 
 def main(argv=None):

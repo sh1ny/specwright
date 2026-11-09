@@ -100,8 +100,7 @@ class TestWithoutSw(ShimCase):
 
 
 class TestPairShim(ShimCase):
-    """pr-pair.sh dispatches identity, vcs, tier, context and policy to `sw pr <sub> --args-stdin` after its Python probe (D2,
-    C5); every other first argument, none included, runs the embedded program as before."""
+    """The original five native entries retain their contracts after the complete shim switch."""
 
     def pair_run(self, *args, cwd=None, env=None):
         return self.run_script(PAIR, *args, cwd=cwd, env=env)
@@ -149,17 +148,17 @@ class TestPairShim(ShimCase):
         doc = self.one_line(r)
         self.assertEqual((doc["ok"], doc["code"]["repo"]), (True, "acme/code"))
 
-    def test_discover_keeps_the_script(self):
+    def test_discover_requires_sw(self):
         self.mutate(lambda st: st["repos"].update({"o/r": {"pulls": []}}))
         args = ("discover", "--repo", "o/r", "--branch", "feat/a")
         with_sw = self.pair_run(*args)
         self.assertEqual(with_sw.returncode, 0, with_sw.stdout + with_sw.stderr)
         doc = self.one_line(with_sw)
         self.assertTrue(doc["ok"], doc)
-        self.assertTrue(self.gh_calls(), "the embedded program asked GitHub")
+        self.assertTrue(self.gh_calls(), "native discovery asked GitHub")
+        self.gh_log.unlink()
         without_sw = self.pair_run(*args, env=self.no_sw_env())
-        self.assertEqual((without_sw.returncode, without_sw.stdout), (0, with_sw.stdout))
-        self.assertNotIn("sw_missing", without_sw.stdout)
+        self.stop_document(without_sw)
 
     def test_identity_of_a_store_from_the_code_checkout(self):
         code = self.make_repo("code", origin="https://github.com/acme/code.git")
@@ -175,7 +174,7 @@ class TestPairShim(ShimCase):
         self.assertEqual(self.one_line(r)["error"], "sw_missing")
 
     def test_pr_pair_without_subcommand_lists_all_19(self):
-        for env in (None, self.no_sw_env()):
+        for env in (None,):
             with self.subTest(sw=env is None):
                 r = self.pair_run(env=env)
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
@@ -199,16 +198,14 @@ class TestPairShim(ShimCase):
         self.assertEqual(doc["ok"], False)
         self.assertFalse(self.state_dir.exists(), "no reviewer config was written")
 
-    def test_branch_check_without_sw_answers(self):
+    def test_branch_check_without_sw_refuses(self):
         code = self.make_repo("code", origin="https://github.com/acme/code.git")
         env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
         subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "c"], cwd=code, check=True, capture_output=True, env=env)
         subprocess.run(["git", "branch", "feat/a"], cwd=code, check=True, capture_output=True, env=env)
         r = self.pair_run("branch-check", "--dir", fixtures.posix(code), "--branch", "feat/a", "--main", "main",
                           env=self.no_sw_env())
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        doc = self.one_line(r)
-        self.assertEqual((doc["ok"], doc["delete"], doc["reason"]), (True, True, "on_main"))
+        self.stop_document(r)
 
     def test_pr_pair_no_python_runs_no_sw(self):
         code = self.make_repo("code", origin="https://github.com/acme/code.git", settings="github:\n  login: me\n")
@@ -230,6 +227,77 @@ class TestPairShim(ShimCase):
         header = PAIR.read_text(encoding="utf-8").split("set -euo pipefail", 1)[0]
         self.assertIn("no_python", header)
         self.assertIn("native-cli-retire-scripts", header)
+
+
+class NativePairDispatch(ShimCase):
+    """The final shim resolves a matching binary before every native entry or usage result."""
+
+    pair_run = TestPairShim.pair_run
+    make_repo = TestPairShim.make_repo
+    one_line = TestPairShim.one_line
+    WORKFLOW = ("discover", "expected", "ensure-pr", "link", "pair-state", "rounds",
+                "closing-check", "closed-check", "merge", "delete-remote", "item-issues",
+                "pass", "cleanup-plan", "branch-check")
+
+    def test_discovery_runs_natively(self):
+        # Missing sw must stop before discovery can ask gh, even though the old
+        # embedded implementation could answer this request without a binary.
+        self.stop_document(self.pair_run("discover", "--repo", self.SLUG,
+                                         "--branch", "feat/x", env=self.no_sw_env()))
+
+    def test_missing_subcommand(self):
+        self.stop_document(self.pair_run(env=self.no_sw_env()))
+        r = self.pair_run()
+        self.assertEqual((r.returncode, self.one_line(r)["error"]), (2, "usage"), r.stderr)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_unknown_subcommand(self):
+        self.stop_document(self.pair_run("unknown-command", env=self.no_sw_env()))
+        r = self.pair_run("unknown-command", "a b", "", "$x *", "é")
+        self.assertEqual((r.returncode, self.one_line(r)["error"]), (2, "usage"), r.stderr)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_workflow_command_needs_matching_sw(self):
+        for command in self.WORKFLOW:
+            with self.subTest(command=command):
+                self.stop_document(self.pair_run(command, env=self.no_sw_env()))
+        # An installed VERSION that names a different binary cannot fall back
+        # to the available tree binary or a command on PATH.
+        (self.tmp / "openspec/.specwright/VERSION").write_text("999.0.0\n", encoding="utf-8")
+        self.stop_document(self.pair_run("discover", "--repo", self.SLUG, "--branch", "feat/x"))
+
+    def test_matching_binary_permits_dispatch(self):
+        r = self.pair_run("discover", "--repo", self.SLUG, "--branch", "feat/x")
+        doc = self.one_line(r)
+        self.assertEqual((r.returncode, doc["ok"]), (0, True), r.stderr)
+        self.assertEqual([p["number"] for p in doc["prs"]], [self.PR])
+        self.assertTrue(self.gh_calls(), "native discovery performs its expected read")
+
+    def test_internal_invalid_dispatch_keeps_usage(self):
+        for args in ([], ['unknown-command', 'a b', '', '$x *', 'é']):
+            with self.subTest(args=args):
+                payload = b''.join(str(value).encode('utf-8') + b'\0' for value in
+                                   [SCRIPTS, bashexe.bash(), *args])
+                r = subprocess.run([os.environ['SPECWRIGHT_SW'], 'pr', 'pair', '--args-stdin'],
+                                   input=payload, capture_output=True, env=self.env(), cwd=self.tmp, timeout=30)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                doc = json.loads(r.stdout)
+                self.assertEqual((doc['ok'], doc['error']), (False, 'usage'))
+                names = doc['message'].removeprefix('subcommand: ').split(' | ')
+                self.assertEqual(set(names), set(self.WORKFLOW) | {'identity', 'context', 'tier', 'vcs', 'policy'})
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_python_probe_precedes_selector_and_resolution(self):
+        empty = self.tmp / "no-python-tools"
+        empty.mkdir()
+        for args in ((), ("unknown-command",), ("--project",), ("--project", ""),
+                     ("--project", "missing", "--project", "other"),
+                     *( (command,) for command in self.WORKFLOW )):
+            with self.subTest(args=args):
+                r = subprocess.run([bashexe.bash(), str(PAIR), *args], cwd=self.tmp,
+                    env={**self.env(), "PATH": str(empty)}, capture_output=True, text=True, timeout=30)
+                self.assertEqual((r.returncode, self.one_line(r)["error"]), (2, "no_python"), r.stderr)
+        self.assertEqual(self.gh_calls(), [])
 
 
 def command_lines():
@@ -396,9 +464,19 @@ class TestHomeStateBaseOnWindows(ShimCase):
 
     def _reap(self):
         for p in self.procs:
-            if p.poll() is None:
+            self.stop(p)
+
+    @staticmethod
+    def stop(p):
+        if p.poll() is None:
+            if os.name == 'nt':
+                # Git Bash may have a child interpreter holding the pipes.
+                # Kill the owned tree while its launcher PID still exists.
+                subprocess.run(['taskkill', '/PID', str(p.pid), '/T', '/F'],
+                               capture_output=True, timeout=30)
+            else:
                 p.kill()
-            p.communicate()
+        p.communicate(timeout=30)
 
     def start(self, script, **extra):
         env = self.env(HOME=fixtures.msys(self.home), **extra)
@@ -432,8 +510,11 @@ class TestHomeStateBaseOnWindows(ShimCase):
         self.assertEqual(new.returncode, 4, err_new)  # the old watcher saw the claim and took a higher one
         self.assertIn("took over", err_new)
         self.assertTrue(any(c.startswith("2-") for c in self.claims()), self.claims())
-        old.kill()
-        old.communicate()
+        # The successful takeover is already established. Let this bounded
+        # oracle wait finish and drain its inherited pipes naturally rather
+        # than racing taskkill against its Bash/Python descendants on Windows.
+        out_old, err_old = old.communicate(timeout=90)
+        self.assertEqual(old.returncode, 0, (out_old, err_old))
 
 
 if __name__ == "__main__":

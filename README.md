@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.29.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.30.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -231,6 +231,10 @@ Step 3 - Choose the version, download and compare versions
     is `SPECWRIGHT_HOME`, else your home directory). It writes nothing in
     the project. Record its `path` and `action` (installed, replaced or
     kept) for Step 8.
+    From 0.30.0, it also downloads `THIRD_PARTY_NOTICES.txt`, verifies both
+    hashes before running the binary, and places the notice beside it before
+    keeping or replacing the binary. Missing, corrupt or unplaceable notices
+    stop the install before staging. Older tags require no notice.
   - `"ok": false` is a stop: STOP before Step 4, name its `error` and show
     its `message`. With `assets_not_uploaded`, say the release's binaries
     are not uploaded yet and to rerun this prompt once they are. Delete the
