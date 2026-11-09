@@ -12,7 +12,7 @@ It advances M8's agent-verified PR-operation parity, direct-call and credential/
 - Replace `pr-pair.sh`'s remaining embedded Python with an ADR 0028 shim. Keep its path and arguments. Keep JSON fields, error codes and exit statuses unless S2's documented coordinated producer/consumer change applies, and keep persisted records interoperable. With a matching `sw`, missing or unknown commands still produce the existing usage response. The fourteen newly ported commands now require that matching binary; resolution failure returns `sw_missing`, never a Python fallback.
 - Call existing native settings, fence and VCS operations directly. Preserve the caller's deadline boundaries, target checkout, argument bytes and credential scope. The PR flow's bounded fenced reads share their existing budget through identity checks and execution; VCS state and planning calls retain their current unbounded behavior.
 - Add the optional leading `--project <code-checkout>` prefix to `pr-pair.sh` and `as.sh`. It chooses only the project's exact-version binary; the command still starts in the caller's working directory. Update store callers and printed cleanup commands to pass it explicitly, including through the retained nested VCS fence hop.
-- Keep feedback-record names, version 2 contents, ownership, legacy migration, exclusive publication, locks and recovery behavior. Keep mutation/read-back sequencing, including one merge attempt and guarded branch deletion.
+- Keep feedback-record names, version 2 contents, ownership, legacy migration, exclusive publication and recovery behavior. Use the owner-approved SDK-exclusive lock files at the existing `.lock` path, respecting legacy directory locks, and SDK-exclusive publication fallback with documented empty/partial-record interruption recovery. Keep mutation/read-back sequencing, including one merge attempt and guarded branch deletion.
 - Extend differential and product-workflow coverage to all fourteen commands, including side effects, records and failures. The frozen oracle is evidence of the existing workflow, not a requirement to reproduce incidental Python formatting or parser quirks. Producer and consuming skills may change together when explicit contract tests prove the same workflow outcomes, safety and recovery. Record each such change and its consumer coverage rather than silently removing assertions.
 - Record the direct-call and intentional isolation rule in a new ADR during apply. Retain the reviewed M8 roadmap amendment in this change.
 
@@ -27,6 +27,7 @@ None.
 - `pr-script-runtime`: complete native `pr-pair.sh` dispatch; matching-binary refusal, workflow parity, feedback-record interoperability and direct native fence/VCS calls with the existing bounds.
 - `github-identity`: explicit binary-project selection for store-started fence calls, preserving the caller's target directory and authentication rules.
 - `native-cli`: release and install the third-party notice file alongside binaries, preserving checksum verification, immutable release seals and installation of older releases.
+- `feedback-passes`: an occupied `.lock` path may be a native lock file or a legacy lock directory; both remain `record_busy` and are never removed automatically.
 
 ## Impact
 

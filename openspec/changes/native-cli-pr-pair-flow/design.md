@@ -7,7 +7,7 @@
 | T1 Components | yes | The remaining dispatch crosses GitHub, records and VCS: `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`, `2634-2676`. |
 | T2 State | yes | Feedback records include heads, marker and owner: `skills/specwright-pr/scripts/pr-pair.sh:2160-2186`. |
 | T3 Concurrency | yes | Exclusive publication and record locks: `skills/specwright-pr/scripts/pr-pair.sh:1930-1955`, `2013-2030`. |
-| T4 Boundaries | yes | Shim handoff and native dispatch: `cli/lib/src/commands/pr.dart:12-26`, `54-87`; merge read-back: `skills/specwright-pr/scripts/pr-pair.sh:2743-2766`. |
+| T4 Boundaries | yes | Shim handoff and native dispatch: `cli/lib/src/commands/pr.dart:12-31`, `59-97`; merge read-back: `skills/specwright-pr/scripts/pr-pair.sh:2743-2766`. |
 | T5 Volume | yes | Paged issue read and marker index: `skills/specwright-pr/scripts/pr-pair.sh:2996-3014`. |
 | T6 Risk | yes | Per-login credentials: `skills/specwright-pr/scripts/pr-pair.sh:357-371`; remote deletion: `2954-2984`. |
 
@@ -15,7 +15,7 @@ TIER: FULL
 
 ## Context
 
-Scope and milestone boundaries are in proposal.md. The five settings/policy commands already dispatch natively in `cli/lib/src/commands/pr.dart:76-79`, `86`; the other commands remain in the Python dispatch at `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`.
+Scope and milestone boundaries are in proposal.md. The five settings/policy commands already dispatch natively in `cli/lib/src/commands/pr.dart:81-84`, `96`; the other commands remain in the Python dispatch at `skills/specwright-pr/scripts/pr-pair.sh:3017-3021`.
 
 `PairStop`, argument parsing and the single-JSON error boundary are reusable (`cli/lib/src/pr/pair.dart:9-25`, `44-77`, `81-114`). VCS exposes its handlers, session and state document (`cli/lib/src/commands/vcs.dart:43-56`, `74-100`). The fence exposes injected GitHub, Git and launch callbacks (`cli/lib/src/fence/fence.dart:22-38`) and the credential/remote/launch sequence (`536-577`). These are the integration points; the sole temporary indirect VCS fence exception is D5.
 
@@ -35,13 +35,13 @@ Closing checks derive prose from GitHub-rendered HTML rather than scanning Markd
 - **Important:** yes, binds the boundary used by following ports.
 - **Chosen by:** user, "Use direct native calls, preserving deadline boundaries" and the approved M8 amendment.
 
-### D2: Preserve the feedback storage protocol
+### D2: Preserve feedback records with SDK-exclusive file creation
 
-- **Choice:** Keep the keys, version 2, owner fields, timestamps, record JSON semantics, LF bytes, exclusive create, atomic replacement and existing legacy migration. Implement private filesystem adapters using POSIX link/mkdir/open-with-O_EXCL/rename and Windows CreateHardLinkW/CreateDirectoryW/CreateFileW-with-CREATE_NEW/MoveFileExW-with-replacement. Distinguish an existing destination from another hard-link failure; only the latter enables exclusive-create fallback. Lock acquisition uses one OS directory-create operation, never Directory.exists followed by Directory.create. Keep write's publication path separate from adopt/done's locked mutations. Reuse the existing codec/JSON helpers. JSON key order, indentation and non-ASCII escaping are not part of the protocol: readers parse the record (`skills/specwright-pr/scripts/pr-pair.sh:2037-2043`). Legacy migration compares and moves existing file bytes (`1979`, `1995`), so migration copies them unchanged, but a native writer need not reproduce Python's serialized form.
-- **Rejected:** A new database, record version or lock protocol. They would make an interrupted pass depend on a migration unrelated to the port.
+- **Choice:** Keep the keys, version 2, owner fields, timestamps, record JSON semantics, LF bytes, exclusive publication, atomic replacement and existing legacy migration. Use Dart SDK `File.createSync(exclusive: true)` for lock files at the existing `.lock` path and for publication fallback. Creation is the exclusive operation, never an existence check followed by non-exclusive creation. After failed creation, recognize an existing legacy directory or other occupied lock path as busy; unrelated filesystem failures remain errors. A native call releases only its own created file, never a legacy directory or foreign lock. Legacy Python directory creation also refuses when a native lock file occupies the path. Keep hard-link success as the publication fast path; any failed link may attempt SDK-exclusive creation, which must refuse an occupied destination without modifying it. Do not branch on `errno` or `GetLastError` read in a later FFI call. Keep the private OS adapter only for hard-link success and atomic same-directory replacement, and POSIX permission changes where needed; check success directly and report generic filesystem failures without unreliable numeric error capture. Preserve private record permissions before writing any content and preserve raw POSIX paths. The SDK create-then-open fallback can leave an empty or partial unreadable record if interrupted; Set private POSIX permissions on a created file through the minimal adapter before opening it for content, and never change the process umask. Ordinary failures after exclusive creation, including a failed permission change or an open, write or close failure, remove only the file this request created and report a generic filesystem error; a failed permission change writes no content. Keep write's publication path separate from adopt/done's locked mutations. Reuse the existing codec/JSON helpers. JSON key order, indentation and non-ASCII escaping are not part of the protocol: readers parse the record (`skills/specwright-pr/scripts/pr-pair.sh:2037-2043`). Legacy migration compares and moves existing file bytes (`1979`, `1995`), so migration copies them unchanged, but a native writer need not reproduce Python's serialized form.
+- **Rejected:** A new database or record version, automatic lock stealing, and the original FFI directory-lock/error-code design. Repeated real concurrent-call failures exposed unreliable error capture between FFI calls; the owner approved SDK-exclusive lock files and the documented fallback interruption window.
 - **Reversal cost:** low for implementation, high for changing the stored protocol.
-- **Important:** yes, the stored protocol binds future changes; the user already chose preservation in S2. The private OS adapter is an implementation of that choice.
-- **Chosen by:** user, through S2 and the approved M8 preservation requirement.
+- **Important:** yes, the stored protocol binds future changes; the lock representation is an explicitly approved refinement of S2.
+- **Chosen by:** user, "Use the SDK approach", approving exclusive lock files, legacy directory blocking and create-then-open fallback without a new package.
 
 ### D3: Cohesive workflow collaborators
 
@@ -94,7 +94,7 @@ The user also chose "Use the library's HTML5 interpretation" for malformed HTML.
 | S3 | Milestone boundaries | Retrofit, launcher and remaining ports stay separate | Whole migration in this PR | low | yes | user |
 | S4 | Store binary selection | Leading --project; preserve store cwd and nested hop | Store inference; move cwd | medium | yes | user |
 | D1 | Internal integration | Direct calls, explicit target and caller budget | Shims/self-launch; global cwd/env | medium | yes | user |
-| D2 | Feedback persistence | Existing protocol, publication and locked mutation | New store/version/lock protocol | low implementation; high protocol | yes | user |
+| D2 | Feedback persistence | Existing record protocol, SDK-exclusive lock files and publication fallback | New store/version; FFI error-code branching; lock stealing | low implementation; high protocol | yes | user |
 | D3 | Organization | Cohesive native workflow collaborators | One translation or subprocess per function | low | no | agent |
 | D4 | Shim dispatch/project | Explicit selector, existing handoff and native dispatch | Inference; moved cwd; Python fallback; direct argv now | medium | yes | user |
 | D5 | Nested VCS fence | Retain fetch-main hop; resolved --code selects project for login resolution and fetch | Pull retrofit into this port | low | yes | user |
@@ -114,13 +114,14 @@ None. The new interfaces and modules above are proposed additions, not claims th
 - **C5:** Each native transport receives its target directory explicitly and never mutates global cwd/environment; preserve distinct fence refusal and command exit 3. Kind: invariant. Destination: doc comment: cli/lib/src/pr/workflow_transport.dart WorkflowTransport.
 - **C6:** Existing shim handoff and compatibility prerequisites remain until their named M8 removals. Kind: deliberate gap. Destination: ADR 0031.
 - **C7:** Whole-file inputs, feedback records and derived rows retain their existing uncapped behavior until a separate change defines a size policy. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/workflow.dart readWorkflowJson.
-- **C8:** Exclusive-create publication fallback preserves its current interruption window; an interrupted partial record is refused as unreadable, never treated as absent or silently replaced. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/feedback_record.dart FeedbackRecordStore.
+- **C8:** SDK-exclusive publication fallback creates then opens its own file. Interruption can leave an empty or partial record: `pass write` refuses it as record_exists, the other pass operations as record_unreadable, and it is never treated as absent or silently replaced. An ordinary permission, open, write or close failure cleans up only the request-created file. Native lock files and legacy lock directories occupy the same `.lock` path and block each other; native cleanup never removes a legacy directory. Kind: deliberate gap and invariant. Destination: doc comment: cli/lib/src/pr/feedback_record.dart FeedbackRecordStore.
 - **C9:** Non-Git branch-check retains the nested VCS fetch-main fence hop only until native-cli-internal-calls, forwarding the code-project selector while preserving target cwd and login. Kind: deliberate gap. Destination: ADR 0031.
 - **C10:** Explicit binary project selection does not select the target repo or login and never changes cwd; store callers and nested resolver invocations must name it. Kind: invariant. Destination: ADR 0031.
 - **C11:** Network operations run through `sw vcs` on a GitHub-origin store other than D5's branch-check fetch-main, including the `vcs.sh pull` that cleanup-plan prints for a jj store, keep their existing as.sh hop without a project selector, so they still stop with sw_missing from the store until native-cli-internal-calls. Kind: deliberate gap. Destination: ADR 0031.
 - **C12:** Closing prose comes from the `html` package's public parser plus a closing-reference adapter. No HTML tokenizer, parser or entity table is authored to match Python, and each observed parser difference is listed here with its consumer check. Kind: rejected alternative. Destination: doc comment: cli/lib/src/pr/closing.dart renderedLines.
 - **C13:** Each representation difference from the frozen oracle is listed with its producer/consumer contract test, and one that changes a workflow outcome needs the user's decision. Kind: invariant. Destination: doc comment: evals/pr-pair/test_workflow_parity.py WorkflowParity.
 - **C14:** From 0.30.0, the checksummed third-party notice accompanies the binary in release artifacts and installs; it is verified before executing a downloaded binary, and older release manifests remain usable. A change to the compiled dependency set updates the notice. Kind: invariant. Destination: ADR 0032.
+- **C15:** The feedback record store classifies outcomes from SDK exceptions, post-failure occupancy and one-call OS success results. Numeric `errno` or `GetLastError` branching across FFI calls (dart-lang/sdk#38832), exists-then-create exclusivity and process-wide umask changes stay rejected. Kind: rejected alternative. Destination: doc comment: cli/lib/src/pr/feedback_record.dart FeedbackRecordStore.
 
 ## Diagrams (FULL)
 
@@ -148,6 +149,7 @@ T2, record lifecycle. Resume/complete are computed results, not new persisted st
 stateDiagram-v2
   [*] --> Absent
   Absent --> Owned: exclusive write
+  Absent --> Refused: interrupted fallback leaves empty or partial record
   Owned --> Resume: inspect current evidence
   Resume --> Resume: partial work or stale evidence
   Resume --> Complete: all required evidence observed
@@ -201,7 +203,7 @@ flowchart LR
 | Request target, settings and transport | One command context | Invocation | Re-read on new invocation | Explicit input and current repo |
 | Verified credentials | Request-scoped identity service, keyed by exact login | Invocation | Discard on exit; never persist or print | Verified lookup result |
 | Feedback record | Successful exclusive publisher; then current owner under lock for adopt/done | Across invocations | Evidence-based completion or explicit adoption | Record file, not cached plan |
-| Record lock | Call that created the directory | One locked mutation | Remove only own lock; report cleanup failure | Lock directory |
+| Record lock | Call that exclusively created the lock file | One locked mutation | Remove only own file; legacy directories and foreign locks remain; report cleanup failure | Existing `.lock` path, native file or legacy directory |
 | Sibling temp record / render request | Call that created it | One operation | Finally cleanup; interrupted leftovers never treated as a live record | Published record / GitHub response |
 | Reviewer config | Existing content-addressed settings writer | Shared immutable content | Different config gives a different digest | Existing format-2 bytes |
 | Installed notice | `sw-install` or the source-build installer | Beside its version's binary | Replaced only when absent or not matching the release hash; source installs use the tree notice | Release `SHA256SUMS` for release installs; `cli/THIRD_PARTY_NOTICES.txt` for source builds |
@@ -217,7 +219,7 @@ flowchart LR
 | PR create/link | Side effect may precede lost response | Re-discover existing PR/own marker | Preserve original rerun behavior; no blind loop | Agent sees result/failure |
 | Closing parser | Render read fails, or the parser or adapter raises | Render read: unknown result, no closing proof. Parser or adapter error: internal_error, no closing proof | Read may repeat | Agent sees exit 3, or internal_error exit 1; never `match` |
 | Notice delivery | Missing, corrupt, unplaceable or concurrently replaced notice | Rerun the install; a sealed release lacking its notice needs its owner | Yes; placement is idempotent | User sees `ok: false` with the code and release; a concurrent identical result continues |
-| Record publisher | Concurrent write or failed publication | Exclusive refusal; cleanup own incomplete fallback/temp file | Retry only after observing record | Agent sees record_exists/internal_error |
+| Record publisher | Concurrent write, failed publication, or death during the SDK fallback | Exclusive refusal; cleanup own incomplete fallback/temp file on ordinary failure; a record left by death stays for explicit recovery | Retry only after observing record | Agent sees record_exists, record_unreadable or internal_error |
 | Locked record mutation | Held lock or cleanup failure | Refuse held lock; report lock_left without replacing primary outcome | Never delete another owner's lock | Agent sees owner/lock fields |
 | Pass planner | Partial edit/commit/push/reply or stale snapshot | Return resume, ask or stop rows from evidence | Plan is repeatable; actions follow plan | Agent sees rows and needs_user |
 | Merge/delete | Server accepted write but answer lost | Existing read-back/unknown sequencing | Never add a second merge PUT or speculative delete | Agent sees merged/refused/unknown or retained branch |
@@ -246,7 +248,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 
 - If an install dies after notice placement but before binary rename, the correct notice remains; the next run repeats binary placement and preserves a notice already matching its manifest.
 - Preserve the old sequence rather than parallelizing GitHub reads/writes. A head change or stale snapshot returns the same refresh/stop decision. Differential tests cover the ordering.
-- Preserve pass-write's exclusive publish and native/script interoperability. For unsupported hard links, reproduce exclusive-create fallback behavior and cleanup on ordinary failure; do not silently strengthen its documented crash behavior.
+- Preserve pass-write's exclusive publish and native/script interoperability. A failed hard link may use SDK-exclusive creation; an occupied destination always refuses. Document and test the approved create-then-open empty/partial-record interruption window and cleanup on ordinary open/write/close failure.
 - An adopt request names the owner it saw; recheck under the lock. A done request re-plans completion under the lock before deleting. A held or abandoned lock stays the owner's recovery decision.
 - Resume rechecks file content even when a fix trailer exists. A partially committed edit, unreadable snapshot or unreachable recorded head cannot count as complete. Keep GitButler unassigned-path separation.
 - Keep `AS_SH_ORIG_*` restoration for non-GitHub reads and verify repository B in B's explicit directory. Do not let a code token become a store token or leak through an ambient environment map.
@@ -264,7 +266,7 @@ Cancellation uses bounded runner callbacks for every external step inside an out
 | Explicit target and private environment | yes | Existing target-repo fence would otherwise inspect cwd or inherit another token | Removed only if external identity/repo model changes |
 | Caller-budget adapter | yes | Replacing one bounded script with separately timed callbacks can exceed the prior deadline | New owner-approved runtime contract |
 | Exclusive publication and owned locks | yes | Concurrent writers and interrupted pass recovery already exist | New owner-approved storage protocol |
-| Private filesystem primitive adapter | yes | Hard-link destination-exists must differ from fallback failure; lock acquisition must be one exclusive OS operation | Concurrent adopt/done and fallback failure tests disprove parity; fix before proceeding |
+| Private filesystem primitive adapter | yes | SDK-exclusive lock/publication creation; minimal hard-link/atomic-replace adapter without cross-FFI error-code branching | Concurrent callers, legacy lock, occupied destination, open/write/close cleanup, private permissions and replacement OS tests |
 | Leading project selector and forwarding | yes | Store has no project VERSION; resolving from store cwd otherwise blocks workflow dispatch | Store-started fenced and unfenced command tests |
 | Library HTML parser and workflow adapter | yes | Approved html package handles HTML/entities; adapter extracts closing prose with code and line boundaries | A library difference changes the workflow outcome; ask the user before changing that outcome |
 | Automated notice-completeness check | no | Task 4.4's evidence and C14 cover this change; it would need a runtime-graph-to-licence mapping | A dependency change ships with a stale notice |

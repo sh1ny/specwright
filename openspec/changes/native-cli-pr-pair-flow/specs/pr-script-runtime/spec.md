@@ -109,7 +109,7 @@ The fourteen newly native commands SHALL preserve product workflow outcomes, eff
 - **THEN** issue 1 in the description's own repository is an intended closing reference under HTML5 tree construction
 
 ### Requirement: Feedback records interoperate across the port
-Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Write SHALL publish exclusively; adopt and done SHALL hold their own record lock and never remove another call's lock. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner.
+Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner.
 
 #### Scenario: Native plan resumes an existing record
 - **WHEN** the frozen script writes a record and native pass-plan reads it with equivalent snapshots, local history and owner
@@ -127,13 +127,28 @@ Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, 
 - **WHEN** a matching legacy record is migrated and a later adopt call finds the record lock already held
 - **THEN** migration retains the record identity and contents, and adopt reports record_busy without changing the owner or removing the lock
 
+#### Scenario: Unreadable record blocks a new pass
+- **WHEN** a new-key record or a sole matching legacy record contains truncated JSON
+- **THEN** `pass plan`, `pass adopt` and `pass done` return record_unreadable; `pass write` returns record_unreadable for a sole legacy record and record_exists for a new-key record; and the file is left in place
+
+### Requirement: Feedback record locks and fallback publication stay exclusive
+Write SHALL publish exclusively; adopt and done SHALL hold their own record lock and never remove another call's lock. Native locks SHALL be exclusively created files at the existing `.lock` path; legacy lock directories SHALL still block and SHALL never be removed automatically. A failed hard link MAY fall back to exclusive creation that refuses an occupied destination. An ordinary failure after that creation SHALL remove only the file the request created.
+
 #### Scenario: Concurrent mutations acquire one lock
 - **WHEN** two adopt or done calls race for the same record while the winning call holds its lock
 - **THEN** exactly one call holds the lock, the other reports record_busy without changing the record, and only the holder releases the lock
 
-#### Scenario: Unreadable record blocks a new pass
-- **WHEN** a record or sole matching legacy record contains truncated JSON
-- **THEN** native pass operations return record_unreadable and leave it in place
+#### Scenario: Native and legacy locks exclude each other
+- **WHEN** a native call finds a legacy lock directory, or a legacy script call finds a native lock file at the same `.lock` path
+- **THEN** the second call refuses the held lock and leaves it untouched; native cleanup removes only its own created file
+
+#### Scenario: Interrupted SDK publication stays recoverable
+- **WHEN** the SDK fallback is interrupted after exclusive creation but before opening or finishing the record
+- **THEN** the empty or partial record remains in place, `pass write` refuses with record_exists, and `pass plan`, `pass adopt` and `pass done` return record_unreadable
+
+#### Scenario: Fallback permission failure leaves no record
+- **WHEN** the publication fallback exclusively creates a POSIX record and setting its private permissions fails
+- **THEN** the error is reported, no record content was written, only the created file is removed, and a later `pass write` can create the record
 
 ### Requirement: Native workflow integration preserves caller boundaries
 Native PR workflow code SHALL call ported settings, fence and VCS operations directly, except the existing non-Git branch-check to VCS fetch-main fence hop until native-cli-internal-calls. It SHALL retain target-repo checks, per-call credentials, environment restoration and existing bounds. Reads previously bounded as a whole SHALL share that budget. Unbounded VCS reads and planning SHALL stay unbounded.
