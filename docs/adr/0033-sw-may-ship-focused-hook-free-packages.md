@@ -1,6 +1,6 @@
 # 0033. `sw` may ship focused, hook-free packages
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-09
 - Supersedes: —
 - Adds to: 0027 (its dependency clause only; `sw` stays one `dart compile exe` file with no build hooks)
