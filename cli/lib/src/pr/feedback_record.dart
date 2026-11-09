@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -173,10 +174,18 @@ class FeedbackRecordStore {
         continue;
       }
       try {
-        _writeAndClose(
-          output,
-          () => encodeEscaped('${documentText(record)}\n'),
-        );
+        _writeAndClose(output, () {
+          // Record contents are UTF-8 JSON, not filesystem bytes. Escape
+          // surrogate units, including path escapes, without changing the
+          // shared document writer's stdout byte protocol. Escaped pairs
+          // still decode to the same supplementary Unicode characters.
+          final json = documentText(record).replaceAllMapped(
+            RegExp(r'[\uD800-\uDFFF]'),
+            (match) =>
+                '\\u${match[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}',
+          );
+          return utf8.encode('$json\n');
+        });
       } on Object {
         try {
           files.delete(temp);

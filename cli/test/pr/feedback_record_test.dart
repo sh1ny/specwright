@@ -146,6 +146,28 @@ void main() {
   tearDown(() => tmp.deleteSync(recursive: true));
 
   test(
+    'record publication and replacement preserve surrogate string values',
+    () {
+      final store = FeedbackRecordStore(tmp.path);
+      final record = <String, Object?>{
+        'owner': {'checkout': '/checkout/\uDCFF'},
+        'nested': {
+          '\uDC81': ['\uDC80', 'é', '😀'],
+        },
+        'large': BigInt.parse('18446744073709551616'),
+      };
+      store.writeNew(path, record);
+      expect(utf8.decode(File(path).readAsBytesSync()), contains(r'\udcff'));
+      expect(store.load(path), record);
+      record['owner'] = {'checkout': '/other/\uDCFE'};
+      record['high'] = '\uD800';
+      store.replaceRecord(path, record);
+      expect(utf8.decode(File(path).readAsBytesSync()), contains(r'\udcfe'));
+      expect(store.load(path), record);
+    },
+  );
+
+  test(
     'record keys distinguish identities and keep bounded readable names',
     () {
       final store = FeedbackRecordStore(tmp.path);
