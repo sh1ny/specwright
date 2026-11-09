@@ -1,10 +1,8 @@
-**All four Required Changes are correctly applied, so I set `CHANGES_APPLIED: yes`.** I edited nothing, so the updated document below still needs to be written to `review.md`. Group 8 and task 9 are still recorded as pending.
-
----
-
 # Review
 
 ## Metadata
+
+- **Historical status:** Pending tasks, working-tree descriptions and line numbers below describe the design review and its recheck. Groups 8 and 9 were completed later in implementation commit `bc195141833121879065b0199038f5c863a30dc1`; `tasks.md` records their current completion state.
 
 - **Round:** 7 (full review after the final shim switch and historical citation amendment)
 - **Prior round:** Round 6, APPROVE_WITH_CHANGES. Required Changes 1-10 were rechecked and marked applied. The later edits to `design.md` void that verdict.

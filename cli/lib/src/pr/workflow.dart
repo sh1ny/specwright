@@ -89,16 +89,30 @@ class Workflow {
   Future<GhResult> gitNetwork(String dir, List<String> args) async {
     final slug = await fetchRepo(dir);
     final limits = resolveLimits(ctx.env, paged: false);
-    if (slug == null) {
-      return runBoundedCommand(
+    Future<GhResult> unfenced(Map<String, String> environment) async {
+      final result = await runBoundedCommand(
         ctx.bash,
         dir,
         ['git', ...args],
-        environment: unfencedEnvironment(),
+        environment: environment,
         limits: limits,
         helperCommand: ctx.helperCommand,
       );
+      // The old net boundary raises typed limits before either ls-remote or
+      // fetch is interpreted. This applies to unfenced reads too; rounds owns
+      // its later reduction to remote_unreadable.
+      if (result.limit case final limit?) {
+        throw PairStop(
+          limit.label,
+          'GitHub state unknown: ${limit.label}: ${['git', ...args].take(2).join(' ')}',
+          code: 3,
+          extra: {'unknown': true},
+        );
+      }
+      return result;
     }
+
+    if (slug == null) return unfenced(unfencedEnvironment());
     var login = _repoLogin[slug.toLowerCase()];
     final top = (await ctx.git(dir, [
       'rev-parse',
@@ -109,14 +123,7 @@ class Workflow {
       '--show-toplevel',
     ])).stdout.trim();
     if (login == null && top.isNotEmpty && top == started) {
-      return runBoundedCommand(
-        ctx.bash,
-        dir,
-        ['git', ...args],
-        environment: ctx.env,
-        limits: limits,
-        helperCommand: ctx.helperCommand,
-      );
+      return unfenced(ctx.env);
     }
     login ??= await ambientLogin();
     // The frozen git_net calls token_for before its bounded net segment.

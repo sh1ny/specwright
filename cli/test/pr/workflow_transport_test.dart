@@ -70,7 +70,7 @@ void main() {
         stderr: Uint8List(0),
       ),
     );
-    for (final cap in [5, 10, 100])
+    for (final cap in [5, 10, 100]) {
       await expectLater(
         transport.fenced(
           'bot',
@@ -81,6 +81,7 @@ void main() {
           isA<PairStop>().having((s) => s.error, 'error', 'fence_refused'),
         ),
       );
+    }
   });
 
   test(
@@ -120,8 +121,9 @@ void main() {
         if (command[0] == 'gh') return result('bot');
         if (command.contains('--is-inside-work-tree')) return result('true\n');
         if (command.join(' ') == 'git remote') return result('origin\n');
-        if (command.contains('get-url'))
+        if (command.contains('get-url')) {
           return result('https://secret@github.com/o/store\n');
+        }
         if (command[0] == 'capture') launched = true;
         return result('');
       },
@@ -184,8 +186,9 @@ void main() {
         environment: {},
         runner: (dir, command, env, limits) async {
           if (command.contains('--help')) return result('--user');
-          if (command.contains('token'))
+          if (command.contains('token')) {
             return limited ? result('', 124) : result('token');
+          }
           if (command[0] == 'gh') return result('bot');
           return result('', command[0] == 'capture' ? 3 : 0);
         },

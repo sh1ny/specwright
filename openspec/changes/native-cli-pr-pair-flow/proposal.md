@@ -80,7 +80,7 @@ DECISION_MAKING: important
 - The fourteen remaining `pr-pair.sh` workflow commands run in `sw`, with direct native calls and preserved identity, deadline and recovery boundaries. Every command now refuses with `sw_missing` when the matching binary is unavailable (#148).
 - M8 adds an internal-call retrofit and a native launcher before the remaining ports, and explicitly covers Bash-free bootstrap and inline skill commands (#148).
 - `as.sh` and `pr-pair.sh` accept a leading `--project <code-checkout>` for store-started calls. Updated store callers and cleanup plans select the code project's binary while preserving the store working directory (#148).
-- Native fenced workflow reads use private per-login environments and one caller-owned budget through identity checks and execution; standalone unbounded fence calls retain their existing behavior (#148).
+- Workflow network reads retain typed deadline and output-limit stops. Fenced reads use private per-login environments and one caller-owned budget through identity checks and execution; standalone unbounded fence calls retain their existing behavior (#148).
 - Discovery, expected PR sets, creation, linking, pair state and feedback-round decisions preserve paginated reads, per-repository credentials and unknown-read mutation guards (#148).
 - Closing checks use the approved HTML5 parser; merge read-back, guarded remote deletion and issue-marker lookup preserve workflow decisions (#148).
 - Feedback locks use exclusive file creation while respecting legacy directory locks; interrupted records retain the existing ownership and recovery decisions (#148).

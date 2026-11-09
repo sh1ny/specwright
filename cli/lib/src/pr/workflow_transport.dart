@@ -38,7 +38,7 @@ class WorkflowTransport {
     directory: directory,
     environment: Map.of(environment ?? Platform.environment),
     runner: (dir, command, env, limits) async {
-      if (limits != null)
+      if (limits != null) {
         return runBoundedCommand(
           bash,
           dir,
@@ -47,6 +47,7 @@ class WorkflowTransport {
           limits: limits,
           helperCommand: helperCommand,
         );
+      }
       final r = await runTool(bash, dir, command, environment: env);
       return GhResult(exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr);
     },
@@ -103,11 +104,13 @@ class WorkflowTransport {
 
     try {
       final discovery = discoveryEnvironment(saveOriginals(environment));
-      final GhCall gh = (args, env) => call(['gh', ...args], env, lookup: true);
-      final GitCall git = (cmd, env) async {
+      Future<GhResult> gh(List<String> args, Map<String, String> env) =>
+          call(['gh', ...args], env, lookup: true);
+      Future<ToolResult> git(List<String> cmd, Map<String, String> env) async {
         final r = await call(cmd, env);
         return ToolResult(r.exitCode, r.stdout, r.stderr);
-      };
+      }
+
       await checkGhVersion(gh, discovery);
       final tokenEnv = await verifyIdentity(login, gh, discovery);
       checkOuter();
