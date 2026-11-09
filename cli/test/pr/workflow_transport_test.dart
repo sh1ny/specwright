@@ -22,19 +22,25 @@ GhResult result(String text, [int code = 0]) => GhResult(
 );
 
 void main() {
-  test('workflow JSON reader preserves raw POSIX snapshot paths', () async {
-    final directory = Directory.systemTemp.createTempSync('workflow-json-');
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final rawDirectory = Uint8List.fromList([
-      ...encodeEscaped(directory.path),
-      0x2f,
-      0x80,
-    ]);
-    Directory.fromRawPath(rawDirectory).createSync();
-    final rawFile = Uint8List.fromList([...rawDirectory, 0x2f, 0xff]);
-    File.fromRawPath(rawFile).writeAsStringSync('{"value":"é"}');
-    expect(await readWorkflowJson(decodeEscaped(rawFile)), {'value': 'é'});
-  }, skip: Platform.isWindows ? 'POSIX byte paths' : false);
+  test(
+    'workflow JSON reader preserves raw POSIX snapshot paths',
+    () async {
+      final directory = Directory.systemTemp.createTempSync('workflow-json-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final rawDirectory = Uint8List.fromList([
+        ...encodeEscaped(directory.path),
+        0x2f,
+        0x80,
+      ]);
+      Directory.fromRawPath(rawDirectory).createSync();
+      final rawFile = Uint8List.fromList([...rawDirectory, 0x2f, 0xff]);
+      File.fromRawPath(rawFile).writeAsStringSync('{"value":"é"}');
+      expect(await readWorkflowJson(decodeEscaped(rawFile)), {'value': 'é'});
+    },
+    skip: !Platform.isLinux
+        ? 'Linux only: macOS and Windows refuse invalid UTF-8 filenames'
+        : false,
+  );
 
   test(
     'workflow JSON reader retains Unicode and unreadable-file errors',
