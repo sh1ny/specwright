@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: sw commit task-cover keeps task-cover.sh's contract
-`sw commit task-cover` SHALL accept `task-cover.sh`'s options, honour `TASK_COVER_MAX_COMMITS`, and print a JSON document that parses to the same keys, key order and values for the same inputs, with the same error codes and exit codes 0 to 3. The differences: task and group ids are ASCII digits only, and a task, commit subject, trailer or numbered heading whose group number is beyond 64 bits is ignored. An unexpected failure SHALL print the document `"error": "internal_error"` and exit 1, never a stack trace.
+`sw commit task-cover` SHALL accept `task-cover.sh`'s options, honour `TASK_COVER_MAX_COMMITS`, and print JSON that parses to the same keys, key order and values for the same inputs, with the same error codes and exit codes 0 to 3. Differences: task and group ids are ASCII digits only, and a task, commit subject, trailer or numbered heading with a group number beyond 64 bits is ignored. An unexpected failure SHALL print the document `"error": "internal_error"` and exit 1, never a stack trace.
 
 #### Scenario: Unchanged task-cover evals pass on sw
 - **WHEN** the `evals/git-workflow` tests of `task-cover.sh` and the `evals/vcs` coverage test run in CI on Linux, Windows and macOS against the `sw` built from the tree
