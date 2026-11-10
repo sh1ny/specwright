@@ -37,7 +37,7 @@ The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userl
 - **THEN** the install completes and its report includes `PR workflow not ready: gh 2.48+`
 
 ### Requirement: The ported pr-pair subcommands keep the script's contracts
-`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the argument forms shipped callers use and SHALL print a JSON line with the same parsed field names and values and exit with the same status for the same settings files, repositories and GitHub answers. The JSON/input and option differences in native-cli apply: compact JSON/LF, non-standard JSON refusal, oversized file/integer refusal, equals-form options and no abbreviated names. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
+`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the argument forms shipped callers use, print a JSON line with the same parsed fields and values, and exit with the same status for the same settings files, repositories and GitHub answers, apart from the native-cli JSON, input and option differences. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
 
 #### Scenario: Policy's remote settings read is strict
 - **WHEN** `policy` reads a settings file from the remote and it holds a construct the strict reader cannot read whole

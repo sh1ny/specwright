@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: sw documents are compact JSON ending in one line feed
-Every JSON document `sw` prints SHALL be one compact JSON value followed by a single LF on every operating system. Consumers SHALL read a document by parsing it, never by matching its text, except the temporary snapshot regex readers retained until `native-cli-internal-calls`; those readers retain the compact keys they require.
+Every JSON document `sw` prints SHALL be one compact JSON value followed by a single LF on every operating system. Consumers SHALL read a document by parsing it, never by matching its text, except the temporary snapshot regex readers and the printed undo-archive branch guards, retained until `native-cli-internal-calls`; those readers retain the compact keys they require.
 
 #### Scenario: Document on Windows
 - **WHEN** `sw vcs probe` prints its document on Windows
@@ -69,6 +69,10 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 #### Scenario: Lone surrogate keeps its pre-change digest
 - **WHEN** a reviewer report string holds a lone surrogate
 - **THEN** reviewer-config bytes and digest equal the fixed baseline captured before the change, replacing the surrogate with ? even if JsonEncoder needs the D1 string fallback
+
+#### Scenario: Printed undo guard reads the compact branch
+- **WHEN** `sw finish undo-archive-plan` plans an undo on a jj or GitButler repository
+- **THEN** the printed guard matches the compact `"branch":"<name>"` that `sw vcs state` prints, so the undo runs on the planned branch and refuses on another
 
 #### Scenario: Watcher compact keys remain readable
 - **WHEN** reviewers prints a document consumed by the snapshot regex readers

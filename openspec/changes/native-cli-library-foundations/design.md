@@ -117,7 +117,7 @@ The merged `rounds` implementation emits `BigInt` even for zero. Convert represe
 
 ### D7: Compact JSON and LF everywhere
 
-- **Choice:** Stated in S5. Parsed-value tests replace byte comparisons except the temporary snapshot regex boundary (C12); pin the compact form that boundary reads until native-cli-internal-calls removes it.
+- **Choice:** Stated in S5. Parsed-value tests replace byte comparisons except the temporary text readers (C12 snapshot regexes, C13 printed undo guards); pin the compact form they read until native-cli-internal-calls removes them.
 - **Rejected:** Keep spaced text behind a flag, because the flag is the custom writer.
 - **Reversal cost:** low
 - **Important:** yes, changes what users see.
@@ -145,7 +145,7 @@ The merged `rounds` implementation emits `BigInt` even for zero. Convert represe
 
 The vcs-backends delta retains the historical scenario title "Line separators stay escaped" alongside "Line separators parse back": strict validation forbids dropping a current scenario; both assert parsed characters, not escaped bytes.
 
-The owner approved round 3 Required Changes on 2026-11-10 ("yes go ahead."): D1 permits the surrogate-string fallback; D7 retains C12 until internal-calls. These refine S5 without changing compact output, LF or raw line separators.
+The owner approved round 3 Required Changes on 2026-11-10 ("yes go ahead."): D1 permits the surrogate-string fallback; D7 retains C12 until internal-calls. On 2026-11-10, during apply, the owner chose C13 (compact-text printed undo guards) over parsing in the printed script. These refine S5 without changing compact output, LF or raw line separators.
 
 ## Assumptions
 
@@ -161,7 +161,7 @@ The owner approved round 3 Required Changes on 2026-11-10 ("yes go ahead."): D1 
 ## Carried constraints
 
 - **C1:** Reviewer-config bytes and their digest must not change with a JSON library change. Kind: invariant. Destination: doc comment: cli/lib/src/settings/reviewer_config.dart reviewerConfigBytes
-- **C2:** Consumers read `sw` documents by parsing them; C12 is the sole temporary exception for snapshot regex readers. Kind: invariant. Destination: spec: specs/native-cli/spec.md → Requirement: sw documents are compact JSON ending in one line feed
+- **C2:** Consumers read `sw` documents by parsing them; C12 and C13 are the only temporary exceptions. Kind: invariant. Destination: spec: specs/native-cli/spec.md → Requirement: sw documents are compact JSON ending in one line feed
 - **C3:** Non-UTF-8 name bytes survive documents until `native-cli-launcher` replaces the escaping. Kind: deliberate gap. Destination: doc comment: cli/lib/src/vcs/document.dart documentBytes
 - **C4:** Fail-closed JSON depends on the callers' type checks; a new integer field must keep an `is int` check. Kind: invariant. Destination: doc comment: cli/lib/src/vcs/document.dart decodeJson
 - **C5:** A list read that cannot prove every page decides nothing. Kind: invariant. Destination: spec: specs/pr-script-runtime/spec.md → Requirement: Paginated GitHub lists read every page or decide nothing
@@ -173,6 +173,8 @@ The owner approved round 3 Required Changes on 2026-11-10 ("yes go ahead."): D1 
 - **C11:** No `BigInt` may reach a document, because `JsonEncoder` cannot write one; oversized integers use the caller-specific refusal, default or settingText rule in D8. Kind: invariant. Destination: spec: specs/native-cli/spec.md → Requirement: JSON input that is not plain JSON is refused
 
 - **C12:** `sw pr snapshot` reads `sw pr reviewers` documents by regex (`cli/lib/src/pr/text.dart:29-102`, `cli/lib/src/pr/snapshot.dart:559-560`, `:593`, `:618`) until `native-cli-internal-calls` replaces that boundary. Keep the compact keys those readers require. Kind: deliberate gap. Destination: doc comment: cli/lib/src/pr/text.dart
+
+- **C13:** The jj and GitButler guards that `sw finish undo-archive-plan` prints read the `vcs.sh state` document by text, matching the compact `"branch":"<name>"`, until `native-cli-internal-calls` replaces that boundary. Found during apply (2026-11-10): the printed guard still matched the spaced form and refused every jj and GitButler undo. Owner chose a compact-text match recorded as a gap over parsing in the printed script. The finish and GitButler parity evals list the guard text as the one `script` difference from the oracle. Kind: deliberate gap. Destination: comment at `branchPattern` in cli/lib/src/finish/undo_plan.dart
 
 ## Diagrams (FULL)
 

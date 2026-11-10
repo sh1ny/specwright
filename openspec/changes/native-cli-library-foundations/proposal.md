@@ -40,7 +40,7 @@ This change serves M8, Complete the native CLI migration (#148). It advances the
 
 - `skills/specwright-pr/SKILL.md` line 10 and the `pr-pair.sh` prerequisite comment state `gh` 2.48.
 - `README.md` (prerequisites, install Step 1, the `PR workflow not ready` line) and `CONTRIBUTING.md` state `gh` 2.48.
-- No skill or script reads `sw` documents as text. The in-binary snapshot regex readers are an explicit temporary gap (C12) until `native-cli-internal-calls`; a test pins their compact keys.
+- No skill or script reads `sw` documents as text. The in-binary snapshot regex readers (C12) and the branch guards `sw finish undo-archive-plan` prints for jj and GitButler (C13) are explicit temporary gaps until `native-cli-internal-calls`; tests pin the compact form they read.
 - `openspec/strategy.md:13` and `openspec/architecture.md:150` raise the current gh prerequisite to 2.48; accepted historical ADRs remain unchanged.
 
 ## Capabilities
