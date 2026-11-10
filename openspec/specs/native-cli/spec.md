@@ -357,7 +357,7 @@ From 0.30.0, builds, releases and installs SHALL include `THIRD_PARTY_NOTICES.tx
 - **THEN** attachment fails naming the notice and both hashes, and uploads no `SHA256SUMS`
 
 ### Requirement: sw documents are compact JSON ending in one line feed
-Every JSON document `sw` prints SHALL be one compact JSON value followed by a single LF on every operating system. Consumers SHALL read a document by parsing it, never by matching its text, except the temporary snapshot regex readers and the printed undo-archive branch guards, retained until `native-cli-internal-calls`; those readers retain the compact keys they require.
+Every JSON document `sw` prints SHALL be one compact JSON value followed by a single LF on every operating system. Consumers SHALL read a document by parsing it, never by matching its text, except the printed undo-archive branch guards, retained until `native-cli-retire-scripts`; those guards retain the compact `"branch"` key they require.
 
 #### Scenario: Document on Windows
 - **WHEN** `sw vcs probe` prints its document on Windows
@@ -431,8 +431,8 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 - **THEN** the printed guard matches the compact `"branch":"<name>"` that `sw vcs state` prints, so the undo runs on the planned branch and refuses on another
 
 #### Scenario: Watcher compact keys remain readable
-- **WHEN** reviewers prints a document consumed by the snapshot regex readers
-- **THEN** its compact keys remain readable by loginsOf, recheck, fail_names, fail_run_ids, merge_state, ci_pending and complete until native-cli-internal-calls replaces that boundary
+- **WHEN** `sw pr reviewers` or a `gh --jq` read used by `sw pr snapshot` prints its document with a space after a `:` or `,`
+- **THEN** the snapshot parses it and reads the same logins, recheck ids, failing check names and run ids, merge state, pending check count and completeness as from the compact form
 
 ### Requirement: sw options follow one parsing rule
 `sw vcs`, `sw finish` and `sw pr` SHALL accept `--name value` and `--name=value`, SHALL take the next word as an option's value whatever it looks like, SHALL keep every value of a repeated list option without splitting on commas, and SHALL stop with their usage error on an unknown or incomplete option, exiting 2 (`sw pr reply`: its usage code 4). Option names SHALL NOT be abbreviated. Removing an accidental form that no shipped caller uses SHALL NOT change `interface`.
@@ -479,3 +479,41 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 #### Scenario: A dependency without a notice
 - **WHEN** the resolved closure holds a package the notice does not name
 - **THEN** the notice check fails naming that package
+
+### Requirement: sw starts itself only for its helper and the reviewer evaluator
+For its own work `sw` SHALL start its own binary only as the bounded process helper and as the reviewer evaluator under a poll deadline. It SHALL never start a shipped script or a Python interpreter. Running another installed or downloaded `sw` to read its version and interface SHALL stay allowed. Printing a command for an agent or user to run is not a launch.
+
+#### Scenario: Retrofitted paths with sentinels and no Python
+- **WHEN** `sw vcs` fetch, pull and push against github.com, `sw pr snapshot` with a reviewer config, and the PR workflow commands run with recording `as.sh`, `vcs.sh`, `pr-pair.sh` and `sw-path.sh` sentinels in the handoff scripts directory and failing `python` and `python3` first on `PATH`, on Linux, Windows and macOS
+- **THEN** each returns its expected document or output, no sentinel recorded a run, and neither interpreter ran
+
+#### Scenario: Reviewer evaluator stays a separate process
+- **WHEN** a reviewer report pattern backtracks past the poll deadline
+- **THEN** the evaluator child is killed at the deadline and the poll fails, while the snapshot process itself keeps running
+
+#### Scenario: Printed commands are not launches
+- **WHEN** `sw vcs plan` or a PR cleanup plan prints a command that names `vcs.sh` or `pr-pair.sh`
+- **THEN** the document holds that command and no such script ran
+
+### Requirement: A launch-site allowlist guards process starts
+A test over `cli/lib/src`, run on Linux, Windows and macOS, SHALL list every call that starts a process and every caller of the process runners, and SHALL fail on a launch site missing from its allowlist, on a self-launch other than the helper and the evaluator, on a shipped script name in a launch's arguments, and on a shipped script name written anywhere under `cli/lib/src` outside a listed printed-command, message or label site.
+
+#### Scenario: Current tree passes
+- **WHEN** the allowlist test runs on the tree this change produces
+- **THEN** it passes, and its allowlist names each launch site with its permitted kind: external tool, process helper, reviewer evaluator or binary check
+
+#### Scenario: A new unlisted launch fails
+- **WHEN** a source file under `cli/lib/src` adds a call to a process runner that the allowlist does not name
+- **THEN** the test fails, naming the file and the call
+
+#### Scenario: A script in launch arguments fails
+- **WHEN** a listed launch site passes `as.sh`, `vcs.sh`, `pr-pair.sh`, `pr-snapshot.sh`, `pr-reply.sh`, `review-run.sh`, `release.sh` or a `.py` file as a launch argument
+- **THEN** the test fails, naming the script and the site
+
+#### Scenario: A self-launch outside the allowed two fails
+- **WHEN** a call starts `sw`'s own executable with arguments other than the `__exec` helper or `pr reviewers` under a deadline, including a listed site whose subcommand is changed, whose argument list is not a literal, or whose evaluator runs without its bound, while every call count stays the same
+- **THEN** the test fails, naming the site
+
+#### Scenario: A script name built away from the launch fails
+- **WHEN** a source file under `cli/lib/src` writes `as.sh` or another shipped script name into a value outside a listed printed-command, message or label site, and passes that value to a listed launch
+- **THEN** the test fails, naming the file and the script
