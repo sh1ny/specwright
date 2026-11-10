@@ -52,7 +52,7 @@ Releases: per repo "releases": {"<tag>": {"tag_name", "name", "body", "created_a
 the tags on the remote for --verify-tag; when the key is absent the fake asks `git ls-remote --tags origin refs/tags/<tag>`
 in the cwd. view of a missing tag: exit 1, `release not found`. create: missing tag under --verify-tag, or an existing
 release, exit 1; success prints https://github.com/<o>/<n>/releases/tag/<tag>. The repo comes from --repo/-R, GH_REPO or origin.
-Like real gh, `api --paginate` prints each page's JSON one after another.
+Like real gh, `api --paginate` prints each page's JSON one after another; with `--slurp` it prints one array of the pages.
 
 Reactions and closing references (state keys; add them with the helpers add_review_comment_reaction,
 add_node_reaction, set_closing_refs, set_default_branch, set_file, which take and mutate the state dict):
@@ -474,14 +474,20 @@ def paged(items, query):
 
 
 def emit_pages(items, query, o, expr):
-    """First page only, or every page with --paginate."""
+    """First page only, or every page with --paginate. With --slurp the pages print as one array of pages."""
     query["page"] = int(query.get("page", 1))
+    slurped = []
     while True:
         page, more = paged(items, query)
-        emit(page, expr)
+        if "slurp" in o:
+            slurped.append(page)
+        else:
+            emit(page, expr)
         if not more or "paginate" not in o:
-            return
+            break
         query["page"] += 1
+    if "slurp" in o:
+        emit(slurped, expr)
 
 
 def add_review_comment_reaction(st, slug, comment_id, login, content):

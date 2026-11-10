@@ -53,7 +53,7 @@ flowchart LR
 
 ## ⚡ Install / Update
 
-> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.40 or later; without it the install still completes and reports `PR workflow not ready`.
+> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.48 or later; without it the install still completes and reports `PR workflow not ready`.
 
 > **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.16.0) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.16.0, override)`.
 
@@ -81,7 +81,7 @@ Step 1 - Check prerequisites
   passes, tell the user to install Python 3.8 or later (the design and
   pre-ship reviews run through it) and STOP.
 - PR workflow (the `specwright-pr` scripts): run `gh --version` and check
-  it is 2.40 or later. If not, record `gh 2.40+` for Step 8 and continue:
+  it is 2.48 or later. If not, record `gh 2.48+` for Step 8 and continue:
   it does not block the install or the version stamp.
 - Run `openspec list --json` in the code checkout and read `root`.
   - `"root": null`: if the error names this project's `openspec/config.yaml`
@@ -481,7 +481,7 @@ Report the OpenSpec version as recorded in Step 3: `OpenSpec <found> (pinned)`,
 or `OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1
 recorded a missing PR prerequisite, add the line
 `PR workflow not ready: <missing>` (for example
-`PR workflow not ready: gh 2.40+`).
+`PR workflow not ready: gh 2.48+`).
 ```
 
 Treat `openspec/.specwright/packs.json` like `VERSION`: commit both or ignore both.

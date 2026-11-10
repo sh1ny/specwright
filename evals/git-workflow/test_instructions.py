@@ -611,7 +611,7 @@ class PrScriptRuntime(unittest.TestCase):
         self.assertRegex(pre, r"(?i)\bcore\b", "the prerequisites do not mark the core requirements")
         core_part, _, pr_part = pre.partition("PR skills")
         self.assertRegex(core_part, r"Python 3\.8", "the prerequisites do not list Python 3.8+ as a core requirement")
-        self.assertRegex(pr_part, r"gh`? 2\.40", "the prerequisites do not list gh 2.40+ for the PR skills")
+        self.assertRegex(pr_part, r"gh`? 2\.48", "the prerequisites do not list gh 2.48+ for the PR skills")
         self.assertNotRegex(pr_part, r"Python", "Python is still listed as a PR-only requirement")
         s1 = step(read(README), "Step 1")
         self.assertTrue(s1, "README has no install Step 1")
@@ -622,10 +622,10 @@ class PrScriptRuntime(unittest.TestCase):
         self.assertTrue(py, "Step 1 does not check for Python 3.8+")
         self.assertRegex(py, r"(?s)python3.{0,40}python\b", "Step 1 does not probe python3, then python")
         self.assertRegex(py, r"STOP", "a missing Python 3.8+ does not stop the install")
-        self.assertRegex(s1, r"(?s)gh --version.{0,80}2\.40", "Step 1 does not check gh 2.40+")
+        self.assertRegex(s1, r"(?s)gh --version.{0,80}2\.48", "Step 1 does not check gh 2.48+")
         dep = find_block(read(PR_SKILL), r"Scripts live in")
-        self.assertRegex(dep or "", r"(?i)\bbash\b.{0,60}\bgit\b.{0,60}gh`? 2\.40.{0,60}Python 3\.8",
-                         "specwright-pr does not state bash, git, gh 2.40+ and Python 3.8+")
+        self.assertRegex(dep or "", r"(?i)\bbash\b.{0,60}\bgit\b.{0,60}gh`? 2\.48.{0,60}Python 3\.8",
+                         "specwright-pr does not state bash, git, gh 2.48+ and Python 3.8+")
 
     def test_install_reports_pr_workflow_not_ready(self):
         s1 = step(read(README), "Step 1")
@@ -637,7 +637,7 @@ class PrScriptRuntime(unittest.TestCase):
         self.assertRegex(pr, r"(?i)record|Step 8", "a missing PR requirement is not carried to the report")
         s8 = step(read(README), "Step 8")
         self.assertRegex(s8 or "", r"PR workflow not ready: <missing>", "Step 8 does not report `PR workflow not ready: <missing>`")
-        self.assertRegex(s8 or "", r"PR workflow not ready: gh 2\.40\+", "Step 8's example still names Python")
+        self.assertRegex(s8 or "", r"PR workflow not ready: gh 2\.48\+", "Step 8's example still names Python")
 
 
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"

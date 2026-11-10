@@ -63,11 +63,23 @@ def run_script(script, args, env, cwd, stdin=None):
     return r.returncode, r.stdout, r.stderr
 
 
+def without_slurp(entry):
+    """A listed difference from the frozen oracle (native-cli-library-foundations D4): sw reads a page list with
+    `api --paginate --slurp`, the oracle with `api --paginate`. Drop a --slurp that directly follows --paginate so the
+    two call logs compare equal; the Dart tests pin the flag itself."""
+    argv = entry["argv"]
+    if "--paginate" in argv:
+        i = argv.index("--paginate") + 1
+        if argv[i:i + 1] == ["--slurp"]:
+            entry = {**entry, "argv": argv[:i] + argv[i + 1:]}
+    return entry
+
+
 def calls_of(log, keep):
     """The fake gh's call log as a list of keep(entry), then the log is removed."""
     out = []
     if log.exists():
-        out = [keep(json.loads(l)) for l in log.read_text(encoding="utf-8").splitlines()]
+        out = [keep(without_slurp(json.loads(l))) for l in log.read_text(encoding="utf-8").splitlines()]
         log.unlink()
     return out
 

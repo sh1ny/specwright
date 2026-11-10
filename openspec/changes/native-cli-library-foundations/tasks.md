@@ -23,13 +23,13 @@
 | native-cli → The shipped dependencies stay hook-free and carry their notices | Current dependency set | cli/test/no_build_hooks_test.dart | the closure has no hooks and every package has a notice | red |
 | native-cli → The shipped dependencies stay hook-free and carry their notices | A hook package enters the lock file | cli/test/no_build_hooks_test.dart | reports a package whose pubspec has a top-level hooks key | green |
 | native-cli → The shipped dependencies stay hook-free and carry their notices | A dependency without a notice | cli/test/no_build_hooks_test.dart | a package with no notice is named | red |
-| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | Several pages | cli/test/pr/workflow_transport_test.dart | slurped pages flatten in order | red |
-| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | No items | cli/test/pr/workflow_transport_test.dart | an empty slurp is an empty list | red |
-| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | A page that is not an array | cli/test/pr/workflow_transport_test.dart | a non-array page is an unknown read | red |
-| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | gh older than 2.48 | cli/test/pr/workflow_transport_test.dart | a slurp failure names gh 2.48 | red |
-| pr-script-runtime → Prerequisites are stated and checked at install | All prerequisites present | evals/git-workflow/test_instructions.py | test_install_checks_core_and_pr_prerequisites (update floor to 2.48) | red |
+| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | Several pages | cli/test/pr/workflow_transport_test.dart | slurped pages flatten in order | green |
+| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | No items | cli/test/pr/workflow_transport_test.dart | an empty slurp is an empty list | green |
+| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | A page that is not an array | cli/test/pr/workflow_transport_test.dart | a non-array page is an unknown read | green |
+| pr-script-runtime → Paginated GitHub lists read every page or decide nothing | gh older than 2.48 | cli/test/pr/workflow_transport_test.dart | a slurp failure names gh 2.48 | green |
+| pr-script-runtime → Prerequisites are stated and checked at install | All prerequisites present | evals/git-workflow/test_instructions.py | test_install_checks_core_and_pr_prerequisites (update floor to 2.48) | green |
 | pr-script-runtime → Prerequisites are stated and checked at install | Python missing | evals/git-workflow/test_instructions.py | test_install_checks_core_and_pr_prerequisites | green |
-| pr-script-runtime → Prerequisites are stated and checked at install | gh missing | evals/git-workflow/test_instructions.py | test_install_reports_pr_workflow_not_ready | red |
+| pr-script-runtime → Prerequisites are stated and checked at install | gh missing | evals/git-workflow/test_instructions.py | test_install_reports_pr_workflow_not_ready | green |
 | pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Policy's remote settings read is strict | evals/pr-pair/test_parity.py | test_policy_stops | green |
 | pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Git Bash path forms | evals/pr-pair/test_parity.py | test_git_bash_paths_read_the_same_repo | green |
 | pr-script-runtime → The ported pr-pair subcommands keep the script's contracts | Unchanged black-box evals pass on sw | .github/workflows/evals.yml | evals/pr-pair on three OSes | green |
@@ -60,7 +60,7 @@
 | pr-script-runtime → Native PR workflow commands preserve their effects | Feedback round counters remain encodable | evals/pr-pair/test_workflow_parity.py | test_rounds_without_feedback_trailers; test_rounds_trailers_and_unreadable_remote | green |
 | pr-script-runtime → Native PR workflow commands preserve their effects | Oversized feedback-round trailer is refused | evals/pr-pair/test_workflow_parity.py | test_rounds_preserves_arbitrary_precision_feedback_trailers (replace with explicit refusal difference) | green |
 | pr-script-runtime → Native PR workflow commands preserve their effects | Every workflow command has differential coverage | evals/pr-pair/test_workflow_parity.py | test_every_workflow_command_has_differential_coverage | green |
-| pr-script-runtime → Native PR workflow commands preserve their effects | Unknown read permits no follow-on mutation | evals/pr-pair/test_workflow_parity.py | test_unknown_read_permits_no_follow_on_mutation | red |
+| pr-script-runtime → Native PR workflow commands preserve their effects | Unknown read permits no follow-on mutation | evals/pr-pair/test_workflow_parity.py | test_unknown_read_permits_no_follow_on_mutation | green |
 | pr-script-runtime → Native PR workflow commands preserve their effects | Merge is attempted once then read back | evals/pr-pair/test_workflow_parity.py | test_merge_is_attempted_once_then_read_back | green |
 | pr-script-runtime → Native PR workflow commands preserve their effects | Moved remote branch is retained | evals/pr-pair/test_workflow_parity.py | test_moved_remote_branch_is_retained | green |
 | pr-script-runtime → Native PR workflow commands preserve their effects | Rendered closing lines preserve code boundaries | evals/pr-pair/test_workflow_parity.py | test_rendered_closing_lines_preserve_code_boundaries | green |
@@ -105,10 +105,10 @@ Refreshed against main `3fc5454` on 2026-11-10. Green rows name existing cases b
 
 ## 4. Paginated reads and the gh floor
 
-- [ ] 4.1 Write the failing tests for "Paginated GitHub lists read every page or decide nothing", and make `evals/fakes/gh.py` emit one array of pages for `--slurp`, covered in `evals/pr-pair/test_fake_gh.py`. Update the failure injection at evals/pr-pair/test_workflow_parity.py:405 to `api --paginate (--slurp )?repos/o/n/pulls`, so both native and oracle fail the intended read. A6 was verified by the planning refresh. Verify each test fails for the right reason.
-- [ ] 4.2 Replace the page scanner in `cli/lib/src/pr/workflow.dart` `list` with `gh api --paginate --slurp` through the wrapper (D4). Verify the four list rows turn green.
-- [ ] 4.3 Raise the `gh` floor to 2.48 in `cli/lib/src/fence/fence.dart`, `README.md`, `CONTRIBUTING.md`, `skills/specwright-pr/SKILL.md`, the `pr-pair.sh` prerequisite comment and `evals/git-workflow/test_instructions.py` lines 614, 625, 628 and 640, plus current prerequisite statements in `openspec/strategy.md:13` and `openspec/architecture.md:150` (accepted ADRs stay unchanged). Verify the "All prerequisites present" row in CI.
-- [ ] 4.4 Carry C5: confirm the requirement "Paginated GitHub lists read every page or decide nothing" holds the rule after the refresh. Verify by reading the delta spec.
+- [x] 4.1 Write the failing tests for "Paginated GitHub lists read every page or decide nothing", and make `evals/fakes/gh.py` emit one array of pages for `--slurp`, covered in `evals/pr-pair/test_fake_gh.py`. Update the failure injection at evals/pr-pair/test_workflow_parity.py:405 to `api --paginate (--slurp )?repos/o/n/pulls`, so both native and oracle fail the intended read. A6 was verified by the planning refresh. Verify each test fails for the right reason.
+- [x] 4.2 Replace the page scanner in `cli/lib/src/pr/workflow.dart` `list` with `gh api --paginate --slurp` through the wrapper (D4). Verify the four list rows turn green.
+- [x] 4.3 Raise the `gh` floor to 2.48 in `cli/lib/src/fence/fence.dart`, `README.md`, `CONTRIBUTING.md`, `skills/specwright-pr/SKILL.md`, the `pr-pair.sh` prerequisite comment and `evals/git-workflow/test_instructions.py` lines 614, 625, 628 and 640, plus current prerequisite statements in `openspec/strategy.md:13` and `openspec/architecture.md:150` (accepted ADRs stay unchanged). Verify the "All prerequisites present" row in CI.
+- [x] 4.4 Carry C5: confirm the requirement "Paginated GitHub lists read every page or decide nothing" holds the rule after the refresh. Verify by reading the delta spec.
 
 ## 5. Paths
 

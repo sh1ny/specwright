@@ -323,44 +323,22 @@ class Workflow {
   }
 
   Future<List<dynamic>> list(String endpoint) async {
-    final r = await gh(['api', '--paginate', endpoint]);
-    if (r.exitCode != 0) workflowUnknown(reason(r));
-    final text = decodeReplacing(r.stdout);
-    final items = <dynamic>[];
-    var start = 0, depth = 0;
-    var quoted = false, escaped = false, pages = 0;
+    final r = await gh(['api', '--paginate', '--slurp', endpoint]);
+    if (r.exitCode != 0) {
+      final why = reason(r);
+      workflowUnknown(
+        why.contains('slurp') ? '$why (--slurp needs gh 2.48 or later)' : why,
+      );
+    }
     try {
-      for (var i = 0; i < text.length; i++) {
-        final c = text[i];
-        if (quoted) {
-          if (escaped) {
-            escaped = false;
-          } else if (c == r'\') {
-            escaped = true;
-          } else if (c == '"') {
-            quoted = false;
-          }
-        } else if (c == '"') {
-          quoted = true;
-        } else if (c == '[' || c == '{') {
-          if (depth++ == 0) start = i;
-        } else if (c == ']' || c == '}') {
-          if (--depth == 0) {
-            final page = decodeJson(text.substring(start, i + 1));
-            if (page is! List) workflowUnknown('unexpected response shape');
-            items.addAll(page);
-            pages++;
-          }
-        } else if (depth == 0 && c.trim().isNotEmpty) {
-          workflowUnknown('unreadable response');
-        }
+      final pages = decodeJson(decodeReplacing(r.stdout));
+      if (pages is! List || pages.any((p) => p is! List)) {
+        workflowUnknown('unexpected response shape');
       }
-      if (depth != 0 || quoted) workflowUnknown('unreadable response');
-      if (pages == 0) workflowUnknown('empty response');
+      return [for (final page in pages) ...(page as List)];
     } on FormatException catch (e) {
       workflowUnknown('unreadable response: $e');
     }
-    return items;
   }
 
   Map<String, dynamic> normalize(Map<dynamic, dynamic> p) => {

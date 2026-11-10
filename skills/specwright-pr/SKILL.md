@@ -7,7 +7,7 @@ metadata:
 
 # Specwright PR
 
-Scripts live in `${CLAUDE_SKILL_DIR}/scripts/` (in other harnesses: the `scripts/` folder next to this SKILL.md); below, `scripts/x.sh` means that path. Run them with `bash` (Git Bash on Windows). They need bash, git, `gh` 2.40+ and Python 3.8+.
+Scripts live in `${CLAUDE_SKILL_DIR}/scripts/` (in other harnesses: the `scripts/` folder next to this SKILL.md); below, `scripts/x.sh` means that path. Run them with `bash` (Git Bash on Windows). They need bash, git, `gh` 2.48+ and Python 3.8+.
 
 Resolve the **Planning repo** (end of this file) at the start of every mode.
 

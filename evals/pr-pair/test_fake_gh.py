@@ -182,6 +182,16 @@ class Pulls(FakeGhCase):
         small = json.loads(self.gh("api", "repos/o/n/pulls?per_page=10").stdout)
         self.assertEqual(len(small), 10)
 
+    def test_slurp_nests_the_pages_in_one_array(self):
+        st = self.st()
+        st["repos"] = {"o/n": {"pulls": [self.pull(i, f"b{i}") for i in range(1, 36)]}}
+        self.seed(st)
+        pages = json.loads(self.gh("api", "--paginate", "--slurp", "repos/o/n/pulls?state=open").stdout)
+        self.assertEqual([len(p) for p in pages], [30, 5])
+        self.assertEqual([p["number"] for page in pages for p in page], list(range(35, 0, -1)))
+        empty = json.loads(self.gh("api", "--paginate", "--slurp", "repos/o/n/pulls?head=o:nope").stdout)
+        self.assertEqual(empty, [[]])
+
     def test_head_filter_excludes_forks_and_state(self):
         st = self.st()
         st["repos"] = {"o/n": {"pulls": [self.pull(1, "feat/x"), self.pull(2, "feat/x", owner="forker"),

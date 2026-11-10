@@ -431,7 +431,7 @@ class WorkflowParity(parity.PairParity):
         self.assertEqual(d['rounds'], top)
 
     def test_unknown_read_permits_no_follow_on_mutation(self):
-        self.mutate(lambda st: st.update(fail=['api --paginate repos/o/n/pulls']))
+        self.mutate(lambda st: st.update(fail=['api --paginate (--slurp )?repos/o/n/pulls']))
         body = self.body('body')
         d = self.run_pair('ensure-pr', '--repo', self.SLUG, '--branch', 'new',
                           '--base', 'main', '--title', 'title', '--body-file', body, code=3)
