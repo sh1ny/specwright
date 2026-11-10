@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
 import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/walk.dart';
 import 'package:test/test.dart';
@@ -294,7 +295,7 @@ void main() {
     });
   });
 
-  group('relpathText (os.path.relpath then path_text)', () {
+  group('relpathText: the relative path produced for each OS style', () {
     test('POSIX', () {
       String rel(String f, String r) => relpathText(f, r, windows: false);
       expect(rel('/r/work/a.txt', '/r'), 'work/a.txt');
@@ -310,7 +311,52 @@ void main() {
       expect(rel(r'C:\r\work/a.txt', r'C:\r'), 'work/a.txt');
       expect(rel(r'c:/R/Work/../Work/a.txt', r'C:\r'), 'Work/a.txt');
       expect(rel(r'C:/r', r'C:\r'), '.');
-      expect(() => rel(r'D:\x', r'C:\r'), throwsA(isA<StateError>()));
+      expect(rel(r'C:\o\x', r'C:\r'), '../o/x');
+    });
+
+    test('Windows: another drive is a StateError', () {
+      expect(
+        () => relpathText(r'D:\x', r'C:\r', windows: true),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('a lone surrogate (an escaped raw byte) survives', () {
+      expect(relpathText('/r/a\udcffb', '/r', windows: false), 'a\udcffb');
+      expect(
+        relpathText('C:${r'\r\a'}\udcffb', r'C:\r', windows: true),
+        'a\udcffb',
+      );
+    });
+  });
+
+  // A4, run on package:path 1.9 with the windows style (Dart 3.13):
+  //  - mixed case: relative('c:/R/Work/../Work/a.txt', from: r'C:\r') is
+  //    r'Work\a.txt': the roots and components match case-insensitively and
+  //    the remainder keeps the path's own case.
+  //  - another drive: relative(r'D:\x', from: r'C:\r') is r'D:\x', an
+  //    absolute path, never a '..' chain; callers refuse it by isAbsolute.
+  //  - lone surrogates: U+DCFF in a name passes through normalize, relative
+  //    and dirname unchanged.
+  group('A4: package:path in the windows style', () {
+    final win = p.Context(style: p.Style.windows, current: r'C:\r');
+    test('compares case-insensitively', () {
+      expect(
+        win.relative(r'c:/R/Work/../Work/a.txt', from: r'C:\r'),
+        r'Work\a.txt',
+      );
+      expect(win.relative(r'C:\R', from: r'c:\r'), '.');
+    });
+    test('another drive comes back absolute', () {
+      final rel = win.relative(r'D:\x', from: r'C:\r');
+      expect(rel, r'D:\x');
+      expect(win.isAbsolute(rel), isTrue);
+    });
+    test('lone surrogates pass through', () {
+      const lone = '\udcff';
+      expect(win.relative('C:\\r\\a${lone}b', from: r'C:\r'), 'a${lone}b');
+      expect(win.dirname('C:\\r\\a${lone}b\\c'), 'C:\\r\\a${lone}b');
+      expect(win.normalize('C:\\r\\.\\a${lone}b\\..\\c'), r'C:\r\c');
     });
   });
 }

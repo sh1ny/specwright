@@ -112,9 +112,9 @@ Refreshed against main `3fc5454` on 2026-11-10. Green rows name existing cases b
 
 ## 5. Paths
 
-- [ ] 5.1 Verify A4: run `path` in `windows` style on mixed case, another drive and lone surrogates. Verify by recording results in `cli/test/vcs/raw_path_test.dart` comments; a disproved assumption stops this group under the drift rule.
-- [ ] 5.2 Replace `PyPath` in `cli/lib/src/commit/task_cover.dart` and the relpath helpers in `cli/lib/src/vcs/walk.dart` with `path.Context` (D5), keeping the raw-path symlink call and the cross-drive error, and narrow the `relpathText` group to the relative path produced for each OS style. Verify with `mise exec -- dart test test/vcs/raw_path_test.dart` from `cli/`, with a cross-drive case.
-- [ ] 5.3 Carry C8 and C9: write the doc comments on `realpath` and `relpathText`. Verify by reading each at its destination.
+- [x] 5.1 Verify A4: run `path` in `windows` style on mixed case, another drive and lone surrogates. Verify by recording results in `cli/test/vcs/raw_path_test.dart` comments; a disproved assumption stops this group under the drift rule.
+- [x] 5.2 Replace `PyPath` in `cli/lib/src/commit/task_cover.dart` and the relpath helpers in `cli/lib/src/vcs/walk.dart` with `path.Context` (D5), keeping the raw-path symlink call and the cross-drive error, and narrow the `relpathText` group to the relative path produced for each OS style. Verify with `mise exec -- dart test test/vcs/raw_path_test.dart` from `cli/`, with a cross-drive case.
+- [x] 5.3 Carry C8 and C9: write the doc comments on `realpath` and `relpathText`. Verify by reading each at its destination.
 
 ## 6. Notice, integration and release
 

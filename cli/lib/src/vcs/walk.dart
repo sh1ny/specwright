@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'codec.dart';
 import 'tool_runner.dart';
 
@@ -168,52 +170,19 @@ String walkRoot(String repo, String path, {bool? windows}) {
   return ('', p);
 }
 
-(String, List<String>) _normalize(String path, bool windows) {
-  var drive = '';
-  var rest = path;
-  if (windows) {
-    (drive, rest) = _splitDrive(path.replaceAll('/', r'\'));
-    rest = rest;
-  }
-  final rooted = windows ? rest.startsWith(r'\') : rest.startsWith('/');
-  final parts = rest.split(windows ? r'\' : '/');
-  final out = <String>[];
-  for (final part in parts) {
-    if (part.isEmpty || part == '.') continue;
-    if (part == '..') {
-      if (out.isNotEmpty && out.last != '..') {
-        out.removeLast();
-      } else if (!rooted) {
-        out.add('..');
-      }
-    } else {
-      out.add(part);
-    }
-  }
-  return (drive, out);
-}
-
-/// `os.path.relpath(full, repo)` followed by `path_text` (`\` to `/`), ported
-/// lexically on the escaped strings: both paths are normalised (repeated
-/// separators and `.` and `..` components collapsed; on Windows `\` and `/` are
-/// both separators and case is ignored when comparing), the common leading
-/// components dropped, and `..` added for what is left of [repo]. A different
-/// Windows drive is a [StateError], as Python raises `ValueError`.
+/// The path [full] relative to [repo], both absolute, with `/` separators
+/// (on Windows both separators and any letter case match, as `path`'s windows
+/// style compares them).
+///
+/// A relative path across Windows drives stays an error and never becomes an
+/// accepted path: `path` returns the other drive's absolute path, and this
+/// throws a [StateError] instead of passing it on (C9).
 String relpathText(String full, String repo, {bool? windows}) {
   final win = windows ?? Platform.isWindows;
-  final (pathDrive, path) = _normalize(full, win);
-  final (startDrive, start) = _normalize(repo, win);
-  String key(String s) => win ? s.toLowerCase() : s;
-  if (win && key(pathDrive) != key(startDrive)) {
-    throw StateError(
-      "path is on mount '$pathDrive', start on mount '$startDrive'",
-    );
+  final ctx = p.Context(style: win ? p.Style.windows : p.Style.posix);
+  final rel = ctx.relative(full, from: repo);
+  if (ctx.isAbsolute(rel)) {
+    throw StateError("path $full is on another drive than $repo");
   }
-  var i = 0;
-  while (i < path.length && i < start.length && key(path[i]) == key(start[i])) {
-    i++;
-  }
-  final rel = [...List.filled(start.length - i, '..'), ...path.sublist(i)];
-  if (rel.isEmpty) return '.';
-  return rel.join(win ? r'\' : '/').replaceAll(r'\', '/');
+  return rel.replaceAll(r'\', '/');
 }
