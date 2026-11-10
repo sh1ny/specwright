@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 4 — amendment recheck after apply drift; not a new full review.
-- **Prior round:** Round 3 required-changes recheck accepted all ten changes, recording approval with changes applied. Those findings remain settled.
+- **Round:** 5 — amendment recheck after pre-ship review; not a new full review.
+- **Prior rounds:** Rounds 1–3 settled through the round 3 required-changes recheck. Round 4 approved with changes; its guard-test change was applied and remains settled.
 - **Reviewer:** Codex, fresh review context, read-only.
-- **Reviewed:** Review instruction and template; amendment diff against `aed04d6`; relevant proposal, design, specs and tasks; `branchPattern` and its comment; mapped undo tests and finish/GitButler parity comparisons; ADRs 0027 and 0033.
+- **Reviewed:** Review instruction and template; round 4 review; amendment diff against `648be0d`; relevant proposal, design, specs and tasks; option helper, snapshot/reply parsers and tests; `cli/pubspec.yaml`; ADRs 0027 and 0033.
 - **Validation:** Source inspection only; no tests executed. Installed project skills: none.
 
 ## Findings
@@ -16,40 +16,30 @@ None.
 
 ### Moderate
 
-**M1. The new scenario’s wrong-branch refusal is not covered by its test mapping or explicitly required by task 2.10.**
-
-The scenario promises that the printed undo runs on the planned branch and refuses on another, for jj and GitButler.
-
-The mapped Dart test, `the committed plan guards through vcs.sh and commits through it`, checks the GitButler script text (`cli/test/finish/undo_plan_test.dart:1299`). The mapped jj eval executes a successful undo (`evals/finish/test_undo_jj.py:106`). Neither executes the printed guard against a different branch.
-
-The existing `test_undo_plan_jj_wrong_branch` checks planning-time refusal with a dirty working copy, rather than execution-time refusal of an already printed script. The parity comparisons normalize the guard text; they do not establish that refusal behavior.
-
-Consequently, the mapped checks could pass without verifying the scenario’s negative outcome. Task 2.10 names the relevant test runs but does not require adding that assertion.
+None.
 
 ### Suggestions
 
 None.
 
-The remaining amendments are coherent:
+The amendments are coherent within the recheck scope:
 
-- C2, D7, the approval note, proposal exception, native-cli exception and task 3.2 consistently recognize C12 and C13.
-- C13 records the deliberate gap, reason, owner’s choice, retirement change and exactly one destination. The comment exists at `cli/lib/src/finish/undo_plan.dart:860`, immediately above `branchPattern`, and describes the implemented compact match.
-- Task 2.10 carries the compact match, destination comment and narrowly documented parity difference.
-- The new scenario has observable, assertable outcomes.
-- The shortened pr-script-runtime requirement preserves argument compatibility, parsed output, exit status, settings behavior, reviewer-config guarantees, GitButler pinning and policy checks. Its reference to native-cli retains the exceptions previously enumerated; its scenarios lose no obligation.
+- The Context amendment and task 3.4 include snapshot and reply. Keeping task-cover’s parser is consistent with the requirement’s explicit command scope.
+- Reply’s fixed-positionals handling preserves `react <id> -1`. The option-rule tests assert successful equals-form and dash-value handling, and exit 4 without GitHub calls for unknown, abbreviated or prematurely placed options.
+- The amended requirement explicitly permits reply’s usage code 4 while retaining exit 2 elsewhere. Its existing scenarios remain assertable. Reply’s separate missing-value test checks all three value-taking options exit 4 before GitHub calls; snapshot’s corresponding test checks exit 2. Both distinguish an absent value from an explicitly empty value.
+- C6 retains its constraint, kind and exactly one destination. The destination is real: the comment immediately above `dependencies` in `cli/pubspec.yaml` carries approval, hook, notice and preservation obligations, referencing ADR 0033. The accepted ADR is unchanged.
+- The release summary and added items agree with the amended usage codes and the already specified oversized task-group and feedback-trailer behavior.
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
+VERDICT: APPROVE
 
 ## Required Changes
 
-1. Extend task 2.10 and the scenario’s test-map rows to require execution-time checks of the printed branch guard for both jj and GitButler. Exercise compact state documents naming the planned branch and a different branch; assert success for the former and nonzero refusal before undo mutations for the latter. These may use controlled state responses without requiring real backend installations. Name the added or extended cases in the map.
+None.
 
-CHANGES_APPLIED: yes
-
-Applied (author, 2026-11-10): task 2.10 now requires execution-time guard tests; `cli/test/finish/undo_plan_test.dart` adds "the printed guard runs on the planned branch and refuses another" (GitButler) and "the printed jj guard runs on the planned branch and refuses another" (jj), which run the printed `case` line against compact state documents for `feat/x` and `feat/y`; both are mapped in the test map. Both fail against the old spaced guard and pass against the compact one.
+CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-None.
+None. Earlier settled findings remain closed.
