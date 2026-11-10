@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: PR snapshots and replies run in the project's sw
-`pr-snapshot.sh` and `pr-reply.sh` SHALL keep their paths, arguments and output contracts, and SHALL carry out every call by resolving the project's `sw` with the shared resolver and running `sw pr snapshot` and `sw pr reply`. Each SHALL accept one optional leading `--project <code-checkout>` that selects the project for resolution and nothing else. Without it, the project is found from the current directory, up to the first directory holding a `.git` entry, with no Git command. Their stdout, stderr and exit status SHALL be those of `sw`. No other implementation SHALL remain in either script.
+`pr-snapshot.sh` and `pr-reply.sh` SHALL keep their paths, arguments and output contracts, and SHALL run every call as `sw pr snapshot` or `sw pr reply` in the project's `sw`, found by the shared resolver. An optional leading `--project <code-checkout>` SHALL select only the project to resolve; without it, the project is the nearest directory holding a `.git` entry, cwd included, found with no Git command. Stdout, stderr and exit status SHALL be `sw`'s; no other implementation SHALL remain.
 
 #### Scenario: Snapshot with a matching sw
 - **WHEN** a matching `sw` is installed and `as.sh sh1ny bash pr-snapshot.sh 12 --repo o/r` runs against a PR with one unresolved thread
