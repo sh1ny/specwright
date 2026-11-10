@@ -138,6 +138,7 @@ The owner approved the round 3 refinements on 2026-11-10: caller-specific oversi
 - An option given without its value in `pr-snapshot.sh` or `pr-reply.sh` is now a usage error (exit 2 and 4) instead of exit 1 (#148).
 - An integer setting beyond 64 bits, such as a reviewer `timeout`, is now a `bad_setting` problem instead of being carried as an exact big number (#148).
 - JSON files `sw` reads are limited to 32 MiB (#148).
+- `sw commit task-cover` ignores a task group number beyond 64 bits, and a `Feedback-Round` trailer beyond 64 bits makes the workflow round count an unknown read instead of a rounded number (#148).
 
 ### Removed
 

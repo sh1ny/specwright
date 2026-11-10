@@ -165,7 +165,7 @@ The owner approved round 3 Required Changes on 2026-11-10 ("yes go ahead."): D1 
 - **C3:** Non-UTF-8 name bytes survive documents until `native-cli-launcher` replaces the escaping. Kind: deliberate gap. Destination: doc comment: cli/lib/src/vcs/document.dart documentBytes
 - **C4:** Fail-closed JSON depends on the callers' type checks; a new integer field must keep an `is int` check. Kind: invariant. Destination: doc comment: cli/lib/src/vcs/document.dart decodeJson
 - **C5:** A list read that cannot prove every page decides nothing. Kind: invariant. Destination: spec: specs/pr-script-runtime/spec.md → Requirement: Paginated GitHub lists read every page or decide nothing
-- **C6:** Focused packages need approval and no build hooks; workflow guarantees, not Python bytes, are what a port preserves. Kind: rejected alternative. Destination: ADR 0033
+- **C6:** Focused packages need approval and no build hooks; workflow guarantees, not Python bytes, are what a port preserves. Kind: rejected alternative. Destination: doc comment: cli/pubspec.yaml dependencies
 - **C7:** `sw vcs` treats words before `--` as an error, so a stray word never becomes a path to commit. Kind: invariant. Destination: doc comment: cli/lib/src/vcs/args.dart parseVcsArguments
 - **C8:** `task-cover` resolves symbolic links through the raw-path call, which `path` does not offer, so task evidence is read from the right checkout. Kind: invariant. Destination: doc comment: cli/lib/src/commit/task_cover.dart realpath
 - **C9:** A relative path across Windows drives stays an error and never becomes an accepted path. Kind: invariant. Destination: doc comment: cli/lib/src/vcs/walk.dart relpathText
