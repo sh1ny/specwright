@@ -1,3 +1,4 @@
+import '../options.dart';
 import '../vcs/document.dart';
 import 'context.dart';
 
@@ -39,30 +40,34 @@ class PairArgs {
   String? operator [](String name) => values[name];
 }
 
-/// `parse_args(argv, spec)`: [spec] maps a flag to its destination, and a destination starting with `+` collects every
-/// value. An unknown `--` word is a usage stop; a flag without a value too.
+/// `parse_args(argv, spec)` under the one option rule (`options.dart`): [spec] maps `--flag` to its destination, and a
+/// destination starting with `+` collects every value. An unknown, abbreviated or single-dash word is a usage stop; so is
+/// a flag without a value. The words that are not options are [PairArgs.positional].
 PairArgs parsePairArgs(List<String> argv, Map<String, String> spec) {
+  String name(String flag) => flag.substring(2);
+  final parsed = parseOptions(
+    argv,
+    values: [
+      for (final e in spec.entries)
+        if (!e.value.startsWith('+')) name(e.key),
+    ],
+    lists: [
+      for (final e in spec.entries)
+        if (e.value.startsWith('+')) name(e.key),
+    ],
+    usage: pairUsage,
+  );
   final a = PairArgs();
-  var i = 0;
-  while (i < argv.length) {
-    final t = argv[i];
-    final dest = spec[t];
-    if (dest != null) {
-      if (i + 1 >= argv.length) pairUsage('$t needs a value');
-      final v = argv[i + 1];
-      i += 2;
-      if (dest.startsWith('+')) {
-        (a.lists[dest.substring(1)] ??= []).add(v);
-      } else {
-        a.values[dest] = v;
-      }
-    } else if (t.startsWith('--')) {
-      pairUsage('unknown option $t');
+  for (final e in spec.entries) {
+    final option = name(e.key);
+    if (!parsed.wasParsed(option)) continue;
+    if (e.value.startsWith('+')) {
+      a.lists[e.value.substring(1)] = parsed.multiOption(option);
     } else {
-      a.positional.add(t);
-      i++;
+      a.values[e.value] = parsed.option(option)!;
     }
   }
+  a.positional.addAll(parsed.rest);
   return a;
 }
 

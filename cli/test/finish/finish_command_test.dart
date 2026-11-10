@@ -52,6 +52,17 @@ void main() {
     expect(seenRequest, isNull);
   }
 
+  /// A usage stop from the option rule: the stop type and exit status, not the parser's wording.
+  Future<void> expectUsageStop(List<String> finishArgv) async {
+    out.clear();
+    final code = await run([
+      '--args-stdin',
+    ], _records(['/s', '/b', ...finishArgv]));
+    expect(code, 2, reason: '$finishArgv');
+    expect(doc()['error'], 'usage', reason: '$finishArgv');
+    expect(seenRequest, isNull);
+  }
+
   group('sw finish --args-stdin', () {
     test(
       'a leading --dir is parsed and undo-archive-plan dispatches',
@@ -210,35 +221,21 @@ void main() {
     });
 
     test('an unknown option is a usage stop', () async {
-      await expectUsage([
-        'undo-archive-plan',
-        '--bogus',
-        'v',
-      ], 'unknown option --bogus');
+      await expectUsageStop(['undo-archive-plan', '--bogus', 'v']);
+      await expectUsageStop(['undo-archive-plan', '--chan', 'v']);
     });
 
     test('--dir after the subcommand is an unknown option', () async {
-      await expectUsage([
-        'undo-archive-plan',
-        '--dir',
-        'd',
-      ], 'unknown option --dir');
+      await expectUsageStop(['undo-archive-plan', '--dir', 'd']);
     });
 
     test('an option with no value is a usage stop', () async {
-      await expectUsage([
-        'undo-archive-plan',
-        '--change',
-      ], '--change needs a value');
+      await expectUsageStop(['undo-archive-plan', '--change']);
     });
 
     test('a bare word after the subcommand is a usage stop', () async {
-      await expectUsage([
-        'undo-archive-plan',
-        '--change',
-        'x',
-        'stray',
-      ], 'unexpected argument stray');
+      await expectUsageStop(['undo-archive-plan', '--change', 'x', 'stray']);
+      await expectUsageStop(['undo-archive-plan', '--change', 'x', '--', 'a']);
     });
 
     for (final argv in [

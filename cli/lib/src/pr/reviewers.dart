@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../commit/task_cover.dart' show pyStrip;
 import '../finish/undo_plan.dart' show prefixOf;
+import '../options.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
 import '../settings/yaml.dart' show pyDecimalValue, pyStr;
 import '../vcs/document.dart';
@@ -136,59 +137,24 @@ bool _given(String? v) => v != null && v.isNotEmpty;
 
 // ---------------------------------------------------------------- arguments
 
-const List<String> _options = ['config', 'material', 'head', 'check-config'];
-
-/// `argparse` with four options that each take one value: `--opt VALUE`, `--opt=VALUE`, and any unambiguous prefix of
-/// an option name. The last of a repeated option wins. Anything else is a usage error.
+/// The four options, each with one value, under the one option rule (`options.dart`): `--opt VALUE` or `--opt=VALUE`, no
+/// abbreviations, the last of a repeated option wins. Anything else is a usage error.
 Map<String, String> _parseArgs(List<String> args) {
-  final out = <String, String>{};
-  final extra = <String>[];
-  var i = 0;
-  while (i < args.length) {
-    final a = args[i];
-    i++;
-    if (!a.startsWith('--') || a.length == 2) {
-      extra.add(a);
-      continue;
-    }
-    final eq = a.indexOf('=');
-    final word = a.substring(2, eq < 0 ? a.length : eq);
-    final matches = _options.contains(word)
-        ? [word]
-        : [
-            for (final o in _options)
-              if (o.startsWith(word)) o,
-          ];
-    if (matches.isEmpty) {
-      extra.add(a);
-      continue;
-    }
-    if (matches.length > 1) {
-      throw _ConfigError(
-        'usage: ambiguous option: --$word could match ${matches.map((o) => '--$o').join(', ')}',
-      );
-    }
-    final option = matches.single;
-    if (eq >= 0) {
-      out[option] = a.substring(eq + 1);
-    } else if (i < args.length && !_looksLikeOption(args[i])) {
-      out[option] = args[i];
-      i++;
-    } else {
-      throw _ConfigError('usage: argument --$option: expected one argument');
-    }
+  final parsed = parseOptions(
+    args,
+    values: const ['config', 'material', 'head', 'check-config'],
+    usage: (message) => throw _ConfigError('usage: $message'),
+  );
+  if (parsed.rest.isNotEmpty) {
+    throw _ConfigError(
+      'usage: unrecognized arguments: ${parsed.rest.join(' ')}',
+    );
   }
-  if (extra.isNotEmpty) {
-    throw _ConfigError('usage: unrecognized arguments: ${extra.join(' ')}');
-  }
-  return out;
+  return {
+    for (final name in parsed.options)
+      if (parsed.wasParsed(name)) name: parsed.option(name)!,
+  };
 }
-
-bool _looksLikeOption(String a) =>
-    a.length > 1 &&
-    a.startsWith('-') &&
-    !RegExp(r'^-\d+$|^-\d*\.\d+$').hasMatch(a) &&
-    !a.contains(' ');
 
 // ------------------------------------------------------------------- config
 

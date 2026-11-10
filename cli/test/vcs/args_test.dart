@@ -186,20 +186,41 @@ void main() {
       );
     });
 
-    test('an unknown option names it', () {
-      final stop = _stopOf(() => parse(['--bogus']));
-      expect(
-        (stop.error, stop.message, stop.code),
-        ('usage', 'unknown option: --bogus', 2),
-      );
+    test('an unknown option is a usage stop', () {
+      for (final extra in [
+        ['--bogus'],
+        ['--bran', 'x'],
+        ['-x'],
+      ]) {
+        final stop = _stopOf(() => parse(extra));
+        expect((stop.error, stop.code), ('usage', 2), reason: '$extra');
+      }
     });
 
     test('a value-taking option at the end needs a value', () {
       final stop = _stopOf(() => parse(['--branch']));
-      expect(
-        (stop.error, stop.message, stop.code),
-        ('usage', '--branch requires a value', 2),
-      );
+      expect((stop.error, stop.code), ('usage', 2));
+    });
+
+    test('the equals form matches the two-word form', () {
+      final r = parseVcsArguments([
+        'state',
+        '--repo=${repo.path}',
+        '--role=code',
+        '--branch=--force',
+      ]);
+      expect((r.repo, r.role, r.branch), (repo.path, 'code', '--force'));
+    });
+
+    test('a word before -- is a usage stop', () {
+      for (final extra in [
+        ['stray', '--', 'a.txt'],
+        ['stray'],
+        ['--branch', 'b', 'stray', '--', 'a.txt'],
+      ]) {
+        final stop = _stopOf(() => parse(extra));
+        expect((stop.error, stop.code), ('usage', 2), reason: '$extra');
+      }
     });
 
     test('an unknown command is a usage stop', () {
@@ -220,7 +241,8 @@ void main() {
 
     test('option errors come before the unknown-command error', () {
       final stop = _stopOf(() => parseVcsArguments(['frobnicate', '--bogus']));
-      expect(stop.message, 'unknown option: --bogus');
+      expect((stop.error, stop.code), ('usage', 2));
+      expect(stop.message, isNot('unknown command: frobnicate'));
     });
 
     test('every known command is accepted', () {

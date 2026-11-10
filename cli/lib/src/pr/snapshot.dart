@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../process/limit_line.dart';
+import '../options.dart';
 import '../process/limits.dart';
 import '../vcs/codec.dart';
 import 'context.dart';
@@ -148,46 +149,64 @@ class _Snapshot {
     }
     py = python;
 
-    for (var i = 0; i < argv.length;) {
-      final arg = argv[i];
-      String? next() => i + 1 < argv.length ? argv[i + 1] : null;
-      if (arg == '--repo') {
-        repo = need(next(), 2, '--repo needs owner/name', 89);
-        i += 2;
-      } else if (arg == '--reviewer') {
+    // The one option rule (`options.dart`): `--opt VALUE` or `--opt=VALUE`, no abbreviations. A missing value or an unknown
+    // option is a usage stop, exit 2; an empty value still stops as bash's `${n:?}` did.
+    final parsed = parseOptions(
+      argv,
+      values: const [
+        'repo',
+        'reviewer',
+        'reviewer-config',
+        'full',
+        'timeout',
+        'until',
+        'interval',
+      ],
+      flags: const ['logs', 'wait'],
+      usage: (message) => stop('pr-snapshot: usage: $message', 2),
+    );
+    String? given(String name) =>
+        parsed.wasParsed(name) ? (parsed.option(name) ?? '') : null;
+    if (given('reviewer') != null) {
+      stop(
+        "pr-snapshot: '--reviewer' is gone; pass the reviewers as --reviewer-config FILE (pr-pair.sh context writes it)",
+        2,
+      );
+    }
+    if (given('repo') != null) {
+      repo = need(given('repo'), 2, '--repo needs owner/name', 89);
+    }
+    if (given('reviewer-config') != null) {
+      rcfg = need(
+        given('reviewer-config'),
+        2,
+        '--reviewer-config needs a file',
+        91,
+      );
+      rcfgSet = true;
+    }
+    if (given('full') != null) {
+      full = need(given('full'), 2, '--full needs a node id', 93);
+    }
+    if (given('timeout') != null) {
+      timeout = need(given('timeout'), 2, '--timeout needs seconds', 95);
+    }
+    if (given('until') != null) {
+      until = need(given('until'), 2, '--until needs a mode (attention)', 96);
+    }
+    if (given('interval') != null) {
+      interval = need(given('interval'), 2, '--interval needs seconds', 98);
+      if (!grepQuiet(RegExp(r'^[1-9][0-9]*$'), interval)) {
         stop(
-          "pr-snapshot: '--reviewer' is gone; pass the reviewers as --reviewer-config FILE (pr-pair.sh context writes it)",
+          "pr-snapshot: bad --interval '$interval' (want whole seconds > 0)",
           2,
         );
-      } else if (arg == '--reviewer-config') {
-        rcfg = need(next(), 2, '--reviewer-config needs a file', 91);
-        rcfgSet = true;
-        i += 2;
-      } else if (arg == '--logs') {
-        logs = true;
-        i++;
-      } else if (arg == '--full') {
-        full = need(next(), 2, '--full needs a node id', 93);
-        i += 2;
-      } else if (arg == '--wait') {
-        wait = true;
-        i++;
-      } else if (arg == '--timeout') {
-        timeout = need(next(), 2, '--timeout needs seconds', 95);
-        i += 2;
-      } else if (arg == '--until') {
-        until = need(next(), 2, '--until needs a mode (attention)', 96);
-        i += 2;
-      } else if (arg == '--interval') {
-        interval = need(next(), 2, '--interval needs seconds', 98);
-        if (!grepQuiet(RegExp(r'^[1-9][0-9]*$'), interval)) {
-          stop(
-            "pr-snapshot: bad --interval '${argv[i + 1]}' (want whole seconds > 0)",
-            2,
-          );
-        }
-        i += 2;
-      } else if (RegExp(r'^https://.*/pull/').hasMatch(arg)) {
+      }
+    }
+    logs = parsed.flag('logs');
+    wait = parsed.flag('wait');
+    for (final arg in parsed.rest) {
+      if (RegExp(r'^https://.*/pull/').hasMatch(arg)) {
         repo = arg.replaceFirstMapped(
           RegExp(r'https://[^/]+/([^/]+/[^/]+)/pull/.*'),
           (m) => m[1]!,
@@ -196,10 +215,8 @@ class _Snapshot {
           RegExp(r'.*/pull/([0-9]+).*'),
           (m) => m[1]!,
         );
-        i++;
       } else if (RegExp(r'^[0-9]').hasMatch(arg)) {
         pr = arg;
-        i++;
       } else {
         stop("pr-snapshot: unknown argument '$arg'", 2);
       }

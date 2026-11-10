@@ -32,6 +32,29 @@ void main() {
     ],
   };
 
+  group('the option rule', () {
+    test('an abbreviated option is a usage stop', () {
+      // a readable material: reading it would end in exit 0, so exit 2 shows it was not read
+      final mat = write('m.json', {
+        'viewer': 'me',
+        'number': 7,
+        'head_oid': 'a' * 40,
+        'checks': {'total': 0, 'failing': <String>[]},
+        'comments': <String>[],
+        'head_cutoff': '2026-01-01T00:00:00Z',
+        'cfg': {'since': '2026-01-01T00:00:00Z', 'now': 1767225600},
+        'checks_all': <String>[],
+        'material': <String, Object>{},
+        'sig_base': 'SIG',
+        'attn_base': 'ATTN',
+      });
+      final r = run(['--mat', mat, '--head', 'a' * 40]);
+      expect((r.code, r.out), (2, ''));
+      expect(r.err, startsWith('reviewers.py: usage'));
+      expect(run(['--material', mat, '--head', 'a' * 40]).code, 0);
+    });
+  });
+
   group('a name that is not UTF-8', () {
     test(
       'a config whose name is not UTF-8 is read through its bytes',

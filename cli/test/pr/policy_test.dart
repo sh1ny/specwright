@@ -858,6 +858,13 @@ void main() {
       expect(f.ghCalls, isEmpty, reason: 'no gh call for $argv');
     }
 
+    Future<void> usageStop(List<String> argv) async {
+      f.out.clear();
+      final r = await policy(argv);
+      expect((r.code, r.json['error']), (2, 'usage'), reason: '$argv');
+      expect(f.ghCalls, isEmpty, reason: 'no gh call for $argv');
+    }
+
     test('usage stops come before the first gh call', () async {
       final s = snapshotFile('code.json', snap());
       final c = 'code=${s.path}';
@@ -920,7 +927,8 @@ void main() {
         '--repo', 'o/n', '--head', head, '--snapshot', c, //
         '--reviewed-head', 'store=$head',
       ], '--snapshot store= and --reviewed-head store= need --store');
-      await usage(['--repo', 'o/n', '--bogus'], 'unknown option --bogus');
+      await usageStop(['--repo', 'o/n', '--bogus']);
+      await usageStop(['--repo', 'o/n', '--hea', 'x']);
     });
 
     test('an unreadable snapshot is exit 2 snapshot_unreadable', () async {

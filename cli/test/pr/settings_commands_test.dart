@@ -299,7 +299,7 @@ void main() {
       r = await context(['--code', code(), '--after-merge']);
       expect((r.code, r.json['message']), (2, '--after-merge needs --branch'));
       r = await context(['--code', code(), '--bogus', 'x']);
-      expect((r.code, r.json['message']), (2, 'unknown option --bogus'));
+      expect((r.code, r.json['error']), (2, 'usage'));
     });
 
     test(

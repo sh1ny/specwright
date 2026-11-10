@@ -13,13 +13,13 @@
 | native-cli → JSON input that is not plain JSON is refused | A JSON file over the size limit | cli/test/vcs/document_test.dart | a file over 32 MiB stops naming the file | green |
 | native-cli → JSON input that is not plain JSON is refused | An integer setting beyond 64 bits | cli/test/settings/rules_test.dart | an integer setting beyond 64 bits is bad_setting | green |
 | native-cli → JSON input that is not plain JSON is refused | Reviewer config for ordinary values | cli/test/settings/reviewer_config_test.dart | names the file by the SHA-256 of its bytes under <state>/reviewers | green |
-| native-cli → sw options follow one parsing rule | Equals form | cli/test/options_test.dart | equals form matches the two-word form | red |
-| native-cli → sw options follow one parsing rule | A value that looks like an option | cli/test/options_test.dart | the next word is the value | red |
-| native-cli → sw options follow one parsing rule | A repeated option holding a comma | cli/test/options_test.dart | repeated values keep their commas | red |
-| native-cli → sw options follow one parsing rule | Abbreviated option | cli/test/pr/reviewers_test.dart | an abbreviated option is a usage stop | red |
+| native-cli → sw options follow one parsing rule | Equals form | cli/test/options_test.dart | equals form matches the two-word form | green |
+| native-cli → sw options follow one parsing rule | A value that looks like an option | cli/test/options_test.dart | the next word is the value | green |
+| native-cli → sw options follow one parsing rule | A repeated option holding a comma | cli/test/options_test.dart | repeated values keep their commas | green |
+| native-cli → sw options follow one parsing rule | Abbreviated option | cli/test/pr/reviewers_test.dart | an abbreviated option is a usage stop | green |
 | native-cli → sw options follow one parsing rule | Missing value | cli/test/vcs/args_test.dart | a value-taking option at the end needs a value | green |
-| native-cli → sw options follow one parsing rule | Words that are not paths | cli/test/vcs/args_test.dart | a word before -- is a usage stop | red |
-| native-cli → sw options follow one parsing rule | Shipped callers use whole option names | evals/cli/test_option_callers.py | test_shipped_callers_use_whole_names | red |
+| native-cli → sw options follow one parsing rule | Words that are not paths | cli/test/vcs/args_test.dart | a word before -- is a usage stop | green |
+| native-cli → sw options follow one parsing rule | Shipped callers use whole option names | evals/cli/test_option_callers.py | test_shipped_callers_use_whole_names | green |
 | native-cli → The shipped dependencies stay hook-free and carry their notices | Current dependency set | cli/test/no_build_hooks_test.dart | the closure has no hooks and every package has a notice | red |
 | native-cli → The shipped dependencies stay hook-free and carry their notices | A hook package enters the lock file | cli/test/no_build_hooks_test.dart | reports a package whose pubspec has a top-level hooks key | green |
 | native-cli → The shipped dependencies stay hook-free and carry their notices | A dependency without a notice | cli/test/no_build_hooks_test.dart | a package with no notice is named | red |
@@ -97,11 +97,11 @@ Refreshed against main `3fc5454` on 2026-11-10. Green rows name existing cases b
 
 ## 3. Option parsing
 
-- [ ] 3.1 Verify A5: run `ArgParser` on a repeated single option, `--` as an option value and single-dash words. Verify by recording results in `cli/test/options_test.dart` comments; a disproved assumption stops this group under the drift rule.
-- [ ] 3.2 Write `evals/cli/test_option_callers.py`, which scans shipped skills, scripts and `sw`'s own launches for option words and for text matching on documents, including Dart consumers and only the documented C12 and C13 exceptions, and add it to `evals/suites.json`. Verify with `python -m unittest evals/cli/test_option_callers.py` and the map test.
-- [ ] 3.3 Write the failing tests for the red rows of "sw options follow one parsing rule". Verify each fails for the right reason.
-- [ ] 3.4 Add `cli/lib/src/options.dart` (D3) and replace `parsePairArgs`, `_parseArgs`, the loop in `parseVcsArguments` and `_parseOptions`. Verify the option rows turn green and usage tests in `cli/test/vcs/args_test.dart`, `cli/test/pr/*` and `cli/test/commit/task_cover_test.dart` assert the stop and exit status.
-- [ ] 3.5 Carry C7: write the doc comment on `parseVcsArguments`. Verify by reading it at its destination.
+- [x] 3.1 Verify A5: run `ArgParser` on a repeated single option, `--` as an option value and single-dash words. Verify by recording results in `cli/test/options_test.dart` comments; a disproved assumption stops this group under the drift rule.
+- [x] 3.2 Write `evals/cli/test_option_callers.py`, which scans shipped skills, scripts and `sw`'s own launches for option words and for text matching on documents, including Dart consumers and only the documented C12 and C13 exceptions, and add it to `evals/suites.json`. Verify with `python -m unittest evals/cli/test_option_callers.py` and the map test.
+- [x] 3.3 Write the failing tests for the red rows of "sw options follow one parsing rule". Verify each fails for the right reason.
+- [x] 3.4 Add `cli/lib/src/options.dart` (D3) and replace `parsePairArgs`, `_parseArgs`, the loop in `parseVcsArguments`, `_parseOptions` and the `sw pr snapshot` and `sw pr reply` parsers. Verify the option rows turn green and usage tests in `cli/test/vcs/args_test.dart`, `cli/test/pr/*` and `cli/test/commit/task_cover_test.dart` assert the stop and exit status.
+- [x] 3.5 Carry C7: write the doc comment on `parseVcsArguments`. Verify by reading it at its destination.
 
 ## 4. Paginated reads and the gh floor
 

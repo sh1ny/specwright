@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../options.dart';
 import '../vcs/codec.dart';
 import 'context.dart';
 import 'gh.dart';
@@ -27,6 +28,22 @@ Future<int> runReply(PrContext ctx, List<String> argv) async {
     removeFile(reply.tmp);
   }
 }
+
+/// How many positionals follow the kind.
+const Map<String, int> _arity = {
+  'thread': 3,
+  'comment': 2,
+  'react': 2,
+  'resolve': 1,
+};
+
+const Map<String, String> _usage = {
+  'thread': 'usage: pr-reply.sh <PR> thread <thread-id> <root-comment-id> <body-file> [--resolve] [--react +1|-1]',
+  'comment':
+      'usage: pr-reply.sh <PR> comment <source-id> <body-file> [--react +1|-1]',
+  'react': 'usage: pr-reply.sh <PR> react <comment-id> +1|-1',
+  'resolve': 'usage: pr-reply.sh <PR> resolve <thread-id>',
+};
 
 class _Reply {
   _Reply(this.ctx);
@@ -64,30 +81,39 @@ class _Reply {
       'thread|comment|resolve',
       50,
     );
-    final args = <String>[];
-    for (var i = 2; i < argv.length;) {
-      String? next() => i + 1 < argv.length ? argv[i + 1] : null;
-      switch (argv[i]) {
-        case '--repo':
-          repo = need(next(), 2, '--repo needs owner/name', 54);
-          i += 2;
-        case '--resolve':
-          resolve = true;
-          i++;
-        case '--react':
-          react = need(next(), 2, '--react needs +1 or -1', 56);
-          i += 2;
-        case '--waiting':
-          waiting = true;
-          i++;
-        case '--rev':
-          rev = need(next(), 2, '--rev needs the item rev', 58);
-          i += 2;
-        default:
-          args.add(argv[i]);
-          i++;
-      }
+    // The kind's fixed positionals come first, then the options under the one option rule (`options.dart`): a positional
+    // may be a single-dash word (`react <id> -1`), which the option parser refuses, so it never sees them. An option word
+    // among the positionals, or too few of them, is a usage stop.
+    final arity = _arity[kind];
+    if (arity == null) {
+      stop('pr-reply: kind must be thread, comment, react or resolve', 4);
     }
+    final tail = argv.sublist(2);
+    if (tail.length < arity ||
+        tail.take(arity).any((w) => w.startsWith('--'))) {
+      stop(_usage[kind]!, 4);
+    }
+    final args = tail.sublist(0, arity);
+    final parsed = parseOptions(
+      tail.sublist(arity),
+      values: const ['repo', 'react', 'rev'],
+      flags: const ['resolve', 'waiting'],
+      usage: (message) => stop("${_usage[kind]} ($message)", 4),
+    );
+    if (parsed.rest.isNotEmpty) stop(_usage[kind]!, 4);
+    String? given(String name) =>
+        parsed.wasParsed(name) ? (parsed.option(name) ?? '') : null;
+    if (given('repo') != null) {
+      repo = need(given('repo'), 2, '--repo needs owner/name', 54);
+    }
+    if (given('react') != null) {
+      react = need(given('react'), 2, '--react needs +1 or -1', 56);
+    }
+    if (given('rev') != null) {
+      rev = need(given('rev'), 2, '--rev needs the item rev', 58);
+    }
+    resolve = parsed.flag('resolve');
+    waiting = parsed.flag('waiting');
 
     // Every argument and body check runs before the first GitHub call, the repository lookup included.
     if (react.isNotEmpty && react != '+1' && react != '-1') {
@@ -98,34 +124,14 @@ class _Reply {
     }
     switch (kind) {
       case 'thread':
-        if (args.length != 3) {
-          stop(
-            'usage: pr-reply.sh <PR> thread <thread-id> <root-comment-id> <body-file> [--resolve] [--react +1|-1]',
-            4,
-          );
-        }
         await bodyCheck(args[2]);
       case 'comment':
-        if (args.length != 2) {
-          stop(
-            'usage: pr-reply.sh <PR> comment <source-id> <body-file> [--react +1|-1]',
-            4,
-          );
-        }
         await bodyCheck(args[1]);
       case 'react':
-        if (args.length != 2) {
-          stop('usage: pr-reply.sh <PR> react <comment-id> +1|-1', 4);
-        }
         if (args[1] != '+1' && args[1] != '-1') {
           stop('pr-reply: reaction must be +1 or -1', 4);
         }
       case 'resolve':
-        if (args.length != 1) {
-          stop('usage: pr-reply.sh <PR> resolve <thread-id>', 4);
-        }
-      default:
-        stop('pr-reply: kind must be thread, comment, react or resolve', 4);
     }
     if (repo.isEmpty) {
       final r = await ctx.gh([

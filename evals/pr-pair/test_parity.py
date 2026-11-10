@@ -247,10 +247,18 @@ class SnapshotParity(PrParity):
     def test_snapshot_refusals_exit_2_alike(self):
         for args in (["--reviewer", "a:b:3"], ["--bogus"], ["--until", "quiet"], ["--interval", "0"]):
             with self.subTest(args=args):
-                self.assertParity(self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, *args), 2)
+                # sw's option rule words the parser's own refusals (an unknown option) its own way: the stop and the exit
+                # status are compared, and every stderr line starts with the script's prefix
+                self.assertParity(self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, *args), 2, prefix="pr-snapshot: ")
 
-    def test_snapshot_full_without_a_node_id_exits_1_alike(self):
-        self.assertParity(self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, "--full"), 1)
+    def test_snapshot_full_without_a_node_id_is_a_usage_stop_in_sw(self):
+        """An asserted difference (native-cli-library-foundations): the script died on `${2:?}` with exit 1; sw's one option rule
+        stops an option with no value as a usage error, exit 2, before any gh call."""
+        new, old = self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, "--full")
+        self.assertEqual(old["code"], 1, old)
+        self.assertEqual(new["code"], 2, new)
+        self.assertEqual(new["stdout"], b"")
+        self.assertEqual(new["calls"], [])
 
     def test_snapshot_gh_failure(self):
         self.mutate(lambda st: st.update({"fail": [{"match": "graphql", "exit": 1, "stderr": "boom"}]}))
@@ -934,7 +942,7 @@ class ReviewersParity(unittest.TestCase):
       refuses the file (exit 1, empty stdout, one `reviewers.py: <material>: ` line); `refused=` below asserts it. A NaN
       clock (`cfg.now`) is refused by both, so it is no difference.
     - An abbreviated long option: argparse (the oracle) accepts a unique prefix, sw's one option rule will not
-      (a usage stop; asserted in cli/test/pr/reviewers_test.dart once the option parser lands)."""
+      (a usage stop, exit 2, nothing read; asserted by test_abbreviated_option_is_a_usage_stop_in_sw)."""
 
     PREFIX = "reviewers.py: "
 
@@ -1037,6 +1045,20 @@ class ReviewersParity(unittest.TestCase):
         mat = tr.material(items, checks_all=[tr.check("review", app="chk-bot"), tr.check("build")])
         cfg = lambda fmt: self.config_for(fmt, rev, sha, mark, chk)
         self.pair(cfg, mat, code=0)
+
+    def test_abbreviated_option_is_a_usage_stop_in_sw(self):
+        """The oracle reads `--mat` as `--material`; sw has no abbreviations: exit 2, one usage line, no document (the
+        material is readable, so reading it would have exited 0)."""
+        res = {}
+        for which in ("new", "old"):
+            mat = self.write("mat.json", tr.material({}), self.tmp / which)
+            res[which] = self.run_side(which, ["--mat", str(mat), "--head", tr.HEAD])
+        self.assertEqual(res["old"]["code"], 0, res["old"])
+        self.assertEqual(res["new"]["code"], 2, res["new"])
+        self.assertEqual(res["new"]["stdout"], b"")
+        lines = res["new"]["stderr"].decode("utf-8", "replace").splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(self.PREFIX + "usage"), lines)
 
     def test_states_waiting_timed_out_and_pending(self):
         rev, adv = self.rev(timeout=30), self.rev("adv-bot", role="advisory")

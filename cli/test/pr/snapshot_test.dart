@@ -123,7 +123,23 @@ void main() {
   group('arguments', () {
     test('an unknown argument exits 2 before any call', () async {
       expect(await snapshot(['--nope']), 2);
-      expect(f.stderr, "pr-snapshot: unknown argument '--nope'\n");
+      expect(f.stderr, startsWith('pr-snapshot: '));
+      expect(f.ghCalls, isEmpty);
+    });
+
+    test('the equals form matches the two-word form', () async {
+      expect(await snapshot(['--wait', '--until=quiet']), 2);
+      expect(f.stderr, contains("bad --until 'quiet'"));
+      f.err.clear();
+      expect(await snapshot(['--interval=0']), 2);
+      expect(f.stderr, contains("bad --interval '0'"));
+      expect(f.ghCalls, isEmpty);
+    });
+
+    test('an abbreviated option is a usage stop', () async {
+      expect(await snapshot(['--rep', 'o/n', '7']), 2);
+      expect(await snapshot(['--wai']), 2);
+      expect(await snapshot(['--interv', '5']), 2);
       expect(f.ghCalls, isEmpty);
     });
 
@@ -153,34 +169,26 @@ void main() {
       expect(f.ghCalls, isEmpty);
     });
 
-    test(
-      'an option with no value stops as bash does, naming the script line',
-      () async {
-        final lines = {
-          '--repo': (89, '--repo needs owner/name'),
-          '--reviewer-config': (91, '--reviewer-config needs a file'),
-          '--full': (93, '--full needs a node id'),
-          '--timeout': (95, '--timeout needs seconds'),
-          '--until': (96, '--until needs a mode (attention)'),
-          '--interval': (98, '--interval needs seconds'),
-        };
-        for (final e in lines.entries) {
-          f.err.clear();
-          expect(await snapshot([e.key]), 1, reason: e.key);
-          expect(
-            f.stderr,
-            'pr-snapshot.sh: line ${e.value.$1}: 2: ${e.value.$2}\n',
-          );
-          f.err.clear();
-          expect(
-            await snapshot([e.key, '']),
-            1,
-            reason: '${e.key} with an empty value',
-          );
-        }
-        expect(f.ghCalls, isEmpty);
-      },
-    );
+    test('an option with no value is a usage stop; an empty value stops as bash does', () async {
+      for (final key in [
+        '--repo',
+        '--reviewer-config',
+        '--full',
+        '--timeout',
+        '--until',
+        '--interval',
+      ]) {
+        f.err.clear();
+        expect(await snapshot([key]), 2, reason: key);
+        f.err.clear();
+        expect(
+          await snapshot([key, '']),
+          1,
+          reason: '$key with an empty value',
+        );
+      }
+      expect(f.ghCalls, isEmpty);
+    });
 
     test('a pull request URL gives the repository and the number', () async {
       expect(await snapshot(['https://github.com/Own/Nm/pull/12/files']), 0);

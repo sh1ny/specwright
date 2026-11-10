@@ -1,6 +1,7 @@
 import 'dart:io' as io;
 
 import '../finish/undo_plan.dart';
+import '../options.dart';
 import '../vcs/args.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
@@ -18,37 +19,36 @@ const String finishUsage =
     '--change <name> --archived-name <archived> --prefix <P> --main <main> '
     '[--branch <branch>] [--type <type>] [--code <code toplevel>]';
 
-const Map<String, String> _undoOptions = {
-  '--change': 'change',
-  '--archived-name': 'archived',
-  '--prefix': 'prefix',
-  '--main': 'main',
-  '--branch': 'branch',
-  '--type': 'type',
-  '--code': 'code',
-};
+const List<String> _undoOptions = [
+  'change',
+  'archived-name',
+  'prefix',
+  'main',
+  'branch',
+  'type',
+  'code',
+];
 
 VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
 
-/// `finish.sh`'s `parse_args`: each option takes the next argument as its
-/// value, whatever it looks like; the last one wins.
+/// `finish.sh`'s `parse_args` under the one option rule (`options.dart`): each
+/// option takes the next argument as its value, whatever it looks like; the
+/// last one wins; a word that is not an option is a usage stop. Keyed by the
+/// name `UndoRequest` knows, `archived-name` as `archived`.
 Map<String, String> _parseOptions(List<String> argv) {
-  final found = <String, String>{};
-  var i = 0;
-  while (i < argv.length) {
-    final token = argv[i];
-    final key = _undoOptions[token];
-    if (key != null) {
-      if (i + 1 >= argv.length) throw _usage('$token needs a value');
-      found[key] = argv[i + 1];
-      i += 2;
-    } else if (token.startsWith('--')) {
-      throw _usage('unknown option $token');
-    } else {
-      throw _usage('unexpected argument $token');
-    }
+  final parsed = parseOptions(
+    argv,
+    values: _undoOptions,
+    usage: (message) => throw _usage(message),
+  );
+  if (parsed.rest.isNotEmpty) {
+    throw _usage('unexpected argument ${parsed.rest.first}');
   }
-  return found;
+  return {
+    for (final name in _undoOptions)
+      if (parsed.wasParsed(name))
+        (name == 'archived-name' ? 'archived' : name): parsed.option(name)!,
+  };
 }
 
 /// `sw finish --args-stdin`: nothing else on [args]. Reads the handoff from
