@@ -183,7 +183,7 @@ Future<void> checkGhVersion(GhCall gh, Map<String, String> env) async {
   }
   throw FenceStop(
     'as.sh: ${_stripNewlines(first)} cannot look up a token per account '
-    '(gh auth token --user, gh 2.40+); upgrade gh',
+    '(gh auth token --user, gh 2.48+); upgrade gh',
   );
 }
 

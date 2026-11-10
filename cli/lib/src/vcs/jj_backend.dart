@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../commands/vcs.dart';
 import 'codec.dart';
+import 'document.dart';
 import 'git_backend.dart';
 import 'git_common.dart';
 import 'scripts.dart';
@@ -100,7 +101,7 @@ String jjPath(String path, {bool? windows}) =>
 List<String> _lines(String text) => const LineSplitter().convert(text);
 
 Map<String, Object?> _obj(String line) =>
-    jsonDecode(line) as Map<String, Object?>;
+    decodeJson(line) as Map<String, Object?>;
 
 bool _truthy(Object? v) => v != null && v != false && v != '' && v != 0;
 
@@ -117,7 +118,7 @@ Future<Map<String, Object?>> jjState(VcsSession s, [String? scope]) async {
   )).trim();
   final parentIds = parentText.isEmpty
       ? <String>[]
-      : [for (final p in parentText.split('\t')) jsonDecode(p) as String];
+      : [for (final p in parentText.split('\t')) decodeJson(p) as String];
   if (parentIds.length != 1) {
     throw VcsStop(
       'ambiguous_branch',

@@ -16,6 +16,13 @@ import 'pair.dart';
 
 PairStop _stopOf(SettingsStop e) => PairStop(e.error, e.message, code: e.code);
 
+/// D8: an integer setting past 64 bits stops the commands that act on it, `bad_setting` with exit 2.
+void _stopOnOversized(List<SettingProblem> problems) {
+  for (final p in problems) {
+    if (p is OversizedSetting) throw PairStop(p.error, p.text, code: 2);
+  }
+}
+
 /// Settings for native workflow callers, without context's reviewer-file output.
 Future<Contexts> workflowContexts(
   PrContext ctx,
@@ -26,13 +33,17 @@ Future<Contexts> workflowContexts(
     code: await _detectMain(ctx, code),
     ?store: await _detectMain(ctx, store),
   };
+  final problems = <SettingProblem>[];
   try {
-    return contexts(
+    final c = contexts(
       await _loadSettings(ctx, code),
       code,
       store,
       detectMain: (d) => mains[d] ?? 'main',
+      problems: problems,
     );
+    _stopOnOversized(problems);
+    return c;
   } on SettingsStop catch (e) {
     throw _stopOf(e);
   }
@@ -351,6 +362,7 @@ Future<int> runContext(
       checkMerge: only != 'repos',
       problems: problems,
     );
+    _stopOnOversized(problems);
   } on SettingsStop catch (e) {
     throw _stopOf(e);
   }

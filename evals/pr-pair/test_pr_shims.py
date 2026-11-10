@@ -121,7 +121,7 @@ class TestPairShim(ShimCase):
         return d
 
     def one_line(self, result):
-        lines = result.stdout.strip().splitlines()
+        lines = result.stdout.strip().split("\n")
         self.assertEqual(len(lines), 1, f"want one JSON line: {result.stdout!r} / {result.stderr!r}")
         return json.loads(lines[0])
 

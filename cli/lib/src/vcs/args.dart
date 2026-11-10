@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../options.dart';
 import 'codec.dart';
 import 'stop.dart';
 
@@ -91,21 +92,21 @@ class VcsRequest {
   final List<String> paths;
 }
 
-const _valueOptions = {
-  '--repo',
-  '--role',
-  '--code',
-  '--branch',
-  '--message-file',
-  '--scope',
-  '--operation',
-  '--login',
-  '--main',
-  '--prefix',
-  '--merged-commit',
-};
+const _valueOptions = [
+  'repo',
+  'role',
+  'code',
+  'branch',
+  'message-file',
+  'scope',
+  'operation',
+  'login',
+  'main',
+  'prefix',
+  'merged-commit',
+];
 
-const _flagOptions = {'--force', '--no-tags', '--quiet', '--remote-branch'};
+const _flagOptions = ['force', 'no-tags', 'quiet', 'remote-branch'];
 
 const knownCommands = {
   'probe',
@@ -133,34 +134,40 @@ VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
 /// stop), then the command name, `--repo` and `--role`, then `--code`
 /// (required for `store`, defaulting to `--repo` for `code`), then that both
 /// name existing directories (`not_repository`, exit 1).
+///
+/// Options follow the one rule of `options.dart`: `--name value` or
+/// `--name=value`, the next word is the value whatever it looks like, and no
+/// abbreviations.
+///
+/// Constraint C7: `sw vcs` treats words before `--` as an error, so a stray
+/// word never becomes a path to commit. Paths are accepted only as the tail of
+/// the arguments that follows a `--` token; any other word that is not an
+/// option or an option's value is a usage stop (exit 2) and nothing is
+/// committed.
 VcsRequest parseVcsArguments(List<String> argv) {
   if (argv.isEmpty) throw _usage('missing command');
   final command = argv.first;
   final args = argv.sublist(1);
-  final opts = <String, String>{};
-  final flags = <String>{};
-  final paths = <String>[];
-  var after = false;
-  var i = 0;
-  while (i < args.length) {
-    final value = args[i];
-    if (after) {
-      paths.add(value);
-      i++;
-    } else if (value == '--') {
-      after = true;
-      i++;
-    } else if (_valueOptions.contains(value)) {
-      if (i + 1 >= args.length) throw _usage('$value requires a value');
-      opts[value] = args[i + 1];
-      i += 2;
-    } else if (_flagOptions.contains(value)) {
-      flags.add(value);
-      i++;
-    } else {
-      throw _usage('unknown option: $value');
-    }
+  final parsed = parseOptions(
+    args,
+    values: _valueOptions,
+    flags: _flagOptions,
+    usage: (message) => throw _usage(message),
+  );
+  // `rest` is the words that are not options with the first separating `--` dropped: it is paths only when it is the tail
+  // of `args` that directly follows that `--`, and that `--` is not the value of the option before it.
+  final paths = parsed.rest;
+  if (paths.isNotEmpty && args.length - paths.length != _separator(args) + 1) {
+    throw _usage('unexpected argument: ${paths.first}');
   }
+  final opts = {
+    for (final name in _valueOptions)
+      if (parsed.wasParsed(name)) '--$name': parsed.option(name)!,
+  };
+  final flags = {
+    for (final name in _flagOptions)
+      if (parsed.flag(name)) '--$name',
+  };
   if (!knownCommands.contains(command)) {
     throw _usage('unknown command: $command');
   }
@@ -199,6 +206,19 @@ VcsRequest parseVcsArguments(List<String> argv) {
     remoteBranch: flags.contains('--remote-branch'),
     paths: paths,
   );
+}
+
+/// The index of the `--` that ends the options in [args], skipping the word after each value-taking option written
+/// without `=`, since that word is its value; -1 when there is none.
+int _separator(List<String> args) {
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == '--') return i;
+    if (args[i].startsWith('--') &&
+        _valueOptions.contains(args[i].substring(2))) {
+      i++;
+    }
+  }
+  return -1;
 }
 
 bool _isDirectory(String path) {

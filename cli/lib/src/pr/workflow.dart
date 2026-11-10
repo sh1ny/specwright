@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../vcs/codec.dart';
+import '../vcs/document.dart';
 import 'context.dart';
 import 'gh.dart';
 import 'pair.dart';
@@ -315,51 +316,29 @@ class Workflow {
     final r = await gh(['api', endpoint]);
     if (r.exitCode != 0) workflowUnknown(reason(r));
     try {
-      return jsonDecode(decodeReplacing(r.stdout));
+      return decodeJson(decodeReplacing(r.stdout));
     } on FormatException catch (e) {
       workflowUnknown('unreadable response: $e');
     }
   }
 
   Future<List<dynamic>> list(String endpoint) async {
-    final r = await gh(['api', '--paginate', endpoint]);
-    if (r.exitCode != 0) workflowUnknown(reason(r));
-    final text = decodeReplacing(r.stdout);
-    final items = <dynamic>[];
-    var start = 0, depth = 0;
-    var quoted = false, escaped = false, pages = 0;
+    final r = await gh(['api', '--paginate', '--slurp', endpoint]);
+    if (r.exitCode != 0) {
+      final why = reason(r);
+      workflowUnknown(
+        why.contains('slurp') ? '$why (--slurp needs gh 2.48 or later)' : why,
+      );
+    }
     try {
-      for (var i = 0; i < text.length; i++) {
-        final c = text[i];
-        if (quoted) {
-          if (escaped) {
-            escaped = false;
-          } else if (c == r'\') {
-            escaped = true;
-          } else if (c == '"') {
-            quoted = false;
-          }
-        } else if (c == '"') {
-          quoted = true;
-        } else if (c == '[' || c == '{') {
-          if (depth++ == 0) start = i;
-        } else if (c == ']' || c == '}') {
-          if (--depth == 0) {
-            final page = jsonDecode(text.substring(start, i + 1));
-            if (page is! List) workflowUnknown('unexpected response shape');
-            items.addAll(page);
-            pages++;
-          }
-        } else if (depth == 0 && c.trim().isNotEmpty) {
-          workflowUnknown('unreadable response');
-        }
+      final pages = decodeJson(decodeReplacing(r.stdout));
+      if (pages is! List || pages.any((p) => p is! List)) {
+        workflowUnknown('unexpected response shape');
       }
-      if (depth != 0 || quoted) workflowUnknown('unreadable response');
-      if (pages == 0) workflowUnknown('empty response');
+      return [for (final page in pages) ...(page as List)];
     } on FormatException catch (e) {
       workflowUnknown('unreadable response: $e');
     }
-    return items;
   }
 
   Map<String, dynamic> normalize(Map<dynamic, dynamic> p) => {
@@ -449,7 +428,7 @@ class Workflow {
     ], repo: repo);
     if (r.exitCode != 0) workflowUnknown(reason(r));
     try {
-      final data = jsonDecode(decodeReplacing(r.stdout));
+      final data = decodeJson(decodeReplacing(r.stdout));
       if (data is! Map<dynamic, dynamic> || data['errors'] != null) {
         workflowUnknown(
           'GraphQL errors: ${data is Map<dynamic, dynamic> ? data['errors'] : data}',
@@ -638,7 +617,7 @@ class Workflow {
 
   String replyMessage(GhResult r) {
     try {
-      final d = jsonDecode(decodeReplacing(r.stdout));
+      final d = decodeJson(decodeReplacing(r.stdout));
       if (d is Map<dynamic, dynamic> &&
           d['message'] is String &&
           (d['message'] as String).isNotEmpty) {
@@ -745,7 +724,7 @@ class Workflow {
     }
     Object? sha;
     try {
-      sha = (jsonDecode(
+      sha = (decodeJson(
         decodeReplacing(r.stdout),
       ) as Map<dynamic, dynamic>)['object']['sha'];
     } on Object {
@@ -796,7 +775,7 @@ class Workflow {
     for (final raw in decodeReplacing(r.stdout).split('\n')) {
       if (raw.trim().isEmpty) continue;
       try {
-        final issue = jsonDecode(raw) as Map<dynamic, dynamic>;
+        final issue = decodeJson(raw) as Map<dynamic, dynamic>;
         final number = issue['number'] as int;
         final body = (issue['body'] ?? '') as String;
         for (final text in body.split('\n')) {
@@ -1542,15 +1521,15 @@ class Workflow {
     final store = a['store'] == null ? null : await ctx.native(a['store']!);
     final c = await workflowContexts(ctx, code, store);
     final per = <String, Object?>{};
-    final trailers = <String, Map<String, BigInt>>{};
-    var top = BigInt.zero;
+    final trailers = <String, Map<String, int>>{};
+    var top = 0;
     var legacy = 0;
     for (final entry in {'code': code, 'store': ?store}.entries) {
       final main = entry.key == 'code' ? c.code.main : c.store!.main;
       final mref = await mainRef(entry.value, main);
       var count = 0;
-      var maxTrailer = BigInt.zero;
-      final bySha = <String, BigInt>{};
+      var maxTrailer = 0;
+      final bySha = <String, int>{};
       if (mref != null &&
           await hasRef(entry.value, 'refs/heads/${a['branch']}')) {
         final r = await ctx.git(entry.value, [
@@ -1565,7 +1544,7 @@ class Workflow {
                 .replaceAll(RegExp(r'^\n+|\n+$'), '')
                 .split('\x1f');
             if (parts.length < 3) continue;
-            var number = BigInt.zero;
+            var number = 0;
             if (RegExp(
               'address review feedback',
               caseSensitive: false,
@@ -1576,7 +1555,11 @@ class Workflow {
               r'^Feedback-Round:[ \t]*(\d+)[ \t]*$',
               multiLine: true,
             ).allMatches(parts[2])) {
-              final n = BigInt.parse(m[1]!);
+              // D8: a trailer beyond 64 bits cannot be held, so the round count is not known
+              final n = int.tryParse(m[1]!);
+              if (n == null) {
+                workflowUnknown('Feedback-Round ${m[1]} is beyond 64 bits');
+              }
               if (n > maxTrailer) maxTrailer = n;
               if (n > number) number = n;
             }
@@ -1589,9 +1572,9 @@ class Workflow {
       per[entry.key] = {'max_trailer': maxTrailer, 'subject_count': count};
       trailers[entry.key] = bySha;
     }
-    final rounds = top > BigInt.zero ? top : BigInt.from(legacy);
+    final rounds = top > 0 ? top : legacy;
     final unpushed = <String, List<String>>{}, unreadable = <String>[];
-    if (top > BigInt.zero) {
+    if (top > 0) {
       if (store != null && trailers['store']!.values.contains(top)) {
         final slug = await fetchRepo(store);
         final s = c.store!.login;
@@ -1629,7 +1612,7 @@ class Workflow {
       'code': per['code'],
       'store': per['store'],
       'max_fix_rounds': c.maxFixRounds,
-      'limit_reached': rounds >= BigInt.parse(c.maxFixRounds.toString()),
+      'limit_reached': rounds >= c.maxFixRounds,
       'after_limit': c.afterLimit,
       'unpushed': unpushed,
       'remote_unreadable': unreadable,
@@ -1710,7 +1693,7 @@ class Workflow {
       ]);
       if (r.exitCode != 0) throw PairStop('link_failed', reason(r));
       try {
-        cid ??= (jsonDecode(
+        cid ??= (decodeJson(
           decodeReplacing(r.stdout),
         ) as Map<dynamic, dynamic>)['id'];
       } on FormatException {
@@ -1730,12 +1713,7 @@ class Workflow {
 Future<int> runWorkflow(PrContext ctx, String command, List<String> argv) =>
     runPairCommand(ctx, () => Workflow(ctx).run(command, argv));
 
-/// C7: workflow inputs, feedback records and derived rows keep their existing
-/// whole-file, uncapped behavior. A new size policy belongs to a separate
-/// change; this reader must not truncate or treat an unreadable input as absent.
-Future<Object?> readWorkflowJson(String path) async => jsonDecode(
-  await (Platform.isWindows
-          ? File(path)
-          : File.fromRawPath(encodeEscaped(path)))
-      .readAsString(encoding: utf8),
-);
+/// A workflow input file (a snapshot): the wrapper's strict, 32 MiB-bounded read of the raw path. A file that cannot be
+/// read, that is over the bound or that is not JSON throws a `JsonInputException` naming the path, which the caller
+/// maps to its own stop.
+Future<Object?> readWorkflowJson(String path) async => readJsonFile(path);

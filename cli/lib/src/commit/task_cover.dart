@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
+
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
@@ -62,10 +64,10 @@ Future<int> taskCover(
   }
   List<int> bytes;
   try {
-    bytes = documentBytes(doc, escapeLineSeparators: false);
+    bytes = documentBytes(doc);
   } on Object catch (e) {
     code = 1;
-    bytes = documentBytes(_internalError(e), escapeLineSeparators: false);
+    bytes = documentBytes(_internalError(e));
   }
   ctx.writeOut(bytes);
   return code;
@@ -152,7 +154,6 @@ Future<Map<String, Object?>> _cover(
   Future<Uint8List> hard(String dir, List<String> a) async =>
       (await call(dir, a, soft: false))!;
 
-  final py = PyPath();
   Uint8List rawTasks;
   String? relDir;
   if (rev != null && rev.isNotEmpty) {
@@ -163,10 +164,8 @@ Future<Map<String, Object?>> _cover(
     // symlink would let the checkout pick which committed file is read. Only
     // the repo's own location may be resolved (macOS /var -> /private/var).
     String? tasksRel;
-    for (final base in [py.abspath(repo), py.abspath(top), py.realpath(repo)]) {
-      final r = py
-          .relpath(py.abspath(tasksPath), base)
-          ?.replaceAll(py.sep, '/');
+    for (final base in [_abspath(repo), _abspath(top), realpath(repo)]) {
+      final r = _relpath(tasksPath, base);
       if (r == null) continue;
       if (r != '.' && r != '..' && !r.startsWith('../')) {
         tasksRel = r;
@@ -272,21 +271,24 @@ Future<Map<String, Object?>> _cover(
     final trailers = cutField(tok[i + 2]);
     final userTrailers = cutField(tok[i + 3]);
     final forms = <String, String>{};
-    BigInt? grp;
+    // D8: a group number beyond 64 bits is ignored, as no task can carry it
+    int? grp;
     final m = subjTask.firstMatch(subject);
     if (m != null) {
       forms[m.group(1)!] = 'subject';
-      grp = BigInt.parse(m.group(1)!.split('.').first);
+      grp = int.tryParse(m.group(1)!.split('.').first);
     } else {
       final g = subjGroup.firstMatch(subject);
-      if (g != null) grp = BigInt.parse(g.group(1)!);
+      if (g != null) grp = int.tryParse(g.group(1)!);
     }
     if (trailers.isNotEmpty) {
       for (final part in trailers.split('\u001f')) {
         final v = pyStrip(part);
         if (!taskId.hasMatch(v)) continue;
+        final trailerGroup = int.tryParse(v.split('.').first);
+        if (trailerGroup == null) continue;
         forms.putIfAbsent(v, () => 'trailer');
-        if (grp != null && BigInt.parse(v.split('.').first) != grp) {
+        if (grp != null && trailerGroup != grp) {
           cross.add({'sha': sha, 'task': v, 'group': grp});
         }
       }
@@ -305,7 +307,7 @@ Future<Map<String, Object?>> _cover(
     }
   }
 
-  final groupIds = <BigInt>{
+  final groupIds = <int>{
     for (final t in tasks) t.group,
     ...parsed.headings.keys,
   }.toList()..sort();
@@ -350,7 +352,7 @@ Future<Map<String, Object?>> _cover(
       evidenceMissing.add(t.id);
     }
   }
-  final taskGroups = <BigInt>{for (final t in tasks) t.group}.toList()..sort();
+  final taskGroups = <int>{for (final t in tasks) t.group}.toList()..sort();
   return {
     'ok': true,
     'change': change,
@@ -477,8 +479,7 @@ Future<bool> evidenceOk(
   // The index of the repo holding tasks.md (the planning repo, whatever --repo
   // names), never the working tree: no path is opened, so no symlink, UNC or
   // drive path, or swap during the check can make another file count.
-  final py = PyPath();
-  final changeDir = py.dirname(py.abspath(tasksPath));
+  final changeDir = _paths.dirname(_abspath(tasksPath));
   final entry = await call(changeDir, [
     'ls-files',
     '-s',
@@ -595,7 +596,7 @@ class TaskItem {
   TaskItem(this.id, this.group, this.kind, this.ticked);
 
   final String id;
-  final BigInt group;
+  final int group;
   final String kind;
   final bool ticked;
   final List<Map<String, String>> commits = [];
@@ -613,7 +614,7 @@ class TaskItem {
 /// group, each task's text after its id, and the ids on more than one line.
 class ParsedTasks {
   final List<TaskItem> tasks = [];
-  final Map<BigInt, String> headings = {};
+  final Map<int, String> headings = {};
   final Map<String, String> texts = {};
   final List<String> repeated = [];
 }
@@ -624,29 +625,28 @@ class ParsedTasks {
 /// --count decoded strictly. A simpler Dart default changes which tasks and
 /// user checks are found.
 ///
-/// The one difference from the script: ids are ASCII digits only
+/// The differences from the script: a group number beyond 64 bits (a task or a
+/// heading) is ignored (D8), and ids are ASCII digits only
 /// (`[0-9]`, not Python's `\d`), so `\u0661.\u0661` is not a task.
 ParsedTasks parseTasks(String text) {
   final out = ParsedTasks();
   for (final line in pySplitLines(text)) {
     final h = _heading.firstMatch(line);
     if (h != null) {
-      out.headings.putIfAbsent(BigInt.parse(h.group(1)!), () => h.group(2)!);
+      final number = int.tryParse(h.group(1)!);
+      if (number != null) out.headings.putIfAbsent(number, () => h.group(2)!);
       continue;
     }
     final m = _task.firstMatch(line);
     if (m == null) continue;
+    final group = int.tryParse(m.group(2)!);
+    if (group == null) continue; // beyond 64 bits: not a task
     final id = '${m.group(2)}.${m.group(3)}';
     final rest = m.group(4)!;
     final mk = _marker.firstMatch(rest);
     out.texts[id] = rest;
     out.tasks.add(
-      TaskItem(
-        id,
-        BigInt.parse(m.group(2)!),
-        mk?.group(1) ?? 'agent',
-        _boxDone(m.group(1)!),
-      ),
+      TaskItem(id, group, mk?.group(1) ?? 'agent', _boxDone(m.group(1)!)),
     );
   }
   final seen = <String>{};
@@ -739,133 +739,31 @@ String cutField(String s) {
 }
 
 // ---------------------------------------------------------------------------
-// os.path as Python gives it, for the few calls task-cover makes.
+// Paths: package:path for the lexical work, the raw-path call for links.
 
-/// `os.path.abspath`, `relpath`, `realpath` and `dirname`, for the host OS
-/// (or [windows]) with [cwdOverride] (default: the process's cwd).
-class PyPath {
-  PyPath({bool? windows, this.cwdOverride})
-    : windows = windows ?? Platform.isWindows;
+/// The host's path context, for `absolute`, `relative` and `dirname`.
+final _paths = p.context;
 
-  final bool windows;
-  final String? cwdOverride;
+/// The absolute, normalised form of [path] against the working directory.
+String _abspath(String path) => _paths.normalize(_paths.absolute(path));
 
-  String get sep => windows ? r'\' : '/';
-  String get cwd => cwdOverride ?? Directory.current.path;
+/// [path] relative to [start] with `/` separators, or null across Windows
+/// drives, where `path` hands back the other drive's absolute path.
+String? _relpath(String path, String start) {
+  final rel = _paths.relative(_abspath(path), from: _abspath(start));
+  return _paths.isAbsolute(rel) ? null : rel.replaceAll(_paths.separator, '/');
+}
 
-  /// The drive (a letter and colon, or `\\server\share`) and the rest. On
-  /// POSIX the drive is empty.
-  (String, String) splitDrive(String p) {
-    if (!windows) return ('', p);
-    final n = p.replaceAll('/', r'\');
-    if (n.startsWith(r'\\') && !n.startsWith(r'\\\')) {
-      final i = n.indexOf(r'\', 2);
-      if (i == -1) return ('', n);
-      var j = n.indexOf(r'\', i + 1);
-      if (j == -1) j = n.length;
-      if (j == i + 1) return ('', n);
-      return (n.substring(0, j), n.substring(j));
-    }
-    if (n.length >= 2 && n[1] == ':') {
-      return (n.substring(0, 2), n.substring(2));
-    }
-    return ('', n);
-  }
-
-  String normpath(String p) {
-    final (drive, rest0) = splitDrive(windows ? p.replaceAll('/', r'\') : p);
-    var rest = rest0;
-    var root = '';
-    if (rest.startsWith(sep)) {
-      var k = 0;
-      while (k < rest.length && rest[k] == sep) {
-        k++;
-      }
-      root = !windows && k == 2 ? '//' : sep;
-      rest = rest.substring(k);
-    }
-    final stack = <String>[];
-    for (final c in rest.split(sep)) {
-      if (c.isEmpty || c == '.') continue;
-      if (c == '..') {
-        if (stack.isNotEmpty && stack.last != '..') {
-          stack.removeLast();
-        } else if (root.isEmpty) {
-          stack.add('..');
-        }
-      } else {
-        stack.add(c);
-      }
-    }
-    final r = drive + root + stack.join(sep);
-    return r.isEmpty ? '.' : r;
-  }
-
-  String abspath(String p) {
-    var s = windows ? p.replaceAll('/', r'\') : p;
-    if (windows) {
-      final (drive, rest) = splitDrive(s);
-      final (cwdDrive, _) = splitDrive(cwd);
-      if (rest.startsWith(sep)) {
-        if (drive.isEmpty) s = cwdDrive + s;
-      } else if (drive.isEmpty ||
-          drive.toLowerCase() == cwdDrive.toLowerCase()) {
-        s = '$cwd$sep$rest';
-      } else {
-        s = '$drive$sep$rest';
-      }
-    } else if (!s.startsWith('/')) {
-      s = '$cwd/$s';
-    }
-    return normpath(s);
-  }
-
-  String _normcase(String s) => windows ? s.toLowerCase() : s;
-
-  /// `os.path.relpath(path, start)`; null where Python raises `ValueError`
-  /// (Windows: another drive).
-  String? relpath(String path, String start) {
-    final (startDrive, startRest) = splitDrive(abspath(start));
-    final (pathDrive, pathRest) = splitDrive(abspath(path));
-    if (_normcase(startDrive) != _normcase(pathDrive)) return null;
-    final startList = startRest.split(sep).where((x) => x.isNotEmpty).toList();
-    final pathList = pathRest.split(sep).where((x) => x.isNotEmpty).toList();
-    var i = 0;
-    while (i < startList.length &&
-        i < pathList.length &&
-        _normcase(startList[i]) == _normcase(pathList[i])) {
-      i++;
-    }
-    final rel = [
-      for (var k = 0; k < startList.length - i; k++) '..',
-      ...pathList.sublist(i),
-    ];
-    return rel.isEmpty ? '.' : rel.join(sep);
-  }
-
-  /// `os.path.realpath`: symbolic links resolved when the path exists, else
-  /// [abspath].
-  String realpath(String p) {
-    final a = abspath(p);
-    try {
-      return Directory.fromRawPath(encodeEscaped(a)).resolveSymbolicLinksSync();
-    } on Object {
-      return a;
-    }
-  }
-
-  /// `os.path.dirname` of a normalised absolute path.
-  String dirname(String p) {
-    final (drive, rest) = splitDrive(p);
-    final i = rest.lastIndexOf(sep);
-    var head = rest.substring(0, i + 1);
-    if (head.isNotEmpty && head.split('').any((c) => c != sep)) {
-      var n = head.length;
-      while (n > 0 && head[n - 1] == sep) {
-        n--;
-      }
-      head = head.substring(0, n);
-    }
-    return drive + head;
+/// [path] with symbolic links resolved when it exists, else [_abspath].
+///
+/// `task-cover` resolves symbolic links through the raw-path call, which
+/// `path` does not offer, so task evidence is read from the right checkout
+/// (C8).
+String realpath(String path) {
+  final a = _abspath(path);
+  try {
+    return Directory.fromRawPath(encodeEscaped(a)).resolveSymbolicLinksSync();
+  } on Object {
+    return a;
   }
 }

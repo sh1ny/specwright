@@ -11,11 +11,12 @@ This change serves M8, Complete the native CLI migration (#148). It advances the
 - `crypto` replaces the hand-written SHA-256 in `settings/reviewer_config.dart`. Reviewer-config bytes and digests stay as they are.
 - `dart:convert` behind a small wrapper replaces `settings/pyjson.dart` and most of `vcs/document.dart`. Documents become compact JSON ending in one LF on every OS, with U+2028 and U+2029 left raw. **BREAKING** for anyone comparing `sw` stdout as text; parsed fields do not change.
 - JSON input that Python accepted but JSON does not allow (`NaN`, `Infinity`, `-Infinity`) is refused with the existing unreadable-input stops. A JSON file over 32 MiB gets the same stop; direct file reads had no size limit before, and this replaces the 2,000-level nesting limit as their protection.
-- **BREAKING:** an integer setting beyond 64 bits stops as a `bad_setting` problem, because `JsonEncoder` cannot write one. A `task-cover` group number beyond 64 bits is not a task.
+- **BREAKING:** an integer setting beyond 64 bits yields a `bad_setting` problem and a default in the rules layer: context and workflow callers stop with exit 2; policy main stops and policy head lists the invalid key while using the default, because `JsonEncoder` cannot write one. A `task-cover` group number beyond 64 bits is not a task.
 - The existing `args` dependency replaces `parsePairArgs` (`pr/pair.dart`), `_parseArgs` (`pr/reviewers.dart`), `parseVcsArguments`'s loop (`vcs/args.dart`) and `_parseOptions` (`commands/finish.dart`). `--opt=value` becomes accepted everywhere. Python-style option prefixes (`--mat`) are refused. `interface` stays 1.
 - `gh api --paginate --slurp` replaces the page scanner in `pr/workflow.dart` `list`. **BREAKING:** the `gh` floor rises from 2.40 to 2.48, in the install check, the prerequisite text and the fence message.
 - `path` replaces `PyPath` in `commit/task_cover.dart` and the relpath helpers in `vcs/walk.dart`.
-- A third-party notice covers every shipped dependency, transitive ones included.
+- Extend the shipped third-party notice for every runtime dependency, transitive ones included; preserve its existing install/update delivery.
+- The merged feedback and workflow readers join the bounded JSON wrapper. Feedback records retain ownership, locks, recovery and legacy interoperability. Workflow round counters become ordinary integers within 64 bits; oversized feedback-round trailers stop with an unknown-read error rather than rounding or disappearing.
 - ADR 0033 is the architecture record. `shellQuote`, `quoteBatchLine` and the process-tree, job-object and FFI code stay custom, with no replacement planned.
 
 ### Tests that retire
@@ -31,7 +32,7 @@ This change serves M8, Complete the native CLI migration (#148). It advances the
 - `cli/test/vcs/document_test.dart`: the surviving cases assert the decoded value and the non-UTF-8 name bytes.
 - `cli/test/vcs/args_test.dart`, `cli/test/pr/*` and `cli/test/commit/task_cover_test.dart`: usage cases assert the stop code and exit status, not parser wording.
 - `cli/test/vcs/raw_path_test.dart`: `relpathText` cases assert the relative path produced for each OS style.
-- `evals/git-workflow/test_instructions.py` lines 614, 625 and 628 assert `gh` 2.48.
+- `evals/git-workflow/test_instructions.py` lines 614, 625, 628 and 640 assert `gh` 2.48.
 - `evals/fakes/gh.py` emits one array of pages for `--slurp`, and `evals/pr-pair/test_fake_gh.py` covers it. `--slurp` is already an accepted flag there (line 898) but does not nest pages.
 - `cli/test/settings/yaml_test.dart` is untouched: the strict reader stays until `native-cli-yaml-settings`.
 
@@ -39,7 +40,8 @@ This change serves M8, Complete the native CLI migration (#148). It advances the
 
 - `skills/specwright-pr/SKILL.md` line 10 and the `pr-pair.sh` prerequisite comment state `gh` 2.48.
 - `README.md` (prerequisites, install Step 1, the `PR workflow not ready` line) and `CONTRIBUTING.md` state `gh` 2.48.
-- No skill or script reads `sw` documents as text, so none changes for the JSON form. A test keeps it that way.
+- No skill or script reads `sw` documents as text. The in-binary snapshot regex readers (C12) and the branch guards `sw finish undo-archive-plan` prints for jj and GitButler (C13) are explicit temporary gaps until `native-cli-internal-calls`; tests pin the compact form they read.
+- `openspec/strategy.md:13` and `openspec/architecture.md:150` raise the current gh prerequisite to 2.48; accepted historical ADRs remain unchanged.
 
 ## Capabilities
 
@@ -57,9 +59,9 @@ None.
 
 ## Impact
 
-Touches `cli/lib/src/settings/`, `cli/lib/src/vcs/{document,args,walk}.dart`, `cli/lib/src/pr/{pair,reviewers,policy,workflow}.dart`, `cli/lib/src/commands/finish.dart`, `cli/lib/src/commit/task_cover.dart`, `cli/lib/src/fence/fence.dart`, `cli/pubspec.yaml` and `pubspec.lock`, the third-party notice, the evals listed above, the prerequisite docs and `evals/suites.json` for any new tracked file. It accepts ADR 0033 and adds its row to the architecture index if the design review has not already done so. Direct dependencies gain `crypto` and `path`. Existing feedback records, reviewer-config files and their digests stay readable.
+Touches `cli/lib/src/settings/`, `cli/lib/src/vcs/{document,args,walk}.dart`, `cli/lib/src/pr/{pair,reviewers,policy,workflow}.dart`, `cli/lib/src/commands/finish.dart`, `cli/lib/src/commit/task_cover.dart`, `cli/lib/src/fence/fence.dart`, `cli/pubspec.yaml` and `pubspec.lock`, the existing third-party notice, the merged feedback record/pass and workflow JSON readers, the evals listed above, the prerequisite docs and `evals/suites.json` for any new tracked file. ADR 0033 is already accepted and indexed; its file stays unchanged. Direct dependencies gain `crypto` and `path`. Existing feedback records, reviewer-config files and their digests stay readable.
 
-This change must be refreshed once `native-cli-pr-pair-flow` merges (see design.md).
+Refreshed on 2026-11-10 against merged main `3fc5454` (pair-flow, PR #218, version 0.30.0); see design.md for the merged reader inventory and remaining experiments.
 
 ## Decision Making
 
@@ -122,15 +124,22 @@ DECISION_MAKING: important
 - **Important:** yes, binds future changes.
 - **Chosen by:** user, "Note in the design that it must be refreshed once native-cli-pr-pair-flow merges".
 
+The owner approved the round 3 refinements on 2026-11-10: caller-specific oversized-setting handling, a surrogate-string writer only if needed to preserve bytes/digests, and snapshot regex readers retained as C12 until internal-calls.
+
 ## Release Notes
 
-0.31.0 replaces custom Python-matching code in `sw` with focused libraries. PR workflow outcomes do not change, but `gh` 2.48 is now required and `sw` documents are compact JSON ending in LF on every OS.
+0.31.0 replaces the Python-matching code in `sw` (SHA-256, JSON, option parsing, paths and the GitHub page scanner) with standard Dart libraries. PR workflow outcomes do not change. `gh` 2.48 is now required, `sw` documents are compact JSON ending in LF on every OS, and `sw vcs`, `sw finish` and `sw pr` read options by one rule.
 
 ### Changed
 
 - `sw` now requires `gh` 2.48 or later; install reports `PR workflow not ready: gh 2.48+` for older versions (#148).
 - `sw` documents are compact JSON with one LF on every OS. Fields, error codes and exit statuses do not change (#148).
-- `sw` commands accept `--option=value`. Abbreviated options such as `--mat` are refused (#148).
+- `sw vcs`, `sw finish` and `sw pr` accept `--option=value`. Abbreviated options such as `--mat` are refused (#148).
+- An option given without its value in `pr-snapshot.sh` or `pr-reply.sh` is now a usage error (exit 2 and 4) instead of exit 1 (#148).
+- `pr-reply.sh` takes its positional arguments before its options; an option placed before them is a usage error (exit 4) (#148).
+- An integer setting beyond 64 bits, such as a reviewer `timeout`, is now a `bad_setting` problem instead of being carried as an exact big number (#148).
+- JSON files `sw` reads are limited to 32 MiB (#148).
+- `sw commit task-cover` ignores a task group number beyond 64 bits, and a `Feedback-Round` trailer beyond 64 bits makes the workflow round count an unknown read instead of a rounded number (#148).
 
 ### Removed
 

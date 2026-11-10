@@ -647,22 +647,26 @@ When the resolver stops, `vcs.sh` SHALL print one JSON document on stdout with `
 - **THEN** `vcs.sh state` exits 2, stdout is `{"ok":false,"error":"no_python","message":"vcs.sh needs python 3.8+"}` as before this change, and `sw` did not run
 
 ### Requirement: sw vcs keeps vcs.sh's output and exit-code contract
-`sw vcs <sub>` SHALL accept the subcommands and options `vcs.sh` accepted before this change and SHALL print exactly one JSON document on stdout for each run, with the same fields, error codes and messages as `vcs.sh` for the same inputs. It SHALL exit 0 on success, 1 on a stop, 2 on a usage error and 3 on a network or fence refusal. An unexpected failure SHALL be the document `"error": "internal_error"` with exit 1, never a stack trace on stdout.
+`sw vcs <sub>` SHALL accept the subcommands and options shipped callers pass and SHALL print exactly one JSON document on stdout for each run, with the same parsed fields, error codes and messages as `vcs.sh` for the same inputs, except that the wording of a usage error is free. It SHALL exit 0 on success, 1 on a stop, 2 on a usage error and 3 on a network or fence refusal. An unexpected failure SHALL be the document `"error": "internal_error"` with exit 1, never a stack trace on stdout.
 
 #### Scenario: Unchanged black-box evals pass on sw
 - **WHEN** the `evals/vcs` suite and every other suite that runs `vcs.sh` run in CI on Linux, Windows and macOS against the `sw` built from the tree
-- **THEN** every test passes with its assertions unchanged from before this change
+- **THEN** every test passes with its assertions unchanged from before this change, apart from assertions on stdout bytes, which compare the parsed value instead, and on usage wording, which check the `usage` error and exit 2
 
 #### Scenario: Unknown subcommand
 - **WHEN** `vcs.sh frobnicate --repo <r> --role code` runs
 - **THEN** it exits 2 and stdout is one JSON document with `"ok": false` and `"error": "usage"`
 
-### Requirement: sw vcs output bytes match vcs.sh
-Each document `sw vcs` prints SHALL be byte for byte the one `vcs.sh` printed before this change for the same inputs: the same key order, `", "` and `": "` separators, raw UTF-8 text, U+2028 and U+2029 as six-character escapes. A name's bytes SHALL round-trip through arguments, directory listings, `git` and `jj` output and the document even when they are not valid UTF-8; `but` output is read as before.
+### Requirement: sw vcs documents keep their values and name bytes
+Each document `sw vcs` prints SHALL parse to the same keys, key order and values as the one `vcs.sh` printed for the same inputs. A name's bytes SHALL round-trip through arguments, directory listings, `git` and `jj` output and the document even when they are not valid UTF-8; `but` output is read as before.
+
+#### Scenario: Line separators parse back
+- **WHEN** a message or path in the output holds U+2028 or U+2029
+- **THEN** the parsed JSON string holds that character
 
 #### Scenario: Line separators stay escaped
 - **WHEN** a message or path in the output holds U+2028 or U+2029
-- **THEN** the JSON document carries it as the six characters `\u2028` or `\u2029`, and every other non-ASCII character as UTF-8 text, as `vcs.sh` printed it before
+- **THEN** the parsed JSON string holds that character
 
 #### Scenario: A non-UTF-8 name from a tool round-trips
 - **WHEN** on Linux a tracked file's name holds the byte 0xFF and `vcs.sh state` reports it dirty

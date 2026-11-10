@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
+
+import 'package:specwright_cli/src/pr/context.dart';
 
 import 'package:specwright_cli/src/vcs/codec.dart';
 
@@ -21,7 +24,82 @@ GhResult result(String text, [int code = 0]) => GhResult(
   stderr: Uint8List(0),
 );
 
+/// A [Workflow] whose every `gh` call answers [stdout] / [stderr] / [code], recording the arguments.
+Workflow slurpWorkflow(
+  String stdout,
+  List<List<String>> calls, {
+  int code = 0,
+  String stderr = '',
+}) => Workflow(
+  PrContext(
+    scriptsDir: '.',
+    bash: 'bash',
+    writeOut: (_) {},
+    writeErr: (_) {},
+    environment: {},
+    gh: (args, {environment, paged = false}) async {
+      calls.add(args);
+      return GhResult(
+        exitCode: code,
+        stdout: Uint8List.fromList(stdout.codeUnits),
+        stderr: Uint8List.fromList(stderr.codeUnits),
+      );
+    },
+  ),
+);
+
 void main() {
+  test('slurped pages flatten in order', () async {
+    final calls = <List<String>>[];
+    final pages = [
+      for (var p = 0; p < 3; p++)
+        [
+          for (var i = 0; i < (p == 2 ? 7 : 100); i++) {'n': p * 100 + i},
+        ],
+    ];
+    final items = await slurpWorkflow(
+      jsonEncode(pages),
+      calls,
+    ).list('repos/o/n/pulls');
+    expect(items.length, 207);
+    expect(items.map((e) => (e as Map)['n']), [
+      for (var i = 0; i < 100; i++) i,
+      for (var i = 0; i < 100; i++) 100 + i,
+      for (var i = 0; i < 7; i++) 200 + i,
+    ]);
+    expect(calls.single, ['api', '--paginate', '--slurp', 'repos/o/n/pulls']);
+  });
+
+  test('an empty slurp is an empty list', () async {
+    expect(await slurpWorkflow('[]', []).list('e'), isEmpty);
+    expect(await slurpWorkflow('[[]]', []).list('e'), isEmpty);
+  });
+
+  test('a non-array page is an unknown read', () async {
+    for (final body in ['[[1],{"a":1}]', '{"a":1}', '[1]', 'not json']) {
+      await expectLater(
+        slurpWorkflow(body, []).list('e'),
+        throwsA(
+          isA<PairStop>()
+              .having((s) => s.error, 'error', 'lookup_failed')
+              .having((s) => s.code, 'code', 3),
+        ),
+        reason: body,
+      );
+    }
+  });
+
+  test('a slurp failure names gh 2.48', () async {
+    await expectLater(
+      slurpWorkflow('', [], code: 1, stderr: 'unknown flag: --slurp').list('e'),
+      throwsA(
+        isA<PairStop>()
+            .having((s) => s.error, 'error', 'lookup_failed')
+            .having((s) => s.message, 'message', contains('gh 2.48')),
+      ),
+    );
+  });
+
   test(
     'workflow JSON reader preserves raw POSIX snapshot paths',
     () async {
@@ -52,10 +130,49 @@ void main() {
       expect(await readWorkflowJson(file.path), {'value': 'é'});
       await expectLater(
         readWorkflowJson('${file.path}.missing'),
-        throwsA(isA<FileSystemException>()),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('${file.path}.missing: cannot read: '),
+          ),
+        ),
       );
     },
   );
+
+  test('oversized workflow JSON retains its stop and raw path', () async {
+    final directory = Directory.systemTemp.createTempSync('workflow-json-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/snapshot-\u00e9.json');
+    file.openSync(mode: FileMode.write)
+      ..truncateSync(defaultMaxBytes + 1)
+      ..closeSync();
+    await expectLater(
+      readWorkflowJson(file.path),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(startsWith('${file.path}: '), contains('32 MiB')),
+        ),
+      ),
+    );
+    // the file at the cap is read (and refused as JSON, not as too long)
+    file.openSync(mode: FileMode.write)
+      ..truncateSync(defaultMaxBytes)
+      ..closeSync();
+    await expectLater(
+      readWorkflowJson(file.path),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          isNot(contains('32 MiB')),
+        ),
+      ),
+    );
+  });
 
   test(
     'real workflow command preserves empty long and raw argument bytes',

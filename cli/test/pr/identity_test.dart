@@ -202,7 +202,7 @@ void main() {
       final r = PairRun();
       final ran = r.result(await runIdentity(r.ctx, ['--x']));
       expect(ran.code, 2);
-      expect(ran.json['message'], 'unknown option --x');
+      expect(ran.json['error'], 'usage');
     });
   });
 }

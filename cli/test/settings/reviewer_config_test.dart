@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 
 Reviewer _rv(
   String role, {
-  Object timeout = 1200,
+  int timeout = 1200,
   String request = '',
   Map<String, String> report = const {},
 }) => Reviewer(role, timeout, request, report);
@@ -127,17 +127,39 @@ void main() {
       );
     });
 
-    test('U+2028 stays raw and a timeout past 64 bits keeps its digits', () {
+    test('a lone surrogate in a report string keeps its pre-change digest', () {
+      // Captured from the hand-written writer before the change (task 2.1).
       final bytes = reviewerConfigBytes({
-        'x': _rv('a\u{2028}b', timeout: BigInt.two.pow(70)),
+        'x': _rv(
+          'required',
+          report: {
+            'sha_pattern':
+                'p${String.fromCharCode(0xd800)}q'
+                '${String.fromCharCode(0xdc80)}r',
+          },
+        ),
       });
       expect(
         _text(bytes),
-        '{"format":2,"reviewers":[{"login":"x","report":{},"role":"a\u{2028}b","timeout":1180591620717411303424}]}',
+        '{"format":2,"reviewers":[{"login":"x","report":{"sha_pattern":"p?q?r"},"role":"required","timeout":1200}]}',
       );
       expect(
         sha256Hex(bytes),
-        '14ca437060bb2844f03f9849ec9514ac4214641a85cc5f71e132745468e0dc63',
+        '797fbb0c4e0e1821e313f6aa8c0a2851e687a4e3634d04af6b3ed650444cfbc1',
+      );
+    });
+
+    test('U+2028 stays raw in the bytes (A7), as the old writer left it', () {
+      final bytes = reviewerConfigBytes({
+        'x': _rv('required', report: {'sha_pattern': 'a b'}),
+      });
+      expect(
+        _text(bytes),
+        '{"format":2,"reviewers":[{"login":"x","report":{"sha_pattern":"a b"},"role":"required","timeout":1200}]}',
+      );
+      expect(
+        sha256Hex(bytes),
+        '663f18d5647e7c1c10ba83ead2adb298028240f734df688754a5c781b5f47a45',
       );
     });
   });

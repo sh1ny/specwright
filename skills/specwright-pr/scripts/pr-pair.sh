@@ -120,7 +120,7 @@
 # Every gh call names its repository (--repo or repos/<o>/<n>/...) and runs with GH_REPO unset, so an
 # inherited override cannot redirect a store lookup to the code repo. Wrap with as.sh to pin the
 # GitHub identity, started inside the repository it acts on (its header scrub is per working directory).
-# Needs bash, git, gh 2.40+ and Python 3.8+.
+# Needs bash, git, gh 2.48+ and Python 3.8+.
 set -euo pipefail
 
 py=

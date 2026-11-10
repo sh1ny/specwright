@@ -194,8 +194,7 @@ void main() {
     });
 
     String text() => utf8.decode(out, allowMalformed: true);
-    String line(Map<String, Object?> doc) =>
-        utf8.decode(documentBytes(doc, escapeLineSeparators: false));
+    String line(Map<String, Object?> doc) => utf8.decode(documentBytes(doc));
     Map<String, Object?> json() =>
         jsonDecode(text().trim()) as Map<String, Object?>;
 
@@ -399,6 +398,34 @@ void main() {
       final doc = json();
       expect((doc['tasks'] as List).map((t) => (t as Map)['id']), ['2.1']);
       expect((doc['groups'] as List).map((g) => (g as Map)['group']), [2]);
+    });
+
+    test('a group number beyond 64 bits is not a task', () async {
+      File(
+        tasksPath,
+      ).writeAsStringSync('- [x] 99999999999999999999.1 Big\n- [x] 2.1 Real\n');
+      final git = stub(
+        (a, c) => bytes(sub(a) == 'rev-list' ? '0\n' : ''),
+        calls: [],
+      );
+      expect(await run(baseArgs(), git: git), 0);
+      final doc = json();
+      expect((doc['tasks'] as List).map((t) => (t as Map)['id']), ['2.1']);
+      expect((doc['groups'] as List).map((g) => (g as Map)['group']), [2]);
+    });
+
+    test('an oversized heading leaves the report intact', () async {
+      File(tasksPath).writeAsStringSync(
+        '## 99999999999999999999. Big heading\n## 2. Two\n- [x] 2.1 Real\n',
+      );
+      final git = stub(
+        (a, c) => bytes(sub(a) == 'rev-list' ? '0\n' : ''),
+        calls: [],
+      );
+      expect(await run(baseArgs(), git: git), 0);
+      final groups = json()['groups'] as List;
+      expect(groups.map((g) => (g as Map)['group']), [2]);
+      expect(groups.map((g) => (g as Map)['heading']), ['Two']);
     });
 
     group('the git runner', () {
@@ -649,21 +676,18 @@ void main() {
       expect((tasks[1] as Map)['commits'], isEmpty);
     });
 
-    test(
-      'non-ASCII text and U+2028 are written raw, with the line end',
-      () async {
-        File(tasksPath).writeAsStringSync('- [x] 1.1 a\n');
-        final git = stub(
-          (a, c) => bytes(sub(a) == 'rev-list' ? '0\n' : ''),
-          calls: [],
-        );
-        expect(await run(baseArgs(change: 'caf\u00e9\u2028x'), git: git), 0);
-        final raw = utf8.decode(out);
-        expect(raw, contains('"change": "caf\u00e9\u2028x"'));
-        expect(raw, endsWith(documentLineEnd()));
-        expect(raw, startsWith('{"ok": true, "change": '));
-      },
-    );
+    test('non-ASCII text and U+2028 are written raw, with one LF', () async {
+      File(tasksPath).writeAsStringSync('- [x] 1.1 a\n');
+      final git = stub(
+        (a, c) => bytes(sub(a) == 'rev-list' ? '0\n' : ''),
+        calls: [],
+      );
+      expect(await run(baseArgs(change: 'caf\u00e9\u2028x'), git: git), 0);
+      final raw = utf8.decode(out);
+      expect(raw, contains('"change":"caf\u00e9\u2028x"'));
+      expect(raw, endsWith('}\n'));
+      expect(raw, startsWith('{"ok":true,"change":'));
+    });
 
     group('with a real repository', () {
       late Directory repo;

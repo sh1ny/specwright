@@ -1,12 +1,26 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:specwright_cli/src/commands/vcs.dart';
+import 'package:specwright_cli/src/process/limits.dart';
+import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:test/test.dart';
 
-/// Expected bytes come from CPython 3.14:
-/// `json.dumps(obj, ensure_ascii=False)` with U+2028 and U+2029 replaced by
-/// their six-character escapes, encoded with `utf-8` and `surrogateescape`
-/// (vcs.sh:43-45, and `-X utf8` makes stdout use surrogateescape).
+// Assumptions A1, A2 and A3 of native-cli-library-foundations, run on the Dart SDK pinned by mise.toml (task 2.1):
+//
+// A1 holds. `jsonDecode` reads 100,000 nested arrays and 100,000 nested objects whole, and 1,000,000 too, with no crash:
+//    the parser keeps its own stack, so no depth limit is needed and the 32 MiB file bound is the only protection. The
+//    wrapper still maps a StackOverflowError to the same stop in case a future SDK recurses.
+// A2 holds. An integer past signed 64 bits decodes to a `double` (9223372036854775808 becomes 9.223372036854776e18),
+//    so an `is int` check refuses it; 9223372036854775807 stays an `int`.
+// A3 is DISPROVED. `jsonDecode` keeps a lone surrogate escape (`"\ud800"`) as a lone surrogate, but `JsonEncoder` writes
+//    it back as the six-character escape `\ud800` (a valid pair is written raw). `encodeEscaped` therefore cannot
+//    restore the byte behind a U+DC80..U+DCFF unit, and `reviewerConfigBytes` would no longer replace the surrogate by
+//    `?`. The owner-approved D1 fallback applies: `documentText` is `JsonEncoder` plus a scan that turns the encoder's own
+//    lone-surrogate escapes back into the raw unit.
+
 Uint8List _hex(String hex) => Uint8List.fromList([
   for (var i = 0; i < hex.length; i += 2)
     int.parse(hex.substring(i, i + 2), radix: 16),
@@ -14,206 +28,278 @@ Uint8List _hex(String hex) => Uint8List.fromList([
 
 void main() {
   group('documentText', () {
-    test('uses ", " and ": " separators and keeps key order', () {
+    test('is compact, keeps key order and writes JSON numbers', () {
       final doc = <String, Object?>{
         'ok': true,
         'n': 3,
         'neg': -12,
         'none': null,
-        'no': false,
-        'list': [1, 'a', null],
-        'nested': {'x': <String, Object?>{}, 'y': <Object?>[]},
-      };
-      expect(
-        documentText(doc),
-        '{"ok": true, "n": 3, "neg": -12, "none": null, "no": false, '
-        '"list": [1, "a", null], "nested": {"x": {}, "y": []}}',
-      );
-    });
-
-    test('escapes U+2028 and U+2029 by default and when the flag is true', () {
-      const text = 'a\u2028b\u2029c';
-      const escaped = r'"a\u2028b\u2029c"';
-      expect(documentText(text), escaped);
-      expect(documentText(text, escapeLineSeparators: true), escaped);
-      expect(documentText(text, escapeLineSeparators: false), '"$text"');
-    });
-
-    test('writes empty containers', () {
-      expect(documentText(<String, Object?>{}), '{}');
-      expect(documentText(<Object?>[]), '[]');
-    });
-
-    test('writes ints beyond 64 bits as digits', () {
-      expect(
-        documentText(BigInt.parse('12345678901234567890')),
-        '12345678901234567890',
-      );
-    });
-
-    test('rejects values json.dumps would not write here', () {
-      expect(() => documentText(Object()), throwsArgumentError);
-      expect(() => documentText({1: 'a'}), throwsArgumentError);
-    });
-
-    test('writes doubles in Python repr form (floats are not ints)', () {
-      // from CPython 3.14: repr(x) == json.dumps(x)
-      const want = <(double, String)>[
-        (1.5, '1.5'),
-        (100.0, '100.0'),
-        (1e15, '1000000000000000.0'),
-        (1e16, '1e+16'),
-        (1.2345e-7, '1.2345e-07'),
-        (0.0001, '0.0001'),
-        (0.00001, '1e-05'),
-        (123456789.123456789, '123456789.12345679'),
-        (1e22, '1e+22'),
-        (5e-324, '5e-324'),
-        (1.7976931348623157e308, '1.7976931348623157e+308'),
-        (0.1, '0.1'),
-        (2.5e-5, '2.5e-05'),
-        (1e100, '1e+100'),
-        (12345678901234567.0, '1.2345678901234568e+16'),
-        (0.3, '0.3'),
-        (-2.5, '-2.5'),
-        (-1e-7, '-1e-07'),
-        (0.0, '0.0'),
-        (1.0, '1.0'),
-        (123456789012345.0, '123456789012345.0'),
-        (9999999999999998.0, '9999999999999998.0'),
-      ];
-      for (final (x, text) in want) {
-        expect(documentText(x), text, reason: '$x');
-      }
-      expect(documentText(-0.0), '-0.0');
-    });
-
-    test('writes NaN, Infinity and -Infinity as json.dumps does', () {
-      expect(
-        documentText([double.nan, double.infinity, double.negativeInfinity]),
-        '[NaN, Infinity, -Infinity]',
-      );
-    });
-
-    test('compact separators are "," and ":"', () {
-      final doc = <String, Object?>{
-        'ok': true,
         'list': [1, 'a', null, 1.5],
         'nested': {'x': <String, Object?>{}, 'y': <Object?>[]},
       };
       expect(
-        documentText(doc, compact: true),
-        '{"ok":true,"list":[1,"a",null,1.5],"nested":{"x":{},"y":[]}}',
-      );
-      expect(
         documentText(doc),
-        '{"ok": true, "list": [1, "a", null, 1.5], "nested": {"x": {}, "y": []}}',
-        reason: 'the default separators are unchanged',
+        '{"ok":true,"n":3,"neg":-12,"none":null,"list":[1,"a",null,1.5],'
+        '"nested":{"x":{},"y":[]}}',
       );
     });
 
-    test('compact and raw line separators together', () {
-      expect(
-        documentText(
-          {'k': 'a\u{2028}b'},
-          compact: true,
-          escapeLineSeparators: false,
-        ),
-        '{"k":"a\u{2028}b"}',
-      );
-      expect(
-        documentText({'k': 'a\u{2028}b'}, compact: true),
-        r'{"k":"a\u2028b"}',
-      );
+    test('U+2028 and U+2029 parse back', () {
+      const text = 'a b c';
+      final written = documentText({'k': text});
+      expect(jsonDecode(written), {'k': text});
+      // the encoder leaves both raw; consumers parse documents, never match them
+      expect(written, contains(' '));
+    });
+
+    test('a line separator in a document reads back through documentBytes', () {
+      final bytes = documentBytes({'k': 'a b'});
+      expect(jsonDecode(utf8.decode(bytes)), {'k': 'a b'});
+    });
+
+    test('A3: a lone surrogate is written raw, a valid pair stays whole', () {
+      final lone = String.fromCharCode(0xd800);
+      expect(documentText(lone), '"$lone"');
+      expect(documentText('\u{1f600}'), '"\u{1f600}"');
+      // an escape the caller wrote is data, and keeps its backslash
+      expect(documentText(r'\ud800'), r'"\\ud800"');
     });
   });
 
   group('documentBytes', () {
-    const lf = '\n';
-    const crlf = '\r\n';
+    test('ends with exactly one LF and no CR', () {
+      expect(documentBytes(<Object?>[]), [0x5b, 0x5d, 0x0a]);
+      final bytes = documentBytes({'a': 'x\ny'});
+      expect(bytes.last, 0x0a);
+      expect(bytes.where((b) => b == 0x0d), isEmpty);
+      expect(utf8.decode(bytes).split('\n'), hasLength(2));
+    });
 
-    test('escapes controls as Python does and leaves DEL and "/" raw', () {
+    test('escapes controls and leaves DEL and "/" raw', () {
       final text = 'a\n\r\t\b\f"\\\u0001\u001f\u007f/\u0000';
+      expect(jsonDecode(utf8.decode(documentBytes({'s': text}))), {'s': text});
+      expect(utf8.decode(documentBytes(text)), contains('\u007f/'));
+    });
+
+    test('keeps non-ASCII raw', () {
       expect(
-        documentBytes({'s': text}, lineEnd: ''),
-        _hex(
-          '7b2273223a2022615c6e5c725c745c625c665c225c5c5c75303030315c7530303'
-          '1667f2f5c7530303030227d',
-        ),
+        documentBytes({'s': 'é€\u{1f600}�'}),
+        _hex('7b2273223a22c3a9e282acf09f9880efbfbd227d0a'),
       );
     });
 
-    test('keeps non-ASCII raw and escapes U+2028 and U+2029', () {
-      final text = '\u00e9\u20ac\u{1f600}\u2028\u2029\ufffd';
-      expect(
-        documentBytes({'s': text}, lineEnd: ''),
-        _hex(
-          '7b2273223a2022c3a9e282acf09f98805c75323032385c7532303239efbfbd227d',
-        ),
-      );
-    });
-
-    test('escapes the separators by default, raw bytes with the flag off', () {
-      const text = '\u2028';
-      expect(
-        documentBytes(text, lineEnd: ''),
-        _hex(
-          '225c7532303238'
-          '22',
-        ),
-      );
-      expect(
-        documentBytes(text, lineEnd: '', escapeLineSeparators: false),
-        _hex('22e280a822'),
-      );
-    });
-
+    // Constraint C3: non-UTF-8 name bytes survive documents until
+    // native-cli-launcher replaces the escaping.
     test('writes lone U+DC80..U+DCFF back as the original bytes', () {
       expect(
         documentBytes({
           'p\udcff': ['a\udc80b', '\udcff'],
-        }, lineEnd: ''),
-        _hex('7b2270ff223a205b22618062222c2022ff225d7d'),
+        }),
+        _hex('7b2270ff223a5b22618062222c22ff225d7d0a'),
       );
     });
 
     test('rejects another lone surrogate, as Python fails to encode it', () {
-      expect(
-        () => documentBytes({'s': '\ud800'}, lineEnd: ''),
-        throwsFormatException,
-      );
+      expect(() => documentBytes({'s': '\ud800'}), throwsFormatException);
     });
 
-    test('passes compact through to the text', () {
-      expect(
-        documentBytes(
-          {
-            'a': [1, 2.5],
+    test('a value JSON cannot hold is internal_error', () async {
+      final repo = Directory.systemTemp.createTempSync('sw-doc-repo-');
+      addTearDown(() => repo.deleteSync(recursive: true));
+      for (final value in <Object?>[
+        double.nan,
+        double.infinity,
+        BigInt.two.pow(70),
+        Object(),
+      ]) {
+        final out = <int>[];
+        final code = await runVcsCommand(
+          ['--args-stdin'],
+          writeOut: out.addAll,
+          readStdin: () async => [
+            for (final r in [
+              '/s',
+              '/b',
+              'state',
+              '--repo',
+              repo.path,
+              '--role',
+              'code',
+            ]) ...[...utf8.encode(r), 0],
+          ],
+          handlers: {
+            'state': (_) async => {'ok': true, 'x': value},
           },
-          lineEnd: '',
-          compact: true,
-        ),
-        _hex('7b2261223a5b312c322e355d7d'),
-      );
+        );
+        expect(code, 1, reason: '$value');
+        final text = utf8.decode(out);
+        expect(text.endsWith('\n'), true);
+        final doc = jsonDecode(text) as Map<String, Object?>;
+        expect(doc['ok'], false, reason: '$value');
+        expect(doc['error'], 'internal_error', reason: '$value');
+        expect(text, isNot(contains('#0')), reason: 'no stack trace');
+      }
     });
 
-    test('ends with the given line ending', () {
-      expect(documentBytes(<Object?>[], lineEnd: lf), [0x5b, 0x5d, 0x0a]);
-      expect(documentBytes(<Object?>[], lineEnd: crlf), [
-        0x5b,
-        0x5d,
-        0x0d,
-        0x0a,
-      ]);
+    test('a value JSON cannot hold is refused by the writer itself', () {
+      expect(() => documentText(double.nan), throwsA(isA<Object>()));
+      expect(() => documentText(BigInt.two.pow(70)), throwsA(isA<Object>()));
+      expect(() => documentText({1: 'a'}), throwsA(isA<Object>()));
+    });
+  });
+
+  group('decodeJson', () {
+    test('reads standard JSON', () {
+      expect(decodeJson('{"a":[1,2.5,"x",null,true]}'), {
+        'a': [1, 2.5, 'x', null, true],
+      });
     });
 
-    test('defaults to the line ending Python prints on this OS', () {
+    test('refuses NaN and Infinity, naming the file', () {
+      for (final text in ['[NaN]', '[Infinity]', '[-Infinity]']) {
+        expect(
+          () => decodeJson(text, file: 'm.json'),
+          throwsA(
+            isA<JsonInputException>().having(
+              (e) => e.message,
+              'message',
+              startsWith('m.json: '),
+            ),
+          ),
+          reason: text,
+        );
+      }
+    });
+
+    test('A2: an integer past 64 bits is a double, never an int', () {
+      expect(decodeJson('9223372036854775807'), isA<int>());
+      for (final text in [
+        '9223372036854775808',
+        '-9223372036854775809',
+        '123456789012345678901234567890',
+      ]) {
+        expect(decodeJson(text), isA<double>(), reason: text);
+        expect(decodeJson(text), isNot(isA<int>()), reason: text);
+      }
+    });
+
+    test('100,000 levels never crash', () {
+      const n = 100000;
+      for (final text in [
+        '${'[' * n}${']' * n}',
+        '${'{"a":' * n}1${'}' * n}',
+      ]) {
+        try {
+          final value = decodeJson(text, file: 'deep.json');
+          expect(value, isNotNull);
+        } on JsonInputException catch (e) {
+          expect(e.message, startsWith('deep.json: '));
+        }
+      }
+    });
+
+    test('a lone surrogate escape stays a lone surrogate', () {
+      expect(decodeJson(r'"\ud800"'), String.fromCharCode(0xd800));
+    });
+  });
+
+  group('readJsonFile', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('sw-json-file-'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('reads a file through its raw path', () {
+      final f = File('${dir.path}/m.json')..writeAsStringSync('{"v":"é"}');
+      expect(readJsonFile(f.path), {'v': 'é'});
+    });
+
+    test('a missing file stops naming it', () {
+      final path = '${dir.path}/none.json';
       expect(
-        documentLineEnd(windows: true),
-        '\r\n',
-        reason: 'print() on Windows translates \\n to \\r\\n',
+        () => readJsonFile(path),
+        throwsA(
+          isA<JsonInputException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('$path: cannot read: '),
+          ),
+        ),
       );
-      expect(documentLineEnd(windows: false), '\n');
     });
+
+    test('bytes that are not UTF-8 stop naming the file', () {
+      final f = File('${dir.path}/b.json')
+        ..writeAsBytesSync([0x22, 0xff, 0x22]);
+      expect(
+        () => readJsonFile(f.path),
+        throwsA(
+          isA<JsonInputException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('${f.path}: not valid UTF-8'),
+          ),
+        ),
+      );
+    });
+
+    test('a byte-order mark is refused', () {
+      final f = File('${dir.path}/bom.json')
+        ..writeAsBytesSync([0xef, 0xbb, 0xbf, 0x7b, 0x7d]);
+      expect(() => readJsonFile(f.path), throwsA(isA<JsonInputException>()));
+    });
+
+    test('a file over 32 MiB stops naming the file', () {
+      final f = File('${dir.path}/big.json');
+      final out = f.openSync(mode: FileMode.write);
+      // `["` then 32 MiB - 3 padding bytes then `"]` is exactly the cap plus one
+      out.writeStringSync('["');
+      final chunk = Uint8List(1024 * 1024)..fillRange(0, 1024 * 1024, 0x78);
+      var left = defaultMaxBytes + 1 - 4;
+      while (left > 0) {
+        final n = left < chunk.length ? left : chunk.length;
+        out.writeFromSync(chunk, 0, n);
+        left -= n;
+      }
+      out.writeStringSync('"]');
+      out.closeSync();
+      expect(f.lengthSync(), defaultMaxBytes + 1);
+      expect(
+        () => readJsonFile(f.path),
+        throwsA(
+          isA<JsonInputException>().having(
+            (e) => e.message,
+            'message',
+            allOf(startsWith('${f.path}: '), contains('32 MiB')),
+          ),
+        ),
+      );
+    });
+
+    test('a file of exactly 32 MiB is read', () {
+      final f = File('${dir.path}/edge.json');
+      final out = f.openSync(mode: FileMode.write);
+      out.writeStringSync('["');
+      final chunk = Uint8List(1024 * 1024)..fillRange(0, 1024 * 1024, 0x78);
+      var left = defaultMaxBytes - 4;
+      while (left > 0) {
+        final n = left < chunk.length ? left : chunk.length;
+        out.writeFromSync(chunk, 0, n);
+        left -= n;
+      }
+      out.writeStringSync('"]');
+      out.closeSync();
+      expect(f.lengthSync(), defaultMaxBytes);
+      expect(readJsonFile(f.path), isA<List<Object?>>());
+    });
+
+    test('a non-UTF-8 path reaches the file by its bytes', () {
+      final name = Uint8List.fromList([
+        ...encodeEscaped('${dir.path}/raw-'),
+        0xff,
+        ...utf8.encode('.json'),
+      ]);
+      File.fromRawPath(name).writeAsStringSync('{"raw":true}');
+      expect(readJsonFile(decodeEscaped(name)), {'raw': true});
+    }, skip: Platform.isLinux ? false : 'a name that is not UTF-8 needs Linux');
   });
 }

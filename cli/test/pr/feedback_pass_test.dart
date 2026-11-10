@@ -16,7 +16,8 @@ class LockCleanupFailure implements RecordFiles {
   void releaseLock(String path) =>
       throw FileSystemException('lock cleanup denied', path);
   @override
-  List<int> readBytes(String path) => actual.readBytes(path);
+  List<int> readBytes(String path, {int? limit}) =>
+      actual.readBytes(path, limit: limit);
   @override
   RecordOutput createExclusive(String path) => actual.createExclusive(path);
   @override
@@ -222,4 +223,41 @@ Future<void> main() async {
       expect(FeedbackRecordStore(tmp.path).leftLocks, isEmpty);
     });
   }
+  test('oversized intent round is invalid_intent', () async {
+    // an integer past 64 bits reads as a double, so the exact-integer check refuses it
+    final tmp = Directory.systemTemp.createTempSync('sw-feedback-pass-');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final ctx = PrContext(
+      scriptsDir: tmp.path,
+      bash: 'bash',
+      writeOut: (_) {},
+      writeErr: (_) {},
+      environment: {'SPECWRIGHT_STATE_DIR': tmp.path},
+    );
+    final intent = File('${tmp.path}/intent.json');
+    for (final round in ['99999999999999999999', '1e2', '1.0']) {
+      intent.writeAsStringSync(
+        '{"branch":"feat/x","round":$round,"prs":{"code":null},"findings":[]}',
+      );
+      await expectLater(
+        FeedbackPass(Workflow(ctx)).run([
+          'write',
+          '--code',
+          tmp.path,
+          '--code-repo',
+          'o/r',
+          '--change',
+          'change',
+          '--intent',
+          intent.path,
+        ]),
+        throwsA(
+          isA<PairStop>()
+              .having((e) => e.error, 'error', 'invalid_intent')
+              .having((e) => e.message, 'message', contains('round')),
+        ),
+        reason: round,
+      );
+    }
+  });
 }

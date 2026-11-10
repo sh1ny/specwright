@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import '../commit/task_cover.dart' show pyStrip;
 import '../finish/undo_plan.dart' show prefixOf;
-import '../settings/pyjson.dart';
+import '../options.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
 import '../settings/yaml.dart' show pyDecimalValue, pyStr;
 import '../vcs/document.dart';
@@ -63,7 +63,7 @@ class _Reviewer {
 
   final String login;
   final String role;
-  final Object timeout; // int or BigInt
+  final int timeout;
   final Map<String, String> report;
 }
 
@@ -73,11 +73,8 @@ int runReviewers(
   required void Function(List<int> bytes) writeOut,
   required void Function(List<int> bytes) writeErr,
 }) {
-  void emit(Object? document) => writeOut(
-    _utf8Replace(
-      '${documentText(document, compact: true, escapeLineSeparators: false)}\n',
-    ),
-  );
+  void emit(Object? document) =>
+      writeOut(_utf8Replace('${documentText(document)}\n'));
   void say(String text) => writeErr(_utf8Replace('$_name: $text\n'));
 
   final String? checkConfig;
@@ -120,10 +117,10 @@ int runReviewers(
     return 2;
   }
   try {
-    final mat = pyJsonReadFile(material!);
+    final mat = readJsonFile(material!);
     emit(_evaluate(mat, reviewers, digest, head!));
     return 0;
-  } on PyJsonException catch (e) {
+  } on JsonInputException catch (e) {
     say(e.message);
     return 1;
   } on _MaterialError catch (e) {
@@ -140,59 +137,24 @@ bool _given(String? v) => v != null && v.isNotEmpty;
 
 // ---------------------------------------------------------------- arguments
 
-const List<String> _options = ['config', 'material', 'head', 'check-config'];
-
-/// `argparse` with four options that each take one value: `--opt VALUE`, `--opt=VALUE`, and any unambiguous prefix of
-/// an option name. The last of a repeated option wins. Anything else is a usage error.
+/// The four options, each with one value, under the one option rule (`options.dart`): `--opt VALUE` or `--opt=VALUE`, no
+/// abbreviations, the last of a repeated option wins. Anything else is a usage error.
 Map<String, String> _parseArgs(List<String> args) {
-  final out = <String, String>{};
-  final extra = <String>[];
-  var i = 0;
-  while (i < args.length) {
-    final a = args[i];
-    i++;
-    if (!a.startsWith('--') || a.length == 2) {
-      extra.add(a);
-      continue;
-    }
-    final eq = a.indexOf('=');
-    final word = a.substring(2, eq < 0 ? a.length : eq);
-    final matches = _options.contains(word)
-        ? [word]
-        : [
-            for (final o in _options)
-              if (o.startsWith(word)) o,
-          ];
-    if (matches.isEmpty) {
-      extra.add(a);
-      continue;
-    }
-    if (matches.length > 1) {
-      throw _ConfigError(
-        'usage: ambiguous option: --$word could match ${matches.map((o) => '--$o').join(', ')}',
-      );
-    }
-    final option = matches.single;
-    if (eq >= 0) {
-      out[option] = a.substring(eq + 1);
-    } else if (i < args.length && !_looksLikeOption(args[i])) {
-      out[option] = args[i];
-      i++;
-    } else {
-      throw _ConfigError('usage: argument --$option: expected one argument');
-    }
+  final parsed = parseOptions(
+    args,
+    values: const ['config', 'material', 'head', 'check-config'],
+    usage: (message) => throw _ConfigError('usage: $message'),
+  );
+  if (parsed.rest.isNotEmpty) {
+    throw _ConfigError(
+      'usage: unrecognized arguments: ${parsed.rest.join(' ')}',
+    );
   }
-  if (extra.isNotEmpty) {
-    throw _ConfigError('usage: unrecognized arguments: ${extra.join(' ')}');
-  }
-  return out;
+  return {
+    for (final name in parsed.options)
+      if (parsed.wasParsed(name)) name: parsed.option(name)!,
+  };
 }
-
-bool _looksLikeOption(String a) =>
-    a.length > 1 &&
-    a.startsWith('-') &&
-    !RegExp(r'^-\d+$|^-\d*\.\d+$').hasMatch(a) &&
-    !a.contains(' ');
 
 // ------------------------------------------------------------------- config
 
@@ -202,17 +164,10 @@ bool _looksLikeOption(String a) =>
   final List<int>
   raw; // one read: the digest is of the bytes the rules came from
   try {
-    raw = pyJsonFileBytes(path);
-    cfg = pyJsonDecodeBytes(raw, path);
-  } on PyJsonException catch (e) {
-    final prefix = '$path: ';
-    if (e.message.startsWith('${prefix}cannot read: ')) {
-      throw _ConfigError(e.message);
-    }
-    final what = e.message.startsWith(prefix)
-        ? e.message.substring(prefix.length)
-        : e.message;
-    throw _ConfigError('$path: not valid JSON: $what');
+    raw = readBounded(path);
+    cfg = decodeJson(decodeJsonBytes(raw, path), file: path);
+  } on JsonInputException catch (e) {
+    throw _ConfigError(e.message);
   }
   return (reviewers: _validateConfig(cfg, path), digest: sha256Hex(raw));
 }
@@ -259,15 +214,14 @@ List<_Reviewer> _validateConfig(Object? cfg, String fname) {
       throw _bad(login, 'role', 'must be required or advisory');
     }
     final timeout = r['timeout'];
-    if (!((timeout is int && timeout >= 0) ||
-        (timeout is BigInt && timeout >= BigInt.zero))) {
+    if (timeout is! int || timeout < 0) {
       throw _bad(login, 'timeout', 'must be a non-negative integer');
     }
     out.add(
       _Reviewer(
         login,
         role as String,
-        timeout!,
+        timeout,
         r.containsKey('report') ? _validateReport(login, r['report']) : {},
       ),
     );
@@ -328,7 +282,6 @@ bool _truthy(Object? v) => switch (v) {
   null => false,
   bool b => b,
   int n => n != 0,
-  BigInt n => n != BigInt.zero,
   double d => d != 0,
   String s => s.isNotEmpty,
   List<Object?> l => l.isNotEmpty,
@@ -348,7 +301,7 @@ Object? _get(Object? d, String key) {
 String _typeName(Object? v) => switch (v) {
   null => 'NoneType',
   bool() => 'bool',
-  int() || BigInt() => 'int',
+  int() => 'int',
   double() => 'float',
   String() => 'str',
   List() => 'list',
@@ -426,8 +379,6 @@ String _formatIso(num epoch) {
   return '${year.toString().padLeft(4, '0')}-${two(month)}-${two(day)}'
       'T${two(rest ~/ 3600)}:${two(rest % 3600 ~/ 60)}:${two(rest % 60)}Z';
 }
-
-num _number(Object? v) => v is BigInt ? v.toDouble() : v as num;
 
 class _Item {
   _Item(this.map, this.time, this.body);
@@ -516,7 +467,7 @@ Map<String, Object?> _evaluateReviewer(
   final String state;
   if (by != null) {
     state = 'reported';
-  } else if (cutoff != null && now - cutoff >= _number(rev.timeout)) {
+  } else if (cutoff != null && now - cutoff >= rev.timeout) {
     state = 'timed_out';
   } else {
     state = 'waiting';
@@ -594,10 +545,10 @@ Map<String, Object?> _evaluate(
   final cfg = _or(mat['cfg'], <String, Object?>{});
   final cutoff = _parseIso(_get(cfg, 'since'));
   final now = _get(cfg, 'now');
-  if (now is bool || now is! num && now is! BigInt) {
+  if (now is bool || now is! num) {
     throw _MaterialError('cfg.now missing');
   }
-  final nowNumber = _number(now);
+  final nowNumber = now;
   final checksRaw = _or(mat['checks_all'], <Object?>[]);
   if (checksRaw is! List<Object?>) {
     throw _MaterialError(

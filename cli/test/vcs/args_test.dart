@@ -186,20 +186,49 @@ void main() {
       );
     });
 
-    test('an unknown option names it', () {
-      final stop = _stopOf(() => parse(['--bogus']));
-      expect(
-        (stop.error, stop.message, stop.code),
-        ('usage', 'unknown option: --bogus', 2),
-      );
+    test('an unknown option is a usage stop', () {
+      for (final extra in [
+        ['--bogus'],
+        ['--bran', 'x'],
+        ['-x'],
+      ]) {
+        final stop = _stopOf(() => parse(extra));
+        expect((stop.error, stop.code), ('usage', 2), reason: '$extra');
+      }
     });
 
     test('a value-taking option at the end needs a value', () {
       final stop = _stopOf(() => parse(['--branch']));
-      expect(
-        (stop.error, stop.message, stop.code),
-        ('usage', '--branch requires a value', 2),
-      );
+      expect((stop.error, stop.code), ('usage', 2));
+    });
+
+    test('the equals form matches the two-word form', () {
+      final r = parseVcsArguments([
+        'state',
+        '--repo=${repo.path}',
+        '--role=code',
+        '--branch=--force',
+      ]);
+      expect((r.repo, r.role, r.branch), (repo.path, 'code', '--force'));
+    });
+
+    test('a word before -- is a usage stop', () {
+      for (final extra in [
+        ['stray', '--', 'a.txt'],
+        ['stray'],
+        ['--branch', 'b', 'stray', '--', 'a.txt'],
+        ['--prefix', '--', 'a.txt'],
+      ]) {
+        final stop = _stopOf(() => parse(extra));
+        expect((stop.error, stop.code), ('usage', 2), reason: '$extra');
+      }
+    });
+
+    test('a -- that is an option value is not the separator', () {
+      expect(parse(['--prefix', '--', '--', 'a.txt']).paths, ['a.txt']);
+      final r = parse(['--message-file', '--prefix', '--', 'a.txt']);
+      expect(r.messageFile, '--prefix');
+      expect(r.paths, ['a.txt']);
     });
 
     test('an unknown command is a usage stop', () {
@@ -220,7 +249,8 @@ void main() {
 
     test('option errors come before the unknown-command error', () {
       final stop = _stopOf(() => parseVcsArguments(['frobnicate', '--bogus']));
-      expect(stop.message, 'unknown option: --bogus');
+      expect((stop.error, stop.code), ('usage', 2));
+      expect(stop.message, isNot('unknown command: frobnicate'));
     });
 
     test('every known command is accepted', () {
@@ -317,7 +347,7 @@ void main() {
       expect(stop.code, 1);
       expect(
         documentText(stop.object()),
-        '{"ok": false, "error": "path_not_tracked", "message": "m", "path": "a"}',
+        '{"ok":false,"error":"path_not_tracked","message":"m","path":"a"}',
       );
     });
   });
@@ -367,10 +397,7 @@ void main() {
           },
         );
         expect(code, 0);
-        expect(
-          utf8.decode(out),
-          '{"ok": true, "backend": "git"}${documentLineEnd()}',
-        );
+        expect(utf8.decode(out), '{"ok":true,"backend":"git"}\n');
         expect(seen!.scriptsDir, '/scripts');
         expect(seen!.bash, '/bin/bash');
         expect(seen!.request.command, 'state');

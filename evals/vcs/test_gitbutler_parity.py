@@ -28,6 +28,16 @@ CHANGE_DIR = "%s/changes/%s" % (P, CHANGE)
 VCS_SH = (ROOT / "skills" / "specwright-pr" / "scripts" / "vcs.sh").resolve().as_posix()
 
 
+def compact_guard(doc):
+    """The oracle's document with its printed branch guard in sw's form: the one listed difference (C13).
+
+    The guard reads the `vcs.sh state` document by text, and sw prints that document compact, so sw's guard matches
+    `"branch":"<name>"` where the oracle's matched `"branch": "<name>"`."""
+    if isinstance(doc.get("script"), str):
+        doc = dict(doc, script=doc["script"].replace("'\"branch\": \"", "'\"branch\":\""))
+    return doc
+
+
 class TestGitButlerParity(GitButlerFlowCase):
     def commit_paths(self, scratch, wrap, subject, *paths):
         result = self.commit(scratch, wrap, subject + "\n", *paths)
@@ -52,7 +62,10 @@ class TestGitButlerParity(GitButlerFlowCase):
     def assertParity(self, pair):
         new, old = pair
         self.assertEqual(old[0], 0, old[1] + old[2])
-        self.assertEqual(new[1], old[1], "stdout bytes differ between finish.sh and the oracle")
+        # sw writes compact JSON, the oracle spaced: documents are equal by value, not by bytes (non-UTF-8 name bytes survive)
+        self.assertEqual(json.loads(new[1].decode("utf-8", "surrogateescape")),
+                         compact_guard(json.loads(old[1].decode("utf-8", "surrogateescape"))),
+                         "stdout documents differ between finish.sh and the oracle")
         self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
         return json.loads(old[1].decode("utf-8"))
 

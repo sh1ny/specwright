@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
-import '../settings/pyjson.dart';
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
 import '../settings/yaml.dart';
@@ -61,7 +60,7 @@ String _replyMessage(GhResult r) {
   final stdout = decodeReplacing(r.stdout);
   Object? message = '';
   try {
-    final body = pyJsonDecode(stdout);
+    final body = decodeJson(stdout);
     if (body is Map && pyTruthy(body['message'])) message = body['message'];
   } on FormatException {
     message = '';
@@ -150,7 +149,7 @@ Future<Map<String, Object?>?> _policyFile(
   ]);
   if (out == null) return null;
   try {
-    final body = pyJsonDecode(out);
+    final body = decodeJson(out);
     if (body is! Map ||
         body['type'] != 'file' ||
         body['encoding'] != 'base64') {
@@ -201,11 +200,20 @@ class _Side {
   Map<String, Reviewer>? storeSet;
 }
 
+Object? _asWritten(Map<String, Object?> pr, String key) =>
+    _holdsBigInt(pr[key]) ? settingText(pr, key) : pr[key];
+
+bool _holdsBigInt(Object? v) =>
+    v is BigInt ||
+    (v is List && v.any(_holdsBigInt)) ||
+    (v is Map && v.values.any(_holdsBigInt));
+
 _Side _policySide(Map<String, Object?> s, bool withStore) {
   final pr = _section(s, 'pr');
   final merge = mergeMode(pr);
-  final method = pr['merge_method'];
-  final delete = pr['delete_branch'];
+  // an integer past 64 bits cannot reach a document (C11): it shows as the user wrote it
+  final method = _asWritten(pr, 'merge_method');
+  final delete = _asWritten(pr, 'delete_branch');
   Object? raw = pr['reviewers'];
   final invalid = <Map<String, Object?>>[];
   final problems = <SettingProblem>[];
@@ -327,7 +335,7 @@ Future<Map<String, Object?>> _readSnapshots(PrContext ctx, PairArgs a) async {
       pairUsage('--snapshot is code=<file> or store=<file>');
     }
     try {
-      out[name] = pyJsonReadFile(await ctx.native(path));
+      out[name] = readJsonFile(await ctx.native(path));
     } on FormatException catch (e) {
       throw PairStop('snapshot_unreadable', e.message, code: 2);
     }
@@ -393,7 +401,7 @@ Future<int> runPolicy(
   final String defaultBranch;
   try {
     if (body == null) throw _Unreadable('no body');
-    final doc = pyJsonDecode(body);
+    final doc = decodeJson(body);
     final v = doc is Map ? doc['default_branch'] : null;
     if (v is! String || v.isEmpty) throw _Unreadable('no default branch');
     defaultBranch = v;

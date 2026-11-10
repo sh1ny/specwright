@@ -12,10 +12,15 @@ executables:
 # Constraint C3: cli/ must not depend on any package with build hooks, because
 # the distribution is one `dart compile exe` file (ADR 0027);
 # test/no_build_hooks_test.dart enforces it.
+# Constraint C6 (ADR 0033): a new package needs the owner's approval, no build
+# hooks and a notice in THIRD_PARTY_NOTICES.txt; a port that adopts one keeps
+# workflow guarantees, not Python's bytes.
 dependencies:
   args: ^2.7.0
+  crypto: ^3.0.8
   ffi: ^2.1.0
   html: ^0.15.7
+  path: ^1.9.1
 
 dev_dependencies:
   lints: ^6.0.0

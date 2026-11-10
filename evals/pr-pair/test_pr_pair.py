@@ -126,8 +126,10 @@ class Base(unittest.TestCase):
     def pp(self, *args, env=None, expect=0, cwd=None):
         """Run pr-pair.sh; return the parsed JSON line. The exit code must be `expect` (None = any)."""
         e = {**self.env(), **(env or {})}
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=e, cwd=cwd or self.tmp)
-        lines = r.stdout.strip().splitlines()
+        # UTF-8, not the locale code page: documents hold raw non-ASCII text, U+2028 included
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
+                           errors="surrogateescape", env=e, cwd=cwd or self.tmp)
+        lines = r.stdout.strip().split("\n")  # not splitlines(): U+2028 inside a string is data
         if expect is not None:
             self.assertEqual(r.returncode, expect, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")
         self.assertEqual(len(lines), 1, f"want exactly one JSON line from {args}, got {r.stdout!r} / {r.stderr!r}")
@@ -1404,7 +1406,7 @@ class Rounds(Base):
         e = {**self.env(), "GIT_SSH_COMMAND": f"sh {fixtures.posix(ssh)}"}
         r = subprocess.run([bashexe.bash(), str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
                             "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
-        self.assertIn('"ok": true', r.stdout, r.stdout + r.stderr)
+        self.assertIs(json.loads(r.stdout)["ok"], True, r.stdout + r.stderr)
         self.assertNotIn("SSH is disabled", r.stdout + r.stderr, "the store read ran inside the outer fence")
         self.assertTrue(seen.exists(), "the user's GIT_SSH_COMMAND did not run for the non-GitHub store")
         self.assertEqual(set(seen.read_text(encoding="utf-8").split()), {"token=unset"}, "the fence's token reached the non-GitHub remote")
@@ -2499,7 +2501,7 @@ class PassOwnership(PassBase):
         def go():
             gate.wait()
             r = subprocess.run(cmd, capture_output=True, text=True, env=self.env(), cwd=self.tmp)
-            res.append((r.returncode, json.loads(r.stdout.strip().splitlines()[0])))
+            res.append((r.returncode, json.loads(r.stdout.strip().split("\n")[0])))
 
         ts = [threading.Thread(target=go) for _ in range(2)]
         for t in ts:
@@ -2838,7 +2840,7 @@ class PassRuntime(PassBase):
         r = subprocess.run([bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
                            capture_output=True, text=True, env=self.env(), cwd=self.tmp)
         self.assertNotIn("Traceback", r.stdout + r.stderr)
-        lines = r.stdout.strip().splitlines()
+        lines = r.stdout.strip().split("\n")
         self.assertEqual(len(lines), 1, f"want one JSON line, got {r.stdout!r} / {r.stderr!r}")
         out = json.loads(lines[0])
         self.assertEqual((r.returncode, out["ok"], out["error"]), (1, False, "internal_error"), out)

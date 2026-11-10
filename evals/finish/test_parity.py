@@ -1,5 +1,7 @@
 """Differential eval (native-cli-finish D9): the frozen oracle copy of the old finish.sh and finish.sh plan the same fixture
-repos and must print the same stdout bytes and exit with the same code.
+repos and must print the same stdout document and exit with the same code. The documents are compared as parsed JSON: sw
+writes compact JSON, the oracle spaced JSON (native-cli-library-foundations D3). The one listed difference is
+`test_user_task_ids_are_ascii_digits`: the oracle reads Python's `\\d`, sw reads `[0-9]`.
 
 The oracle (evals/finish/oracle/finish.sh) is test-only and ships nowhere; ORACLE_FIN_DIR makes it print the real vcs.sh path.
 The GitButler cases are in evals/vcs/test_gitbutler_parity.py. M8 deletes the oracle together with the shim.
@@ -7,6 +9,7 @@ The GitButler cases are in evals/vcs/test_gitbutler_parity.py. M8 deletes the or
 Run: python -m unittest evals/finish/test_parity.py
 """
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -63,10 +66,25 @@ def jj_pair(work, env, args):
     return out
 
 
+def parsed(stdout):
+    """The JSON document finish prints: compact on the sw side, spaced on the oracle's, equal by value."""
+    return json.loads(stdout.decode("utf-8", "surrogateescape"))
+
+
+def compact_guard(doc):
+    """The oracle's document with its printed jj branch guard in sw's form: the one listed difference (C13).
+
+    The guard reads the `vcs.sh state` document by text, and sw prints that document compact, so sw's guard matches
+    `"branch":"<name>"` where the oracle's matched `"branch": "<name>"`."""
+    if isinstance(doc, dict) and isinstance(doc.get("script"), str):
+        doc = dict(doc, script=doc["script"].replace("'\"branch\": \"", "'\"branch\":\""))
+    return doc
+
+
 class ParityAsserts:
     def assertParity(self, pair, code=None):
         new, old = pair
-        self.assertEqual(new[1], old[1], "stdout bytes differ between finish.sh and the oracle")
+        self.assertEqual(parsed(new[1]), compact_guard(parsed(old[1])), "stdout documents differ between finish.sh and the oracle")
         self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
         if code is not None:  # the case really planned (or refused) what it names, not a broken fixture
             self.assertEqual(old[0], code, old[1] + old[2])
@@ -127,7 +145,22 @@ class TestParityGit(tp.Base, ParityAsserts):
                 fx.archive(self.work, ["add-x", "add-y"], commit_it=commit_it)
                 pair = self.plan()
                 self.assertParity(pair, 0)
-                self.assertIn(b'"waiting_on_user": ["1.2"]', pair[1][1])
+                self.assertEqual([m["waiting_on_user"] for m in parsed(pair[1][1])["members"]], [["1.2"], []])
+
+    def test_user_task_ids_are_ascii_digits(self):
+        """The asserted difference: a task id written in other Unicode digits (Python's `\\d` matches them) is not a task for
+        sw, which reads ASCII digits only, so only the ASCII id is waited on."""
+        self.on_branch()
+        fx.make_change(self.work, "add-x", "APPROVE", {"a": "X thing"}, commit_it=False)
+        fx.commit(self.work, "docs(add-x): add planning artifacts",
+                  {f"{P}/changes/add-x/tasks.md": "# Tasks\n\n- [x] 1.1 do it\n- [ ] \u0661.\u0661 [user] Play the level\n"
+                                                   "- [ ] 1.2 [user] Play the level\n"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        new, old = self.plan()
+        self.assertEqual(new[0], 0, new[2])
+        self.assertEqual(old[0], 0, old[2])
+        self.assertEqual([m["waiting_on_user"] for m in parsed(new[1])["members"]], [["1.2"]])
+        self.assertEqual([m["waiting_on_user"] for m in parsed(old[1])["members"]], [["\u0661.\u0661", "1.2"]])
 
     def test_resume_from_another_branch(self):
         self.single({"a": "New thing"})
@@ -211,7 +244,7 @@ class TestParityJj(tj.JjBase, ParityAsserts):
         self.jjc("bookmark", "create", JJ_BRANCH, "-r", "@-")
         pair = self.plan(branch=JJ_BRANCH)
         self.assertParity(pair, 0)
-        self.assertIn(b'"waiting_on_user": ["1.2"]', pair[1][1])
+        self.assertEqual([m["waiting_on_user"] for m in parsed(pair[1][1])["members"]], [["1.2"], []])
 
     def test_resume_from_another_branch(self):
         self.archived_branch()

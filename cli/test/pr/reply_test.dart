@@ -60,6 +60,79 @@ void main() {
   });
   tearDown(() => f.dispose());
 
+  group('the option rule', () {
+    test('the equals form matches the two-word form', () async {
+      expect(
+        await reply([
+          '7',
+          'resolve',
+          'T',
+          '--repo=o/n',
+          '--rev=5@2026-11-01T10:00:00Z',
+        ]),
+        0,
+        reason: f.stderr,
+      );
+      expect(kinds(), ['pending', 'rev', 'resolve']);
+      f.ghCalls.clear();
+      expect(
+        await reply([
+          '7',
+          'comment',
+          'C',
+          body.path,
+          '--react=-1',
+          '--repo=o/n',
+        ]),
+        0,
+        reason: f.stderr,
+      );
+      expect(kinds().last, 'react-node');
+    });
+
+    test('a single-dash positional and a dash value keep working', () async {
+      expect(await reply(['7', 'react', 'C', '-1', '--repo', 'o/n']), 0);
+      expect(
+        await reply([
+          '7',
+          'comment',
+          'C',
+          body.path,
+          '--react',
+          '-1',
+          '--repo',
+          'o/n',
+        ]),
+        0,
+        reason: f.stderr,
+      );
+    });
+
+    test('an abbreviated or unknown option is a usage stop, exit 4', () async {
+      for (final extra in [
+        ['--rep', 'o/n'],
+        ['--re=5'],
+        ['--bogus'],
+      ]) {
+        f.err.clear();
+        f.ghCalls.clear();
+        expect(
+          await reply(['7', 'resolve', 'T', ...extra]),
+          4,
+          reason: '$extra',
+        );
+        expect(f.ghCalls, isEmpty, reason: '$extra');
+      }
+    });
+
+    test('an option before the positionals is a usage stop, exit 4', () async {
+      expect(await reply(['7', 'resolve', '--repo', 'o/n', 'T']), 4);
+      expect(await reply(['7', 'react', '--repo', 'o/n', 'C', '-1']), 4);
+      expect(await reply(['7', 'thread', '--resolve', 'T', '1', body.path]), 4);
+      expect(f.ghCalls, isEmpty);
+    });
+  });
+
   group('refused before any gh call (exit 4)', () {
     void refused(List<String> args, String message) {
       test('${args.join(' ')} -> $message', () async {
@@ -155,17 +228,35 @@ void main() {
         expect(f.stderr, 'pr-reply.sh: line 50: 2: thread|comment|resolve\n');
       });
 
-      test('an option without its value', () async {
-        expect(await reply(['7', 'resolve', 'T', '--repo']), 1);
-        expect(f.stderr, 'pr-reply.sh: line 54: 2: --repo needs owner/name\n');
-        f.err.clear();
-        expect(await reply(['7', 'resolve', 'T', '--react', '']), 1);
-        expect(f.stderr, 'pr-reply.sh: line 56: 2: --react needs +1 or -1\n');
-        f.err.clear();
-        expect(await reply(['7', 'resolve', 'T', '--rev']), 1);
-        expect(f.stderr, 'pr-reply.sh: line 58: 2: --rev needs the item rev\n');
-        expect(f.ghCalls, isEmpty);
-      });
+      test(
+        'an option without its value is a usage stop, an empty one is not',
+        () async {
+          for (final option in ['--repo', '--react', '--rev']) {
+            f.err.clear();
+            expect(
+              await reply(['7', 'resolve', 'T', option]),
+              4,
+              reason: option,
+            );
+          }
+          f.err.clear();
+          expect(await reply(['7', 'resolve', 'T', '--repo', '']), 1);
+          expect(
+            f.stderr,
+            'pr-reply.sh: line 54: 2: --repo needs owner/name\n',
+          );
+          f.err.clear();
+          expect(await reply(['7', 'resolve', 'T', '--react', '']), 1);
+          expect(f.stderr, 'pr-reply.sh: line 56: 2: --react needs +1 or -1\n');
+          f.err.clear();
+          expect(await reply(['7', 'resolve', 'T', '--rev', '']), 1);
+          expect(
+            f.stderr,
+            'pr-reply.sh: line 58: 2: --rev needs the item rev\n',
+          );
+          expect(f.ghCalls, isEmpty);
+        },
+      );
     },
   );
 
