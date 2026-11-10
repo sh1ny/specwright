@@ -1,7 +1,8 @@
-"""sw vcs output bytes: separators stay escaped, a name's bytes round-trip, tool input reaches the tool.
+"""sw vcs output bytes: line separators parse back, a name's bytes round-trip, tool input reaches the tool.
 
 Run through the vcs.sh shim against the tree's sw (design D9)."""
 
+import json
 import os
 import subprocess
 import sys
@@ -32,14 +33,13 @@ class TestSwBytes(VcsTestCase):
         path.write_text("feat(bytes): name\n", encoding="utf-8")
         return path
 
-    def test_line_separators_stay_escaped(self):
-        name = "a\u2028b\u2029caf\u00e9.txt"
+    def test_line_separators_parse_back(self):
+        name = "a b café.txt"
         self.write(name, "x\n")
         state, result = self.invoke("state")
         self.assertIn(name, state["dirty_paths"])
-        self.assertIn("a" + chr(92) + "u2028b" + chr(92) + "u2029caf" + chr(233) + ".txt", result.stdout)
-        self.assertNotIn(chr(0x2028), result.stdout)
-        self.assertNotIn(chr(0x2029), result.stdout)
+        # the encoder leaves U+2028 and U+2029 raw: consumers parse documents, they never match their text
+        self.assertIn(name, json.loads(result.stdout)["dirty_paths"])
 
     @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_non_utf8_name_round_trips(self):

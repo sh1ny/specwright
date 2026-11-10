@@ -25,7 +25,9 @@ abstract class RecordFiles {
 
   void acquireLock(String path);
   void releaseLock(String path);
-  List<int> readBytes(String path);
+
+  /// The bytes of [path]; with [limit], at most `limit + 1` of them (one more than the bound, so a longer file shows).
+  List<int> readBytes(String path, {int? limit});
   void link(String source, String destination);
   RecordOutput createExclusive(String path);
   void replace(String source, String destination);
@@ -70,7 +72,17 @@ class _SdkFiles implements RecordFiles {
   @override
   void releaseLock(String path) => _file(path).deleteSync();
   @override
-  List<int> readBytes(String path) => _file(path).readAsBytesSync();
+  List<int> readBytes(String path, {int? limit}) {
+    if (limit == null) return _file(path).readAsBytesSync();
+    // at most limit + 1 bytes, so a caller sees that the file is longer without reading it whole
+    final file = _file(path).openSync();
+    try {
+      return file.readSync(limit + 1);
+    } finally {
+      file.closeSync();
+    }
+  }
+
   @override
   void delete(String path) => _file(path).deleteSync();
   @override

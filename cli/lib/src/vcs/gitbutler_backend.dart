@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../commands/vcs.dart';
 import 'codec.dart';
+import 'document.dart';
 import 'git_backend.dart' show requireBranch;
 import 'git_common.dart';
 import 'scripts.dart';
@@ -165,7 +166,7 @@ class GitButler {
   Future<Map<String, Object?>> butStatus() async {
     final Object? status;
     try {
-      status = jsonDecode(
+      status = decodeJson(
         await butRun(['status', '--json'], cap: butStatusCap),
       );
     } on FormatException {
@@ -745,7 +746,7 @@ class GitButler {
       'pulled': true,
     };
     try {
-      final report = jsonDecode(out);
+      final report = decodeJson(out);
       if (report is Map && _truthy(report['status'])) {
         result['status'] = report['status'];
       }

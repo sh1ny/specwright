@@ -1,148 +1,122 @@
-import 'dart:io' show Platform;
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import '../process/limits.dart';
 import 'codec.dart';
 
-/// The text `json.dumps(value, ensure_ascii=False)` gives, with U+2028 and
-/// U+2029 written as the six-character escapes \u2028 and \u2029
-/// (`vcs.sh:43-45`).
-///
-/// Separators are `", "` and `": "` (`","` and `":"` with [compact], Python's
-/// `separators=(",", ":")`), keys keep their insertion order (use a
-/// `LinkedHashMap`, Dart's default map), non-ASCII text stays raw, and only
-/// `"`, `\` and the controls below U+0020 are escaped. A lone surrogate is
-/// written as it is; [documentBytes] turns U+DC80..U+DCFF back into bytes.
-/// Supported values are `null`, `bool`, `int`, `BigInt`, `String`, `List` and
-/// `Map<String, _>`; anything else is an [ArgumentError].
-///
-/// With [escapeLineSeparators] false the two separators stay raw, which is
-/// plain `json.dumps(value, ensure_ascii=False)` (`task-cover.sh` prints that).
-String documentText(
-  Object? value, {
-  bool escapeLineSeparators = true,
-  bool compact = false,
-}) {
-  final out = StringBuffer();
-  _write(out, value, compact ? ',' : ', ', compact ? ':' : ': ');
-  final text = out.toString();
-  if (!escapeLineSeparators) return text;
-  return text
-      .replaceAll(_lineSeparator, r'\u2028')
-      .replaceAll(_paragraphSeparator, r'\u2029');
+/// Every JSON input the CLI reads is refused through this one type. [message] starts with `<file>: ` when the source is
+/// a file, so a caller that prints it names the file.
+class JsonInputException extends FormatException {
+  JsonInputException(super.message);
 }
 
-final String _lineSeparator = String.fromCharCode(0x2028);
-final String _paragraphSeparator = String.fromCharCode(0x2029);
-
-/// What `print()` ends a document with: `\r\n` on Windows (Python translates
-/// `\n` there, even into a pipe), `\n` elsewhere.
-String documentLineEnd({bool? windows}) =>
-    (windows ?? Platform.isWindows) ? '\r\n' : '\n';
-
-/// The bytes `vcs.sh` writes to stdout for [value]: [documentText], encoded
-/// with surrogateescape (Python's `-X utf8` mode), then [lineEnd] (default
-/// [documentLineEnd]).
-Uint8List documentBytes(
-  Object? value, {
-  String? lineEnd,
-  bool escapeLineSeparators = true,
-  bool compact = false,
-}) => encodeEscaped(
-  '${documentText(value, escapeLineSeparators: escapeLineSeparators, compact: compact)}'
-  '${lineEnd ?? documentLineEnd()}',
-);
-
-void _write(StringBuffer out, Object? v, String item, String pair) {
-  switch (v) {
-    case null:
-      out.write('null');
-    case bool():
-      out.write(v ? 'true' : 'false');
-    case int() || BigInt():
-      out.write(v.toString());
-    case double():
-      out.write(_double(v));
-    case String():
-      _string(out, v);
-    case List():
-      out.write('[');
-      for (var i = 0; i < v.length; i++) {
-        if (i > 0) out.write(item);
-        _write(out, v[i], item, pair);
-      }
-      out.write(']');
-    case Map():
-      out.write('{');
-      var first = true;
-      for (final e in v.entries) {
-        if (e.key is! String) {
-          throw ArgumentError('document key is not a string: ${e.key}');
-        }
-        if (!first) out.write(item);
-        first = false;
-        _string(out, e.key as String);
-        out.write(pair);
-        _write(out, e.value, item, pair);
-      }
-      out.write('}');
-    default:
-      throw ArgumentError('cannot write ${v.runtimeType} in a document');
+/// C4: the one JSON reader. `jsonDecode` refuses `NaN`, `Infinity` and `-Infinity`, and a byte-order mark; it keeps the
+/// last of two duplicate keys and a lone surrogate escape as written; it reads an integer past 64 bits as a `double`,
+/// so a caller that needs an exact integer checks `is int`. It keeps its own stack, so nesting depth needs no limit
+/// here: the size bound of [readJsonFile] is the protection, and a `StackOverflowError` is mapped to the same stop in
+/// case a later SDK recurses. [file] names the source in the refusal's message.
+Object? decodeJson(String text, {String file = ''}) {
+  final prefix = file.isEmpty ? '' : '$file: ';
+  try {
+    return jsonDecode(text);
+  } on FormatException catch (e) {
+    final at = e.offset == null ? '' : ' (char ${e.offset})';
+    throw JsonInputException('${prefix}not valid JSON: ${e.message}$at');
+  } on StackOverflowError {
+    throw JsonInputException('${prefix}not valid JSON: nested too deeply');
   }
 }
 
-void _string(StringBuffer out, String s) {
-  out.write('"');
-  for (final u in s.codeUnits) {
-    switch (u) {
-      case 0x22:
-        out.write(r'\"');
-      case 0x5c:
-        out.write(r'\\');
-      case 0x0a:
-        out.write(r'\n');
-      case 0x0d:
-        out.write(r'\r');
-      case 0x09:
-        out.write(r'\t');
-      case 0x08:
-        out.write(r'\b');
-      case 0x0c:
-        out.write(r'\f');
-      case < 0x20:
-        out.write('\\u${u.toRadixString(16).padLeft(4, '0')}');
-      default:
-        out.writeCharCode(u);
+/// [bytes], the content of [file], as strict UTF-8 text. A byte-order mark is kept in the text, so it is refused as
+/// invalid JSON.
+String decodeJsonBytes(List<int> bytes, String file) {
+  try {
+    final bom =
+        bytes.length >= 3 &&
+        bytes[0] == 0xef &&
+        bytes[1] == 0xbb &&
+        bytes[2] == 0xbf;
+    final body = utf8.decode(bom ? bytes.sublist(3) : bytes);
+    return bom ? '\u{feff}$body' : body;
+  } on FormatException catch (e) {
+    throw JsonInputException('$file: not valid UTF-8: ${e.message}');
+  }
+}
+
+/// C10: reads the JSON file at [path], the raw path a caller was given. The read takes at most [defaultMaxBytes] (32
+/// MiB) plus one byte, and a longer file is `<path>: larger than 32 MiB` without being read whole. Bytes that are not
+/// UTF-8, a document that is not JSON and a file that cannot be read each stop with a [JsonInputException] whose
+/// message starts with `<path>: `.
+Object? readJsonFile(String path) =>
+    decodeJson(decodeJsonBytes(readBounded(path), path), file: path);
+
+/// The bytes of [path], at most [limit] of them; a file over the limit is a [JsonInputException] naming [path] (the
+/// file is never read whole).
+List<int> readBounded(String path, {int limit = defaultMaxBytes}) {
+  final Uint8List bytes;
+  try {
+    final file = File.fromRawPath(encodeEscaped(path)).openSync();
+    try {
+      bytes = file.readSync(limit + 1);
+    } finally {
+      file.closeSync();
     }
+  } on FileSystemException catch (e) {
+    final os = e.osError?.message.trim();
+    throw JsonInputException(
+      '$path: cannot read: ${os == null || os.isEmpty ? e.message : os}',
+    );
   }
-  out.write('"');
+  if (bytes.length > limit) {
+    throw JsonInputException(
+      '$path: larger than ${limit ~/ (1024 * 1024)} MiB',
+    );
+  }
+  return bytes;
 }
 
-/// Python's `float.__repr__`, which `json.dumps` uses: the shortest digits that
-/// read back as the same double, in positional form unless the decimal
-/// exponent is below -4 or reaches 16, when it is `d.ddde+XX` (at least two
-/// exponent digits). `NaN`, `Infinity` and `-Infinity` are what `json.dumps`
-/// writes for the three non-finite values.
-String _double(double d) {
-  if (d.isNaN) return 'NaN';
-  if (d.isInfinite) return d < 0 ? '-Infinity' : 'Infinity';
-  final sign = d.isNegative ? '-' : '';
-  if (d == 0) return '${sign}0.0';
-  // toStringAsExponential() with no digits count gives the shortest round-trip
-  // digits: `d[.ddd]e[+-]x`
-  final parts = d.abs().toStringAsExponential().split('e');
-  final digits = parts[0].replaceAll('.', '');
-  final exponent = int.parse(parts[1]);
-  final decpt = exponent + 1; // the point sits after digits[0..decpt)
-  if (decpt > 16 || decpt < -3) {
-    final mantissa = digits.length == 1
-        ? digits
-        : '${digits[0]}.${digits.substring(1)}';
-    final magnitude = exponent.abs().toString().padLeft(2, '0');
-    return '$sign${mantissa}e${exponent < 0 ? '-' : '+'}$magnitude';
-  }
-  if (decpt <= 0) return '${sign}0.${'0' * -decpt}$digits';
-  if (decpt >= digits.length) {
-    return '$sign$digits${'0' * (decpt - digits.length)}.0';
-  }
-  return '$sign${digits.substring(0, decpt)}.${digits.substring(decpt)}';
+/// The text of [value] as compact JSON: no space after `,` or `:`, keys in insertion order, non-ASCII text raw, and
+/// only `"`, `\` and the controls below U+0020 escaped. Consumers parse documents and never match their text, so the
+/// raw U+2028 and U+2029 are legal (the one exception is `pr/text.dart`, which reads a few compact keys; C12).
+///
+/// `JsonEncoder` writes a lone surrogate as the six-character escape `\udXXX` (A3 of native-cli-library-foundations
+/// found this). A document must still carry a file name that is not UTF-8, which [decodeEscaped] holds as a lone
+/// U+DC80..U+DCFF unit, so the encoder's own escapes of lone surrogates are turned back into the unit; text a caller
+/// wrote with a backslash is escaped by the encoder (`\\`) and is left alone. A value JSON cannot hold (`NaN`,
+/// `Infinity`, a `BigInt`, a key that is not a string, an unknown object) throws a `JsonUnsupportedObjectError`.
+String documentText(Object? value) {
+  final text = const JsonEncoder().convert(value);
+  return text.contains(r'\ud') ? _restoreLoneSurrogates(text) : text;
 }
+
+String _restoreLoneSurrogates(String text) {
+  final out = StringBuffer();
+  var i = 0;
+  while (i < text.length) {
+    final c = text.codeUnitAt(i);
+    if (c != 0x5c) {
+      out.writeCharCode(c);
+      i++;
+      continue;
+    }
+    // an escape: `\u` and four hex digits, or a backslash and one more character
+    if (i + 5 < text.length && text.codeUnitAt(i + 1) == 0x75) {
+      final unit = int.tryParse(text.substring(i + 2, i + 6), radix: 16);
+      if (unit != null && unit >= 0xd800 && unit <= 0xdfff) {
+        out.writeCharCode(unit);
+        i += 6;
+        continue;
+      }
+    }
+    out.write(text.substring(i, i + 2));
+    i += 2;
+  }
+  return out.toString();
+}
+
+/// C3: the bytes `sw` writes to stdout for [value]: [documentText], encoded with surrogateescape so the original bytes
+/// of a non-UTF-8 name come back, then one LF on every platform. A lone surrogate other than U+DC80..U+DCFF is a
+/// `FormatException`, as Python fails to encode it. native-cli-launcher replaces this escaping.
+Uint8List documentBytes(Object? value) =>
+    encodeEscaped('${documentText(value)}\n');

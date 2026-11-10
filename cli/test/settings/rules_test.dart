@@ -55,12 +55,131 @@ void main() {
       expect(duration(true, 7), true);
       expect(duration(false, 7), false);
     });
+  });
 
-    test('keeps a product past 64 bits as a BigInt', () {
+  group('an integer setting beyond 64 bits is bad_setting', () {
+    // Constraint C11: no BigInt reaches a document. The rules layer turns an
+    // integer past signed 64 bits into a problem naming the key and the default.
+    final big = BigInt.parse('99999999999999999999');
+
+    test('duration: a product or an integer past 64 bits is the default', () {
+      for (final v in <Object?>[
+        big,
+        '99999999999999999999h',
+        '99999999999999999999',
+      ]) {
+        final problems = <SettingProblem>[];
+        final got = duration(v, 7, key: 'pr.poll_interval', problems: problems);
+        expect(got, 7, reason: '$v');
+        expect(got, isNot(isA<BigInt>()), reason: '$v');
+        expect(problems, hasLength(1), reason: '$v');
+        expect(problems.single.error, 'bad_setting');
+        expect(problems.single.key, 'pr.poll_interval');
+        expect(problems.single.why, contains('64'));
+      }
+    });
+
+    test('duration: the largest 64-bit value is still read', () {
+      final problems = <SettingProblem>[];
       expect(
-        duration('99999999999999999999h', 7),
-        BigInt.parse('359999999999999999996400'),
+        duration(9223372036854775807, 7, key: 'k', problems: problems),
+        9223372036854775807,
       );
+      expect(
+        duration('9223372036854775807', 7, key: 'k', problems: problems),
+        9223372036854775807,
+      );
+      expect(problems, isEmpty);
+    });
+
+    test('duration: with no problems list the default still stands', () {
+      expect(duration(big, 7), 7);
+    });
+
+    test('reviewersOf: a timeout past 64 bits is a problem and 1200', () {
+      final problems = <SettingProblem>[];
+      final out = reviewersOf(
+        parseYaml(
+          'rev-bot:\n  role: required\n  timeout: 99999999999999999999\n'
+          'other:\n  timeout: 99999999999999999999h\n',
+        ),
+        problems: problems,
+      );
+      expect(out['rev-bot']!.timeout, 1200);
+      expect(out['other']!.timeout, 1200);
+      expect(
+        [for (final p in problems) p.key],
+        ['pr.reviewers.rev-bot.timeout', 'pr.reviewers.other.timeout'],
+      );
+      expect(problems.every((p) => p.error == 'bad_setting'), true);
+      final json = _json({
+        for (final e in out.entries) e.key: e.value.toJson(),
+      });
+      expect(json, isA<Map<String, Object?>>());
+    });
+
+    test('reviewersOf: the where argument names a planning_store set', () {
+      final problems = <SettingProblem>[];
+      reviewersOf(
+        parseYaml('x:\n  timeout: 99999999999999999999\n'),
+        problems: problems,
+        where: 'planning_store.reviewers',
+      );
+      expect(problems.single.key, 'planning_store.reviewers.x.timeout');
+    });
+
+    test('contexts: max_fix_rounds and poll_interval past 64 bits', () {
+      final problems = <SettingProblem>[];
+      final c = contexts(
+        parseYaml(
+          'pr:\n  max_fix_rounds: 99999999999999999999\n'
+          '  poll_interval: 99999999999999999999\n',
+        ),
+        '/c',
+        null,
+        detectMain: (_) => 'main',
+        problems: problems,
+      );
+      expect(c.maxFixRounds, 2);
+      expect(c.pollInterval, 300);
+      expect(c.maxFixRounds, isA<int>());
+      expect(
+        [for (final p in problems) p.key],
+        ['pr.max_fix_rounds', 'pr.poll_interval'],
+      );
+      expect(problems.every((p) => p.error == 'bad_setting'), true);
+      expect(_json(c.toJson()), isA<Map<String, Object?>>());
+    });
+
+    test(
+      'contexts: reviewer timeouts past 64 bits reach the document as 1200',
+      () {
+        final problems = <SettingProblem>[];
+        final c = contexts(
+          parseYaml(
+            'pr:\n  reviewers:\n    rev-bot:\n      timeout: 99999999999999999999\n',
+          ),
+          '/c',
+          null,
+          detectMain: (_) => 'main',
+          problems: problems,
+        );
+        expect(c.code.reviewers['rev-bot']!.timeout, 1200);
+        expect(problems.single.key, 'pr.reviewers.rev-bot.timeout');
+      },
+    );
+
+    test('a quoted round count is still the default, with no problem', () {
+      final problems = <SettingProblem>[];
+      final c = contexts(
+        parseYaml("pr:\n  max_fix_rounds: '99999999999999999999'\n"),
+        '/c',
+        null,
+        detectMain: (_) => 'main',
+        problems: problems,
+      );
+      expect(c.maxFixRounds, 2);
+      expect(problems, isEmpty);
     });
   });
 
@@ -157,7 +276,7 @@ void main() {
       });
       expect(
         documentText(out['kody-ai']!.toJson()),
-        '{"role": "advisory", "timeout": 900, "request": "@kody review", "report": {}}',
+        '{"role":"advisory","timeout":900,"request":"@kody review","report":{}}',
         reason: 'the field order is the script\'s',
       );
     });
@@ -405,7 +524,7 @@ void main() {
     for (final (name, yaml, code, store, check, want) in _contextCases) {
       test(name, () {
         final problems = <SettingProblem>[];
-        String got;
+        Object? got;
         try {
           final c = contexts(
             parseYaml(yaml),
@@ -415,11 +534,20 @@ void main() {
             checkMerge: check,
             problems: problems,
           );
-          got = '${documentText(c.toJson())}\n${_problemsJson(problems)}';
+          got = [_json(c.toJson()), jsonDecode(_problemsJson(problems))];
         } on SettingsStop catch (e) {
-          got = 'STOP ${e.error} ${e.code}\n${_problemsJson(problems)}';
+          got = [
+            'STOP ${e.error} ${e.code}',
+            jsonDecode(_problemsJson(problems)),
+          ];
         }
-        expect(got, want);
+        // the frozen script's text is compared as parsed values
+        final split = want.indexOf('\n');
+        final first = want.substring(0, split);
+        expect(got, [
+          first.startsWith('STOP') ? first : jsonDecode(first),
+          jsonDecode(want.substring(split + 1)),
+        ]);
       });
     }
 
@@ -749,13 +877,5 @@ final _contextCases = <(String, String, String, String?, bool, String)>[
     null,
     true,
     '{"code": {"dir": "/w/code", "review_request": {"body": "", "login": "", "after_fixes": false}, "request_as": "", "login": "", "main": "detected-code", "validate": "", "reviewers": {"a": {"role": "advisory", "timeout": 1200, "request": "", "report": {}}}, "requests_disabled": false, "merge_ready": false, "merge_reason": "no_required_reviewer"}, "store": null, "finish": "", "max_fix_rounds": 2, "after_limit": "ask", "react": false, "poll_interval": 300, "settle": 300, "merge": "user", "merge_method": "merge", "delete_branch": true}\n[]',
-  ),
-  (
-    'a round count past 64 bits',
-    'pr:\n  max_fix_rounds: 99999999999999999999\n',
-    '/w/code',
-    null,
-    true,
-    '{"code": {"dir": "/w/code", "review_request": {"body": "", "login": "", "after_fixes": false}, "request_as": "", "login": "", "main": "detected-code", "validate": "", "reviewers": {}, "requests_disabled": false, "merge_ready": false, "merge_reason": "no_required_reviewer"}, "store": null, "finish": "", "max_fix_rounds": 99999999999999999999, "after_limit": "ask", "react": false, "poll_interval": 300, "settle": 300, "merge": "user", "merge_method": "merge", "delete_branch": true}\n[]',
   ),
 ];

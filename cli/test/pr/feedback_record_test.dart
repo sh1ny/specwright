@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 import 'package:specwright_cli/src/pr/feedback_record.dart';
 import 'package:specwright_cli/src/pr/pair.dart';
 import 'package:specwright_cli/src/pr/context.dart';
+import 'package:specwright_cli/src/process/limits.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
 
 class FaultFiles implements RecordFiles {
@@ -22,9 +23,9 @@ class FaultFiles implements RecordFiles {
   @override
   void acquireLock(String p) => actual.acquireLock(p);
   @override
-  List<int> readBytes(String p) {
+  List<int> readBytes(String p, {int? limit}) {
     if (p == deniedRead) throw FileSystemException('permission denied', p);
-    return actual.readBytes(p);
+    return actual.readBytes(p, limit: limit);
   }
 
   @override
@@ -154,7 +155,6 @@ void main() {
         'nested': {
           '\uDC81': ['\uDC80', 'é', '😀'],
         },
-        'large': BigInt.parse('18446744073709551616'),
       };
       store.writeNew(path, record);
       expect(utf8.decode(File(path).readAsBytesSync()), contains(r'\udcff'));
@@ -718,4 +718,52 @@ else:
       ),
     );
   });
+
+  test('an oversized record blocks replacement', () {
+    // the record is read through the 32 MiB bound; a longer file stays as it is
+    final store = FeedbackRecordStore(tmp.path);
+    File(path).openSync(mode: FileMode.write)
+      ..truncateSync(defaultMaxBytes + 1)
+      ..closeSync();
+    expect(File(path).lengthSync(), defaultMaxBytes + 1);
+    expect(
+      () => store.load(path),
+      throwsA(
+        isA<PairStop>()
+            .having((e) => e.error, 'error', 'record_unreadable')
+            .having((e) => e.message, 'message', contains('32 MiB')),
+      ),
+    );
+    expect(
+      () => store.writeNew(path, {'version': 2, 'owner': 'new'}),
+      throwsA(isA<PairStop>()),
+    );
+    expect(File(path).lengthSync(), defaultMaxBytes + 1);
+  });
+
+  test('a store with another RecordFiles reads under the same bound', () {
+    // a fake that honours the limit it is given, as the SDK files do
+    final seen = <int?>[];
+    final files = _Limited(seen, defaultMaxBytes + 1);
+    final store = FeedbackRecordStore(tmp.path, files: files);
+    expect(
+      () => store.load(path),
+      throwsA(
+        isA<PairStop>().having((e) => e.error, 'error', 'record_unreadable'),
+      ),
+    );
+    expect(seen, [defaultMaxBytes]);
+  });
+}
+
+/// A record file that holds [size] bytes and records the limit each read asks for.
+class _Limited extends FaultFiles {
+  _Limited(this.seen, this.size);
+  final List<int?> seen;
+  final int size;
+  @override
+  List<int> readBytes(String p, {int? limit}) {
+    seen.add(limit);
+    return List<int>.filled(limit == null ? size : limit + 1, 0x20);
+  }
 }

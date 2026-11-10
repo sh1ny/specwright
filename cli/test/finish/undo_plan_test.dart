@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:specwright_cli/src/finish/script_text.dart';
 import 'package:specwright_cli/src/finish/undo_plan.dart';
+import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
@@ -159,6 +160,36 @@ void main() {
   final bash = findBash();
   final skip = bash == null ? 'no bash installed' : false;
   late Directory tmp;
+
+  /// Runs the printed branch guard of [script] (C13) with its `vcs.sh state`
+  /// call answered by [state], the document `sw vcs state` would print, then
+  /// `echo passed`: the next step runs only when the guard lets it.
+  ProcessResult runGuard(String script, Map<String, Object?> state) {
+    final guard = script.split('\n').firstWhere((l) => l.startsWith('case "'));
+    final answered = guard.replaceFirst(
+      RegExp(r'\$\(bash [^)]*\)'),
+      "\$(printf '%s\\n' ${shellQuote(documentText(state))})",
+    );
+    return Process.runSync(bash!, ['-c', '$answered\necho passed']);
+  }
+
+  void expectGuard(String script, String backend) {
+    final planned = runGuard(script, {
+      'ok': true,
+      'backend': backend,
+      'branch': 'feat/x',
+    });
+    expect(planned.exitCode, 0, reason: '${planned.stderr}');
+    expect(planned.stdout, 'passed\n');
+    final other = runGuard(script, {
+      'ok': true,
+      'backend': backend,
+      'branch': 'feat/y',
+    });
+    expect(other.exitCode, 1);
+    expect(other.stderr, contains('wrong branch'));
+    expect(other.stdout, isEmpty);
+  }
 
   setUp(() => tmp = Directory.systemTemp.createTempSync('claude-ncf-g3-'));
   tearDown(() => tmp.deleteSync(recursive: true));
@@ -1313,7 +1344,7 @@ void main() {
             'set -euo pipefail',
             'cd ${sq(top)}',
             'case "\$(bash $vcsSh state --repo ${sq(top)} --role code --branch feat/x)" '
-                'in *\'"branch": "feat/x"\'*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
+                'in *\'"branch":"feat/x"\'*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
             'test "\$(git rev-parse refs/heads/feat/x)" = $a',
             'git diff --quiet $a HEAD -- $touched || { echo "another applied '
                 'branch changes a path the undo restores" >&2; exit 1; }',
@@ -1346,6 +1377,17 @@ void main() {
         expect(doc['after_rerun'], isNull);
       }, skip: skip);
 
+      test(
+        'the printed guard runs on the planned branch and refuses another',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final doc = (await plan(rq(repo, branch: 'feat/x'), gbCtx())).doc;
+          expectGuard(doc['script']! as String, 'gitbutler');
+        },
+        skip: skip,
+      );
+
       test('the uncommitted plan has no commit step and no status guard', () async {
         final repo = branchRepo();
         archive(repo, ['add-x']);
@@ -1377,6 +1419,17 @@ void main() {
             'dirty': entries,
           };
 
+      test(
+        'the printed jj guard runs on the planned branch and refuses another',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final doc = (await plan(rq(repo), readerCtx(reader()))).doc;
+          expectGuard(doc['script']! as String, 'jj');
+        },
+        skip: skip,
+      );
+
       test('the committed plan works the working copy and commits with jj', () async {
         final repo = branchRepo();
         final a = archive(repo, ['add-x'], commitIt: true)!;
@@ -1395,7 +1448,7 @@ void main() {
             'set -euo pipefail',
             'cd ${sq(top)}',
             'case "\$(bash $vcsSh state --repo ${sq(top)} --role code)" '
-                'in *\'"branch": "feat/x"\'*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
+                'in *\'"branch":"feat/x"\'*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
             'test "\$(git rev-parse HEAD)" = $a',
             'test -z "\$(jj diff -r @ --name-only $fs)"',
             'test ! -e ${sq(backup)}',

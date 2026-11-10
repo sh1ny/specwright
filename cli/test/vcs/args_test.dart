@@ -317,7 +317,7 @@ void main() {
       expect(stop.code, 1);
       expect(
         documentText(stop.object()),
-        '{"ok": false, "error": "path_not_tracked", "message": "m", "path": "a"}',
+        '{"ok":false,"error":"path_not_tracked","message":"m","path":"a"}',
       );
     });
   });
@@ -367,10 +367,7 @@ void main() {
           },
         );
         expect(code, 0);
-        expect(
-          utf8.decode(out),
-          '{"ok": true, "backend": "git"}${documentLineEnd()}',
-        );
+        expect(utf8.decode(out), '{"ok":true,"backend":"git"}\n');
         expect(seen!.scriptsDir, '/scripts');
         expect(seen!.bash, '/bin/bash');
         expect(seen!.request.command, 'state');

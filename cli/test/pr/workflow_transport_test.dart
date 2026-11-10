@@ -52,10 +52,49 @@ void main() {
       expect(await readWorkflowJson(file.path), {'value': 'é'});
       await expectLater(
         readWorkflowJson('${file.path}.missing'),
-        throwsA(isA<FileSystemException>()),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('${file.path}.missing: cannot read: '),
+          ),
+        ),
       );
     },
   );
+
+  test('oversized workflow JSON retains its stop and raw path', () async {
+    final directory = Directory.systemTemp.createTempSync('workflow-json-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/snapshot-\u00e9.json');
+    file.openSync(mode: FileMode.write)
+      ..truncateSync(defaultMaxBytes + 1)
+      ..closeSync();
+    await expectLater(
+      readWorkflowJson(file.path),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(startsWith('${file.path}: '), contains('32 MiB')),
+        ),
+      ),
+    );
+    // the file at the cap is read (and refused as JSON, not as too long)
+    file.openSync(mode: FileMode.write)
+      ..truncateSync(defaultMaxBytes)
+      ..closeSync();
+    await expectLater(
+      readWorkflowJson(file.path),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          isNot(contains('32 MiB')),
+        ),
+      ),
+    );
+  });
 
   test(
     'real workflow command preserves empty long and raw argument bytes',

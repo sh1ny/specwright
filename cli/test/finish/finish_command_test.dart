@@ -173,12 +173,12 @@ void main() {
       expect(doc()['message'], contains('boom'));
     });
 
-    test('U+2028 in a document is written as an escape', () async {
+    test('U+2028 in a document parses back', () async {
       planner = (request, ctx) async => {
         'v': 'a${String.fromCharCode(0x2028)}b',
       };
       await run(['--args-stdin'], _records(['/s', '/b', 'undo-archive-plan']));
-      expect(utf8.decode(out), contains('a${String.fromCharCode(0x5c)}u2028b'));
+      expect(doc()['v'], 'a${String.fromCharCode(0x2028)}b');
     });
 
     test('an unknown subcommand is a usage stop with the usage text', () async {

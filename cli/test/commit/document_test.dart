@@ -6,12 +6,12 @@ import 'package:test/test.dart';
 
 /// Assumption A3 of native-cli-commit: `json.dumps(value, ensure_ascii=False)`
 /// writes a code point above U+FFFF (and U+2028) as raw UTF-8, and
-/// `documentText(..., escapeLineSeparators: false)` writes the same bytes.
+/// `documentText` writes the same bytes.
 ///
 /// Expected bytes come from CPython (`python -X utf8`):
 /// `json.dumps('a\U0001F600\u2028\x01"b', ensure_ascii=False).encode()`.
 void main() {
-  test('flag off writes the bytes json.dumps(ensure_ascii=False) writes', () {
+  test('writes the bytes json.dumps(ensure_ascii=False) writes', () {
     final value = 'a\u{1F600}\u2028\x01"b';
     final expected = Uint8List.fromList([
       0x22, 0x61, // "a
@@ -21,13 +21,7 @@ void main() {
       0x5c, 0x22, // \"
       0x62, 0x22, // b"
     ]);
-    expect(
-      encodeEscaped(documentText(value, escapeLineSeparators: false)),
-      expected,
-    );
-    expect(
-      documentBytes(value, lineEnd: '', escapeLineSeparators: false),
-      expected,
-    );
+    expect(encodeEscaped(documentText(value)), expected);
+    expect(documentBytes(value), [...expected, 0x0a]);
   });
 }

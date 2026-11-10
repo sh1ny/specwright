@@ -58,7 +58,7 @@ Future<int> runCommitCommand(
       ),
     );
   } on VcsStop catch (stop) {
-    writeOut(documentBytes(stop.object(), escapeLineSeparators: false));
+    writeOut(documentBytes(stop.object()));
     return stop.code;
   }
 }

@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/pr/settings_commands.dart';
 import 'package:specwright_cli/src/settings/reviewer_config.dart';
-import 'package:specwright_cli/src/vcs/document.dart' show documentLineEnd;
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
@@ -50,10 +49,7 @@ void main() {
       Directory(code()).createSync(recursive: true);
       final r = await vcs(['--code', code()]);
       expect(r.code, 0);
-      expect(
-        r.stdout,
-        '{"ok": true, "code": "git", "store": "git"}${documentLineEnd()}',
-      );
+      expect(r.stdout, '{"ok":true,"code":"git","store":"git"}\n');
     });
 
     test('reads the code backend and the store backend', () async {

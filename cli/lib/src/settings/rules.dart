@@ -27,6 +27,17 @@ class SettingProblem {
   String get text => '$key: $why';
 }
 
+/// An integer setting that does not fit 64 bits (C11: no `BigInt` reaches a document). The rules layer reads the default
+/// in its place and reports this problem; each caller decides whether it stops (`context`, `rounds`, `pass` and the
+/// main side of `policy`) or lists it (the head side of `policy`).
+class OversizedSetting extends SettingProblem {
+  OversizedSetting(String key, Object fallback)
+    : super(
+        key,
+        'an integer beyond 64 bits is not accepted; the default $fallback applies',
+      );
+}
+
 /// A stop of the settings rules: the script's `Stop(error, message, code=...)`.
 class SettingsStop implements Exception {
   SettingsStop(this.error, this.message, {this.code = 1});
@@ -92,11 +103,23 @@ const Map<String, int> _unit = {'': 1, 's': 1, 'm': 60, 'h': 3600};
 bool _isDigit(int rune) => pyDecimalValue(String.fromCharCode(rune)) != null;
 
 /// `duration`: an integer is itself (a boolean too), `<int>[s|m|h]` after strip with Python's `\d` and `\s` is that
-/// many seconds, and anything else, unset and empty included, is [fallback]. The result is an `int`, a [BigInt] past
-/// 64 bits, or a `bool`.
-Object duration(Object? v, Object fallback) {
+/// many seconds, and anything else, unset and empty included, is [fallback]. The result is an `int` or a `bool`, never a
+/// [BigInt]: an integer or a product past 64 bits is [fallback], and an [OversizedSetting] named [key] goes to
+/// [problems] when it is given.
+Object duration(
+  Object? v,
+  Object fallback, {
+  String key = '',
+  List<SettingProblem>? problems,
+}) {
+  Object oversized() {
+    problems?.add(OversizedSetting(key, fallback));
+    return fallback;
+  }
+
   if (v == null || v == '') return fallback;
-  if (v is int || v is BigInt || v is bool) return v;
+  if (v is BigInt) return oversized();
+  if (v is int || v is bool) return v;
   if (v is! String) return fallback; // str() of a list or map never matches
   final runes = pyStrip(v).runes.toList();
   var i = 0;
@@ -115,7 +138,8 @@ Object duration(Object? v, Object fallback) {
     i++;
   }
   if (i != runes.length) return fallback;
-  return pyIntNormal(number * BigInt.from(_unit[suffix]!));
+  final seconds = number * BigInt.from(_unit[suffix]!);
+  return seconds.isValidInt ? seconds.toInt() : oversized();
 }
 
 /// `settle_of`: `pr.settle` strictly `<int><s|m|h>`, 1m to 1h. Unset is 300. A bad value is 300 and a problem.
@@ -192,7 +216,12 @@ Map<String, Reviewer> reviewersOf(
     }
     out[name] = Reviewer(
       _strOr(cfg['role'], 'required'),
-      duration(cfg['timeout'], 1200),
+      duration(
+        cfg['timeout'],
+        1200,
+        key: '$where.$name.timeout',
+        problems: problems,
+      ),
       _strOr(cfg['request']),
       report,
     );
@@ -374,8 +403,8 @@ class Contexts {
   final RepoContext? store;
   final String finish;
 
-  /// `int()` of an integer setting (a boolean reads as 1 or 0), else 2: an `int` or a [BigInt].
-  final Object maxFixRounds;
+  /// `int()` of an integer setting (a boolean reads as 1 or 0), else 2; past 64 bits is 2 with a problem.
+  final int maxFixRounds;
   final String afterLimit;
   final bool react;
   final Object pollInterval;
@@ -441,16 +470,30 @@ Contexts contexts(
     method = o.method;
     delete = o.deleteBranch;
   }
+  final int maxRounds;
+  if (rounds is bool) {
+    maxRounds = rounds ? 1 : 0;
+  } else if (rounds is int) {
+    maxRounds = rounds;
+  } else {
+    if (rounds is BigInt) {
+      problems?.add(OversizedSetting('pr.max_fix_rounds', 2));
+    }
+    maxRounds = 2;
+  }
   return Contexts(
     code: codeContext,
     store: storeContext,
     finish: _strOr(s['finish']),
-    maxFixRounds: rounds is bool
-        ? (rounds ? 1 : 0)
-        : (rounds is int || rounds is BigInt ? rounds! : 2),
+    maxFixRounds: maxRounds,
     afterLimit: _strOr(pr['after_limit'], 'ask'),
     react: pyTruthy(pr['react']),
-    pollInterval: duration(pr['poll_interval'], 300),
+    pollInterval: duration(
+      pr['poll_interval'],
+      300,
+      key: 'pr.poll_interval',
+      problems: problems,
+    ),
     settle: settle.seconds,
     merge: merge.mode,
     mergeNote: merge.note,

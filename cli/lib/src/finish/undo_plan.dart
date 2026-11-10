@@ -857,9 +857,11 @@ class _Planner {
     final List<String> lines;
     var rev = '';
     var fsets = '';
-    final branchPattern = sq(
-      '"branch": ${documentText(planBranch, escapeLineSeparators: false)}',
-    );
+    // Deliberate gap C13: the printed jj and GitButler guards read the
+    // `vcs.sh state` document by text, matching the compact `"branch":"<name>"`
+    // that `sw vcs` prints, until native-cli-internal-calls replaces that
+    // boundary. Keep this pattern in step with the document form.
+    final branchPattern = sq('"branch":${documentText(planBranch)}');
     if (gb) {
       // the guard reads: the branch is applied at the planned tip and the
       // touched paths have no uncommitted change

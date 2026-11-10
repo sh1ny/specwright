@@ -1,5 +1,11 @@
-// The text tools `pr-snapshot.sh` pipes its output through (`grep -o`, `sed -n`, `paste`, `tr`, `head`, `tail -n 80`) as
-// Dart functions with the same results on the same input (design D7). Every pattern is ASCII.
+/// The text tools `pr-snapshot.sh` pipes its output through (`grep -o`, `sed -n`, `paste`, `tr`, `head`, `tail -n 80`) as
+/// Dart functions with the same results on the same input (design D7). Every pattern is ASCII.
+///
+/// Deliberate gap C12: `sw pr snapshot` reads `sw pr reviewers` documents by regex (this file, and `snapshot.dart`'s
+/// readers of `head_oid`, `logins`, `recheck`, `fail_names`, `fail_run_ids`, `merge_state`, `ci_pending`, `complete`,
+/// `sig` and `attn`) until `native-cli-internal-calls` replaces that boundary. Keep the compact keys (`"key":value`,
+/// no space after `:` or `,`) those readers require.
+library;
 
 /// bash's command substitution `$(...)`: the output without its trailing newlines.
 String dropTrailingNewlines(String text) {

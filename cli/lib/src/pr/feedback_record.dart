@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import '../settings/pyjson.dart';
+import '../process/limits.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
@@ -179,7 +179,7 @@ class FeedbackRecordStore {
           // surrogate units, including path escapes, without changing the
           // shared document writer's stdout byte protocol. Escaped pairs
           // still decode to the same supplementary Unicode characters.
-          final json = documentText(record).replaceAllMapped(
+          final json = jsonEncode(record).replaceAllMapped(
             RegExp(r'[\uD800-\uDFFF]'),
             (match) =>
                 '\\u${match[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}',
@@ -231,7 +231,7 @@ class FeedbackRecordStore {
   Object? load(String path) {
     List<int> bytes;
     try {
-      bytes = files.readBytes(path);
+      bytes = files.readBytes(path, limit: defaultMaxBytes);
     } on FileSystemException catch (e) {
       if (e.osError?.errorCode == 2 ||
           Platform.isWindows && e.osError?.errorCode == 3) {
@@ -239,10 +239,16 @@ class FeedbackRecordStore {
       }
       throw PairStop('record_unreadable', '$path: $e');
     }
+    if (bytes.length > defaultMaxBytes) {
+      throw PairStop(
+        'record_unreadable',
+        '$path: larger than ${defaultMaxBytes ~/ (1024 * 1024)} MiB',
+      );
+    }
     try {
-      return pyJsonDecodeBytes(bytes, path);
-    } on PyJsonException catch (e) {
-      throw PairStop('record_unreadable', '$path: $e');
+      return decodeJson(decodeJsonBytes(bytes, path), file: path);
+    } on JsonInputException catch (e) {
+      throw PairStop('record_unreadable', e.message);
     }
   }
 

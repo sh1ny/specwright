@@ -62,10 +62,10 @@ Future<int> taskCover(
   }
   List<int> bytes;
   try {
-    bytes = documentBytes(doc, escapeLineSeparators: false);
+    bytes = documentBytes(doc);
   } on Object catch (e) {
     code = 1;
-    bytes = documentBytes(_internalError(e), escapeLineSeparators: false);
+    bytes = documentBytes(_internalError(e));
   }
   ctx.writeOut(bytes);
   return code;
@@ -272,21 +272,24 @@ Future<Map<String, Object?>> _cover(
     final trailers = cutField(tok[i + 2]);
     final userTrailers = cutField(tok[i + 3]);
     final forms = <String, String>{};
-    BigInt? grp;
+    // D8: a group number beyond 64 bits is ignored, as no task can carry it
+    int? grp;
     final m = subjTask.firstMatch(subject);
     if (m != null) {
       forms[m.group(1)!] = 'subject';
-      grp = BigInt.parse(m.group(1)!.split('.').first);
+      grp = int.tryParse(m.group(1)!.split('.').first);
     } else {
       final g = subjGroup.firstMatch(subject);
-      if (g != null) grp = BigInt.parse(g.group(1)!);
+      if (g != null) grp = int.tryParse(g.group(1)!);
     }
     if (trailers.isNotEmpty) {
       for (final part in trailers.split('\u001f')) {
         final v = pyStrip(part);
         if (!taskId.hasMatch(v)) continue;
+        final trailerGroup = int.tryParse(v.split('.').first);
+        if (trailerGroup == null) continue;
         forms.putIfAbsent(v, () => 'trailer');
-        if (grp != null && BigInt.parse(v.split('.').first) != grp) {
+        if (grp != null && trailerGroup != grp) {
           cross.add({'sha': sha, 'task': v, 'group': grp});
         }
       }
@@ -305,7 +308,7 @@ Future<Map<String, Object?>> _cover(
     }
   }
 
-  final groupIds = <BigInt>{
+  final groupIds = <int>{
     for (final t in tasks) t.group,
     ...parsed.headings.keys,
   }.toList()..sort();
@@ -350,7 +353,7 @@ Future<Map<String, Object?>> _cover(
       evidenceMissing.add(t.id);
     }
   }
-  final taskGroups = <BigInt>{for (final t in tasks) t.group}.toList()..sort();
+  final taskGroups = <int>{for (final t in tasks) t.group}.toList()..sort();
   return {
     'ok': true,
     'change': change,
@@ -595,7 +598,7 @@ class TaskItem {
   TaskItem(this.id, this.group, this.kind, this.ticked);
 
   final String id;
-  final BigInt group;
+  final int group;
   final String kind;
   final bool ticked;
   final List<Map<String, String>> commits = [];
@@ -613,7 +616,7 @@ class TaskItem {
 /// group, each task's text after its id, and the ids on more than one line.
 class ParsedTasks {
   final List<TaskItem> tasks = [];
-  final Map<BigInt, String> headings = {};
+  final Map<int, String> headings = {};
   final Map<String, String> texts = {};
   final List<String> repeated = [];
 }
@@ -624,29 +627,28 @@ class ParsedTasks {
 /// --count decoded strictly. A simpler Dart default changes which tasks and
 /// user checks are found.
 ///
-/// The one difference from the script: ids are ASCII digits only
+/// The differences from the script: a group number beyond 64 bits (a task or a
+/// heading) is ignored (D8), and ids are ASCII digits only
 /// (`[0-9]`, not Python's `\d`), so `\u0661.\u0661` is not a task.
 ParsedTasks parseTasks(String text) {
   final out = ParsedTasks();
   for (final line in pySplitLines(text)) {
     final h = _heading.firstMatch(line);
     if (h != null) {
-      out.headings.putIfAbsent(BigInt.parse(h.group(1)!), () => h.group(2)!);
+      final number = int.tryParse(h.group(1)!);
+      if (number != null) out.headings.putIfAbsent(number, () => h.group(2)!);
       continue;
     }
     final m = _task.firstMatch(line);
     if (m == null) continue;
+    final group = int.tryParse(m.group(2)!);
+    if (group == null) continue; // beyond 64 bits: not a task
     final id = '${m.group(2)}.${m.group(3)}';
     final rest = m.group(4)!;
     final mk = _marker.firstMatch(rest);
     out.texts[id] = rest;
     out.tasks.add(
-      TaskItem(
-        id,
-        BigInt.parse(m.group(2)!),
-        mk?.group(1) ?? 'agent',
-        _boxDone(m.group(1)!),
-      ),
+      TaskItem(id, group, mk?.group(1) ?? 'agent', _boxDone(m.group(1)!)),
     );
   }
   final seen = <String>{};

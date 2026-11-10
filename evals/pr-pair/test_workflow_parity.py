@@ -73,6 +73,23 @@ class WorkflowParity(parity.PairParity):
         self.last_native_calls = result['calls']
         return result
 
+    def assert_native_refuses(self, *args, code, error, old_code=0):
+        """An asserted difference (native-cli-library-foundations D8): the frozen workflow holds an integer of any size and
+        goes on (exit `old_code`), the native one cannot hold it and refuses with `error` (exit `code`) after the same
+        gh reads. Returns the native document; the fake gh state is put back between the two runs."""
+        before = self.gh_state.read_bytes()
+        parity.calls_of(self.gh_log, lambda c: c)
+        sides = []
+        for which in ('new', 'old'):
+            sides.append(self.side(which, args, None))
+            self.gh_state.write_bytes(before)
+        new, old = sides
+        self.assertEqual(old['code'], old_code, (old['stdout'], old['stderr']))
+        self.assertEqual(new['code'], code, (new['stdout'], new['stderr']))
+        document = json.loads(new['stdout'])
+        self.assertEqual(document['error'], error, document)
+        return document
+
     def test_discover_filters_forks_bases_and_states(self):
         def seed(st):
             base = self._pull()
@@ -383,8 +400,11 @@ class WorkflowParity(parity.PairParity):
         self.git(code, 'commit', '--allow-empty', '-m', 'address review feedback')
         self.run_pair('rounds', '--code', code, '--store', store, '--branch', 'feat/x', code=0)
         settings = Path(code) / 'openspec' / 'specwright.yaml'
+        # An asserted difference: an oversized setting cannot be held, so sw stops with bad_setting (exit 2)
         settings.write_text('pr:\n  max_fix_rounds: 99999999999999999999999999\n', encoding='utf-8')
-        self.run_pair('rounds', '--code', code, '--store', store, '--branch', 'feat/x', code=0)
+        d = self.assert_native_refuses('rounds', '--code', code, '--store', store, '--branch', 'feat/x',
+                                       code=2, error='bad_setting')
+        self.assertIn('pr.max_fix_rounds', d['message'])
 
     def test_rounds_trailers_and_unreadable_remote(self):
         code, store = self.pair_repos()
@@ -392,14 +412,23 @@ class WorkflowParity(parity.PairParity):
         self.git(code, 'commit', '--allow-empty', '-m', 'fix\n\nFeedback-Round: 2')
         self.run_pair('rounds', '--code', code, '--store', store, '--branch', 'feat/x', code=0)
 
-    def test_rounds_preserves_arbitrary_precision_feedback_trailers(self):
+    def test_rounds_refuses_oversized_feedback_trailers(self):
+        # An asserted difference: the frozen workflow keeps an arbitrary-precision trailer, sw cannot hold one past 64 bits
+        # and stops as an unknown read (exit 3, lookup_failed) rather than invent a round count
         code, store = self.pair_repos()
         self.git(code, 'remote', 'set-url', 'origin', str(self.tmp / 'missing.git'))
         number = 99999999999999999999999999
         self.git(code, 'commit', '--allow-empty', '-m', f'fix\n\nFeedback-Round: {number}')
+        d = self.assert_native_refuses('rounds', '--code', code, '--store', store, '--branch', 'feat/x',
+                                       code=3, error='lookup_failed')
+        self.assertTrue(d.get('unknown'), d)
+        self.assertIn(str(number), d['message'])
+        # the largest 64-bit round is still a number both sides count
+        self.git(code, 'reset', '--hard', 'HEAD~1')
+        top = 9223372036854775807
+        self.git(code, 'commit', '--allow-empty', '-m', f'fix\n\nFeedback-Round: {top}')
         d = self.run_pair('rounds', '--code', code, '--store', store, '--branch', 'feat/x', code=0)
-        self.assertEqual(d['rounds'], number)
-        self.assertEqual(d['code']['max_trailer'], number)
+        self.assertEqual(d['rounds'], top)
 
     def test_unknown_read_permits_no_follow_on_mutation(self):
         self.mutate(lambda st: st.update(fail=['api --paginate repos/o/n/pulls']))

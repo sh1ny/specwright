@@ -192,7 +192,7 @@ class SnapCase(unittest.TestCase):
         """pr-snapshot.sh for the fixture PR, one JSON line parsed; the exit code must be 0."""
         r = self.snapshot_run(*args, login=login, env=env)
         self.assertEqual(r.returncode, 0, f"pr-snapshot {args}: {r.stderr}")
-        lines = r.stdout.strip().splitlines()
+        lines = r.stdout.strip().split("\n")
         self.assertEqual(len(lines), 1, f"want one JSON line, got {r.stdout!r} / {r.stderr!r}")
         return json.loads(lines[0])
 

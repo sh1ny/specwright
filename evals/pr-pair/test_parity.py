@@ -77,6 +77,25 @@ def temp_names(argv):
     return [re.sub(r"tmp\.[A-Za-z0-9]+", "tmp.X", a) for a in argv]
 
 
+def parsed(stdout):
+    """stdout as the JSON document it holds: `sw` writes compact JSON and the frozen scripts write spaced JSON, so two
+    documents are compared by value and not by bytes (native-cli-library-foundations D3). Output that is not one JSON
+    document (an environment dump, a command's own text) stays the bytes. NaN and Infinity read as their names."""
+    try:
+        return json.loads(stdout.decode("utf-8"), parse_constant=lambda name: name)
+    except ValueError:
+        return stdout
+
+
+def masked(node, digest, mask="DIGEST"):
+    """`node` with every string equal to `digest` (the config digest each side computes over its own bytes) replaced."""
+    if isinstance(node, dict):
+        return {k: masked(v, digest, mask) for k, v in node.items()}
+    if isinstance(node, list):
+        return [masked(v, digest, mask) for v in node]
+    return mask if node == digest else node
+
+
 def said(stderr):
     """stderr with bash's `<script path>: line N:` prefix cut to the script's name: the path and the line differ by design."""
     return re.sub(rb"(?m)^.*?([a-z-]+\.sh): line \d+: ", rb"\1: line N: ", stderr)
@@ -98,7 +117,7 @@ class ParityAsserts:
         """With `prefix`, stderr is free text after that fixed prefix (design D11): each side prints the same number of lines,
         all starting with it; line endings are Python's text-mode ones on one side and are not compared."""
         new, old = pair
-        self.assertEqual(new["stdout"], old["stdout"], "stdout bytes differ between the script and the oracle")
+        self.assertEqual(parsed(new["stdout"]), parsed(old["stdout"]), "stdout documents differ between the script and the oracle")
         if prefix is None:
             self.assertEqual(said(new["stderr"]), said(old["stderr"]), "stderr bytes differ between the script and the oracle")
         else:
@@ -164,7 +183,7 @@ class PrParity(SnapCase, ParityAsserts):
                 digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
                 doc = json.loads(side["stdout"])
                 self.assertEqual(doc["reviewer_config"], digest)
-                side["stdout"] = side["stdout"].replace(digest.encode(), b"DIGEST")
+                side["stdout"] = json.dumps(masked(doc, digest)).encode()
             self.assertNotEqual(hashlib.sha256(Path(new_cfg).read_bytes()).digest(), hashlib.sha256(Path(old_cfg).read_bytes()).digest())
         return new, old
 
@@ -533,7 +552,7 @@ class AsParity(tas.AsShCase, ParityAsserts):
         env = {"GH_HOST": "corp.example"}
         new, old = self.pair("sh1ny", "bash", str(SCRIPTS / "as.sh"), "sh1ny", "bash", "-c",
                              'printf "%s|%s|%s" "$AS_SH_ORIG_GH_HOST" "${GH_HOST-unset}" "$AS_SH_ORIG_SET"', env=env)
-        self.assertEqual(new["stdout"], old["stdout"])
+        self.assertEqual(parsed(new["stdout"]), parsed(old["stdout"]))
         self.assertEqual(new["code"], old["code"])
 
     def test_the_command_exit_status_and_stdout_pass_through(self):
@@ -906,8 +925,16 @@ class PairParity(PrParity):
 
 class ReviewersParity(unittest.TestCase):
     """`sw pr reviewers` (format 2 config) against the frozen evaluator oracle/reviewers.py (format 1 config, the same rules) on
-    the same material (native-cli-pr-pair D5, D8). stdout is compared exactly but for the config digest, which each side checks
-    against its own bytes; exit codes are exact; stderr is compared by the `reviewers.py: ` prefix, line for line."""
+    the same material (native-cli-pr-pair D5, D8). stdout is compared as parsed JSON (sw writes compact JSON, the oracle spaced)
+    but for the config digest, which each side checks against its own bytes and is masked in its field; exit codes are exact;
+    stderr is compared by the `reviewers.py: ` prefix, line for line.
+
+    Asserted differences from the oracle (native-cli-library-foundations, listed here and in the tests that assert them):
+    - NaN, Infinity and -Infinity in the material, where the oracle still answers: Python's json.loads reads them, sw
+      refuses the file (exit 1, empty stdout, one `reviewers.py: <material>: ` line); `refused=` below asserts it. A NaN
+      clock (`cfg.now`) is refused by both, so it is no difference.
+    - An abbreviated long option: argparse (the oracle) accepts a unique prefix, sw's one option rule will not
+      (a usage stop; asserted in cli/test/pr/reviewers_test.dart once the option parser lands)."""
 
     PREFIX = "reviewers.py: "
 
@@ -933,11 +960,14 @@ class ReviewersParity(unittest.TestCase):
     def run_side(self, which, args):
         cmd = [self.sw, "pr", "reviewers", *args] if which == "new" else [sys.executable, "-I", "-X", "utf8", str(ORACLE / "reviewers.py"), *args]
         r = subprocess.run(cmd, capture_output=True, cwd=self.tmp, timeout=60, env=swharness.fixture_env())
-        return {"code": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
+        return {"code": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "doc": parsed(r.stdout)}
 
-    def pair(self, cfg=None, material=None, head=None, code=None, extra=(), raw_config=None, check=False, crash=False):
+    def pair(self, cfg=None, material=None, head=None, code=None, extra=(), raw_config=None, check=False, crash=False,
+             refused=False):
         """Run both sides. `cfg` is a function of the format (1 for the oracle, 2 for sw) giving the config document, or
-        `raw_config` a text both read as is. `check` runs --check-config instead of an evaluation."""
+        `raw_config` a text both read as is. `check` runs --check-config instead of an evaluation. `refused` is the NaN
+        difference: sw refuses the material (exit 1, no stdout, one `reviewers.py: <material>: ` line) where the oracle's
+        json.loads reads it (exit 0, or 1 when it then crashes: `crash`)."""
         out = []
         digests = []
         for which, fmt in (("new", 2), ("old", 1)):
@@ -960,13 +990,20 @@ class ReviewersParity(unittest.TestCase):
             res = self.run_side(which, args)
             if cfg_path is not None and cfg_path.exists():
                 digest = hashlib.sha256(cfg_path.read_bytes()).hexdigest().encode()
-                if digest in res["stdout"]:
-                    res["stdout"] = res["stdout"].replace(digest, b"DIGEST")
+                res["doc"] = masked(res["doc"], digest.decode())
                 digests.append(digest)
             out.append(res)
         new, old = out
+        if refused:
+            self.assertEqual(old["code"], 1 if crash else 0, old)
+            self.assertEqual(new["code"], 1, new)
+            self.assertEqual(new["stdout"], b"")
+            lines = new["stderr"].decode("utf-8", "replace").splitlines()
+            self.assertEqual(len(lines), 1, lines)
+            self.assertTrue(lines[0].startswith(self.PREFIX + str(self.tmp / "new" / "mat.json") + ": "), lines)
+            return new
         self.assertEqual(new["code"], old["code"], f"exit codes differ\n{new}\n{old}")
-        self.assertEqual(new["stdout"], old["stdout"], "stdout differs between sw and the oracle")
+        self.assertEqual(new["doc"], old["doc"], "stdout documents differ between sw and the oracle")
         lines = [s["stderr"].decode("utf-8", "replace").splitlines() for s in out]
         if crash:  # the oracle dies on an uncaught exception (a Python defect, exit 1 all the same); sw states it in one line
             self.assertIn("Traceback", old["stderr"].decode("utf-8", "replace"))
@@ -979,7 +1016,7 @@ class ReviewersParity(unittest.TestCase):
         if code is not None:
             self.assertEqual(old["code"], code, old["stdout"] + old["stderr"])
         if code == 0 and not check and cfg is not None:
-            self.assertIn(b"DIGEST", new["stdout"], "the digest was masked")
+            self.assertIn("DIGEST", json.dumps(new["doc"]), "the digest was masked")
         return new
 
     def rev(self, login="rev-bot", **kw):
@@ -1019,14 +1056,17 @@ class ReviewersParity(unittest.TestCase):
         cfg = lambda fmt: self.config_for(fmt, rev)
         base = tr.material({"rev-bot": [tr.review(tr.HEAD)]})
         # NaN in a field nothing reads, in one the clock reads, and as a bare token in the document
-        self.pair(cfg, dict(base, z_unused=float("nan")))
-        self.pair(cfg, dict(base, cfg={"since": tr.CUT, "now": float("nan")}))
-        # the oracle crashes with an OverflowError traceback here; sw says so in one `reviewers.py:` line (same exit 1, empty stdout)
-        self.pair(cfg, dict(base, cfg={"since": tr.CUT, "now": float("inf")}), code=1, crash=True)
-        self.pair(cfg, dict(base, number=float("-inf")))
-        self.pair(cfg, tr.material({"rev-bot": [tr.comment("x", created=float("nan"))]}))
-        self.pair(cfg, json.dumps(dict(base, z_unused=0)).replace('"z_unused":0', '"z_unused":NaN'))
-        self.pair(cfg, '{"head_oid":"%s","z":NaN' % tr.HEAD)
+        # The asserted difference: the oracle's json.loads reads NaN and Infinity, sw refuses the file naming it (exit 1)
+        self.pair(cfg, dict(base, z_unused=float("nan")), refused=True)
+        # a NaN clock is refused by both (exit 1, empty stdout, one `reviewers.py: <material>: ` line): no difference
+        self.pair(cfg, dict(base, cfg={"since": tr.CUT, "now": float("nan")}), code=1)
+        # the oracle crashes with an OverflowError traceback on an infinite clock (exit 1); sw refuses the file (exit 1)
+        self.pair(cfg, dict(base, cfg={"since": tr.CUT, "now": float("inf")}), crash=True, refused=True)
+        self.pair(cfg, dict(base, number=float("-inf")), refused=True)
+        self.pair(cfg, tr.material({"rev-bot": [tr.comment("x", created=float("nan"))]}), refused=True)
+        self.pair(cfg, json.dumps(dict(base, z_unused=0)).replace('"z_unused": 0', '"z_unused": NaN'), refused=True)
+        # a truncated document is refused by both
+        self.pair(cfg, '{"head_oid":"%s","z":NaN' % tr.HEAD, code=1)
 
     def test_material_and_head_refusals(self):
         rev = self.rev()
@@ -1074,14 +1114,14 @@ class ReviewersParity(unittest.TestCase):
     def test_check_config_prints_digest_and_logins(self):
         cfg = lambda fmt: self.config_for(fmt, self.rev("b-bot"), self.rev("a-bot", report={}))
         new = self.pair(cfg, check=True, code=0)
-        self.assertIn(b'"logins":["b-bot","a-bot"]', new["stdout"])
+        self.assertEqual(new["doc"]["logins"], ["b-bot", "a-bot"])
         self.pair(lambda fmt: self.config_for(fmt, *[self.rev("bot-%d" % i) for i in range(20)]), check=True, code=0)
 
     def test_usage_stops_exit_2(self):
         for extra in ([], ["--head", tr.HEAD], ["--material", "m.json"]):
             with self.subTest(extra=extra):
                 new, old = (self.run_side(w, extra) for w in ("new", "old"))
-                self.assertEqual((new["code"], new["stdout"]), (old["code"], old["stdout"]))
+                self.assertEqual((new["code"], new["doc"]), (old["code"], old["doc"]))
                 self.assertEqual(new["code"], 2)
                 for s in (new, old):
                     self.assertTrue(s["stderr"].decode().startswith(self.PREFIX), s)

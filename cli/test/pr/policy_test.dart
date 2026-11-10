@@ -521,6 +521,37 @@ void main() {
       },
     );
 
+    test('oversized head timeout is invalid with default values', () async {
+      serve(
+        main: reviewersMain,
+        headText: 'pr:\n  reviewers:\n    rev:\n      role: required\n      timeout: 99999999999999999999\n',
+      );
+      final r = await run();
+      expect(r.code, 0, reason: f.stdout);
+      final invalid = r.json['invalid']! as List;
+      expect(invalid, hasLength(1));
+      expect((invalid[0] as Map)['side'], 'head');
+      expect((invalid[0] as Map)['key'], 'pr.reviewers.rev.timeout');
+      expect((invalid[0] as Map)['value'], contains('64'));
+      final head = (r.json['head']! as Map)['pr.reviewers'] as Map;
+      expect((head['rev'] as Map)['timeout'], 1200);
+    });
+
+    test('a raw merge_method beyond 64 bits is shown as written', () async {
+      serve(main: 'pr:\n  merge_method: 99999999999999999999\n', headText: '');
+      final r = await run();
+      expect(r.code, 0, reason: f.stdout);
+      expect(
+        (r.json['main']! as Map)['pr.merge_method'],
+        '99999999999999999999',
+      );
+      expect((r.json['drift']! as List).single, {
+        'key': 'pr.merge_method',
+        'main': '99999999999999999999',
+        'head': 'merge',
+      });
+    });
+
     test(
       'merge_note names a pr.merge that is neither user nor agent',
       () async {
@@ -588,6 +619,17 @@ void main() {
       expect(r.json['ok'], false);
       expect(r.json['error'], 'bad_setting');
       expect(r.json['message'], startsWith('pr.settle: 5s must be'));
+    });
+
+    test('an oversized timeout on main is exit 2 bad_setting', () async {
+      serve(
+        main: 'pr:\n  reviewers:\n    rev:\n      role: required\n      timeout: 99999999999999999999\n',
+        headText: '',
+      );
+      final r = await run();
+      expect(r.code, 2);
+      expect(r.json['error'], 'bad_setting');
+      expect(r.json['message'], startsWith('pr.reviewers.rev.timeout: '));
     });
 
     test('a bad head pr.settle only counts as the default', () async {
@@ -909,7 +951,7 @@ void main() {
       expect(f.ghCalls, isEmpty);
     });
 
-    test('NaN in a snapshot is read, as json.loads reads it', () async {
+    test('NaN in a snapshot is refused, naming the file', () async {
       serve(main: reviewersMain, headText: reviewersMain);
       final s = f.file(
         'nan.json',
@@ -923,7 +965,9 @@ void main() {
         '--snapshot',
         'code=${s.path}',
       ]);
-      expect(r.code, 0, reason: f.stdout);
+      expect(r.code, 2, reason: f.stdout);
+      expect(r.json['error'], 'snapshot_unreadable');
+      expect(r.json['message'], startsWith('${s.path}: '));
     });
   });
 }

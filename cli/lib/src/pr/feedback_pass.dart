@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import '../settings/pyjson.dart';
 import '../settings/rules.dart';
 import '../settings/yaml.dart' show pyTruthy;
 import '../vcs/codec.dart';
+import '../vcs/document.dart';
 import 'context.dart';
 import 'feedback_environment.dart';
 import 'feedback_record.dart';
@@ -30,12 +30,10 @@ List<Object?> _listify(Object? value) => value == null
     : value is List<Object?>
     ? value
     : [value];
-BigInt? _integer(Object? value) => value is int
-    ? BigInt.from(value)
-    : value is BigInt
-    ? value
-    : null;
-bool _positive(Object? value) => (_integer(value) ?? BigInt.zero) > BigInt.zero;
+
+/// C4: an exact integer is an `int`; one past 64 bits reads as a `double` and is not an integer here.
+int? _integer(Object? value) => value is int ? value : null;
+bool _positive(Object? value) => (_integer(value) ?? 0) > 0;
 
 PassDocument _record(Object? value, {bool planning = false}) {
   if (value is! Map<String, Object?>) {
@@ -157,7 +155,7 @@ class FeedbackPass {
   Future<PassDocument> _readJson(String path, String error) async {
     final Object? value;
     try {
-      value = pyJsonDecodeBytes(rawFile(path).readAsBytesSync(), path);
+      value = readJsonFile(path);
     } on Object catch (e) {
       throw PairStop(error, '$path: $e', code: 2);
     }
@@ -488,7 +486,7 @@ class FeedbackPass {
       if (parts.length < 3) continue;
       if (RegExp(r'^Feedback-Round:[ \t]*(\d+)[ \t]*$', multiLine: true)
           .allMatches(parts[2])
-          .any((m) => BigInt.parse(m[1]!) == _integer(round))) {
+          .any((m) => int.tryParse(m[1]!) == _integer(round))) {
         return (parts[0].trim(), true);
       }
     }
@@ -652,7 +650,7 @@ class FeedbackPass {
       if (result.exitCode != 0) workflowUnknown(workflow.reason(result));
       late bool more;
       try {
-        final data = jsonDecode(decodeReplacing(result.stdout));
+        final data = decodeJson(decodeReplacing(result.stdout));
         final reactions = _map(_map(_map(data)['data'])['node'])['reactions'];
         if (reactions is! Map<String, Object?> ||
             reactions['nodes'] is! List<Object?>) {
