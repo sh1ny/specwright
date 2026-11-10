@@ -18,8 +18,8 @@ printf '\n' >> "$d/calls.log"
 exit 9
 ''';
 
-/// An `as.sh` that logs its working directory and arguments and answers from
-/// files next to it.
+/// An `as.sh` that logs its working directory and arguments: the fence runs in
+/// process, so it must never run.
 const _fakeAs = r'''#!/usr/bin/env bash
 d=$(dirname "$0")
 printf '%s\n' "$PWD" >> "$d/as.cwd"
@@ -47,8 +47,6 @@ void main() {
   tearDown(() => tmp.deleteSync(recursive: true));
 
   String posix(String p) => p.replaceAll(r'\', '/');
-  void put(String name, String text) =>
-      File('${scriptsDir.path}/$name').writeAsStringSync(text);
   List<String> lines(String name) {
     final f = File('${scriptsDir.path}/$name');
     return f.existsSync() ? f.readAsLinesSync() : <String>[];
@@ -179,78 +177,105 @@ void main() {
   });
 
   group('fence', () {
-    test('a given login is used as is and as.sh does not run', () async {
+    // The fence runs in this process, through VcsScripts.fenced: no as.sh is
+    // started (the directory holds a recording one that must stay unused). The
+    // fence itself is tested in test/fence/fenced_text_test.dart.
+    final calls = <(String, List<String>)>[];
+    var result = TextResult(0, '', '');
+
+    VcsScripts fenced() => VcsScripts(
+      posix(scriptsDir.path),
+      bash!,
+      fence: (repo, argv) async {
+        calls.add((repo, argv));
+        return result;
+      },
+    );
+
+    setUp(() {
+      calls.clear();
+      result = TextResult(0, '', '');
+    });
+
+    test('a given login is used as is and nothing runs', () async {
       expect(
-        await fenceLogin(scripts(), code(), github: true, login: 'KintsugiBot'),
+        await fenceLogin(fenced(), code(), github: true, login: 'KintsugiBot'),
         'KintsugiBot',
       );
-      expect(await fenceLogin(scripts(), code(), github: false), '');
+      expect(await fenceLogin(fenced(), code(), github: false), '');
+      expect(calls, isEmpty);
       expect(lines('as.log'), isEmpty);
     }, skip: skip);
 
     test(
       'a GitHub remote with no login resolves one with --resolve in the repo',
       () async {
-        put('as.out', '  pinned-bot \n');
-        final who = await fenceLogin(scripts(), code(), github: true);
+        result = TextResult(0, '  pinned-bot \n', '');
+        final who = await fenceLogin(fenced(), code(), github: true);
         expect(who, 'pinned-bot');
-        expect(lines('as.log'), ['--resolve|']);
-        expect(
-          posix(lines('as.cwd').single).toLowerCase(),
-          endsWith('/repo'),
-          reason: 'as.sh ran in the repo',
-        );
+        expect(calls.single.$1, code());
+        expect(calls.single.$2, ['--resolve']);
+        expect(lines('as.log'), isEmpty, reason: 'as.sh did not run');
       },
       skip: skip,
     );
 
     test('an empty login also resolves', () async {
-      put('as.out', 'x\n');
-      expect(await fenceLogin(scripts(), code(), github: true, login: ''), 'x');
+      result = TextResult(0, 'x\n', '');
+      expect(await fenceLogin(fenced(), code(), github: true, login: ''), 'x');
     }, skip: skip);
 
     test(
-      'a refused resolve is fence_failed with exit 3 and as.sh\'s words',
+      'a refused resolve is fence_failed with exit 3 and the fence\'s words',
       () async {
-        put('as.err', 'as.sh: no active github.com account\n');
-        put('as.rc', '3');
+        result = TextResult(3, '', 'as.sh: no active github.com account\n');
         var stop = await stopOf(
-          () => fenceLogin(scripts(), code(), github: true),
+          () => fenceLogin(fenced(), code(), github: true),
         );
         expect(
           (stop.error, stop.message, stop.code),
           ('fence_failed', 'as.sh: no active github.com account', 3),
         );
-        File('${scriptsDir.path}/as.err').deleteSync();
-        put('as.rc', '1');
-        stop = await stopOf(() => fenceLogin(scripts(), code(), github: true));
+        result = TextResult(1, '', '');
+        stop = await stopOf(() => fenceLogin(fenced(), code(), github: true));
         expect(
           (stop.error, stop.message, stop.code),
           ('fence_failed', 'as.sh could not resolve GitHub login', 3),
         );
+        expect(lines('as.log'), isEmpty);
       },
       skip: skip,
     );
 
-    test('runAs passes <login> <command...> to as.sh from the repo', () async {
-      put('as.out', 'pushed\n');
-      put('as.err', 'note\n');
-      final r = await runAs(scripts(), code(), 'KintsugiBot', [
-        'git',
-        'push',
-        '-u',
-        'origin',
-        'HEAD',
-      ]);
-      expect((r.code, r.stdout, r.stderr), (0, 'pushed\n', 'note\n'));
-      expect(lines('as.log'), ['KintsugiBot|git|push|-u|origin|HEAD|']);
-      expect(posix(lines('as.cwd').single).toLowerCase(), endsWith('/repo'));
-    }, skip: skip);
+    test(
+      'runAs passes <login> <command...> to the fence for the repo',
+      () async {
+        result = TextResult(0, 'pushed\n', 'note\n');
+        final r = await runAs(fenced(), code(), 'KintsugiBot', [
+          'git',
+          'push',
+          '-u',
+          'origin',
+          'HEAD',
+        ]);
+        expect((r.code, r.stdout, r.stderr), (0, 'pushed\n', 'note\n'));
+        expect(calls.single.$1, code());
+        expect(calls.single.$2, [
+          'KintsugiBot',
+          'git',
+          'push',
+          '-u',
+          'origin',
+          'HEAD',
+        ]);
+        expect(lines('as.log'), isEmpty, reason: 'as.sh did not run');
+      },
+      skip: skip,
+    );
 
     test('runAs reports the exit code and output of a refusal', () async {
-      put('as.err', 'as.sh: no credential for x\n');
-      put('as.rc', '3');
-      final r = await runAs(scripts(), code(), 'x', ['git', 'push']);
+      result = TextResult(3, '', 'as.sh: no credential for x\n');
+      final r = await runAs(fenced(), code(), 'x', ['git', 'push']);
       expect(
         (r.code, r.stdout, r.stderr),
         (3, '', 'as.sh: no credential for x\n'),

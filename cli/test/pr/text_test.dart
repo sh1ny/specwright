@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:specwright_cli/src/pr/text.dart';
 import 'package:test/test.dart';
 
-String ids(int n) => [for (var i = 1; i <= n; i++) '"I$i"'].join(',');
-
 void main() {
   group('command substitution', () {
     test('drops every trailing newline and nothing else', () {
@@ -14,49 +12,10 @@ void main() {
     });
   });
 
-  group('grep -o', () {
-    test('prints each match on a line of its own, line by line', () {
-      expect(grepOnly(RegExp(r'[0-9]+'), 'a1b22\nc333'), ['1', '22', '333']);
-    });
-
-    test('a pattern with no match prints nothing', () {
-      expect(grepOnly(RegExp(r'x'), 'abc'), isEmpty);
-    });
-
-    test('quiet: any line matching is enough', () {
+  group('grep -q', () {
+    test('any line matching is enough', () {
       expect(grepQuiet(RegExp(r'^[1-9][0-9]*$'), '0x\n12'), isTrue);
       expect(grepQuiet(RegExp(r'^[1-9][0-9]*$'), '0\n1x'), isFalse);
-    });
-  });
-
-  group('head oid', () {
-    test('is the first "head_oid" value of the snapshot', () {
-      final oid = 'a' * 40;
-      expect(headOidOf('{"x":1,"head_oid":"$oid","y":"head_oid"}'), oid);
-    });
-
-    test('is empty with no head_oid, or an empty one', () {
-      expect(headOidOf('{"x":1}'), '');
-      expect(headOidOf('{"head_oid":""}'), '');
-    });
-
-    test('a body that quotes the key does not count', () {
-      expect(headOidOf(r'{"body":"\"head_oid\":\"abc\""}'), '');
-    });
-  });
-
-  group('sed -n logins', () {
-    test('is the list body of the check output', () {
-      expect(loginsOf('{"ok":true,"logins":["a","b"],"x":1}\n'), '"a","b"');
-    });
-
-    test('takes the last "logins" of a line, as the greedy pattern does', () {
-      expect(loginsOf('{"logins":["a"],"z":{"logins":["b"]}}'), '"b"');
-    });
-
-    test('is empty when there is none', () {
-      expect(loginsOf('{"ok":true}'), '');
-      expect(loginsOf('{"logins":[]}'), '');
     });
   });
 
@@ -74,19 +33,18 @@ void main() {
   });
 
   group('reaction re-check batches', () {
-    String snapshot(int n) => '{"x":1,"recheck":[${ids(n)}],"y":2}';
+    List<String> idList(int n) => [for (var i = 1; i <= n; i++) 'I$i'];
 
-    test('no recheck list or an empty one gives no batch', () {
-      expect(recheckBatches('{"x":1}'), isEmpty);
-      expect(recheckBatches('{"recheck":[]}'), isEmpty);
+    test('no ids give no batch', () {
+      expect(recheckBatches(const []), isEmpty);
     });
 
     test('a few ids are one batch', () {
-      expect(recheckBatches(snapshot(3)), ['"I1","I2","I3"']);
+      expect(recheckBatches(idList(3)), ['"I1","I2","I3"']);
     });
 
     test('25 ids to a line and 4 lines to a batch: 100 ids a query', () {
-      final batches = recheckBatches(snapshot(101));
+      final batches = recheckBatches(idList(101));
       expect(batches, hasLength(2));
       expect(batches.first.split(','), hasLength(100));
       expect(batches.first.split(',').first, '"I1"');
@@ -95,35 +53,9 @@ void main() {
     });
 
     test('exactly 100 ids are one batch and 125 two', () {
-      expect(recheckBatches(snapshot(100)), hasLength(1));
-      final two = recheckBatches(snapshot(125));
+      expect(recheckBatches(idList(100)), hasLength(1));
+      final two = recheckBatches(idList(125));
       expect(two.map((b) => b.split(',').length), [100, 25]);
-    });
-
-    test('an id with other characters is not an id', () {
-      expect(recheckBatches(r'{"recheck":["A_b=-9","a b"]}'), ['"A_b=-9"']);
-    });
-  });
-
-  group('sig, attn and fail names', () {
-    const snap =
-        '{"sig":"abc","attn":"d e","fail_names":["Zm9v","YmFy"],'
-        r'"body":"\"sig\":\"no\""}';
-
-    test('a member is its first quoted form', () {
-      expect(memberOf(snap, 'sig'), '"sig":"abc"');
-      expect(memberOf(snap, 'attn'), '"attn":"d e"');
-      expect(memberOf('{}', 'sig'), '');
-    });
-
-    test('the failing check names are the quoted base64 strings', () {
-      expect(failNamesOf(snap), ['"Zm9v"', '"YmFy"']);
-      expect(failNamesOf('{"fail_names":[]}'), isEmpty);
-    });
-
-    test('the failing run ids are the numbers of the list', () {
-      expect(failRunIdsOf('{"fail_run_ids":[12,345],"x":[6]}'), ['12', '345']);
-      expect(failRunIdsOf('{"fail_run_ids":[]}'), isEmpty);
     });
   });
 

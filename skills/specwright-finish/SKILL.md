@@ -2,7 +2,7 @@
 name: specwright-finish
 description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:archive, /opsx:bulk-archive, openspec-archive-change, `openspec archive`, or the user asks to archive/finish a change. Commits the archive move, then merges locally (finish: local) or pushes to the PR (finish: pr). Also handles 'the PR was merged' cleanup."
 metadata:
-  version: 0.31.0
+  version: 0.32.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *) Bash(bash *)
 ---
@@ -22,8 +22,6 @@ cd "<store toplevel>" && bash <specwright-pr>/scripts/as.sh --project "<code top
 ```
 
 Use the same leading selector on both resolvers for all other store PR commands and printed cleanup checks; an explicit project selects only the matching binary. It never replaces a target `--dir`, `--repo`, `--code`, or the caller's login. A missing, empty or repeated leading selector is usage exit 2 after the Python prerequisite probe; a missing or mismatched selected binary stops with `sw_missing` without fallback.
-
-Known limitations from ADR 0031 remain: **S-1**, `pr-snapshot.sh` and `pr-reply.sh` have no selector and still stop with `sw_missing` from a store without VERSION, even inside a selected outer fence. **C11**, store network operations through `vcs.sh` other than branch-check's approved fetch-main hop keep an unselected fence, including cleanup's jj store pull. `native-cli-internal-calls` owns those follow-ups; this convention does not fix those separate paths.
 
 **Branch reads and writes.** `[vcs] <sub>` is `bash <specwright-pr>/scripts/vcs.sh <sub> --repo <toplevel> --role code`, and for the store `--repo "<store toplevel>" --role store --code "<code toplevel>"`. It works on Git, on a colocated jj repo and on GitButler alike and prints one JSON document (`ok`, `backend`, and on a stop `error` and `message`; exit 1 stops, exit 3 is a network or fence refusal). `state` reads `branch`, `main`, `on_main`, `clean`, `dirty_paths`; `switch`, `branch-create`, `commit`, `merge`, `delete-branch` and `pull` write. Read-only `git` (`log`, `show`, `ls-tree`, `merge-base`, `rev-parse`) stays as written. Never run `git checkout`, `git commit`, `git merge`, `git branch -d`, `git branch -D` or `git pull` yourself. On jj the branch is a bookmark: `delete-branch` forgets it locally, and `--force` is the guarded delete that the `branch-check` result allows.
 

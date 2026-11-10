@@ -97,10 +97,14 @@ final _notFastForward = RegExp(
   caseSensitive: false,
 );
 
-/// `vcs.sh`'s `network_git`: runs `git <args>` in [repo], through
-/// `as.sh <login> git <args>` when `origin` is on GitHub. A failure is the
+/// `vcs.sh`'s `network_git`: runs `git <args>` in [repo], through the identity
+/// fence in this process ([runAs]) when `origin` is on GitHub. A failure is the
 /// `not_fast_forward` stop (a `pull` that cannot fast-forward, exit 1), else
 /// `fence_failed` (a refused fence on GitHub) or `git_network_error`, exit 3.
+///
+/// Constraint C4: on Git and jj a fenced command's own exit 3 on a GitHub
+/// remote is still reported as `fence_failed` (D2); this is a deliberate gap,
+/// since a refusal and the command's own exit 3 cannot be told apart by status.
 Future<TextResult> networkGit(
   VcsScripts scripts,
   String repo,

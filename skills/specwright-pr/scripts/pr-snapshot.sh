@@ -81,11 +81,25 @@ SW_DIR=$(cd "$(dirname "$0")" && pwd -P)
 SW_BASH=${BASH:-bash}
 if command -v cygpath >/dev/null 2>&1; then SW_DIR=$(cygpath -m "$SW_DIR"); SW_BASH=$(cygpath -w "$SW_BASH"); fi
 
-# The project: the current directory, then up to the first `.git` entry.
-dir=$(pwd -P)
-proj=$dir
-while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); done
-[ -e "$proj/.git" ] || proj=$dir
+# One optional leading `--project <dir>` names the code project whose `sw` runs; it is never passed on to `sw`.
+# Without it the project is the current directory, then up to the first `.git` entry.
+if [ "${1:-}" = --project ]; then
+  if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
+    echo 'pr-snapshot.sh: usage: pr-snapshot.sh [--project <code-checkout>] [PR] [options]' >&2
+    exit 2
+  fi
+  proj=$2
+  shift 2
+  if [ "${1:-}" = --project ]; then
+    echo 'pr-snapshot.sh: usage: only one leading --project is allowed' >&2
+    exit 2
+  fi
+else
+  dir=$(pwd -P)
+  proj=$dir
+  while [ ! -e "$proj/.git" ] && [ "$proj" != / ]; do proj=$(dirname "$proj"); done
+  [ -e "$proj/.git" ] || proj=$dir
+fi
 
 # No temp file before sw runs (the evals fake the command): a resolver that fails is run once more to capture its stderr.
 if ! sw=$("$BASH" "$SW_DIR/sw-path.sh" --code "$proj" 2>/dev/null); then

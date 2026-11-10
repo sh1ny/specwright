@@ -232,6 +232,11 @@ Future<ToolResult> runToolCapped(
 /// Starts the transported `bash` with [stdinBytes] exactly as given (the
 /// directory record included). It is public so tests can send a bad count or
 /// a short read. A start failure is a [ToolStartException].
+///
+/// Constraint C7: external tools still start through the framed bash transport
+/// (`runFramed` with `vcsPrelude`), and fenced commands through the inherited
+/// bash fence prelude (`exec_inherit.dart`, `fencedPrelude`); both stay until
+/// `native-cli-launcher` replaces them.
 Future<ToolResult> runFramed(
   String bash,
   List<int> stdinBytes, {

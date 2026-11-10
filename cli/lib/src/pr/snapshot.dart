@@ -5,9 +5,11 @@ import '../process/limit_line.dart';
 import '../options.dart';
 import '../process/limits.dart';
 import '../vcs/codec.dart';
+import '../vcs/document.dart';
 import 'context.dart';
 import 'gh.dart';
 import 'queries.dart';
+import 'reviewers.dart' show reviewerLogins;
 import 'text.dart';
 import 'watch_state.dart';
 
@@ -46,17 +48,75 @@ Future<int> runSnapshot(PrContext ctx, List<String> argv) async {
 }
 
 class _Result {
-  _Result(this.code, [this.out = '']);
+  _Result(this.code, [this.out = '', this.doc]);
 
   final int code;
   final String out;
+
+  /// [out] decoded, once, when it is the document a good poll ends with.
+  final Map<String, Object?>? doc;
 }
+
+/// [text] as one JSON document with members, or null when it is anything else: not JSON, more than one value, an array or
+/// a scalar (design D4, C12). The members are read from the map, never matched in the text.
+Map<String, Object?>? _document(String text) {
+  try {
+    final value = decodeJson(text);
+    return value is Map<String, Object?> ? value : null;
+  } on JsonInputException {
+    return null;
+  }
+}
+
+String _stringOf(Object? value) => value is String ? value : '';
+
+/// The strings of the list [value], those that match [only] when it is given.
+List<String> _stringsOf(Object? value, [RegExp? only]) => [
+  if (value is List)
+    for (final e in value)
+      if (e is String && (only == null || only.hasMatch(e))) e,
+];
+
+/// A GraphQL node id, one that can be put in a query text as it is.
+final RegExp _nodeId = RegExp(r'^[A-Za-z0-9_=-]+$');
+final RegExp _base64Name = RegExp(r'^[A-Za-z0-9+/=]+$');
+final RegExp _hexOid = RegExp(r'^[0-9a-f]*$');
+
+/// The head the material is of: `head_oid` of the PR query's line, or '' when it is not hex.
+String _headOid(Map<String, Object?> doc) {
+  final oid = _stringOf(doc['head_oid']);
+  return _hexOid.hasMatch(oid) ? oid : '';
+}
+
+/// The ids whose reaction times the re-check reads, `recheck` of the PR query's line.
+List<String> _recheckIds(Map<String, Object?> doc) =>
+    _stringsOf(doc['recheck'], _nodeId);
+
+/// The ids of the runs that failed, `fail_run_ids` of the evaluator's document.
+List<String> _failRunIds(Map<String, Object?> doc) => [
+  if (doc['fail_run_ids'] case final List<Object?> ids)
+    for (final id in ids)
+      if (id is int && id >= 0) '$id',
+];
+
+/// The names (base64) of the checks that fail, `fail_names` of the evaluator's document.
+List<String> _failNames(Map<String, Object?> doc) =>
+    _stringsOf(doc['fail_names'], _base64Name);
+
+/// Does the evaluator's document count a CI check that is still pending?
+bool _ciPending(Map<String, Object?> doc) {
+  final checks = doc['checks'];
+  if (checks is! Map<String, Object?>) return false;
+  final pending = checks['ci_pending'];
+  return pending is num && pending >= 1;
+}
+
+bool _incomplete(Map<String, Object?> doc) => doc['complete'] == false;
 
 class _Snapshot {
   _Snapshot(this.ctx);
 
   final PrContext ctx;
-  String py = '';
   String pr = '';
   String repo = '';
   String full = '';
@@ -140,15 +200,6 @@ class _Snapshot {
   Future<GhResult> gh(List<String> args) => ctx.gh(args, environment: pollEnv);
 
   Future<int> run(List<String> argv) async {
-    final python = await ctx.python();
-    if (python == null) {
-      stop(
-        'pr-snapshot.sh: no_python: needs python 3.8+ for its bounded gh calls',
-        2,
-      );
-    }
-    py = python;
-
     // The one option rule (`options.dart`): `--opt VALUE` or `--opt=VALUE`, no abbreviations. A missing value or an unknown
     // option is a usage stop, exit 2; an empty value still stops as bash's `${n:?}` did.
     final parsed = parseOptions(
@@ -229,19 +280,16 @@ class _Snapshot {
     }
     if (full.isNotEmpty) return await readFull();
 
-    // The reviewer config is checked before any gh call: its stderr line goes through and the exit is 2.
+    // The reviewer config is checked here, in this process, before any gh call: a bad one prints its one line and exits 2
+    // (design D3). Only the evaluator child takes the file by name, so only it needs a UTF-8 named copy.
     if (rcfgSet) {
-      rcfgArg = await utf8Named(await ctx.native(rcfg));
-      final check = await ctx.tool([
-        Platform.resolvedExecutable,
-        'pr',
-        'reviewers',
-        '--check-config',
-        rcfgArg,
-      ]);
-      ctx.writeErr(check.stderr);
-      if (check.exitCode != 0) throw PrExit(2);
-      logins = loginsOf(decodeEscaped(check.stdout));
+      final path = await ctx.native(rcfg);
+      final checked = reviewerLogins(path);
+      final error = checked.error;
+      if (error != null) stop(error, 2);
+      logins = [for (final login in checked.logins) documentText(login)]
+          .join(',');
+      rcfgArg = await utf8Named(path);
     }
     if (repo.isEmpty) {
       final r = await gh([
@@ -284,6 +332,7 @@ class _Snapshot {
     matFile = mat;
 
     String snap;
+    Map<String, Object?> snapDoc;
     final startedAt = ctx.elapsedSeconds();
     var waited = 0;
     var wake = '';
@@ -291,6 +340,7 @@ class _Snapshot {
     if (wait) {
       final r = await watch();
       snap = r.snapshot;
+      snapDoc = r.doc;
       wake = r.wake;
       filtered = r.filtered;
       waited = ctx.elapsedSeconds() - startedAt;
@@ -303,12 +353,13 @@ class _Snapshot {
       final s = await snapshot();
       if (s.code != 0) throw PrExit(s.code);
       snap = dropTrailingNewlines(s.out);
+      snapDoc = s.doc!;
       ctx.out('$snap\n');
     }
 
     if (logs) {
       var limited = false;
-      for (final id in failRunIdsOf(snap)) {
+      for (final id in _failRunIds(snapDoc)) {
         ctx.out('\n===== failed log: run $id =====\n');
         final r = await ctx.gh(['run', 'view', id, '-R', repo, '--log-failed']);
         // `2>&1 | tail -n 80`: what the call printed, stdout then stderr, or the limit line the helper printed
@@ -348,8 +399,8 @@ class _Snapshot {
     if (r.exitCode != 0) stop('pr-snapshot: cannot read $full', 3);
     final out = ctx.captured(r);
     ctx.out('$out\n');
-    // key order depends on the evaluator, so look for the error member, not a prefix
-    return out.contains('"error":"not_found"') ? 1 : 0;
+    // the document is read, not matched: key order and spacing depend on the evaluator
+    return _document(out)?['error'] == 'not_found' ? 1 : 0;
   }
 
   /// The cfg for the reviewer check (`prepare_cfg`): 0 to go on, else the code the poll or script ends with.
@@ -476,14 +527,18 @@ class _Snapshot {
     prJq(cfg, rtimes),
   ]);
 
-  /// The finished snapshot of the material [out]: `sw pr reviewers` decides the reviewers and appends their states to sig
-  /// and attn. It runs as a child of this process under the same deadline and byte bound as gh; a limit or any other
-  /// failure fails the poll. The material goes through the temp file, never through an argument.
+  /// The finished snapshot of the material [out] (its document is [material]): `sw pr reviewers` decides the reviewers
+  /// and appends their states to sig and attn. It runs as a child of this process under the same deadline and byte bound
+  /// as gh; a limit, any other failure, or output that is not one JSON document fails the poll. The material goes
+  /// through the temp file, never through an argument.
+  ///
+  /// The reviewer evaluator stays a separate process killed at the poll deadline, because a Dart regex cannot be
+  /// interrupted (ADR 0022). Rejected: evaluating in process, where a backtracking `report.ignore` pattern would hang the
+  /// watch with no way to stop it.
   ///
   /// Invariant C1: `sw pr snapshot` must run every user report pattern under the poll's deadline, never in its own
-  /// process without a bound. A Dart regex cannot be interrupted, so a backtracking pattern would hang the watch
-  /// (ADR 0022); the child is killed at the deadline instead.
-  Future<_Result> evaluate(String out) async {
+  /// process without a bound.
+  Future<_Result> evaluate(String out, Map<String, Object?> material) async {
     try {
       rawFile(matFile!).writeAsBytesSync(encodeEscaped('$out\n'));
     } on FileSystemException {
@@ -497,24 +552,32 @@ class _Snapshot {
       '--material',
       matFile!,
       '--head',
-      headOidOf(out),
+      _headOid(material),
     ], environment: pollEnv);
     if (r.limit != null) {
-      // the limit line names reviewers.py, as it did when the evaluator was that script, not sw
+      // the limit line names reviewers.py and python3, as it did when the evaluator was that script, whatever interpreter
+      // exists (design D5): the label is a constant
       ctx.err(
         limitLine(r.limit!, [
           'bash',
           '-c',
           'exec "\$@"',
           'reviewers.py',
-          py,
+          'python3',
           '-I',
         ]),
       );
     } else {
       ctx.writeErr(r.stderr);
     }
-    return _Result(r.exitCode, decodeEscaped(r.stdout));
+    if (r.exitCode != 0) return _Result(r.exitCode);
+    final text = decodeEscaped(r.stdout);
+    final doc = _document(text);
+    if (doc == null) {
+      ctx.err('pr-snapshot: the reviewer evaluator printed no JSON document\n');
+      return _Result(1);
+    }
+    return _Result(0, text, doc);
   }
 
   /// One query (~1 point); more only when an item you reacted to was edited since: its reaction times, 100 ids per query
@@ -524,8 +587,10 @@ class _Snapshot {
     ctx.relayErr(r);
     if (r.exitCode != 0) return _Result(1);
     var out = ctx.captured(r);
-    final batches = recheckBatches(out);
-    if (batches.isEmpty) return evaluate(out);
+    var doc = _document(out);
+    if (doc == null) return notDocument();
+    final batches = recheckBatches(_recheckIds(doc));
+    if (batches.isEmpty) return evaluate(out, doc);
     var rt = '';
     for (final ids in batches) {
       if (ids.isEmpty) continue;
@@ -545,12 +610,20 @@ class _Snapshot {
     ctx.relayErr(r);
     if (r.exitCode != 0) return _Result(1);
     out = ctx.captured(r);
-    return evaluate(out);
+    doc = _document(out);
+    if (doc == null) return notDocument();
+    return evaluate(out, doc);
+  }
+
+  /// The PR query's line is not one JSON document: the poll fails.
+  _Result notDocument() {
+    ctx.err('pr-snapshot: the PR query printed no JSON document\n');
+    return _Result(1);
   }
 
   /// One poll: one deadline for all its gh calls, so a hung poll ends at that deadline and the timeout is still reported on
-  /// time. Returns the snapshot, or null when the poll failed.
-  Future<String?> poll() async {
+  /// time. Returns the snapshot and its document, or null when the poll failed.
+  Future<({String text, Map<String, Object?> doc})?> poll() async {
     final at =
         DateTime.now().microsecondsSinceEpoch / 1e6 +
         resolveLimits(ctx.env, paged: false).deadline.inMicroseconds / 1e6;
@@ -558,7 +631,9 @@ class _Snapshot {
     try {
       if (await prepareCfg() != 0) return null;
       final s = await snapshot();
-      return s.code == 0 ? dropTrailingNewlines(s.out) : null;
+      return s.code == 0
+          ? (text: dropTrailingNewlines(s.out), doc: s.doc!)
+          : null;
     } finally {
       pollEnv = null;
     }
@@ -571,18 +646,21 @@ class _Snapshot {
   bool stillOwner() => claim?.stillOwner() ?? true;
 
   /// `--until attention`: may the poll [snap], which differs from [base], be skipped?
-  bool onlyProgress(String snap, String base) {
-    if (memberOf(snap, 'attn') != memberOf(base, 'attn')) return false;
-    if (snap.contains('"merge_state":"DIRTY"')) return false;
-    if (!grepQuiet(RegExp(r'"ci_pending":[1-9]'), snap)) return false;
-    final known = failNamesOf(base);
-    for (final f in failNamesOf(snap)) {
-      if (f.isNotEmpty && !known.contains(f)) return false;
+  bool onlyProgress(Map<String, Object?> snap, Map<String, Object?> base) {
+    if (_stringOf(snap['attn']) != _stringOf(base['attn'])) return false;
+    if (snap['merge_state'] == 'DIRTY') return false;
+    if (!_ciPending(snap)) return false;
+    final known = _failNames(base);
+    for (final f in _failNames(snap)) {
+      if (!known.contains(f)) return false;
     }
     return true;
   }
 
-  Future<({String wake, String snapshot, int filtered})> watch() async {
+  Future<
+    ({String wake, String snapshot, Map<String, Object?> doc, int filtered})
+  >
+  watch() async {
     final dir = claimDirectory(await stateBase(ctx), owner, name, pr);
     claim = WatchClaim.claim(dir);
     if (claim == null) {
@@ -592,22 +670,24 @@ class _Snapshot {
     }
     // --timeout is elapsed time from here, polls included.
     final start = ctx.elapsedSeconds();
-    var base = '';
+    Map<String, Object?>? base;
     var baseSig = '';
     var snap = '';
+    var snapDoc = <String, Object?>{};
     var wake = 'timeout';
     var ok = true;
     var filtered = 0;
     // a failed first snapshot has no base: the first good poll becomes it
     final first = await poll();
     if (first != null) {
-      base = snap = first;
+      snap = first.text;
+      base = snapDoc = first.doc;
     } else {
       ok = false;
     }
-    baseSig = memberOf(base, 'sig');
+    baseSig = _stringOf(base?['sig']);
     // Activity beyond a cut-off page cannot be seen, so do not wait for it.
-    if (base.contains('"complete":false')) wake = 'incomplete';
+    if (base != null && _incomplete(base)) wake = 'incomplete';
     while (wake == 'timeout') {
       final elapsed = ctx.elapsedSeconds() - start;
       final limit = int.tryParse(timeout);
@@ -627,14 +707,15 @@ class _Snapshot {
         ok = false;
         continue;
       }
-      snap = next;
+      snap = next.text;
+      snapDoc = next.doc;
       ok = true;
-      if (base.isEmpty) {
-        base = snap;
-        baseSig = memberOf(snap, 'sig');
-        if (base.contains('"complete":false')) wake = 'incomplete';
-      } else if (memberOf(snap, 'sig') != baseSig) {
-        if (until == 'attention' && onlyProgress(snap, base)) {
+      if (base == null) {
+        base = snapDoc;
+        baseSig = _stringOf(snapDoc['sig']);
+        if (_incomplete(base)) wake = 'incomplete';
+      } else if (_stringOf(snapDoc['sig']) != baseSig) {
+        if (until == 'attention' && onlyProgress(snapDoc, base)) {
           filtered++;
         } else {
           wake = 'changed';
@@ -644,6 +725,6 @@ class _Snapshot {
     // a watcher taken over during a hung poll stops here, not with a timeout report
     if (wake == 'timeout' && !stillOwner()) takeOver();
     if (!ok) stop('pr-snapshot: the last poll failed; GitHub state unknown', 1);
-    return (wake: wake, snapshot: snap, filtered: filtered);
+    return (wake: wake, snapshot: snap, doc: snapDoc, filtered: filtered);
   }
 }

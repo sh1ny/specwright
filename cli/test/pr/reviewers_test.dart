@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/reviewers.dart';
-import 'package:specwright_cli/src/pr/text.dart';
 import 'package:test/test.dart';
 
 /// Runs `sw pr reviewers` in-process on [args]: (exit code, stdout, stderr).
@@ -195,11 +194,11 @@ void main() {
       expect(r.code, 0, reason: r.err);
     });
 
-    test('the reviewers document keeps the compact keys the watcher reads', () {
+    test('the reviewers document carries the members the watcher reads', () {
       final cfg = File('${dir.path}/c.json')
         ..writeAsStringSync(jsonEncode(config({'sha_pattern': '([0-9a-f]+)'})));
       final check = run(['--check-config', cfg.path]);
-      expect(loginsOf(check.out), '"rev-bot"');
+      expect((jsonDecode(check.out) as Map)['logins'], ['rev-bot']);
 
       final material = File('${dir.path}/m.json')
         ..writeAsStringSync(
@@ -228,15 +227,16 @@ void main() {
       expect(r.code, 0, reason: r.err);
       expect(r.out.endsWith('\n'), true);
       expect(r.out.trimRight().contains('\n'), false);
-      expect(headOidOf(r.out), oid);
-      expect(failNamesOf(r.out), ['"Y2k="']);
-      expect(failRunIdsOf(r.out), ['11', '22']);
-      expect(recheckBatches(r.out), ['"a1","b2"']);
-      expect(r.out, contains('"merge_state":"DIRTY"'));
-      expect(r.out, contains('"complete":false'));
-      expect(RegExp(r'"ci_pending":[1-9]').hasMatch(r.out), true);
-      expect(memberOf(r.out, 'sig'), startsWith('"sig":"'));
-      expect(memberOf(r.out, 'attn'), startsWith('"attn":"'));
+      final doc = jsonDecode(r.out) as Map<String, Object?>;
+      expect(doc['head_oid'], oid);
+      expect(doc['fail_names'], ['Y2k=']);
+      expect(doc['fail_run_ids'], [11, 22]);
+      expect(doc['recheck'], ['a1', 'b2']);
+      expect(doc['merge_state'], 'DIRTY');
+      expect(doc['complete'], false);
+      expect((doc['checks'] as Map)['ci_pending'], greaterThanOrEqualTo(1));
+      expect(doc['sig'], isA<String>());
+      expect(doc['attn'], isA<String>());
     });
   });
 
