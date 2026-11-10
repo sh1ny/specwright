@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 
 import snapfix
-from snapfix import SCRIPTS, T0, SnapCase, fixtures, rev
+from snapfix import REPLY, SCRIPTS, SNAPSHOT, T0, SnapCase, fixtures, rev
 import bashexe  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vcs"))
@@ -137,6 +137,66 @@ class TestFullNotFound(NativeSnapshotCase):
             with self.subTest(form=name):
                 code, out, err = self.read_full(document)
                 self.assertEqual((code, out), (0, document + "\n"), err)
+
+
+class TestProjectSelector(SnapCase):
+    """native-cli-internal-calls D6: one optional leading `--project <dir>` on the shims picks the project whose `sw` runs.
+
+    Run through the real shims. `self.tmp` holds the stamped version; `code` is another stamped project, `store` has none."""
+
+    def setUp(self):
+        super().setUp()
+        snapfix.vcs_test_support.sw_home()
+        self.code = self.tmp / "code"
+        self.store = self.tmp / "store"
+        for d in (self.code, self.store):
+            d.mkdir()
+        snapfix.vcs_test_support.stamp_version(self.code)
+
+    def test_store_snapshot_selects_code_project(self):
+        tid, _ = self.add_thread("rev", "please fix the loop")
+        r = self.run_script(SNAPSHOT, "--project", fixtures.posix(self.code), self.PR, "--repo", self.SLUG, cwd=self.store)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        snap = json.loads(r.stdout)
+        self.assertEqual([t["id"] for t in snap["threads"]], [tid])
+        self.assertTrue(self.gh_calls(), "the snapshot asked GitHub")
+        for argv in self.gh_calls():
+            self.assertNotIn("--project", argv)
+
+    def test_store_reply_selects_code_project(self):
+        item = self.add_comment("rev", "a note")
+        body = self.tmp / "body.md"
+        body.write_text("done\n", encoding="utf-8", newline="\n")
+        r = self.run_script(REPLY, "--project", fixtures.posix(self.code), self.PR, "comment", item["node_id"], fixtures.posix(body),
+                            "--repo", self.SLUG, cwd=self.store)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        comments = self.st()["repos"][self.SLUG]["comments"][str(self.PR)]
+        self.assertEqual(len(comments), 2, "one reply was posted")
+        self.assertIn("specwright:handled", comments[1]["body"])
+        self.assertTrue(self.gh_calls(), "the reply reached GitHub")
+        for argv in self.gh_calls():
+            self.assertNotIn("--project", argv)
+
+    def test_missing_selected_binary_has_no_fallback(self):
+        other = self.tmp / "other"
+        other.mkdir()
+        (other / "openspec" / ".specwright").mkdir(parents=True)
+        (other / "openspec" / ".specwright" / "VERSION").write_text("999.0.0\n", encoding="utf-8")
+        r = self.run_script(SNAPSHOT, "--project", fixtures.posix(other), self.PR, "--repo", self.SLUG)  # cwd's project has one
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), doc)
+        self.assertEqual(self.gh_calls(), [], "no gh call ran, the other binary was not used")
+
+    def test_malformed_project_prefix_is_usage(self):
+        for script, status in ((SNAPSHOT, 2), (REPLY, 4)):
+            for prefix in (["--project"], ["--project", ""], ["--project", fixtures.posix(self.code), "--project", "x"]):
+                with self.subTest(script=script.name, prefix=prefix):
+                    r = self.run_script(script, *prefix, cwd=self.store)
+                    self.assertEqual((r.returncode, r.stdout), (status, ""), r.stderr)
+                    self.assertIn("usage", r.stderr)
+                    self.assertIn(script.name, r.stderr)
+        self.assertEqual(self.gh_calls(), [])
 
 
 if __name__ == "__main__":

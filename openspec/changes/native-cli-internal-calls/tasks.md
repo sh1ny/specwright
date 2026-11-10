@@ -18,10 +18,10 @@
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Snapshot with a matching sw | evals/pr-pair/test_pr_shims.py | test_snapshot_runs_sw | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Reply with a matching sw | evals/pr-pair/test_pr_shims.py | test_reply_runs_sw | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | A refusal keeps its exit status | evals/pr-pair/test_pr_shims.py | test_reply_refusal_keeps_its_exit_status | green |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started snapshot selects the code project | evals/pr-pair/test_snapshot_native.py | test_store_snapshot_selects_code_project | red |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started reply selects the code project | evals/pr-pair/test_snapshot_native.py | test_store_reply_selects_code_project | red |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Missing selected binary refuses without fallback | evals/pr-pair/test_snapshot_native.py | test_missing_selected_binary_has_no_fallback | red |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Malformed project prefix | evals/pr-pair/test_snapshot_native.py | test_malformed_project_prefix_is_usage | red |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started snapshot selects the code project | evals/pr-pair/test_snapshot_native.py | test_store_snapshot_selects_code_project | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started reply selects the code project | evals/pr-pair/test_snapshot_native.py | test_store_reply_selects_code_project | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Missing selected binary refuses without fallback | evals/pr-pair/test_snapshot_native.py | test_missing_selected_binary_has_no_fallback | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Malformed project prefix | evals/pr-pair/test_snapshot_native.py | test_malformed_project_prefix_is_usage | green |
 | pr-script-runtime → Snapshots evaluate reviewers through sw | Reviewer states decided in sw | evals/pr-pair/test_pr_shims.py | test_snapshot_evaluates_reviewers_in_sw | green |
 | pr-script-runtime → Snapshots evaluate reviewers through sw | A pattern that backtracks past the deadline | evals/pr-pair/test_pr_shims.py | test_backtracking_pattern_stops_at_the_deadline (limit line asserted exactly) | green |
 | pr-script-runtime → Snapshots evaluate reviewers through sw | Bad reviewer config | evals/pr-pair/test_snapshot_native.py | test_bad_config_checked_without_child | green |
@@ -81,9 +81,9 @@
 
 ## 3. `--project` on the snapshot and reply shims
 
-- [ ] 3.1 Add red tests to `evals/pr-pair/test_snapshot_native.py`: store-started snapshot and reply select the code project, missing selected binary refuses without fallback, malformed prefix is a usage error (2 for snapshot, 4 for reply) after the Python check. Confirm red, and re-run `test_reply_refusal_keeps_its_exit_status` green (its row rides along unchanged).
-- [ ] 3.2 Implement D6 in `skills/specwright-pr/scripts/pr-snapshot.sh` and `pr-reply.sh`: one optional leading `--project <dir>`, read after the Python check, replacing the discovery start, never forwarded to `sw`. Verify: the 3.1 tests and `python -m unittest evals/pr-pair/test_pr_shims.py` pass; flip the rows green.
-- [ ] 3.3 Update `skills/specwright-pr/SKILL.md` to pass `--project <code toplevel>` on store-started snapshot, `--full` and reply calls, and remove the S-1 and C11 notes there and in `skills/specwright-finish/SKILL.md`. Update `openspec/architecture.md`: C9, C11 and S-1 closed, C13 owned by `native-cli-retire-scripts` (D9). Verify: `grep -n "S-1\|C11" skills/specwright-pr/SKILL.md skills/specwright-finish/SKILL.md` finds nothing, and the release suite's SKILL.md checks pass in CI.
+- [x] 3.1 Add red tests to `evals/pr-pair/test_snapshot_native.py`: store-started snapshot and reply select the code project, missing selected binary refuses without fallback, malformed prefix is a usage error (2 for snapshot, 4 for reply) after the Python check. Confirm red, and re-run `test_reply_refusal_keeps_its_exit_status` green (its row rides along unchanged).
+- [x] 3.2 Implement D6 in `skills/specwright-pr/scripts/pr-snapshot.sh` and `pr-reply.sh`: one optional leading `--project <dir>`, read after the Python check, replacing the discovery start, never forwarded to `sw`. Verify: the 3.1 tests and `python -m unittest evals/pr-pair/test_pr_shims.py` pass; flip the rows green.
+- [x] 3.3 Update `skills/specwright-pr/SKILL.md` to pass `--project <code toplevel>` on store-started snapshot, `--full` and reply calls, and remove the S-1 and C11 notes there and in `skills/specwright-finish/SKILL.md`. Update `openspec/architecture.md`: C9, C11 and S-1 closed, C13 owned by `native-cli-retire-scripts` (D9). Verify: `grep -n "S-1\|C11" skills/specwright-pr/SKILL.md skills/specwright-finish/SKILL.md` finds nothing, and the release suite's SKILL.md checks pass in CI.
 
 ## 4. Workflow nested fetch
 

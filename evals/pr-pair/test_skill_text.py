@@ -74,15 +74,14 @@ class SkillText(unittest.TestCase):
                 self.assertIn('does not change cwd or login', text)
                 self.assertIn('each shim resolves its own binary', text)
 
-    def test_store_selector_instructions_preserve_known_limitations(self):
+    def test_store_snapshot_and_reply_take_the_selector_and_no_gap_notes_remain(self):
         finish = SKILL.parents[1] / 'specwright-finish' / 'SKILL.md'
+        self.assertRegex(TEXT, r'pr-snapshot\.sh --project "<code toplevel>" <pr>')
+        self.assertRegex(TEXT, r'pr-snapshot\.sh --project "<code toplevel>" --full')
+        self.assertRegex(TEXT, r'pr-reply\.sh --project "<code toplevel>" <pr> comment')
         for text in (TEXT, finish.read_text(encoding='utf-8')):
-            self.assertIn('pr-snapshot.sh', text)
-            self.assertIn('pr-reply.sh', text)
-            self.assertIn('S-1', text)
-            self.assertIn('C11', text)
-            self.assertIn('native-cli-internal-calls', text)
-            self.assertIn('sw_missing', text)
+            for gone in ('S-1', 'C11'):
+                self.assertNotIn(gone, text)
 
     def section(self, title):
         self.assertIn(title, SECTIONS, f"SKILL.md has no '## {title}' section; found {sorted(SECTIONS)}")
