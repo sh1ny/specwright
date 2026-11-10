@@ -201,7 +201,12 @@ class _Side {
 }
 
 Object? _asWritten(Map<String, Object?> pr, String key) =>
-    pr[key] is BigInt ? settingText(pr, key) : pr[key];
+    _holdsBigInt(pr[key]) ? settingText(pr, key) : pr[key];
+
+bool _holdsBigInt(Object? v) =>
+    v is BigInt ||
+    (v is List && v.any(_holdsBigInt)) ||
+    (v is Map && v.values.any(_holdsBigInt));
 
 _Side _policySide(Map<String, Object?> s, bool withStore) {
   final pr = _section(s, 'pr');

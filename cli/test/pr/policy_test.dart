@@ -553,6 +553,28 @@ void main() {
     });
 
     test(
+      'a raw container holding an integer beyond 64 bits is shown as written',
+      () async {
+        serve(
+          main: '',
+          headText:
+              'pr:\n  merge_method: [99999999999999999999]\n'
+              '  delete_branch:\n    a: 99999999999999999999\n',
+        );
+        final r = await run();
+        expect(r.code, 0, reason: f.stdout);
+        final drift = r.json['drift']! as List;
+        expect(
+          [for (final d in drift) (d as Map)['key']],
+          ['pr.merge_method', 'pr.delete_branch'],
+        );
+        for (final d in drift) {
+          expect((d as Map)['head'], contains('99999999999999999999'));
+        }
+      },
+    );
+
+    test(
       'merge_note names a pr.merge that is neither user nor agent',
       () async {
         serve(main: 'pr:\n  merge: maybe\n', headText: '');
