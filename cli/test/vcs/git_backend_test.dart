@@ -10,16 +10,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
-
-/// An `as.sh` that logs its arguments and answers from files next to it.
-const _fakeAs = r'''#!/usr/bin/env bash
-d=$(dirname "$0")
-for a in "$@"; do printf '%s|' "$a" >> "$d/as.log"; done
-printf '\n' >> "$d/as.log"
-[ -f "$d/as.out" ] && cat "$d/as.out"
-[ -f "$d/as.err" ] && cat "$d/as.err" >&2
-exit "$(cat "$d/as.rc" 2>/dev/null || echo 0)"
-''';
+import 'fake_fence.dart';
 
 void main() {
   final bash = findBash();
@@ -55,7 +46,6 @@ void main() {
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('claude-ncv-g4-');
     scriptsDir = Directory('${tmp.path}/scripts')..createSync();
-    File('${scriptsDir.path}/as.sh').writeAsStringSync(_fakeAs);
     repoDir = Directory('${tmp.path}/repo')..createSync();
     sh(repoDir.path, ['init', '-q', '-b', 'main']);
     configure(repoDir.path);
@@ -100,7 +90,7 @@ void main() {
       repo,
       repo,
       ProbeInfo('git', 'main', repo, infoLogin, jjPresent: jjPresent),
-      VcsScripts(scriptsPath, bash),
+      VcsScripts(scriptsPath, bash, fence: fakeFence(scriptsDir)),
     );
   }
 
@@ -591,7 +581,7 @@ void main() {
     void answer(String file, String text) =>
         File('${scriptsDir.path}/$file').writeAsStringSync(text);
 
-    test('fetch-main runs as.sh with the given login', () async {
+    test('fetch-main runs the fence with the given login', () async {
       gitIn(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
       final doc = await op(
         'fetch-main',
@@ -606,7 +596,7 @@ void main() {
       expect(asLog(), 'pinned|git|pull|--ff-only|\n');
     }, skip: skip);
 
-    test('without a login as.sh --resolve supplies one', () async {
+    test('without a login the fence --resolve supplies one', () async {
       answer('as.out', 'resolved\n');
       await op('pull', session(remoteBranch: true));
       expect(asLog(), '--resolve|\nresolved|git|pull|--ff-only|origin|main|\n');

@@ -1,20 +1,14 @@
+import '../fence/fenced_text.dart';
 import '../pr/context.dart';
 import '../pr/pair.dart';
 import '../pr/settings_commands.dart';
 import '../settings/rules.dart';
 import 'codec.dart';
 import 'stop.dart';
+import 'text_result.dart';
 import 'tool_runner.dart';
 
-/// What a tool run printed, decoded as `vcs.sh`'s `run` read it: UTF-8 with
-/// surrogate escapes and universal newlines ([decodeText]).
-class TextResult {
-  TextResult(this.code, this.stdout, this.stderr);
-
-  final int code;
-  final String stdout;
-  final String stderr;
-}
+export 'text_result.dart';
 
 /// Runs [command] (tool name first) in [cwd] through the transport and decodes
 /// its output as text. This is `vcs.sh`'s `run` with `bash -c 'exec "$@"'`.
@@ -27,18 +21,21 @@ Future<TextResult> runText(
   return TextResult(r.exitCode, decodeText(r.stdout), decodeText(r.stderr));
 }
 
-/// The scripts `sw vcs` calls until they are ported (design D2, S2): the
-/// directory of the `vcs.sh` that started it and the bash running that shim.
-class VcsScripts {
-  VcsScripts(this.dir, this.bash, {this.fenceProject});
+/// The identity fence, run in process: `as.sh`'s argument list in, the
+/// [fencedText] result out. A test replaces it ([VcsScripts.fence]).
+typedef FencedRun = Future<TextResult> Function(String repo, List<String> argv);
 
-  // Only the temporary non-Git branch-check fetch carries a binary selector.
-  final String? fenceProject;
-  List<String> get fencePrefix =>
-      fenceProject == null ? [] : ['--project', fenceProject!];
+/// Where `sw vcs` was started from (design D2, S2): the directory of the
+/// `vcs.sh` that started it, which printed commands name, and the bash that ran
+/// that shim. No script in it is run.
+class VcsScripts {
+  VcsScripts(this.dir, this.bash, {this.fence});
 
   final String dir;
   final String bash;
+
+  /// Replaces the in-process fence in a test; null runs [fencedText].
+  final FencedRun? fence;
 
   String path(String name) {
     final base = dir.length > 1 && dir.endsWith('/')
@@ -47,11 +44,11 @@ class VcsScripts {
     return '$base/$name';
   }
 
-  /// `vcs.sh`'s `bash_script`: `bash <dir>/<name> args...` in [cwd], or in the
-  /// directory `sw` was started in when [cwd] is null (`.` is that directory,
-  /// and travels as bytes like any other record).
-  Future<TextResult> run(String? cwd, String name, List<String> args) =>
-      runText(bash, cwd ?? '.', [bash, path(name), ...args]);
+  /// `as.sh <argv...>` in [repo], run in this process.
+  Future<TextResult> fenced(String repo, List<String> argv) {
+    final run = fence;
+    return run != null ? run(repo, argv) : fencedText(bash, repo, argv);
+  }
 }
 
 /// The backend, main branch and login `vcs.sh`'s `get_settings` returns.
@@ -122,9 +119,9 @@ PrContext _settingsContext(VcsScripts scripts) => PrContext(
 );
 
 /// The login a network command runs as (`fence_login`, `network_git`): [login]
-/// when it is not empty; for a GitHub remote without one, the account
-/// `as.sh --resolve` prints; otherwise empty. A refused resolve is the
-/// `fence_failed` stop with exit 3.
+/// when it is not empty; for a GitHub remote without one, the account the
+/// fence's `--resolve` finds, in this process ([fencedText]); otherwise empty.
+/// A refused resolve is the `fence_failed` stop with exit 3.
 Future<String> fenceLogin(
   VcsScripts scripts,
   String repo, {
@@ -133,10 +130,7 @@ Future<String> fenceLogin(
 }) async {
   var who = login ?? '';
   if (github && who.isEmpty) {
-    final resolved = await scripts.run(repo, 'as.sh', [
-      ...scripts.fencePrefix,
-      '--resolve',
-    ]);
+    final resolved = await scripts.fenced(repo, ['--resolve']);
     if (resolved.code != 0) {
       final said = resolved.stderr.trim();
       throw VcsStop(
@@ -150,19 +144,18 @@ Future<String> fenceLogin(
   return who;
 }
 
-/// `as.sh <who> <command...>` in [repo]: a fenced network command. The caller
-/// maps a non-zero exit (3 is a refused fence) as `network_git` does.
+/// `as.sh <who> <command...>` in [repo], run in this process ([fencedText]): a
+/// fenced network command. The caller maps a non-zero exit (3 is a refused
+/// fence) as `network_git` does.
 ///
-/// Constraint C7: this reaches the fence through the `as.sh` shim, which hands
-/// the call to `sw as`, until `native-cli-retire-scripts` calls `sw as`
-/// directly. The exit-3 and `as.sh:` prefix mapping of the callers depends on
-/// that shim: the fence keeps `as.sh`'s messages and statuses, and a direct
-/// call would have to keep them too.
+/// Constraint C7: the fence keeps `as.sh`'s messages and statuses (the
+/// `as.sh:` prefix and exit 3 of a refusal), which the exit-3 and prefix
+/// mapping of the callers depends on.
 Future<TextResult> runAs(
   VcsScripts scripts,
   String repo,
   String who,
   List<String> command,
-) => scripts.run(repo, 'as.sh', [...scripts.fencePrefix, who, ...command]);
+) => scripts.fenced(repo, [who, ...command]);
 
 int _cap(int code) => code < 3 ? code : 3;

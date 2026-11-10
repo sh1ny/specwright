@@ -10,6 +10,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
+import 'fake_fence.dart';
 
 /// A `but` that logs its arguments, runs `hook.<cmd>` (sourced, so it can
 /// `exec`), then answers from `out.<cmd>` / `err.<cmd>` / `rc.<cmd>` files.
@@ -22,8 +23,7 @@ printf '%s\n' "$*" >> "$d/but.log"
 exit "$(cat "$d/rc.$1" 2>/dev/null || echo 0)"
 ''';
 
-/// An `as.sh` and a `pr-pair.sh` that log their arguments and answer from
-/// files next to them.
+/// A `pr-pair.sh` that logs its arguments and answers from files next to it.
 String _fakeScript(String prefix) =>
     '''#!/usr/bin/env bash
 d=\$(dirname "\$0")
@@ -115,7 +115,6 @@ void main() {
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('claude-ncv-g6-');
     scriptsDir = Directory('${tmp.path}/scripts')..createSync();
-    File('${scriptsDir.path}/as.sh').writeAsStringSync(_fakeScript('as'));
     File('${scriptsDir.path}/pr-pair.sh').writeAsStringSync(_fakeScript('pp'));
     butDir = Directory('${tmp.path}/but')..createSync();
     File('${butDir.path}/but').writeAsStringSync(_fakeBut);
@@ -183,7 +182,7 @@ void main() {
       repo,
       repo,
       ProbeInfo('gitbutler', 'main', repo, ''),
-      VcsScripts(scriptsPath, bash),
+      VcsScripts(scriptsPath, bash, fence: fakeFence(scriptsDir)),
     );
   }
 
@@ -799,7 +798,7 @@ void main() {
       expect(doc['pulled'], true);
     });
 
-    test('a GitHub origin pulls through as.sh with the login', () async {
+    test('a GitHub origin pulls through the fence with the login', () async {
       gitIn(['remote', 'set-url', 'origin', 'https://github.com/o/r.git']);
       setStatus(stacks: [stack('feat')]);
       final doc = await op(

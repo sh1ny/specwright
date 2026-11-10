@@ -34,19 +34,11 @@ class Workflow {
 
   /// The native VCS boundary keeps the old wrapper's exit reduction.
   /// State and plan remain unbounded; only fetch paths carry network budgets.
-  Future<Map<String, Object?>> vcs(
-    List<String> argv, {
-    bool branchFetchProject = false,
-  }) async {
+  Future<Map<String, Object?>> vcs(List<String> argv) async {
     try {
       final request = parseVcsArguments(argv);
       return await vcsHandlers[request.command]!(
-        VcsContext(
-          request,
-          ctx.scriptsDir,
-          ctx.bash,
-          branchFetchProject: branchFetchProject,
-        ),
+        VcsContext(request, ctx.scriptsDir, ctx.bash),
       );
     } on VcsStop catch (e) {
       throw PairStop(e.error, e.message, code: e.code == 3 ? 3 : 1);
@@ -837,7 +829,7 @@ class Workflow {
                     '--login',
                     a['login']!,
                   ],
-                ], branchFetchProject: true))['commit']
+                ]))['commit']
                 as String;
       }
     }

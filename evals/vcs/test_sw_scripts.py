@@ -1,7 +1,7 @@
-"""sw vcs reads settings in-process (native-cli-pr-pair D6) and fences identity through the scripts of the vcs.sh that started it (design D2, S2).
+"""sw vcs reads settings in-process (native-cli-pr-pair D6).
 
 The tests run vcs.sh, the shim, against the tree's sw (SPECWRIGHT_SW=<built sw>, design D9). Each one copies the scripts directory and puts a recording wrapper in front of
-`pr-pair.sh` or `as.sh`, so it can see which script ran, from where and with which arguments.
+`pr-pair.sh`, so it can see whether that script ran. The fence runs in process too: evals/vcs/test_sw_fence.py.
 
 Run: python -m unittest evals/vcs/test_sw_scripts.py
 """
@@ -17,9 +17,6 @@ import jjenv
 from jjenv import Scratch, require_jj
 from vcs_test_support import SCRIPTS, VcsTestCase, bash_path_env, bash_run
 
-GITHUB = "https://github.com/o/r.git"
-LOGIN = "KintsugiBot"
-
 # Logs "$0" and the arguments of one call into $PR_PAIR_LOG (one line per call, NUL-free), then runs the real script.
 PR_PAIR_WRAPPER = r"""#!/usr/bin/env bash
 printf '%s\n' "$0" >> "$PR_PAIR_LOG"
@@ -29,20 +26,6 @@ printf '\n' >> "$PR_PAIR_LOG"
 exec bash "$(dirname "$0")/pr-pair.real.sh" "$@"
 """
 
-# A stand-in for the fence: it records its arguments, answers --resolve, can refuse, and otherwise runs the command.
-AS_WRAPPER = r"""#!/usr/bin/env bash
-for a in "$@"; do printf '%s|' "$a" >> "$AS_LOG"; done
-printf '\n' >> "$AS_LOG"
-if [ "${1:-}" = --resolve ]; then
-  if [ -n "${AS_REFUSE_RESOLVE:-}" ]; then echo "as.sh: no active github.com account" >&2; exit 3; fi
-  echo "${AS_RESOLVED:-resolved-bot}"
-  exit 0
-fi
-if [ -n "${AS_REFUSE:-}" ]; then echo "as.sh: no credential for $1" >&2; exit 3; fi
-shift
-exec "$@"
-"""
-
 
 def write_script(path, text):
     with Path(path).open("w", encoding="utf-8", newline="\n") as stream:
@@ -50,14 +33,12 @@ def write_script(path, text):
 
 
 class ScriptsCase(VcsTestCase):
-    def copy_scripts(self, name="scripts", wrap_pr_pair=False, wrap_as=False):
+    def copy_scripts(self, name="scripts", wrap_pr_pair=False):
         dest = self.root / name
         shutil.copytree(SCRIPTS, dest, ignore=shutil.ignore_patterns("__pycache__"))
         if wrap_pr_pair:
             os.replace(dest / "pr-pair.sh", dest / "pr-pair.real.sh")
             write_script(dest / "pr-pair.sh", PR_PAIR_WRAPPER)
-        if wrap_as:
-            write_script(dest / "as.sh", AS_WRAPPER)
         return dest
 
     @staticmethod
@@ -130,63 +111,6 @@ class TestNonUtf8ScriptsDirectory(ScriptsCase):
 
         self.assertEqual(result.returncode, 0)
         self.assertEqual(state["backend"], "jj", state)
-
-
-class TestFencedPush(ScriptsCase):
-    def setUp(self):
-        super().setUp()
-        self.set_settings(self.repo, "main_branch: main\n")
-        self.shim = gitlog.install(self.root / "shim", real_git=jjenv.real_git(), log_path=self.root / "git-calls.jsonl")
-        self.env = {**self.shim.env, **bash_path_env(self.shim.path)}
-        self.origin = self.root / "origin.git"
-        self.git(self.root, "init", "--bare", str(self.origin))
-        self.git(self.root, "--git-dir", str(self.origin), "symbolic-ref", "HEAD", "refs/heads/main")
-        # origin is github.com to Specwright (so it fences through as.sh) and the local bare repo to Git: insteadOf
-        # rewrites every push, and the logging shim answers `git remote get-url origin` (which would expand the rewrite).
-        self.git(self.repo, "remote", "add", "origin", GITHUB)
-        self.git(self.repo, "config", "url.%s.insteadOf" % self.origin.as_posix(), GITHUB)
-        script = self.shim.path / "git"
-        text = script.read_text(encoding="utf-8").replace("\r\n", "\n")
-        answer = 'if [ "$*" = "remote get-url origin" ]; then echo "%s"; exit 0; fi\n' % GITHUB
-        write_script(script, text.replace('exec "$SPECWRIGHT_REAL_GIT" "$@"', answer + 'exec "$SPECWRIGHT_REAL_GIT" "$@"'))
-        self.git(self.repo, "checkout", "-b", "feat/a")
-        self.scripts = self.copy_scripts(wrap_as=True)
-        self.as_log = self.root / "as.log"
-
-    def origin_branches(self):
-        out = self.git(self.origin, "for-each-ref", "--format=%(refname)", "refs/heads").stdout
-        return out.split()
-
-    def push(self, *options, env=None, expected=0):
-        return self.invoke("push", "--branch", "feat/a", *options, scripts=self.scripts,
-                           env={"AS_LOG": self.as_log.as_posix(), **(env or {})}, expected=expected)
-
-    def test_fenced_push_runs_through_as_sh(self):
-        with self.subTest("the push runs as the login"):
-            done, _ = self.push("--login", LOGIN)
-            self.assertEqual(done, {"ok": True, "backend": "git", "branch": "feat/a"})
-            self.assertEqual(self.records(self.as_log), ["|".join([LOGIN, "git", "push", "-u", "origin", "HEAD"]) + "|"])
-            self.assertEqual(self.origin_branches(), ["refs/heads/feat/a"])
-        self.git(self.origin, "update-ref", "-d", "refs/heads/feat/a")
-        self.as_log.unlink(missing_ok=True)
-        with self.subTest("a refused fence exits 3 and pushes nothing"):
-            refused, _ = self.push("--login", LOGIN, env={"AS_REFUSE": "1"}, expected=3)
-            self.assertEqual(refused["error"], "fence_failed")
-            self.assertEqual(refused["message"], "as.sh: no credential for " + LOGIN)
-            self.assertEqual(self.origin_branches(), [])
-        self.as_log.unlink(missing_ok=True)
-        with self.subTest("no login resolves one first"):
-            done, _ = self.push(env={"AS_RESOLVED": "pinned-bot"})
-            self.assertTrue(done["ok"], done)
-            self.assertEqual(self.records(self.as_log), ["--resolve|", "|".join(["pinned-bot", "git", "push", "-u", "origin", "HEAD"]) + "|"])
-        self.git(self.origin, "update-ref", "-d", "refs/heads/feat/a")
-        self.as_log.unlink(missing_ok=True)
-        with self.subTest("a refused resolve exits 3 and pushes nothing"):
-            refused, _ = self.push(env={"AS_REFUSE_RESOLVE": "1"}, expected=3)
-            self.assertEqual(refused["error"], "fence_failed")
-            self.assertEqual(refused["message"], "as.sh: no active github.com account")
-            self.assertEqual(self.records(self.as_log), ["--resolve|"])
-            self.assertEqual(self.origin_branches(), [])
 
 
 if __name__ == "__main__":

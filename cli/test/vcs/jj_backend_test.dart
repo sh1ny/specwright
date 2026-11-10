@@ -9,15 +9,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
-
-/// An `as.sh` that logs its arguments and answers from files next to it.
-const _fakeAs = r'''#!/usr/bin/env bash
-d=$(dirname "$0")
-for a in "$@"; do printf '%s|' "$a" >> "$d/as.log"; done
-printf '\n' >> "$d/as.log"
-[ -f "$d/as.err" ] && cat "$d/as.err" >&2
-exit "$(cat "$d/as.rc" 2>/dev/null || echo 0)"
-''';
+import 'fake_fence.dart';
 
 bool _jjInstalled() {
   try {
@@ -62,7 +54,6 @@ void main() {
     // The pure helpers need no fixture; the build runners have no jj.
     if (skip != false) return;
     scriptsDir = Directory('${tmp.path}/scripts')..createSync();
-    File('${scriptsDir.path}/as.sh').writeAsStringSync(_fakeAs);
     originDir = Directory('${tmp.path}/origin.git')..createSync();
     gitIn(['init', '-q', '--bare', '-b', 'main'], originDir.path);
     final seed = Directory('${tmp.path}/seed')..createSync();
@@ -121,7 +112,7 @@ void main() {
       repo,
       repo,
       ProbeInfo('jj', 'main', repo, infoLogin),
-      VcsScripts(scriptsPath, bash),
+      VcsScripts(scriptsPath, bash, fence: fakeFence(scriptsDir)),
     );
   }
 
