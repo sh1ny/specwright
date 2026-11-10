@@ -6,9 +6,10 @@ Two checks over the shipped skills (skills/**), scripts (scripts/**, skills/*/sc
   to it) is a whole option name that command's source defines, so the one option rule (no abbreviations) cannot break a
   caller;
 - no caller matches text on an `sw` document (a `grep`, `sed` or `awk` pipe in a shipped script, a regex or substring over
-  a compact `"key":` in Dart), but for the two documented, temporary exceptions: C12 (`sw pr snapshot` reads `sw pr
-  reviewers` documents by regex, cli/lib/src/pr/text.dart and snapshot.dart) and C13 (the `branchPattern` guard printed by
-  cli/lib/src/finish/undo_plan.dart). native-cli-internal-calls removes both.
+  a compact `"key":` in Dart), but for the one documented, temporary exception C13 (the `branchPattern` guard printed by
+  cli/lib/src/finish/undo_plan.dart), which native-cli-retire-scripts removes. C12 (`sw pr snapshot` reading `sw pr
+  reviewers` documents by regex) closed in native-cli-internal-calls: snapshot parses them now. The one compact key line
+  left in snapshot.dart is the wait document it prints, not one it reads.
 
 The option sets come from the Dart sources: an `addOption/addFlag/addMultiOption('name'` declaration or a `'--name'` literal
 in the command's own files. A command's set is the union over its files, so this checks whole names, not which subcommand
@@ -53,7 +54,8 @@ TEXT_PIPE = re.compile(r"\|\s*(?:grep|egrep|fgrep|sed|awk|cut)\b|\b(?:grep|egrep
 
 # a compact JSON key inside a Dart string or regex: `"branch":`
 DOCUMENT_KEY = re.compile(r'"[a-z_]+":')
-C12_FILES = {"cli/lib/src/pr/text.dart", "cli/lib/src/pr/snapshot.dart"}
+# Lines that build a document sw prints: data written, not text matched.
+PRINTED = {("cli/lib/src/pr/snapshot.dart", '{"wake":"$wake"')}
 C13_MARK = "branchPattern"
 C13_FILE = "cli/lib/src/finish/undo_plan.dart"
 
@@ -174,7 +176,8 @@ def check_text_matching_scripts(path, text):
 
 
 def dart_document_matches():
-    """(relative path, line number, line) of every Dart line that matches a compact `"key":` of a document, less C12 and C13."""
+    """(relative path, line number, line) of every Dart line that matches a compact `"key":` of a document, less C13 and
+    the printed documents."""
     bad = []
     for path in sorted(LIB.rglob("*.dart")):
         rel = path.relative_to(ROOT).as_posix()
@@ -182,7 +185,7 @@ def dart_document_matches():
             stripped = line.lstrip()
             if stripped.startswith(("//", "#")) or not DOCUMENT_KEY.search(line):
                 continue
-            if rel in C12_FILES or (rel == C13_FILE and C13_MARK in line):
+            if any(rel == file and mark in line for file, mark in PRINTED) or (rel == C13_FILE and C13_MARK in line):
                 continue
             bad.append((rel, n, stripped))
     return bad
@@ -202,11 +205,11 @@ class OptionCallers(unittest.TestCase):
         self.assertEqual(bad, [], "option words that no command defines as a whole name (abbreviations are refused)")
 
     def test_sw_launches_are_found(self):
-        """The scan of `sw`'s own launches sees the two it must (a scan that finds nothing proves nothing)."""
+        """The scan of `sw`'s own launches sees the one it must (a scan that finds nothing proves nothing). The config
+        check runs in process since native-cli-internal-calls, so the reviewer evaluator is snapshot's only launch."""
         text = (LIB / "pr" / "snapshot.dart").read_text(encoding="utf-8")
         launches = [words for family, words in own_launches(text) if family == "pr"]
-        self.assertIn(["check-config"], launches)
-        self.assertIn(["config", "material", "head"], launches)
+        self.assertEqual(launches, [["config", "material", "head"]])
 
     def test_shim_options_are_the_shims_own(self):
         for names in SHIM_OPTIONS.values():
@@ -228,14 +231,13 @@ class OptionCallers(unittest.TestCase):
 
     def test_dart_consumers_match_documents_only_for_c12_and_c13(self):
         bad = dart_document_matches()
-        self.assertEqual(bad, [], "Dart text matching on a compact sw document outside C12 and C13")
+        self.assertEqual(bad, [], "Dart text matching on a compact sw document outside C13")
 
     def test_the_documented_exceptions_still_exist(self):
-        """C12 and C13 are listed as exceptions only while the code is there: a removed one must leave this list."""
+        """C13 and the printed documents are listed only while the code is there: a removed one must leave this list."""
         self.assertIn(C13_MARK, (ROOT / C13_FILE).read_text(encoding="utf-8"))
-        for rel in C12_FILES:
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            self.assertRegex(text, DOCUMENT_KEY, rel)
+        for rel, mark in PRINTED:
+            self.assertIn(mark, (ROOT / rel).read_text(encoding="utf-8"), rel)
 
 
 if __name__ == "__main__":

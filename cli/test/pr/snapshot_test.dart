@@ -365,13 +365,21 @@ void main() {
             ],
           }),
         );
+        // The copy is read while the evaluator runs: cleanup removes it once the snapshot ends.
+        final evaluate = f.onBounded!;
+        String? copied;
+        f.onBounded = (command) {
+          copied = File(command[command.indexOf('--config') + 1])
+              .readAsStringSync();
+          return evaluate(command);
+        };
         final escaped = '${f.tempDir.path}/reviewers-\uDCFF.json';
         expect(await snapshot(['--reviewer-config', escaped]), 0);
         final config = f.boundedCalls.single;
         final given = config[config.indexOf('--config') + 1];
         expect(given, isNot(escaped));
         expect(given.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff), isFalse);
-        expect(File(given).readAsStringSync(), contains('"login":"a"'));
+        expect(copied, contains('"login":"a"'));
         expect(
           f.leftovers.where((n) => n.startsWith('tmp.')),
           isEmpty,

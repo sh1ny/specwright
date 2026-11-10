@@ -14,7 +14,7 @@ from pathlib import Path
 
 import gitlog
 import jjenv
-from test_sw_scripts import AS_WRAPPER, GITHUB, LOGIN, write_script
+from test_sw_scripts import write_script
 from vcs_test_support import SCRIPTS, STAMP, VcsTestCase, bash_run, sw_home, tree_version
 
 STOP = "sw missing or mismatched: rerun the install prompt"
@@ -87,13 +87,12 @@ class TestShim(ShimCase):
         self.assertEqual(files, ["dir with space/a b.txt"])
 
     def test_fence_refusal_keeps_exit_3(self):
-        scripts = self.copy_scripts()
-        write_script(scripts / "as.sh", AS_WRAPPER)
-        self.git(self.repo, "remote", "add", "origin", GITHUB)
+        # A remote URL that carries credentials is refused by the in-process fence before any gh call.
+        self.git(self.repo, "remote", "add", "origin", "https://tok@github.com/o/r.git")
         self.git(self.repo, "checkout", "-b", "feat/a")
-        refused, _ = self.invoke("push", "--branch", "feat/a", "--login", LOGIN, scripts=scripts,
-                                 env={"AS_LOG": (self.root / "as.log").as_posix(), "AS_REFUSE": "1"}, expected=3)
+        refused, _ = self.invoke("push", "--branch", "feat/a", "--login", "KintsugiBot", expected=3)
         self.assertEqual((refused["ok"], refused["error"]), (False, "fence_failed"), refused)
+        self.assertNotIn("tok@", refused["message"])
 
     def test_binary_missing_stops_sw_missing(self):
         home = self.root / "empty-home"
