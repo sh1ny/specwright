@@ -484,9 +484,12 @@ class FeedbackPass {
       if (item.trim().isEmpty) continue;
       final parts = item.replaceAll(RegExp(r'^\n+|\n+$'), '').split('\x1f');
       if (parts.length < 3) continue;
-      if (RegExp(r'^Feedback-Round:[ \t]*(\d+)[ \t]*$', multiLine: true)
-          .allMatches(parts[2])
-          .any((m) => int.tryParse(m[1]!) == _integer(round))) {
+      final want = _integer(round);
+      if (want != null &&
+          RegExp(
+            r'^Feedback-Round:[ \t]*(\d+)[ \t]*$',
+            multiLine: true,
+          ).allMatches(parts[2]).any((m) => int.tryParse(m[1]!) == want)) {
         return (parts[0].trim(), true);
       }
     }
