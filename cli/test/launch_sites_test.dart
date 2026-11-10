@@ -212,10 +212,24 @@ _Stripped _strip(String s) {
   return _Stripped(code.toString(), skel.toString());
 }
 
-RegExp _fn(String name) => RegExp(
-  '(?<![\\w\$])(?<![\\w>]>\\s)(?<!^ {2})${RegExp.escape(name)}\\(',
-  multiLine: true,
-);
+RegExp _fn(String name) =>
+    RegExp('(?<![\\w\$])(?<![\\w>]>\\s)${RegExp.escape(name)}\\(');
+
+/// Is the match at [start] (its `(` at [open]) a declaration, not a call?
+/// Decided by what follows the parameter list: a body (`{`, `=>`, `async`,
+/// `sync*`), or, for a name that starts its line, a constructor's
+/// initializer list (`:`). Indentation decides nothing.
+bool _isDeclaration(String skeleton, int start, int open) {
+  final rest = skeleton.substring(_closeOf(skeleton, open) + 1).trimLeft();
+  if (rest.startsWith('{') ||
+      rest.startsWith('=>') ||
+      RegExp(r'^(?:async|sync)\b').hasMatch(rest)) {
+    return true;
+  }
+  final lineStart = skeleton.lastIndexOf('\n', start - 1) + 1;
+  return rest.startsWith(':') &&
+      skeleton.substring(lineStart, start).trim().isEmpty;
+}
 
 /// The runner symbols: every function that starts a process, and the wrappers
 /// whose callers are launch sites (D7).
@@ -305,7 +319,10 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
     // 1. runner calls: counts, closed runner list, launch arguments
     for (final entry in _symbols.entries) {
       final symbol = entry.key;
-      final matches = entry.value.allMatches(skeleton).toList();
+      final matches = [
+        for (final m in entry.value.allMatches(skeleton))
+          if (!_isDeclaration(skeleton, m.start, m.end - 1)) m,
+      ];
       final call = listed[symbol];
       if (call == null) {
         if (matches.isNotEmpty) {
@@ -526,6 +543,41 @@ Future<void> sneak(String bash) async {
         isTrue,
         reason: findings.join('\n'),
       );
+
+      // (j) an unawaited runner call at the start of a two-space-indented
+      // statement: indentation does not make it a declaration
+      final j = _miniSources()
+        ..['indent.dart'] = '''
+void go(String bash) {
+  runTool(bash, '.', ['git', 'status']);
+}
+''';
+      final jFindings = scanLaunchSites(j, _miniAllow);
+      expect(
+        _mentions(jFindings, [
+          'indent.dart',
+          'runTool',
+          'not on the allowlist',
+        ]),
+        isTrue,
+        reason: jFindings.join('\n'),
+      );
+
+      // (k) a declaration is not a call: a constructor with an initializer
+      // list, a block body and an arrow body add no finding
+      final k = _miniSources()
+        ..['decl.dart'] = '''
+class BoundedRun {
+  BoundedRun({this.a}) : b = 1;
+  final int? a;
+  final int b;
+}
+class Runner {
+  Future<void> runner(String x) async {}
+  int tool(int x) => x;
+}
+''';
+      expect(scanLaunchSites(k, _miniAllow), isEmpty);
 
       // (g) an unlisted Process.start caller
       final g = _miniSources()
