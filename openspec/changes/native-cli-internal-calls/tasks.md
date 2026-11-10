@@ -28,7 +28,7 @@
 | pr-script-runtime → Snapshots evaluate reviewers through sw | No Python on PATH | evals/pr-pair/test_snapshot_native.py | test_snapshot_without_python | green |
 | pr-script-runtime → Snapshots evaluate reviewers through sw | Evaluator output that is not a document | cli/test/pr/snapshot_test.dart | evaluator output that is not a document fails the poll | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Internal scripts are not launched | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_internal_scripts_are_not_launched | green |
-| pr-script-runtime → Native workflow integration calls every ported operation in process | Nested VCS fetch runs the fence in process | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_nested_vcs_fetch_runs_the_fence_in_process | red |
+| pr-script-runtime → Native workflow integration calls every ported operation in process | Nested VCS fetch runs the fence in process | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_nested_vcs_fetch_runs_the_fence_in_process | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Fenced read uses one deadline | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_fenced_read_uses_one_deadline | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Rounds reports an outer read deadline as unreadable | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_rounds_reports_an_outer_read_deadline_as_unreadable | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Nested fence lookup limit retains refusal mapping | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_nested_fence_lookup_limit_retains_refusal_mapping | green |
@@ -55,7 +55,7 @@
 | native-cli → JSON input that is not plain JSON is refused | Lone surrogate keeps its pre-change digest | cli/test/settings/reviewer_config_test.dart | a lone surrogate in a report string keeps its pre-change digest (pin existing surrogate behavior) | green |
 | native-cli → JSON input that is not plain JSON is refused | Printed undo guard reads the compact branch | evals/finish/test_undo_jj.py | test_undo_plan_jj_commands_and_result | green |
 | native-cli → JSON input that is not plain JSON is refused | Watcher compact keys remain readable | cli/test/pr/snapshot_test.dart | spaced snapshot and evaluator documents read the same as compact ones | green |
-| native-cli → sw starts itself only for its helper and the reviewer evaluator | Retrofitted paths with sentinels and no Python | evals/vcs/test_sw_fence.py, evals/pr-pair/test_snapshot_native.py, evals/pr-pair/test_workflow_transport.py | test_retrofitted_vcs_paths_run_no_script_or_python; test_retrofitted_snapshot_runs_no_script_or_python; WorkflowTransport.test_internal_scripts_are_not_launched (sentinels + failing python) | red |
+| native-cli → sw starts itself only for its helper and the reviewer evaluator | Retrofitted paths with sentinels and no Python | evals/vcs/test_sw_fence.py, evals/pr-pair/test_snapshot_native.py, evals/pr-pair/test_workflow_transport.py | test_retrofitted_vcs_paths_run_no_script_or_python; test_retrofitted_snapshot_runs_no_script_or_python; WorkflowTransport.test_internal_scripts_are_not_launched (sentinels + failing python) | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Reviewer evaluator stays a separate process | evals/pr-pair/test_pr_shims.py | test_backtracking_pattern_stops_at_the_deadline | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Printed commands are not launches | evals/vcs/test_sw_fence.py | test_printed_plan_commands_are_not_launched | green |
 | native-cli → A launch-site allowlist guards process starts | Current tree passes | cli/test/launch_sites_test.dart | the tree matches the allowlist | red |
@@ -87,8 +87,8 @@
 
 ## 4. Workflow nested fetch
 
-- [ ] 4.1 Add red `WorkflowTransport.test_nested_vcs_fetch_runs_the_fence_in_process` to `evals/pr-pair/test_workflow_transport.py` (store without `VERSION`, recording `as.sh` sentinel, no `--login`). Confirm it fails because the sentinel recorded a run.
-- [ ] 4.2 Remove the `branchFetchProject` flag from `cli/lib/src/pr/workflow.dart`; the non-Git branch-check fetch-main calls the in-process VCS fetch. Verify: `python -m unittest evals/pr-pair/test_workflow_transport.py` passes; flip the Nested VCS fetch and Retrofitted-paths rows green.
+- [x] 4.1 Add red `WorkflowTransport.test_nested_vcs_fetch_runs_the_fence_in_process` to `evals/pr-pair/test_workflow_transport.py` (store without `VERSION`, recording `as.sh` sentinel, no `--login`). Confirm it fails because the sentinel recorded a run.
+- [x] 4.2 Remove the `branchFetchProject` flag from `cli/lib/src/pr/workflow.dart`; the non-Git branch-check fetch-main calls the in-process VCS fetch. Verify: `python -m unittest evals/pr-pair/test_workflow_transport.py` passes; flip the Nested VCS fetch and Retrofitted-paths rows green.
 
 ## 5. Launch-site allowlist
 

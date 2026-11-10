@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vcs'))
+import sentinels
 import test_workflow_parity as wp
 from test_bounded import pid_alive
 
@@ -22,20 +24,13 @@ class WorkflowTransport(wp.WorkflowParity):
 
     def test_internal_scripts_are_not_launched(self):
         code, store = self.merged_pair()
-        scripts = self.tmp / 'sentinel-scripts'
-        scripts.mkdir()
-        sentinel_log = self.tmp / 'launched-scripts'
-        self.extra_env['WF_SENTINEL_LOG'] = sentinel_log.as_posix()
-        for name in ['pr-pair.sh', 'vcs.sh', 'as.sh']:
-            sentinel = scripts / name
-            sentinel.write_text('#!/bin/sh\nprintf "%s\\n" '+shlex.quote(name)+' >> "$WF_SENTINEL_LOG"\necho unexpected-script >&2\nexit 92\n', encoding='utf-8', newline='\n')
-            sentinel.chmod(0o755)
-            probe = subprocess.run([wp.parity.bashexe.bash(), str(sentinel)],
-                                   env=self.env('me', WF_SENTINEL_LOG=sentinel_log.as_posix()),
-                                   cwd=self.tmp, capture_output=True, timeout=30)
-            self.assertEqual(probe.returncode, 92, probe.stderr)
-        self.assertEqual(sentinel_log.read_text().splitlines(), ['pr-pair.sh', 'vcs.sh', 'as.sh'])
-        sentinel_log.unlink()
+        # The shared sentinels: recording as.sh, vcs.sh, pr-pair.sh and sw-path.sh in the handoff scripts directory, and
+        # failing python/python3 first on PATH (the fake gh and Git shims follow).
+        shared = sentinels.install(self.tmp / 'sentinel-scripts', self.tmp / 'failing-python', self.tmp / 'launched-scripts')
+        scripts, sentinel_log = shared.scripts, shared.log
+        self.extra_env.update(shared.env)
+        self.extra_env['PATH'] = os.pathsep.join([str(shared.bin), str(self.tmp / 'bin'), os.environ.get('PATH', '')])
+        shared.probe(self, self.env('me'))
         self.workflow_scripts = scripts
         self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[]))
         result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
@@ -176,7 +171,7 @@ class WorkflowTransport(wp.WorkflowParity):
         self.assertEqual(result['code'], 0, doc)
         self.assertIn('jj-plan', delayed.read_text().splitlines())
 
-    def test_nested_vcs_fetch_retains_its_temporary_fence_hop(self):
+    def test_nested_vcs_fetch_runs_the_fence_in_process(self):
         code, store = self.pair_repos()
         self.select_backend(code, store, 'jj', role='store', logins=False)
         (Path(store) / 'openspec' / '.specwright' / 'VERSION').unlink()
@@ -188,17 +183,13 @@ class WorkflowTransport(wp.WorkflowParity):
             ' printf "%s|%s\\n" "$target" "${GH_TOKEN-unset}" >> "$WF_FETCH_LOG"\n'
             ' printf "%s\\n" "$WF_SHA" > "$WF_FETCH_HEAD"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
         shim.chmod(0o755)
-        scripts = self.tmp / 'fetch-scripts'
-        scripts.mkdir()
-        fence_log = self.tmp / 'fence-argv'
-        (scripts / 'as.sh').write_text('#!/bin/sh\nprintf "%s\\0" "$@" >> "$WF_FENCE_LOG"\n'
-            'printf "\\n" >> "$WF_FENCE_LOG"\nexec bash '+shlex.quote(str(wp.parity.SCRIPTS / 'as.sh').replace('\\', '/'))+' "$@"\n', encoding='utf-8')
-        self.workflow_scripts = scripts
-        self.extra_env.update(WF_FETCH_LOG=fetch.as_posix(), WF_FENCE_LOG=fence_log.as_posix(),
+        sentinel = sentinels.install(self.tmp / 'fetch-scripts', self.tmp / 'fetch-bin', self.tmp / 'fetch-sentinel-log')
+        self.workflow_scripts = sentinel.scripts
+        self.extra_env.update(sentinel.env, WF_FETCH_LOG=fetch.as_posix(),
             WF_SHA=self.git(store, 'rev-parse', 'HEAD'), WF_FETCH_HEAD=str(Path(store) / '.git' / 'FETCH_HEAD'))
+        sentinel.probe(self, self.env('me'))
         for login in [None, 'other']:
             with self.subTest(login=login):
-                fence_log.unlink(missing_ok=True)
                 fetch.unlink(missing_ok=True)
                 args = ['branch-check', '--dir', store, '--branch', 'feat/x', '--main', 'main',
                         '--code', 'code', '--role', 'store']
@@ -206,18 +197,13 @@ class WorkflowTransport(wp.WorkflowParity):
                     args += ['--login', login]
                 result, doc = self.native_document(args, cwd=self.tmp)
                 self.assertEqual(result['code'], 0, doc)
-                self.assertTrue(doc['delete'])
-                calls = [[x.decode() for x in line.split(b'\0')[:-1]] for line in fence_log.read_bytes().splitlines()]
-                self.assertEqual(len(calls), 1 if login else 2, calls)
-                for call in calls:
-                    self.assertEqual(call[:2], ['--project', str(Path(code).resolve())])
-                if not login:
-                    self.assertEqual(calls[0][2:], ['--resolve'])
-                self.assertEqual(calls[-1][2], login or 'me')
-                self.assertEqual(calls[-1][3:5], ['git', 'fetch'])
+                self.assertNotEqual(doc.get('error'), 'sw_missing', doc)
+                self.assertTrue(doc['delete'], doc)
+                self.assertEqual(sentinel.recorded(), [])
                 target, token = fetch.read_text().strip().split('|')
                 self.assertEqual(Path(target).resolve(), Path(store).resolve())
                 self.assertEqual(token, 'tok-other' if login else 'tok-me')
+
     def test_fenced_read_uses_one_deadline(self):
         code, store = self.setup_remote(github=True)
         self.git(code, 'add', 'openspec/specwright.yaml')
