@@ -98,9 +98,9 @@
 
 ## 6. Coverage map, release and integration
 
-- [ ] 6.1 Add `evals/suites.json` rules for the new files (`cli/test/launch_sites_test.dart`, the shared sentinel helper, `evals/vcs/test_sw_fence.py`, `evals/pr-pair/test_snapshot_native.py`) unless an existing glob already covers them. Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
-- [ ] 6.2 `bash .claude/skills/specwright-release/scripts/release.sh bump --to 0.32.0`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-internal-calls/proposal.md` pass.
-- [ ] 6.3 Integration: open a draft PR and confirm `.github/workflows/evals.yml` and `.github/workflows/cli.yml` are green on Linux, Windows and macOS (the "Direct fence evals pass on the three CI platforms" exit criterion). Verify: both workflow runs green on the PR head.
+- [x] 6.1 Add `evals/suites.json` rules for the new files (`cli/test/launch_sites_test.dart`, the shared sentinel helper, `evals/vcs/test_sw_fence.py`, `evals/pr-pair/test_snapshot_native.py`) unless an existing glob already covers them. Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 6.2 `bash .claude/skills/specwright-release/scripts/release.sh bump --to 0.32.0`, and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-internal-calls/proposal.md` pass.
+- [x] 6.3 Integration: open a draft PR and confirm `.github/workflows/evals.yml` and `.github/workflows/cli.yml` are green on Linux, Windows and macOS (the "Direct fence evals pass on the three CI platforms" exit criterion). Verify: both workflow runs green on the PR head.
 
 ## Workflow follow-up
 

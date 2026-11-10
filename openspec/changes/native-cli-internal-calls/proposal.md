@@ -100,7 +100,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-0.32.0 removes `sw`'s internal script hops. `sw vcs` runs the GitHub identity fence in process, so store network calls work from a store without its own Specwright version. `pr-snapshot.sh` and `pr-reply.sh` accept `--project` for store-started calls, and `sw pr snapshot` no longer looks for Python.
+0.32.0 stops `sw` from starting scripts and Python for its own work. `sw vcs` runs the GitHub identity fence in process, so store network calls work from a store without its own Specwright version. `sw pr snapshot` checks the reviewer config in process, no longer looks for Python, and parses the reviewer evaluator's output instead of matching its text. `pr-snapshot.sh` and `pr-reply.sh` accept `--project` for store-started calls. A new test lists every place `sw` starts a process, so a later change cannot add a script or Python launch unnoticed.
 
 ### Added
 
