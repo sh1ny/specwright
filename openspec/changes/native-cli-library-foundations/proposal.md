@@ -134,7 +134,7 @@ The owner approved the round 3 refinements on 2026-11-10: caller-specific oversi
 
 - `sw` now requires `gh` 2.48 or later; install reports `PR workflow not ready: gh 2.48+` for older versions (#148).
 - `sw` documents are compact JSON with one LF on every OS. Fields, error codes and exit statuses do not change (#148).
-- `sw` commands accept `--option=value`. Abbreviated options such as `--mat` are refused (#148).
+- `sw vcs`, `sw finish` and `sw pr` accept `--option=value`. Abbreviated options such as `--mat` are refused (#148).
 - An option given without its value in `pr-snapshot.sh` or `pr-reply.sh` is now a usage error (exit 2 and 4) instead of exit 1 (#148).
 - An integer setting beyond 64 bits, such as a reviewer `timeout`, is now a `bad_setting` problem instead of being carried as an exact big number (#148).
 - JSON files `sw` reads are limited to 32 MiB (#148).
