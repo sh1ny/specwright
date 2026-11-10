@@ -79,7 +79,7 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 - **THEN** its compact keys remain readable by loginsOf, recheck, fail_names, fail_run_ids, merge_state, ci_pending and complete until native-cli-internal-calls replaces that boundary
 
 ### Requirement: sw options follow one parsing rule
-`sw vcs`, `sw finish` and `sw pr` SHALL accept `--name value` and `--name=value`, SHALL take the next word as an option's value whatever it looks like, SHALL keep every value of a repeated list option without splitting on commas, and SHALL stop with their `usage` error and exit 2 on an unknown or incomplete option. Option names SHALL NOT be abbreviated. Removing an accidental form that no shipped caller uses SHALL NOT change `interface`.
+`sw vcs`, `sw finish` and `sw pr` SHALL accept `--name value` and `--name=value`, SHALL take the next word as an option's value whatever it looks like, SHALL keep every value of a repeated list option without splitting on commas, and SHALL stop with their usage error on an unknown or incomplete option, exiting 2 (`sw pr reply`: its usage code 4). Option names SHALL NOT be abbreviated. Removing an accidental form that no shipped caller uses SHALL NOT change `interface`.
 
 #### Scenario: Equals form
 - **WHEN** `sw vcs state --repo=/r --role=code` runs against a repository
