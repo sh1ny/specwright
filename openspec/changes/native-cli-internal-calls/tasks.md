@@ -58,11 +58,11 @@
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Retrofitted paths with sentinels and no Python | evals/vcs/test_sw_fence.py, evals/pr-pair/test_snapshot_native.py, evals/pr-pair/test_workflow_transport.py | test_retrofitted_vcs_paths_run_no_script_or_python; test_retrofitted_snapshot_runs_no_script_or_python; WorkflowTransport.test_internal_scripts_are_not_launched (sentinels + failing python) | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Reviewer evaluator stays a separate process | evals/pr-pair/test_pr_shims.py | test_backtracking_pattern_stops_at_the_deadline | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Printed commands are not launches | evals/vcs/test_sw_fence.py | test_printed_plan_commands_are_not_launched | green |
-| native-cli → A launch-site allowlist guards process starts | Current tree passes | cli/test/launch_sites_test.dart | the tree matches the allowlist | red |
-| native-cli → A launch-site allowlist guards process starts | A new unlisted launch fails | cli/test/launch_sites_test.dart | an unlisted runner call fails naming the file | red |
-| native-cli → A launch-site allowlist guards process starts | A script in launch arguments fails | cli/test/launch_sites_test.dart | a script name in launch arguments fails | red |
-| native-cli → A launch-site allowlist guards process starts | A self-launch outside the allowed two fails | cli/test/launch_sites_test.dart | a changed, non-literal or unbounded self-launch fails | red |
-| native-cli → A launch-site allowlist guards process starts | A script name built away from the launch fails | cli/test/launch_sites_test.dart | a script name built away from the launch fails | red |
+| native-cli → A launch-site allowlist guards process starts | Current tree passes | cli/test/launch_sites_test.dart | the tree matches the allowlist | green |
+| native-cli → A launch-site allowlist guards process starts | A new unlisted launch fails | cli/test/launch_sites_test.dart | an unlisted runner call fails naming the file | green |
+| native-cli → A launch-site allowlist guards process starts | A script in launch arguments fails | cli/test/launch_sites_test.dart | a script name in launch arguments fails | green |
+| native-cli → A launch-site allowlist guards process starts | A self-launch outside the allowed two fails | cli/test/launch_sites_test.dart | a changed, non-literal or unbounded self-launch fails | green |
+| native-cli → A launch-site allowlist guards process starts | A script name built away from the launch fails | cli/test/launch_sites_test.dart | a script name built away from the launch fails | green |
 
 ## 1. In-process fence for `sw vcs`
 
@@ -92,9 +92,9 @@
 
 ## 5. Launch-site allowlist
 
-- [ ] 5.1 Write `cli/test/launch_sites_test.dart` per D7 with its negative in-memory fixtures first (unlisted runner call, script in launch arguments, changed evaluator head with equal counts, evaluator on `PrContext.tool`, non-literal self-launch list, `as.sh` built in a variable and passed to `runTool`), and confirm each fixture fails for its reason.
-- [ ] 5.2 Fill the allowlist for the tree: every runner call with its kind, the self-launch heads (`__exec`; `pr reviewers` under `PrContext.bounded`), and the listed non-launch script-name sites, the `exec_inherit.dart` `$0` label included. Verify: `mise exec -- dart test test/launch_sites_test.dart` from `cli/` passes; flip the five allowlist rows green.
-- [ ] 5.3 Carried constraints: confirm C1, C2 and C5 read as written in `specs/native-cli/spec.md` (their spec destinations); write C7 as the `runFramed` doc comment in `cli/lib/src/vcs/tool_runner.dart`. Verify: `grep -n "native-cli-launcher" cli/lib/src/vcs/tool_runner.dart` finds the comment.
+- [x] 5.1 Write `cli/test/launch_sites_test.dart` per D7 with its negative in-memory fixtures first (unlisted runner call, script in launch arguments, changed evaluator head with equal counts, evaluator on `PrContext.tool`, non-literal self-launch list, `as.sh` built in a variable and passed to `runTool`), and confirm each fixture fails for its reason.
+- [x] 5.2 Fill the allowlist for the tree: every runner call with its kind, the self-launch heads (`__exec`; `pr reviewers` under `PrContext.bounded`), and the listed non-launch script-name sites, the `exec_inherit.dart` `$0` label included. Verify: `mise exec -- dart test test/launch_sites_test.dart` from `cli/` passes; flip the five allowlist rows green.
+- [x] 5.3 Carried constraints: confirm C1, C2 and C5 read as written in `specs/native-cli/spec.md` (their spec destinations); write C7 as the `runFramed` doc comment in `cli/lib/src/vcs/tool_runner.dart`. Verify: `grep -n "native-cli-launcher" cli/lib/src/vcs/tool_runner.dart` finds the comment.
 
 ## 6. Coverage map, release and integration
 
