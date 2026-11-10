@@ -349,9 +349,16 @@ class TestReviewerConfig(ShimCase):
 
     def test_backtracking_pattern_stops_at_the_deadline(self):
         """ADR 0022: a user pattern runs inside the poll's deadline. `(a+)+$` over a long run of a's and a b never ends in a
-        backtracking engine; the limit line names reviewers.py, the poll fails, nothing is left running or on disk."""
+        backtracking engine; stderr holds the line `bounded: deadline_exceeded: reviewers.py python3`, the poll fails, nothing is left running or on disk."""
         scratch = self.tmp / "scratch"
         scratch.mkdir()
+        # only `python` works here: the line must still say python3, as the label is a constant and no probe names it
+        down = self.tmp / "bin" / "python3"
+        down.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8", newline="\n")
+        down.chmod(0o755)
+        up = self.tmp / "bin" / "python"
+        up.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" "$@"\n', encoding="utf-8", newline="\n")
+        up.chmod(0o755)
         self.add_activity("a" * 40, T0)
         self.advance(30)
         self.add_comment("genrev", "a" * 64 + "b")
@@ -361,7 +368,8 @@ class TestReviewerConfig(ShimCase):
         took = time.time() - started
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertEqual(r.stdout.strip(), "")
-        self.assertIn("bounded: deadline_exceeded: reviewers.py", r.stderr)
+        self.assertIn("bounded: deadline_exceeded: reviewers.py python3", r.stderr.splitlines(),
+                      "the limit line names reviewers.py and the constant interpreter name, whatever Python exists")
         self.assertLess(took, 60, "the evaluation was cut at the deadline")
         self.assertEqual(list(scratch.iterdir()), [], "the material file is gone")
         end = time.time() + 10

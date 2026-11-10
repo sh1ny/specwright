@@ -97,7 +97,6 @@ class PrContext {
   final PrMakeTemp? _makeTemp;
   final int Function()? _seconds;
   final Stopwatch _clock = Stopwatch()..start();
-  String? _python;
 
   /// bash's `$SECONDS`: whole seconds on a monotonic clock since the command began.
   int elapsedSeconds() => (_seconds ?? () => _clock.elapsed.inSeconds)();
@@ -178,20 +177,6 @@ class PrContext {
     final r = await tool([bash, '-c', script, 'mktemp', ?template]);
     if (r.exitCode != 0) return null;
     return dropTrailingNewlines(decodeEscaped(r.stdout));
-  }
-
-  /// The first of `python3` and `python` that is Python 3.8 or later (the shim's own probe), or null.
-  Future<String?> python() async {
-    if (_python != null) return _python;
-    for (final c in const ['python3', 'python']) {
-      final r = await tool([
-        c,
-        '-c',
-        'import sys; sys.exit(sys.version_info < (3, 8))',
-      ]);
-      if (r.exitCode == 0) return _python = c;
-    }
-    return null;
   }
 
   /// A path argument in the form `sw` can open: on Windows a `/` path goes through `cygpath -m` (D9).

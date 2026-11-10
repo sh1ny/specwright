@@ -135,6 +135,21 @@ int runReviewers(
 
 bool _given(String? v) => v != null && v.isNotEmpty;
 
+/// The config load `--check-config` runs, for `sw pr snapshot` to run in its own process (design D3): the logins of the
+/// config at [path] in file order, or the one stderr line, without its newline, that `--check-config` prints for a bad
+/// config (`reviewers.py: ` and the reason). A caller prints the line and exits 2.
+({List<String> logins, String? error}) reviewerLogins(String path) {
+  try {
+    final loaded = _loadConfig(path);
+    return (logins: [for (final r in loaded.reviewers) r.login], error: null);
+  } on _ConfigError catch (e) {
+    final line = String.fromCharCodes(
+      _loneSurrogatesTo('$_name: ${e.message}', 0x3f),
+    );
+    return (logins: const [], error: line);
+  }
+}
+
 // ---------------------------------------------------------------- arguments
 
 /// The four options, each with one value, under the one option rule (`options.dart`): `--opt VALUE` or `--opt=VALUE`, no

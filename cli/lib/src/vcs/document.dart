@@ -78,7 +78,7 @@ List<int> readBounded(String path, {int limit = defaultMaxBytes}) {
 
 /// The text of [value] as compact JSON: no space after `,` or `:`, keys in insertion order, non-ASCII text raw, and
 /// only `"`, `\` and the controls below U+0020 escaped. Consumers parse documents and never match their text, so the
-/// raw U+2028 and U+2029 are legal (the one exception is `pr/text.dart`, which reads a few compact keys; C12).
+/// raw U+2028 and U+2029 are legal (`sw pr snapshot` parses the documents it reads, so no reader depends on this form).
 ///
 /// `JsonEncoder` writes a lone surrogate as the six-character escape `\udXXX` (A3 of native-cli-library-foundations
 /// found this). A document must still carry a file name that is not UTF-8, which [decodeEscaped] holds as a lone

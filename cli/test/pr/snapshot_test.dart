@@ -236,6 +236,25 @@ void main() {
       expect(f.stdout, '{"ok":false,"error":"not_found"}\n');
     });
 
+    test(
+      'an unknown id exits 1 however the document is spaced or ordered',
+      () async {
+        for (final doc in [
+          '{"ok": false, "error": "not_found"}',
+          '{"error": "not_found", "ok": false}',
+        ]) {
+          f.out.clear();
+          f.onGh = (_) => answer('$doc\n');
+          expect(await snapshot(['--full', 'X']), 1, reason: doc);
+          expect(f.stdout, '$doc\n');
+        }
+        f.out.clear();
+        f.onGh = (_) =>
+            answer('{"ok": true, "body": "\\"error\\":\\"not_found\\""}\n');
+        expect(await snapshot(['--full', 'X']), 0);
+      },
+    );
+
     test('a bad id exits 2 before any call', () async {
       expect(await snapshot(['--full', 'a b']), 2);
       expect(f.stderr, "pr-snapshot: bad --full id 'a b'\n");
@@ -263,40 +282,49 @@ void main() {
   });
 
   group('the reviewer config', () {
-    test(
-      'is checked before any gh call, and a bad one exits 2 with its line',
-      () async {
-        f.onTool = (c) {
-          if (c.contains('--check-config')) {
-            return ToolResult(
-              1,
-              toolOut('').stdout,
-              toolOut('cfg.json: bad\n').stdout,
-            );
-          }
-          return ToolResult0();
-        };
-        expect(await snapshot(['--reviewer-config', 'cfg.json']), 2);
-        expect(f.stderr, 'cfg.json: bad\n');
-        expect(f.ghCalls, isEmpty);
-        expect(f.toolCalls.last, [
-          Platform.resolvedExecutable,
-          'pr',
-          'reviewers',
-          '--check-config',
-          'cfg.json',
-        ]);
-      },
-    );
+    /// A reviewer config file in the fixture's directory; [logins] are the reviewers' logins.
+    String configFile(List<String> logins, [String name = 'cfg.json']) {
+      final doc = {
+        'format': 2,
+        'reviewers': [
+          for (final login in logins)
+            {
+              'login': login,
+              'role': 'required',
+              'timeout': 60,
+              'report': <String, Object>{},
+            },
+        ],
+      };
+      return f.file(name, jsonEncode(doc)).path;
+    }
+
+    test('is checked in this process before any gh call, and a bad one exits 2 with its line', () async {
+      final bad = f.file('cfg.json', '{not json').path;
+      expect(await snapshot(['--reviewer-config', bad]), 2);
+      expect(f.stderr, startsWith('reviewers.py: '));
+      expect(f.stderr, contains('cfg.json'));
+      expect(f.stderr, contains('not valid JSON'));
+      expect('\n'.allMatches(f.stderr), hasLength(1));
+      expect(f.ghCalls, isEmpty);
+      expect(f.toolCalls, isEmpty, reason: 'no child, no tool, no temp file');
+      expect(f.boundedCalls, isEmpty);
+      expect(f.tempCalls, isEmpty);
+    });
+
+    test('a missing file exits 2 the same way', () async {
+      expect(
+        await snapshot(['--reviewer-config', '${f.tempDir.path}/none.json']),
+        2,
+      );
+      expect(f.stderr, startsWith('reviewers.py: '));
+      expect(f.ghCalls, isEmpty);
+      expect(f.toolCalls, isEmpty);
+    });
 
     test('its logins reach the cfg and the evaluator gets the file', () async {
-      f.onTool = (c) {
-        if (c.contains('--check-config')) {
-          return toolOut('{"ok":true,"logins":["a","b"]}\n');
-        }
-        return ToolResult0();
-      };
-      expect(await snapshot(['--reviewer-config', 'cfg.json']), 0);
+      final path = configFile(['a', 'b']);
+      expect(await snapshot(['--reviewer-config', path]), 0);
       final jq = f.ghCalls.last.last;
       expect(
         jq,
@@ -307,7 +335,12 @@ void main() {
       expect(f.boundedCalls.single, contains('--config'));
       expect(
         f.boundedCalls.single[f.boundedCalls.single.indexOf('--config') + 1],
-        'cfg.json',
+        path,
+      );
+      expect(
+        f.toolCalls.where((c) => c.contains('--check-config')),
+        isEmpty,
+        reason: 'the check is no child',
       );
     });
 
@@ -319,25 +352,26 @@ void main() {
           0xff,
           ...utf8.encode('.json'),
         ];
-        File.fromRawPath(Uint8List.fromList(name)).writeAsStringSync('{"x":1}');
-        String? checked;
-        f.onTool = (c) {
-          if (c.contains('--check-config')) {
-            checked = c.last;
-            expect(File(c.last).readAsStringSync(), '{"x":1}');
-            return toolOut('{"ok":true,"logins":[]}\n');
-          }
-          return ToolResult0();
-        };
+        File.fromRawPath(Uint8List.fromList(name)).writeAsStringSync(
+          jsonEncode({
+            'format': 2,
+            'reviewers': [
+              {
+                'login': 'a',
+                'role': 'required',
+                'timeout': 60,
+                'report': <String, Object>{},
+              },
+            ],
+          }),
+        );
         final escaped = '${f.tempDir.path}/reviewers-\uDCFF.json';
         expect(await snapshot(['--reviewer-config', escaped]), 0);
-        expect(checked, isNot(escaped));
-        expect(
-          checked!.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff),
-          isFalse,
-        );
         final config = f.boundedCalls.single;
-        expect(config[config.indexOf('--config') + 1], checked);
+        final given = config[config.indexOf('--config') + 1];
+        expect(given, isNot(escaped));
+        expect(given.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff), isFalse);
+        expect(File(given).readAsStringSync(), contains('"login":"a"'));
         expect(
           f.leftovers.where((n) => n.startsWith('tmp.')),
           isEmpty,
@@ -561,10 +595,13 @@ void main() {
 
     test('fails one with a reviewer', () async {
       answers({'cfg': (_) => answer('', exit: 1, stderr: 'e\n')});
-      f.onTool = (c) => c.contains('--check-config')
-          ? toolOut('{"logins":["a"]}')
-          : ToolResult0();
-      expect(await snapshot(['--reviewer-config', 'c']), 1);
+      final path = f
+          .file(
+            'c.json',
+            '{"format":2,"reviewers":[{"login":"a","role":"required","timeout":60,"report":{}}]}',
+          )
+          .path;
+      expect(await snapshot(['--reviewer-config', path]), 1);
     });
 
     test('a limit on any lookup fails the snapshot, in every mode, and names the limit', () async {
@@ -903,6 +940,140 @@ void main() {
         );
       });
     });
+  });
+
+  group('documents are parsed, not matched', () {
+    /// The same document with a space after every `:` and `,` (the fixtures hold no string with either).
+    String spaced(String compact) =>
+        compact.replaceAll(':', ': ').replaceAll(',', ', ');
+
+    test('evaluator output that is not a document fails the poll', () async {
+      for (final bad in [
+        'not json',
+        '',
+        '{"sig": "s1"',
+        '{"sig": "s1"} {"sig": "s2"}',
+        '[1, 2]',
+      ]) {
+        f.out.clear();
+        f.err.clear();
+        f.onBounded = (_) => answer('$bad\n');
+        expect(await snapshot([]), 1, reason: 'output: $bad');
+        expect(f.stdout, isEmpty, reason: 'no snapshot printed from: $bad');
+        expect(f.leftovers, isEmpty, reason: 'the material file is gone');
+      }
+      f.out.clear();
+      f.onBounded = (_) => answer('not json\n');
+      expect(await snapshot(['--wait', '--timeout', '0']), 1);
+      expect(f.stdout, isEmpty, reason: 'a failed poll prints no wake either');
+    });
+
+    test(
+      'spaced snapshot and evaluator documents read the same as compact ones',
+      () async {
+        // the head and the re-check ids of the PR query's line
+        material = spaced(snapJson(recheck: '"A","B"'));
+        results = [spaced(snapJson())];
+        answers({
+          'recheck': (args) {
+            expect(args.join(' '), contains('nodes(ids:["A","B"])'));
+            return answer('{"A":"2026-11-02T11:00:00Z"}\n');
+          },
+        });
+        expect(await snapshot([]), 0);
+        expect(kinds().sublist(kinds().indexOf('snapshot')), [
+          'snapshot',
+          'recheck',
+          'snapshot',
+        ]);
+        final call = f.boundedCalls.last;
+        expect(call[call.indexOf('--head') + 1], oid);
+        expect(f.stdout, '${spaced(snapJson())}\n');
+
+        // the failing run ids of the evaluator's document
+        f.ghCalls.clear();
+        f.out.clear();
+        material = snapJson();
+        results = [spaced(snapJson(failRuns: '11,22'))];
+        evaluated = 0;
+        expect(await snapshot(['--logs']), 0);
+        expect(
+          [
+            for (final c in f.ghCalls)
+              if (c.first == 'run') c[2],
+          ],
+          ['11', '22'],
+        );
+
+        // sig, attn, the merge state, pending CI checks, failing names and completeness, while waiting
+        List<String> wakes() => [
+          for (final l in f.stdout.split('\n'))
+            if (l.startsWith('{"wake"')) l,
+        ];
+        Future<void> waiting(
+          List<String> docs,
+          String wake, {
+          String? reason,
+        }) async {
+          f.out.clear();
+          evaluated = 0;
+          results = [for (final d in docs) spaced(d)];
+          expect(
+            await snapshot([
+              '--wait',
+              '--until',
+              'attention',
+              '--timeout',
+              '600',
+              '--interval',
+              '300',
+            ]),
+            0,
+            reason: reason,
+          );
+          expect(wakes().single, startsWith(wake), reason: reason);
+        }
+
+        const pending = ',"checks":{"ci_pending":1}';
+        await waiting(
+          [snapJson(sig: 's1'), snapJson(sig: 's2', extra: pending)],
+          '{"wake":"timeout","waited":600,"filtered":2,',
+          reason: 'only checks changed and a CI check is pending',
+        );
+        await waiting(
+          [
+            snapJson(sig: 's1'),
+            snapJson(sig: 's2', extra: ',"merge_state":"DIRTY"$pending'),
+          ],
+          '{"wake":"changed","waited":300,"filtered":0,',
+          reason: 'DIRTY wakes',
+        );
+        await waiting(
+          [
+            snapJson(sig: 's1'),
+            snapJson(sig: 's2', attn: 'a2', extra: pending),
+          ],
+          '{"wake":"changed","waited":300,"filtered":0,',
+          reason: 'attn changed',
+        );
+        await waiting(
+          [
+            snapJson(sig: 's1'),
+            snapJson(
+              sig: 's2',
+              extra: pending,
+            ).replaceFirst('"fail_names":[]', '"fail_names":["Yg=="]'),
+          ],
+          '{"wake":"changed","waited":300,"filtered":0,',
+          reason: 'a new failing check wakes',
+        );
+        await waiting(
+          [snapJson(complete: false)],
+          '{"wake":"incomplete","waited":0,',
+          reason: 'a cut-off first snapshot wakes at once',
+        );
+      },
+    );
   });
 
   group('--logs', () {
