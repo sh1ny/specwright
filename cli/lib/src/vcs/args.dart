@@ -155,10 +155,9 @@ VcsRequest parseVcsArguments(List<String> argv) {
     usage: (message) => throw _usage(message),
   );
   // `rest` is the words that are not options with the first separating `--` dropped: it is paths only when it is the tail
-  // of `args` that directly follows that `--`.
+  // of `args` that directly follows that `--`, and that `--` is not the value of the option before it.
   final paths = parsed.rest;
-  final tail = args.length - paths.length;
-  if (paths.isNotEmpty && (tail < 1 || args[tail - 1] != '--')) {
+  if (paths.isNotEmpty && args.length - paths.length != _separator(args) + 1) {
     throw _usage('unexpected argument: ${paths.first}');
   }
   final opts = {
@@ -207,6 +206,19 @@ VcsRequest parseVcsArguments(List<String> argv) {
     remoteBranch: flags.contains('--remote-branch'),
     paths: paths,
   );
+}
+
+/// The index of the `--` that ends the options in [args], skipping the word after each value-taking option written
+/// without `=`, since that word is its value; -1 when there is none.
+int _separator(List<String> args) {
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == '--') return i;
+    if (args[i].startsWith('--') &&
+        _valueOptions.contains(args[i].substring(2))) {
+      i++;
+    }
+  }
+  return -1;
 }
 
 bool _isDirectory(String path) {

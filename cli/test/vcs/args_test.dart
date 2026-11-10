@@ -217,10 +217,18 @@ void main() {
         ['stray', '--', 'a.txt'],
         ['stray'],
         ['--branch', 'b', 'stray', '--', 'a.txt'],
+        ['--prefix', '--', 'a.txt'],
       ]) {
         final stop = _stopOf(() => parse(extra));
         expect((stop.error, stop.code), ('usage', 2), reason: '$extra');
       }
+    });
+
+    test('a -- that is an option value is not the separator', () {
+      expect(parse(['--prefix', '--', '--', 'a.txt']).paths, ['a.txt']);
+      final r = parse(['--message-file', '--prefix', '--', 'a.txt']);
+      expect(r.messageFile, '--prefix');
+      expect(r.paths, ['a.txt']);
     });
 
     test('an unknown command is a usage stop', () {
