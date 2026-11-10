@@ -128,13 +128,14 @@ The owner approved the round 3 refinements on 2026-11-10: caller-specific oversi
 
 ## Release Notes
 
-0.31.0 replaces custom Python-matching code in `sw` with focused libraries. PR workflow outcomes do not change, but `gh` 2.48 is now required and `sw` documents are compact JSON ending in LF on every OS.
+0.31.0 replaces the Python-matching code in `sw` (SHA-256, JSON, option parsing, paths and the GitHub page scanner) with standard Dart libraries. PR workflow outcomes do not change. `gh` 2.48 is now required, `sw` documents are compact JSON ending in LF on every OS, and `sw vcs`, `sw finish` and `sw pr` read options by one rule.
 
 ### Changed
 
 - `sw` now requires `gh` 2.48 or later; install reports `PR workflow not ready: gh 2.48+` for older versions (#148).
 - `sw` documents are compact JSON with one LF on every OS. Fields, error codes and exit statuses do not change (#148).
 - `sw` commands accept `--option=value`. Abbreviated options such as `--mat` are refused (#148).
+- An option given without its value in `pr-snapshot.sh` or `pr-reply.sh` is now a usage error (exit 2 and 4) instead of exit 1 (#148).
 - An integer setting beyond 64 bits, such as a reviewer `timeout`, is now a `bad_setting` problem instead of being carried as an exact big number (#148).
 - JSON files `sw` reads are limited to 32 MiB (#148).
 

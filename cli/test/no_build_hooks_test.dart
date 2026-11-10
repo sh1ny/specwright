@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import '../tool/hooks_scan.dart';
+import '../tool/notice_scan.dart';
 
 void main() {
   group('packagesWithHooks', () {
@@ -47,6 +48,38 @@ void main() {
       File('${tmp.path}/native/hook/build.dart').writeAsStringSync('');
       expect(packagesWithHooks(path), ['native']);
     });
+  });
+
+  group('packagesWithoutNotice', () {
+    test('a package with no notice is named', () {
+      const notice = 'args\nhttps://pub.dev/packages/args\nResolved\n';
+      expect(packagesWithoutNotice(['args', 'crypto', 'ffi'], notice), [
+        'crypto',
+        'ffi',
+      ]);
+    });
+
+    test('a package named only in licence prose has no notice', () {
+      const notice = 'args\nhttps://pub.dev/packages/args\nsee crypto too\n';
+      expect(packagesWithoutNotice(['crypto'], notice), ['crypto']);
+    });
+  });
+
+  test('the closure has no hooks and every package has a notice', () {
+    final deps = Process.runSync(Platform.resolvedExecutable, [
+      'pub',
+      'deps',
+      '--json',
+    ]);
+    expect(deps.exitCode, 0, reason: '${deps.stderr}');
+    final closure = runtimeClosure(deps.stdout as String);
+    expect(closure, containsAll(['args', 'crypto', 'html', 'path']));
+
+    final config = File('.dart_tool/package_config.json');
+    expect(config.existsSync(), isTrue, reason: 'run dart pub get first');
+    expect(packagesWithHooks(config.path).where(closure.contains), isEmpty);
+    final notice = File('THIRD_PARTY_NOTICES.txt').readAsStringSync();
+    expect(packagesWithoutNotice(closure, notice), isEmpty);
   });
 
   test('no locked package declares build hooks', () {

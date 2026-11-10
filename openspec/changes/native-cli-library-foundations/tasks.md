@@ -20,9 +20,9 @@
 | native-cli → sw options follow one parsing rule | Missing value | cli/test/vcs/args_test.dart | a value-taking option at the end needs a value | green |
 | native-cli → sw options follow one parsing rule | Words that are not paths | cli/test/vcs/args_test.dart | a word before -- is a usage stop | green |
 | native-cli → sw options follow one parsing rule | Shipped callers use whole option names | evals/cli/test_option_callers.py | test_shipped_callers_use_whole_names | green |
-| native-cli → The shipped dependencies stay hook-free and carry their notices | Current dependency set | cli/test/no_build_hooks_test.dart | the closure has no hooks and every package has a notice | red |
+| native-cli → The shipped dependencies stay hook-free and carry their notices | Current dependency set | cli/test/no_build_hooks_test.dart | the closure has no hooks and every package has a notice | green |
 | native-cli → The shipped dependencies stay hook-free and carry their notices | A hook package enters the lock file | cli/test/no_build_hooks_test.dart | reports a package whose pubspec has a top-level hooks key | green |
-| native-cli → The shipped dependencies stay hook-free and carry their notices | A dependency without a notice | cli/test/no_build_hooks_test.dart | a package with no notice is named | red |
+| native-cli → The shipped dependencies stay hook-free and carry their notices | A dependency without a notice | cli/test/no_build_hooks_test.dart | a package with no notice is named | green |
 | pr-script-runtime → Paginated GitHub lists read every page or decide nothing | Several pages | cli/test/pr/workflow_transport_test.dart | slurped pages flatten in order | green |
 | pr-script-runtime → Paginated GitHub lists read every page or decide nothing | No items | cli/test/pr/workflow_transport_test.dart | an empty slurp is an empty list | green |
 | pr-script-runtime → Paginated GitHub lists read every page or decide nothing | A page that is not an array | cli/test/pr/workflow_transport_test.dart | a non-array page is an unknown read | green |
@@ -118,7 +118,7 @@ Refreshed against main `3fc5454` on 2026-11-10. Green rows name existing cases b
 
 ## 6. Notice, integration and release
 
-- [ ] 6.1 Run the map test `python -m unittest evals/runner/test_suite_map.py` and add a rule to `evals/suites.json` for any new tracked file. Verify the test passes.
-- [ ] 6.2 Add `crypto` and its closure to `cli/THIRD_PARTY_NOTICES.txt`, extending the existing shipped file (D6); retain the existing path notice without duplication, and check every package in the runtime closure (`dart pub deps --no-dev`) in `cli/test/no_build_hooks_test.dart`. Verify the "Current dependency set" and "A dependency without a notice" rows turn green; re-confirm A8.
-- [ ] 6.3 Confirm the full suites are green in the PR's `evals.yml` and `cli.yml` runs on Linux, Windows and macOS. Verify by the PR's checks.
-- [ ] 6.4 Run `release.sh bump --to 0.31.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-library-foundations/proposal.md`.
+- [x] 6.1 Run the map test `python -m unittest evals/runner/test_suite_map.py` and add a rule to `evals/suites.json` for any new tracked file. Verify the test passes.
+- [x] 6.2 Add `crypto` and its closure to `cli/THIRD_PARTY_NOTICES.txt`, extending the existing shipped file (D6); retain the existing path notice without duplication, and check every package in the runtime closure (`dart pub deps --no-dev`) in `cli/test/no_build_hooks_test.dart`. Verify the "Current dependency set" and "A dependency without a notice" rows turn green; re-confirm A8.
+- [x] 6.3 Confirm the full suites are green in the PR's `evals.yml` and `cli.yml` runs on Linux, Windows and macOS. Verify by the PR's checks.
+- [x] 6.4 Run `release.sh bump --to 0.31.0` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-library-foundations/proposal.md`.
