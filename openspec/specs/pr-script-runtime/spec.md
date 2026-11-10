@@ -32,10 +32,10 @@ The `pr-pair.sh` shim SHALL still accept Python 3.8 at its existing prerequisite
 - **THEN** stdout is a single JSON line with `"error": "internal_error"` and a message naming the exception type, the exit status is 1, and stderr holds no Dart stack trace
 
 ### Requirement: Prerequisites are stated and checked at install
-The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userland, `git` and Python 3.8+ as core requirements (the review scripts run every design and pre-ship review), and `gh` 2.40+ as a requirement of the PR skills. Install SHALL check each one. A missing core requirement SHALL stop the install. A missing PR requirement SHALL be reported as `PR workflow not ready: <missing>` without blocking the install. `specwright-pr` SHALL state the same script dependencies.
+The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userland, `git` and Python 3.8+ as core requirements (the review scripts run every design and pre-ship review), and `gh` 2.48+ as a requirement of the PR skills. Install SHALL check each one. A missing core requirement SHALL stop the install. A missing PR requirement SHALL be reported as `PR workflow not ready: <missing>` without blocking the install. `specwright-pr` SHALL state the same script dependencies.
 
 #### Scenario: All prerequisites present
-- **WHEN** install runs where bash, git, gh 2.45 and Python 3.11 are available
+- **WHEN** install runs where bash, git, gh 2.48 and Python 3.11 are available
 - **THEN** Step 1 passes and the final report shows no `PR workflow not ready` line
 
 #### Scenario: Python missing
@@ -43,8 +43,8 @@ The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userl
 - **THEN** the install stops at Step 1 and tells the user to install Python 3.8 or later
 
 #### Scenario: gh missing
-- **WHEN** install runs where `gh` is missing or older than 2.40, and every core requirement is present
-- **THEN** the install completes and its report includes `PR workflow not ready: gh 2.40+`
+- **WHEN** install runs where `gh` is missing or older than 2.48, and every core requirement is present
+- **THEN** the install completes and its report includes `PR workflow not ready: gh 2.48+`
 
 ### Requirement: PR scripts remove their temp files on every exit
 Every temp file a PR script creates SHALL be removed when the script exits, whether it succeeds, fails or stops on a structured error. A skill step that tells the agent to write a body or message to a temp file SHALL also tell it to remove that file once the command that reads it has run, whatever that command's outcome.
@@ -201,7 +201,7 @@ When the resolver stops, `pr-snapshot.sh` and `pr-reply.sh` SHALL print one JSON
 - **THEN** stderr says `pr-snapshot: cannot create the watch state directory; ownership is off for PR 12 (this watcher polls unowned)` and the watch goes on unowned
 
 ### Requirement: The ported pr-pair subcommands keep the script's contracts
-`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the arguments `pr-pair.sh` accepted and SHALL print a JSON line with the same field names and values and exit with the same status for the same settings files, repositories and GitHub answers. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
+`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the argument forms shipped callers use, print a JSON line with the same parsed fields and values, and exit with the same status for the same settings files, repositories and GitHub answers, apart from the native-cli JSON, input and option differences. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
 
 #### Scenario: Policy's remote settings read is strict
 - **WHEN** `policy` reads a settings file from the remote and it holds a construct the strict reader cannot read whole
@@ -213,11 +213,11 @@ When the resolver stops, `pr-snapshot.sh` and `pr-reply.sh` SHALL print one JSON
 
 #### Scenario: Unchanged black-box evals pass on sw
 - **WHEN** the `evals/pr-pair` and `evals/vcs` tests that run these five subcommands run in CI on Linux, Windows and macOS against the `sw` built from the tree
-- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); and assertions on free text, which check its prefix instead (see the message-text requirement). Every other field, error code and exit status is compared exactly
+- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); and assertions on stdout bytes, which compare the parsed value instead. The native-cli JSON/input and option differences have explicit outcome tests; every other field, error code and exit status is compared exactly
 
 #### Scenario: Differential run against the frozen script
 - **WHEN** the parity eval runs a case of each subcommand through the frozen copy of `pr-pair.sh` and through the shim, against the same repositories and fake-gh state
-- **THEN** both exit with the same status, make the same `gh` calls, and print stderr with the same lines up to each line's prefix. Their stdout is the same JSON line, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest
+- **THEN** both exit with the same status and make the same `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals have explicit difference tests. For retained inputs they print stderr with the same lines up to each line's prefix. Their stdout parses to the same JSON value, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest
 
 #### Scenario: A malformed settings file names its line
 - **WHEN** `openspec/specwright.yaml` holds a tab in its indentation on line 7 and `pr-pair.sh context --code <code>` runs
@@ -239,11 +239,11 @@ Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after s
 - **THEN** it returns `wrong_base` with the same PR and base values and exit status as the frozen script, without creating a PR
 
 ### Requirement: sw pr reviewers keeps the evaluator's contract
-`sw pr reviewers --check-config FILE` and `sw pr reviewers --config FILE --material FILE --head OID` SHALL print the same output fields, one stderr line prefixed `reviewers.py:` where `reviewers.py` printed one, naming the same reviewer and key, and exit with the same status as `reviewers.py` did, except where a report pattern compiles differently or the config's format is not 2 (see pr-evidence).
+`sw pr reviewers --check-config FILE` and `sw pr reviewers --config FILE --material FILE --head OID` SHALL print the same parsed output fields, one stderr line prefixed `reviewers.py:` where `reviewers.py` printed one, naming the same reviewer and key, and exit with the same status as `reviewers.py` did, except where a report pattern compiles differently, the config's format is not 2 (see pr-evidence), or the native-cli JSON/input or option contract explicitly changes an accepted form.
 
 #### Scenario: Unchanged evaluator tests
 - **WHEN** `evals/pr-pair/test_reviewers.py` runs against `sw pr reviewers` in CI on Linux, Windows and macOS
-- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); and assertions on free text, which check its prefix instead (see the message-text requirement). Every other field, error code and exit status is compared exactly
+- **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); and assertions on stdout bytes, which compare the parsed value instead. The native-cli JSON/input and option differences have explicit outcome tests; every other field, error code and exit status is compared exactly
 
 #### Scenario: Material that is not its head
 - **WHEN** `sw pr reviewers --config cfg.json --material m.json --head <oid>` runs and `m.json` is for another head
@@ -332,6 +332,14 @@ The fourteen newly native commands SHALL preserve product workflow outcomes, eff
 #### Scenario: Malformed table text follows HTML5 interpretation
 - **WHEN** closing prose is extracted from malformed HTML `Fixes <table>#1</table>`
 - **THEN** issue 1 in the description's own repository is an intended closing reference under HTML5 tree construction
+
+#### Scenario: Feedback round counters remain encodable
+- **WHEN** rounds reads no feedback trailers or ordinary in-range Feedback-Round trailers
+- **THEN** rounds and per-repository max_trailer are exact JSON integers, including zero, and the workflow decision is preserved
+
+#### Scenario: Oversized feedback-round trailer is refused
+- **WHEN** rounds reads a Feedback-Round trailer exceeding signed 64-bit range
+- **THEN** it stops with its unknown-read error, without ignoring, rounding or wrapping the trailer, and makes no mutation
 
 ### Requirement: Feedback records interoperate across the port
 Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner.
@@ -461,3 +469,22 @@ Native PR workflow code SHALL call ported settings, fence and VCS operations dir
 #### Scenario: Malformed project prefix is refused
 - **WHEN** the leading --project prefix lacks a nonempty value or is repeated as a leading selector
 - **THEN** after the existing Python prerequisite check, the shim returns one JSON line with `"error": "usage"` and exit 2 before resolution, authentication or state changes
+
+### Requirement: Paginated GitHub lists read every page or decide nothing
+A list read that decodes whole pages SHALL use `gh api --paginate --slurp`, flatten the returned array of pages into one list in page order, and on any response other than an array of arrays SHALL report the read as unknown. An unknown read SHALL NOT lead to a GitHub mutation. `item-issues` retains `--paginate --jq` per-page output and its existing `unreadable response` refusal.
+
+#### Scenario: Several pages
+- **WHEN** `gh` returns three pages holding 100, 100 and 7 items for a list read
+- **THEN** the caller receives 207 items in page order
+
+#### Scenario: No items
+- **WHEN** `gh` returns one empty page
+- **THEN** the caller receives an empty list and reports no error
+
+#### Scenario: A page that is not an array
+- **WHEN** one page in the response is a JSON object
+- **THEN** the read is unknown, the command stops with its unknown-read error, and no GitHub write is made
+
+#### Scenario: gh older than 2.48
+- **WHEN** `gh` exits non-zero reporting that `--slurp` is an unknown flag
+- **THEN** the read is unknown, the message names `gh` 2.48 as the minimum version, and no GitHub write is made
