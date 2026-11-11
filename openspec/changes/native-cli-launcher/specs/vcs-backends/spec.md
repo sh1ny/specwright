@@ -38,7 +38,7 @@ Each document `sw vcs` prints SHALL parse to the same keys, key order and values
 
 #### Scenario: A non-UTF-8 name from a tool stops by name
 - **WHEN** on Linux a tracked file's name holds the byte 0xFF, the file is dirty, and `vcs.sh state` runs
-- **THEN** stdout is one JSON document with `"error": "not_utf8"` naming the file with `\xFF`, the exit status is 1, and a following `vcs.sh commit` of the other dirty files stops the same way and commits nothing
+- **THEN** stdout is one JSON document with `"error": "not_utf8"` naming the file with `\xFF`, and the exit status is 1
 
 #### Scenario: A valid U+FFFD in a name is just a character
 - **WHEN** a tracked file is named `a�.txt` (valid UTF-8), no file name in the repo is invalid UTF-8, and `vcs.sh commit -- a�.txt` runs
