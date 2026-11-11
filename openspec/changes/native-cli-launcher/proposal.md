@@ -46,6 +46,8 @@ None.
 - `native-cli`: "Arguments reach native executables unchanged", reworded to UTF-8 arguments with a named refusal, and the new launcher.
 - `vcs-backends`: name handling in "sw vcs documents keep their values and name bytes" (as renamed by `native-cli-library-foundations`) and the walk's order.
 - `change-finish` and `task-commits`: the non-UTF-8 scenarios become the named stop.
+- `github-identity`: the fenced command starts without a shell and receives UTF-8 argument values, with the named refusal.
+- `pr-script-runtime`: direct fenced reads pass argument values without a shell, and a non-UTF-8 `SPECWRIGHT_STATE_DIR` or `HOME` stops feedback with the named error instead of keeping raw bytes (S4).
 
 ## Impact
 
@@ -79,6 +81,14 @@ DECISION_MAKING: important
 - **Reversal cost:** low
 - **Important:** yes, binds future changes.
 - **Chosen by:** user, "Their designs are written at their turn, because the intervening ports would make them stale."
+
+### S4: Non-UTF-8 state and home paths get the same named stop
+
+- **Choice:** A non-UTF-8 `SPECWRIGHT_STATE_DIR` or `HOME` stops feedback with the named error, so the `getenv` FFI reader and the rest of the escaping codec can go.
+- **Rejected:** Keep raw POSIX bytes for the feedback state paths, which keeps the FFI reader and part of the codec for this case alone.
+- **Reversal cost:** low
+- **Important:** yes, changes what users see.
+- **Chosen by:** user, "Same named stop".
 
 ## Release Notes
 
