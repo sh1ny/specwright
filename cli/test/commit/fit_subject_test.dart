@@ -6,11 +6,8 @@ import 'package:specwright_cli/src/commit/context.dart';
 import 'package:specwright_cli/src/commit/fit_subject.dart';
 import 'package:test/test.dart';
 
-import '../vcs/bash_support.dart';
-import '../support/exe_shim.dart';
-
-/// A stub `cygpath` first on PATH that always fails.
-const String _failingCygpath = '#!/bin/sh\nexit 1\n';
+/// The bash a Windows shim hands over; its Git root is `C:\Program Files\Git`.
+const String _gitBash = r'C:\Program Files\Git\usr\bin\bash.exe';
 
 class _Run {
   _Run(this.code, this.out, this.err);
@@ -24,7 +21,6 @@ class _Run {
 }
 
 void main() {
-  useExeShim();
   late Directory dir;
   late String msg;
   setUp(() {
@@ -38,12 +34,13 @@ void main() {
     bool? windows,
     Map<String, String>? environment,
     bool entry = false,
+    String bash = _gitBash,
   }) async {
     final out = BytesBuilder();
     final err = BytesBuilder();
     final ctx = CommitContext(
       scriptsDir: dir.path,
-      bash: findBash() ?? 'bash',
+      bash: bash,
       writeOut: out.add,
       writeErr: err.add,
     );
@@ -346,36 +343,41 @@ void main() {
     test(
       'a path that does not convert gives exit 2 and touches nothing',
       () async {
-        final bash = findBash();
-        if (bash == null) {
-          markTestSkipped('no bash');
-          return;
-        }
-        final stub = File('${dir.path}/cygpath')
-          ..writeAsStringSync(_failingCygpath);
-        if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
-        shimExe(stub.path);
         final content = bytesOf('$fitted ffffffffff\nbody\n');
         File(msg).writeAsBytesSync(content);
-        final sep = Platform.isWindows ? ';' : ':';
         final before = names();
+        // a bash path that holds no Git root: /etc/m.txt has nowhere to go
         final r = await run(
-          ['/tmp/m.txt'],
+          ['/etc/m.txt'],
           windows: true,
-          environment: {
-            ...Platform.environment,
-            'PATH': '${dir.path}$sep${Platform.environment['PATH'] ?? ''}',
-          },
+          bash: r'C:\tools\bash.exe',
         );
         expect(r.code, 2);
         expect(r.out, isEmpty);
         expect(
           r.errText,
-          'fit-subject.sh: could not convert path: /tmp/m.txt\n',
+          'fit-subject.sh: could not convert path: /etc/m.txt\n',
         );
         expect(file(), content);
         expect(names(), before);
       },
     );
+
+    test('/tmp/m.txt on Windows is fitted under TEMP', () async {
+      File(msg).writeAsBytesSync(bytesOf('$fitted ffffffffff\nbody\n'));
+      final r = await run(
+        ['/tmp/m.txt'],
+        windows: true,
+        environment: {'TEMP': dir.path},
+      );
+      expect(r.code, 0, reason: r.errText);
+      expect(file(), bytesOf('$fitted\nbody\n'));
+    });
+
+    test('/tmp/m.txt on Windows with no TEMP or TMP gives exit 2', () async {
+      final r = await run(['/tmp/m.txt'], windows: true, environment: {});
+      expect(r.code, 2);
+      expect(r.errText, 'fit-subject.sh: could not convert path: /tmp/m.txt\n');
+    });
   });
 }

@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../fs/link.dart';
 import '../vcs/codec.dart';
 import 'context.dart';
-import '../vcs/tool_runner.dart';
 import 'paths.dart';
 
 const int _limit = 72;
@@ -117,10 +117,9 @@ Future<int> fitSubject(
         ..add(Uint8List.sublistView(content, nl));
       await tmp.writeAsBytes(out.takeBytes(), flush: true);
       // `File.rename` takes a decoded String, which loses a name's bytes that
-      // are not UTF-8 (POSIX). `mv` through the transport gets them exactly,
-      // as the script's own `mv -f` did.
-      final moved = await runTool('.', ['mv', '-f', '--', tmpPath, path]);
-      if (moved.exitCode != 0) throw FileSystemException('mv failed', tmpPath);
+      // are not UTF-8 (POSIX). The replacing rename of `fs/link.dart` takes
+      // them exactly, as the script's own `mv -f` did.
+      replaceFile(tmpPath, path);
     } on Object {
       try {
         if (tmp.existsSync()) await tmp.delete();

@@ -466,7 +466,7 @@ class TestHomeStateBaseOnWindows(ShimCase):
         sleep = self.tmp / "bin" / "sleep"  # short naps, so the old watcher's takeover check comes quickly
         sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
                          encoding="utf-8", newline="\n")
-        fakeexe.add_launcher(sleep)  # sw starts sleep by PATHEXT name on Windows (D9)
+        fakeexe.add_launcher(sleep)  # for the old script only: sw sleeps in its own process and never starts it (D8)
         self.home = self.tmp / "home"
         self.home.mkdir()
         self.procs = []

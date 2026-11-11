@@ -408,7 +408,7 @@ class WatcherTakeover(PrParity):
         sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
                          encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
-        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
+        fakeexe.add_launcher(sleep)  # for the oracle script only: sw sleeps in its own process and never starts it (D8)
         self.procs = []
         self.addCleanup(self._reap)
 

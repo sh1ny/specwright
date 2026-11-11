@@ -112,23 +112,32 @@ class TestPlanRunsSw(ShimCase):
         bash_form = subprocess.run(["cygpath", "-u", str(self.work)], capture_output=True, text=True).stdout.strip()
         self.assertTrue(bash_form.startswith("/"), bash_form)
         drive = self.run_shim(*self.plan(dir_=Path(self.work).as_posix()), cwd=self.tmp)
-        bash = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp)
+        # a cygpath that logs its arguments and runs the real one: the shim's own conversions need it,
+        # but sw converts the --dir path by its own rules and never runs it for that path
+        stub = self.tmp / "stub"
+        gitlog.install(stub, real_git=jjenv.real_git(), log_path=self.shim.log_path)
+        log = self.tmp / "cygpath.log"
+        fakeexe.write_fake(
+            stub / "cygpath",
+            '#!/bin/sh\nprintf \'%%s\\n\' "$*" >> "%s"\nexec "%s" "$@"\n'
+            % (log.as_posix(), Path(shutil.which("cygpath")).as_posix()))
+        bash = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp, shim_dir=stub)
         self.assertEqual(bash.returncode, 0, bash.stdout + bash.stderr)
         self.assertNotIn("not_a_repo", bash.stdout)
         self.assertEqual(json.loads(bash.stdout), json.loads(drive.stdout))
+        self.assertNotIn(bash_form, log.read_text(encoding="utf-8") if log.exists() else "", "cygpath ran for --dir")
 
     @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
     def test_failed_dir_conversion_is_bad_path(self):
         self.archived(self.work)
-        bash_form = subprocess.run(["cygpath", "-u", str(self.work)], capture_output=True, text=True).stdout.strip()
-        stub = self.tmp / "stub"
-        gitlog.install(stub, real_git=jjenv.real_git(), log_path=self.shim.log_path)
-        # fails for the --dir path only: the resolver and the shim convert their own paths with cygpath too
-        fakeexe.write_fake(
-            stub / "cygpath",
-            '#!/bin/sh\nfor a in "$@"; do [ "$a" = "%s" ] && exit 1; done\nexec "%s" "$@"\n'
-            % (bash_form, Path(shutil.which("cygpath")).as_posix()))
-        result = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp, shim_dir=stub)
+        # The shim hands over its own bash, whose install root is always found. So the handoff the shim
+        # writes is made here with a bash path that holds no Git root: /etc/x has nowhere to go.
+        bash_form = "/etc/x"
+        records = [str(FINISH_SCRIPTS), r"C:\tools\bash.exe", *self.plan(dir_=bash_form)]
+        result = subprocess.run([os.environ["SPECWRIGHT_SW"], "finish", "--args-stdin"],
+                                input=b"".join(x.encode("utf-8") + b"\0" for x in records),
+                                capture_output=True, cwd=self.tmp, env={**os.environ, **self.shim.env})
+        result.stdout, result.stderr = result.stdout.decode("utf-8"), result.stderr.decode("utf-8")
         doc = self.document(result, 2)
         self.assertEqual((doc["ok"], doc["error"]), (False, "bad_path"), doc)
         self.assertIn(bash_form, doc["message"])

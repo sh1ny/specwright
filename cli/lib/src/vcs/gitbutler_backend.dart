@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
+import '../native/libc.dart' as libc;
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart' show requireBranch;
@@ -30,15 +31,20 @@ Future<Map<String, Object?>> gitbutlerStateDocument(VcsSession s) =>
     GitButler(s).state();
 
 /// `vcs.sh`'s `run_gitbutler_operation`. [windows] overrides the OS for the
-/// commit's command-line size check, [environment] is the full environment
+/// commit's command-line size check, [argMax] replaces its `sysconf` read, [environment] is the full environment
 /// `but` runs in (the parent's when null).
 Future<Map<String, Object?>> runGitbutlerOperation(
   VcsSession s,
   String command, {
   bool? windows,
   Map<String, String>? environment,
-}) =>
-    GitButler(s, windows: windows, environment: environment).operation(command);
+  int? Function()? argMax,
+}) => GitButler(
+  s,
+  windows: windows,
+  environment: environment,
+  argMax: argMax,
+).operation(command);
 
 /// Python truthiness of a decoded JSON value.
 bool _truthy(Object? v) =>
@@ -108,11 +114,14 @@ String _quoteArg(String arg) {
 }
 
 class GitButler {
-  GitButler(this.s, {this.windows, this.environment});
+  GitButler(this.s, {this.windows, this.environment, this.argMax});
 
   final VcsSession s;
   final bool? windows;
   final Map<String, String>? environment;
+
+  /// Replaces the `sysconf(_SC_ARG_MAX)` read of the command-line size check.
+  final int? Function()? argMax;
 
   String get root => s.info.repo;
   VcsScripts get scripts => s.scripts;
@@ -471,8 +480,7 @@ class GitButler {
       size = encodeEscaped(argv.map(_quoteArg).join(' ')).length;
       limit = 32000;
     } else {
-      final max = await runText(root, ['getconf', 'ARG_MAX']);
-      final arg = max.code == 0 ? int.tryParse(max.stdout.trim()) : null;
+      final arg = (argMax ?? libc.argMax)();
       var env = 0;
       Platform.environment.forEach((k, v) {
         env += utf8.encode(k).length + utf8.encode(v).length + 2;

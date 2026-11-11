@@ -31,7 +31,6 @@ class WorkflowTransport {
 
   factory WorkflowTransport.native({
     required String directory,
-    required String bash,
     Map<String, String>? environment,
     List<String>? helperCommand,
   }) => WorkflowTransport(
@@ -40,7 +39,6 @@ class WorkflowTransport {
     runner: (dir, command, env, limits) async {
       if (limits != null) {
         return runBoundedCommand(
-          bash,
           dir,
           command,
           environment: env,

@@ -192,6 +192,59 @@ void main() {
     });
   });
 
+  group('the POSIX command-line limit (D8: sysconf, no getconf)', () {
+    VcsSession bare() => VcsSession(
+      VcsContext(
+        VcsRequest(command: 'commit', repo: '.', role: 'code', code: '.'),
+        '.',
+        'bash',
+      ),
+      '.',
+      '.',
+      ProbeInfo('jj', 'main', '.', ''),
+      VcsScripts('.', 'bash'),
+    );
+
+    Future<VcsStop?> check(
+      String message, {
+      int? Function()? argMax,
+      int paths = 0,
+    }) async {
+      try {
+        await jjCommitArgvCheck(
+          bare(),
+          [for (var i = 0; i < paths; i++) 'p$i'],
+          message,
+          windows: false,
+          argMax: argMax,
+        );
+        return null;
+      } on VcsStop catch (stop) {
+        return stop;
+      }
+    }
+
+    test(
+      'a given ARG_MAX less the environment and 4096 is the limit',
+      () async {
+        expect(await check('m' * 10000, argMax: () => 1 << 20), isNull);
+        final stop = await check('m' * 60000, argMax: () => 50000);
+        expect(stop?.error, 'too_many_paths');
+      },
+    );
+
+    test('no ARG_MAX from the system falls back to 100000', () async {
+      expect(await check('m' * 90000, argMax: () => null), isNull);
+      final stop = await check('m' * 100001, argMax: () => null);
+      expect(stop?.error, 'too_many_paths');
+    });
+
+    test('the real sysconf read gives a plain limit', () async {
+      expect(await check('m' * 100), isNull);
+      expect((await check('m' * (64 << 20)))?.error, 'too_many_paths');
+    }, skip: Platform.isWindows ? 'sysconf is POSIX' : false);
+  });
+
   group('jj state', skip: skip, () {
     test(
       'on main: no branch, on_main, head and branch_matches absent',

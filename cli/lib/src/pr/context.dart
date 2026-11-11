@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../commit/paths.dart';
+import '../native/libc.dart' as libc;
 import '../vcs/codec.dart';
 import '../vcs/scripts.dart' show TextResult, runText;
-import '../vcs/tool_runner.dart';
 import 'gh.dart';
 import 'text.dart';
+
+const String _tempAlphabet =
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /// `exit <code>` inside the scripts: unwinds to the command's entry, which runs its cleanup first.
 class PrExit implements Exception {
@@ -26,9 +30,6 @@ typedef PrGh = Future<GhResult> Function(
   bool paged,
 });
 
-/// One external tool run through bash (`mktemp`, `ln`, `sleep`, `date`, `python3`).
-typedef PrTool = Future<ToolResult> Function(List<String> command);
-
 /// One bounded run of a command that is not `gh` (`sw pr reviewers`).
 typedef PrBounded = Future<GhResult> Function(
   List<String> command, {
@@ -40,6 +41,9 @@ typedef PrGit = Future<TextResult> Function(String dir, List<String> args);
 
 /// `mktemp [template]`: its path, usable by `sw` (on Windows in the drive form), or null when it failed.
 typedef PrMakeTemp = Future<String?> Function([String? template]);
+
+/// A pause of [seconds] whole seconds (`sleep`).
+typedef PrSleep = Future<void> Function(int seconds);
 
 /// What the shim handed `sw pr snapshot` or `sw pr reply` on stdin: the scripts directory, the bash that runs the shim
 /// and every argument of the script. Unlike [parseHandoff], no argument at all is a handoff too (`pr-snapshot.sh` with
@@ -73,10 +77,10 @@ class PrContext {
     this.environment,
     this.helperCommand,
     this._gh,
-    this._tool,
     this._git,
     this._bounded,
     this._makeTemp,
+    this._sleep,
     this._seconds,
     String? cwd,
   }) : cwd = cwd ?? Directory.current.path;
@@ -91,10 +95,10 @@ class PrContext {
   final List<String>? helperCommand;
   final String cwd;
   final PrGh? _gh;
-  final PrTool? _tool;
   final PrGit? _git;
   final PrBounded? _bounded;
   final PrMakeTemp? _makeTemp;
+  final PrSleep? _sleep;
   final int Function()? _seconds;
   final Stopwatch _clock = Stopwatch()..start();
 
@@ -123,7 +127,6 @@ class PrContext {
     Map<String, String>? environment,
     bool paged = false,
   }) => runGh(
-    bash,
     cwd,
     args,
     environment: environment,
@@ -144,18 +147,15 @@ class PrContext {
     List<String> command, {
     Map<String, String>? environment,
   }) => runBoundedCommand(
-    bash,
     cwd,
     command,
     environment: environment,
     helperCommand: helperCommand,
   );
 
-  /// An external tool, unbounded, through bash (D8).
-  Future<ToolResult> tool(List<String> command) => (_tool ?? _runTool)(command);
-
-  Future<ToolResult> _runTool(List<String> command) =>
-      runTool(cwd, command, environment: environment);
+  /// `sleep <seconds>` (D8): the poll's pause, in process.
+  Future<void> sleep(int seconds) =>
+      (_sleep ?? (n) => Future<void>.delayed(Duration(seconds: n)))(seconds);
 
   /// `git <args>` in [dir] (`pr-pair.sh`'s `git(d, ...)`): through bash like every tool, decoded as text. A directory
   /// that cannot be entered is exit 127.
@@ -165,21 +165,48 @@ class PrContext {
   Future<TextResult> _runGit(String dir, List<String> args) =>
       runText(dir, ['git', ...args]);
 
-  /// `mktemp [template]` through bash, with the path converted by `cygpath -m` in the same bash call on Windows, so
-  /// `sw` and Python can open it. Null when `mktemp` failed.
+  /// `mktemp [template]` (D8): a new empty file made with an exclusive create, so no other writer holds it. The
+  /// [template] ends in at least three `X`, replaced by random letters and digits; without one the file is
+  /// `tmp.XXXXXXXXXX` in the system temp directory. The path is in the drive form with `/` separators on Windows, so
+  /// `sw` and Python can open it. Null when no file could be made.
   Future<String?> makeTemp([String? template]) async {
     final seam = _makeTemp;
     if (seam != null) return seam(template);
-    const script =
-        r'f=$(mktemp "$@") || exit 1; '
-        r'if command -v cygpath >/dev/null 2>&1; then cygpath -m "$f"; '
-        r'else printf "%s\n" "$f"; fi';
-    final r = await tool([bash, '-c', script, 'mktemp', ?template]);
-    if (r.exitCode != 0) return null;
-    return dropTrailingNewlines(decodeEscaped(r.stdout));
+    final text =
+        template ??
+        '${Directory.systemTemp.path}${Platform.pathSeparator}tmp.XXXXXXXXXX';
+    final x = RegExp(r'X{3,}$').firstMatch(text);
+    if (x == null) return null;
+    final random = Random.secure();
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final suffix = String.fromCharCodes([
+        for (var i = 0; i < x.end - x.start; i++)
+          _tempAlphabet.codeUnitAt(random.nextInt(_tempAlphabet.length)),
+      ]);
+      final path = '${text.substring(0, x.start)}$suffix';
+      try {
+        if (!Platform.isWindows) {
+          // Owner-only from the first instant, as mktemp made it: the file holds PR content in a shared directory.
+          if (libc.createExclusive(encodeEscaped(path), 0x180)) return path;
+          // A failed create is a collision when something is there; else nothing can be made here.
+          if (FileSystemEntity.typeSync(path, followLinks: false) !=
+              FileSystemEntityType.notFound) {
+            continue;
+          }
+          return null;
+        }
+        File(path).createSync(exclusive: true);
+        return path.replaceAll(r'\', '/');
+      } on PathExistsException {
+        continue;
+      } on FileSystemException {
+        return null;
+      }
+    }
+    return null;
   }
 
-  /// A path argument in the form `sw` can open: on Windows a `/` path goes through `cygpath -m` (D9).
+  /// A path argument in the form `sw` can open: on Windows a `/` path converts by the fixed rules of `nativePath` (D7).
   Future<String> native(String path) async {
     try {
       return await nativePath(path, bash, environment: environment);

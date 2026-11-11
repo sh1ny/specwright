@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:test/test.dart';
+import 'package:specwright_cli/src/fs/link.dart';
 import 'package:specwright_cli/src/pr/feedback_record.dart';
 import 'package:specwright_cli/src/pr/pair.dart';
 import 'package:specwright_cli/src/pr/context.dart';
@@ -138,6 +139,7 @@ void replacementReader((String, SendPort) input) {
 }
 
 void main() {
+  linkTests();
   late Directory tmp;
   late String path;
   setUp(() {
@@ -766,4 +768,49 @@ class _Limited extends FaultFiles {
     seen.add(limit);
     return List<int>.filled(limit == null ? size : limit + 1, 0x20);
   }
+}
+
+void linkTests() {
+  group('fs/link.dart (D8: the link and rename of ln and mv -f)', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('sw-link-'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('hardLink makes a second name for the same bytes', () {
+      final a = File('${dir.path}/a')..writeAsStringSync('one');
+      hardLink(a.path, '${dir.path}/b');
+      expect(File('${dir.path}/b').readAsStringSync(), 'one');
+      a.deleteSync();
+      expect(File('${dir.path}/b').readAsStringSync(), 'one');
+    });
+
+    test('hardLink never replaces an existing destination', () {
+      File('${dir.path}/a').writeAsStringSync('new');
+      File('${dir.path}/b').writeAsStringSync('first');
+      expect(
+        () => hardLink('${dir.path}/a', '${dir.path}/b'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(File('${dir.path}/b').readAsStringSync(), 'first');
+    });
+
+    test('replaceFile replaces the destination and removes the source', () {
+      File('${dir.path}/a').writeAsStringSync('new');
+      File('${dir.path}/b').writeAsStringSync('old');
+      replaceFile('${dir.path}/a', '${dir.path}/b');
+      expect(File('${dir.path}/b').readAsStringSync(), 'new');
+      expect(File('${dir.path}/a').existsSync(), isFalse);
+    });
+
+    test('a missing source is a FileSystemException', () {
+      expect(
+        () => replaceFile('${dir.path}/none', '${dir.path}/b'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(
+        () => hardLink('${dir.path}/none', '${dir.path}/b'),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
+  });
 }

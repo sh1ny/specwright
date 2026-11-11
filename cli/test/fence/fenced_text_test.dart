@@ -65,7 +65,6 @@ void main() {
 
   test('--resolve returns the active login on stdout', () async {
     final r = await fencedText(
-      bash!,
       repo,
       ['--resolve'],
       environment: env(),
@@ -81,7 +80,6 @@ void main() {
     'no active account is a refusal: exit 3 and the as.sh: message',
     () async {
       final r = await fencedText(
-        bash!,
         repo,
         ['--resolve'],
         environment: env(),
@@ -119,7 +117,6 @@ void main() {
       }
 
       final r = await fencedText(
-        bash!,
         repo,
         ['me', 'git', 'push', 'origin', 'HEAD'],
         environment: env(),
@@ -143,7 +140,6 @@ void main() {
     'the command runs in the repo and its output and exit code are kept',
     () async {
       final r = await fencedText(
-        bash!,
         repo,
         ['me', 'bash', '-c', 'pwd; echo err >&2; exit 5'],
         environment: env(),
@@ -163,7 +159,6 @@ void main() {
   test('the fenced command has no deadline', () async {
     final watch = Stopwatch()..start();
     final r = await fencedText(
-      bash!,
       repo,
       ['me', 'bash', '-c', 'sleep 3; echo done'],
       environment: env({'SPECWRIGHT_NET_DEADLINE': '1'}),

@@ -24,10 +24,10 @@ final RegExp _pushPattern = RegExp(
 /// list. The GraphQL and jq texts are the script's (`queries.dart`) and `gh` runs the jq; the text tools between the
 /// calls are the Dart functions of `text.dart`.
 ///
-/// Constraint C5: `mktemp`, `ln` and `sleep` run as external commands through bash, because the evals fake them on
-/// `PATH`; the evaluator's material file comes from `mktemp` too, and `sw pr reviewers` runs through the bounded helper with
-/// its limit named as the script named it. `native-cli-retire-scripts` replaces them together with those hooks. The poll's
-/// deadline needs no `date`: the script's `date +%s` fallback covered a bounded helper that printed nothing usable.
+/// `mktemp`, `ln` and `sleep` are Dart operations (D8): an exclusive create, a hard link and `Future.delayed`. The
+/// evaluator's material file is a temp file too, and `sw pr reviewers` runs through the bounded helper with its limit
+/// named as the script named it. The poll's deadline needs no `date`: the script's `date +%s` fallback covered a bounded
+/// helper that printed nothing usable.
 ///
 /// The watch claim and the material file are removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform
 /// has them (the script's one `EXIT` trap). Exit codes: 0; 1 for any failed read, poll or log; 2 for a bad argument or
@@ -694,12 +694,7 @@ class _Snapshot {
       if (limit == null || elapsed >= limit) break;
       final every = int.tryParse(interval) ?? limit;
       final nap = every <= limit - elapsed ? every : limit - elapsed;
-      // `set -e` ended the script when `sleep` failed; never poll without the nap
-      final slept = await ctx.tool(['sleep', '$nap']);
-      if (slept.exitCode != 0) {
-        ctx.writeErr(slept.stderr);
-        throw PrExit(slept.exitCode);
-      }
+      await ctx.sleep(nap);
       if (!stillOwner()) takeOver();
       // keep the last good snapshot; a failed poll never replaces it
       final next = await poll();

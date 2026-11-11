@@ -84,7 +84,6 @@ class Workflow {
     final limits = resolveLimits(ctx.env, paged: false);
     Future<GhResult> unfenced(Map<String, String> environment) async {
       final result = await runBoundedCommand(
-        ctx.bash,
         dir,
         ['git', ...args],
         environment: environment,
@@ -125,7 +124,6 @@ class Workflow {
     await tokenFor(login);
     return WorkflowTransport.native(
       directory: dir,
-      bash: ctx.bash,
       environment: ctx.env,
       helperCommand: ctx.helperCommand,
     ).fenced(login, ['git', ...args], outer: limits);

@@ -16,6 +16,7 @@ Hostile-network injection (bound-pr-scripts), matched against the joined argv li
   "hang":  ["regex" | {"match": "regex", "pid_file": "path"}]  write the PID (to pid_file, else $FAKE_GH_PID_FILE) and sleep forever
   "delay": [{"match": "regex", "seconds": 2}]                   sleep, then answer normally
   "flood": [{"match": "regex", "bytes": 1000000}]               print that many bytes of JSON array pages, then exit 0
+  "tick":  {"match": "regex", "skip": 1, "clock_step": 300, ...} state that moves between a --wait loop's polls; see tick()
 `api markdown --input <file>` (POST) serves a recorded GitHub rendering: the file holds {"text", "mode", "context"}; the answer is
   the raw HTML stored in the fixture file $FAKE_GH_MARKDOWN (default evals/pr-pair/fixtures/markdown.json), whose entries are
   {sha256-key: {"mode", "context", "html"}}. The key is markdown_key(mode, text) = sha256((mode + NEWLINE + text).encode("utf-8")).hexdigest(), NEWLINE = chr(10);
@@ -255,6 +256,43 @@ def markdown_key(mode, text):
 
 
 MARKDOWN_FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pr-pair", "fixtures", "markdown.json")
+
+
+def tick(st, argv):
+    """The `tick` injection: state that moves between the polls of a `--wait` loop. `sw` sleeps in its own process, so a test
+    cannot hook the sleep; it hooks the one gh call each poll starts with instead (the call matching `match`).
+    st["tick"] = {"match": regex over the joined argv, "skip": 1,        # matching calls that are not yet a tick (the first poll)
+                  "clock_step": 300, "repo": "o/n", "pr": 7,
+                  "events": [{"at": iso, "key": k, "author": a, "body": b}],  # comments added once the clock reaches `at`
+                  "patch": {...},                                          # merged into the state on the first tick
+                  "steps": [{"checks": [...]} | {"fields": {...}} | {"comment": [author, body]}]}  # step k on tick k
+    `n` counts the matching calls and is kept in the spec. Runs before every other injection, so a patch can make this same
+    call hang or fail."""
+    t = st.get("tick")
+    if not t or not re.search(t["match"], " ".join(argv)):
+        return
+    t["n"] = t.get("n", 0) + 1
+    k = t["n"] - 1 - t.get("skip", 1)
+    if k < 0:
+        return
+    if t.get("clock_step"):
+        advance_clock(st, int(t["clock_step"]))
+    slug, num = t.get("repo", "o/n"), int(t.get("pr", 7))
+    for ev in t.get("events", []):
+        if st["clock"] >= ev["at"] and ev["key"] not in st.setdefault("fired", []):
+            st["fired"].append(ev["key"])
+            add_pr_comment(st, slug, num, ev["author"], ev["body"], at=ev["at"])
+    if k == 0 and t.get("patch"):
+        st.update(t["patch"])
+    steps = t.get("steps", [])
+    if k < len(steps):
+        s, pull = steps[k], _pull(st, slug, num)
+        if "checks" in s:
+            pull["checks"] = s["checks"]
+        if "fields" in s:
+            pull.setdefault("fields", {}).update(s["fields"])
+        if "comment" in s:
+            add_pr_comment(st, slug, num, s["comment"][0], s["comment"][1])
 
 
 def hostile(st, argv):
@@ -1164,6 +1202,10 @@ def main(argv):
     st = load()
     before = json.dumps(st)  # a call that left the state as it was (every read) writes nothing
     try:
+        tick(st, argv)
+        if json.dumps(st) != before:  # kept now: the call may hang or fail below
+            save(st)
+            before = json.dumps(st)
         inject_failure(st, argv)
         hostile(st, argv)
         if host_of(argv) != "github.com" and "--help" not in argv:

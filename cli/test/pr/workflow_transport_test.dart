@@ -181,7 +181,6 @@ void main() {
       expect(bash, isNotNull);
       final native = WorkflowTransport.native(
         directory: Directory.current.path,
-        bash: bash!,
       );
       final transport = WorkflowTransport(
         directory: Directory.current.path,
@@ -203,7 +202,7 @@ void main() {
         List.filled(20000, 'x').join(),
       ];
       final r = await transport.fenced('bot', [
-        bash,
+        bash!,
         '-c',
         r'printf "%s\0" "$@"',
         'capture',
@@ -425,7 +424,6 @@ void main() {
         final late = File('${temp.path}/late');
         final native = WorkflowTransport.native(
           directory: temp.path,
-          bash: bash!,
           helperCommand: helper,
         );
         final transport = WorkflowTransport(
@@ -443,7 +441,7 @@ void main() {
           transport.fenced(
             'bot',
             [
-              bash,
+              bash!,
               '-c',
               r'(sleep 2; printf late > "$1") & wait',
               'x',

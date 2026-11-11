@@ -193,11 +193,13 @@ void main() {
     String command,
     VcsSession s, {
     bool? windows,
+    int? Function()? argMax,
   }) => runGitbutlerOperation(
     s,
     command,
     windows: windows,
     environment: environment(),
+    argMax: argMax,
   );
 
   Future<Map<String, Object?>> state(VcsSession s) =>
@@ -565,7 +567,11 @@ void main() {
   });
 
   group('commit', () {
-    Future<VcsStop> commitStop(List<String> paths, {bool? windows}) => stopOf(
+    Future<VcsStop> commitStop(
+      List<String> paths, {
+      bool? windows,
+      int? Function()? argMax,
+    }) => stopOf(
       () => op(
         'commit',
         session(
@@ -575,6 +581,7 @@ void main() {
           paths: paths,
         ),
         windows: windows,
+        argMax: argMax,
       ),
     );
 
@@ -674,6 +681,33 @@ void main() {
             'containing directory instead',
       );
     });
+
+    test('with no ARG_MAX from the system the POSIX limit is 100000', () async {
+      final long = 'a' * 100001;
+      setStatus(stacks: [stack('feat')], uncommitted: [long]);
+      final stop = await commitStop([long], windows: false, argMax: () => null);
+      expectStop(
+        stop,
+        'too_many_paths',
+        message:
+            'named paths and message exceed the command-line limit; name a '
+            'containing directory instead',
+      );
+    });
+
+    test(
+      'a given ARG_MAX less the environment and 4096 is the limit',
+      () async {
+        final long = 'a' * 60000;
+        setStatus(stacks: [stack('feat')], uncommitted: [long]);
+        final stop = await commitStop(
+          [long],
+          windows: false,
+          argMax: () => 50000,
+        );
+        expect(stop.error, 'too_many_paths');
+      },
+    );
 
     /// A `but commit` that commits [files] on top of the branch's tip.
     void commitHook(Map<String, String> files, {String? message}) {

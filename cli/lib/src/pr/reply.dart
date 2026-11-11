@@ -12,7 +12,7 @@ import 'queries.dart';
 /// Every argument and body check runs before the first GitHub call (exit 4). A pending review of the viewer stops with
 /// exit 2, a changed revision with exit 5 (exit 3 when it cannot be read), the reply is posted with its marker, and the
 /// exit status is 1 when the reply was posted but its resolution or reaction failed. The body file with its marker is
-/// made by the external `mktemp` and removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform has them
+/// made by an exclusive create (`PrContext.makeTemp`) and removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform has them
 /// (the script's `EXIT` trap).
 Future<int> runReply(PrContext ctx, List<String> argv) async {
   final reply = _Reply(ctx);
@@ -300,7 +300,7 @@ class _Reply {
     }
   }
 
-  /// Writes the body file and its marker to a temp file from `mktemp`; a failed write stops the script.
+  /// Writes the body file and its marker to a temp file from `PrContext.makeTemp`; a failed write stops the script.
   Future<void> bodyWithMarker(String bodyFile, String marker) async {
     final mkind = waiting ? 'waiting' : 'handled';
     final path = await ctx.makeTemp();

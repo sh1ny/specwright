@@ -11,11 +11,9 @@ import 'package:test/test.dart';
 
 import '../helper_support.dart';
 import '../support/exe_shim.dart';
-import '../vcs/bash_support.dart';
 
 void main() {
   useExeShim();
-  final bash = findBash();
   late Directory dir;
   late Map<String, String> env;
   // The real helper, compiled once.
@@ -27,11 +25,6 @@ void main() {
   });
   tearDownAll(() => built.deleteSync(recursive: true));
   const limits = RunLimits(deadline: Duration(seconds: 60), maxBytes: 1 << 20);
-
-  // A bash that does not exist: `sw` no longer starts one for a bounded call.
-  final noBash = Platform.isWindows
-      ? r'C:\sw-no-such-bash\bash.exe'
-      : '/sw-no-such-bash/bash';
 
   // A fake `gh` first on PATH: a shell script, with an `.exe` shim beside it
   // on Windows, where only a PATHEXT name is found (D9).
@@ -55,7 +48,6 @@ void main() {
   tearDown(() => dir.deleteSync(recursive: true));
 
   Future<GhResult> gh(List<String> args, {RunLimits lim = limits}) => runGh(
-    bash!,
     Directory.current.path,
     args,
     environment: env,
@@ -108,8 +100,7 @@ void main() {
       expect(r.limit, isNull);
     });
 
-    // The tool is started itself (D2): a `bash` that cannot start changes
-    // nothing, so these two tests fail on a launcher that still starts bash.
+    // The tool is started itself (D2), with no bash handed to the call.
     test('a bounded launch stops a hung descendant', () async {
       final late = '${dir.path}/late'.replaceAll(r'\', '/');
       final done = '${dir.path}/done'.replaceAll(r'\', '/');
@@ -120,7 +111,6 @@ void main() {
         r'(sleep 4; printf late > "$SW_LATE") & wait; printf x > "$SW_DONE"',
       );
       final r = await runGh(
-        noBash,
         Directory.current.path,
         ['api', 'user'],
         environment: env,
@@ -148,7 +138,6 @@ void main() {
       if (!Platform.isWindows) Process.runSync('chmod', ['+x', where.path]);
       shimExe(where.path);
       final r = await runBoundedCommand(
-        noBash,
         b.path,
         ['where'],
         environment: env,
@@ -196,7 +185,6 @@ void main() {
           ..['SPECWRIGHT_NET_PAGED_DEADLINE'] = '60'
           ..remove('SPECWRIGHT_NET_DEADLINE_AT');
         final r = await runGh(
-          bash!,
           Directory.current.path,
           ['api', 'user'],
           environment: env,

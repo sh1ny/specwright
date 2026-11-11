@@ -52,20 +52,14 @@ Future<int> runAsCommand(
     err('as.sh: handoff: malformed\n');
     return 3;
   }
-  final bash = records[1];
   final env = environment ?? Map<String, String>.of(Platform.environment);
   return runFence(
     records.sublist(2),
     environment: env,
     gh:
         gh ??
-        (ghArgs, e) => runGh(
-          bash,
-          '.',
-          ghArgs,
-          environment: e,
-          helperCommand: helperCommand,
-        ),
+        (ghArgs, e) =>
+            runGh('.', ghArgs, environment: e, helperCommand: helperCommand),
     git:
         git ??
         (command, e) async {

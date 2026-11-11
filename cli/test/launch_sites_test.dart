@@ -769,8 +769,6 @@ const launchAllowlist = Allowlist(
   calls: {
     'cli.dart': {'runExecHelper': Call(1, _helper)},
     'commands/run.dart': {'BoundedRun': Call(1, _tool)},
-    'commit/fit_subject.dart': {'runTool': Call(1, _tool)},
-    'commit/paths.dart': {'runTool': Call(1, _tool)},
     'commit/task_cover.dart': {'runTool': Call(1, _tool)},
     'fence/as_command.dart': {
       'runTool': Call(1, _tool),
@@ -787,18 +785,14 @@ const launchAllowlist = Allowlist(
     },
     'finish/undo_plan.dart': {'runTool': Call(1, _tool)},
     'pr/context.dart': {
-      'runTool': Call(1, _tool),
       'runText': Call(1, _tool),
       'runGh': Call(1, _tool),
       'runBoundedCommand': Call(1, _tool),
-      'PrContext.tool': Call(1, _tool),
     },
     'pr/gh.dart': {'BoundedRun': Call(1, _tool)},
     'pr/snapshot.dart': {
-      'PrContext.tool': Call(1, _tool),
       'PrContext.bounded': Call(1, LaunchKind.reviewerEvaluator),
     },
-    'pr/watch_state.dart': {'PrContext.tool': Call(1, _tool)},
     'pr/workflow.dart': {'runBoundedCommand': Call(1, _tool)},
     'pr/workflow_transport.dart': {
       'runTool': Call(1, _tool),
@@ -824,11 +818,10 @@ const launchAllowlist = Allowlist(
     'vcs/gitbutler_backend.dart': {
       'runTool': Call(1, _tool),
       'runToolCapped': Call(1, _tool),
-      'runText': Call(1, _tool),
     },
     'vcs/jj_backend.dart': {
       'runTool': Call(1, _tool),
-      'runText': Call(2, _tool),
+      'runText': Call(1, _tool),
     },
     'vcs/probe.dart': {'runText': Call(7, _tool)},
     'vcs/scripts.dart': {

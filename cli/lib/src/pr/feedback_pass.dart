@@ -1347,6 +1347,9 @@ class FeedbackPass {
         _ => pairUsage('pass write|plan|done|adopt ...'),
       };
       return {...result, if (_leftLocks.isNotEmpty) 'lock_left': _leftLocks};
+    } on NotUtf8 catch (e) {
+      // a process path variable that is not UTF-8 (feedbackDirectory, D10)
+      throw PairStop('not_utf8', '${e.message}; use a UTF-8 path');
     } on PairStop catch (e) {
       if (_leftLocks.isEmpty) rethrow;
       throw PairStop(

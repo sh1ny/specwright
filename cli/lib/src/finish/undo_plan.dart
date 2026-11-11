@@ -53,7 +53,7 @@ class FinishContext {
   final String scriptsDir;
   final String bash;
 
-  /// The environment `git` and `cygpath` run with; null is the parent's. Tests
+  /// The environment `git` runs with and where `TEMP` is read for a `/tmp` path; null is the parent's. Tests
   /// put stubs first on `PATH`.
   final Map<String, String>? environment;
 

@@ -46,13 +46,11 @@ class GhResult {
 /// the launcher cannot represent, an unsafe batch argument) is exit 127 with
 /// the reason on stderr.
 ///
-/// [bash] is not used any more: the argument is kept until the callers drop it.
 /// [environment] is the whole environment of the call (see
 /// [BoundedRun.environment]); null keeps `sw`'s own. [paged] picks the longer
 /// paged deadline. [limits] overrides the resolved ones, and [helperCommand] the
 /// helper's command line (tests run it from source).
 Future<GhResult> runGh(
-  String bash,
   String cwd,
   List<String> args, {
   Map<String, String>? environment,
@@ -72,7 +70,6 @@ Future<GhResult> runGh(
 /// the `sw` executable). A [command] that starts `bash -c` keeps the Windows
 /// stdin transport of `planLaunch`.
 Future<GhResult> runBoundedCommand(
-  String bash,
   String cwd,
   List<String> command, {
   Map<String, String>? environment,

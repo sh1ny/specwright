@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:specwright_cli/src/pr/context.dart' show PrContext;
 import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/queries.dart';
 import 'package:specwright_cli/src/pr/snapshot.dart';
-import 'package:specwright_cli/src/vcs/tool_runner.dart' show ToolResult;
 import 'package:test/test.dart';
 
 import 'pr_support.dart';
@@ -49,8 +49,6 @@ void main() {
   var results = <String>[];
   var evaluated = 0;
   var materials = <String>[];
-  var sleeps = <int>[];
-  void Function()? onSleep;
 
   /// The usual answers; [overrides] by kind.
   void answers([
@@ -79,16 +77,6 @@ void main() {
       evaluated++;
       return answer('$text\n');
     };
-    f.onTool = (c) {
-      if (c.first == 'sleep') {
-        final n = int.parse(c[1]);
-        sleeps.add(n);
-        f.clock += n;
-        onSleep?.call();
-      }
-      if (c.first == 'ln') File(c[1]).copySync(c[2]);
-      return ToolResult0();
-    };
   }
 
   List<String> kinds() => [for (final c in f.ghCalls) kindOf(c)];
@@ -111,8 +99,6 @@ void main() {
     results = [snapJson()];
     evaluated = 0;
     materials = [];
-    sleeps = [];
-    onSleep = null;
     answers();
   });
   tearDown(() {
@@ -227,7 +213,6 @@ void main() {
         isEmpty,
         reason: 'no temp file, no claim, no snapshot',
       );
-      expect(f.toolCalls.where((c) => c.contains('--check-config')), isEmpty);
     });
 
     test('an unknown id prints not_found and exits 1', () async {
@@ -307,7 +292,6 @@ void main() {
       expect(f.stderr, contains('not valid JSON'));
       expect('\n'.allMatches(f.stderr), hasLength(1));
       expect(f.ghCalls, isEmpty);
-      expect(f.toolCalls, isEmpty, reason: 'no child, no tool, no temp file');
       expect(f.boundedCalls, isEmpty);
       expect(f.tempCalls, isEmpty);
     });
@@ -319,7 +303,6 @@ void main() {
       );
       expect(f.stderr, startsWith('reviewers.py: '));
       expect(f.ghCalls, isEmpty);
-      expect(f.toolCalls, isEmpty);
     });
 
     test('its logins reach the cfg and the evaluator gets the file', () async {
@@ -336,11 +319,6 @@ void main() {
       expect(
         f.boundedCalls.single[f.boundedCalls.single.indexOf('--config') + 1],
         path,
-      );
-      expect(
-        f.toolCalls.where((c) => c.contains('--check-config')),
-        isEmpty,
-        reason: 'the check is no child',
       );
     });
 
@@ -581,8 +559,8 @@ void main() {
 
     test('a record that cannot be published is first_seen_unsaved', () async {
       answers({'activity': (_) => answer('')});
-      final old = f.onTool!;
-      f.onTool = (c) => c.first == 'ln' ? ToolResult0(1) : old(c);
+      // a directory in the record's place: the no-clobber link fails, and nothing reads as a date
+      Directory('${state.path}/heads/o/n/7/$oid').createSync(recursive: true);
       expect(await snapshot([]), 0);
       expect(f.ghCalls.last.last, contains('source: "first_seen_unsaved"'));
     });
@@ -680,12 +658,12 @@ void main() {
 
     test('wakes "changed" when the signature changes, and the claim is gone at the end', () async {
       results = [snapJson(sig: 's1'), snapJson(sig: 's2')];
-      onSleep = () => expect(claims(), hasLength(1));
+      f.onSleep = (_) => expect(claims(), hasLength(1));
       expect(
         await snapshot(['--wait', '--timeout', '600', '--interval', '300']),
         0,
       );
-      expect(sleeps, [300]);
+      expect(f.sleeps, [300]);
       expect(
         f.stdout,
         '{"wake":"changed","waited":300,"filtered":0,"snapshot":${snapJson(sig: 's2')}}\n',
@@ -694,28 +672,24 @@ void main() {
       expect(f.leftovers, isEmpty);
     });
 
-    test(
-      'a failed sleep stops the watch with its status, polling no more',
-      () async {
-        final usual = f.onTool;
-        f.onTool = (c) => c.first == 'sleep'
-            ? ToolResult(127, Uint8List(0), utf8.encode('sleep: not found\n'))
-            : usual!(c);
-        expect(await snapshot(['--wait', '--timeout', '600']), 127);
-        expect(f.stderr, 'sleep: not found\n');
-        expect(kinds().where((k) => k == 'snapshot'), hasLength(1));
-        expect(f.stdout, isEmpty);
-        expect(claims(), isEmpty);
-        expect(f.leftovers, isEmpty);
-      },
-    );
+    test('the default pause waits in process, with no sleep started', () async {
+      final real = PrContext(
+        scriptsDir: 's',
+        bash: 'bash',
+        writeOut: (_) {},
+        writeErr: (_) {},
+      );
+      final clock = Stopwatch()..start();
+      await real.sleep(1);
+      expect(clock.elapsedMilliseconds, greaterThanOrEqualTo(900));
+    });
 
     test('times out when nothing changes, never sleeping past the timeout', () async {
       expect(
         await snapshot(['--wait', '--timeout', '600', '--interval', '400']),
         0,
       );
-      expect(sleeps, [400, 200]);
+      expect(f.sleeps, [400, 200]);
       expect(
         f.stdout,
         '{"wake":"timeout","waited":600,"filtered":0,"snapshot":${snapJson()}}\n',
@@ -725,7 +699,7 @@ void main() {
     test('an incomplete first snapshot wakes at once, with no sleep', () async {
       results = [snapJson(complete: false)];
       expect(await snapshot(['--wait']), 0);
-      expect(sleeps, isEmpty);
+      expect(f.sleeps, isEmpty);
       expect(wakes().single, startsWith('{"wake":"incomplete","waited":0,'));
     });
 
@@ -733,7 +707,7 @@ void main() {
       'a timeout that is not a whole number ends the wait at once',
       () async {
         expect(await snapshot(['--wait', '--timeout', 'soon']), 0);
-        expect(sleeps, isEmpty);
+        expect(f.sleeps, isEmpty);
         expect(wakes().single, startsWith('{"wake":"timeout","waited":0,'));
       },
     );
@@ -764,7 +738,7 @@ void main() {
     test(
       'a newer claim takes over: exit 4, and only the own claim is removed',
       () async {
-        onSleep = () =>
+        f.onSleep = (_) =>
             File('${state.path}/watch/v2/o/n/7/99-newer').createSync();
         expect(await snapshot(['--wait', '--timeout', '600']), 4);
         expect(
@@ -842,7 +816,7 @@ void main() {
           await snapshot(['--wait', '--timeout', '600', '--interval', '300']),
           0,
         );
-        expect(sleeps, [300, 300]);
+        expect(f.sleeps, [300, 300]);
         expect(wakes().single, startsWith('{"wake":"timeout","waited":600,'));
       },
     );

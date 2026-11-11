@@ -4,9 +4,7 @@ Run: python -m unittest discover evals/pr-pair -p test_pr_snapshot.py
 """
 import json
 import os
-import stat
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -15,7 +13,6 @@ from pathlib import Path
 import snapfix
 from snapfix import SnapCase, T0, rev
 import bashexe  # noqa: E402
-import fakeexe  # noqa: E402
 
 
 def setUpModule():
@@ -404,39 +401,22 @@ class ReviewerConfig(SnapCase):
 class WaitUnwritable(SnapCase):
     """--wait with a state directory that cannot be created: the watcher's own first sighting is kept across polls.
 
-    A fake `sleep` on PATH moves the fake clock by FAKE_SLEEP_STEP seconds per poll instead of sleeping, and adds the
-    scheduled comments once the clock reaches them, so the run is deterministic and needs no signals."""
+    The fake gh moves its clock by STEP seconds per poll (its `tick`, set in wait()) and adds the scheduled comments once
+    the clock reaches them, so the run is deterministic and needs no signals. sw sleeps for real (1 s) between polls."""
 
     STEP = 300
 
     def setUp(self):
         super().setUp()
-        helper = self.tmp / "fakesleep.py"
-        helper.write_text(
-            "import json, os, sys\n"
-            f"sys.path.insert(0, {str(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
-            "import gh\n"
-            "p = os.environ['FAKE_GH_STATE']\n"
-            "st = gh.read_state(p)\n"
-            "gh.advance_clock(st, int(os.environ['FAKE_SLEEP_STEP']))\n"
-            "for ev in json.loads(os.environ.get('FAKE_SLEEP_EVENTS', '[]')):\n"
-            "    if st['clock'] >= ev['at'] and ev['key'] not in st.setdefault('fired', []):\n"
-            "        st['fired'].append(ev['key'])\n"
-            "        gh.add_pr_comment(st, 'o/n', 7, ev['author'], ev['body'], at=ev['at'])\n"
-            "gh.write_state(p, st)\n", encoding="utf-8")
-        sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}"\n', encoding="utf-8", newline="\n")
-        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
-        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.state_dir.write_text("a file, not a directory")
         self.set_head(B, f"{D}09:00:00Z")
         self.add_comment("genrev", "old head: looks good", at=f"{D}10:00:00Z")  # before the first sighting: never counts
         self.set_clock(f"{D}12:00:00Z")
 
     def wait(self, events=()):
-        env = {"FAKE_SLEEP_STEP": str(self.STEP), "FAKE_SLEEP_EVENTS": json.dumps(list(events))}
+        self.set_tick(clock_step=self.STEP, events=list(events))
         r = self.snapshot_run("--wait", "--interval", "1", "--timeout", "7200",
-                              *self.cfg(rev("genrev"), rev("silent", timeout=1200)), env=env)
+                              *self.cfg(rev("genrev"), rev("silent", timeout=1200)))
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout.strip().splitlines()[-1])
         return out, {x["login"]: x["state"] for x in out["snapshot"]["reviewers"]}
@@ -458,17 +438,11 @@ class WaitUnwritable(SnapCase):
 class WatchOwnership(SnapCase):
     """pr-watch: the newest --wait owns a PR (a directory of numbered claims under <state>/watch/v2/<owner>/<name>/<pr>/).
 
-    Watchers are real processes against the fake gh. A `sleep` shim on PATH sleeps 0.3 s whatever the interval, and
-    --timeout is elapsed time (bound-pr-scripts D5), so a run uses `--timeout 3 --interval 1` and takes seconds. No signals:
-    every watcher ends by itself (timeout or exit 4)."""
+    Watchers are real processes against the fake gh. --timeout is elapsed time (bound-pr-scripts D5), so a run uses
+    `--timeout 3 --interval 1` and takes seconds. No signals: every watcher ends by itself (timeout or exit 4)."""
 
     def setUp(self):
         super().setUp()
-        sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
-                         encoding="utf-8", newline="\n")
-        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
-        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.procs = []
         self.addCleanup(self._reap)
 
@@ -607,10 +581,10 @@ class WatchElapsed(SnapCase):
     """pr-watch: --timeout is elapsed time, and every poll, the first snapshot included, has one deadline.
 
     The per-poll deadline reads SPECWRIGHT_NET_DEADLINE (default 120 s); these tests set it to a few seconds and assert the
-    spec's relations: the timeout is reported within the timeout plus one poll deadline plus 10 s. A `sleep` shim on PATH
-    really sleeps, and on its first call merges FAKE_SLEEP_PATCH into the fake's state, so a poll can start hanging, or a
-    failure can stop, after the first snapshot. Watchers write to files, so a hung fake gh that outlives a run cannot hold a
-    pipe open; each run is stopped at 60 s."""
+    spec's relations: the timeout is reported within the timeout plus one poll deadline plus 10 s. sw really sleeps between
+    polls, and the fake gh's `tick` merges `patch` into its state on the first call of the second poll, so a poll can start
+    hanging, or a failure can stop, after the first snapshot. Watchers write to files, so a hung fake gh that outlives a run
+    cannot hold a pipe open; each run is stopped at 60 s."""
 
     # A poll is three gh calls, and each one starts bash, python and the fake gh: seconds on Windows, more under load. So
     # DEADLINE (and the timeouts below) must clear a normal poll by a wide margin; the relations asserted are the spec's.
@@ -619,23 +593,6 @@ class WatchElapsed(SnapCase):
 
     def setUp(self):
         super().setUp()
-        helper = self.tmp / "patchsleep.py"
-        helper.write_text(
-            "import json, os, sys, time\n"
-            f"sys.path.insert(0, {str(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
-            "import gh\n"
-            "p = os.environ['FAKE_GH_STATE']\n"
-            "patch = json.loads(os.environ.get('FAKE_SLEEP_PATCH', '{}'))\n"
-            "if patch and not os.path.exists(p + '.patched'):\n"
-            "    st = gh.read_state(p)\n"
-            "    st.update(patch)\n"
-            "    gh.write_state(p, st)\n"
-            "    open(p + '.patched', 'w').close()\n"
-            "time.sleep(float(sys.argv[1]))\n", encoding="utf-8")
-        sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
-        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
-        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.pidf = self.tmp / "hang.pid"
         self.addCleanup(stop_pid_file, self.pidf)
 
@@ -645,7 +602,9 @@ class WatchElapsed(SnapCase):
     def watch(self, *args, env=None, patch=None, then=None):
         """Run `pr-snapshot.sh PR --repo SLUG --wait args...`; (rc, stdout, stderr, seconds). `then(proc)` runs once the
         watcher has started, before waiting for it."""
-        e = self.env(**{"SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE), "FAKE_SLEEP_PATCH": json.dumps(patch or {}), **(env or {})})
+        if patch:
+            self.set_tick(patch=patch)
+        e = self.env(**{"SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE), **(env or {})})
         out, err = self.tmp / "w.out", self.tmp / "w.err"
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:
@@ -813,44 +772,15 @@ def checks(**by_name):
 class TestUntilAttention(SnapCase):
     """pr-watch: `--wait --until attention` skips wakes that are only check progress (design D3).
 
-    A `sleep` shim on PATH really sleeps 0.2 s, and on each call applies the next step of FAKE_STEPS to the fake's state
-    ({"checks": [...]} | {"fields": {...}} | {"comment": [author, body]}), so the state changes between polls. Once the steps
-    are spent the state stays as it is."""
-
-    def setUp(self):
-        super().setUp()
-        helper = self.tmp / "steps.py"
-        helper.write_text(
-            "import json, os, sys, time\n"
-            f"sys.path.insert(0, {str(snapfix.ROOT / 'evals' / 'fakes')!r})\n"
-            "import gh\n"
-            "p = os.environ['FAKE_GH_STATE']\n"
-            "c = p + '.step'\n"
-            "n = int(open(c).read()) if os.path.exists(c) else 0\n"
-            "steps = json.loads(os.environ.get('FAKE_STEPS', '[]'))\n"
-            "if n < len(steps):\n"
-            "    st = gh.read_state(p)\n"
-            "    s = steps[n]\n"
-            "    pull = st['repos']['o/n']['pulls'][0]\n"
-            "    if 'checks' in s:\n"
-            "        pull['checks'] = s['checks']\n"
-            "    if 'fields' in s:\n"
-            "        pull.setdefault('fields', {}).update(s['fields'])\n"
-            "    if 'comment' in s:\n"
-            "        gh.add_pr_comment(st, 'o/n', 7, s['comment'][0], s['comment'][1])\n"
-            "    gh.write_state(p, st)\n"
-            "open(c, 'w').write(str(n + 1))\n"
-            "time.sleep(0.2)\n", encoding="utf-8")
-        sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
-        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
-        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
+    sw sleeps for real (1 s), and the fake gh applies the next of `steps` to its state at the start of each poll after the
+    first ({"checks": [...]} | {"fields": {...}} | {"comment": [author, body]}; its `tick`), so the state changes between
+    polls. Once the steps are spent the state stays as it is."""
 
     def wait(self, baseline, steps, *args, timeout=120):
         """Run the watch with `--until attention`; the parsed wake line."""
         self.set_checks(baseline)
-        r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", timeout, *args,
-                              env={"FAKE_STEPS": json.dumps(steps)})
+        self.set_tick(steps=steps)
+        r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", timeout, *args)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout.strip().splitlines()[-1])
 
@@ -911,8 +841,8 @@ class TestUntilAttention(SnapCase):
     def test_wake_works_on_compact_evaluator_output(self):
         r_args = self.cfg(rev("checkbot", check="bot"))
         self.set_checks(checks(a=PEND, bot=BOT_PEND))
-        r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", 120, *r_args,
-                              env={"FAKE_STEPS": json.dumps([{"comment": ["rev", "please change this"]}])})
+        self.set_tick(steps=[{"comment": ["rev", "please change this"]}])
+        r = self.snapshot_run("--wait", "--until", "attention", "--interval", "1", "--timeout", 120, *r_args)
         self.assertEqual(r.returncode, 0, r.stderr)
         line = r.stdout.strip().splitlines()[-1]
         self.assertNotIn('": ', line, "compact JSON, no spaces after the colons")
@@ -927,8 +857,8 @@ class TestUntilAttention(SnapCase):
 
     def test_without_until_a_check_passing_wakes(self):
         self.set_checks(checks(a=PEND, b=PEND))
-        r = self.snapshot_run("--wait", "--interval", "1", "--timeout", 120,
-                              env={"FAKE_STEPS": json.dumps([{"checks": checks(a=PASS, b=PEND)}])})
+        self.set_tick(steps=[{"checks": checks(a=PASS, b=PEND)}])
+        r = self.snapshot_run("--wait", "--interval", "1", "--timeout", 120)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout.strip().splitlines()[-1])["wake"], "changed")
 

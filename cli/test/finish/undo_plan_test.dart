@@ -201,9 +201,10 @@ void main() {
     String? scriptsDir,
     Map<String, String>? environment,
     bool? windows,
+    String? bash,
   }) => FinishContext(
     scriptsDir: scriptsDir ?? _finishScripts(),
-    bash: bash!,
+    bash: bash ?? findBash()!,
     environment: environment,
     windows: windows,
   );
@@ -491,17 +492,19 @@ void main() {
     setUp(() {
       stubs = Directory('${tmp.path}/stubs')..createSync();
       log = File('${tmp.path}/tool.log');
-      for (final name in ['cygpath', 'git']) {
-        final stub = File('${stubs.path}/$name')..writeAsStringSync(_stubTool);
-        if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
-        shimExe(stub.path);
-      }
+      final stub = File('${stubs.path}/git')..writeAsStringSync(_stubTool);
+      if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+      shimExe(stub.path);
     });
 
-    test('a --dir that cygpath cannot convert is bad_path, exit 2', () async {
+    // A bash path that holds no Git root: a root-relative MSYS path has
+    // nowhere to go.
+    const rootless = r'C:\tools\bash.exe';
+
+    test('a --dir with no Git root is bad_path, exit 2', () async {
       final r = await plan(
         request('/no/such/dir'),
-        context(environment: env(), windows: true),
+        context(environment: env(), windows: true, bash: rootless),
       );
       expect(r.code, 2);
       expect(r.doc, {
@@ -510,17 +513,15 @@ void main() {
         'message': 'could not convert path: /no/such/dir',
         'path': '/no/such/dir',
       });
-      final calls = log.readAsStringSync();
-      expect(calls, contains('-m -- /no/such/dir'));
-      expect(calls, isNot(contains('rev-parse')), reason: 'no git call');
+      expect(log.existsSync(), isFalse, reason: 'no git call');
     }, skip: skip);
 
-    test('a --code that cygpath cannot convert is bad_path, exit 2', () async {
+    test('a --code with no Git root is bad_path, exit 2', () async {
       final r = await plan(
-        // A drive-form --dir is not converted, so only --code reaches cygpath
+        // A drive-form --dir is not converted, so only --code is refused
         // (tmp.path is itself a /-path off Windows).
         request('C:/no/such/dir', code: '/no/such/code'),
-        context(environment: env(), windows: true),
+        context(environment: env(), windows: true, bash: rootless),
       );
       expect(r.code, 2);
       expect(r.doc, {
@@ -529,30 +530,44 @@ void main() {
         'message': 'could not convert path: /no/such/code',
         'path': '/no/such/code',
       });
-      expect(log.readAsStringSync(), isNot(contains('rev-parse')));
+      expect(log.existsSync(), isFalse, reason: 'no git call');
     }, skip: skip);
 
     test('a usage stop comes before any conversion', () async {
       final r = await plan(
         request('/no/such/dir', main: null),
-        context(environment: env(), windows: true),
+        context(environment: env(), windows: true, bash: rootless),
       );
       expect(r.code, 2);
       expect(r.doc['error'], 'usage');
       expect(log.existsSync(), isFalse);
     }, skip: skip);
 
-    test('a drive-form or relative path runs no cygpath', () async {
-      final r = await plan(
-        request('C:/no/such/dir', code: 'rel'),
-        context(environment: env(), windows: true),
-      );
-      expect(r.doc['error'], isNot('bad_path'));
-      expect(
-        log.existsSync() ? log.readAsStringSync() : '',
-        isNot(contains('-m --')),
-      );
-    }, skip: skip);
+    test(
+      'a /tmp --dir goes under TEMP and a drive-form path is kept',
+      () async {
+        final temp = Directory('${tmp.path}/temp')..createSync();
+        final r = await plan(
+          request('/tmp/no/such/dir'),
+          context(
+            environment: {...env(), 'TEMP': temp.path},
+            windows: true,
+            bash: rootless,
+          ),
+        );
+        expect(r.doc['error'], 'not_a_repo');
+        expect(
+          r.doc['message'],
+          '${_posix(temp.path)}/no/such/dir is not inside a git work tree',
+        );
+        final kept = await plan(
+          request('C:/no/such/dir', code: 'rel'),
+          context(environment: env(), windows: true, bash: rootless),
+        );
+        expect(kept.doc['error'], isNot('bad_path'));
+      },
+      skip: skip,
+    );
 
     test('off Windows a /-path is used as it is', () async {
       final repo = makeRepo();

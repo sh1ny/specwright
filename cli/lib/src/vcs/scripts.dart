@@ -43,7 +43,7 @@ class VcsScripts {
   /// `as.sh <argv...>` in [repo], run in this process.
   Future<TextResult> fenced(String repo, List<String> argv) {
     final run = fence;
-    return run != null ? run(repo, argv) : fencedText(bash, repo, argv);
+    return run != null ? run(repo, argv) : fencedText(repo, argv);
   }
 }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../fence/urls.dart' show lowerAscii;
+import '../fs/link.dart';
 import '../vcs/codec.dart';
 import 'context.dart';
 import 'text.dart';
@@ -11,8 +12,8 @@ import 'text.dart';
 // the claim names, the nonce format and the order of claims. `pr-pair.sh` and a watcher of the old script read and
 // write the same files.
 
-/// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`. On Windows a `/`-path (Git Bash's form of `HOME`) goes through
-/// `cygpath -m`, so it names the directory the old script used (D9).
+/// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`. On Windows a `/`-path (Git Bash's form of `HOME`) converts by
+/// the fixed rules of `nativePath`, so it names the directory the old script used (D7).
 Future<String> stateBase(PrContext ctx) async {
   final env = ctx.env;
   var base = env['SPECWRIGHT_STATE_DIR'];
@@ -157,7 +158,7 @@ final RegExp _httpDate = RegExp(
 bool isHttpDate(String text) => grepQuiet(_httpDate, text);
 
 /// `resolve_first_seen`: the earliest GitHub time any snapshot on this machine saw head [oid], kept in `<[dir]>/<oid>`.
-/// The record is written to a temp file from `mktemp` and published with a no-clobber `ln`, so the first writer wins and
+/// The record is written to a temp file and published with a no-clobber hard link, so the first writer wins and
 /// nobody sees an empty record; publishing it removes the records of the PR's other heads. If it can be neither published
 /// nor read (or does not parse), [firstSeen], this process's own sighting, is used (`first_seen_unsaved`).
 Future<FirstSeen> resolveFirstSeen(
@@ -178,8 +179,7 @@ Future<FirstSeen> resolveFirstSeen(
   }
   final tmp = made ? await ctx.makeTemp('$slashed/.tmp.XXXXXX') : null;
   if (tmp != null) {
-    if (_write(tmp, '$firstSeen\n') &&
-        (await ctx.tool(['ln', tmp, '$slashed/$oid'])).exitCode == 0) {
+    if (_write(tmp, '$firstSeen\n') && _publish(tmp, '$slashed/$oid')) {
       try {
         for (final e in rawDirectory(dir).listSync(followLinks: false)) {
           final b = e.path.substring(e.path.lastIndexOf(RegExp(r'[\\/]')) + 1);
@@ -198,6 +198,16 @@ Future<FirstSeen> resolveFirstSeen(
     // unsaved
   }
   return seen;
+}
+
+/// `ln`: a hard link that never replaces [record], so the first writer wins (D8).
+bool _publish(String temp, String record) {
+  try {
+    hardLink(temp, record);
+    return true;
+  } on FileSystemException {
+    return false;
+  }
 }
 
 bool _write(String path, String text) {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../commands/vcs.dart';
 import '../fs/walk.dart';
+import '../native/libc.dart' as libc;
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart';
@@ -319,12 +320,14 @@ String windowsCommandLine(List<String> args) => args
 
 /// `vcs.sh`'s `jj_commit_argv_check`: `too_many_paths` when `jj commit` would
 /// not fit on a command line (32,000 bytes of the quoted form on Windows;
-/// `ARG_MAX` less the environment and 4096 elsewhere).
+/// `sysconf(_SC_ARG_MAX)` less the environment and 4096 elsewhere, 100000 when
+/// the system gives none). [argMax] replaces the `sysconf` read.
 Future<void> jjCommitArgvCheck(
   VcsSession s,
   List<String> filesets,
   String message, {
   bool? windows,
+  int? Function()? argMax,
 }) async {
   final argv = ['jj', 'commit', ...filesets, '-m', message];
   final int size;
@@ -333,8 +336,7 @@ Future<void> jjCommitArgvCheck(
     size = encodeEscaped(windowsCommandLine(argv)).length;
     limit = 32000;
   } else {
-    final r = await runText(s.repo, ['getconf', 'ARG_MAX']);
-    final max = r.code == 0 ? int.tryParse(r.stdout.trim()) : null;
+    final max = (argMax ?? libc.argMax)();
     if (max == null) {
       limit = 100000;
     } else {
@@ -928,11 +930,12 @@ Future<Map<String, Object?>> jjPush(VcsSession s, String? login) async {
 }
 
 /// `vcs.sh`'s `run_jj_operation` for [command]. [windows] overrides the OS for
-/// the commit's command-line size check.
+/// the commit's command-line size check, [argMax] replaces its `sysconf` read.
 Future<Map<String, Object?>> runJjOperation(
   VcsSession session,
   String command, {
   bool? windows,
+  int? Function()? argMax,
 }) async {
   // jj runs in the Git work tree's root, not in the directory `--repo` named.
   final s = VcsSession(
@@ -986,7 +989,13 @@ Future<Map<String, Object?>> runJjOperation(
       ];
       final filesets = [for (final p in paths) filesetText(p)];
       final message = _readMessage(messageFile);
-      await jjCommitArgvCheck(s, filesets, message, windows: windows);
+      await jjCommitArgvCheck(
+        s,
+        filesets,
+        message,
+        windows: windows,
+        argMax: argMax,
+      );
       await checkTracked(s, paths, filesets);
       final changed = await jjResult(s, [
         'diff',
