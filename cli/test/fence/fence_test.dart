@@ -396,5 +396,26 @@ void main() {
       expect(r.$1, 3);
       expect(r.$4, isEmpty);
     });
+
+    test(
+      'input the launcher cannot represent is an as.sh stop, exit 2',
+      () async {
+        final err = StringBuffer();
+        final code = await runFence(
+          ['me', 'git', 'fetch'],
+          environment: {'KEEP': '1'},
+          gh: (a, e) async => a.first == 'auth'
+              ? (a.contains('--help') ? ok('--user\n') : ok('tok\n'))
+              : ok('me\n'),
+          git: (c, e) async => tool('false\n'),
+          launch: (c, e) async =>
+              throw const Unrepresentable('git', 'argument'),
+          out: (_) {},
+          err: err.write,
+        );
+        expect(code, 2);
+        expect(err.toString(), 'as.sh: unrepresentable argument: git\n');
+      },
+    );
   });
 }

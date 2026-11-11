@@ -1,5 +1,14 @@
 // The final run of the fence (`runFenced`) and the assumptions it rests on.
 //
+// native-cli-launcher D3: the fenced command starts with no shell before it,
+// with this process's stdio, the given environment and this process's
+// directory. A `.cmd` or `.bat` command (Windows) runs through
+// `runWithCommandLine` in process.
+//
+// Every run below has a recording `bash` and `sh` that fail first on `PATH`,
+// so a launch that goes through a shell by name leaves a record and a
+// different status.
+//
 // A1 (POSIX): a child started with inheritStdio that ends by a signal reports
 // -N, so `sw as` can return 128+N as the shell did.
 // A2: a child started from a process that has its own group (POSIX) or sits in
@@ -10,6 +19,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/fence/exec_inherit.dart';
@@ -17,8 +27,6 @@ import 'package:specwright_cli/src/native/kernel32.dart' as k32;
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
-
-String _fwd(String path) => path.replaceAll(r'\', '/');
 
 /// POSIX: puts itself in a new session (its own process group), starts a child
 /// that reports its group, and prints its own group and the child's.
@@ -64,107 +72,180 @@ const _sleeper = r'''
 Future<void> main() => Future<void>.delayed(const Duration(minutes: 2));
 ''';
 
+/// The fenced command of most tests: reports what it got as one ASCII JSON line
+/// on stdout (arguments, the stdin it read to the end, its environment and
+/// directory) and exits with the status in `PROBE_EXIT`.
+const _probe = r'''
+import 'dart:convert';
+import 'dart:io';
+
+Future<void> main(List<String> args) async {
+  final input = await utf8.decodeStream(stdin);
+  final text = jsonEncode({
+    'args': args,
+    'stdin': input,
+    'env': Platform.environment,
+    'cwd': Directory.current.path,
+  });
+  final ascii = StringBuffer();
+  for (final unit in text.codeUnits) {
+    ascii.write(unit < 0x80
+        ? String.fromCharCode(unit)
+        : '\\u${unit.toRadixString(16).padLeft(4, '0')}');
+  }
+  stdout.writeln(ascii);
+  exit(int.parse(Platform.environment['PROBE_EXIT'] ?? '0'));
+}
+''';
+
+/// A copy of [base] with [set] added and every key of [drop] removed, keys
+/// compared without case (Windows names).
+Map<String, String> _env(
+  Map<String, String> base, {
+  Map<String, String> set = const {},
+  List<String> drop = const [],
+}) {
+  final names = {...drop, ...set.keys}.map((n) => n.toUpperCase()).toSet();
+  return {
+    for (final e in base.entries)
+      if (!names.contains(e.key.toUpperCase())) e.key: e.value,
+    ...set,
+  };
+}
+
 void main() {
   final bash = findBash();
   late Directory dir;
   late Directory other;
+  late Directory shells;
+  late File shellLog;
+  late File probe;
 
   setUp(() {
     dir = Directory.systemTemp.createTempSync('sw-fenced-');
     other = Directory.systemTemp.createTempSync('sw-fenced-out-');
+    shells = Directory('${other.path}/failing-shells')..createSync();
+    shellLog = File('${other.path}/shell.log');
+    for (final name in ['bash', 'sh']) {
+      if (Platform.isWindows) {
+        File(
+          '${shells.path}/$name.cmd',
+        ).writeAsStringSync('@echo $name>>"%SW_SHELL_LOG%"\r\n@exit /b 1\r\n');
+      } else {
+        File('${shells.path}/$name').writeAsStringSync(
+          '#!/bin/sh\nprintf "%s\\n" $name >> "\$SW_SHELL_LOG"\nexit 1\n',
+        );
+        Process.runSync('chmod', ['755', '${shells.path}/$name']);
+      }
+    }
+    probe = File('${dir.path}/probe.dart')..writeAsStringSync(_probe);
   });
-  tearDown(() {
-    dir.deleteSync(recursive: true);
-    other.deleteSync(recursive: true);
+  tearDown(() async {
+    for (final d in [dir, other]) {
+      // a child that ended a moment ago can still hold its directory on Windows
+      for (var i = 0; i < 20; i++) {
+        try {
+          d.deleteSync(recursive: true);
+          break;
+        } on FileSystemException {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+      }
+    }
   });
+
+  /// The environment of a run: this process's, the failing shells first on
+  /// `PATH`, and [set].
+  Map<String, String> envOf({Map<String, String> set = const {}}) {
+    final path = Platform.environment['PATH'] ?? Platform.environment['Path'];
+    return _env(
+      Platform.environment,
+      set: {
+        'PATH': '${shells.path}${Platform.isWindows ? ';' : ':'}${path ?? ''}',
+        'SW_SHELL_LOG': shellLog.path,
+        ...set,
+      },
+    );
+  }
+
+  void expectNoShell() => expect(
+    shellLog.existsSync() ? shellLog.readAsStringSync() : '',
+    isEmpty,
+    reason: 'a shell was started',
+  );
 
   Future<int> fenced(List<String> command, {Map<String, String>? env}) =>
-      runFenced(
-        bash!,
-        command,
-        env ?? Map.of(Platform.environment),
-        tempRoot: dir,
-      );
+      runFenced(command, env ?? envOf());
 
-  group('the prelude', () {
-    Future<ProcessResult> prelude(String file) =>
-        Process.run(bash!, ['-c', fencedPrelude, 'as.sh', _fwd(file)]);
+  /// Runs `fenced_driver.dart` (which calls `runFenced` with its own stdio),
+  /// writes [stdin] on its stdin and returns what it printed and exited with.
+  Future<({int code, String out, String err})> driven(
+    List<String> command, {
+    String stdin = '',
+    Map<String, String>? env,
+  }) async {
+    final p = await Process.start(
+      Platform.resolvedExecutable,
+      ['test/fence/fenced_driver.dart', ...command],
+      environment: env ?? envOf(),
+      includeParentEnvironment: false,
+    );
+    final out = utf8.decodeStream(p.stdout);
+    final err = utf8.decodeStream(p.stderr);
+    p.stdin.write(stdin);
+    await p.stdin.close();
+    final code = await p.exitCode;
+    return (code: code, out: await out, err: await err);
+  }
 
-    test('a missing file exits 126 and runs nothing', () async {
-      final r = await prelude('${dir.path}/nothing');
-      expect(r.exitCode, 126);
-      expect(r.stderr, contains('as.sh: handoff: malformed'));
-    });
-
-    test('a file without the end record exits 126 and runs nothing', () async {
-      final ran = File('${other.path}/ran');
-      final file = File('${dir.path}/args')
-        ..writeAsBytesSync([
-          ...'touch\x00${_fwd(ran.path)}\x00'.codeUnits, // no --sw-end--
-        ]);
-      final r = await prelude(file.path);
-      expect(r.exitCode, 126);
-      expect(ran.existsSync(), isFalse);
-    });
-
-    test('a cut-off last record exits 126 and runs nothing', () async {
-      final ran = File('${other.path}/ran');
-      final file = File('${dir.path}/args')
-        ..writeAsBytesSync(
-          'touch\x00${_fwd(ran.path)}\x00--sw-end--'.codeUnits, // no final NUL
-        );
-      final r = await prelude(file.path);
-      expect(r.exitCode, 126);
-      expect(ran.existsSync(), isFalse);
-    });
-  });
+  Map<String, dynamic> reported(String out) =>
+      jsonDecode(out.trim().split('\n').last) as Map<String, dynamic>;
 
   group('runFenced', () {
-    test(
-      'the arguments arrive whole and the status is the command\'s',
-      () async {
-        final out = File('${other.path}/out');
-        final code = await fenced([
-          bash!,
-          '-c',
-          r'printf "%s|" "$@" > "$0"; exit 7',
-          _fwd(out.path),
-          'a b',
-          '',
-          r'$x "y" *',
-          '--sw-end--x',
-        ]);
-        expect(code, 7);
-        expect(out.readAsStringSync(), r'a b||$x "y" *|--sw-end--x|');
-      },
-    );
-
-    test('a command that is not found ends 127', () async {
-      expect(await fenced(['sw-no-such-command-xyz']), 127);
+    test('the command keeps stdin, arguments and exit status, and no shell '
+        'starts', () async {
+      final args = ['a b', '', r'$x "y" *', '--sw-end--x', 'é€', r'back\'];
+      final r = await driven(
+        [Platform.resolvedExecutable, probe.path, ...args],
+        stdin: 'line one\nline two\n',
+        env: envOf(set: {'PROBE_EXIT': '7'}),
+      );
+      expect(r.code, 7, reason: r.err);
+      final seen = reported(r.out);
+      expect(seen['args'], args);
+      expect(seen['stdin'], 'line one\nline two\n');
+      expectNoShell();
     });
 
-    test(
-      'the file and its directory are gone before the command runs',
-      () async {
-        final listing = File('${other.path}/listing');
-        final code = await fenced([
-          bash!,
-          '-c',
-          r'ls -A "$1" > "$2"',
-          'x',
-          _fwd(dir.path),
-          _fwd(listing.path),
-        ]);
-        expect(code, 0);
-        expect(listing.readAsStringSync(), isEmpty);
-        expect(dir.listSync(), isEmpty);
-      },
-    );
-
-    test('the directory is removed when the command could not start', () async {
-      await fenced(['sw-no-such-command-xyz']);
-      expect(dir.listSync(), isEmpty);
+    test('a command that is not found ends 127 and names itself', () async {
+      final r = await driven(['sw-no-such-command-xyz']);
+      expect(r.code, 127);
+      expect(r.err, 'as.sh: sw-no-such-command-xyz: command not found\n');
+      expectNoShell();
     });
+
+    test('the command runs in the directory the fence runs in', () async {
+      final r = await driven([
+        Platform.resolvedExecutable,
+        probe.path,
+      ], env: envOf());
+      expect(r.code, 0, reason: r.err);
+      expect(
+        Directory(reported(r.out)['cwd'] as String).resolveSymbolicLinksSync(),
+        Directory.current.resolveSymbolicLinksSync(),
+      );
+    });
+
+    test('a command found on PATH by name starts', () async {
+      final tool = File('${other.path}/sw-tool')
+        ..writeAsStringSync('#!/bin/sh\nexit 5\n');
+      Process.runSync('chmod', ['755', tool.path]);
+      final code = await fenced([
+        'sw-tool',
+      ], env: envOf(set: {'PATH': '${other.path}:${envOf()['PATH']}'}));
+      expect(code, 5);
+      expectNoShell();
+    }, skip: Platform.isWindows ? 'POSIX: an extensionless script' : false);
 
     test('a variable left out of the map does not arrive', () async {
       final name = [
@@ -175,75 +256,103 @@ void main() {
         'SHELL',
         'LANG',
       ].firstWhere((n) => Platform.environment.containsKey(n));
-      final out = File('${other.path}/env');
-      final env = Map.of(Platform.environment)
-        ..removeWhere((k, _) => k.toLowerCase() == name.toLowerCase());
-      final code = await fenced([
-        bash!,
-        '-c',
-        r'printf "%s" "${!1-unset}" > "$0"',
-        _fwd(out.path),
-        name,
-      ], env: env);
-      expect(code, 0);
-      expect(out.readAsStringSync(), 'unset');
+      final r = await driven([
+        Platform.resolvedExecutable,
+        probe.path,
+      ], env: _env(envOf(), drop: [name]));
+      expect(r.code, 0, reason: r.err);
+      final env = reported(r.out)['env'] as Map<String, dynamic>;
+      expect(
+        env.keys.map((k) => k.toUpperCase()),
+        isNot(contains(name.toUpperCase())),
+      );
+    });
+
+    test('a variable in the map arrives with its value', () async {
+      final r = await driven([
+        Platform.resolvedExecutable,
+        probe.path,
+      ], env: envOf(set: {'SW_FENCED_VALUE': 'é€ "q" \$x'}));
+      expect(r.code, 0, reason: r.err);
+      final env = reported(r.out)['env'] as Map<String, dynamic>;
+      expect(env['SW_FENCED_VALUE'], 'é€ "q" \$x');
     });
 
     test(
       'a PWD in the map is not kept on Windows',
       () async {
-        final out = File('${other.path}/pwd');
-        final code = await fenced(
-          [bash!, '-c', r'printf "%s" "$PWD" > "$0"', _fwd(out.path)],
-          env: {...Platform.environment, 'PWD': 'C:/sw-test-not-the-cwd'},
-        );
-        expect(code, 0);
-        expect(out.readAsStringSync(), isNot('C:/sw-test-not-the-cwd'));
+        final r = await driven([
+          Platform.resolvedExecutable,
+          probe.path,
+        ], env: envOf(set: {'PWD': 'C:/sw-test-not-the-cwd'}));
+        expect(r.code, 0, reason: r.err);
+        final env = reported(r.out)['env'] as Map<String, dynamic>;
+        expect(env.keys.map((k) => k.toUpperCase()), isNot(contains('PWD')));
       },
       skip: Platform.isWindows
           ? false
           : 'Windows: the shim hands sw a drive-form PWD',
     );
 
-    test('a command ended by SIGTERM gives 128+15', () async {
-      expect(await fenced([bash!, '-c', r'kill -TERM $$']), 143);
+    test('SIGTERM ends the fence with 143 and no shell', () async {
+      final script = File('${dir.path}/term.dart')
+        ..writeAsStringSync(r'''
+import 'dart:io';
+Future<void> main() async {
+  Process.killPid(pid, ProcessSignal.sigterm);
+  await Future<void>.delayed(const Duration(seconds: 30));
+}
+''');
+      final r = await driven([Platform.resolvedExecutable, script.path]);
+      expect(r.code, 143, reason: r.err);
+      expectNoShell();
     }, skip: Platform.isWindows ? 'POSIX signals' : false);
 
-    for (final (label, value) in [('set', 'C.UTF-8'), ('unset', null)]) {
-      test('the command gets the caller\'s LC_ALL ($label)', () async {
-        final out = File('${other.path}/lc');
-        final env = Map.of(Platform.environment)
-          ..removeWhere((k, _) => k.toUpperCase() == 'LC_ALL');
-        if (value != null) env['LC_ALL'] = value;
-        final code = await fenced([
-          bash!,
-          '-c',
-          r'printf "%s" "${LC_ALL-unset}" > "$0"',
-          _fwd(out.path),
-        ], env: env);
-        expect(code, 0);
-        expect(out.readAsStringSync(), value ?? 'unset');
-      });
-    }
+    test('a .cmd command keeps the caller\'s stdin and stdout and gets the '
+        'environment', () async {
+      File('${dir.path}/fake.cmd').writeAsStringSync(
+        '@echo off\r\nset /p L=\r\necho got:%L% token:%GH_TOKEN%\r\n'
+        'exit /b 3\r\n',
+      );
+      final r = await driven(
+        ['fake'],
+        stdin: 'from the caller\r\n',
+        env: envOf(
+          set: {
+            'GH_TOKEN': 'tok-1',
+            'PATH':
+                '${dir.path};${shells.path};${Platform.environment['PATH'] ?? Platform.environment['Path']}',
+          },
+        ),
+      );
+      expect(r.code, 3, reason: r.err);
+      expect(r.out, contains('got:from the caller token:tok-1'));
+      expect(r.err, isEmpty, reason: 'no helper frame on stderr');
+      expectNoShell();
+    }, skip: Platform.isWindows ? false : 'Windows batch files');
 
-    test(
-      'a lead byte at the end of an argument keeps its record in UTF-8',
-      () async {
-        final out = File('${other.path}/bytes');
-        final env = Map.of(Platform.environment)..['LC_ALL'] = 'C.UTF-8';
-        final code = await fenced([
-          bash!,
-          '-c',
-          r'printf "%s|" "$@" > "$0"',
-          _fwd(out.path),
-          'a${String.fromCharCode(0xdce9)}',
-          'next',
-        ], env: env);
-        expect(code, 0);
-        expect(out.readAsBytesSync(), [0x61, 0xe9, 0x7c, ...'next|'.codeUnits]);
-      },
-      skip: Platform.isWindows ? 'POSIX argument bytes' : false,
-    );
+    test('the arguments arrive whole in process too', () async {
+      final out = File('${other.path}/out');
+      final script = File('${dir.path}/write.dart')
+        ..writeAsStringSync(r'''
+import 'dart:io';
+void main(List<String> a) {
+  File(a[0]).writeAsStringSync(a.skip(1).join('|'));
+  exit(7);
+}
+''');
+      final code = await fenced([
+        Platform.resolvedExecutable,
+        script.path,
+        out.path,
+        'a b',
+        '',
+        r'$x "y" *',
+      ]);
+      expect(code, 7);
+      expect(out.readAsStringSync(), r'a b||$x "y" *');
+      expectNoShell();
+    });
   });
 
   group('A1', () {

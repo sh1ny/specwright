@@ -285,6 +285,7 @@ class WorkflowParity(parity.PairParity):
         tool = self.tmp / 'bin' / 'git'
         tool.write_text('#!/bin/sh\nif [ "$1" = pull ]; then target="$PWD"; if command -v cygpath >/dev/null 2>&1; then target=$(cygpath -m "$PWD"); fi; printf "%s|%s|%s\\n" "$target" "$GH_TOKEN" "$*" >> "$WF_PULL_LOG"; exit 0; fi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # the fence starts git by PATHEXT name on Windows (D9)
         self.extra_env['WF_PULL_LOG'] = log.as_posix()
         for role in ['code', 'store']:
             entry = plan[role]

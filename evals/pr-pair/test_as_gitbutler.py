@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 FAKE_BUT = (
@@ -50,8 +51,7 @@ class TestAsGitButler(unittest.TestCase):
         # a `but` stand-in first on PATH: it records argv, and what the fenced helper answers
         self.stub = self.tmp / "stub"
         self.stub.mkdir()
-        (self.stub / "but").write_text(FAKE_BUT, encoding="utf-8", newline="\n")
-        (self.stub / "but").chmod(0o755)
+        fakeexe.write_fake(self.stub / "but", FAKE_BUT)  # a `.cmd` beside it on Windows, where only PATHEXT names start
 
     def env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO")}

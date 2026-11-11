@@ -778,9 +778,8 @@ const launchAllowlist = Allowlist(
       'runFenced': Call(1, _tool),
     },
     'fence/exec_inherit.dart': {
-      // the fenced command starts through the inherited bash fence prelude;
-      // `as.sh` is the prelude's `$0` label, not a launched script
-      'Process.start': Call(1, _tool, function: 'runFenced', labels: {'as.sh'}),
+      // the fenced command starts directly with the caller's stdio, no shell
+      'Process.start': Call(1, _tool, function: '_inherit'),
     },
     'fence/fenced_text.dart': {
       'runTool': Call(2, _tool),
@@ -859,16 +858,16 @@ const launchAllowlist = Allowlist(
       'finish.sh': ScriptSite(2, 'message: usage and argument text'),
     },
     'fence/as_command.dart': {
-      'as.sh': ScriptSite(3, 'message: `as.sh:` refusal prefix'),
+      'as.sh': ScriptSite(4, 'message: `as.sh:` refusal prefix'),
     },
     'fence/exec_inherit.dart': {
       'as.sh': ScriptSite(
         4,
-        'message: `as.sh:` prefixes in the prelude and the start refusal, and the `\$0` label of the fence prelude',
+        'message: `as.sh:` prefixes of the start refusals',
       ),
     },
     'fence/fence.dart': {
-      'as.sh': ScriptSite(22, 'message: `as.sh:` refusal text'),
+      'as.sh': ScriptSite(23, 'message: `as.sh:` refusal text'),
     },
     'finish/undo_plan.dart': {
       'vcs.sh': ScriptSite(3, 'printed command and message text'),

@@ -19,28 +19,28 @@
 | change-finish → sw finish undo-archive-plan keeps finish.sh's contract | Linked files in the archive keep their place | cli/test/finish/undo_plan_test.dart | linked spec.md and linked carried edit stay in the plan | green |
 | change-finish → sw finish undo-archive-plan keeps finish.sh's contract | A non-UTF-8 name in the archive walk | cli/test/finish/undo_plan_test.dart | a non-UTF-8 name in the archive walk is not_utf8 | green |
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | Credential fill reads stdin through the fence | evals/pr-pair/test_as_sh.py | test_credential_fill_returns_verified_token | green |
-| github-identity → The fenced command keeps the caller's stdin, arguments and exit status | Argument bytes and exit status pass through | evals/pr-pair/test_as_shim.py | test_argument_bytes_and_exit_status (values, failing `bash` first on `PATH`) | red |
-| github-identity → The fenced command keeps the caller's stdin, arguments and exit status | A non-UTF-8 argument is refused | evals/pr-pair/test_as_shim.py | test_non_utf8_argument_is_refused | red |
+| github-identity → The fenced command keeps the caller's stdin, arguments and exit status | Argument bytes and exit status pass through | evals/pr-pair/test_as_shim.py | test_argument_bytes_and_exit_status (values, failing `bash` first on `PATH`) | green |
+| github-identity → The fenced command keeps the caller's stdin, arguments and exit status | A non-UTF-8 argument is refused | evals/pr-pair/test_as_shim.py | test_non_utf8_argument_is_refused | green |
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | Command not found | evals/pr-pair/test_as_shim.py | test_missing_command_exits_127 | green |
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | A bounded caller stops the fence | evals/pr-pair/test_as_shim.py | test_bounded_caller_stops_the_fenced_tree | green |
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | A signal to the fence reaches the command | evals/pr-pair/test_as_shim.py | test_sigterm_reaches_the_command | green |
 | native-cli → sw starts external tools without a shell | Ported commands with failing shells first on PATH | evals/cli/test_no_shell.py | test_ported_commands_with_failing_shells_first | red |
 | native-cli → sw starts external tools without a shell | An absolute-path shell is not used either | cli/test/launch_sites_test.dart | no runner starts a shell by name or absolute path | red |
-| native-cli → sw starts external tools without a shell | A fenced shell command the caller asked for | evals/pr-pair/test_as_shim.py | test_fenced_shell_command_runs_as_asked | red |
+| native-cli → sw starts external tools without a shell | A fenced shell command the caller asked for | evals/pr-pair/test_as_shim.py | test_fenced_shell_command_runs_as_asked | green |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A tool found on PATH gets its stdin | cli/test/launch_test.dart | stdin reaches the launched tool | green |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A relative lookup resolves in the call's directory | cli/test/launch_test.dart | relative lookup resolves in the call's directory | green |
-| native-cli → Tool lookup, exit status and stdin keep their contract | A fenced batch command keeps the caller's stdio | evals/pr-pair/test_as_shim.py | test_fenced_batch_command_keeps_caller_stdio (Windows) | red |
+| native-cli → Tool lookup, exit status and stdin keep their contract | A fenced batch command keeps the caller's stdio | evals/pr-pair/test_as_shim.py | test_fenced_batch_command_keeps_caller_stdio (Windows) | green |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A missing tool | evals/vcs/test_probe.py | test_missing_jj_is_tool_missing_without_shell | green |
-| native-cli → Tool lookup, exit status and stdin keep their contract | A tool ended by a signal | cli/test/fence/exec_inherit_test.dart | SIGTERM ends the fence with 143 and no shell | red |
+| native-cli → Tool lookup, exit status and stdin keep their contract | A tool ended by a signal | cli/test/fence/exec_inherit_test.dart | SIGTERM ends the fence with 143 and no shell | green |
 | native-cli → Launch bounds are unchanged by the launcher | Bounded read with a descendant | cli/test/pr/gh_test.dart | a bounded launch stops a hung descendant | green |
 | native-cli → Launch bounds are unchanged by the launcher | Bounded read in another repository | cli/test/pr/gh_test.dart | a bounded command runs in the caller's directory | green |
 | native-cli → Launch bounds are unchanged by the launcher | An unbounded batch tool past the default byte bound | cli/test/launch_test.dart | an unbounded batch run passes 40 MiB (Windows) | green |
 | native-cli → Launch bounds are unchanged by the launcher | A capped call with a loud stderr | cli/test/launch_test.dart | a capped call bounds stdout only | green |
 | native-cli → Launch bounds are unchanged by the launcher | Unbounded fenced push | evals/vcs/test_sw_fence.py | test_fenced_command_has_no_deadline | green |
-| native-cli → Input the launcher cannot represent is refused by name | Ordinary Unicode arguments | evals/pr-pair/test_as_shim.py | test_fenced_tool_receives_unicode_values | red |
+| native-cli → Input the launcher cannot represent is refused by name | Ordinary Unicode arguments | evals/pr-pair/test_as_shim.py | test_fenced_tool_receives_unicode_values | green |
 | native-cli → Input the launcher cannot represent is refused by name | An argument with a NUL | cli/test/run_command_test.dart | a NUL argument is unrepresentable and nothing starts | green |
 | native-cli → Input the launcher cannot represent is refused by name | A lone surrogate reaches the launcher | cli/test/launch_test.dart | a lone surrogate is refused before the start | green |
-| native-cli → Long Windows arguments reach native tools whole | A 20,000-character argument on Windows | evals/pr-pair/test_as_shim.py | test_long_argument_reaches_fenced_tool_on_windows | red |
+| native-cli → Long Windows arguments reach native tools whole | A 20,000-character argument on Windows | evals/pr-pair/test_as_shim.py | test_long_argument_reaches_fenced_tool_on_windows | green |
 | native-cli → Long Windows arguments reach native tools whole | Over the Windows command-line limit | cli/test/launch_test.dart | a Windows line over 32,767 units is refused | green |
 | native-cli → sw needs no POSIX utilities for its own work | Failing utilities first on PATH | evals/cli/test_no_shell.py | test_failing_utilities_first_on_path | red |
 | native-cli → sw needs no POSIX utilities for its own work | An MSYS path argument on Windows | cli/test/commit/paths_test.dart | drive and UNC MSYS paths convert without cygpath | red |
@@ -156,10 +156,10 @@
 
 ## 6. Fence without bash
 
-- [ ] 6.1 Write failing tests in `cli/test/fence/exec_inherit_test.dart`: a fenced command started without any shell keeps stdin, arguments and exit code; on POSIX SIGTERM ends it with 143; on Windows `PWD` is dropped; a missing command gives 127 with `as.sh: <name>: command not found`. Run with a failing `bash` first on `PATH`. Verify they fail.
-- [ ] 6.2 Extend `runWithCommandLine` in `cli/lib/src/native/kernel32.dart` with an optional environment block (`CREATE_UNICODE_ENVIRONMENT`) and working directory, tested in `cli/test/windows_job_test.dart` or a new `kernel32_test.dart` (`@TestOn('windows')`): the child sees exactly the given variables and directory. Verify the test passes on Windows CI.
-- [ ] 6.3 Rewrite `runFenced` per D3: resolve, start directly with `inheritStdio` and the fenced environment; a `.cmd`/`.bat` fenced command goes through `runWithCommandLine` in process; delete the temp file and `fencedPrelude`. Verify `exec_inherit_test.dart` passes.
-- [ ] 6.4 Write failing evals in `evals/pr-pair/test_as_shim.py`: `test_fenced_shell_command_runs_as_asked`, `test_fenced_batch_command_keeps_caller_stdio` (Windows), `test_fenced_tool_receives_unicode_values`, `test_long_argument_reaches_fenced_tool_on_windows`, `test_non_utf8_argument_is_refused` (Linux: exit 2, `as.sh:` line with `\xFF`, no token read, `git` not run), and add a failing `bash` first on `PATH` to `test_argument_bytes_and_exit_status`. Make the `as` args-file decode strict. Verify they pass in CI and flip the rows green.
+- [x] 6.1 Write failing tests in `cli/test/fence/exec_inherit_test.dart`: a fenced command started without any shell keeps stdin, arguments and exit code; on POSIX SIGTERM ends it with 143; on Windows `PWD` is dropped; a missing command gives 127 with `as.sh: <name>: command not found`. Run with a failing `bash` first on `PATH`. Verify they fail.
+- [x] 6.2 Extend `runWithCommandLine` in `cli/lib/src/native/kernel32.dart` with an optional environment block (`CREATE_UNICODE_ENVIRONMENT`) and working directory, tested in `cli/test/windows_job_test.dart` or a new `kernel32_test.dart` (`@TestOn('windows')`): the child sees exactly the given variables and directory. Verify the test passes on Windows CI.
+- [x] 6.3 Rewrite `runFenced` per D3: resolve, start directly with `inheritStdio` and the fenced environment; a `.cmd`/`.bat` fenced command goes through `runWithCommandLine` in process; delete the temp file and `fencedPrelude`. Verify `exec_inherit_test.dart` passes.
+- [x] 6.4 Write failing evals in `evals/pr-pair/test_as_shim.py`: `test_fenced_shell_command_runs_as_asked`, `test_fenced_batch_command_keeps_caller_stdio` (Windows), `test_fenced_tool_receives_unicode_values`, `test_long_argument_reaches_fenced_tool_on_windows`, `test_non_utf8_argument_is_refused` (Linux: exit 2, `as.sh:` line with `\xFF`, no token read, `git` not run), and add a failing `bash` first on `PATH` to `test_argument_bytes_and_exit_status`. Make the `as` args-file decode strict. Verify they pass in CI and flip the rows green.
 
 ## 7. POSIX utilities, MSYS paths and environment paths
 

@@ -560,7 +560,10 @@ class AsParity(tas.AsShCase, ParityAsserts):
         old = dict(old, stdout=b"".join(l for l in old["stdout"].splitlines(True) if not l.startswith(b"ORACLE_SW_DIR=")))
         # the order of an environment dump follows how each program built the block, not what it holds: compare the sets
         # (a Windows environment has one variable for NO_PROXY and no_proxy, which the fixture sets both: the two programs keep a different spelling)
-        dump = lambda out: sorted(l for l in out.splitlines() if l.split(b"=", 1)[0].lower() != b"no_proxy")
+        # (on Windows the command is started by sw, not by the shim's bash, and a Git for Windows program started by a non-MSYS parent
+        # sets `PWD` itself, in the MSYS form: sw leaves `PWD` out, as the script did, and does not compare the one the program makes)
+        skipped = (b"no_proxy", b"pwd") if os.name == "nt" else (b"no_proxy",)
+        dump = lambda out: sorted(l for l in out.splitlines() if l.split(b"=", 1)[0].lower() not in skipped)
         self.maxDiff = None
         self.assertEqual(set(dump(new["stdout"])) ^ set(dump(old["stdout"])), set())
         self.assertParity((dict(new, stdout=b""), dict(old, stdout=b"")), 0)
@@ -579,7 +582,11 @@ class AsParity(tas.AsShCase, ParityAsserts):
 
     def test_the_command_exit_status_and_stdout_pass_through(self):
         self.assertParity(self.pair("sh1ny", "bash", "-c", 'printf %s "$1"; exit 7', "x", 'a "b" $c'), 7)
-        self.assertParity(self.pair("sh1ny", "no-such-tool"), 127)
+        # native-cli-launcher D3: the fence finds the command itself, so the name is bash's `exec` text no more
+        pair = self.pair("sh1ny", "no-such-tool")
+        self.assertEqual((pair[0]["code"], pair[1]["code"]), (127, 127))
+        self.assertEqual((pair[0]["stdout"], pair[0]["calls"]), (pair[1]["stdout"], pair[1]["calls"]))
+        self.assertEqual(pair[0]["stderr"].decode("utf-8").strip(), "as.sh: no-such-tool: command not found")
 
 
 CONFIG_PATH = re.compile(r"[/\\]reviewers[/\\]([0-9a-f]{64})\.json$")

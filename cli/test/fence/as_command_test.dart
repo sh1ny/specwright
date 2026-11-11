@@ -160,14 +160,29 @@ void main() {
     expect(launched, isEmpty);
   });
 
-  test('an argument that is not UTF-8 reaches the command unchanged', () async {
+  test('an argument that is not UTF-8 is refused by name, exit 2', () async {
     final odd = [0x61, 0xff, 0x62, 0];
     final file = handoff([
       ...records(['/s', '/bin/bash', 'me', 'git']),
       ...odd,
     ]);
-    expect(await run(['--args-file', file.path]), 5);
-    expect(encodeEscaped(launched.single.last), [0x61, 0xff, 0x62]);
+    expect(await run(['--args-file', file.path]), 2);
+    expect(said(), startsWith('as.sh: argument 3 is not valid UTF-8: a\\xFFb'));
+    expect(said(), contains('rename'));
+    expect(said().trim().split('\n'), hasLength(1));
+    expect(file.existsSync(), isFalse);
+    expect(ghCalls, isEmpty, reason: 'no token was read');
+    expect(launched, isEmpty);
+  });
+
+  test('a header record that is not UTF-8 is refused the same way', () async {
+    final file = handoff([
+      ...[0x2f, 0xff, 0],
+      ...records(['/bin/bash', 'me', 'git']),
+    ]);
+    expect(await run(['--args-file', file.path]), 2);
+    expect(said(), startsWith('as.sh: scripts directory is not valid UTF-8: '));
+    expect(ghCalls, isEmpty);
   });
 
   test('FenceStop carries its exit status', () {
