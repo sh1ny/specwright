@@ -129,8 +129,55 @@ void main() {
       expect(decodeText(_bytes('610d')), 'a\n');
     });
 
-    test('escapes invalid bytes before the newline pass', () {
-      expect(decodeText(_bytes('ff0d0a')).codeUnits, [0xdcff, 0x0a]);
+    test('replaces invalid bytes before the newline pass', () {
+      expect(decodeText(_bytes('ff0d0a')).codeUnits, [0xfffd, 0x0a]);
+    });
+  });
+
+  group('decodeStrict', () {
+    test('returns the string for valid UTF-8', () {
+      expect(
+        decodeStrict(_bytes('61c3a9f09f9880'), 'name'),
+        'a\u{e9}\u{1f600}',
+      );
+    });
+
+    test('throws NotUtf8 showing each invalid byte as \\xHH', () {
+      expect(
+        () => decodeStrict(_bytes('61ff62'), 'path'),
+        throwsA(
+          isA<NotUtf8>()
+              .having((e) => e.what, 'what', 'path')
+              .having((e) => e.shown, 'shown', r'a\xFFb')
+              .having((e) => e.message, 'message', contains(r'a\xFFb'))
+              .having((e) => e.message, 'message', contains('path')),
+        ),
+      );
+    });
+
+    test('shows every byte of a truncated multi-byte sequence', () {
+      expect(
+        () => decodeStrict(_bytes('f09f98'), 'name'),
+        throwsA(
+          isA<NotUtf8>().having((e) => e.shown, 'shown', r'\xF0\x9F\x98'),
+        ),
+      );
+    });
+
+    test('can be built from an already rendered display name', () {
+      final e = NotUtf8('dir', 'a\u{fffd}b');
+      expect(e.shown, 'a\u{fffd}b');
+      expect(e.message, contains('a\u{fffd}b'));
+    });
+  });
+
+  group('display text replaces invalid bytes with U+FFFD', () {
+    test('decodeReplacing', () {
+      expect(decodeReplacing(_bytes('61ff62')), 'a\u{fffd}b');
+    });
+
+    test('decodeText', () {
+      expect(decodeText(_bytes('61ff0d0a62')).contains('\u{fffd}'), isTrue);
     });
   });
 

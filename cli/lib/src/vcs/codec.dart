@@ -64,16 +64,51 @@ Uint8List encodeEscaped(String text) {
   return out.takeBytes();
 }
 
-/// Output of `git` and `jj`, as `vcs.sh` reads it: [decodeEscaped], then
-/// `\r\n` and a lone `\r` become `\n` (Python's universal newlines).
+/// Display text from a tool: [decodeReplacing], then `\r\n` and a lone `\r`
+/// become `\n` (Python's universal newlines).
 String decodeText(List<int> bytes) =>
-    decodeEscaped(bytes).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    decodeReplacing(bytes).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
 /// Output of `but`, as `vcs.sh` reads it: invalid bytes become U+FFFD, one per
 /// maximal invalid subpart as Python's `errors='replace'` does, and newlines
 /// are left alone.
 String decodeReplacing(List<int> bytes) =>
     _decode(bytes, (units, run) => units.add(0xfffd));
+
+/// A name or path that `sw` acts on or reports as a path was not valid UTF-8.
+/// [what] says which name it was; [shown] is the name as it is reported: each
+/// invalid byte as `\xHH`, or already rendered by the caller (a directory walk
+/// shows U+FFFD).
+class NotUtf8 implements Exception {
+  NotUtf8(this.what, this.shown);
+
+  final String what;
+  final String shown;
+
+  /// For a JSON document's `message` field and for the terminal.
+  String get message => '$what is not valid UTF-8: $shown';
+
+  @override
+  String toString() => 'NotUtf8: $message';
+}
+
+/// A name or path that `sw` acts on or reports as a path is decoded strictly.
+/// Display text is decoded with replacement.
+///
+/// Returns the decoded string, or throws [NotUtf8] naming [what] and showing
+/// each invalid byte as `\xHH` in uppercase hex.
+String decodeStrict(List<int> bytes, String what) {
+  var valid = true;
+  final shown = _decode(bytes, (units, run) {
+    valid = false;
+    for (final b in run) {
+      final hex = b.toRadixString(16).toUpperCase().padLeft(2, '0');
+      units.addAll('\\x$hex'.codeUnits);
+    }
+  });
+  if (!valid) throw NotUtf8(what, shown);
+  return shown;
+}
 
 String _decode(
   List<int> b,

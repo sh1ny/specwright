@@ -125,8 +125,8 @@
 
 ## 2. Strict codec
 
-- [ ] 2.1 Write failing tests in `cli/test/vcs/codec_test.dart`: `decodeStrict` returns the string for valid UTF-8; it throws `NotUtf8` whose message shows each invalid byte as `\xHH` (`a\xFFb`); `decodeReplacing` and `decodeText` replace invalid bytes with U+FFFD. Verify they fail because `decodeStrict` and `NotUtf8` do not exist.
-- [ ] 2.2 Add `decodeStrict` and `NotUtf8` to `cli/lib/src/vcs/codec.dart`, with the C2 doc comment on `decodeStrict` (names and paths strict, display text replaced). Verify `mise exec -- dart test test/vcs/codec_test.dart` passes.
+- [x] 2.1 Write failing tests in `cli/test/vcs/codec_test.dart`: `decodeStrict` returns the string for valid UTF-8; it throws `NotUtf8` whose message shows each invalid byte as `\xHH` (`a\xFFb`); `decodeReplacing` and `decodeText` replace invalid bytes with U+FFFD. Verify they fail because `decodeStrict` and `NotUtf8` do not exist.
+- [x] 2.2 Add `decodeStrict` and `NotUtf8` to `cli/lib/src/vcs/codec.dart`, with the C2 doc comment on `decodeStrict` (names and paths strict, display text replaced). Verify `mise exec -- dart test test/vcs/codec_test.dart` passes.
 
 ## 3. Native sorted walk
 
