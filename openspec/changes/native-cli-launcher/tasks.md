@@ -32,8 +32,8 @@
 | native-cli → Tool lookup, exit status and stdin keep their contract | A fenced batch command keeps the caller's stdio | evals/pr-pair/test_as_shim.py | test_fenced_batch_command_keeps_caller_stdio (Windows) | red |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A missing tool | evals/vcs/test_probe.py | test_missing_jj_is_tool_missing_without_shell | green |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A tool ended by a signal | cli/test/fence/exec_inherit_test.dart | SIGTERM ends the fence with 143 and no shell | red |
-| native-cli → Launch bounds are unchanged by the launcher | Bounded read with a descendant | cli/test/pr/gh_test.dart | a bounded launch stops a hung descendant | red |
-| native-cli → Launch bounds are unchanged by the launcher | Bounded read in another repository | cli/test/pr/gh_test.dart | a bounded command runs in the caller's directory | red |
+| native-cli → Launch bounds are unchanged by the launcher | Bounded read with a descendant | cli/test/pr/gh_test.dart | a bounded launch stops a hung descendant | green |
+| native-cli → Launch bounds are unchanged by the launcher | Bounded read in another repository | cli/test/pr/gh_test.dart | a bounded command runs in the caller's directory | green |
 | native-cli → Launch bounds are unchanged by the launcher | An unbounded batch tool past the default byte bound | cli/test/launch_test.dart | an unbounded batch run passes 40 MiB (Windows) | green |
 | native-cli → Launch bounds are unchanged by the launcher | A capped call with a loud stderr | cli/test/launch_test.dart | a capped call bounds stdout only | green |
 | native-cli → Launch bounds are unchanged by the launcher | Unbounded fenced push | evals/vcs/test_sw_fence.py | test_fenced_command_has_no_deadline | green |
@@ -151,8 +151,8 @@
 
 ## 5. Bounded gh without bash
 
-- [ ] 5.1 Write failing tests in `cli/test/pr/gh_test.dart`: "a bounded launch stops a hung descendant" (a fake `gh` starts a child and hangs past a lowered deadline: both stopped, `deadline_exceeded`) and "a bounded command runs in the caller's directory" (`runBoundedCommand` with store B as `cwd` while `sw` runs in A reports B). Verify they fail or show bash starting.
-- [ ] 5.2 Make `runGh` and `runBoundedCommand` resolve the command and hand `BoundedRun` the `planLaunch` result with `workingDirectory` (D2); delete `boundedPrelude`. Add the C7 doc comment on `transportFor` in `cli/lib/src/process/transport.dart`. Verify `gh_test.dart` and `workflow_transport_test.dart` pass and flip the rows green.
+- [x] 5.1 Write failing tests in `cli/test/pr/gh_test.dart`: "a bounded launch stops a hung descendant" (a fake `gh` starts a child and hangs past a lowered deadline: both stopped, `deadline_exceeded`) and "a bounded command runs in the caller's directory" (`runBoundedCommand` with store B as `cwd` while `sw` runs in A reports B). Verify they fail or show bash starting.
+- [x] 5.2 Make `runGh` and `runBoundedCommand` resolve the command and hand `BoundedRun` the `planLaunch` result with `workingDirectory` (D2); delete `boundedPrelude`. Add the C7 doc comment on `transportFor` in `cli/lib/src/process/transport.dart`. Verify `gh_test.dart` and `workflow_transport_test.dart` pass and flip the rows green.
 
 ## 6. Fence without bash
 

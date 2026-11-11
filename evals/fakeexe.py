@@ -14,6 +14,11 @@ script) or `write_python_fake` (Python source): a `<name>.exe` that receives the
 The `.exe` is the console launcher that pip vendors for its own script wrappers: the launcher, a `#!` line naming this
 interpreter, then a zip holding `__main__.py`. It needs the Python that runs the evals to have pip, as the CI Pythons do.
 
+Git Bash (MSYS) rewrites glob characters in the arguments it is started with (it halves backslashes before `[` and drops
+braces), so the bash `.exe` hands the script its arguments through the environment instead of bash's command line. A
+`.cmd` wrapper starts bash with `%*` and so carries that risk: use `exe=True` for a fake that gets such arguments.
+evals/vcs/test_fakeexe.py pins the round trip.
+
 Bash is `bashexe.bash()`; with none installed no wrapper is written and the tests that need bash fail on that.
 
 Importable from any suite: it needs only the standard library and `evals/bashexe.py`.
@@ -75,26 +80,17 @@ def write_python_fake(path, source):
     return _write_exe(path, source)
 
 
-# The program of an `.exe` fake that runs a script under bash. Git Bash (MSYS) drops `{` and `}` from an unquoted argument
-# it is started with (`HEAD^{commit}` arrives as `HEAD^commit`), so every argument goes on the command line in double
-# quotes, with the CommandLineToArgvW escaping for backslashes and quotes.
-_EXE_MAIN = '''import subprocess, sys
+# The program of an `.exe` fake that runs a script under bash. Git Bash (MSYS) rewrites the arguments it is started with
+# when they hold glob characters: it drops `{` and `}` (`HEAD^{commit}` arrives as `HEAD^commit`) and halves backslashes
+# before `[` (two backslashes and `[` arrive as one), whatever the quoting. So no argument goes on bash's command line. They travel
+# in one environment variable, quoted for sh, which a fixed prologue evaluates into the positional parameters and
+# removes before it runs the script.
+_EXE_MAIN = '''import os, shlex, subprocess, sys
 
-
-def quote(arg):
-    out, slashes = '"', 0
-    for ch in arg:
-        if ch == "\\\\":
-            slashes += 1
-        elif ch == '"':
-            out, slashes = out + "\\\\" * (2 * slashes + 1) + '"', 0
-        else:
-            out, slashes = out + "\\\\" * slashes + ch, 0
-    return out + "\\\\" * (2 * slashes) + '"'
-
-
-line = " ".join(quote(arg) for arg in [%r, %r, *sys.argv[1:]])
-sys.exit(subprocess.call(line))
+env = dict(os.environ)
+env["SW_FAKE_ARGS"] = " ".join(shlex.quote(arg) for arg in sys.argv[1:])
+prologue = 'eval "set -- $SW_FAKE_ARGS"; unset SW_FAKE_ARGS; exec "$BASH" "$0" "$@"'
+sys.exit(subprocess.call([%r, "-c", prologue, %r], env=env))
 '''
 
 

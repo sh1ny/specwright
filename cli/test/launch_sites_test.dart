@@ -241,7 +241,6 @@ final Map<String, RegExp> _symbols = {
   'runToolCapped': _fn('runToolCapped'),
   'runText': _fn('runText'),
   'runGh': _fn('runGh'),
-  'runGhFramed': _fn('runGhFramed'),
   'runBoundedCommand': _fn('runBoundedCommand'),
   'runFenced': _fn('runFenced'),
   'fencedText': _fn('fencedText'),

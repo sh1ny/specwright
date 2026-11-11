@@ -10,9 +10,11 @@ import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:test/test.dart';
 
 import '../helper_support.dart';
+import '../support/exe_shim.dart';
 import '../vcs/bash_support.dart';
 
 void main() {
+  useExeShim();
   final bash = findBash();
   late Directory dir;
   late Map<String, String> env;
@@ -26,13 +28,19 @@ void main() {
   tearDownAll(() => built.deleteSync(recursive: true));
   const limits = RunLimits(deadline: Duration(seconds: 60), maxBytes: 1 << 20);
 
-  // A fake `gh` first on PATH: an extensionless shell script, as the evals'
-  // fake is, so only bash finds it on Windows.
+  // A bash that does not exist: `sw` no longer starts one for a bounded call.
+  final noBash = Platform.isWindows
+      ? r'C:\sw-no-such-bash\bash.exe'
+      : '/sw-no-such-bash/bash';
+
+  // A fake `gh` first on PATH: a shell script, with an `.exe` shim beside it
+  // on Windows, where only a PATHEXT name is found (D9).
   void fakeGh(String body) {
     final gh = File('${dir.path}/bin/gh')
       ..createSync(recursive: true)
       ..writeAsStringSync('#!/bin/sh\n$body\n');
     if (!Platform.isWindows) Process.runSync('chmod', ['+x', gh.path]);
+    shimExe(gh.path);
   }
 
   setUp(() {
@@ -79,24 +87,16 @@ void main() {
       ]);
     });
 
-    test(
-      'an argument with a byte that is not UTF-8 arrives unchanged',
-      () async {
-        fakeGh(echoArgs);
-        final odd =
-            'a${String.fromCharCode(0xdcff)}b${String.fromCharCode(0xdce9)}';
-        final r = await gh(['api', odd]);
-        expect(r.exitCode, 0, reason: decodeText(r.stderr));
-        expect(r.stdout, [
-          ...encodeEscaped('api'),
-          0,
-          ...encodeEscaped(odd),
-          0,
-        ]);
-        expect(r.stdout, contains(0xff));
-      },
-      skip: Platform.isWindows ? 'POSIX argument bytes' : false,
-    );
+    // D5: a byte that is not UTF-8 cannot be handed on whole, so nothing runs.
+    test('an argument with a byte that is not UTF-8 is refused', () async {
+      final marker = '${dir.path}/ran'.replaceAll(r'\', '/');
+      fakeGh('touch "$marker"');
+      final odd = 'a${String.fromCharCode(0xdcff)}b';
+      final r = await gh(['api', odd]);
+      expect(r.exitCode, 127);
+      expect(decodeText(r.stderr), contains('unrepresentable argument'));
+      expect(File(marker).existsSync(), isFalse);
+    });
 
     test('the command exit status and both streams pass through', () async {
       fakeGh(r'echo out; echo err >&2; exit 7');
@@ -108,20 +108,63 @@ void main() {
       expect(r.limit, isNull);
     });
 
-    test('a broken framing exits 126 and runs nothing', () async {
-      final marker = '${dir.path}/ran'.replaceAll(r'\', '/');
-      fakeGh('touch "$marker"');
-      // a count of 3 with a single record after it
-      final r = await runGhFramed(
-        bash!,
-        '.\x003\x00gh\x00'.codeUnits,
+    // The tool is started itself (D2): a `bash` that cannot start changes
+    // nothing, so these two tests fail on a launcher that still starts bash.
+    test('a bounded launch stops a hung descendant', () async {
+      final late = '${dir.path}/late'.replaceAll(r'\', '/');
+      final done = '${dir.path}/done'.replaceAll(r'\', '/');
+      env
+        ..['SW_LATE'] = late
+        ..['SW_DONE'] = done;
+      fakeGh(
+        r'(sleep 4; printf late > "$SW_LATE") & wait; printf x > "$SW_DONE"',
+      );
+      final r = await runGh(
+        noBash,
+        Directory.current.path,
+        ['api', 'user'],
+        environment: env,
+        limits: const RunLimits(
+          deadline: Duration(milliseconds: 800),
+          maxBytes: 1 << 20,
+        ),
+        helperCommand: helper,
+      );
+      expect(r.limit, BoundedLimit.deadlineExceeded);
+      expect(r.limitLine, 'bounded: deadline_exceeded: gh api\n');
+      await Future<void>.delayed(const Duration(seconds: 5));
+      expect(File(late).existsSync(), isFalse, reason: 'the child survived');
+      expect(File(done).existsSync(), isFalse, reason: 'gh itself survived');
+    });
+
+    test("a bounded command runs in the caller's directory", () async {
+      // `sw` runs in the current directory (store A); the command is told to
+      // run in store B.
+      final b = Directory('${dir.path}/store-b')..createSync();
+      final where = File('${dir.path}/bin/where');
+      where
+        ..createSync(recursive: true)
+        ..writeAsStringSync('#!/bin/sh\npwd -W 2>/dev/null || pwd\n');
+      if (!Platform.isWindows) Process.runSync('chmod', ['+x', where.path]);
+      shimExe(where.path);
+      final r = await runBoundedCommand(
+        noBash,
+        b.path,
+        ['where'],
         environment: env,
         limits: limits,
         helperCommand: helper,
       );
-      expect(r.exitCode, 126);
-      expect(decodeText(r.stderr), 'bounded: argument transport failed\n');
-      expect(File(marker).existsSync(), isFalse);
+      expect(r.exitCode, 0, reason: decodeText(r.stderr));
+      String norm(String s) => s.trim().replaceAll(r'\', '/').toLowerCase();
+      // The shell may print the 8.3 short form of a CI temp path (RUNNER~1);
+      // resolve what it printed as well, so both sides are the long path.
+      final printed = Directory(decodeText(r.stdout).trim());
+      expect(
+        norm(printed.resolveSymbolicLinksSync()),
+        norm(b.resolveSymbolicLinksSync()),
+      );
+      expect(norm(Directory.current.path), isNot(norm(b.path)));
     });
 
     test(
