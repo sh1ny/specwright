@@ -48,11 +48,11 @@ Future<TextResult> fencedText(
           environment: e,
           helperCommand: helperCommand,
         ),
-    git: git ?? (command, e) => runTool(bash, repo, command, environment: e),
+    git: git ?? (command, e) => runTool(repo, command, environment: e),
     launch:
         launch ??
         (command, e) async {
-          final r = await runTool(bash, repo, command, environment: e);
+          final r = await runTool(repo, command, environment: e);
           out.write(decodeText(r.stdout));
           err.write(decodeText(r.stderr));
           return r.exitCode;

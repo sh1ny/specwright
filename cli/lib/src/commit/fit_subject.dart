@@ -119,13 +119,7 @@ Future<int> fitSubject(
       // `File.rename` takes a decoded String, which loses a name's bytes that
       // are not UTF-8 (POSIX). `mv` through the transport gets them exactly,
       // as the script's own `mv -f` did.
-      final moved = await runTool(ctx.bash, '.', [
-        'mv',
-        '-f',
-        '--',
-        tmpPath,
-        path,
-      ]);
+      final moved = await runTool('.', ['mv', '-f', '--', tmpPath, path]);
       if (moved.exitCode != 0) throw FileSystemException('mv failed', tmpPath);
     } on Object {
       try {

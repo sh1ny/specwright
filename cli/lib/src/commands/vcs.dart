@@ -1,5 +1,6 @@
 import 'dart:io' as io;
 
+import '../process/launch.dart' show Unrepresentable;
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
@@ -45,8 +46,8 @@ class VcsSession {
 /// backend, apply `--main`.
 Future<VcsSession> openSession(VcsContext ctx) async {
   final request = ctx.request;
-  final repo = await resolvePath(ctx.bash, request.repo);
-  final code = await resolvePath(ctx.bash, request.code);
+  final repo = await resolvePath(request.repo);
+  final code = await resolvePath(request.code);
   final scripts = VcsScripts(ctx.scriptsDir, ctx.bash);
   final info = await probe(scripts, repo, code, request.role);
   final main = request.main;
@@ -133,6 +134,10 @@ Future<int> runVcsCommand(
     code = stop.code;
   } on NotUtf8 catch (e) {
     final stop = VcsStop.notUtf8(e);
+    document = stop.object();
+    code = stop.code;
+  } on Unrepresentable catch (e) {
+    final stop = VcsStop.unrepresentable(e);
     document = stop.object();
     code = stop.code;
   } on Object catch (e) {

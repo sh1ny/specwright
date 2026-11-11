@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:specwright_cli/src/commands/run.dart';
 import 'package:specwright_cli/src/process/resolve.dart';
@@ -167,5 +168,49 @@ void main() {
       final t = transportFor(['bash', '-c', 'x', 'name'], windows: true);
       expect(utf8.decode(t.stdinBytes), '$argvEndMarker\x00');
     });
+  });
+
+  // native-cli-launcher D5: input the launcher cannot represent is refused
+  // first, with exit 2 and no process. A NUL cannot be put in a real argv, so
+  // the black-box evals cannot reach this; the command line is given here.
+  group('sw run --bounded input checks', () {
+    Future<(int, String)> run(
+      List<String> command,
+      Map<String, String> env,
+    ) async {
+      final err = StringBuffer();
+      final code = await runCommand(
+        ['--bounded', '--', ...command],
+        err: err,
+        writeOut: (_) {},
+        writeErr: (_) {},
+        env: env,
+      );
+      return (code, err.toString());
+    }
+
+    test('a NUL argument is unrepresentable and nothing starts', () async {
+      final (code, err) = await run(['tool', 'a\x00b'], {'PATH': ''});
+      expect(code, 2);
+      expect(err, 'bounded: unrepresentable argument: tool\n');
+    });
+
+    test(
+      'a NUL argument to a batch command is not the unsafe-batch refusal',
+      () async {
+        final dir = Directory.systemTemp.createTempSync('sw-run-nul-');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        File('${dir.path}/fake.cmd').writeAsStringSync('@exit /b 0\r\n');
+        final (code, err) = await run(
+          ['fake.cmd', 'a\x00b%PATH%'],
+          {...Platform.environment, 'PATH': dir.path},
+        );
+        expect(code, 2);
+        expect(err, 'bounded: unrepresentable argument: fake.cmd\n');
+      },
+      skip: Platform.isWindows
+          ? false
+          : 'platform: batch shims are Windows only',
+    );
   });
 }

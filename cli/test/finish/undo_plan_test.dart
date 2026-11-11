@@ -9,6 +9,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
+import '../support/exe_shim.dart';
 
 List<int> _b(String s) => utf8.encode(s);
 
@@ -158,6 +159,7 @@ exit "${STUB_EXIT:-1}"
 ''';
 
 void main() {
+  useExeShim();
   final bash = findBash();
   final skip = bash == null ? 'no bash installed' : false;
   late Directory tmp;
@@ -435,6 +437,7 @@ void main() {
       final stubs = Directory('${tmp.path}/stubs')..createSync();
       final stub = File('${stubs.path}/git')..writeAsStringSync(_stubTool);
       if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+      shimExe(stub.path);
       final log = File('${tmp.path}/git.log');
       final sep = Platform.isWindows ? ';' : ':';
       Map<String, String> env([String? prompt]) => {
@@ -491,6 +494,7 @@ void main() {
       for (final name in ['cygpath', 'git']) {
         final stub = File('${stubs.path}/$name')..writeAsStringSync(_stubTool);
         if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+        shimExe(stub.path);
       }
     });
 

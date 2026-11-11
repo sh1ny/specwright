@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_parity as parity
 import vcs_test_support
+import fakeexe
 
 
 def setUpModule():
@@ -253,6 +254,7 @@ class WorkflowParity(parity.PairParity):
         tool = self.tmp / 'bin' / name
         tool.write_text(script, encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool)  # sw starts jj and but by PATHEXT name on Windows (D9)
 
     def test_cleanup_non_git_plans_preserve_backend_commands(self):
         code, store = self.merged_pair()

@@ -212,8 +212,13 @@ class _Planner {
   );
   late final String vcsSh = '$prScripts/vcs.sh';
 
-  Future<ToolResult> git(String cwd, List<String> args) =>
-      runTool(ctx.bash, cwd, ['git', ...args], environment: env);
+  Future<ToolResult> git(String cwd, List<String> args) async {
+    try {
+      return await runTool(cwd, ['git', ...args], environment: env);
+    } on Unrepresentable catch (e) {
+      throw VcsStop.unrepresentable(e);
+    }
+  }
 
   String textOf(ToolResult r) => pyStrip(decodeReplacing(r.stdout));
 

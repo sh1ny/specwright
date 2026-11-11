@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
@@ -9,9 +8,6 @@ import 'package:test/test.dart';
 import 'bash_support.dart';
 
 List<int> _record(String text) => [...utf8.encode(text), 0];
-
-/// `printf '%s\0' args...` prints each argument followed by a NUL.
-const _printArgs = ['printf', r'%s\0'];
 
 List<String> _split(List<int> out) {
   final parts = utf8.decode(out).split('\u0000');
@@ -25,20 +21,37 @@ void main() {
   late Directory dir;
 
   setUp(() {
-    dir = Directory.systemTemp.createTempSync('claude-ncv-g2-run-');
+    dir = Directory.systemTemp.createTempSync('claude-ncv-g4-run-');
   });
   tearDown(() => dir.deleteSync(recursive: true));
+
+  /// `bash -c <script> sh <args>`: a tool that reads its arguments and stdin.
+  List<String> sh(String script, [List<String> args = const []]) => [
+    bash!,
+    '-c',
+    script,
+    'sh',
+    ...args,
+  ];
+
+  /// A native tool (not an MSYS one, which expands wildcards in its own
+  /// arguments) that prints each argument as UTF-8 followed by a NUL.
+  List<String> printArgs(List<String> args) => [
+    Platform.isWindows ? 'python' : 'python3',
+    '-c',
+    r"import sys;sys.stdout.buffer.write(b''.join(a.encode()+b'\0' for a in sys.argv[1:]))",
+    ...args,
+  ];
 
   group('runTool arguments', () {
     test(
       'an argument that looks like a marker or a number is unchanged',
       () async {
         final args = ['a', '3', '__SW_ARGV_END__', '', 'b c', '-n', 'z'];
-        final r = await runTool(bash!, dir.path, [..._printArgs, ...args]);
+        final r = await runTool(dir.path, printArgs(args));
         expect(r.exitCode, 0);
         expect(_split(r.stdout), args);
       },
-      skip: skip,
     );
 
     test(
@@ -61,51 +74,52 @@ void main() {
           'two\nlines',
           ' lead and trail ',
         ];
-        final r = await runTool(bash!, dir.path, [..._printArgs, ...args]);
+        final r = await runTool(dir.path, printArgs(args));
         expect(r.exitCode, 0);
         expect(_split(r.stdout), args);
       },
-      skip: skip,
     );
 
     test('non-ASCII text reaches the tool as UTF-8', () async {
       final args = ['café', '€', '\u{1f600}'];
-      final r = await runTool(bash!, dir.path, [..._printArgs, ...args]);
+      final r = await runTool(dir.path, printArgs(args));
       expect(_split(r.stdout), args);
+    });
+
+    test('a NUL inside an argument is unrepresentable and starts nothing', () {
+      final marker = File('${dir.path}/ran');
+      expect(
+        () => runTool(dir.path, sh('touch ran; : "\$1"', ['a\u0000b'])),
+        throwsA(
+          isA<Unrepresentable>().having((e) => e.what, 'what', 'argument'),
+        ),
+      );
+      expect(marker.existsSync(), isFalse);
     }, skip: skip);
 
-    test(
-      'an escaped byte reaches the tool as that byte',
-      () async {
-        final r = await runTool(bash!, dir.path, [..._printArgs, 'a\udcffb']);
-        expect(r.stdout, [0x61, 0xff, 0x62, 0]);
-      },
-      skip: bash == null
-          ? 'no bash installed'
-          : Platform.isWindows
-          ? 'Windows passes arguments as UTF-16, there is no raw byte 0xFF'
-          : false,
-    );
-
-    test('a NUL inside an argument is refused before anything runs', () {
+    test('a lone surrogate in an argument is unrepresentable', () {
       expect(
-        () => runTool(bash ?? 'bash', dir.path, ['printf', 'a\u0000b']),
-        throwsArgumentError,
+        () => runTool(dir.path, ['tool', 'a\udcffb']),
+        throwsA(
+          isA<Unrepresentable>()
+              .having((e) => e.command, 'command', 'tool')
+              .having((e) => e.what, 'what', 'argument'),
+        ),
       );
     });
   });
 
   group('runTool input', () {
-    test('tool input after the last record reaches the tool', () async {
+    test('tool input reaches the tool', () async {
       final input = [...utf8.encode('first\n'), 0, ...utf8.encode('3'), 0, 10];
-      final r = await runTool(bash!, dir.path, ['cat'], input: input);
+      final r = await runTool(dir.path, sh('cat'), input: input);
       expect(r.exitCode, 0);
       expect(r.stdout, input);
     }, skip: skip);
 
-    test('input that looks like another frame is still tool input', () async {
+    test('input that looks like a frame is still tool input', () async {
       final input = [..._record('2'), ..._record('x'), ..._record('y')];
-      final r = await runTool(bash!, dir.path, ['cat'], input: input);
+      final r = await runTool(dir.path, sh('cat'), input: input);
       expect(r.stdout, input);
     }, skip: skip);
 
@@ -119,17 +133,16 @@ void main() {
       );
       File('${dir.path}/.gitignore').writeAsStringSync('ignored.txt\n');
       final r = await runTool(
-        bash!,
         dir.path,
         ['git', 'check-ignore', '-z', '--stdin'],
         input: [..._record('ignored.txt'), ..._record('kept.txt')],
       );
       expect(r.exitCode, 0);
       expect(utf8.decode(r.stdout), 'ignored.txt\u0000');
-    }, skip: skip);
+    });
 
-    test('without input stdin is closed after the records', () async {
-      final r = await runTool(bash!, dir.path, ['cat']);
+    test('without input stdin is closed', () async {
+      final r = await runTool(dir.path, sh('cat'));
       expect(r.exitCode, 0);
       expect(r.stdout, isEmpty);
     }, skip: skip);
@@ -137,34 +150,29 @@ void main() {
 
   group('runTool result', () {
     test('returns the exit code and both streams as raw bytes', () async {
-      final r = await runTool(bash!, dir.path, [
-        'bash',
-        '-c',
-        r"printf 'o\377'; printf 'e\377' >&2; exit 7",
-      ]);
+      final r = await runTool(
+        dir.path,
+        sh(r"printf 'o\377'; printf 'e\377' >&2; exit 7"),
+      );
       expect(r.exitCode, 7);
       expect(r.stdout, [0x6f, 0xff]);
       expect(r.stderr, [0x65, 0xff]);
+      expect(r.startFailed, isFalse);
     }, skip: skip);
 
-    test('a missing tool exits 127', () async {
-      final r = await runTool(bash!, dir.path, ['no-such-tool-vcs-g2']);
-      expect(r.exitCode, 127);
-    }, skip: skip);
-
-    test('an unstartable bash exits 127 with the error text', () async {
-      final r = await runTool('no-such-bash-vcs-g2', dir.path, ['cat']);
+    test('a missing tool exits 127 and names it', () async {
+      final r = await runTool(dir.path, ['no-such-tool-vcs-g4']);
       expect(r.exitCode, 127);
       expect(r.stdout, isEmpty);
-      expect(r.stderr, isNotEmpty);
+      expect(r.startFailed, isTrue);
+      expect(utf8.decode(r.stderr), 'no-such-tool-vcs-g4: command not found\n');
     });
 
     test('a replacement environment reaches the tool', () async {
       final r = await runTool(
-        bash!,
         dir.path,
-        ['bash', '-c', r'printf %s "$VCS_G2"'],
-        environment: {...Platform.environment, 'VCS_G2': 'yes'},
+        sh(r'printf %s "$VCS_G4"'),
+        environment: {...Platform.environment, 'VCS_G4': 'yes'},
       );
       expect(utf8.decode(r.stdout), 'yes');
     }, skip: skip);
@@ -173,79 +181,14 @@ void main() {
       final key = Platform.environment.keys.firstWhere(
         (k) => RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(k) && k != '_',
       );
-      final r = await runTool(bash!, dir.path, [
-        'bash',
-        '-c',
-        'test -n "\${$key+set}"',
-      ]);
+      final r = await runTool(dir.path, sh('test -n "\${$key+set}"'));
       expect(r.exitCode, 0);
-    }, skip: skip);
-  });
-
-  group('transport failures exit 126 before any tool runs', () {
-    Future<void> expectRefused(List<int> stdinBytes) async {
-      final marker = File('${dir.path}/ran');
-      final r = await runFramed(bash!, [
-        ..._record(cwdRecord(dir.path)),
-        ...stdinBytes,
-      ]);
-      expect(r.exitCode, 126);
-      expect(utf8.decode(r.stderr), contains('argument transport failed'));
-      expect(marker.existsSync(), isFalse);
-    }
-
-    test('a count that is not digits', () async {
-      await expectRefused([
-        ..._record('x'),
-        ..._record('touch'),
-        ..._record('ran'),
-      ]);
-      await expectRefused([..._record('1x'), ..._record('touch')]);
-      await expectRefused([..._record('-1'), ..._record('touch')]);
-      await expectRefused([..._record(''), ..._record('touch')]);
-    }, skip: skip);
-
-    test('a zero count', () async {
-      await expectRefused(_record('0'));
-    }, skip: skip);
-
-    test('an absurdly long count', () async {
-      await expectRefused([..._record('9' * 40), ..._record('touch')]);
-    }, skip: skip);
-
-    test('fewer records than the count', () async {
-      await expectRefused([
-        ..._record('3'),
-        ..._record('touch'),
-        ..._record('ran'),
-      ]);
-    }, skip: skip);
-
-    test('an unterminated last record', () async {
-      await expectRefused([
-        ..._record('2'),
-        ..._record('touch'),
-        ...utf8.encode('ran'),
-      ]);
-    }, skip: skip);
-
-    test('empty stdin after the directory', () async {
-      await expectRefused(const []);
-    }, skip: skip);
-
-    test('no stdin at all', () async {
-      final r = await runFramed(bash!, const []);
-      expect(r.exitCode, 126);
     }, skip: skip);
   });
 
   group('runToolCapped', () {
     test('returns the output when it stays within the cap', () async {
-      final r = await runToolCapped(bash!, dir.path, [
-        'bash',
-        '-c',
-        'printf 0123456789',
-      ], cap: 10);
+      final r = await runToolCapped(dir.path, sh('printf 0123456789'), cap: 10);
       expect(r.outputTooLarge, isFalse);
       expect(r.exitCode, 0);
       expect(utf8.decode(r.stdout), '0123456789');
@@ -255,11 +198,11 @@ void main() {
       'kills the child once stdout goes past the cap',
       () async {
         final watch = Stopwatch()..start();
-        final r = await runToolCapped(bash!, dir.path, [
-          'bash',
-          '-c',
-          r'head -c 200000 /dev/zero | tr "\0" a; exec sleep 5',
-        ], cap: 1000);
+        final r = await runToolCapped(
+          dir.path,
+          sh(r'head -c 200000 /dev/zero | tr "\0" a; exec sleep 5'),
+          cap: 1000,
+        );
         expect(r.outputTooLarge, isTrue);
         expect(watch.elapsed, lessThan(const Duration(seconds: 15)));
       },
@@ -268,25 +211,26 @@ void main() {
     );
 
     test('a failing tool keeps its exit code and stderr', () async {
-      final r = await runToolCapped(bash!, dir.path, [
-        'bash',
-        '-c',
-        'echo nope >&2; exit 4',
-      ], cap: 100);
+      final r = await runToolCapped(
+        dir.path,
+        sh('echo nope >&2; exit 4'),
+        cap: 100,
+      );
       expect(r.exitCode, 4);
       expect(utf8.decode(r.stderr), 'nope\n');
     }, skip: skip);
 
-    test('an unstartable bash is the tool_missing stop', () async {
+    test('a missing tool is the tool_missing stop', () async {
       await expectLater(
-        runToolCapped('no-such-bash-vcs-g2', dir.path, ['but'], cap: 10),
+        runToolCapped(dir.path, ['no-such-but-vcs-g4'], cap: 10),
         throwsA(
           isA<VcsStop>()
               .having((e) => e.error, 'error', 'tool_missing')
               .having(
                 (e) => e.message,
                 'message',
-                startsWith('but could not run: '),
+                'no-such-but-vcs-g4 could not run: '
+                    'no-such-but-vcs-g4: command not found',
               ),
         ),
       );
@@ -295,7 +239,7 @@ void main() {
     test('a missing directory is the tool_missing stop', () async {
       final missing = '${dir.path}/gone';
       await expectLater(
-        runToolCapped(bash!, missing, ['but', 'status'], cap: 10),
+        runToolCapped(missing, ['but', 'status'], cap: 10),
         throwsA(
           isA<VcsStop>()
               .having((e) => e.error, 'error', 'tool_missing')
@@ -307,68 +251,25 @@ void main() {
               ),
         ),
       );
-    }, skip: skip);
+    });
   });
 
   group('working directory', () {
     final escaped = String.fromCharCode(0xdcff);
 
-    test('cwdRecord uses the drive form with / on Windows only', () {
-      expect(cwdRecord(r'C:\Users\a b\r', windows: true), 'C:/Users/a b/r');
-      expect(cwdRecord(r'/tmp/a\b', windows: false), r'/tmp/a\b');
-    });
-
     test('the tool runs in it', () async {
       final sub = Directory('${dir.path}/sub')..createSync();
-      final r = await runTool(bash!, sub.path, ['pwd']);
+      final r = await runTool(sub.path, sh('pwd'));
       expect(r.exitCode, 0);
       expect(utf8.decode(r.stdout).trim(), endsWith('/sub'));
     }, skip: skip);
 
-    test('a CDPATH in the environment does not redirect cd or print', () async {
-      Directory('${dir.path}/sub').createSync();
-      final env = {...Platform.environment, 'CDPATH': dir.path};
-      final r = await runTool(bash!, '${dir.path}/sub', [
-        'bash',
-        '-c',
-        r'printf "%s|" "$CDPATH"; pwd',
-      ], environment: env);
-      expect(r.exitCode, 0);
-      final out = utf8.decode(r.stdout);
-      // The tool sees CDPATH unchanged, and cd printed nothing before it.
-      expect(out, startsWith('${dir.path}|'));
-      expect(out.trim(), endsWith('/sub'));
-      expect(r.stderr, isEmpty);
-    }, skip: skip);
-
-    test(
-      'a directory with a byte that is not UTF-8 is entered',
-      () async {
-        final raw = Uint8List.fromList([
-          ...utf8.encode(dir.path),
-          0x2f,
-          0x64,
-          0xff,
-        ]);
-        Directory.fromRawPath(raw).createSync();
-        final r = await runTool(bash!, '${dir.path}/d$escaped', ['pwd']);
-        expect(r.exitCode, 0);
-        expect(r.stdout, contains(0xff));
-      },
-      skip: bash == null
-          ? 'no bash installed'
-          : Platform.isLinux
-          ? false
-          : 'Linux only: macOS (APFS) refuses names that are not valid UTF-8, '
-                'and Windows names are UTF-16',
-    );
-
     test('a missing directory starts nothing and gives exit 127', () async {
       final missing = '${dir.path}/gone';
-      final r = await runTool(bash!, missing, ['touch', '${dir.path}/ran']);
+      final r = await runTool(missing, sh('touch "\$1"', ['${dir.path}/ran']));
       expect(r.exitCode, 127);
       expect(r.stdout, isEmpty);
-      expect(utf8.decode(r.stderr), missingDirectoryText(missing));
+      expect(utf8.decode(r.stderr), '${missingDirectoryText(missing)}\n');
       expect(File('${dir.path}/ran').existsSync(), isFalse);
     }, skip: skip);
 
@@ -393,19 +294,17 @@ void main() {
       expect(t('/d$escaped'), "$head'/d\\udcff'");
     });
 
-    test(
-      'a directory removed before the prelude enters it exits 127, silent',
-      () async {
-        final r = await runFramed(bash!, [
-          ..._record('${dir.path}/gone'),
-          ...frameArguments(['touch', '${dir.path}/ran']),
-        ]);
-        expect(r.exitCode, 127);
-        expect(r.stdout, isEmpty);
-        expect(r.stderr, isEmpty);
-        expect(File('${dir.path}/ran').existsSync(), isFalse);
-      },
-      skip: skip,
-    );
+    test('a directory that is not well-formed Unicode is unrepresentable', () {
+      expect(
+        () => runTool('${dir.path}/d$escaped', ['tool']),
+        throwsA(
+          isA<Unrepresentable>().having(
+            (e) => e.what,
+            'what',
+            'working directory',
+          ),
+        ),
+      );
+    });
   });
 }

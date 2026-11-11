@@ -810,6 +810,12 @@ const launchAllowlist = Allowlist(
     'process/bounded_run.dart': {
       'Process.start': Call(1, _helper, function: 'run'),
     },
+    'process/launch.dart': {
+      // external tools start directly, without a shell; a batch file goes
+      // through the bounded helper
+      'Process.start': Call(1, _tool, function: '_native'),
+      'BoundedRun': Call(1, _tool),
+    },
     'process/exec_helper.dart': {
       'Process.start': Call(1, _helper, function: '_run'),
     },
@@ -826,15 +832,10 @@ const launchAllowlist = Allowlist(
       'runTool': Call(1, _tool),
       'runText': Call(2, _tool),
     },
-    'vcs/probe.dart': {'runTool': Call(1, _tool), 'runText': Call(7, _tool)},
+    'vcs/probe.dart': {'runText': Call(7, _tool)},
     'vcs/scripts.dart': {
       'runTool': Call(1, _tool),
       'fencedText': Call(1, _tool),
-    },
-    'vcs/tool_runner.dart': {
-      // external tools start through the framed bash transport
-      'Process.start': Call(1, _tool, function: 'runFramed'),
-      'runFramed': Call(2, _tool),
     },
   },
   selfLaunches: {

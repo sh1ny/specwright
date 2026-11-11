@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_pr_pair as original
 import test_parity as parity
+import fakeexe  # parity puts evals/ on sys.path
 
 
 def setUpModule():
@@ -344,6 +345,7 @@ class WorkflowRecords(NativePass, original.PassBase):
             'fi\n'
             f'exec "{real_git}" "$@"\n', encoding="utf-8", newline="\n")
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_RECORD_LOCK=lock.as_posix(), WF_DONE_HELD=held.as_posix(),
                               WF_DONE_RELEASE=release.as_posix())
         results = []
@@ -403,6 +405,7 @@ class WorkflowRecords(NativePass, original.PassBase):
                         'if [ "$1" = status ]; then cat "$WF_BUT_STATUS"; exit 0; fi\nexit 1\n',
                         encoding="utf-8", newline="\n")
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env["WF_BUT_STATUS"] = status.as_posix()
         (self.code / "unrelated.txt").write_text("already present", encoding="utf-8")
         # Another applied branch's work must not satisfy this pass's edit.

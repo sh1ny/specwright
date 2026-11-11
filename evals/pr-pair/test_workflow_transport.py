@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vcs'))
 import sentinels
+import fakeexe  # sentinels puts evals/ on sys.path
 import test_workflow_parity as wp
 from test_bounded import pid_alive
 
@@ -62,6 +63,7 @@ class WorkflowTransport(wp.WorkflowParity):
                         'printf "%s\\n" "$WF_SHA"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n',
                         encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         result, doc = self.native_rounds(code)
         self.assertEqual(result['code'], 0, doc)
         self.assertEqual(doc['rounds'], 1)
@@ -108,6 +110,7 @@ class WorkflowTransport(wp.WorkflowParity):
             'if [ "$1" = ls-remote ]; then printf "%s\\n" "$WF_REMOTE_SHA"; exit 0; fi\n'
             'exec '+shlex.quote(real)+' "$@"\n', encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         cwd = code if github else self.tmp
         for phase in ['ls-remote', 'fetch']:
             for kind, error in [('deadline', 'deadline_exceeded'), ('bytes', 'response_too_large')]:
@@ -154,6 +157,7 @@ class WorkflowTransport(wp.WorkflowParity):
         script = self.tmp / 'bin' / 'git'
         script.write_text('#!/bin/sh\nif [ "$1" = status ]; then echo git-state >> "$WF_VCS_DELAY_LOG"; sleep 3; fi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
         script.chmod(0o755)
+        fakeexe.add_launcher(script, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[]))
         result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
         self.assertEqual(result['code'], 0, doc)
@@ -183,6 +187,7 @@ class WorkflowTransport(wp.WorkflowParity):
             ' printf "%s|%s\\n" "$target" "${GH_TOKEN-unset}" >> "$WF_FETCH_LOG"\n'
             ' printf "%s\\n" "$WF_SHA" > "$WF_FETCH_HEAD"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
         shim.chmod(0o755)
+        fakeexe.add_launcher(shim, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         sentinel = sentinels.install(self.tmp / 'fetch-scripts', self.tmp / 'fetch-bin', self.tmp / 'fetch-sentinel-log')
         self.workflow_scripts = sentinel.scripts
         self.extra_env.update(sentinel.env, WF_FETCH_LOG=fetch.as_posix(),
@@ -242,6 +247,7 @@ class WorkflowTransport(wp.WorkflowParity):
             'fi\n'
             f'exec "{real.as_posix()}" "$@"\n', encoding='utf-8', newline='\n')
         gh.chmod(0o755)
+        fakeexe.add_launcher(gh, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_FENCE_START=started.as_posix(), WF_CHILD_PID=child_pid.as_posix(),
                               WF_FENCE_DIR=code, SPECWRIGHT_NET_DEADLINE='8')
         try:
@@ -285,6 +291,7 @@ class WorkflowTransport(wp.WorkflowParity):
             'fi\n'
             f'exec "{real}" "$@"\n', encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_SHA=sha)
         return code, store
 

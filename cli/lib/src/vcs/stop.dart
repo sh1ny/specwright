@@ -1,3 +1,4 @@
+import '../process/launch.dart' show Unrepresentable;
 import 'codec.dart';
 
 /// A stop `vcs.sh` reports as one document: [error], [message], the exit [code]
@@ -15,6 +16,14 @@ class VcsStop implements Exception {
   /// with a message that asks for a rename.
   factory VcsStop.notUtf8(NotUtf8 e) =>
       VcsStop('not_utf8', '${e.message}; rename it');
+
+  /// The launcher refused input it cannot hand to a tool whole (a NUL, a lone
+  /// surrogate, a command line past the Windows limit): `not_utf8`, exit 1,
+  /// naming the command and the input (D5).
+  factory VcsStop.unrepresentable(Unrepresentable e) => VcsStop(
+    'not_utf8',
+    'cannot start ${e.command}: its ${e.what} cannot be represented',
+  );
 
   final String error;
   final String message;

@@ -4,6 +4,7 @@ import 'package:specwright_cli/src/commit/paths.dart';
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
+import '../support/exe_shim.dart';
 
 /// A stub `cygpath` first on PATH: it logs its arguments, then prints
 /// `$STUB_OUT` (raw, with the printf escapes) and exits `$STUB_EXIT`.
@@ -14,6 +15,7 @@ exit "${STUB_EXIT:-0}"
 ''';
 
 void main() {
+  useExeShim();
   final bash = findBash();
   late Directory dir;
   late File log;
@@ -21,6 +23,7 @@ void main() {
     dir = Directory.systemTemp.createTempSync('claude-ncc-g2-paths-');
     final stub = File('${dir.path}/cygpath')..writeAsStringSync(_stub);
     if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+    shimExe(stub.path);
     log = File('${dir.path}/log.txt');
   });
   tearDown(() => dir.deleteSync(recursive: true));

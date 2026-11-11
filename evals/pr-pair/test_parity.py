@@ -36,6 +36,7 @@ sys.path.append(str(ROOT / "evals"))
 import snapfix  # noqa: E402
 from snapfix import SnapCase, T0, fake_gh, fixtures, rev  # noqa: E402
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 import test_as_sh as tas  # noqa: E402  module attributes only: its test classes are not collected here
 import vcs_test_support  # noqa: E402
 sys.path.insert(0, str(ROOT / "evals" / "cli"))
@@ -407,6 +408,7 @@ class WatcherTakeover(PrParity):
         sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
                          encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.procs = []
         self.addCleanup(self._reap)
 

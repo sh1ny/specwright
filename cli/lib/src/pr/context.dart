@@ -155,7 +155,7 @@ class PrContext {
   Future<ToolResult> tool(List<String> command) => (_tool ?? _runTool)(command);
 
   Future<ToolResult> _runTool(List<String> command) =>
-      runTool(bash, cwd, command, environment: environment);
+      runTool(cwd, command, environment: environment);
 
   /// `git <args>` in [dir] (`pr-pair.sh`'s `git(d, ...)`): through bash like every tool, decoded as text. A directory
   /// that cannot be entered is exit 127.
@@ -163,7 +163,7 @@ class PrContext {
       (_git ?? _runGit)(dir, args);
 
   Future<TextResult> _runGit(String dir, List<String> args) =>
-      runText(bash, dir, ['git', ...args]);
+      runText(dir, ['git', ...args]);
 
   /// `mktemp [template]` through bash, with the path converted by `cygpath -m` in the same bash call on Windows, so
   /// `sw` and Python can open it. Null when `mktemp` failed.

@@ -5,7 +5,6 @@ import 'package:specwright_cli/src/cli.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/scripts.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
-import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
@@ -150,30 +149,6 @@ void main() {
       expect(stop.code, lessThanOrEqualTo(3));
       expect(lines('calls.log'), isEmpty);
     }, skip: skip);
-
-    test(
-      'scripts under a directory whose name holds the byte 0xFF',
-      () async {
-        final raw = '${posix(tmp.path)}/odd-\udcff-dir';
-        final made = await runTool(bash!, posix(tmp.path), [
-          'cp',
-          '-r',
-          posix(scriptsDir.path),
-          raw,
-        ]);
-        expect(made.exitCode, 0, reason: decodeEscaped(made.stderr));
-        gitInit();
-        settings('vcs: jj\nmain_branch: m\n');
-        final s = await readSettings(
-          VcsScripts(raw, bash),
-          code: code(),
-          repo: code(),
-          role: 'code',
-        );
-        expect((s.backend, s.main), ('jj', 'm'));
-      },
-      skip: Platform.isLinux ? skip : 'Linux only: macOS (APFS) and Windows refuse names that are not valid UTF-8',
-    );
   });
 
   group('fence', () {

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'codec.dart';
 import 'scripts.dart';
 import 'stop.dart';
-import 'tool_runner.dart';
 
 /// What `vcs.sh`'s `probe` returns: the backend, the main branch, the Git root
 /// (`repo`), the pinned login and, for Git, whether a `.jj` directory exists.
@@ -24,17 +23,10 @@ class ProbeInfo {
 }
 
 /// `Path(path).resolve()` for a directory that exists: absolute, `.` and `..`
-/// folded, links followed. A path with escaped bytes (not valid UTF-8) is
-/// resolved by `pwd -P` through the transport, so that no byte is lost.
-Future<String> resolvePath(String bash, String path) async {
-  if (path.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff)) {
-    final r = await runTool(bash, path, ['bash', '-c', 'pwd -P']);
-    if (r.exitCode == 0) {
-      final text = decodeEscaped(r.stdout);
-      return text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
-    }
-    return path;
-  }
+/// folded, links followed. A path that cannot be resolved is returned as it is
+/// (a path with escaped bytes is refused later by the launcher as
+/// unrepresentable, and no `pwd -P` runs for it).
+Future<String> resolvePath(String path) async {
   try {
     return Directory(path).resolveSymbolicLinksSync();
   } on FileSystemException {
@@ -67,26 +59,22 @@ String _join(String base, String rel) {
 final _version = RegExp(r'\b(\d+)\.(\d+)\.(\d+)');
 
 /// `vcs.sh`'s `git_root`.
-Future<String> gitRoot(String bash, String repo) async {
-  final result = await runText(bash, repo, [
-    'git',
-    'rev-parse',
-    '--show-toplevel',
-  ]);
+Future<String> gitRoot(String repo) async {
+  final result = await runText(repo, ['git', 'rev-parse', '--show-toplevel']);
   if (result.code != 0) {
     throw VcsStop(
       'not_repository',
       'not inside a Git work tree: ${result.stderr.trim()}',
     );
   }
-  return resolvePath(bash, result.stdout.trim());
+  return resolvePath(result.stdout.trim());
 }
 
 /// `vcs.sh`'s `detect_main`.
-Future<String> detectMain(String bash, String repo, String configured) async {
+Future<String> detectMain(String repo, String configured) async {
   if (configured.isNotEmpty) return configured;
   for (final name in const ['main', 'master']) {
-    final r = await runText(bash, repo, [
+    final r = await runText(repo, [
       'git',
       'show-ref',
       '--verify',
@@ -100,17 +88,13 @@ Future<String> detectMain(String bash, String repo, String configured) async {
 
 /// `vcs.sh`'s `gitbutler_managed`: the target ref, or null when
 /// `.git/gitbutler/` or `gitbutler.project.targetRef` is missing.
-Future<String?> gitbutlerManaged(String bash, String root) async {
-  final common = await runText(bash, root, [
-    'git',
-    'rev-parse',
-    '--git-common-dir',
-  ]);
+Future<String?> gitbutlerManaged(String root) async {
+  final common = await runText(root, ['git', 'rev-parse', '--git-common-dir']);
   final commonDir = common.code == 0 && common.stdout.trim().isNotEmpty
       ? _join(root, common.stdout.trim())
       : _join(root, '.git');
   if (!_isDirectory(_join(commonDir, 'gitbutler'))) return null;
-  final target = await runText(bash, root, [
+  final target = await runText(root, [
     'git',
     'config',
     '--get',
@@ -138,14 +122,13 @@ bool _older((int, int, int) v, (int, int, int) min) => v.$1 != min.$1
     : v.$3 < min.$3;
 
 Future<ProbeInfo> _probeGitbutler(
-  String bash,
   String repo,
   String configuredMain,
   VcsSettings settings,
 ) async {
-  final root = await gitRoot(bash, repo);
-  final main = await detectMain(bash, root, configuredMain);
-  final target = await gitbutlerManaged(bash, root);
+  final root = await gitRoot(repo);
+  final main = await detectMain(root, configuredMain);
+  final target = await gitbutlerManaged(root);
   if (target == null) {
     throw VcsStop(
       'not_managed',
@@ -166,7 +149,7 @@ Future<ProbeInfo> _probeGitbutler(
   final outside = Directory.systemTemp.createTempSync('swb-probe-');
   final TextResult version;
   try {
-    version = await runText(bash, outside.path, ['but', '--version']);
+    version = await runText(outside.path, ['but', '--version']);
   } finally {
     outside.deleteSync(recursive: true);
   }
@@ -201,7 +184,6 @@ Future<ProbeInfo> probe(
   String code,
   String role,
 ) async {
-  final bash = scripts.bash;
   final settings = await readSettings(
     scripts,
     code: code,
@@ -210,10 +192,10 @@ Future<ProbeInfo> probe(
   );
   final backend = settings.backend;
   if (backend == 'gitbutler') {
-    return _probeGitbutler(bash, repo, settings.main, settings);
+    return _probeGitbutler(repo, settings.main, settings);
   }
   if (backend == 'jj') {
-    final version = await runText(bash, repo, ['jj', '--version']);
+    final version = await runText(repo, ['jj', '--version']);
     if (version.code == 127) {
       throw VcsStop(
         'tool_missing',
@@ -236,7 +218,7 @@ Future<ProbeInfo> probe(
     }
     final String root;
     try {
-      root = await gitRoot(bash, repo);
+      root = await gitRoot(repo);
     } on VcsStop {
       if (_exists(_join(repo, '.jj'))) {
         throw VcsStop(
@@ -255,10 +237,10 @@ Future<ProbeInfo> probe(
         'vcs: jj selected, but the Git work tree has no .jj/ metadata',
       );
     }
-    final main = await detectMain(bash, root, settings.main);
-    final jroot = await runText(bash, repo, ['jj', 'root']);
+    final main = await detectMain(root, settings.main);
+    final jroot = await runText(repo, ['jj', 'root']);
     if (jroot.code != 0 ||
-        !_samePath(await resolvePath(bash, jroot.stdout.trim()), root)) {
+        !_samePath(await resolvePath(jroot.stdout.trim()), root)) {
       throw VcsStop(
         'not_colocated',
         'jj workspace and Git work tree do not share the same toplevel',
@@ -266,9 +248,9 @@ Future<ProbeInfo> probe(
     }
     return ProbeInfo('jj', main, root, settings.login);
   }
-  final root = await gitRoot(bash, repo);
-  final main = await detectMain(bash, root, settings.main);
-  if (await gitbutlerManaged(bash, root) != null) {
+  final root = await gitRoot(repo);
+  final main = await detectMain(root, settings.main);
+  if (await gitbutlerManaged(root) != null) {
     throw VcsStop(
       'gitbutler_workspace',
       'GitButler manages this repo, and the Git backend must not write in its '

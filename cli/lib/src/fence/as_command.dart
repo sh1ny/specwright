@@ -60,7 +60,7 @@ Future<int> runAsCommand(
     git:
         git ??
         (command, e) async {
-          final r = await runTool(bash, '.', command, environment: e);
+          final r = await runTool('.', command, environment: e);
           return r;
         },
     launch: launch ?? (command, e) => runFenced(bash, command, e),

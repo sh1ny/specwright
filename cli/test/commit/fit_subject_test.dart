@@ -4,10 +4,10 @@ import 'dart:typed_data';
 
 import 'package:specwright_cli/src/commit/context.dart';
 import 'package:specwright_cli/src/commit/fit_subject.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
+import '../support/exe_shim.dart';
 
 /// A stub `cygpath` first on PATH that always fails.
 const String _failingCygpath = '#!/bin/sh\nexit 1\n';
@@ -24,6 +24,7 @@ class _Run {
 }
 
 void main() {
+  useExeShim();
   late Directory dir;
   late String msg;
   setUp(() {
@@ -353,6 +354,7 @@ void main() {
         final stub = File('${dir.path}/cygpath')
           ..writeAsStringSync(_failingCygpath);
         if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+        shimExe(stub.path);
         final content = bytesOf('$fitted ffffffffff\nbody\n');
         File(msg).writeAsBytesSync(content);
         final sep = Platform.isWindows ? ';' : ':';
@@ -374,35 +376,6 @@ void main() {
         expect(file(), content);
         expect(names(), before);
       },
-    );
-  });
-
-  group('fitSubject: raw path bytes', () {
-    test(
-      'a name that is not UTF-8 is fitted in place, byte for byte',
-      () async {
-        // The message file's name holds the byte 0xFF. The argument reaches
-        // sw as surrogateescape text, as the handoff decodes it.
-        final rawName = [
-          ...utf8.encode('${dir.path}/m'),
-          0xff,
-          ...utf8.encode('.txt'),
-        ];
-        final arg = decodeEscaped(Uint8List.fromList(rawName));
-        final target = File.fromRawPath(Uint8List.fromList(rawName));
-        final content = bytesOf('$fitted ffffffffff\nbody\n');
-        target.writeAsBytesSync(content);
-        final r = await run([arg]);
-        expect(r.code, 0, reason: r.errText);
-        expect(r.outText, '$fitted\n');
-        expect(target.readAsBytesSync(), bytesOf('$fitted\nbody\n'));
-        // Nothing else was created or replaced beside it.
-        expect(dir.listSync(), hasLength(1));
-      },
-      skip: Platform.isLinux
-          ? false
-          : 'Linux only: macOS (APFS) refuses names that are not valid UTF-8, '
-                'and Windows names are UTF-16',
     );
   });
 }

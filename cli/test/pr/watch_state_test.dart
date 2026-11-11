@@ -78,7 +78,12 @@ void main() {
       ]).stdout.toString().trim();
       expect(posix, startsWith('/'));
       final base = await stateBase(
-        context(env: {'SPECWRIGHT_STATE_DIR': '$posix/state'}),
+        context(
+          env: {
+            ...Platform.environment,
+            'SPECWRIGHT_STATE_DIR': '$posix/state',
+          },
+        ),
       );
       expect(base, '${dir.path.replaceAll(r'\', '/')}/state');
       expect(Directory(base).parent.existsSync(), isTrue);

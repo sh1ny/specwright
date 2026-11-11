@@ -123,7 +123,6 @@ class GitButler {
   /// that many bytes were read the child is killed and the run stops.
   Future<String> butRun(List<String> args, {int? cap}) async {
     final r = await runToolCapped(
-      scripts.bash,
       root,
       ['but', ...args],
       cap: cap ?? 0x7fffffffffffffff,
@@ -472,7 +471,7 @@ class GitButler {
       size = encodeEscaped(argv.map(_quoteArg).join(' ')).length;
       limit = 32000;
     } else {
-      final max = await runText(scripts.bash, root, ['getconf', 'ARG_MAX']);
+      final max = await runText(root, ['getconf', 'ARG_MAX']);
       final arg = max.code == 0 ? int.tryParse(max.stdout.trim()) : null;
       var env = 0;
       Platform.environment.forEach((k, v) {
@@ -667,7 +666,7 @@ class GitButler {
   /// `bash_command(root, "but", "pull", "--json")`: read as git and jj output
   /// is.
   Future<TextResult> _plainPull() async {
-    final r = await runTool(scripts.bash, root, [
+    final r = await runTool(root, [
       'but',
       'pull',
       '--json',

@@ -35,7 +35,7 @@ Future<String> nativePath(
   Map<String, String>? environment,
 }) async {
   if (!(windows ?? Platform.isWindows) || !path.startsWith('/')) return path;
-  final result = await runTool(bash, Directory.current.path, [
+  final result = await runTool(Directory.current.path, [
     'cygpath',
     '-m',
     '--',

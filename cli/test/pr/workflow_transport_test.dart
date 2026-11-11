@@ -175,7 +175,7 @@ void main() {
   });
 
   test(
-    'real workflow command preserves empty long and raw argument bytes',
+    'real workflow command preserves empty, long and special arguments',
     () async {
       final bash = findBash();
       expect(bash, isNotNull);
@@ -198,8 +198,9 @@ void main() {
         '',
         'space quote " dollar \$ glob *',
         'é',
-        List.filled(100000, 'x').join(),
-        if (!Platform.isWindows) decodeEscaped([0x80, 0xff]),
+        // under the Windows command-line limit; a longer one, or a byte that
+        // is not UTF-8, is refused by the launcher as unrepresentable
+        List.filled(20000, 'x').join(),
       ];
       final r = await transport.fenced('bot', [
         bash,

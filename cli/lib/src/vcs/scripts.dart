@@ -10,14 +10,10 @@ import 'tool_runner.dart';
 
 export 'text_result.dart';
 
-/// Runs [command] (tool name first) in [cwd] through the transport and decodes
-/// its output as text. This is `vcs.sh`'s `run` with `bash -c 'exec "$@"'`.
-Future<TextResult> runText(
-  String bash,
-  String cwd,
-  List<String> command,
-) async {
-  final r = await runTool(bash, cwd, command);
+/// Runs [command] (tool name first) in [cwd] without a shell and decodes its output
+/// as text. This is `vcs.sh`'s `run`.
+Future<TextResult> runText(String cwd, List<String> command) async {
+  final r = await runTool(cwd, command);
   return TextResult(r.exitCode, decodeText(r.stdout), decodeText(r.stderr));
 }
 

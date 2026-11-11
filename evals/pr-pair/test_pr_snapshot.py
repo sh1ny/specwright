@@ -15,6 +15,7 @@ from pathlib import Path
 import snapfix
 from snapfix import SnapCase, T0, rev
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 
 def setUpModule():
@@ -426,6 +427,7 @@ class WaitUnwritable(SnapCase):
         sleep = self.tmp / "bin" / "sleep"
         sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.state_dir.write_text("a file, not a directory")
         self.set_head(B, f"{D}09:00:00Z")
         self.add_comment("genrev", "old head: looks good", at=f"{D}10:00:00Z")  # before the first sighting: never counts
@@ -466,6 +468,7 @@ class WatchOwnership(SnapCase):
         sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
                          encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.procs = []
         self.addCleanup(self._reap)
 
@@ -632,6 +635,7 @@ class WatchElapsed(SnapCase):
         sleep = self.tmp / "bin" / "sleep"
         sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
         self.pidf = self.tmp / "hang.pid"
         self.addCleanup(stop_pid_file, self.pidf)
 
@@ -840,6 +844,7 @@ class TestUntilAttention(SnapCase):
         sleep = self.tmp / "bin" / "sleep"
         sleep.write_text(f'#!/bin/sh\nexec "{snapfix.fixtures.posix(sys.executable)}" "{snapfix.fixtures.posix(helper)}" "$@"\n', encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        fakeexe.add_launcher(sleep)  # sw starts it by PATHEXT name on Windows (D9)
 
     def wait(self, baseline, steps, *args, timeout=120):
         """Run the watch with `--until attention`; the parsed wake line."""

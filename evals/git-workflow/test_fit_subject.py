@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "fit-subject.sh"
@@ -254,9 +255,10 @@ class FitSubjectWindowsPaths(unittest.TestCase):
         stub = self.tmp / "stub"
         stub.mkdir()
         # fails for the message path only: the resolver and the shim convert their own paths with cygpath too
-        (stub / "cygpath").write_text(
+        fakeexe.write_fake(
+            stub / "cygpath",
             '#!/bin/sh\nfor a in "$@"; do [ "$a" = "%s" ] && exit 1; done\nexec "%s" "$@"\n'
-            % (arg, Path(shutil.which("cygpath")).as_posix()), encoding="utf-8", newline="\n")
+            % (arg, Path(shutil.which("cygpath")).as_posix()))
         r = self.run_shim(arg, shim=stub)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("fit-subject.sh: could not convert path: " + arg, r.stderr)

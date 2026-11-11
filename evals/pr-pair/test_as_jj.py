@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 import jjenv  # noqa: E402
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402  (jjenv puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 GITHUB = "https://github.com/o/r.git"
@@ -58,8 +59,7 @@ class AsJjCase(unittest.TestCase):
         # a jj stand-in that only records that it ran; refusal tests put it first on PATH
         self.stub = self.tmp / "stub"
         self.stub.mkdir()
-        (self.stub / "jj").write_text("#!/bin/sh\ntouch '%s'\n" % self.marker.as_posix(), encoding="utf-8", newline="\n")
-        (self.stub / "jj").chmod(0o755)
+        fakeexe.write_fake(self.stub / "jj", "#!/bin/sh\ntouch '%s'\n" % self.marker.as_posix())
 
     def env(self, **extra):
         env = {k: v for k, v in self.scratch.env.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO")}

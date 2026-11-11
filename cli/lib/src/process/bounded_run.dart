@@ -79,6 +79,7 @@ class BoundedRun {
     List<String>? helperCommand,
     this.preGoFile,
     this.environment,
+    this.workingDirectory,
     void Function(String line)? note,
   }) : helperCommand = helperCommand ?? [Platform.resolvedExecutable, '__exec'],
        _note = note ?? stderr.write;
@@ -113,6 +114,11 @@ class BoundedRun {
   /// environment.
   final Map<String, String>? environment;
 
+  /// The directory the helper starts in, and so the command it starts, which
+  /// takes it from the helper (the helper's `Process.start` and
+  /// `CreateProcessW` name no directory of their own). Null: `sw`'s own.
+  final String? workingDirectory;
+
   final void Function(String line) _note;
 
   Future<BoundedResult> run() async {
@@ -123,11 +129,14 @@ class BoundedRun {
     }
 
     Duration? exitAt;
-    final deadlineTimer = Timer(limits.deadline, () {
-      final at = exitAt;
-      if (at != null && at < limits.deadline) return; // the exit came first
-      hit(BoundedLimit.deadlineExceeded);
-    });
+    final deadline = limits.deadline;
+    final deadlineTimer = deadline == null
+        ? null
+        : Timer(deadline, () {
+            final at = exitAt;
+            if (at != null && at < deadline) return; // the exit came first
+            hit(BoundedLimit.deadlineExceeded);
+          });
 
     final tree = treeFor();
     final Process helper;
@@ -137,9 +146,10 @@ class BoundedRun {
         [...helperCommand.skip(1), if (rawLine) '--cmdline', '--', ...command],
         environment: environment,
         includeParentEnvironment: environment == null,
+        workingDirectory: workingDirectory,
       );
     } on ProcessException catch (e) {
-      deadlineTimer.cancel();
+      deadlineTimer?.cancel();
       tree.dispose();
       return BoundedResult(startError: 'cannot start the helper: ${e.message}');
     }
@@ -157,13 +167,16 @@ class BoundedRun {
       if (!c.isCompleted) c.complete();
     }
 
-    void count(BytesBuilder buffer, List<int> chunk) {
+    void count(BytesBuilder buffer, List<int> chunk, int? bound) {
       buffer.add(chunk);
-      if (buffer.length > limits.maxBytes) hit(BoundedLimit.responseTooLarge);
+      if (bound != null && buffer.length > bound) {
+        hit(BoundedLimit.responseTooLarge);
+      }
     }
 
+    final outBound = limits.stdoutCap ?? limits.maxBytes;
     final outSub = helper.stdout.listen(
-      (chunk) => count(out, chunk),
+      (chunk) => count(out, chunk, outBound),
       onError: (Object _) => settle(outDone),
       onDone: () => settle(outDone),
     );
@@ -176,7 +189,7 @@ class BoundedRun {
           settle(helloSettled);
           settle(frameSettled);
         }
-        if (rest.isNotEmpty) count(err, rest);
+        if (rest.isNotEmpty) count(err, rest, limits.maxBytes);
       },
       onError: (Object _) => settle(errDone),
       onDone: () {
@@ -192,7 +205,9 @@ class BoundedRun {
       helper.exitCode.then((code) {
         final at = clock.elapsed;
         exitAt = at;
-        if (at >= limits.deadline) hit(BoundedLimit.deadlineExceeded);
+        if (deadline != null && at >= deadline) {
+          hit(BoundedLimit.deadlineExceeded);
+        }
         exited.complete(code);
       }),
     );
@@ -376,7 +391,7 @@ class BoundedRun {
         stderr: err.takeBytes(),
       );
     } finally {
-      deadlineTimer.cancel();
+      deadlineTimer?.cancel();
       if (!exited.isCompleted && !letGo) await tree.stop();
       tree.dispose();
     }

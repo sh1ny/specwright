@@ -19,6 +19,7 @@ from pathlib import Path
 import snapfix
 from snapfix import REPLY, ROOT, SCRIPTS, SNAPSHOT, T0, SnapCase, fixtures, rev
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 STOP = "sw missing or mismatched: rerun the install prompt"
 PAIR = SCRIPTS / "pr-pair.sh"
@@ -465,6 +466,7 @@ class TestHomeStateBaseOnWindows(ShimCase):
         sleep = self.tmp / "bin" / "sleep"  # short naps, so the old watcher's takeover check comes quickly
         sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
                          encoding="utf-8", newline="\n")
+        fakeexe.add_launcher(sleep)  # sw starts sleep by PATHEXT name on Windows (D9)
         self.home = self.tmp / "home"
         self.home.mkdir()
         self.procs = []

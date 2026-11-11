@@ -6,7 +6,6 @@ import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
 import '../vcs/codec.dart';
-import '../vcs/tool_runner.dart';
 
 /// What one bounded `gh` (or `sw pr reviewers`) call ended in. Without a [limit],
 /// the output and [exitCode] are the command's own; a call that could not
@@ -31,11 +30,70 @@ class GhResult {
   final Uint8List stderr;
 }
 
-/// [vcsPrelude] with the `bounded:` message prefix `sw run --bounded` printed.
-final String boundedPrelude = vcsPrelude.replaceAll(
+// The bash argument transport the bounded calls still use. Task 5.2 of
+// `native-cli-launcher` replaces it with a direct start and deletes this block.
+
+/// Shell text put in front of `exec "$@"` in the transported `bash -c`.
+///
+/// It reads the working directory record, then the argument count (decimal
+/// digits, NUL-terminated) and exactly that many NUL-terminated records, one
+/// `read -r -d ''` at a time into the positional list, and leaves the rest of
+/// stdin unread for the exec'd tool. A missing directory record, a count that
+/// is not decimal digits (or is zero, or is longer than nine digits) and fewer
+/// records than the count exit 126 before any tool runs. No argument value is
+/// reserved. Last it enters the directory with `CDPATH= cd -- "$dir"` (an
+/// empty `CDPATH` for `cd` only, so a drive-form path is never searched
+/// through it, and nothing is printed); a directory that vanished exits 127,
+/// silently.
+///
+/// The records are read with `LC_ALL=C`, and `LC_ALL` is restored (or unset)
+/// before the tool runs: in a UTF-8 locale bash's `read` takes a lead byte at
+/// the end of a record (`\xe9` then NUL) as the start of a character and
+/// swallows the NUL that ends the record.
+const String _prelude =
+    r'''__lcs=${LC_ALL+x}; __lc=${LC_ALL-}; LC_ALL=C; __d=; IFS= read -r -d '' __d || { echo "vcs: argument transport failed" >&2; exit 126; }; __c=; IFS= read -r -d '' __c || __c=x; case $__c in ''|*[!0-9]*|0*) echo "vcs: argument transport failed" >&2; exit 126;; esac; [ "${#__c}" -le 9 ] || { echo "vcs: argument transport failed" >&2; exit 126; }; set --; __i=0; while [ "$__i" -lt "$__c" ]; do IFS= read -r -d '' __a || { echo "vcs: argument transport failed" >&2; exit 126; }; set -- "$@" "$__a"; __i=$((__i+1)); done; if [ -n "$__lcs" ]; then LC_ALL=$__lc; else unset LC_ALL; fi; CDPATH= cd -- "$__d" >/dev/null 2>&1 || exit 127; unset __d __c __i __a __lc __lcs''';
+
+/// [_prelude] with the `bounded:` message prefix `sw run --bounded` printed.
+final String boundedPrelude = _prelude.replaceAll(
   'vcs: argument transport failed',
   'bounded: argument transport failed',
 );
+
+/// The working directory as the transport's first record: absolute, and on
+/// Windows in its drive form with `/` separators (`C:/Users/x`).
+String _cwdRecord(String cwd, {bool? windows}) =>
+    (windows ?? Platform.isWindows) ? cwd.replaceAll(r'\', '/') : cwd;
+
+/// The argument records: the count of [command] entries in decimal, then each
+/// entry, every record followed by a NUL. Encoded with surrogateescape
+/// ([encodeEscaped]).
+Uint8List _frameArguments(List<String> command) {
+  final out = BytesBuilder(copy: false);
+  _record(out, '${command.length}');
+  for (final c in command) {
+    _record(out, c);
+  }
+  return out.takeBytes();
+}
+
+/// Everything the child reads ahead of any tool input: the working directory
+/// record ([_cwdRecord]), then [_frameArguments].
+Uint8List _frameCommand(String cwd, List<String> command) {
+  final out = BytesBuilder(copy: false)
+    ..add(_recordBytes(_cwdRecord(cwd)))
+    ..add(_frameArguments(command));
+  return out.takeBytes();
+}
+
+void _record(BytesBuilder out, String text) => out.add(_recordBytes(text));
+
+Uint8List _recordBytes(String text) {
+  final bytes = encodeEscaped(text);
+  if (bytes.contains(0)) {
+    throw ArgumentError('a transported record cannot hold a NUL byte');
+  }
+  return Uint8List.fromList([...bytes, 0]);
+}
 
 /// Runs `gh <args>` in [cwd] under the bounded helper: a deadline, a byte bound
 /// on each stream and a stop of the whole process tree.
@@ -61,7 +119,7 @@ Future<GhResult> runGh(
 }) => _run(
   bash,
   'gh',
-  frameCommand(cwd, ['gh', ...args]),
+  _frameCommand(cwd, ['gh', ...args]),
   ['gh', ...args],
   environment: environment,
   paged: paged,
@@ -101,7 +159,7 @@ Future<GhResult> runBoundedCommand(
 }) => _run(
   bash,
   command.first,
-  frameCommand(cwd, command),
+  _frameCommand(cwd, command),
   command,
   environment: environment,
   paged: paged,

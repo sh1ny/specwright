@@ -12,7 +12,7 @@ import 'context.dart';
 import 'paths.dart';
 
 /// Runs one `git` command line (the tool name first) and returns what it
-/// produced. The default is `runTool(bash, '.', argv)`; tests substitute it.
+/// produced. The default is `runTool('.', argv)`; tests substitute it.
 typedef GitTool = Future<ToolResult> Function(List<String> argv);
 
 /// Converts a path argument to a native path (design D9). The default is
@@ -51,7 +51,7 @@ Future<int> taskCover(
   try {
     doc = await _cover(
       args,
-      git: git ?? (argv) => runTool(ctx.bash, '.', argv),
+      git: git ?? (argv) => runTool('.', argv),
       convert: convert ?? (path) => nativePath(path, ctx.bash),
       environment: environment ?? Platform.environment,
     );

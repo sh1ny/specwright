@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../process/bounded_run.dart';
 import '../process/command_line.dart';
+import '../process/launch.dart' show Unrepresentable, checkLaunchInput;
 import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
@@ -62,6 +63,22 @@ Future<int> runCommand(
   }
   final environment = env ?? Platform.environment;
   final command = invocation.command;
+
+  // D5: input the launcher cannot represent is refused first, before the lookup
+  // and before the batch rules of planLaunch, and nothing starts. The Windows
+  // command-line limit is not checked here: a batch command keeps its own line
+  // limit (the unsafe-batch refusal below).
+  try {
+    checkLaunchInput(
+      command,
+      cwd: Directory.current.path,
+      environment: environment,
+      windows: false,
+    );
+  } on Unrepresentable catch (e) {
+    err.write('bounded: unrepresentable ${e.what}: ${e.command}\n');
+    return 2;
+  }
 
   final path = resolveCommand(command.first, environment);
   if (path == null) {

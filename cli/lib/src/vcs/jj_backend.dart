@@ -26,7 +26,7 @@ VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
 
 /// `vcs.sh`'s `jj(repo, *args)`.
 Future<TextResult> jj(VcsSession s, List<String> args) =>
-    runText(s.scripts.bash, s.repo, ['jj', ...args]);
+    runText(s.repo, ['jj', ...args]);
 
 /// `vcs.sh`'s `jj_result`: jj's stdout, or the `jj_error` stop.
 Future<String> jjResult(VcsSession s, List<String> args) async {
@@ -333,7 +333,7 @@ Future<void> jjCommitArgvCheck(
     size = encodeEscaped(windowsCommandLine(argv)).length;
     limit = 32000;
   } else {
-    final r = await runText(s.scripts.bash, s.repo, ['getconf', 'ARG_MAX']);
+    final r = await runText(s.repo, ['getconf', 'ARG_MAX']);
     final max = r.code == 0 ? int.tryParse(r.stdout.trim()) : null;
     if (max == null) {
       limit = 100000;
@@ -382,7 +382,7 @@ Future<void> checkDirectorySnapshot(
   if (oversize.isEmpty) return;
   // NUL-separated both ways: git quotes a non-ASCII path otherwise
   final names = oversize.map((rel) => '$rel\u0000').join();
-  final checked = await runTool(s.scripts.bash, s.repo, [
+  final checked = await runTool(s.repo, [
     'git',
     'check-ignore',
     '-z',

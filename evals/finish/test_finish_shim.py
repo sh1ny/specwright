@@ -21,6 +21,7 @@ ROOT = HERE.parents[1]
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
+import fakeexe  # noqa: E402  (jjenv puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402
 from vcs_test_support import STAMP, bash_run, sw_home, stamp_version, tree_version  # noqa: E402
 
@@ -123,9 +124,10 @@ class TestPlanRunsSw(ShimCase):
         stub = self.tmp / "stub"
         gitlog.install(stub, real_git=jjenv.real_git(), log_path=self.shim.log_path)
         # fails for the --dir path only: the resolver and the shim convert their own paths with cygpath too
-        (stub / "cygpath").write_text(
+        fakeexe.write_fake(
+            stub / "cygpath",
             '#!/bin/sh\nfor a in "$@"; do [ "$a" = "%s" ] && exit 1; done\nexec "%s" "$@"\n'
-            % (bash_form, Path(shutil.which("cygpath")).as_posix()), encoding="utf-8", newline="\n")
+            % (bash_form, Path(shutil.which("cygpath")).as_posix()))
         result = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp, shim_dir=stub)
         doc = self.document(result, 2)
         self.assertEqual((doc["ok"], doc["error"]), (False, "bad_path"), doc)

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import gbnet
 import jjenv
+import fakeexe  # after jjenv, which puts evals/ on sys.path
 import sentinels
 from butenv import Scratch as ButScratch
 from butenv import require_but
@@ -74,9 +75,8 @@ READS = {"status", "for-each-ref", "symbolic-ref", "branch", "log"}
 
 
 def write_tool(path, text):
-    with Path(path).open("w", encoding="utf-8", newline="\n") as stream:
-        stream.write(text)
-    Path(path).chmod(0o755)
+    """A fake tool: the script, and on Windows its `.cmd` wrapper (`sw` starts nothing without an extension there, D9)."""
+    fakeexe.write_fake(path, text)
 
 
 def posix(path):

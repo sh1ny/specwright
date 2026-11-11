@@ -10,6 +10,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
+import '../support/exe_shim.dart';
 import 'fake_fence.dart';
 
 /// A `but` that logs its arguments, runs `hook.<cmd>` (sourced, so it can
@@ -37,6 +38,7 @@ exit "\$(cat "\$d/$prefix.rc" 2>/dev/null || echo 0)"
 const _settings = 'openspec/specwright.yaml';
 
 void main() {
+  useExeShim();
   final bash = findBash();
   late Directory tmp;
   late Directory scriptsDir;
@@ -121,6 +123,7 @@ void main() {
     if (!Platform.isWindows) {
       Process.runSync('chmod', ['+x', '${butDir.path}/but']);
     }
+    shimExe('${butDir.path}/but');
     originDir = Directory('${tmp.path}/origin.git')..createSync();
     sh(originDir.path, ['init', '-q', '--bare', '-b', 'main']);
     repoDir = Directory('${tmp.path}/repo')..createSync();
