@@ -103,6 +103,49 @@ class TestSwBytes(VcsTestCase):
         self.assertIn("work/small.txt", names)
         self.assertNotIn("work/big.bin", names)
 
+    def jj_walk_fixture(self):
+        """A colocated jj repo with a changed `work/small.txt`; returns (repo, head of BRANCH before the commit)."""
+        jj = require_jj()
+        scratch = Scratch()
+        self.addCleanup(scratch.close)
+        fixture = scratch.tracked_repo()
+        repo = fixture.path
+        self.set_settings(repo, "vcs: jj\nmain_branch: main\n")
+        fixture.run(jj, "commit", "-m", "fixture settings")
+        fixture.run(jj, "bookmark", "set", "main", "-r", "@-")
+        fixture.run(jj, "bookmark", "create", BRANCH, "-r", "@-")
+        (repo / "work").mkdir()
+        (repo / "work" / "small.txt").write_text("changed\n", encoding="utf-8")
+        before = self.git(repo, "rev-parse", "refs/heads/" + BRANCH).stdout.strip()
+        return repo, before
+
+    @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_name_in_walk_stops_commit(self):
+        """The directory walk lists names itself: a name that is not UTF-8 stops it, shown with U+FFFD."""
+        repo, before = self.jj_walk_fixture()
+        self.write(b"work/a\xff.txt", "one\n", repo=repo)
+
+        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", "work",
+                                repo=repo, expected=1)
+
+        self.assertEqual(result["error"], "not_utf8", result)
+        self.assertIn("work/a\ufffd.txt", result["message"])
+        self.assertEqual(self.git(repo, "rev-parse", "refs/heads/" + BRANCH).stdout.strip(), before)
+
+    @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_lookalike_in_walk_stops_commit(self):
+        """A raw `a\\xff.txt` over the snapshot size limit beside a valid `a\ufffd.txt` must not pass as the small file."""
+        repo, before = self.jj_walk_fixture()
+        self.write(b"work/a\xff.txt", "x" * (2 * 1024 * 1024), repo=repo)
+        self.write("work/a\ufffd.txt", "small\n", repo=repo)
+
+        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", "work",
+                                repo=repo, expected=1)
+
+        self.assertEqual(result["error"], "not_utf8", result)
+        self.assertIn("work/a\ufffd.txt", result["message"])
+        self.assertEqual(self.git(repo, "rev-parse", "refs/heads/" + BRANCH).stdout.strip(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

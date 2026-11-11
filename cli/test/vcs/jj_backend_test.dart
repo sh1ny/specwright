@@ -463,7 +463,7 @@ void main() {
       });
 
       test('an oversized file in a named directory and in its child names '
-          "the parent's file", () async {
+          'the first by UTF-8 bytes of the path', () async {
         await onBranch('feat');
         jjIn(['config', 'set', '--repo', 'snapshot.max-new-file-size', '20']);
         write('dir/small.txt', 's\n');
@@ -485,10 +485,10 @@ void main() {
           stop,
           'path_not_tracked',
           message:
-              'dir/zbig.bin is not tracked in the jj working copy: it is '
+              'dir/sub/abig.bin is not tracked in the jj working copy: it is '
               'larger than snapshot.max-new-file-size (20 bytes)',
         );
-        expect(stop.extra, {'path': 'dir/zbig.bin'});
+        expect(stop.extra, {'path': 'dir/sub/abig.bin'});
       });
 
       test(

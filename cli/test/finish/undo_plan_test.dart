@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/finish/script_text.dart';
 import 'package:specwright_cli/src/finish/undo_plan.dart';
@@ -984,6 +985,86 @@ void main() {
         '$ad/notes.md',
       });
     }, skip: skip);
+
+    test('carried edits sort by whole-path UTF-8 bytes', () async {
+      final repo = makeRepo();
+      git(repo, ['checkout', '-q', '-b', 'feat/x']);
+      for (final f in ['b.md', 'a.md', 'a/z.md', 'sub/c.md']) {
+        put(repo, 'openspec/changes/add-x/$f', 'original $f\n');
+      }
+      makeChange(repo, 'add-x');
+      archive(repo, ['add-x']);
+      for (final f in ['b.md', 'a.md', 'a/z.md', 'sub/c.md']) {
+        put(repo, '$ad/$f', 'edited $f\n');
+      }
+      final doc = await ok(repo);
+      expect(doc['mode'], 'uncommitted');
+      expect((doc['carried_edits']! as List).cast<String>(), [
+        '$ad/a.md',
+        '$ad/a/z.md',
+        '$ad/b.md',
+        '$ad/sub/c.md',
+      ]);
+    }, skip: skip);
+
+    // A regression guard: it passes on the `find` walk and on the native one.
+    test(
+      'linked spec.md and linked carried edit stay in the plan',
+      () async {
+        final repo = branchRepo(deltas: {'foo': 'Foo thing'});
+        put(repo, 'openspec/changes/add-x/notes.md', 'original notes\n');
+        commitAll(repo, 'docs(add-x): notes');
+        archive(repo, ['add-x']);
+        final outside = Directory('${tmp.path}/outside')..createSync();
+        File('${outside.path}/spec.md')
+            .writeAsStringSync(deltaText('Foo thing'));
+        File('${outside.path}/notes.md').writeAsStringSync('edited notes\n');
+        File('${outside.path}/inside.md').writeAsStringSync('inside\n');
+        File('$repo/$ad/specs/foo/spec.md').deleteSync();
+        Link('$repo/$ad/specs/foo/spec.md')
+            .createSync('${outside.path}/spec.md');
+        File('$repo/$ad/notes.md').deleteSync();
+        Link('$repo/$ad/notes.md').createSync('${outside.path}/notes.md');
+        Link('$repo/$ad/linkeddir').createSync(outside.path);
+        final doc = await ok(repo);
+        expect((doc['main_specs']! as Map)['created'], [
+          'openspec/specs/foo/spec.md',
+        ]);
+        expect((doc['carried_edits']! as List).cast<String>(), [
+          '$ad/notes.md',
+        ]);
+      },
+      skip: bash == null
+          ? 'no bash installed'
+          : Platform.isWindows
+          ? 'links need developer mode on Windows; POSIX only'
+          : false,
+    );
+
+    test(
+      'a non-UTF-8 name in the archive walk is not_utf8',
+      () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x']);
+        final name = Uint8List.fromList([
+          ..._b('$repo/$ad/a'),
+          0xff,
+          ..._b('.txt'),
+        ]);
+        File.fromRawPath(name).writeAsStringSync('x');
+        final r = await stop(repo);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'not_utf8');
+        expect(r.doc['message'], contains('a\u{fffd}.txt'));
+        expect(r.doc.containsKey('script'), isFalse);
+      },
+      skip: bash == null
+          ? 'no bash installed'
+          : Platform.isLinux
+          ? false
+          : 'Linux only: macOS refuses names that are not valid UTF-8, and '
+                'Windows names are UTF-16',
+    );
 
     test('a marker file in the archive commit is removed again', () async {
       final repo = branchRepo();

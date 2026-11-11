@@ -4,13 +4,13 @@ import 'dart:typed_data';
 import '../commands/vcs.dart';
 import '../commit/paths.dart';
 import '../commit/task_cover.dart' show isPySpace, pyStrip, pySplitLines;
+import '../fs/walk.dart';
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'script_text.dart';
-import 'walk.dart';
 
 /// What `sw finish undo-archive-plan` was asked, as `finish.sh` parsed it:
 /// [dir] is the planning repo (`--dir`, the current directory when absent or
@@ -172,6 +172,17 @@ bool _isDir(String path) => Directory.fromRawPath(_raw(path)).existsSync();
 bool _isFile(String path) => File.fromRawPath(_raw(path)).existsSync();
 
 bool _exists(String path) => _isFile(path) || _isDir(path);
+
+/// The tree under [rel] (relative to [top]) with the finish link policy: a link
+/// to a directory is listed under `dirs` and not entered, any other link under
+/// `files`. A name that is not UTF-8 stops the plan with `not_utf8`.
+List<WalkDirectory> _walkArchive(String top, String rel) {
+  try {
+    return walkTree(_under(top, rel), policy: WalkPolicy.finish, prefix: rel);
+  } on NotUtf8 catch (e) {
+    throw VcsStop.notUtf8(e);
+  }
+}
 
 /// A file's bytes, or null when it cannot be read (`wd_bytes`).
 Uint8List? _readFile(String path) {
@@ -528,7 +539,7 @@ class _Planner {
       for (final m in members) {
         final sp = _joinAll([m.dir, 'specs']);
         // nested capabilities: specs/<area>/<id>/spec.md
-        for (final w in await walkTree(ctx.bash, _under(top, sp))) {
+        for (final w in _walkArchive(top, sp)) {
           if (w.files.contains('spec.md') && w.rel.isNotEmpty) {
             final cap = _joinAll([prefix, 'specs', w.rel, 'spec.md']);
             if (!caps.contains(cap)) caps.add(cap);
@@ -556,7 +567,7 @@ class _Planner {
       // carried edits: archive-copy files that differ from the change
       // directory at HEAD
       for (final m in members) {
-        for (final w in await walkTree(ctx.bash, _under(top, m.dir))) {
+        for (final w in _walkArchive(top, m.dir)) {
           for (final fn in w.files) {
             final rel = w.rel.isEmpty ? fn : '${w.rel}/$fn';
             final old = await blobWd(
@@ -571,6 +582,9 @@ class _Planner {
           }
         }
       }
+      // a directory's files are emitted together, so a root `b.md` would follow
+      // `a/z.md`: sort the finished list by the bytes of each whole path
+      carried.sort(compareUtf8);
       for (final m in members) {
         final mk = _joinAll([m.dir, 'specwright-change.yaml']);
         markerDirs[m.name] =

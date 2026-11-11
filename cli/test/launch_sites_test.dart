@@ -788,7 +788,6 @@ const launchAllowlist = Allowlist(
       'runGh': Call(1, _tool),
     },
     'finish/undo_plan.dart': {'runTool': Call(1, _tool)},
-    'finish/walk.dart': {'runTool': Call(1, _tool)},
     'pr/context.dart': {
       'runTool': Call(1, _tool),
       'runText': Call(1, _tool),
@@ -837,7 +836,6 @@ const launchAllowlist = Allowlist(
       'Process.start': Call(1, _tool, function: 'runFramed'),
       'runFramed': Call(2, _tool),
     },
-    'vcs/walk.dart': {'runTool': Call(1, _tool)},
   },
   selfLaunches: {
     // the bounded process helper: `sw __exec -- <command>`

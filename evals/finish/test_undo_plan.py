@@ -176,12 +176,12 @@ class TestNoNetwork(Base):
     def test_dart_scan_names_an_injected_line(self):
         copy = self.scripts / "finish"
         shutil.copytree(DART_FINISH, copy)
-        target = copy / "walk.dart"
+        target = copy / "undo_plan.dart"
         lines = target.read_text(encoding="utf-8").splitlines()
         lines.insert(40, "  await git(top, ['fetch', 'origin']);")
         lines.insert(41, "  // git push origin is only a comment")
         target.write_text(NL.join(lines) + NL, encoding="utf-8", newline=NL)
-        self.assertEqual(dart_network_lines(copy), [("walk.dart", 41, "await git(top, ['fetch', 'origin']);")])
+        self.assertEqual(dart_network_lines(copy), [("undo_plan.dart", 41, "await git(top, ['fetch', 'origin']);")])
 
 
 class TestUndoPlan(Base):

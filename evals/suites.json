@@ -34,6 +34,7 @@
     {"paths": ["cli/lib/src/settings/**", "cli/test/settings/**"], "suites": ["pr-pair", "vcs"]},
     {"paths": ["cli/lib/src/commit/**", "cli/test/commit/**"], "suites": ["git-workflow", "vcs"]},
     {"paths": ["cli/lib/src/finish/**", "cli/lib/src/commands/finish.dart", "cli/test/finish/**"], "suites": ["finish", "vcs"]},
+    {"paths": ["cli/lib/src/fs/**", "cli/test/fs/**"], "suites": ["finish", "vcs"]},
     {"paths": ["evals/vcs/**", "skills/specwright-pr/scripts/vcs.sh", "skills/specwright-pr/scripts/pr-pair.sh", "skills/specwright-pr/scripts/as.sh", "skills/specwright-review/scripts/review-run.sh", "skills/specwright-release/scripts/release.sh", "skills/specwright-finish/scripts/finish.sh"], "suites": ["vcs"]}
   ],
   "no_eval": [

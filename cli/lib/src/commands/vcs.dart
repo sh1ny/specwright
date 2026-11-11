@@ -1,6 +1,7 @@
 import 'dart:io' as io;
 
 import '../vcs/args.dart';
+import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/git_backend.dart';
 import '../vcs/gitbutler_backend.dart';
@@ -128,6 +129,10 @@ Future<int> runVcsCommand(
       VcsContext(request, handoff.scriptsDir, handoff.bash),
     );
   } on VcsStop catch (stop) {
+    document = stop.object();
+    code = stop.code;
+  } on NotUtf8 catch (e) {
+    final stop = VcsStop.notUtf8(e);
     document = stop.object();
     code = stop.code;
   } on Object catch (e) {

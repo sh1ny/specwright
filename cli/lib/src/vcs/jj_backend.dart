@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
+import '../fs/walk.dart';
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart';
@@ -363,8 +364,9 @@ bool _isLink(String full) => Link.fromRawPath(encodeEscaped(full)).existsSync();
 
 /// `vcs.sh`'s `check_directory_snapshot`: one snapshotted file does not cover
 /// a named directory, because jj leaves out a new file over the size limit.
-/// The directory is walked as D4 describes ([walkFiles]); the first oversize,
-/// unlisted file that Git does not ignore is the `path_not_tracked` stop.
+/// The directory is walked in process ([walkFiles], D6) and a name that is not
+/// UTF-8 stops the walk with [NotUtf8]; the first oversize, unlisted file that
+/// Git does not ignore is the `path_not_tracked` stop.
 Future<void> checkDirectorySnapshot(
   VcsSession s,
   String path,
@@ -372,7 +374,9 @@ Future<void> checkDirectorySnapshot(
 ) async {
   final limit = await snapshotLimit(s);
   final oversize = <String>[];
-  for (final f in await walkFiles(s.scripts.bash, s.repo, path)) {
+  final root = walkRoot(s.repo, path);
+  final base = relpathText(root, s.repo);
+  for (final f in walkFiles(root, prefix: base == '.' ? '' : base)) {
     if (!listed.contains(f.name) && f.size > limit) oversize.add(f.name);
   }
   if (oversize.isEmpty) return;
