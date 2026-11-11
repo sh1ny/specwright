@@ -2,13 +2,13 @@
 
 ## Metadata
 
-- **Round:** 2
-- **Prior round:** Round 1, Codex: REVISE; Critical C1–C2 and Moderate M1–M5. The revised design addresses the original collision, working-directory, stdio and bound failures; consistency issues remain below.
+- **Round:** 3
+- **Prior round:** Round 2, Codex: APPROVE_WITH_CHANGES; R2-M1–M4 applied. Subsequent amendments replaced D10’s disproved environment-decoding assumption with strict POSIX `getenv` reads and shortened five requirements, voiding that verdict.
 - **Reviewer:** Codex CLI
-- **Reviewed:** Proposal, design, all six capability deltas; corresponding main-spec requirements; architecture and ADRs 0014, 0022, 0027–0029, 0031 and 0033; tracked source cited by the design, including process launch, resolution, transport, bounds and helper code, kernel32/libc, fence code, VCS backends and walks, finish planning, commit tooling, PR context/state code, codec, shim and launch-site tests. Source paths were checked with `git ls-files`; no outside SDK source was opened.
-- **Test map:** No tasks artifact exists yet; no scenario-to-user-task mapping was available to assess.
+- **Reviewed:** Proposal, design, tasks and scenario mappings, all six delta specs, corresponding main-spec requirements, architecture, ADRs 0014, 0022, 0027, 0028, 0029, 0031 and 0033, and supporting source. Also reviewed `listing_assumption_test.dart`. ADR 0034 is untracked and was excluded under the requested access restriction. No tests were run.
+- **Re-check:** Round 3 Required Change 1 only: checked the uncommitted planning amendments against `cli/lib/src/finish/walk.dart` and `cli/lib/src/finish/undo_plan.dart`. Fully applied; no new contradiction identified within this scope. No tests were run.
 
-This verdict covers only the reviewed contents. Subsequent proposal, spec or design edits void it except for the Required Changes below or edits confined to the proposal’s Release Notes.
+This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes, or an edit confined to the proposal's `## Release Notes` section) voids it.
 
 ## Findings
 
@@ -18,21 +18,13 @@ None.
 
 ### Moderate
 
-**R2-M1 — The carried batch constraint would undo the stdio fix.**
+**R3-M1 — The shared walker drops finish entries that the existing contract preserves.**
 
-`design.md` D3 deliberately starts fenced batch commands in process through `runWithCommandLine`. C1 nevertheless requires every batch command to run through the helper, and D11 repeats the helper-only contract for ADR 0034. Following those instructions would restore the intermediary whose framed pipes caused M1. The existing helper protocol is documented in `cli/lib/src/process/bounded_run.dart:47-70`.
+D6 and task 3.6 replace the finish walk with a shared walker that skips all links. The existing finish walker includes symlinks to files: it classifies entries using a directory check that follows links, then places non-directory entries in `files` ([walk.dart](/F:/Dev/specwright/cli/lib/src/finish/walk.dart:139), [grouping](/F:/Dev/specwright/cli/lib/src/finish/walk.dart:75)).
 
-**R2-M2 — Walk diagnostics still have contradictory requirements.**
+This affects the undo plan, beyond its permitted ordering change. An archived `specs/foo/spec.md` symlink to a readable file currently identifies capability `foo`; capability discovery explicitly checks `w.files.contains('spec.md')` ([undo_plan.dart](/F:/Dev/specwright/cli/lib/src/finish/undo_plan.dart:532)). Skipping that link omits the corresponding synced main spec from restoration or removal. Linked files also disappear from uncommitted `carried_edits`.
 
-The `vcs-backends` requirement “sw vcs documents keep their values and refuse non-UTF-8 names” includes directory listings and requires each invalid byte as `\xHH`. Its directory-walk requirement instead requires U+FFFD, matching D6. The native-cli general non-UTF-8 document scenario also lacks that exception. A walk-found `a\xFF.txt` therefore has incompatible diagnostic assertions, despite the user’s explicit choice.
-
-**R2-M3 — NUL refusal conflicts with the retained batch contract.**
-
-D5 and the native-cli delta require every NUL argument to produce `bounded: unrepresentable argument: <cmd>`. The unchanged main requirement “Batch shims get escaped arguments or none” explicitly includes NUL and requires `bounded: unsafe batch argument: <cmd>` (`openspec/specs/native-cli/spec.md:173`). A NUL argument to `fake.cmd` cannot satisfy both. Validation precedence must be specified.
-
-**R2-M4 — Regrouping the sorted walk loses global carried-edit order.**
-
-D6 returns finish results regrouped as `(rel, dirs, files)`. The existing consumer emits each directory’s files together (`cli/lib/src/finish/undo_plan.dart:558-570`); the walker’s existing grouping is top-down (`cli/lib/src/finish/walk.dart:58-105`). Sorting before that regrouping does not ensure globally sorted `carried_edits`: root `b.md` can precede `a/z.md`, although UTF-8 order requires the reverse. The new scenario uses root files followed by `sub/c.md`, so it misses this case.
+The finish requirement preserves existing values and scripts apart from its stated differences; neither the design nor test map accounts for this additional behavior change.
 
 ### Suggestions
 
@@ -44,18 +36,10 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. Amend C1 and D11 to distinguish captured/bounded batch execution through the helper from standalone inherited-stdio fenced batch execution through in-process `runWithCommandLine`. Preserve the no-new-deadline rule and ADR destination.
-2. Add an explicit directory-walk exception to the general VCS diagnostic requirement and native-cli document scenario: byte-bearing boundaries use `\xHH`; walk-found names use U+FFFD under D6.
-3. Modify the main batch requirement through the native-cli delta to give NUL the D5 unrepresentable-input result. Retain the unsafe-batch result for the remaining batch-specific refusals, and add a batch-NUL scenario asserting the precedence.
-4. Specify a final UTF-8-byte sort of `carried_edits` after regrouped traversal. Extend the finish sorting scenario with changed root `b.md` and nested `a/z.md`, asserting `a/z.md` before `b.md`.
+1. Amend D6 and task 3.6 to preserve finish’s existing link classification: list linked files, list linked directories without descending into them, and retain VCS’s separate link-skipping policy. Add mapped regression tests for a linked capability `spec.md` participating in main-spec restoration and a linked file participating in uncommitted `carried_edits`. Carry the distinction into the walker’s documented contract.
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-The original collision, cwd, batch-stdio and output-bound fixes are accepted at design level, subject to the planned CI proofs of A1/A3. The findings above are retained as the round-2 record. This re-check covered only Required Changes 1–4 in the current artifacts; all four are applied.
-
-1. **Applied.** C1 and D11 now route captured or bounded batch calls through the helper and inherited-stdio fenced batch calls through in-process `runWithCommandLine`. Both preserve the no-new-deadline rule and ADR 0034 destination.
-2. **Applied.** The general VCS requirement explicitly excepts walk-found names from `\xHH` diagnostics. The native-cli document scenario now covers byte-bearing argument/tool boundaries, with a separate directory-walk scenario requiring U+FFFD, consistent with D6.
-3. **Applied.** The native-cli MODIFIED batch requirement gives NUL the `bounded: unrepresentable argument: <cmd>` result before batch validation, matching D5. Compared with the main requirement, the retained unsafe-batch scenario removes NUL while preserving the other refusals. The new batch-NUL scenario combines NUL with `%PATH%` and asserts unrepresentable-input precedence, exit 2 and no process start.
-4. **Applied.** D6 explicitly requires sorting the finished `carried_edits` list by whole-path UTF-8 bytes after regrouped traversal. The finish requirement specifies whole-path ordering, and its scenario now includes changed root `b.md` and nested `a/z.md`, expecting `a.md`, `a/z.md`, `b.md`, `sub/c.md`. The cited walker and consumer are tracked source; their grouping behavior supports the need for this final sort.
+1. **Applied.** [D6]( /F:/Dev/specwright/openspec/changes/native-cli-launcher/design.md:79) now specifies “listing a link to a directory under `dirs` without descending and any other link under `files`,” while VCS “skips links and `.git` and `.jj`.” [C3](/F:/Dev/specwright/openspec/changes/native-cli-launcher/design.md:168) carries this caller-specific policy into the planned `walkTree` doc comment. [Task 3.1](/F:/Dev/specwright/openspec/changes/native-cli-launcher/tasks.md:133) tests both policies, and [task 3.6](/F:/Dev/specwright/openspec/changes/native-cli-launcher/tasks.md:138) explicitly selects the finish policy. The new [scenario](/F:/Dev/specwright/openspec/changes/native-cli-launcher/specs/change-finish/spec.md:59) requires capability `foo` to be “restored or removed as for a regular `spec.md`,” linked `notes.md` to appear in `carried_edits`, and directory links to remain listed without descent. [Task 3.5](/F:/Dev/specwright/openspec/changes/native-cli-launcher/tasks.md:137) specifies the corresponding POSIX regressions, with a concrete [test-map row](/F:/Dev/specwright/openspec/changes/native-cli-launcher/tasks.md:19). These amendments preserve the source walker’s classification and both consumer paths without introducing a new contradiction.

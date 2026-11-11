@@ -76,7 +76,7 @@ proposal.md gives the why and the scope (S1-S4). The current state the approach 
 
 ### D6: Native directory walks, sorted by UTF-8 bytes, with a U+FFFD existence check
 
-- **Choice:** One `cli/lib/src/fs/walk.dart` lists a tree with `Directory.listSync(followLinks: false)`, recursing by hand. It skips links and, for the VCS walk, `.git` and `.jj`. A directory that throws is skipped. Names are sorted by their UTF-8 bytes per relative path. A listed name containing U+FFFD was not UTF-8 on disk when the path built from that name does not exist, or when another entry of the same directory decodes to the same name; the walk then throws `NotUtf8` for it (A1). The duplicate check catches a raw `a<0xFF>.txt` beside a valid `a<U+FFFD>.txt`, whose path exists. The walk's `NotUtf8` names the file as listed, each invalid sequence shown as U+FFFD, because the listing keeps the raw bytes private. Sizes are read from the listed entity, which stats the raw name. Both callers use it: the VCS walk with sizes, and the finish walk regrouped as `(rel, dirs, files)`. Regrouping is top-down by directory (`finish/walk.dart:58-105`), and the carried-edits loop emits each directory's files together (`undo_plan.dart:558-570`), so the plan sorts the finished `carried_edits` list once more by the UTF-8 bytes of each path; a root `b.md` then follows `a/z.md`.
+- **Choice:** One `cli/lib/src/fs/walk.dart` lists a tree with `Directory.listSync(followLinks: false)`, recursing by hand. It never descends into a linked directory. A link policy keeps each caller's handling: the VCS walk skips links and `.git` and `.jj`; the finish walk keeps today's `find` classification (`finish/walk.dart:61-76`, `:139-141`), listing a link to a directory under `dirs` without descending and any other link under `files`, so a linked capability `spec.md` (`undo_plan.dart:527-538`) and a linked carried edit stay in the plan. A directory that throws is skipped. Names are sorted by their UTF-8 bytes per relative path. A listed name containing U+FFFD was not UTF-8 on disk when the path built from that name does not exist, or when another entry of the same directory decodes to the same name; the walk then throws `NotUtf8` for it (A1). The duplicate check catches a raw `a<0xFF>.txt` beside a valid `a<U+FFFD>.txt`, whose path exists. The walk's `NotUtf8` names the file as listed, each invalid sequence shown as U+FFFD, because the listing keeps the raw bytes private. Sizes are read from the listed entity, which stats the raw name. Both callers use it: the VCS walk with sizes, and the finish walk regrouped as `(rel, dirs, files)`. Regrouping is top-down by directory (`finish/walk.dart:58-105`), and the carried-edits loop emits each directory's files together (`undo_plan.dart:558-570`), so the plan sorts the finished `carried_edits` list once more by the UTF-8 bytes of each path; a root `b.md` then follows `a/z.md`.
 - **Rejected:** Read raw names through libc `readdir`, because it is more FFI for a case S1 refuses anyway. Also rejected: a `find` launch kept only for the check, which contradicts S2.
 - **Reversal cost:** low
 - **Important:** yes, weak evidence: Dart's listing behaviour is A1.
@@ -112,13 +112,13 @@ proposal.md gives the why and the scope (S1-S4). The current state the approach 
 - **Important:** yes, binds future changes (ADR) and changes what users see.
 - **Chosen by:** user, chose "Not runnable; fakes get .cmd".
 
-### D10: A U+FFFD in `SPECWRIGHT_STATE_DIR` or `HOME` means not UTF-8
+### D10: A strict `getenv` read for `SPECWRIGHT_STATE_DIR` and `HOME`
 
-- **Choice:** `feedbackDirectory` reads `Platform.environment` (or the injected map). A U+FFFD in the selected value throws `NotUtf8` naming the variable. The `getenv` FFI goes.
-- **Rejected:** Keeping a small strict `getenv` read, which keeps the FFI S4 removes.
+- **Choice:** On POSIX, `feedbackDirectory` reads the process values of `SPECWRIGHT_STATE_DIR` and `HOME` through the existing `getenv` FFI in `feedback_environment.dart` and decodes them with `decodeStrict`. A value that is present but not UTF-8 throws `NotUtf8` naming the variable. An injected environment map is used as given. Windows reads `Platform.environment`, whose values are UTF-16. Only the raw-byte path through `encodeEscaped` goes.
+- **Rejected:** A U+FFFD in a `Platform.environment` value means not UTF-8, because Linux CI showed that Dart drops a non-UTF-8 variable entirely (A3), so a non-UTF-8 `SPECWRIGHT_STATE_DIR` would look unset and feedback would fall back to the default directory. Also rejected: treating the dropped variable as unset, for the same fallback.
 - **Reversal cost:** low
-- **Important:** yes, weak evidence (A3).
-- **Chosen by:** user, chose "U+FFFD means not_utf8".
+- **Important:** yes, changes what users see.
+- **Chosen by:** user, first chose "U+FFFD means not_utf8", then, after task 1.2 disproved A3, "Strict getenv FFI".
 
 ### D11: Record ADR 0034, adding to 0027
 
@@ -151,25 +151,25 @@ proposal.md gives the why and the scope (S1-S4). The current state the approach 
 | D7 | MSYS paths | Fixed rules from the handed-over bash | Parse fstab; launch cygpath | low | yes | user |
 | D8 | Utilities | Dart and existing FFI | Start them without bash | low | no | agent |
 | D9 | Extensionless | Not runnable on Windows | Run `#!` via Git Bash | low | yes | user |
-| D10 | Env check | U+FFFD means not UTF-8 | Keep strict `getenv` | low | yes | user |
+| D10 | Env check | Strict `getenv` read for the two variables | U+FFFD in `Platform.environment`; treat as unset | low | yes | user |
 | D11 | ADR | ADR 0034 adds to 0027 | Specs only | medium | yes | user |
 
 ## Assumptions
 
 - **A1:** On Linux and macOS, `Directory.listSync` yields an entry whose name is not valid UTF-8 with U+FFFD in place of the invalid bytes, keeps the raw bytes inside the entity (so `existsSync` and `lengthSync` on that entity use them), and a path built from the name does not exist. The Dart SDK 3.13.7 source suggests this (the lister builds entities with `fromRawPath`, and `path` decodes with `allowMalformed: true`), but that source is outside the repository and the behaviour was not run, because the local machine is Windows and WSL runs need the owner's go-ahead. Depends on it: D6 and task group 1. The first task proves it in Linux CI before the walk is built on it.
 - **A2:** `Process.start` gives no named error for a NUL or a lone surrogate in an argument. This was not checked against the Dart runtime source. Depends on it: D5. That decision refuses such input before the start, so it holds either way.
-- **A3:** `Platform.environment` on POSIX decodes a non-UTF-8 value with U+FFFD rather than dropping the variable. This was not checked, for the same reason as A1. Depends on it: D10 and task group 1, which proves it in Linux CI.
+- **A3 (disproved):** `Platform.environment` on POSIX decodes a non-UTF-8 value with U+FFFD rather than dropping the variable. Task 1.2 ran it in Linux CI: the child's `Platform.environment` has no such variable at all. D10 was amended to read the two feedback variables through `getenv`; the test now records the observed drop.
 - **A4:** Dart's Windows argument quoting for a native executable round-trips every value through `CommandLineToArgvW`. This was not checked in the Dart source. The existing `native-cli` scenario "A long argument to a native executable" passes through `exec_helper.dart:146-152` on Windows CI, which is evidence for the bounded path only. Depends on it: D1 and the launcher argument tests in group 2.
 
 ## Carried constraints
 
 - **C1:** Internal launches start no shell. A `.cmd`/`.bat` command runs through the `planLaunch` raw `cmd.exe` line in one of two ways: a captured or bounded call goes through the `sw __exec` helper, and the fenced command of `sw as`, which inherits the caller's stdio, goes through `runWithCommandLine` in process. A call that had no deadline gets none either way. Kind: invariant. Destination: ADR 0034
 - **C2:** A name or path that `sw` acts on or reports as a path is decoded strictly. Display text is decoded with replacement. Kind: invariant. Destination: doc comment: `cli/lib/src/vcs/codec.dart` `decodeStrict`
-- **C3:** The walk sorts by UTF-8 bytes of the relative path. A U+FFFD name whose path does not exist, or that another entry of its directory decodes to, is a non-UTF-8 name, reported with U+FFFD because the raw bytes are not exposed. Kind: invariant. Destination: doc comment: `cli/lib/src/fs/walk.dart` `walkTree`
+- **C3:** The walk sorts by UTF-8 bytes of the relative path and never descends into a linked directory; whether links are skipped (VCS) or listed (finish: directory links under `dirs`, others under `files`) is the caller's policy. A U+FFFD name whose path does not exist, or that another entry of its directory decodes to, is a non-UTF-8 name, reported with U+FFFD because the raw bytes are not exposed. Kind: invariant. Destination: doc comment: `cli/lib/src/fs/walk.dart` `walkTree`
 - **C4:** MSYS conversion is fixed rules from the handed-over bash, with no `cygpath` and no fstab parsing. Kind: rejected alternative. Destination: ADR 0034
 - **C5:** Extensionless commands are not runnable on Windows. Lookup is `PATHEXT` only. Kind: invariant. Destination: ADR 0034
 - **C6:** `RunLimits` without a deadline or byte bound exists only for batch files on unbounded or capped paths; a capped path bounds stdout only. A bounded caller always passes both. Kind: invariant. Destination: doc comment: `cli/lib/src/process/limits.dart` `RunLimits`
-- **C8:** Any U+FFFD in the selected `SPECWRIGHT_STATE_DIR` or `HOME` value is refused as not UTF-8, even a correctly encoded one, because `Platform.environment` cannot tell them apart. Kind: deliberate gap. Destination: doc comment: `cli/lib/src/pr/feedback_environment.dart` `feedbackDirectory`
+- **C8:** On POSIX the process values of `SPECWRIGHT_STATE_DIR` and `HOME` are read through `getenv` and decoded strictly, because `Platform.environment` drops a non-UTF-8 variable and the state directory would silently fall back to the default. Kind: invariant. Destination: doc comment: `cli/lib/src/pr/feedback_environment.dart` `feedbackDirectory`
 - **C9:** A capped native executable is not run under a tree stop: overflow kills the direct child only, as before. Kind: deliberate gap. Destination: doc comment: `cli/lib/src/process/launch.dart` `launch`
 - **C10:** Native executables start directly, not through the `sw __exec` helper, which stays for bounded runs and batch files. Kind: rejected alternative. Destination: ADR 0034
 - **C11:** Every launch takes its working directory from the caller and resolves relative lookups against it; nothing changes `sw`'s own directory. Kind: invariant. Destination: doc comment: `cli/lib/src/process/launch.dart` `launch`
@@ -283,6 +283,7 @@ sequenceDiagram
 | Duplicate-name check in walk | yes | Without it, a raw name beside its valid look-alike passes, and the jj oversize check misses the raw file | none |
 | Working directory through the helper | yes | Without it, a bounded or batch call runs in `sw`'s directory, in the wrong repository (ADR 0031) | none |
 | No-deadline helper mode | yes | Without it, batch tools on unbounded paths gain a deadline, which the spec forbids | none |
+| Strict `getenv` for the feedback variables | yes | Without it, a non-UTF-8 `SPECWRIGHT_STATE_DIR` is dropped by Dart and feedback silently uses the default directory (A3) | A Dart API that exposes raw environment bytes |
 | Pre-start NUL/surrogate refusal | yes | Unnamed start failures would read as "command not found" | none |
 | Tree stop for unbounded `.exe` runs | no | No deadline exists to trigger it, and a cap kills only the direct child, as today | A capped tool that leaves descendants holding pipes |
 | fstab mount parsing | no | Shims only hand over drive, UNC and `/tmp` paths | A bug report with a custom mount |

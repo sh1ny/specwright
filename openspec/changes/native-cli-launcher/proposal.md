@@ -84,8 +84,8 @@ DECISION_MAKING: important
 
 ### S4: Non-UTF-8 state and home paths get the same named stop
 
-- **Choice:** A non-UTF-8 `SPECWRIGHT_STATE_DIR` or `HOME` stops feedback with the named error, so the `getenv` FFI reader and the rest of the escaping codec can go.
-- **Rejected:** Keep raw POSIX bytes for the feedback state paths, which keeps the FFI reader and part of the codec for this case alone.
+- **Choice:** A non-UTF-8 `SPECWRIGHT_STATE_DIR` or `HOME` stops feedback with the named error, so the rest of the escaping codec can go. The `getenv` FFI reader stays as a strict read, because Dart drops a non-UTF-8 variable from `Platform.environment` (design D10).
+- **Rejected:** Keep raw POSIX bytes for the feedback state paths, which keeps part of the codec for this case alone.
 - **Reversal cost:** low
 - **Important:** yes, changes what users see.
 - **Chosen by:** user, "Same named stop".

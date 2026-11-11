@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The fenced command keeps the caller's stdin, arguments and exit status
-The handoff from `as.sh` to `sw as` SHALL not read the caller's stdin, so the fenced command reads the same stdin `as.sh` was given. The command SHALL be started with no shell between `sw` and it, SHALL receive each argument value unchanged, start in the directory `as.sh` started in, and its exit status SHALL be `as.sh`'s. An argument that is not valid UTF-8 SHALL be refused by name before the identity check, with exit 2. A command ended by a signal SHALL end `as.sh` with status 128 plus the signal number, the status a bash caller saw before this change. A command that cannot be found SHALL give exit 127 with its name on stderr.
+The handoff from `as.sh` to `sw as` SHALL not read the caller's stdin. The fenced command SHALL start with no shell before it, in the directory `as.sh` started in, with each argument value unchanged, and its exit status SHALL be `as.sh`'s. A non-UTF-8 argument SHALL be refused by name before the identity check, with exit 2. A signal SHALL end `as.sh` with 128 plus its number, as a bash caller saw before. A command not found SHALL give exit 127 with its name on stderr.
 
 #### Scenario: Credential fill reads stdin through the fence
 - **WHEN** `as.sh sh1ny git credential fill` runs with `protocol=https`, `host=github.com` and a blank line on stdin

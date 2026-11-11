@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Commit tooling runs in the project's sw
-`task-cover.sh` and `fit-subject.sh` SHALL keep their paths, arguments and output contracts, and SHALL carry out their work by resolving the project's `sw` with the shared resolver and running `sw commit task-cover` and `sw commit fit-subject` with the same arguments. Their stdout, stderr and exit status SHALL be those of `sw`, and no other implementation SHALL remain in either script. An argument that is not valid UTF-8 SHALL stop before any file is read: `task-cover.sh` with `"error": "not_utf8"` and exit 1, `fit-subject.sh` with `fit-subject.sh: not valid UTF-8: <path>` on stderr and exit 2.
+`task-cover.sh` and `fit-subject.sh` SHALL keep their paths, arguments and output contracts, and do their work by resolving the project's `sw` with the shared resolver and running `sw commit task-cover` or `sw commit fit-subject` with the same arguments. Their stdout, stderr and exit status SHALL be `sw`'s; no other implementation SHALL remain in either script. A non-UTF-8 argument SHALL stop before any file is read: `not_utf8`, exit 1, or `fit-subject.sh: not valid UTF-8: <path>`, exit 2.
 
 #### Scenario: Coverage through a matching sw
 - **WHEN** the project's `VERSION` reads `0.26.0`, the resolver finds a matching `sw` 0.26.0, and `task-cover.sh --repo <r> --range main..feat/a --tasks <t> --change a` runs on a branch whose one commit has the subject `feat(a): task 1.1 Add it`

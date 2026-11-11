@@ -30,7 +30,7 @@
 - **THEN** it exits 2 with `"error": "bad_path"` naming `/etc/x`, no Git command ran, and no script is printed
 
 ### Requirement: sw finish undo-archive-plan keeps finish.sh's contract
-`sw finish undo-archive-plan` SHALL accept the options shipped callers pass and print a JSON document that parses to the same keys and values for the same repo state and arguments, including the `script` and `after_rerun` texts on Git, jj and GitButler, with the same exit codes 0 to 2. Differences: task ids and archive date prefixes match ASCII digits only, on Windows an unconvertible `/` path stops with `bad_path`, and `carried_edits` found by walking the archive list files in the order of the UTF-8 bytes of their whole paths, not the old script's directory-listing order. An unexpected failure SHALL print `internal_error` and exit 1.
+`sw finish undo-archive-plan` SHALL accept the options shipped callers pass and print a JSON document that parses to the same keys and values for the same repo state and arguments, `script` and `after_rerun` texts on Git, jj and GitButler included, with exit codes 0 to 2. Differences: ASCII-digit task ids and date prefixes, `bad_path` for an unconvertible `/` path on Windows, and `carried_edits` in whole-path UTF-8 byte order. An unexpected failure SHALL print `internal_error` and exit 1.
 
 #### Scenario: Unchanged finish evals pass on sw
 - **WHEN** the `evals/finish` tests run in CI on Linux, Windows and macOS, and the `evals/vcs` GitButler undo tests run on Linux, against the `sw` built from the tree
@@ -55,6 +55,10 @@
 #### Scenario: Carried edits in sorted order
 - **WHEN** the plan finds an uncommitted archive's carried edits by walking the archive directory, and its copies of `b.md`, `a.md`, `a/z.md` and `sub/c.md` differ from the change at HEAD, on Linux, Windows and macOS
 - **THEN** `carried_edits` lists `a.md`, `a/z.md`, `b.md`, `sub/c.md` under the archive directory in that order on each OS
+
+#### Scenario: Linked files in the archive keep their place
+- **WHEN** on Linux and macOS an archived `specs/foo/spec.md` is a symlink to a readable file, and in an uncommitted archive a changed `notes.md` is a symlink to a file
+- **THEN** capability `foo` is restored or removed as for a regular `spec.md`, `notes.md` is listed in `carried_edits`, and a linked directory is listed but not descended into, as before this change
 
 #### Scenario: A non-UTF-8 name in the archive walk
 - **WHEN** on Linux the archive directory holds a file whose name holds the byte 0xFF

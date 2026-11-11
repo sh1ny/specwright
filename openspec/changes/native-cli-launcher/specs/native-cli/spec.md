@@ -115,7 +115,7 @@ On Windows a native tool SHALL receive every argument whole up to the OS command
 ## MODIFIED Requirements
 
 ### Requirement: Arguments reach native executables unchanged
-A native executable (anything but a `.cmd` or `.bat` file) SHALL be started with no shell between `sw` and it, and SHALL receive every argument value unchanged, encoded as UTF-8 on Linux and macOS, up to the OS command-line limit (32,767 UTF-16 units on Windows). An argument the launcher cannot represent SHALL be refused by name before any process starts. On Windows, for `bash -c <script> <name> <args...>`, the arguments after `<name>` SHALL travel on the command's stdin as in `bounded.py`, so Git Bash's 8,186-character cut cannot shorten them.
+A native executable (anything but a `.cmd` or `.bat` file) SHALL start with no shell before it and receive every argument value unchanged, as UTF-8 on Linux and macOS, up to the OS command-line limit (32,767 UTF-16 units on Windows). Input the launcher cannot represent SHALL be refused by name before any start. On Windows, for `bash -c <script> <name> <args...>`, the arguments after `<name>` SHALL travel on stdin as in `bounded.py`, so Git Bash's 8,186-character cut cannot shorten them.
 
 #### Scenario: A long argument to a native executable
 - **WHEN** an argument of 20,000 characters with spaces, quotes, backslashes, newlines, Unicode and an empty argument beside it is passed to a native executable after `--`
@@ -153,7 +153,7 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 - **THEN** stdout is one JSON document with `"ok": false` and `"error": "internal_error"`, the exit status is 1, and no stack trace is printed
 
 ### Requirement: Batch shims get escaped arguments or none
-On Windows a `.cmd` or `.bat` command SHALL run through `cmd.exe` with the path and every argument in double quotes, never caret-escaped, and trailing backslashes doubled, so a program the shim forwards `%*` to reads each value unchanged. What quoting cannot protect SHALL be refused with `bounded: unsafe batch argument: <cmd>`, exit 2, before any process starts. A NUL in an argument SHALL instead be refused as input the launcher cannot represent, with `bounded: unrepresentable argument: <cmd>` and exit 2, because that check runs before the batch rules.
+On Windows a `.cmd` or `.bat` command SHALL run through `cmd.exe` with the path and every argument in double quotes, never caret-escaped, trailing backslashes doubled, so a program the shim forwards `%*` to reads each value unchanged. What quoting cannot protect SHALL be refused with `bounded: unsafe batch argument: <cmd>`, exit 2, before any start. A NUL argument SHALL be refused first, as unrepresentable input: `bounded: unrepresentable argument: <cmd>`, exit 2.
 
 #### Scenario: Metacharacters reach the shim literally
 - **WHEN** `sw run --bounded -- fake.cmd "a&b" "c|d" "<e>" "(f)" "g^h" "" "x & echo pwned"` runs a shim that forwards `%*` to a native program recording its arguments
