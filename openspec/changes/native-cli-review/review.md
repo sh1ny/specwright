@@ -2,30 +2,28 @@
 
 ## Metadata
 
-- **Round:** 3
-- **Prior round:** Round 2 returned REVISE with C1–C2 and M1–M3; all five are resolved in the revised artifacts.
-- **Reviewer:** Codex CLI, independent review context
-- **Reviewed:** Proposal, delta and main review-routes specs, design, schema review instruction, review template, architecture, M8 roadmap change 7, ADRs 0007/0022/0027/0028/0031/0033/0034, and the cited tracked source ranges. Also checked the cited snapshot shim.
+- **Round:** 4
+- **Prior round:** Round 3, APPROVE_WITH_CHANGES; its two corrections are present.
+- **Reviewer:** Codex CLI independent context
+- **Reviewed:** Current proposal, design, tasks, prior review, delta and main review-routes specs, architecture, named in-force ADRs, cited tracked source ranges, existing review evals and suite map. Untracked evidence and external source were not opened.
 
 ## Findings
 
-### Critical (blocking)
+### Critical
 
 None.
 
 ### Moderate
 
-**M1 — The shared `context` command does not refuse malformed settings as claimed.**
+**M1 — Resolved: the shipped verification procedure now requires D11’s evidence standard.**
 
-Design Context and D4 describe `context` as stopping when `yamlProblem` reports a problem. The cited `settings_commands.dart:344-346` computes that problem, but the command subsequently returns `ok: true` with `settings_problem` (`cli/lib/src/pr/settings_commands.dart:378-385`). By comparison, `policy.dart:163-164` explicitly throws on the problem.
+Task 5.2 requires native tool definitions, complete mounted-tool inventory, demonstrated equivalence to the exact reviewer invocation, and direct child denied-write evidence retaining every fixed isolation flag. Model lists and refusals are corroboration only; missing proof or infrastructure failure does not pass. Its planned skill-text check explicitly covers that standard.
 
-Strict refusal in `sw review` is a valid chosen behavior, but describing it as the existing `context` behavior gives implementers the wrong precedent: reproducing that command’s response would fail the new before-probe stop requirement.
+**M2 — Resolved: D11’s continuing evidence constraints have one carried destination.**
 
-**M2 — The 72 MiB figure bounds stream payload, not peak memory.**
+C11 carries the evidence acceptance rules with exactly one destination: ADR 0035. Task 1.2 explicitly requires writing C11 there, and task 5.2 references ADR 0035/C11 as its governing decision.
 
-D1 and the Resource Bounds table claim at most 72 MiB of memory. `BoundedRun` accumulates stream chunks in `BytesBuilder`, appends a chunk before checking its bound, and later materializes output through `takeBytes()` (`cli/lib/src/process/bounded_run.dart:159-180,388-392`). Answer decoding and event parsing also require memory beyond the captured bytes.
-
-The capture remains bounded, but the stated peak is unsupported and understates the resource cost used to justify rejecting disk-backed capture.
+D11’s scope explicitly includes manual CLI-version checks. It preserves S3, the isolation defaults, refused lists and OMP version floor; the evidence-method amendment introduces no production isolation-flag or runtime-discovery decision changes.
 
 ### Suggestions
 
@@ -35,17 +33,18 @@ None.
 
 VERDICT: APPROVE_WITH_CHANGES
 
+Both Round 4 required changes are applied. Task 1.1 remains incomplete: equivalence, mounted-tool coverage and actual child denied-write proof must still be completed before dependent implementation. This recheck does not establish that proof or mark the task complete.
+
 ## Required Changes
 
-1. Correct Context, D4 and Risks to distinguish the existing commands: `context` reports `settings_problem` while returning `ok: true`; `policy` refuses unreadable settings. Keep the chosen `sw review` refusal and identify it as an intentional behavior change.
-2. Replace the “at most 72 MiB” and “memory peaks at 72 MiB” claims with “72 MiB combined stream payload limits, plus chunk overshoot, buffer materialization, decoding and parsing overhead.” Retain the bounded-memory decision without asserting an unmeasured process-memory peak.
+1. **Resolved.** Task 5.2 and its planned skill-text check require D11’s evidence standard, including native definitions, complete mounted-tool inventory, exact invocation equivalence and direct child denied-write evidence retaining every fixed isolation flag. Model lists and refusals are corroboration only.
+2. **Resolved.** C11 has exactly one destination, ADR 0035. Task 1.2 explicitly writes that constraint there; task 5.2 references the governing decision. D11 explicitly covers manual CLI-version checks while preserving the production isolation and runtime-discovery decisions.
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-- **Round-2 C1 — Fixed; accepted by reviewer.** D5 requires OMP ≥18.19.0, the delta specifies selection fallback and explicit-run refusal, and C10 carries the floor.
-- **Round-2 C2 — Fixed; accepted by reviewer.** The Failure table and C6 acknowledge orphaned reviewer processes after the parent is killed, consistent with ADR 0027.
-- **Round-2 M1 — Fixed; accepted by reviewer.** D2 covers normalized quoted segments and protected ancestor tables; the delta adds a matching refusal scenario.
-- **Round-2 M2 — Fixed; accepted by reviewer.** D9 specifies 64 KiB blob copies, with file-count-dependent metadata retained in memory.
-- **Round-2 M3 — Fixed; accepted by reviewer.** C7–C10 carry the rejected capture/oracle alternatives, snapshot deadline gap and OMP floor, each to one destination.
+- Round-3 M1 is resolved: the design now distinguishes `context` reporting `settings_problem` from `policy` refusing malformed settings.
+- Round-3 M2 is resolved: 72 MiB is described as combined stream payload bounds, with additional unmeasured memory overhead.
+- Statements about the untracked trials were not treated as completed proof. No finding assumes task 1.1 has passed.
+- This fresh-context recheck read only the tracked `review.md`, `design.md` and `tasks.md` in this change directory and assessed only Round 4’s two Required Changes. The original Round 4 metadata is retained above.

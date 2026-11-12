@@ -132,6 +132,16 @@ TIER: FULL
 - **Important:** yes: binds future changes (it records a contract)
 - **Chosen by:** agent
 
+### D11: Isolation evidence uses native inventories with mode equivalence
+
+- **Choice:** Task 1.1 captures machine-generated tool definitions and the complete mounted-tool inventory, then grounds their equivalence to the exact reviewer command in the installed version's source and effective settings. Diagnostic RPC/debug modes alone are not proof: their protocol defaults, settings sources and tool mounting must be accounted for. Model-authored tool lists and refusals only corroborate the captures; they never stand in for runtime unknown-tool rejections. Missing equivalence or mounted-tool coverage keeps task 1.1 blocked.
+- **Codex child probe:** Keep every D6 and fixed isolation flag, including `--ephemeral` and `-s read-only`. Request `fork_turns="none"` for the actual child write trial. Record the denied attempt and before/after porcelain, distinguishing a child tool result from a parent-relayed report. Retain the failed full-history spawn separately; it does not prove sandbox inheritance. The observed failure and fresh-child result are in `evidence/cli-tools.md`; the installed-version handler maps `none` to a fresh child and defaults omission to `all` ([Codex 0.166.0 source](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs)).
+- **Scope:** This is an apply-time and manual CLI-version-check evidence method, not runtime tool discovery in `sw`; S3, all isolation defaults, refused lists and the OMP version floor are unchanged. ADR 0035 carries its acceptance rules (C11).
+- **Rejected:** Counting a model's inability or refusal to call an unknown name as dispatcher rejection; treating a diagnostic-mode inventory as print/exec-mode proof without equivalence; dropping `--ephemeral` to make the child probe work; accepting an unverified assumption to unblock implementation.
+- **Reversal cost:** low (evidence procedure only)
+- **Important:** yes: replaces a required security-verification method
+- **Chosen by:** user (approved the design and task amendments during apply)
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -150,12 +160,13 @@ TIER: FULL
 | D8 | Evals | Black-box evals plus a pre-port record fixture | Frozen Python oracle | low | no | agent |
 | D9 | Tip snapshot | Copy each blob in 64 KiB chunks | Whole-tree read; whole-blob read | low | no | agent |
 | D10 | ADR | ADR 0035 amends ADR 0007's command-line point | Supersede 0007 whole | medium | yes | agent |
+| D11 | Isolation evidence | Native inventories plus source-grounded mode equivalence and complete mounted-tool coverage; fresh-child write probe | Model-only proof; unequated diagnostic modes; dropping isolation flags; accepting missing proof | low | yes | user |
 
 ## Assumptions
 
-- **A1:** The tool lists in Context come from each reviewer model's own answer to "list your tools", not from a CLI listing, so a model could omit or invent a name. Not checked because neither OMP nor Codex prints its effective tool set. Depends on it: D5, D6, task 1.1 (the evidence run repeats the check with a tool call to each name).
-- **A2:** Codex's `collaboration.*` agents run under the parent's read-only sandbox. Not checked because it needs an agent-spawning run under a write probe. Depends on it: the spec's defaults requirement, task 1.1.
-- **A3:** OMP 18.19.0 and later honour the overlay keys `autolearn.enabled` and `memories.enabled` as observed on 18.19.0 (Context). Not checked on later releases. Depends on it: D5, task 1.1, which repeats the check on the version installed at apply.
+- **A1:** Native diagnostic tool inventories correspond to the exact reviewer invocation only after mode defaults, settings sources and mounted devices are accounted for. The initial model trials did not produce runtime unknown-tool rejections; RPC/debug captures are available but not yet proven equivalent. Not checked: task 1.1 must complete that proof under D11 before any dependent implementation. Depends on it: D5, D6.
+- **A2:** Codex's `collaboration.*` agents run under the parent's read-only sandbox. The full-history trial failed before child startup; a fresh-child trial with all reviewer isolation flags retained reported a denied write and unchanged porcelain (`evidence/cli-tools.md`). Not fully checked: task 1.1 must record the actual denied child attempt and distinguish direct tool evidence from parent-relayed text. Depends on it: the spec's defaults requirement.
+- **A3:** OMP 18.19.0 and later honour the overlay keys `autolearn.enabled` and `memories.enabled` as observed on 18.19.0 (Context). The apply-time RPC diagnostic lists only `read`, `grep`, `glob`, but RPC protocol defaults differ and its top-level dump omits mounted devices (`evidence/cli-tools.md`). Not checked for the exact print-mode invocation: task 1.1 must prove equivalence and complete inventory coverage under D11. Depends on it: D5.
 - **A4:** `toml` 0.18.0 and its closure have no build hooks and licences ADR 0033 accepts. Not checked: that is task 2.1's evidence. Depends on it: D3.
 
 ## Carried constraints
@@ -170,6 +181,7 @@ TIER: FULL
 - **C8:** The review evals are black-box tests through the shim with a pre-port record fixture; a frozen Python oracle was rejected (D8). Kind: rejected alternative. Destination: doc comment: evals/review-routes/test_review_run.py module docstring
 - **C9:** The tip snapshot has no deadline, as before the port, and copies blobs in chunks (D9). Kind: deliberate gap. Destination: doc comment: cli/lib/src/review/snapshot.dart snapshotTip
 - **C10:** OMP below 18.19.0 is unavailable because the memory overlay was verified only from that version (D5). Kind: invariant. Destination: doc comment: cli/lib/src/review/routes.dart ompMinVersion
+- **C11:** Manual isolation checks require native tool definitions, complete mounted-tool inventory and demonstrated equivalence to the exact reviewer invocation; model lists and refusals are corroboration only. Child-write trials require an actual denied attempt with every fixed isolation flag retained; an infrastructure failure or unequated diagnostic mode is not proof. Kind: invariant. Destination: ADR 0035
 
 ## Diagrams (FULL)
 
@@ -277,7 +289,7 @@ stateDiagram-v2
 ## Risks / Trade-offs
 
 - [The refused lists fall behind a new risky CLI tool] → C2 requires adding it when found. The documented check procedure (task 5.2) tells users how to look.
-- [The model-reported tool lists (A1) are wrong] → Task 1.1 confirms them by calling each tool name, and the defaults are adjusted before the group closes.
+- [The diagnostic or model-reported tool lists do not match the reviewer invocation] → Task 1.1 proves native-inventory mode equivalence and mounted-tool coverage under D11; model answers are corroboration only. Missing proof stops dependent implementation.
 - [`toml` brings four transitive packages] → The ADR 0033 checks and notices (task 2.1). Reversal is low.
 - [A strict settings read stops reviews in projects with sloppy YAML] → The stop names the line. `policy` already refuses the same files; `context` only reports them, so a project can see `settings_problem` there first. The refusal in reviews is new and listed in the release notes.
 
