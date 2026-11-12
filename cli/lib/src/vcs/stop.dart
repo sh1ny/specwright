@@ -30,6 +30,15 @@ class VcsStop implements Exception {
     'cannot start ${e.command}: its ${e.what} cannot be represented',
   );
 
+  /// The one mapping every command that prints a document uses for the two
+  /// refusals (D4, D5): a [NotUtf8] name and an [Unrepresentable] launch both
+  /// become a `not_utf8` stop; any other exception gives null.
+  static VcsStop? refusal(Object e) => switch (e) {
+    NotUtf8() => VcsStop.notUtf8(e),
+    Unrepresentable() => VcsStop.unrepresentable(e),
+    _ => null,
+  };
+
   final String error;
   final String message;
   final int code;

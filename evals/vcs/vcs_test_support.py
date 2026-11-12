@@ -66,9 +66,16 @@ def stamp_version(repo):
     vfile.parent.mkdir(parents=True, exist_ok=True)
     nl = chr(10)
     vfile.write_bytes((tree_version() + nl).encode("utf-8"))
-    if not (repo / ".git").exists():
+    dotgit = repo / ".git"
+    if not dotgit.exists():
         return
-    exclude = repo / ".git" / "info" / "exclude"
+    if dotgit.is_dir():
+        exclude = dotgit / "info" / "exclude"
+    else:
+        # a linked worktree: `.git` is a file, and Git reads the common dir's exclude file
+        out = subprocess.run([jjenv.real_git(), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+                             cwd=repo, capture_output=True, check=True).stdout
+        exclude = Path(os.fsdecode(out.rstrip(b"\n")))
     exclude.parent.mkdir(parents=True, exist_ok=True)
     text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
     if STAMP not in text.splitlines():

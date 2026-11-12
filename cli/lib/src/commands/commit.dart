@@ -72,6 +72,11 @@ Future<int> runCommitCommand(
   } on VcsStop catch (stop) {
     writeOut(documentBytes(stop.object()));
     return stop.code;
+  } on Object catch (e) {
+    final stop = VcsStop.refusal(e);
+    if (stop == null) rethrow;
+    writeOut(documentBytes(stop.object()));
+    return stop.code;
   }
 }
 

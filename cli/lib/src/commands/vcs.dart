@@ -1,8 +1,6 @@
 import 'dart:io' as io;
 
-import '../process/launch.dart' show Unrepresentable;
 import '../vcs/args.dart';
-import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/git_backend.dart';
 import '../vcs/gitbutler_backend.dart';
@@ -132,17 +130,10 @@ Future<int> runVcsCommand(
   } on VcsStop catch (stop) {
     document = stop.object();
     code = stop.code;
-  } on NotUtf8 catch (e) {
-    final stop = VcsStop.notUtf8(e);
-    document = stop.object();
-    code = stop.code;
-  } on Unrepresentable catch (e) {
-    final stop = VcsStop.unrepresentable(e);
-    document = stop.object();
-    code = stop.code;
   } on Object catch (e) {
-    document = _internalError(e);
-    code = 1;
+    final stop = VcsStop.refusal(e);
+    document = stop?.object() ?? _internalError(e);
+    code = stop?.code ?? 1;
   }
   try {
     writeOut(documentBytes(document));

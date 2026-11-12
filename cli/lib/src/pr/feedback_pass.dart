@@ -6,6 +6,7 @@ import '../settings/rules.dart';
 import '../settings/yaml.dart' show pyTruthy;
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
+import '../vcs/stop.dart';
 import 'context.dart';
 import 'feedback_environment.dart';
 import 'feedback_record.dart';
@@ -1357,9 +1358,10 @@ class FeedbackPass {
       );
     } on Object catch (e) {
       if (_leftLocks.isEmpty) rethrow;
+      final stop = VcsStop.refusal(e);
       throw PairStop(
-        'internal_error',
-        '${e.runtimeType}: $e',
+        stop?.error ?? 'internal_error',
+        stop?.message ?? '${e.runtimeType}: $e',
         extra: {'lock_left': _leftLocks},
       );
     }

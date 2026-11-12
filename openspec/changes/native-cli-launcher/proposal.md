@@ -98,6 +98,7 @@ DECISION_MAKING: important
 
 - `sw` launches external tools natively, passing UTF-8 arguments and refusing input it cannot represent by name (#148).
 - File listings use a native, stable sorted order (#148).
+- On Windows, a command `sw` starts must have a runnable extension from `PATHEXT` (such as `.exe` or `.cmd`). An extensionless script that bash used to run now fails with exit 127, so wrap it in a `.cmd` file (#148).
 
 ### Removed
 

@@ -58,13 +58,10 @@ Future<int> taskCover(
   } on VcsStop catch (stop) {
     doc = stop.object();
     code = stop.code;
-  } on NotUtf8 catch (e) {
-    final stop = VcsStop.notUtf8(e);
-    doc = stop.object();
-    code = stop.code;
   } on Object catch (e) {
-    doc = _internalError(e);
-    code = 1;
+    final stop = VcsStop.refusal(e);
+    doc = stop?.object() ?? _internalError(e);
+    code = stop?.code ?? 1;
   }
   List<int> bytes;
   try {

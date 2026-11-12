@@ -501,6 +501,15 @@ void main() {
         expect(json()['message'], contains('repository path'));
       });
 
+      test('a launch the launcher refuses is not_utf8, exit 1 (D5)', () async {
+        File(tasksPath).writeAsStringSync('- [x] 1.1 a\n');
+        Future<ToolResult> git(List<String> argv) async =>
+            throw const Unrepresentable('git', 'command line');
+        expect(await run([...baseArgs(), '--rev', 'abc'], git: git), 1);
+        expect(json()['error'], 'not_utf8');
+        expect(json()['message'], contains('cannot start git'));
+      });
+
       test('transport exit 127 stops a hard call', () async {
         File(tasksPath).writeAsStringSync('- [x] 1.1 a\n');
         final git = stub(

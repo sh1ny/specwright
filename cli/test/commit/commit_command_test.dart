@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:specwright_cli/src/cli.dart';
 import 'package:specwright_cli/src/commands/commit.dart';
+import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:test/test.dart';
 
 List<int> _records(List<String> records) => [
@@ -56,6 +57,21 @@ void main() {
         expect(seen.ctx!.bash, '/bin/bash');
       });
     }
+
+    test(
+      'a launch the launcher refuses is a not_utf8 document, exit 1',
+      () async {
+        handlers['fit-subject'] = (args, ctx) async =>
+            throw const Unrepresentable('git', 'command line');
+        final code = await run([
+          '--args-stdin',
+        ], _records(['/scripts', '/bin/bash', 'fit-subject', 'm.txt']));
+        expect(code, 1);
+        final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+        expect(doc['error'], 'not_utf8');
+        expect(doc['message'], contains('cannot start git'));
+      },
+    );
 
     test('an unknown subcommand is a usage stop with exit 2', () async {
       final code = await run([

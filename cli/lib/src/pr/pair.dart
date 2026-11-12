@@ -1,5 +1,4 @@
 import '../options.dart';
-import '../vcs/codec.dart' show NotUtf8;
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
 import 'context.dart';
@@ -96,16 +95,16 @@ Future<int> runPairCommand(
   } on PairStop catch (e) {
     answer = e.toJson();
     code = e.code;
-  } on NotUtf8 catch (e) {
-    // D4: a path or name a git read printed is not UTF-8: refused by name, exit 1
-    answer = VcsStop.notUtf8(e).object();
-    code = 1;
   } on Object catch (e) {
-    answer = {
-      'ok': false,
-      'error': 'internal_error',
-      'message': '${e.runtimeType}: $e',
-    };
+    // D4, D5: a name that is not UTF-8 or a launch the launcher refused: not_utf8 by name, exit 1
+    final stop = VcsStop.refusal(e);
+    answer =
+        stop?.object() ??
+        {
+          'ok': false,
+          'error': 'internal_error',
+          'message': '${e.runtimeType}: $e',
+        };
     code = 1;
   }
   try {

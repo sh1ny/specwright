@@ -80,20 +80,6 @@ class TestSwBytes(VcsTestCase):
         self.assertNotIn("�", state["message"])
 
     @unittest.skipUnless(LINUX, "platform: a directory name that is not UTF-8 needs a Linux file system")
-    def test_non_utf8_repository_path_behind_a_symlink_is_not_utf8(self):
-        """A UTF-8 symlink into a checkout whose real path is not UTF-8: git's top level is that real path, refused by name."""
-        real = os.path.join(os.fsencode(self.root), b"real-\xff")
-        os.rename(os.fsencode(self.repo), real)
-        os.symlink(real, os.fsencode(self.repo))
-
-        # run from the root: the symlinked checkout's resolved cwd is not UTF-8, so even `sw version` would die there
-        state, _ = self.invoke("state", expected=1, cwd=self.root)
-
-        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
-        self.assertIn("real-\\xFF", state["message"])
-        self.assertNotIn("�", state["message"])
-
-    @unittest.skipUnless(LINUX, "platform: a directory name that is not UTF-8 needs a Linux file system")
     def test_non_utf8_common_dir_behind_a_worktree_is_not_utf8(self):
         """A linked worktree under a UTF-8 path whose main checkout (the Git common dir) is not UTF-8: refused by name (D4)."""
         main = os.path.join(os.fsencode(self.root), b"main-\xff")

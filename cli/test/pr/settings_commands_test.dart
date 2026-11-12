@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/pr/context.dart';
+import 'package:specwright_cli/src/pr/pair.dart';
+import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:specwright_cli/src/pr/settings_commands.dart';
 import 'package:specwright_cli/src/settings/reviewer_config.dart';
 import 'package:specwright_cli/src/vcs/text_result.dart';
@@ -44,6 +46,21 @@ void main() {
   Future<Ran> tier(List<String> argv) => run(runTier, argv);
   Future<Ran> context(List<String> argv, {Map<String, String>? environment}) =>
       run(runContext, argv, environment: environment);
+
+  test(
+    'a pair command whose launch is refused is not_utf8, exit 1 (D5)',
+    () async {
+      final r = PairRun(env: env());
+      final code = await runPairCommand(
+        r.ctx,
+        () async => throw const Unrepresentable('git', 'command line'),
+      );
+      final doc = jsonDecode(r.result(code).stdout) as Map<String, Object?>;
+      expect(code, 1);
+      expect(doc['error'], 'not_utf8');
+      expect(doc['message'], contains('cannot start git'));
+    },
+  );
 
   group('vcs', () {
     test('a top level that is not UTF-8 is not_utf8, exit 1 (D4)', () async {

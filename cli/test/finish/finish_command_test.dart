@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:specwright_cli/src/cli.dart';
 import 'package:specwright_cli/src/commands/finish.dart';
 import 'package:specwright_cli/src/finish/undo_plan.dart';
+import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
@@ -273,6 +274,20 @@ void main() {
         expect(doc()['error'], 'not_utf8');
         expect(doc()['message'], contains(r'a\xFF'));
         expect(seenRequest, isNull);
+      },
+    );
+
+    test(
+      'a launch the launcher refuses is a not_utf8 document, exit 1',
+      () async {
+        planner = (request, ctx) async =>
+            throw const Unrepresentable('git', 'command line');
+        final code = await run([
+          '--args-stdin',
+        ], _records(['/s', '/b', 'undo-archive-plan', '--change', 'x']));
+        expect(code, 1);
+        expect(doc()['error'], 'not_utf8');
+        expect(doc()['message'], contains('cannot start git'));
       },
     );
 
