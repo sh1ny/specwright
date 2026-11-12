@@ -365,6 +365,29 @@ class WorkflowTransport(wp.WorkflowParity):
         branch = 'feat/$x;é[quoted]'
         d = self.run_pair('discover', '--repo', self.SLUG, '--branch', branch, code=0)
         self.assertEqual(d['branch'], branch)
+        # The same call again with a failing recording `bash` first on PATH, as the native side only: the frozen oracle
+        # is itself bash scripts and needs a working bash, so it is not run against the recorder. The native side starts
+        # no shell, so the recorder never runs and the arguments reach gh unchanged.
+        recorder_dir = self.tmp / 'failing-bash'
+        recorder_dir.mkdir()
+        log = self.tmp / 'failing-bash-log'
+        for name in ('bash', 'sh'):  # bare-bash: not started (recorder names)
+            fakeexe.write_fake(recorder_dir / name,
+                               '#!/bin/sh\nprintf "%s\\n" ' + name + ' >> "$SW_SHELL_LOG"\nexit 1\n')
+        self.extra_env.update(SW_SHELL_LOG=log.as_posix(),
+                              PATH=os.pathsep.join([str(recorder_dir), str(self.tmp / 'bin'), os.environ.get('PATH', '')]))
+        # the recorder must record, or the empty log below would hold for the wrong reason
+        probe = subprocess.run([str(recorder_dir / ('bash.cmd' if os.name == 'nt' else 'bash'))],
+                               env=self.env('me'), capture_output=True, timeout=30)
+        self.assertEqual(probe.returncode, 1, probe)
+        self.assertEqual(log.read_text(encoding='utf-8').splitlines(), ['bash'])  # bare-bash: not started (the recorder log)
+        log.unlink()
+        before = self.gh_state.read_bytes()
+        native =self.side('new', ['discover', '--repo', self.SLUG, '--branch', branch], None)
+        self.gh_state.write_bytes(before)
+        self.assertEqual(native['code'], 0, native)
+        self.assertEqual(json.loads(native['stdout'])['branch'], branch)
+        self.assertFalse(log.exists(), 'a shell ran: ' + log.read_text(encoding='utf-8') if log.exists() else '')
 
     def test_absolute_gitbutler_metadata_path_keeps_fetch_refmap_empty(self):
         code, _ = self.setup_remote()

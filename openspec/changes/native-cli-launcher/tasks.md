@@ -24,8 +24,8 @@
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | Command not found | evals/pr-pair/test_as_shim.py | test_missing_command_exits_127 | green |
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | A bounded caller stops the fence | evals/pr-pair/test_as_shim.py | test_bounded_caller_stops_the_fenced_tree | green |
 | github-identity → The fenced command keeps the caller's stdin, arguments and exit status | A signal to the fence reaches the command | evals/pr-pair/test_as_shim.py | test_sigterm_reaches_the_command | green |
-| native-cli → sw starts external tools without a shell | Ported commands with failing shells first on PATH | evals/cli/test_no_shell.py | test_ported_commands_with_failing_shells_first | red |
-| native-cli → sw starts external tools without a shell | An absolute-path shell is not used either | cli/test/launch_sites_test.dart | no runner starts a shell by name or absolute path | red |
+| native-cli → sw starts external tools without a shell | Ported commands with failing shells first on PATH | evals/cli/test_no_shell.py | test_ported_commands_with_failing_shells_first | green |
+| native-cli → sw starts external tools without a shell | An absolute-path shell is not used either | cli/test/launch_sites_test.dart | no runner starts a shell by name or absolute path | green |
 | native-cli → sw starts external tools without a shell | A fenced shell command the caller asked for | evals/pr-pair/test_as_shim.py | test_fenced_shell_command_runs_as_asked | green |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A tool found on PATH gets its stdin | cli/test/launch_test.dart | stdin reaches the launched tool | green |
 | native-cli → Tool lookup, exit status and stdin keep their contract | A relative lookup resolves in the call's directory | cli/test/launch_test.dart | relative lookup resolves in the call's directory | green |
@@ -42,7 +42,7 @@
 | native-cli → Input the launcher cannot represent is refused by name | A lone surrogate reaches the launcher | cli/test/launch_test.dart | a lone surrogate is refused before the start | green |
 | native-cli → Long Windows arguments reach native tools whole | A 20,000-character argument on Windows | evals/pr-pair/test_as_shim.py | test_long_argument_reaches_fenced_tool_on_windows | green |
 | native-cli → Long Windows arguments reach native tools whole | Over the Windows command-line limit | cli/test/launch_test.dart | a Windows line over 32,767 units is refused | green |
-| native-cli → sw needs no POSIX utilities for its own work | Failing utilities first on PATH | evals/cli/test_no_shell.py | test_failing_utilities_first_on_path | red |
+| native-cli → sw needs no POSIX utilities for its own work | Failing utilities first on PATH | evals/cli/test_no_shell.py | test_failing_utilities_first_on_path | green |
 | native-cli → sw needs no POSIX utilities for its own work | An MSYS path argument on Windows | cli/test/commit/paths_test.dart | drive and UNC MSYS paths convert without cygpath | green |
 | native-cli → sw needs no POSIX utilities for its own work | A `/tmp` path on Windows | cli/test/commit/paths_test.dart | /tmp maps under TEMP | green |
 | native-cli → sw needs no POSIX utilities for its own work | A `/tmp` path with no TEMP | cli/test/commit/paths_test.dart | /tmp without TEMP or TMP is bad_path | green |
@@ -80,7 +80,7 @@
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Direct VCS failures retain wrapper mapping | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_direct_vcs_failures_retain_wrapper_mapping | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Another repository is checked under its own identity | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_another_repository_is_checked_under_its_own_identity | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Non-GitHub transport restores the original environment | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_non_github_transport_restores_the_original_environment | green |
-| pr-script-runtime → Native workflow integration calls every ported operation in process | Command arguments remain exact | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_command_arguments_remain_exact (values, failing `bash` first on `PATH`) | red |
+| pr-script-runtime → Native workflow integration calls every ported operation in process | Command arguments remain exact | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_command_arguments_remain_exact (values, failing `bash` first on `PATH`) | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | A non-UTF-8 path argument is refused | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_non_utf8_path_argument_is_refused | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Unbounded VCS calls remain unbounded | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_unbounded_vcs_calls_remain_unbounded | green |
 | task-commits → Commit tooling runs in the project's sw | Coverage through a matching sw | evals/git-workflow/test_commit_shims.py | test_task_cover_runs_sw | green |
@@ -176,9 +176,9 @@
 
 ## 9. No shell anywhere, and integration
 
-- [ ] 9.1 Write `evals/cli/test_no_shell.py` with `test_ported_commands_with_failing_shells_first` (recording `bash` and `sh` that exit 1 first on `PATH`; every ported command gives its normal output and neither recorder ran) and `test_failing_utilities_first_on_path` (recording `mktemp`, `ln`, `sleep`, `date`, `getconf`, `pwd`, `cygpath`). Run `python -m unittest evals/cli/test_no_shell.py` locally red then green, and in CI on three OSes; flip the rows green.
-- [ ] 9.2 Update `cli/test/launch_sites_test.dart`: remove the bash-transport entries from `launchAllowlist`, add `launch.dart` and the in-process `runWithCommandLine` site, and add the check "no runner starts a shell by name or absolute path" (rejecting `bash`, `sh`, `/bin/bash`, `/bin/sh` and a Git Bash path as a launch command). Verify `mise exec -- dart test test/launch_sites_test.dart` passes.
-- [ ] 9.3 Re-run every `green` row of the test map in CI (`cli.yml` and `evals.yml` on Linux, Windows and macOS on the PR) and confirm each still passes; any failure is a regression to fix in its group.
+- [x] 9.1 Write `evals/cli/test_no_shell.py` with `test_ported_commands_with_failing_shells_first` (recording `bash` and `sh` that exit 1 first on `PATH`; every ported command gives its normal output and neither recorder ran) and `test_failing_utilities_first_on_path` (recording `mktemp`, `ln`, `sleep`, `date`, `getconf`, `pwd`, `cygpath`). Run `python -m unittest evals/cli/test_no_shell.py` locally red then green, and in CI on three OSes; flip the rows green.
+- [x] 9.2 Update `cli/test/launch_sites_test.dart`: remove the bash-transport entries from `launchAllowlist`, add `launch.dart` and the in-process `runWithCommandLine` site, and add the check "no runner starts a shell by name or absolute path" (rejecting `bash`, `sh`, `/bin/bash`, `/bin/sh` and a Git Bash path as a launch command). Verify `mise exec -- dart test test/launch_sites_test.dart` passes.
+- [x] 9.3 Re-run every `green` row of the test map in CI (`cli.yml` and `evals.yml` on Linux, Windows and macOS on the PR) and confirm each still passes; any failure is a regression to fix in its group.
 
 ## 10. Release
 
