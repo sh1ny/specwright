@@ -297,6 +297,7 @@ sequenceDiagram
 - [The sorted walk changes `carried_edits` order against the frozen `finish.sh`] → The spec lists it as a difference, and the parity eval compares that list sorted.
 - [Thirty-three codec importers change at once] → The codec functions are removed. The compiler then lists every remaining use, and each file is reviewed in its group.
 - [Projects with tracked non-UTF-8 names stop] → A named message asks for a rename, and the release notes call it out (BREAKING).
+- [A checkout whose real path is not UTF-8 (reached through a UTF-8 symlink, or as the working directory) aborts the Dart VM] → Dart's path APIs (`Directory.current`, `resolveSymbolicLinksSync`) return strings, and the VM aborts with exit 255 (`Dart_NewStringFromUTF8 expects ... valid UTF-8`) before any `sw` code can map it to `not_utf8`. No eval covers this; a path that `sw` reads from tool output is still refused by name (D4).
 
 ## ADRs
 
