@@ -6,7 +6,7 @@
 
 The reviewer command lines are also fixed in code, and the CLIs they drive have moved under them. On OMP 18.19 and Codex 0.166, the current lines no longer give a read-only reviewer:
 
-- **OMP.** `find` is now a semantic search that makes its own paid model calls. Users of other projects have had to edit `review-run.sh` by hand to drop it. OMP also offers `learn` and `manage_skill` despite `--tools read,grep,find,glob` and `--no-skills`. Both write outside the checkout, to OMP's long-term memory and to `~/.omp/agent/managed-skills`.
+- **OMP.** `find` is now a semantic search that makes its own paid model calls. Users of other projects have had to edit `review-run.sh` by hand to drop it. OMP also offers `learn` and `manage_skill` despite `--tools read,grep,find,glob` and `--no-skills`. Both write outside the checkout, to OMP's long-term memory and to `~/.omp/agent/managed-skills`. Retained `read` and `grep` tools also accept network targets; disabling memory alone does not restrict those targets.
 - **Codex.** Under `exec -s read-only --ignore-user-config`, Codex still exposes web access, image generation, `spawn_agent`, plugin installation, memories and hooks.
 
 These were observed on 2026-11-12, with the tool lists the CLIs reported for the route's current command line. Each CLI release can change them again, so the user needs a way to adjust each route without editing a shipped script.
@@ -22,12 +22,12 @@ This proposal amends the scope listed for change 7 in `openspec/roadmap.md`: the
   - `disable`: Codex features to turn off.
   - `args`: extra flags.
 
-  Specwright keeps its isolating flags fixed and refuses a setting that would drop or weaken them: the read-only sandbox, `--restricted`, a fresh session, and no skills, rules or extensions. The refusal is a named stop before any reviewer starts. **BREAKING** for anyone who edited `review-run.sh` by hand: those edits are lost in the update and move into `review.routes`.
+  Specwright keeps its isolating flags fixed and refuses a setting that would drop or weaken them: the read-only sandbox, `--restricted`, a fresh session, and no user skills, rules or extensions. OMP has one explicit exception: a fixed Specwright-owned trusted module enforces local tool targets; user settings cannot replace or add trusted modules. The refusal is a named stop before any reviewer starts. **BREAKING** for anyone who edited `review-run.sh` by hand: those edits are lost in the update and move into `review.routes`.
 - **Isolation defaults.** Shipped defaults close the gaps found above:
-  - OMP's default tools become `read,grep,glob`, and its memory and auto-learn features are switched off for the run.
+  - OMP's default tools become `read,grep,glob`; memory, auto-learn and web fetching are switched off for the run. One fixed trusted local-target gate blocks remote URI/resource targets, including SSH and opaque MCP URIs, before tool execution.
   - Codex turns off the features behind its web, image-generation, plugin-install, memory, hook and goal tools. Its agent tools (`spawn_agent` and the rest of `collaboration.*`) remain even with `multi_agent` off, and no Codex 0.166 switch removing them was found. They stay under the read-only sandbox.
   - Claude's existing line is kept. It gains only what the experiment finds missing.
-- **Receipts.** The receipt records the effective tool list, the disabled features and the extra arguments used, so a review shows what the reviewer could do.
+- **Receipts.** The receipt records the effective tool list, the disabled features and the extra arguments used, so a review shows what the reviewer could do. OMP also records its fixed local-target policy identity and module digest.
 - **Documentation.** `specwright-review`, the settings template and the docs describe `review.routes`. They also give a short procedure for checking a new CLI version's tool list. There is no runtime discovery: help text and feature lists are not stable contracts.
 
 ## Capabilities
@@ -38,16 +38,16 @@ None.
 
 ### Modified Capabilities
 
-- `review-routes`: reviewer routes run in `sw` with their contracts kept. Each route's tools, disabled features and extra flags become settings within fixed isolation. The shipped defaults no longer let a reviewer write outside the checkout or reach the network. The receipt records the effective tool set.
+- `review-routes`: reviewer routes run in `sw` with their contracts kept. Each route's tools, disabled features and extra flags become settings within fixed isolation. The shipped defaults close the observed mutation and remote-tool gaps: OMP denies remote tool targets, and Codex disables its dedicated network and other unsafe features while retaining its read-only sandbox. This is not an OS-wide network sandbox; model-provider transport remains necessary. The receipt records the effective controls.
 
 ## Impact
 
-- **Code:** new `cli/lib/src/review/` modules and an `sw review` command in `cli/lib/src/cli.dart`; reuse of `cli/lib/src/process/` (bounded runs, launcher, tree stop) and of `cli/lib/src/settings/` and `readVcsSettings`.
+- **Code:** new `cli/lib/src/review/` modules and an `sw review` command in `cli/lib/src/cli.dart`; reuse of `cli/lib/src/process/` (bounded runs, launcher, tree stop) and of `cli/lib/src/settings/` and `readVcsSettings`. OMP's trusted policy is emitted from Dart-owned source into the private run directory and executed inside OMP, not by a separate script/interpreter process.
 - **Scripts:** `skills/specwright-review/scripts/review-run.sh` becomes a shim; `skills/specwright-review/scripts/bounded.py` is removed.
 - **Skills and docs:** `skills/specwright-review/SKILL.md` and the settings template (`review.routes`); unchanged call sites in `specwright-commit`, `specwright-pr`, `specwright-finish`, `specwright-roadmap` and the `specwright-reviewer` agents keep working through the shim.
 - **Evals:** `evals/review-routes/test_review_run.py` runs against the shim and `sw`. New cases cover per-route settings, refusal of weakening values, the new defaults and script-absent and interpreter-absent runs. Dart unit tests go under `cli/test/review/`.
 - **Settings:** a new optional `review.routes` key. Nothing existing changes meaning.
-- **Dependencies:** none new expected. A TOML reader for the Codex `windows.sandbox` value is decided in the design.
+- **Dependencies:** `toml` 0.18.0 and its reviewed runtime closure parse Codex's `windows.sandbox` value. The OMP policy uses OMP's existing JavaScript runtime; Node 22 is a development-only host for tests of the emitted policy, following the existing eval CI runtime.
 - **Roadmap:** change 7's entry is reworded to include the settings and isolation fixes.
 
 ## Decision Making
@@ -57,7 +57,7 @@ DECISION_MAKING: important
 
 ### S1: How per-reviewer parameters are configured
 
-- **Choice:** Typed keys under `review.routes.<route>`: `tools`, `disable` and `args`. Fixed isolating flags are kept, and a value that would drop or weaken them is refused. The shipped defaults are updated for today's CLIs.
+- **Choice:** Typed keys under `review.routes.<route>`: `tools`, `disable` and `args`. Fixed isolating flags are kept, and a value that would drop or weaken them is refused. The shipped defaults are updated for today's CLIs. The sole trusted-code exception is the fixed OMP local-target module in S5; user extensions remain disabled.
 - **Rejected:** Free-form `args` only, because a typo or a copied flag could remove read-only isolation without notice. Fixed defaults with no settings, because each CLI change would again need a Specwright release or a hand edit.
 - **Reversal cost:** medium (a new settings key that users write into their configs)
 - **Important:** yes: binds future changes (a config key) and changes settings users see
@@ -65,7 +65,7 @@ DECISION_MAKING: important
 
 ### S2: Close the isolation gaps found in the experiment within this change
 
-- **Choice:** The new defaults drop OMP's `find` and switch off `learn` and `manage_skill`. Codex's network, image, plugin, memory, hook and goal features are disabled. Evals check the reviewer's effective command line and, where a CLI can report it, its tool list.
+- **Choice:** The new defaults drop OMP's `find`, switch off `learn`, `manage_skill` and web fetching, and enforce local tool targets with the fixed trusted gate in S5. Codex's network, image, plugin, memory, hook and goal features are disabled. Evals check the effective controls; native trials must show actual tool denials and no fixture requests, not merely absent tool names.
 - **Rejected:** Filing the gaps as a separate known-gap issue, because the port already rewrites these command lines and the gaps break the "read-only" requirement today.
 - **Reversal cost:** low
 - **Important:** yes: changes behaviour users see, and was found on observed rather than documented evidence
@@ -87,9 +87,17 @@ DECISION_MAKING: important
 - **Important:** yes: changes the milestone's scope
 - **Chosen by:** user
 
+### S5: One fixed trusted OMP local-target gate
+
+- **Choice:** Keep the ban on reviewer-directed remote targets. Use OMP's supported `fetch.enabled: false` plus one fixed `--trusted-extension` local-target gate while retaining `--no-extensions`. The module is Specwright-owned, private to the run, and cannot be replaced through settings. Local review operations and model API transport remain available. This is a tool-target policy, not an OS-wide network or filesystem sandbox.
+- **Rejected:** Native web-fetch disable alone, because SSH and MCP resources bypass it. Allowing other remote resources and narrowing the promise, because the user chose to preserve the remote-target ban. Enabling ambient user extensions, because a policy module does not justify running user extension code.
+- **Reversal cost:** medium (an additional reviewer-runtime policy and its compatibility tests)
+- **Important:** yes: changes the fixed extension boundary and privacy guarantee
+- **Chosen by:** user (apply-time network-boundary decision after round 5)
+
 ## Release Notes
 
-`sw review` now runs the design and pre-ship reviews, replacing the Python in `review-run.sh`. Each reviewer CLI can be tuned in `review.routes`: its tools, disabled features and extra flags, while Specwright keeps its read-only isolation fixed. The shipped defaults stop OMP and Codex reviewers from writing outside the checkout or reaching the network.
+`sw review` now runs the design and pre-ship reviews, replacing the Python in `review-run.sh`. Each reviewer CLI can be tuned in `review.routes` while Specwright keeps its isolation controls fixed. OMP's defaults disable memory and web fetching and enforce local tool targets through one fixed trusted gate. Codex disables its dedicated web, image, plugin, memory, hook and goal features under the read-only sandbox. Model-provider traffic is not blocked.
 
 ### Added
 
@@ -98,7 +106,7 @@ DECISION_MAKING: important
 ### Changed
 
 - `review-run.sh` is a shim over `sw review`. Its subcommands, JSON documents, exit codes and records are unchanged, and it no longer needs Python or bash for its own work (#148).
-- The OMP reviewer's default tools are `read,grep,glob`, with OMP's memory and auto-learn off. The Codex reviewer turns off its web, image, plugin, memory, hook and goal features (#148).
+- The OMP reviewer's default tools are `read,grep,glob`, with memory, auto-learn and web fetching off and a fixed trusted local-target gate. User extensions remain disabled. The Codex reviewer turns off its web, image, plugin, memory, hook and goal features (#148).
 - An OMP older than 18.19.0 is skipped as a reviewer, because its memory could not be turned off reliably (#148).
 - The CLI ships `toml` to parse Codex's Windows `windows.sandbox` value as TOML (#148).
 - A review stops with `bad_settings`, naming the line, when `openspec/specwright.yaml` has a line the settings reader would misread; `review-run.sh` used to read it leniently (#148).

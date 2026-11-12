@@ -143,5 +143,565 @@
       },
       "isError": false
     }
-  ]
+  ],
+  "network_policy_prototype": {
+    "scope": "Supported-hook and failure-control proof only; single-root prototype, not the production path grammar or completed isolation acceptance.",
+    "source_provenance": {
+      "url": "https://codeload.github.com/can1357/oh-my-pi/tar.gz/refs/tags/v18.19.0",
+      "bytes": 81979707,
+      "sha256": "c358af6dc72536f614079bf7737d6391bc53da13160d6dec50e7de5942eb0be6",
+      "regular_files_and_directories": 11438,
+      "root": "F:\\Temp\\omp-network-cVwF0p"
+    },
+    "policy_source": "import path from 'node:path';\n\nconst marker = 'SPECWRIGHT_OMP_LOCAL_ONLY';\nconst tools = new Set(['read', 'grep', 'glob']);\nconst driveAbsolute = /^[A-Za-z]:[\\\\/](?![\\\\/])/;\nconst scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/;\n\nfunction localAbsolute(value) {\n  if (value.startsWith('\\\\\\\\') || value.startsWith('//')) return false;\n  return process.platform === 'win32' ? driveAbsolute.test(value) : value.startsWith('/');\n}\n\nexport default function (api) {\n  api.on('tool_call', (event, context) => {\n    if (!tools.has(event.toolName)) return;\n    try {\n      if (!localAbsolute(context.cwd)) throw new Error('working directory must be a local absolute path');\n      const input = event.input;\n      const raw = input.path;\n      if (raw !== undefined && raw !== null && typeof raw !== 'string') throw new Error('target must be a string');\n      const target = raw === undefined || raw === null || raw === '' ? context.cwd : raw.trim();\n      if (!target || target.includes('\\0')) throw new Error('target is empty or contains NUL');\n      if (target.startsWith('\\\\\\\\') || target.startsWith('//')) throw new Error('network shares are not local targets');\n      if (/^www\\./i.test(target) || (scheme.test(target) && !driveAbsolute.test(target))) throw new Error('URI targets are forbidden; use ./ for a local filename with a selector');\n      if (event.toolName !== 'read' && (target.includes(';') || /^\\s*\\[/.test(target))) throw new Error('this experimental gate accepts one search root per call');\n      const absolute = path.resolve(context.cwd, target);\n      if (!localAbsolute(absolute)) throw new Error('target did not resolve to a local absolute path');\n      return {input: {...input, path: absolute}};\n    } catch (error) {\n      return {block: true, reason: marker + ': ' + String(error.message || error)};\n    }\n  });\n}\n",
+    "trial": {
+      "verification": {
+        "version": "omp/18.19.0",
+        "exit": 0,
+        "limit": null,
+        "seconds": 36.83,
+        "policy_sha256": "c8f75b87066fdef71445b6b7c6534895672a7bb7e6c0e668a4dc06be4686246d",
+        "policy_scope": "experimental single-search-root gate; not the final production grammar",
+        "status_unchanged": true,
+        "connections": [],
+        "requests": [],
+        "nonce": "NETWORK_GATE_PROBE_026005efc4334635a7ab5d56a3af42d8",
+        "fixture": "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\local-fixture.txt",
+        "cases": [
+          {
+            "name": "read_http",
+            "tool": "read",
+            "path": "http://127.0.0.1:49592/read-http"
+          },
+          {
+            "name": "grep_http",
+            "tool": "grep",
+            "path": "http://127.0.0.1:49592/grep-http"
+          },
+          {
+            "name": "read_ssh",
+            "tool": "read",
+            "path": "ssh://127.0.0.1:49592/read-ssh"
+          },
+          {
+            "name": "grep_ssh",
+            "tool": "grep",
+            "path": "ssh://127.0.0.1:49592/grep-ssh"
+          },
+          {
+            "name": "read_opaque",
+            "tool": "read",
+            "path": "specwright-probe:read-opaque"
+          },
+          {
+            "name": "grep_opaque",
+            "tool": "grep",
+            "path": "specwright-probe:grep-opaque"
+          },
+          {
+            "name": "glob_http",
+            "tool": "glob",
+            "path": "http://127.0.0.1:49592/glob-http"
+          },
+          {
+            "name": "glob_opaque",
+            "tool": "glob",
+            "path": "specwright-probe:glob-opaque"
+          }
+        ]
+      },
+      "argv": [
+        "omp",
+        "-p",
+        "--no-skills",
+        "--no-extensions",
+        "--no-rules",
+        "--tools",
+        "read,grep,glob",
+        "--session-dir",
+        "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\session",
+        "--mode",
+        "json",
+        "--model",
+        "@default",
+        "--config",
+        "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\overlay.yml",
+        "--trusted-extension",
+        "F:\\Temp\\omp-network-cVwF0p\\local-only-probe.mjs",
+        "@F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\prompt.txt"
+      ],
+      "overlay": "autolearn:\n  enabled: false\nmemories:\n  enabled: false\nfind:\n  enabled: false\nfetch:\n  enabled: false\n",
+      "prompt": "Run a controlled negative test of an explicitly trusted local-path tool policy. Do not edit any file or run commands. Use only read, grep and glob. All network addresses below are my own loopback fixture; no real remote server is involved. Issue actual tool calls for EVERY listed case, even if earlier calls return a policy error. A refusal in your answer is not a test. For grep use pattern NETWORK_GATE_PROBE. First read this absolute local file, grep that same file, and glob that exact absolute file path: F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt. Record the real local content. Then attempt every remote-target case below exactly as given. The policy should deny them; do not bypass or rewrite them as local files and do not ask for permission. After all actual calls finish, summarize each result briefly.\n[\n  {\n    \"name\": \"read_http\",\n    \"tool\": \"read\",\n    \"path\": \"http://127.0.0.1:49592/read-http\"\n  },\n  {\n    \"name\": \"grep_http\",\n    \"tool\": \"grep\",\n    \"path\": \"http://127.0.0.1:49592/grep-http\"\n  },\n  {\n    \"name\": \"read_ssh\",\n    \"tool\": \"read\",\n    \"path\": \"ssh://127.0.0.1:49592/read-ssh\"\n  },\n  {\n    \"name\": \"grep_ssh\",\n    \"tool\": \"grep\",\n    \"path\": \"ssh://127.0.0.1:49592/grep-ssh\"\n  },\n  {\n    \"name\": \"read_opaque\",\n    \"tool\": \"read\",\n    \"path\": \"specwright-probe:read-opaque\"\n  },\n  {\n    \"name\": \"grep_opaque\",\n    \"tool\": \"grep\",\n    \"path\": \"specwright-probe:grep-opaque\"\n  },\n  {\n    \"name\": \"glob_http\",\n    \"tool\": \"glob\",\n    \"path\": \"http://127.0.0.1:49592/glob-http\"\n  },\n  {\n    \"name\": \"glob_opaque\",\n    \"tool\": \"glob\",\n    \"path\": \"specwright-probe:glob-opaque\"\n  }\n]",
+      "before_porcelain": " M evals/review-routes/test_skill_text.py\n M openspec/changes/native-cli-review/design.md\n M openspec/changes/native-cli-review/evidence/cli-tools.md\n M openspec/changes/native-cli-review/review.md\n M openspec/changes/native-cli-review/specs/review-routes/spec.md\n M openspec/changes/native-cli-review/tasks.md\n M skills/specwright-review/SKILL.md\n",
+      "after_porcelain": " M evals/review-routes/test_skill_text.py\n M openspec/changes/native-cli-review/design.md\n M openspec/changes/native-cli-review/evidence/cli-tools.md\n M openspec/changes/native-cli-review/review.md\n M openspec/changes/native-cli-review/specs/review-routes/spec.md\n M openspec/changes/native-cli-review/tasks.md\n M skills/specwright-review/SKILL.md\n",
+      "stderr": "",
+      "denials": [
+        {
+          "case": "read_http",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_ed1e37e473144da1b68d8f12f02aa0f3|fc_0453d80fdf5d7967016af61baf50b887d2afaf308b8e03c492",
+            "toolName": "read",
+            "args": {
+              "path": "http://127.0.0.1:49592/read-http"
+            },
+            "intent": "Testing HTTP read denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_ed1e37e473144da1b68d8f12f02aa0f3|fc_0453d80fdf5d7967016af61baf50b887d2afaf308b8e03c492",
+            "toolName": "read",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "grep_http",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_bc49197b7d8543e9958dc0e5bc39a9cf|fc_0453d80fdf5d7967016af61bb1a9ec87d2b9e99860a9b248cf",
+            "toolName": "grep",
+            "args": {
+              "pattern": "NETWORK_GATE_PROBE",
+              "path": "http://127.0.0.1:49592/grep-http"
+            },
+            "intent": "Testing HTTP grep denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_bc49197b7d8543e9958dc0e5bc39a9cf|fc_0453d80fdf5d7967016af61bb1a9ec87d2b9e99860a9b248cf",
+            "toolName": "grep",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "read_ssh",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_e7bda8cc2c5643178923f49a730edaf7|fc_0453d80fdf5d7967016af61bb42ce487d2a02edd93a5a0b87a",
+            "toolName": "read",
+            "args": {
+              "path": "ssh://127.0.0.1:49592/read-ssh"
+            },
+            "intent": "Testing SSH read denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_e7bda8cc2c5643178923f49a730edaf7|fc_0453d80fdf5d7967016af61bb42ce487d2a02edd93a5a0b87a",
+            "toolName": "read",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "grep_ssh",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_ef436920ae024a7ca915e31d542e68aa|fc_0453d80fdf5d7967016af61bb6950487d28fc14bc0ca07315b",
+            "toolName": "grep",
+            "args": {
+              "pattern": "NETWORK_GATE_PROBE",
+              "path": "ssh://127.0.0.1:49592/grep-ssh"
+            },
+            "intent": "Testing SSH grep denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_ef436920ae024a7ca915e31d542e68aa|fc_0453d80fdf5d7967016af61bb6950487d28fc14bc0ca07315b",
+            "toolName": "grep",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "read_opaque",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_6520561fab95434a81eb02a9360f2d12|fc_0453d80fdf5d7967016af61bb9f31c87d295af03a4035906df",
+            "toolName": "read",
+            "args": {
+              "path": "specwright-probe:read-opaque"
+            },
+            "intent": "Testing opaque read denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_6520561fab95434a81eb02a9360f2d12|fc_0453d80fdf5d7967016af61bb9f31c87d295af03a4035906df",
+            "toolName": "read",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "grep_opaque",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_ba9cdc92cf8641a7a5a2dd9dbf127360|fc_0453d80fdf5d7967016af61bbbc0b487d2b6cbbc1f8a0e5592",
+            "toolName": "grep",
+            "args": {
+              "pattern": "NETWORK_GATE_PROBE",
+              "path": "specwright-probe:grep-opaque"
+            },
+            "intent": "Testing opaque grep denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_ba9cdc92cf8641a7a5a2dd9dbf127360|fc_0453d80fdf5d7967016af61bbbc0b487d2b6cbbc1f8a0e5592",
+            "toolName": "grep",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "glob_http",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_ae56ee9ea36b42838085e6d01ef649b6|fc_0453d80fdf5d7967016af61bbf032087d2aa638f96d0f0eb4e",
+            "toolName": "glob",
+            "args": {
+              "path": "http://127.0.0.1:49592/glob-http"
+            },
+            "intent": "Testing HTTP glob denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_ae56ee9ea36b42838085e6d01ef649b6|fc_0453d80fdf5d7967016af61bbf032087d2aa638f96d0f0eb4e",
+            "toolName": "glob",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        },
+        {
+          "case": "glob_opaque",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_bb7c9d1b9ac84eb6acd99f94782963b2|fc_0453d80fdf5d7967016af61bc1ca6487d2aa89eeb3cb5f3e30",
+            "toolName": "glob",
+            "args": {
+              "path": "specwright-probe:glob-opaque"
+            },
+            "intent": "Testing opaque glob denial"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_bb7c9d1b9ac84eb6acd99f94782963b2|fc_0453d80fdf5d7967016af61bc1ca6487d2aa89eeb3cb5f3e30",
+            "toolName": "glob",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SPECWRIGHT_OMP_LOCAL_ONLY: URI targets are forbidden; use ./ for a local filename with a selector"
+                }
+              ],
+              "details": {}
+            },
+            "isError": true
+          }
+        }
+      ],
+      "local_results": [
+        {
+          "tool": "read",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_6e4cb463ce674f7c83c5632ee36f3669|fc_0453d80fdf5d7967016af61ba7305887d29203909b50fc1190",
+            "toolName": "read",
+            "args": {
+              "path": "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\local-fixture.txt"
+            },
+            "intent": "Reading local fixture content"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_6e4cb463ce674f7c83c5632ee36f3669|fc_0453d80fdf5d7967016af61ba7305887d29203909b50fc1190",
+            "toolName": "read",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "NETWORK_GATE_PROBE_026005efc4334635a7ab5d56a3af42d8"
+                }
+              ],
+              "details": {
+                "totalLines": 1,
+                "rowPrefixes": false,
+                "displayContent": {
+                  "text": "NETWORK_GATE_PROBE_026005efc4334635a7ab5d56a3af42d8\r",
+                  "startLine": 1,
+                  "lineNumbers": [
+                    1
+                  ]
+                },
+                "fileSize": 53,
+                "meta": {
+                  "source": {
+                    "type": "path",
+                    "value": "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\local-fixture.txt"
+                  },
+                  "pagedSource": true
+                }
+              }
+            },
+            "isError": false
+          }
+        },
+        {
+          "tool": "grep",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_ade9ee6fbe9a40ef8f79d6eae9f689a9|fc_0453d80fdf5d7967016af61ba963b887d28020b3e83e2eb77a",
+            "toolName": "grep",
+            "args": {
+              "pattern": "NETWORK_GATE_PROBE",
+              "path": "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\local-fixture.txt"
+            },
+            "intent": "Searching local fixture content"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_ade9ee6fbe9a40ef8f79d6eae9f689a9|fc_0453d80fdf5d7967016af61ba963b887d28020b3e83e2eb77a",
+            "toolName": "grep",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "*1|NETWORK_GATE_PROBE_026005efc4334635a7ab5d56a3af42d8"
+                }
+              ],
+              "details": {
+                "scopePath": "F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt",
+                "searchPath": "F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt",
+                "cwd": "F:\\Dev\\specwright",
+                "matchCount": 1,
+                "fileCount": 1,
+                "files": [
+                  "F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt"
+                ],
+                "fileMatches": [
+                  {
+                    "path": "F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt",
+                    "count": 1
+                  }
+                ],
+                "truncated": false,
+                "displayContent": "*1│NETWORK_GATE_PROBE_026005efc4334635a7ab5d56a3af42d8"
+              }
+            },
+            "isError": false
+          }
+        },
+        {
+          "tool": "glob",
+          "start": {
+            "type": "tool_execution_start",
+            "toolCallId": "call_c992f6f4dac641da9e467ecdbbae9790|fc_0453d80fdf5d7967016af61bacf70487d2aa5f88dd190c5d62",
+            "toolName": "glob",
+            "args": {
+              "path": "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\local-fixture.txt"
+            },
+            "intent": "Matching local fixture path"
+          },
+          "end": {
+            "type": "tool_execution_end",
+            "toolCallId": "call_c992f6f4dac641da9e467ecdbbae9790|fc_0453d80fdf5d7967016af61bacf70487d2aa5f88dd190c5d62",
+            "toolName": "glob",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "# F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/\nlocal-fixture.txt"
+                }
+              ],
+              "details": {
+                "scopePath": "F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt",
+                "fileCount": 1,
+                "files": [
+                  "F:/Temp/omp-network-cVwF0p/trial-g56pqw_n/local-fixture.txt"
+                ],
+                "truncated": false,
+                "cwd": "F:\\Dev\\specwright"
+              }
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    "failure_controls": {
+      "trial": "F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx",
+      "status_unchanged": true,
+      "fixture_tcp_connections": 0,
+      "controls": [
+        {
+          "name": "bad-module",
+          "argv": [
+            "omp",
+            "-p",
+            "--no-skills",
+            "--no-extensions",
+            "--no-rules",
+            "--tools",
+            "read,grep,glob",
+            "--session-dir",
+            "F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\bad-module-session",
+            "--mode",
+            "json",
+            "--model",
+            "@default",
+            "--config",
+            "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\overlay.yml",
+            "--trusted-extension",
+            "F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\bad-module.mjs",
+            "@F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\bad-module-prompt.txt"
+          ],
+          "source": "export default function (\n",
+          "exit": 1,
+          "limit": null,
+          "stderr": "1750 |         if (w instanceof Rl) {\n1751 |           ve(w);\n1752 |         }\n1753 |         throw w;\n1754 |       }\n1755 |         throw new Error(`Trusted extension failed to load: ${V.errors.map((w) => w.error).join(\"; \")}`);\n                     ^\nerror: Trusted extension failed to load: Failed to load extension: Failed to parse extension source for dependency rewriting: F:\\temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\bad-module.mjs: Unexpected token (2:0)\n      at TE (B:/~BUN/root/chunks/cli-arnkfgbt.js:1755:15)\n      at async run (B:/~BUN/root/chunks/launch-73njpw1f.js:67:14)\n      at async thn (B:/~BUN/root/chunks/cli-tw0g21my.js:269:16)\n      at async H (B:/~BUN/root/omp-windows-x64:435:12)\n\n",
+          "native_results": []
+        },
+        {
+          "name": "throwing-hook",
+          "argv": [
+            "omp",
+            "-p",
+            "--no-skills",
+            "--no-extensions",
+            "--no-rules",
+            "--tools",
+            "read,grep,glob",
+            "--session-dir",
+            "F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook-session",
+            "--mode",
+            "json",
+            "--model",
+            "@default",
+            "--config",
+            "F:\\Temp\\omp-network-cVwF0p\\trial-g56pqw_n\\overlay.yml",
+            "--trusted-extension",
+            "F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook.mjs",
+            "@F:\\Temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook-prompt.txt"
+          ],
+          "source": "export default function(api) { api.on('tool_call', () => { throw new Error('Specwright policy callback test failure'); }); }\n",
+          "exit": 0,
+          "limit": null,
+          "stderr": "Extension error (F:\\temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook.mjs): Specwright policy callback test failure\nExtension error (F:\\temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook.mjs): Specwright policy callback test failure\n",
+          "native_results": [
+            {
+              "start": {
+                "type": "tool_execution_start",
+                "toolCallId": "call_22a092059e54414cbff8ab2448c6a6dc|fc_0f2ff77914216688016af61f6ab87087d2bd61488f0a2d3afe",
+                "toolName": "read",
+                "args": {
+                  "path": "ssh://127.0.0.1:56154/read-throwing-hook"
+                },
+                "intent": "Probing read hook failure"
+              },
+              "end": {
+                "type": "tool_execution_end",
+                "toolCallId": "call_22a092059e54414cbff8ab2448c6a6dc|fc_0f2ff77914216688016af61f6ab87087d2bd61488f0a2d3afe",
+                "toolName": "read",
+                "result": {
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Extension F:\\temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook.mjs failed: Specwright policy callback test failure"
+                    }
+                  ],
+                  "details": {}
+                },
+                "isError": true
+              }
+            },
+            {
+              "start": {
+                "type": "tool_execution_start",
+                "toolCallId": "call_5c7e568156104a2e9551a2daf0f1d166|fc_0f2ff77914216688016af61f6cb36087d2af3bd3407d770d5e",
+                "toolName": "grep",
+                "args": {
+                  "pattern": "NETWORK_GATE_PROBE",
+                  "path": "ssh://127.0.0.1:56154/grep-throwing-hook"
+                },
+                "intent": "Probing grep hook failure"
+              },
+              "end": {
+                "type": "tool_execution_end",
+                "toolCallId": "call_5c7e568156104a2e9551a2daf0f1d166|fc_0f2ff77914216688016af61f6cb36087d2af3bd3407d770d5e",
+                "toolName": "grep",
+                "result": {
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Extension F:\\temp\\omp-network-cVwF0p\\failure-controls-v3e25dlx\\throwing-hook.mjs failed: Specwright policy callback test failure"
+                    }
+                  ],
+                  "details": {}
+                },
+                "isError": true
+              }
+            }
+          ]
+        }
+      ],
+      "before_porcelain": " M evals/review-routes/test_skill_text.py\n M openspec/changes/native-cli-review/design.md\n M openspec/changes/native-cli-review/evidence/cli-tools.md\n M openspec/changes/native-cli-review/review.md\n M openspec/changes/native-cli-review/specs/review-routes/spec.md\n M openspec/changes/native-cli-review/tasks.md\n M skills/specwright-review/SKILL.md\n",
+      "after_porcelain": " M evals/review-routes/test_skill_text.py\n M openspec/changes/native-cli-review/design.md\n M openspec/changes/native-cli-review/evidence/cli-tools.md\n M openspec/changes/native-cli-review/review.md\n M openspec/changes/native-cli-review/specs/review-routes/spec.md\n M openspec/changes/native-cli-review/tasks.md\n M skills/specwright-review/SKILL.md\n"
+    }
+  }
 }

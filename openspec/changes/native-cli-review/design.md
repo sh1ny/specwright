@@ -26,17 +26,17 @@ TIER: FULL
   - OMP: `--tools read,grep,find,glob` (`review-run.sh:1066`).
   - On Windows, Codex's `windows.sandbox` is read from `config.toml` with `tomllib` and passed on when it is a plain name (`review-run.sh:1014-1032`, `review-run.sh:1051-1052`).
 - **Capture.** `capture` streams stdout and stderr to temp files under per-stream bounds and fails a run whose child still holds a pipe 2 s after the exit (`review-run.sh:382-392`, `review-run.sh:1283-1284`). The bounds are at `review-run.sh:79-86`. The receipt records how the tree was held together (`review-run.sh:1158-1167`).
-- **BoundedRun.** `sw`'s `BoundedRun` counts output per stream in memory (`cli/lib/src/process/bounded_run.dart:66-68`). It reports a missing job object through its note callback (`cli/lib/src/process/bounded_run.dart:317-318`).
-  - When a child still holds a pipe after the exit, it stops the tree but keeps the command's result, with no flag saying so (`cli/lib/src/process/bounded_run.dart:371-392`, `BoundedResult` fields at `cli/lib/src/process/bounded_run.dart:14-44`).
+- **BoundedRun.** Group 2 has added the held-pipe result field and its caller invariant (`cli/lib/src/process/bounded_run.dart:43-49`); the post-exit branch preserves the command exit while setting it (`cli/lib/src/process/bounded_run.dart:378-400`). The review port consumes this field rather than building a second runner.
   - The launcher already starts Windows batch commands through `BoundedRun` (`cli/lib/src/process/launch.dart:153-164`).
 - **Records.** A record lives at `<state>/reviews/<sha256(common dir)[:16]>/<change>/<code>[+<store>].json` (`review-run.sh:825-836`). It is written atomically as indented JSON (`review-run.sh:839-867`).
 - **Tip snapshot.** On GitButler the reviewer reads a copy of the tip. `snapshot_tip` reads the output of `git cat-file --batch` for the whole tree into memory before it writes any file (`review-run.sh:944-995`).
 - **Shims.** Shims follow ADR 0028: resolve `sw` through `sw-path.sh`, hand the scripts directory, bash and the arguments as NUL records on stdin, and print `sw_missing` on failure (`docs/adr/0028-ported-scripts-are-shims-that-resolve-the-projects-sw.md:13-18`). The snapshot shim formats that JSON with Python (`skills/specwright-pr/scripts/pr-snapshot.sh`, last lines).
 - **ADR 0007 conflict.** It records "fixed, isolated command lines ... never assembled by the agent" (`docs/adr/0007-reviewer-routes-with-a-specwright-owned-contract.md`, Decision). `review.routes` changes the first half, which is why a new ADR is planned below.
-- **Packages.** ADR 0033 allows a focused package only with the user's approval for that package (`docs/adr/0033-sw-may-ship-focused-hook-free-packages.md:14`). `cli/pubspec.yaml` depends today on `args`, `crypto`, `ffi`, `html` and `path`.
+- **Packages.** ADR 0033 allows a focused package only with the user's approval for that package (`docs/adr/0033-sw-may-ship-focused-hook-free-packages.md:14`). The current dependencies include the group-2 `toml` addition (`cli/pubspec.yaml:18-24`).
 - **Observed CLI behaviour (2026-11-12, this machine).** OMP 18.19.0, Codex 0.166.0 and Claude Code 2.1.319, described in proposal.md:
   - OMP: `find` is a semantic search that makes model calls. A `--config` overlay setting `autolearn.enabled` and `memories.enabled` to false removed `learn` and `manage_skill`.
   - Codex: `--disable` with an unknown feature exits 1 (`Error: Unknown feature flag`) before any model call. `--disable goals` and `--disable sleep_tool` removed those tools. `collaboration.*` stayed with `--disable multi_agent`.
+- **Round-5 network finding and supported mechanism.** The recorded inventories are not network-denial proof. The user selected the fixed trusted local-target gate in proposal S5; source references, exact native prototype denials, successful local operations and failure controls are retained in `evidence/cli-tools.md:138-168`. The prototype is deliberately not the full production grammar.
 
 ## Decisions
 
@@ -50,15 +50,15 @@ TIER: FULL
 
 ### D2: Isolation is guarded by per-route refused lists
 
-- **Choice:** Each route has a refused-tools list and a refused-flags list in `sw`, and a `review.routes` value that hits either is a `route_setting_unsafe` stop. Tool names are compared case-insensitively. A flag matches when an argument equals it, starts with `<flag>=`, or, for a single-letter flag, starts with it (`-sread-only`). A `-c`/`--config` value counts as an argument for key matching: its key is the text before the first `=`, trimmed, with each dotted segment unquoted (`"features"."apps"` is `features.apps`). A key is refused when it equals a protected key, lies under one, or is an ancestor table of one (`features={...}`, `windows={...}`, `sandbox_workspace_write={...}`). The lists:
+- **Choice:** Each route has a refused-tools list and a refused-flags list in `sw`, and a `review.routes` value that hits either is a `route_setting_unsafe` stop. Tool names are compared case-insensitively. A flag matches when an argument equals it, starts with `<flag>=`, or, for a single-letter flag, starts with it (`-sread-only`). A `-c`/`--config` value counts as an argument for key matching: its key is the text before the first `=`, trimmed, with each dotted segment unquoted (`"features"."apps"` is `features.apps`). A key is refused when it equals a protected key, lies under one, or is an ancestor table of one (`features={...}`, `windows={...}`, `sandbox_workspace_write={...}`). Known aliases of refused flags must appear in the static lists too; an alias cannot bypass the fixed core. The lists:
   - **claude**
     - Refused tools: `Bash`, `PowerShell`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`, `Task`, `Agent`, and any `mcp__` name.
     - Refused flags: `-p`, `--print`, `--tools`, `--allowedTools`, `--allowed-tools`, `--disallowedTools`, `--disallowed-tools`, `--permission-mode`, `--dangerously-skip-permissions`, `--add-dir`, `--settings`, `--setting-sources`, `--mcp-config`, `--plugin-dir`, `--agents`, `--restricted`, `--safe-mode`, `--disable-slash-commands`, `--output-format`, `--json-schema`, `--model`, `--effort`, `-c`, `--continue`, `-r`, `--resume`, `--fork-session`.
   - **omp**
-    - Refused tools: `bash`, `edit`, `write`, `python`, `notebook`, `browser`, `computer`, `task`, `web_search`, `ask`, `learn`, `manage_skill`, `find`.
-    - Refused flags: `-p`, `--print`, `--tools`, `--no-tools`, `--session-dir`, `--no-session`, `-c`, `--continue`, `-r`, `--resume`, `--restore`, `-e`, `--extension`, `--hook`, `--skills`, `--config`, `--profile`, `--mode`, `--model`, `--thinking`, `--goal`, `--plan-yolo`, `--prewalk`, `--prewalk-into`.
+    - Refused tools: `bash`, `edit`, `write`, `python`, `notebook`, `browser`, `computer`, `task`, `web_search`, `ask`, `learn`, `manage_skill`, `find`, `eval`, `ast_edit`, `debug`, `ida`, `github`, `security_scan`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `goal`, `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`.
+    - Refused flags: `-p`, `--print`, `--tools`, `--no-tools`, `--no-skills`, `--no-extensions`, `--no-rules`, `--session-dir`, `--no-session`, `-c`, `--continue`, `-r`, `--resume`, `--restore`, `-e`, `--extension`, `--trusted-extension`, `--hook`, `--skills`, `--config`, `--profile`, `--mode`, `--model`, `--thinking`, `--goal`, `--plan-yolo`, `--prewalk`, `--prewalk-into`.
   - **codex**
-    - Refused flags: `-s`, `--sandbox`, `--dangerously-bypass-approvals-and-sandbox`, `--dangerously-bypass-hook-trust`, `--approve-for-me`, `--full-auto`, `--enable`, `-p`, `--profile`, `--add-dir`, `-C`, `--cd`, `--worktree`, `--ephemeral`, `--ignore-rules`, `--ignore-user-config`, `--output-schema`, `-o`, `--output-last-message`, `--json`, `-m`, `--model`.
+    - Refused flags: `-s`, `--sandbox`, `--dangerously-bypass-approvals-and-sandbox`, `--yolo`, `--dangerously-bypass-hook-trust`, `--approve-for-me`, `--not-so-yolo`, `--full-auto`, `--enable`, `-p`, `--profile`, `--add-dir`, `-C`, `--cd`, `--worktree`, `--ephemeral`, `--ignore-rules`, `--ignore-user-config`, `--output-schema`, `-o`, `--output-last-message`, `--json`, `-m`, `--model`.
     - Refused `-c` keys: `sandbox_mode`, `sandbox_workspace_write.*`, `approval_policy`, `permissions*`, `features.*`, `tools.*`, `web_search`, `mcp_servers.*`, `hooks*`, `model`, `model_reasoning_effort`, `windows.sandbox`.
     - Codex has no `tools` key, and `disable` values are accepted as given, since they only remove features.
 
@@ -84,13 +84,13 @@ TIER: FULL
 - **Important:** yes: changes what users see (a malformed settings file now stops `select` and `run`)
 - **Chosen by:** user
 
-### D5: OMP memory and auto-learn are turned off by a per-run config overlay
+### D5: OMP memory, auto-learn and native web fetching are turned off by a per-run overlay
 
-- **Choice:** `run` writes `omp-overlay.yml` in its private work directory, holding `autolearn: {enabled: false}`, `memories: {enabled: false}` and `find: {enabled: false}`, and passes `--config <file>`. The user's OMP files are not touched. The receipt lists the overlay's keys. Because an older OMP may ignore unknown keys, the OMP probe also requires `omp --version` at or above 18.19.0, the version the overlay was verified on (Context). Below it OMP is unavailable at `select`, and `run --route omp` stops with `omp_too_old`. The floor moves only after a newer check, recorded as evidence.
+- **Choice:** `run` writes `omp-overlay.yml` in its private work directory, holding `autolearn: {enabled: false}`, `memories: {enabled: false}`, `find: {enabled: false}` and `fetch: {enabled: false}`, and passes `--config <file>`. The user's OMP files are not touched. The receipt lists the overlay's keys. The OMP probe requires `omp --version` at or above 18.19.0, the version used for the overlay and trusted-hook trials (`evidence/cli-tools.md`). Below it OMP is unavailable at `select`, and `run --route omp` stops with `omp_too_old`. The floor moves only after a newer check, recorded as evidence. The overlay does not replace D12's remote-URI gate.
 - **Rejected:** `--profile <fresh>`, because a new profile also isolates OMP's authentication, so the reviewer could not reach a model. Disabling the tools by name alone, because `--tools` did not remove `learn` or `manage_skill` (Context). Trusting any OMP version, because an OMP that ignores the overlay would run with memory on (review round 2, C1).
 - **Reversal cost:** low
 - **Important:** yes: changes what users see (an older OMP is skipped)
-- **Chosen by:** user (the version floor, after the round-2 escalation); the overlay itself by the agent
+- **Chosen by:** user (version floor and S5 web-fetch disable); the original memory overlay by the agent
 
 ### D6: Codex features are turned off by a list in `sw`, with web search set by `-c`
 
@@ -134,13 +134,26 @@ TIER: FULL
 
 ### D11: Isolation evidence uses native inventories with mode equivalence
 
-- **Choice:** Task 1.1 captures machine-generated tool definitions and the complete mounted-tool inventory, then grounds their equivalence to the exact reviewer command in the installed version's source and effective settings. Diagnostic RPC/debug modes alone are not proof: their protocol defaults, settings sources and tool mounting must be accounted for. Model-authored tool lists and refusals only corroborate the captures; they never stand in for runtime unknown-tool rejections. Missing equivalence or mounted-tool coverage keeps task 1.1 blocked.
+- **Choice:** Task 1.1 captures machine-generated tool definitions and the complete mounted-tool inventory, then grounds their equivalence to the exact reviewer command in the installed version's source and effective settings. Diagnostic RPC/debug modes alone are not proof: their protocol defaults, settings sources and tool mounting must be accounted for. Model-authored tool lists and refusals only corroborate the captures; they never stand in for runtime unknown-tool rejections. Missing equivalence or mounted-tool coverage keeps task 1.1 blocked. Inventory alone does not establish argument-level remote-target denial; D12 additionally requires actual native errors and no-request fixture evidence.
 - **Codex child probe:** Keep every D6 and fixed isolation flag, including `--ephemeral` and `-s read-only`. Request `fork_turns="none"` for the actual child write trial. Record the denied attempt and before/after porcelain, distinguishing a child tool result from a parent-relayed report. Retain the failed full-history spawn separately; it does not prove sandbox inheritance. The observed failure and fresh-child result are in `evidence/cli-tools.md`; the installed-version handler maps `none` to a fresh child and defaults omission to `all` ([Codex 0.166.0 source](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs)).
-- **Scope:** This is an apply-time and manual CLI-version-check evidence method, not runtime tool discovery in `sw`; S3, all isolation defaults, refused lists and the OMP version floor are unchanged. ADR 0035 carries its acceptance rules (C11).
+- **Scope:** This is an apply-time and manual CLI-version-check evidence method, not runtime tool discovery in `sw`; S3 and the OMP version floor remain in force. D12 adds a fixed trusted control without removing any existing isolation flag. ADR 0035 carries the inventory/child acceptance rules (C11).
 - **Rejected:** Counting a model's inability or refusal to call an unknown name as dispatcher rejection; treating a diagnostic-mode inventory as print/exec-mode proof without equivalence; dropping `--ephemeral` to make the child probe work; accepting an unverified assumption to unblock implementation.
 - **Reversal cost:** low (evidence procedure only)
 - **Important:** yes: replaces a required security-verification method
 - **Chosen by:** user (approved the design and task amendments during apply)
+
+### D12: One fixed trusted OMP module enforces local targets and read-only operations
+
+- **Choice:** Emit one Specwright-owned JavaScript module from `cli/lib/src/review/omp_policy.dart` into the private run directory and pass its absolute path through fixed `--trusted-extension`, retaining `--no-extensions`. The module runs inside OMP; `sw` starts no separate JavaScript interpreter. It registers only a `tool_call` hook, never tools, devices or native-tool delegation. D2 prevents users from adding/replacing trusted modules or re-enabling known unsafe tools; the hook also blocks those known unsafe tool names if mounted.
+- **Target grammar:** For `read`, `grep`, `glob` and local-file arguments of supported optional read helpers, reject HTTP(S)/`www`, SSH, opaque MCP/internal-resource URIs, UNC/network-root targets and URI aliases before execution, including compound roots, exclusion entries, JSON-encoded lists and mixed local/remote inputs. Every interpretation available to the native path parser must remain local; checking only the whole-string prefix is insufficient. Do not approve ambiguous inputs merely because a delimiter-bearing literal currently exists: a filesystem change must not turn approval into remote dispatch. Preserve normal local paths, spaces, Unicode, read selectors, literal delimiters and multiple local roots. Use supported schema-revalidated input replacement only where needed to force local interpretation; otherwise preserve native local-path behavior. Rejection is an explicit tool error, never a fallback remote read.
+- **Optional LSP:** The existing `[read, grep, glob, lsp]` setting remains accepted. The hook restricts `lsp` to `diagnostics`, `definition`, `type_definition`, `implementation`, `references`, `hover`, `symbols`, `status` and `capabilities`; file arguments receive the same local-target check. Other actions, including rename, edits, raw requests and reload, fail closed. `lsp` stays out of defaults because it starts trusted language-server processes.
+- **Trust boundary:** This is a tool-target/operation policy, not an OS-wide network or filesystem sandbox. Provider transport is allowed. Underlying local filesystem mounts and trusted native tool/language-server implementations are outside the lexical target boundary. The sole extension exception is fixed first-party policy code; ambient/user extensions remain disabled.
+- **Ownership and failure:** `run` writes the module before starting OMP, records `local-only-v1` and its SHA-256 in the receipt, and removes it with the work directory. No user-authored module path or source enters the policy. A missing/invalid module fails startup; a callback exception blocks the affected call. Never retry without the module, with user extensions, or with relaxed overlay keys.
+- **Proof:** Task 1.5 records the supported mechanism and failure controls, not completed production isolation. Task 3.5 exercises the actual emitted JavaScript under development-only Node 22, using the existing eval CI runtime convention; add the same setup to the CLI test workflow. Task 6.5 replays the emitted production module through native OMP with paired results and an all-TCP fixture counter, local compatibility cases, full target grammar, load/callback faults, exact flags, policy digest and before/after state. Source-grounded inventory correspondence remains required by D11.
+- **Rejected:** Fetch-disable alone, because it leaves non-HTTP transports; weakening the ban to permit other remote resources, because the user retained it; ambient extensions or an OS firewall/sandbox, because neither is the chosen narrow first-party hook boundary; a separate shipped JavaScript process, because OMP already hosts the supported hook.
+- **Reversal cost:** medium (a trusted reviewer-runtime boundary and compatibility contract)
+- **Important:** yes: changes the fixed extension boundary and the isolation contract
+- **Chosen by:** user (proposal S5, after round 5)
 
 ### Decision summary
 
@@ -150,24 +163,25 @@ TIER: FULL
 | S2 | Isolation gaps | Closed in this change | Separate issue | low | yes | user |
 | S3 | Tool discovery | Defaults plus settings, no runtime probe | Parse CLI help at select | low | yes | user |
 | S4 | Scope | Settings land with the port | Separate change | low | yes | user |
+| S5 | OMP remote-target boundary | Native fetch off plus one fixed trusted local-target gate | Fetch-only; permit other remote resources; ambient extensions | medium | yes | user |
 | D1 | Reviewer run engine | Extend BoundedRun with `pipesHeld`, in memory | Separate disk-backed runner | low | yes | user |
 | D2 | Refusal of weakening values | Per-route refused lists | Allowlist | medium | yes | user |
 | D3 | Codex `windows.sandbox` read | `toml` package | Explicit setting; hand reader | low | yes | user |
 | D4 | Settings reader | Shared reader plus `yamlProblem` stop | Lenient review-only reader | low | yes | user |
-| D5 | OMP memory off | Per-run `--config` overlay plus OMP ≥ 18.19.0 | Fresh `--profile`; tools only; any version | low | yes | user (floor) / agent (overlay) |
+| D5 | OMP memory and fetching off | Per-run `--config` overlay plus OMP ≥ 18.19.0; D12 for non-HTTP targets | Fresh `--profile`; tools only; any version | low | yes | user (floor/fetch) / agent (original overlay) |
 | D6 | Codex features off | `--disable` list plus `-c web_search` | Own `CODEX_HOME` | low | no | agent |
 | D7 | Shim | ADR 0028 shim, bash-escaped `sw_missing` | Python formatter | low | no | agent |
 | D8 | Evals | Black-box evals plus a pre-port record fixture | Frozen Python oracle | low | no | agent |
 | D9 | Tip snapshot | Copy each blob in 64 KiB chunks | Whole-tree read; whole-blob read | low | no | agent |
 | D10 | ADR | ADR 0035 amends ADR 0007's command-line point | Supersede 0007 whole | medium | yes | agent |
 | D11 | Isolation evidence | Native inventories plus source-grounded mode equivalence and complete mounted-tool coverage; fresh-child write probe | Model-only proof; unequated diagnostic modes; dropping isolation flags; accepting missing proof | low | yes | user |
+| D12 | OMP trusted local-target policy | Fixed private in-process hook, operation checks and production native replay | Fetch-only; weakened remote ban; ambient extensions; OS sandbox; separate JS process | medium | yes | user |
 
 ## Assumptions
 
-- **A1:** Native diagnostic tool inventories correspond to the exact reviewer invocation only after mode defaults, settings sources and mounted devices are accounted for. The initial model trials did not produce runtime unknown-tool rejections; RPC/debug captures are available but not yet proven equivalent. Not checked: task 1.1 must complete that proof under D11 before any dependent implementation. Depends on it: D5, D6.
-- **A2:** Codex's `collaboration.*` agents run under the parent's read-only sandbox. The full-history trial failed before child startup; a fresh-child trial with all reviewer isolation flags retained reported a denied write and unchanged porcelain (`evidence/cli-tools.md`). Not fully checked: task 1.1 must record the actual denied child attempt and distinguish direct tool evidence from parent-relayed text. Depends on it: the spec's defaults requirement.
-- **A3:** OMP 18.19.0 and later honour the overlay keys `autolearn.enabled` and `memories.enabled` as observed on 18.19.0 (Context). The apply-time RPC diagnostic lists only `read`, `grep`, `glob`, but RPC protocol defaults differ and its top-level dump omits mounted devices (`evidence/cli-tools.md`). Not checked for the exact print-mode invocation: task 1.1 must prove equivalence and complete inventory coverage under D11. Depends on it: D5.
-- **A4:** `toml` 0.18.0 and its closure have no build hooks and licences ADR 0033 accepts. Not checked: that is task 2.1's evidence. Depends on it: D3.
+Original checks **A1–A3** are resolved for the captured versions by `evidence/cli-tools.md:47-124` (native inventory correspondence and direct child denial); **A4** is resolved by the completed task 2.1 and `evidence/toml-package.md`. Those results do not establish the later production target grammar.
+
+- **A5:** The emitted production policy preserves the native local-path grammar and denies every remote-target interpretation for its supported operations. Not checked because that module is not implemented yet. The supported hook, basic target denials and load/callback failure behavior have native prototype evidence (`evidence/cli-tools.md:138-168`), deliberately limited to single roots. Depends on it: D12; tasks 3.5, 4.10 and 6.5 must complete the grammar and actual emitted-module proof before the change is done.
 
 ## Carried constraints
 
@@ -182,6 +196,8 @@ TIER: FULL
 - **C9:** The tip snapshot has no deadline, as before the port, and copies blobs in chunks (D9). Kind: deliberate gap. Destination: doc comment: cli/lib/src/review/snapshot.dart snapshotTip
 - **C10:** OMP below 18.19.0 is unavailable because the memory overlay was verified only from that version (D5). Kind: invariant. Destination: doc comment: cli/lib/src/review/routes.dart ompMinVersion
 - **C11:** Manual isolation checks require native tool definitions, complete mounted-tool inventory and demonstrated equivalence to the exact reviewer invocation; model lists and refusals are corroboration only. Child-write trials require an actual denied attempt with every fixed isolation flag retained; an infrastructure failure or unequated diagnostic mode is not proof. Kind: invariant. Destination: ADR 0035
+- **C12:** OMP has exactly one fixed Specwright-owned trusted local-target policy module while user extensions remain disabled. It is a tool-target/operation boundary, not an OS-wide network or filesystem sandbox; provider transport and trusted host implementations remain outside it. A missing/failed policy never triggers an unguarded retry. Kind: invariant. Destination: ADR 0036
+- **C13:** Local-target checks must cover every native path interpretation, including compound/encoded roots and aliases, without using mutable literal-file existence as permission to dispatch a remote candidate. The fixed module only hooks calls, never re-registers or invokes tools. Kind: invariant. Destination: doc comment: cli/lib/src/review/omp_policy.dart OmpLocalPolicy
 
 ## Diagrams (FULL)
 
@@ -198,6 +214,8 @@ graph LR
   Review --> BR[BoundedRun + sw __exec]
   BR --> CLI[codex / claude / omp]
   Review --> Git[git via launcher]
+  Routes --> Policy[fixed OMP policy source]
+  Policy -->|private trusted module + digest| CLI
   Routes --> Toml[toml: codex windows.sandbox]
 ```
 
@@ -239,7 +257,7 @@ stateDiagram-v2
 |---|---|---|---|---|
 | Pre-ship record `<state>/reviews/<key>/<change>/<heads>.json` | `sw review run`, `record` and `waive` | Until removed by the user | Ignored once heads move; a new review writes a new record | The file |
 | Design review file (`review.md`) | `sw review run` and `record --out` (atomic) | In the change | Replaced each round | The file |
-| Run work directory (prompt, overlay, schema, snapshot) | `sw review run` | One run | Removed at the end of the run | n/a |
+| Run work directory (prompt, overlay, schema, snapshot, fixed OMP policy) | `sw review run` | One run | Removed at the end of the run | n/a |
 | OMP session directory | OMP, created by `run` | One run; kept on failure and named in the output | Removed on success | n/a |
 | `review.routes` settings | The user | Project | Read on each call | `openspec/specwright.yaml` |
 
@@ -250,6 +268,7 @@ stateDiagram-v2
 | Shim | `sw` unresolved → `sw_missing`, exit 1 | Install or update `sw` | yes | The agent, then the user |
 | Settings check | `bad_settings`, `bad_route_setting` or `route_setting_unsafe`, exit 1, before any probe | Fix `specwright.yaml` | yes | The user, through the message |
 | Reviewer CLI | Timeout, bound, held pipe or non-zero exit → exit 3, tree stopped, no record | The caller stops; rerun after the cause is fixed | yes (no record written) | The agent and the user; the receipt is in the output |
+| OMP trusted policy | Missing/invalid module → startup failure; callback fault → affected tool call blocked | Fix the policy/compatibility issue; no unguarded retry | yes | The user, through CLI stderr/tool errors and the receipt policy identity |
 | Unknown Codex feature or rejected flag | Codex exits non-zero → exit 3 `failed` with Codex's message | Update the settings or the CLI | yes | The user |
 | Record write | `record_failed`, exit 1 | Free the state directory | yes (atomic rename) | The user |
 | `sw` killed mid-run (SIGKILL, task kill) | The reviewer and its helper can keep running, since the job has no kill-on-close and the POSIX session is independent (ADR 0027 Consequences, accepted); the work directory remains; no record or review file is written, because both are written only after a validated answer | The user stops the orphaned CLI; the next run uses a new work directory | yes | The user, through the still-running CLI or its spend. Accepted limitation, carried as C6 |
@@ -263,6 +282,8 @@ stateDiagram-v2
 | One event line | 16 MiB | `invalid`, `output too large` | n/a | Same |
 | Answer | 2 MiB | `invalid`, `output too large` | n/a | Same |
 | Diff | `review.max_diff_kb` (default 1024) | `diff_too_large` before any reviewer starts | n/a | Same |
+| Fixed OMP policy module | One compiled source constant; no repo/settings-derived source or imports beyond the fixed runtime library | Does not grow with inputs | n/a | Same fixed-size source and digest |
+| OMP target inspection | Linear in the current call's input; temporary state proportional to that input, no cross-call cache | No separate target-length cap: retain native path/list compatibility; normal reviewer stream/deadline bounds still apply | No independent timer; reviewer deadline | 10x/100x inputs scale linearly, not with the repository; no retained aggregate |
 | Probe streams | 1 MiB each | Probe failed, route skipped | 10 s | Same |
 | Tip snapshot | 64 KiB copy buffer per blob; entry list grows with the file count (D9) | n/a | No deadline (unchanged, C9) | Disk grows with the tree, as before. Memory grows only with the number of paths |
 | Findings | 100 per document | `invalid` | n/a | Same |
@@ -273,6 +294,8 @@ stateDiagram-v2
 - **Two runs for one change at once.** Each has its own work and session directories. Record writes are atomic renames, so the last one wins on the same heads.
 - **A Python install and an `sw` install both present mid-update.** The shim is replaced in the same install step as the binary pin. Records are compatible in both directions (C1).
 - **A user's earlier hand edit of `review-run.sh`.** The update replaces the file. The upgrade note says to move the edit into `review.routes`.
+
+- **A policy cannot load, or a callback throws.** Startup or the affected call fails closed (D12). The controller never drops the module or relaxes flags to recover. Concurrent runs use separate module files; no shared policy file is rewritten.
 
 ## Mechanism Ledger (FULL)
 
@@ -285,19 +308,22 @@ stateDiagram-v2
 | Disk-backed capture | no | Bounded memory is enough (D1) | Memory pressure reports on CI or user machines |
 | Frozen Python oracle | no | The black-box evals cover outcomes (D8) | A parity defect the evals miss |
 | Version floor for the OMP overlay | yes | An OMP that ignores the overlay would run with memory on, and nobody would see it (round 2, C1) | — |
+| Fixed OMP target/operation hook | yes | Native fetch-disable leaves SSH/opaque-resource routes, and inventories do not catch argument-level access (round 5) | A supported native gate covering every relevant transport |
+| OS-wide network sandbox | no | S5 chose a narrow tool-target boundary; model transport must remain available and cross-platform OS policy is outside scope | A separately approved stronger isolation contract |
 
 ## Risks / Trade-offs
 
 - [The refused lists fall behind a new risky CLI tool] → C2 requires adding it when found. The documented check procedure (task 5.2) tells users how to look.
 - [The diagnostic or model-reported tool lists do not match the reviewer invocation] → Task 1.1 proves native-inventory mode equivalence and mounted-tool coverage under D11; model answers are corroboration only. Missing proof stops dependent implementation.
+- [A partial lexical check permits a native parser reinterpretation] → C13, actual emitted-policy tests over compound/encoded/alias forms, and the native no-request replay in task 6.5. The prototype is not accepted as production grammar proof.
 - [`toml` brings four transitive packages] → The ADR 0033 checks and notices (task 2.1). Reversal is low.
 - [A strict settings read stops reviews in projects with sloppy YAML] → The stop names the line. `policy` already refuses the same files; `context` only reports them, so a project can see `settings_problem` there first. The refusal in reviews is new and listed in the release notes.
 
 ## ADRs
 
 - **In force, constraining this change:** 0007 (reviewer routes), 0022 (the reviewer evaluator stays a separate process), 0027 (one Dart binary; `sw __exec`), 0028 (shims), 0031 (direct calls), 0033 (focused packages; what a port preserves), 0034 (no shell launches).
-- **To record during apply:** 0035, "Reviewer command lines are a fixed isolating core plus checked user settings". It amends ADR 0007's command-line point and carries C2 and C5.
+- **Recorded during apply:** 0035 amends ADR 0007's command-line point and carries C2, C5 and C11. It is accepted and remains unchanged. **To record after renewed approval:** 0036 adds D12's fixed trusted-module exception and boundary (C12), with an architecture-index entry.
 
 ## Open Questions
 
-- Whether OMP's `lsp` tool belongs in the default list. It is read-only but starts language servers. It stays out of the defaults and is allowed in `review.routes.omp.tools`.
+- None affecting scope. Optional `lsp` remains accepted, outside defaults, with D12's read-only action/local-target checks; trusting its language-server implementation is an explicit opt-in rather than an unqualified read-only-tool claim.

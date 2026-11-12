@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Review operations run in the project's sw
-Every `review-run.sh` subcommand SHALL run in the project's `sw`, which the script resolves as the other ported scripts do, and SHALL keep its options, JSON documents, exit codes, records and state directory. A review operation SHALL NOT start Python, bash or a shipped script for its own work. When no matching `sw` is found, the script SHALL print one `sw_missing` JSON document and exit 1, with no fallback.
+Each `review-run.sh` subcommand SHALL run in the project's matching `sw`, resolved as other ported scripts, preserving options, JSON, exits 0/1/2/3, records and state directory. Operations SHALL NOT start Python, bash or shipped scripts for their own work. No matching `sw` SHALL yield one `sw_missing` JSON and exit 1, without probing or fallback. The fixed OMP policy SHALL run inside OMP, not in a separate interpreter process.
 
 #### Scenario: Pre-ship run without Python or bash
 - **WHEN** `review-run.sh run --kind preship` runs on Linux, Windows and macOS with failing `python`, `python3`, `bash` and `sh` first on `PATH` for `sw`, and a fake codex reviewer that prints valid findings
@@ -52,11 +52,11 @@ A route setting SHALL be refused when it names a tool on that route's refused li
 - **THEN** `select` and `run` exit 1 with `error: route_setting_unsafe` naming `Bash` and `review.routes.claude.tools`, and no reviewer starts
 
 #### Scenario: OMP write and memory tools
-- **WHEN** `review.routes.omp.tools` names `edit`, `write`, `bash`, `learn`, `manage_skill` or `find`
+- **WHEN** `review.routes.omp.tools` names a refused write, execution, agent or memory tool, including `edit`, `write`, `bash`, `learn`, `manage_skill`, `find`, `eval`, `ast_edit`, `debug`, `github`, `checkpoint`, `rewind` or `retain`
 - **THEN** the run exits 1 with `error: route_setting_unsafe` naming that tool
 
 #### Scenario: Sandbox override in Codex args
-- **WHEN** `review.routes.codex.args` contains `-s`, `--sandbox`, `--dangerously-bypass-approvals-and-sandbox`, `--enable`, `--profile` or `-c` with a `sandbox` key
+- **WHEN** `review.routes.codex.args` contains `-s`, `--sandbox`, `--dangerously-bypass-approvals-and-sandbox`, its `--yolo` alias, `--approve-for-me`, its `--not-so-yolo` alias, `--enable`, `--profile` or `-c` with a `sandbox` key
 - **THEN** the run exits 1 with `error: route_setting_unsafe` naming the flag, and no reviewer starts
 
 #### Scenario: Protected Codex key set through its parent table or quoting
@@ -67,12 +67,16 @@ A route setting SHALL be refused when it names a tool on that route's refused li
 - **WHEN** `review.routes.omp.args` contains `--session-dir`, `--continue`, `--resume` or `--tools`
 - **THEN** the run exits 1 with `error: route_setting_unsafe` naming the flag and the setting to use instead where there is one
 
-### Requirement: Shipped defaults keep each reviewer within the checkout
-With no `review.routes` settings, the OMP route SHALL offer only `read`, `grep` and `glob` with OMP's memory and auto-learn off, and SHALL treat an OMP older than the version that was verified as unavailable. The Codex route SHALL turn off its network, image, plugin, memory, hook and goal features; its other tools stay under the read-only sandbox. The claude route SHALL keep `Read`, `Grep` and `Glob` under `--restricted`.
+#### Scenario: User-supplied OMP trusted module
+- **WHEN** `review.routes.omp.args` contains `--trusted-extension`, including its `--trusted-extension=<path>` form
+- **THEN** `select` and `run` exit 1 with `error: route_setting_unsafe` naming that flag before any probe or reviewer starts, and write no receipt, result or record
+
+### Requirement: Shipped defaults disable unsafe reviewer features
+With no `review.routes` settings, the OMP route SHALL offer only `read`, `grep` and `glob` with memory, auto-learn and web fetching off and its fixed local-target policy active, and SHALL treat an OMP older than the version that was verified as unavailable. The Codex route SHALL turn off its dedicated network, image, plugin, memory, hook and goal features; its other tools stay under the read-only sandbox. The claude route SHALL keep `Read`, `Grep` and `Glob` under `--restricted`.
 
 #### Scenario: Default OMP command line
 - **WHEN** a review runs on `omp` with no `review.routes.omp`
-- **THEN** the command line has `--tools read,grep,glob`, has no `find`, and turns off OMP's memory and auto-learn for the run without changing the user's OMP config files
+- **THEN** the command line has `--tools read,grep,glob`, has no `find`, turns off OMP's memory, auto-learn and web fetching without changing the user's config files, retains `--no-extensions`, and loads exactly one fixed Specwright-owned trusted policy from the private run directory
 
 #### Scenario: Default Codex command line
 - **WHEN** a review runs on `codex` with no `review.routes.codex`
@@ -86,10 +90,33 @@ With no `review.routes` settings, the OMP route SHALL offer only `read`, `grep` 
 - **WHEN** the installed Codex rejects `--disable` for a default feature it does not know
 - **THEN** the run exits 3 with `status: failed` and Codex's message, and the review does not run without that feature disabled
 
+### Requirement: OMP tool operations enforce local targets
+OMP's fixed policy SHALL deny remote URI/resource/network-root targets before `read`, `grep`, `glob` and optional LSP file operations, including compound/encoded/mixed/aliased forms. Local paths, selectors and multiple roots SHALL work; LSP actions SHALL be read-only. The policy SHALL NOT register/invoke tools. This is not an OS network/filesystem sandbox: provider transport, underlying mounts and trusted host implementations remain outside its tool-target/operation boundary.
+
+#### Scenario: Remote targets fail without a request
+- **WHEN** retained OMP tools receive HTTP(S), SSH, opaque MCP/resource URI or UNC targets, including a remote entry hidden in compound roots, exclusions, a JSON-encoded list or a mixed local/remote input
+- **THEN** each attempted operation ends in a native policy-denial error before remote dispatch and the controlled fixture receives no TCP connection or request
+
+#### Scenario: Local review inputs keep working
+- **WHEN** OMP reads, greps and globs local fixtures using normal absolute/relative paths, spaces, Unicode, supported read selectors, delimiter-bearing literal paths and multiple local search roots
+- **THEN** the operations return the expected local contents or matches without a policy-denial error
+
+#### Scenario: LSP is optional and read-only
+- **WHEN** an OMP review configured with `[read, grep, glob, lsp]` requests a local definition/diagnostic query and then a rename, raw request, reload or remote file target
+- **THEN** the local read-only query remains usable and each unsafe operation is blocked before its native implementation runs
+
+#### Scenario: Invalid trusted policy cannot start a review
+- **WHEN** OMP cannot load the run's fixed trusted policy
+- **THEN** the reviewer fails before agent/tool execution, the controller reports the failed run without writing a successful review or record, and never retries without the module
+
+#### Scenario: Policy callback failure cannot bypass the gate
+- **WHEN** a policy callback throws while handling a remote-target read or grep
+- **THEN** that native tool call fails, the fixture receives no TCP connection, and neither the tool nor controller retries through an unguarded invocation
+
 ## MODIFIED Requirements
 
 ### Requirement: Reviewers run isolated and read-only
-Each route SHALL run with a command line built from fixed isolating flags plus the route's effective tool list, disabled features and extra flags (shipped defaults or `review.routes`). The fixed flags SHALL turn off the user's skills, extensions, rules and slash commands where the CLI supports it. An OMP review SHALL run with a new, empty session directory, so it never continues an earlier session. On Windows, the codex route SHALL keep the user's config file ignored and pass only that file's `windows.sandbox` value, when it is set to a plain name, as an explicit setting.
+Each route SHALL run with a command line built from fixed isolating flags plus the route's effective tool list, disabled features and extra flags (shipped defaults or `review.routes`). The fixed flags SHALL turn off the user's skills, extensions, rules and slash commands where the CLI supports it. OMP's sole trusted-extension exception SHALL be its fixed Specwright-owned local-target policy; ambient/user extensions remain disabled. An OMP review SHALL run with a new, empty session directory, so it never continues an earlier session. On Windows, the codex route SHALL keep the user's config file ignored and pass only that file's `windows.sandbox` value, when it is set to a plain name, as an explicit setting.
 
 #### Scenario: OMP review starts a fresh session
 - **WHEN** two OMP reviews run one after the other in the same checkout
@@ -112,7 +139,7 @@ Each route SHALL run with a command line built from fixed isolating flags plus t
 - **THEN** the command line adds no `windows.sandbox` setting
 
 ### Requirement: Every review records a receipt
-Every review run SHALL write a receipt naming the route it used, each skipped route with its reason, the requested model and reasoning level, the model and level that actually ran (or `unknown` when the CLI does not report them), and the route's effective tool list, disabled features and extra flags.
+Every review run SHALL write a receipt naming the route it used, each skipped route with its reason, the requested model and reasoning level, the model and level that actually ran (or `unknown` when the CLI does not report them), and the route's effective tool list, disabled features and extra flags. An OMP receipt SHALL additionally name the fixed policy identity and the SHA-256 of the module used.
 
 #### Scenario: OMP review receipt
 - **WHEN** an OMP review runs with `@default`, and its session file records the resolved model `gpt-6.1-sol` at level `high`
@@ -125,6 +152,10 @@ Every review run SHALL write a receipt naming the route it used, each skipped ro
 #### Scenario: Effective tools in the receipt
 - **WHEN** an OMP review runs with `review.routes.omp.tools: [read, grep, glob, lsp]` and no `args`
 - **THEN** the receipt has `tools: ["read", "grep", "glob", "lsp"]` and `extra_args: []`
+
+#### Scenario: OMP policy identity in the receipt
+- **WHEN** an OMP review uses the fixed trusted local-target policy
+- **THEN** the receipt records policy identity `local-only-v1` and the SHA-256 of the actual module passed to OMP, with the effective overlay keys; the fixed module is not reported as a user extra argument
 
 #### Scenario: Receipt of a refused setting
 - **WHEN** a run stops with `route_setting_unsafe`
