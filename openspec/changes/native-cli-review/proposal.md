@@ -101,7 +101,7 @@ DECISION_MAKING: important
 
 ### Added
 
-- `review.routes.<route>` settings (`tools`, `disable`, `args`) for the codex, claude and omp reviewer routes, with a named stop for values that would weaken isolation, and receipts that record the effective tool set (#148).
+- `review.routes.<route>` settings (`tools`, `disable`, `args`) for the codex, claude and omp reviewer routes, with named stops for unsafe tools, protected flags and their aliases; receipts record effective controls and OMP's fixed policy identity and module digest (#148).
 
 ### Changed
 
