@@ -3,6 +3,20 @@ import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // D5 on Linux and macOS CI too: the check takes the platform as a parameter.
+  test('the Windows command-line limit is checked on every host', () {
+    checkCommandLine('tool', ['tool', 'x' * 100], windows: true);
+    checkCommandLine('tool', ['tool', 'x' * 40000], windows: false);
+    expect(
+      () => checkCommandLine('tool', ['tool', 'x' * 40000], windows: true),
+      throwsA(
+        isA<Unrepresentable>()
+            .having((e) => e.command, 'command', 'tool')
+            .having((e) => e.what, 'what', 'command line'),
+      ),
+    );
+  });
+
   group('quoteBatchLine', () {
     test('quotes the path and every argument, empty included', () {
       expect(

@@ -143,6 +143,24 @@ void main() {
       },
     );
 
+    test('a fit-subject scripts directory that is not UTF-8 asks for a UTF-8 install path', () async {
+      final code = await run(
+        ['--args-stdin'],
+        [
+          0x73,
+          0xff,
+          0,
+          ..._records(['/b', 'fit-subject', 'm.txt']),
+        ],
+      );
+      expect(code, 1);
+      final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+      expect(doc['error'], 'not_utf8');
+      expect(doc['message'], contains('install the skills under a UTF-8 path'));
+      expect(err, isEmpty);
+      expect(seen.args, isNull, reason: 'no handler ran');
+    });
+
     test('a short handoff is a usage stop naming sw commit', () async {
       final code = await run(['--args-stdin'], _records(['/s', '/b']));
       expect(code, 2);

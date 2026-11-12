@@ -32,10 +32,6 @@ Each document `sw vcs` prints SHALL parse to the same keys, key order and values
 - **WHEN** a message or path in the output holds U+2028 or U+2029
 - **THEN** the parsed JSON string holds that character
 
-#### Scenario: Line separators stay escaped
-- **WHEN** a message or path in the output holds U+2028 or U+2029
-- **THEN** the parsed JSON string holds that character
-
 #### Scenario: A non-UTF-8 name from a tool stops by name
 - **WHEN** on Linux, on the Git backend, a tracked file's name holds the byte 0xFF, the file is dirty, and `vcs.sh state` runs
 - **THEN** stdout is one JSON document with `"error": "not_utf8"` naming the file with `\xFF`, and the exit status is 1; a following Git `vcs.sh commit` that names only other files commits them, and other backends keep their existing checks

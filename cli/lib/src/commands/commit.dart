@@ -46,8 +46,10 @@ Future<int> runCommitCommand(
     try {
       handoff = parseHandoff(input, commitHandoffUsage);
     } on NotUtf8 catch (e) {
-      // D4: refused before any file is read. `fit-subject.sh` has no document: its line is on stderr, exit 2.
-      if (_subcommandOf(input) == 'fit-subject') {
+      // D4: refused before any file is read. `fit-subject.sh` has no document: its line is on stderr, exit 2. A scripts
+      // directory or bash path that is not UTF-8 keeps the document, which asks for a UTF-8 install path.
+      if (e.what.startsWith('argument') &&
+          _subcommandOf(input) == 'fit-subject') {
         (writeErr ?? io.stderr.add)(
           utf8.encode('fit-subject.sh: not valid UTF-8: ${e.shown}\n'),
         );

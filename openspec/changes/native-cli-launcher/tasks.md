@@ -98,7 +98,6 @@
 | vcs-backends → Directory walks list files in sorted order | A non-UTF-8 name beside its look-alike | evals/vcs/test_sw_bytes.py | test_non_utf8_lookalike_in_walk_stops_commit | green |
 | vcs-backends → Directory walks list files in sorted order | A valid U+FFFD name alone in the walk | cli/test/fs/walk_test.dart | a valid U+FFFD name alone is listed | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | Line separators parse back | cli/test/vcs/document_test.dart | U+2028 and U+2029 parse back | green |
-| vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | Line separators stay escaped | cli/test/vcs/document_test.dart | U+2028 and U+2029 parse back | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A non-UTF-8 name from a tool stops by name | evals/vcs/test_sw_bytes.py | test_non_utf8_name_is_not_utf8 | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A valid U+FFFD in a name is just a character | evals/vcs/test_sw_bytes.py | test_valid_replacement_char_is_a_character | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A non-UTF-8 argument from the shim | evals/vcs/test_shim.py | test_non_utf8_argument_is_not_utf8 | green |
