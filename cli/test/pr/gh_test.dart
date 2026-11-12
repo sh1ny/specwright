@@ -45,7 +45,18 @@ void main() {
         '${dir.path}${Platform.pathSeparator}bin$sep'
         '${Platform.environment['PATH'] ?? Platform.environment['Path'] ?? ''}';
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  // A deadline stops the fake's job, but Windows ends its processes after
+  // TerminateJobObject returns: retry while they still hold the directory.
+  tearDown(() async {
+    for (var tries = 0; ; tries++) {
+      try {
+        return dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        if (!Platform.isWindows || tries == 50) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  });
 
   Future<GhResult> gh(List<String> args, {RunLimits lim = limits}) => runGh(
     Directory.current.path,
