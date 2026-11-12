@@ -182,7 +182,7 @@
 
 ## 10. Release
 
-- [ ] 10.1 Run `release.sh bump --to 0.33.0` (minor: a breaking behaviour change and a new launcher contract before 1.0) and rewrite the summary of the proposal's `## Release Notes` section to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-launcher/proposal.md`.
+- [x] 10.1 Run `release.sh bump --to 0.33.0` (minor: a breaking behaviour change and a new launcher contract before 1.0) and rewrite the summary of the proposal's `## Release Notes` section to describe the whole release. Verify with `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-launcher/proposal.md`.
 
 ## Workflow follow-up
 

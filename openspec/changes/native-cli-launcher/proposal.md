@@ -92,7 +92,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-`sw` starts external tools without bash, and refuses file names that are not valid UTF-8 with a named error instead of carrying their bytes through.
+`sw` now starts every external tool itself, with no shell in between and no POSIX utilities (`mktemp`, `ln`, `sleep`, `cygpath` and the rest) for its own work, on Linux, macOS and Windows alike. A file name, path or argument that is not valid UTF-8, or that the platform cannot pass on, stops the command with a named error asking for a rename, instead of its bytes being carried through.
 
 ### Changed
 
