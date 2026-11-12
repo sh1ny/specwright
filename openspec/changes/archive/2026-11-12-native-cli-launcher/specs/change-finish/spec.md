@@ -62,5 +62,5 @@
 
 #### Scenario: A non-UTF-8 name in the archive walk
 - **WHEN** on Linux the archive directory holds a file whose name holds the byte 0xFF
-- **THEN** it exits 1 with `"error": "not_utf8"` naming the file with the byte shown as U+FFFD, and no script is printed
+- **THEN** it exits 1 with `"error": "not_utf8"` naming the file with the byte shown as `\xFF`, and no script is printed
 

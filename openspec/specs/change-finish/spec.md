@@ -408,7 +408,7 @@ When the resolver stops, `finish.sh` SHALL print one JSON document on stdout wit
 
 #### Scenario: A non-UTF-8 name in the archive walk
 - **WHEN** on Linux the archive directory holds a file whose name holds the byte 0xFF
-- **THEN** it exits 1 with `"error": "not_utf8"` naming the file with the byte shown as U+FFFD, and no script is printed
+- **THEN** it exits 1 with `"error": "not_utf8"` naming the file with the byte shown as `\xFF`, and no script is printed
 
 ### Requirement: Finish stops on a missing sw
 When `finish.sh undo-archive-plan` reports `sw_missing`, `specwright-finish` SHALL stop with the message and the instruction to rerun the install prompt. It SHALL make no commit, merge or push, run no restore, and SHALL NOT present the answer as an undo plan.
