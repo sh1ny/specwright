@@ -79,7 +79,7 @@ The `green` rows pass against the Python today. Task 4.9 re-runs them through th
 - [ ] 4.6 Implement `record`, `waive`, `gate`, `archive-only` and `rounds`. Verify: `RecordGateTests` and `ArtifactPathTests` pass through `sw`, and `test_gate_passes_preport_record` turns green.
 - [ ] 4.7 Register `sw review` in `cli/lib/src/cli.dart` with `--args-stdin`. Turn `skills/specwright-review/scripts/review-run.sh` into an ADR 0028 shim whose `sw_missing` text is escaped in bash (D7). Remove `skills/specwright-review/scripts/bounded.py`. Verify: rows 1, 3 and 4 turn green, and `grep -n python skills/specwright-review/scripts/review-run.sh` finds nothing.
 - [ ] 4.8 Update the evals that assumed the Python: replace `test_reviewer_output_on_disk_never_passes_its_bound` with an in-memory bound check, update `test_no_bytecode.py` for the removed `bounded.py`, and put the C8 module docstring in `test_review_run.py`. Update `evals/suites.json` for the removed file and run the map test. Verify: the map test passes.
-- [ ] 4.9 Re-run the `green` rows through the shim and `sw`. Verify: each still passes in the PR CI run of task 6.1.
+- [ ] 4.9 Re-run the `green` rows through the shim and `sw`. Verify locally with `python -m unittest evals/review-routes/test_review_run.py` against the built binary. Every row must also pass the unchanged Linux/Windows/macOS PR CI gate in task 6.1.
 - [ ] 4.10 Make the new local-target black-box rows green using a fake OMP that executes the actual emitted module before attempting its controlled local/remote fixture operations. Assert consumer results and zero fixture connections, optional LSP operation blocking, load/callback failure behavior, protected trusted-module settings stopping before probes, and a receipt digest matching the module actually used. No policy mirror, inventory-only pass or source-text test. Verify only `evals/review-routes/test_review_settings.py` locally; CI covers every platform.
 
 ## 5. Skill text and settings docs
@@ -97,5 +97,7 @@ The `green` rows pass against the Python today. Task 4.9 re-runs them through th
 - [ ] 6.5 [evidence] Replay the actual emitted production policy through installed OMP with every fixed flag and the D5 overlay → evidence/omp-network.md. Record exact CLI/model/argv, module bytes/digest and receipt, paired actual denials for HTTP(S)/SSH/opaque/UNC targets including compound, exclusion, encoded, mixed and aliased forms; zero accepted TCP connections/requests at the controlled fixture; successful local path/selector/multiple-root cases; load/callback failure controls; unchanged before/after porcelain. Establish D11's inventory/mode correspondence for this invocation. Verify native events and fixture counters, never a final model report; the single-root task-1.5 prototype does not satisfy this task.
 
 ## Workflow follow-up
+
+- Apply-time CI ordering decision, chosen by the user: keep group commits; task 4.9 records local proof so group 4 can be committed, and task 6.1 retains all platform eval and Dart CI requirements. No check is removed.
 
 - Archive the change and ship it through `specwright-finish`; after merge, publish v0.34.0 through `specwright-release`.
