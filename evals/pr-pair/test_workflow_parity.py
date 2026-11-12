@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_parity as parity
 import vcs_test_support
+import fakeexe
 
 
 def setUpModule():
@@ -253,6 +254,7 @@ class WorkflowParity(parity.PairParity):
         tool = self.tmp / 'bin' / name
         tool.write_text(script, encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool)  # sw starts jj and but by PATHEXT name on Windows (D9)
 
     def test_cleanup_non_git_plans_preserve_backend_commands(self):
         code, store = self.merged_pair()
@@ -283,6 +285,7 @@ class WorkflowParity(parity.PairParity):
         tool = self.tmp / 'bin' / 'git'
         tool.write_text('#!/bin/sh\nif [ "$1" = pull ]; then target="$PWD"; if command -v cygpath >/dev/null 2>&1; then target=$(cygpath -m "$PWD"); fi; printf "%s|%s|%s\\n" "$target" "$GH_TOKEN" "$*" >> "$WF_PULL_LOG"; exit 0; fi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # the fence starts git by PATHEXT name on Windows (D9)
         self.extra_env['WF_PULL_LOG'] = log.as_posix()
         for role in ['code', 'store']:
             entry = plan[role]

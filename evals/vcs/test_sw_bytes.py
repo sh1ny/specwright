@@ -42,39 +42,72 @@ class TestSwBytes(VcsTestCase):
         self.assertIn(name, json.loads(result.stdout)["dirty_paths"])
 
     @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
-    def test_non_utf8_name_round_trips(self):
+    def test_non_utf8_name_is_not_utf8(self):
+        """A name from `git status -z` that is not UTF-8 stops the document by name (D4), never a U+FFFD look-alike."""
         name = b"a\xff.txt"
         self.write(name, "one\n")
         self.git(self.repo, "add", "--", os.fsdecode(name))
         self.git(self.repo, "commit", "-m", "add the file")
         self.git(self.repo, "checkout", "-b", BRANCH)
         self.write(name, "two\n")
+        self.write(b"other.txt", "other\n")
 
-        state, _ = self.invoke("state")
-        self.assertEqual(state["dirty_paths"], [os.fsdecode(name)])
+        state, _ = self.invoke("state", expected=1)
 
-        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(),
-                                "--", state["dirty_paths"][0])
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("a\\xFF.txt", state["message"])
+        self.assertNotIn("\ufffd", state["message"])
+        self.assertIn("rename", state["message"])
+
+        # Git commits only the named paths, so naming other files still commits them.
+        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", "other.txt")
         self.assertTrue(result["ok"], result)
-        self.assertEqual(self.commit_names(), [name])
+        self.assertEqual(self.commit_names(), [b"other.txt"])
+
+    @unittest.skipUnless(LINUX, "platform: a branch name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_branch_name_is_not_utf8(self):
+        """The current branch read from git is decoded strictly: a 0xFF byte stops by name, never a U+FFFD look-alike."""
+        self.write("a.txt", "one\n")
+        self.git(self.repo, "add", "--", "a.txt")
+        self.git(self.repo, "commit", "-m", "add the file")
+        with open(os.path.join(os.fsencode(self.repo), b".git", b"HEAD"), "wb") as head:
+            head.write(b"ref: refs/heads/feat/\xff\n")
+
+        state, _ = self.invoke("state", expected=1)
+
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("feat/\\xFF", state["message"])
+        self.assertNotIn("�", state["message"])
+
+    @unittest.skipUnless(LINUX, "platform: a directory name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_common_dir_behind_a_worktree_is_not_utf8(self):
+        """A linked worktree under a UTF-8 path whose main checkout (the Git common dir) is not UTF-8: refused by name (D4)."""
+        main = os.path.join(os.fsencode(self.root), b"main-\xff")
+        os.rename(os.fsencode(self.repo), main)
+        self.git(main, "worktree", "add", "-b", BRANCH, str(self.root / "linked"))
+
+        state, _ = self.invoke("state", repo=self.root / "linked", expected=1)
+
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("main-\\xFF", state["message"])
+        self.assertNotIn("�", state["message"])
 
     @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_valid_replacement_char_is_a_character(self):
-        valid, other = "a\ufffd.txt", b"a\xff.txt"
+        """No name in the repo is invalid UTF-8, so a valid U+FFFD in a name is just a character."""
+        valid = "a\ufffd.txt"
         self.write(valid, "one\n")
-        self.write(other, "one\n")
-        self.git(self.repo, "add", "--", valid, os.fsdecode(other))
-        self.git(self.repo, "commit", "-m", "add both files")
+        self.git(self.repo, "add", "--", valid)
+        self.git(self.repo, "commit", "-m", "add the file")
         self.git(self.repo, "checkout", "-b", BRANCH)
         self.write(valid, "two\n")
-        self.write(other, "two\n")
 
         result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", valid)
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(self.commit_names(), [valid.encode("utf-8")])
         state, _ = self.invoke("state")
-        self.assertEqual(state["dirty_paths"], [os.fsdecode(other)])
+        self.assertEqual(state["dirty_paths"], [])
 
     @unittest.skipUnless(os.name == "nt", "platform: the check-ignore input travels the Windows transport")
     def test_check_ignore_receives_oversized_name(self):
@@ -102,6 +135,49 @@ class TestSwBytes(VcsTestCase):
         names = self.git(repo, "ls-tree", "-r", "--name-only", "refs/heads/" + BRANCH).stdout.split()
         self.assertIn("work/small.txt", names)
         self.assertNotIn("work/big.bin", names)
+
+    def jj_walk_fixture(self):
+        """A colocated jj repo with a changed `work/small.txt`; returns (repo, head of BRANCH before the commit)."""
+        jj = require_jj()
+        scratch = Scratch()
+        self.addCleanup(scratch.close)
+        fixture = scratch.tracked_repo()
+        repo = fixture.path
+        self.set_settings(repo, "vcs: jj\nmain_branch: main\n")
+        fixture.run(jj, "commit", "-m", "fixture settings")
+        fixture.run(jj, "bookmark", "set", "main", "-r", "@-")
+        fixture.run(jj, "bookmark", "create", BRANCH, "-r", "@-")
+        (repo / "work").mkdir()
+        (repo / "work" / "small.txt").write_text("changed\n", encoding="utf-8")
+        before = self.git(repo, "rev-parse", "refs/heads/" + BRANCH).stdout.strip()
+        return repo, before
+
+    @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_name_in_walk_stops_commit(self):
+        """The directory walk lists names itself: a name that is not UTF-8 stops it, shown with U+FFFD."""
+        repo, before = self.jj_walk_fixture()
+        self.write(b"work/a\xff.txt", "one\n", repo=repo)
+
+        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", "work",
+                                repo=repo, expected=1)
+
+        self.assertEqual(result["error"], "not_utf8", result)
+        self.assertIn("work/a\ufffd.txt", result["message"])
+        self.assertEqual(self.git(repo, "rev-parse", "refs/heads/" + BRANCH).stdout.strip(), before)
+
+    @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_lookalike_in_walk_stops_commit(self):
+        """A raw `a\\xff.txt` over the snapshot size limit beside a valid `a\ufffd.txt` must not pass as the small file."""
+        repo, before = self.jj_walk_fixture()
+        self.write(b"work/a\xff.txt", "x" * (2 * 1024 * 1024), repo=repo)
+        self.write("work/a\ufffd.txt", "small\n", repo=repo)
+
+        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", "work",
+                                repo=repo, expected=1)
+
+        self.assertEqual(result["error"], "not_utf8", result)
+        self.assertIn("work/a\ufffd.txt", result["message"])
+        self.assertEqual(self.git(repo, "rev-parse", "refs/heads/" + BRANCH).stdout.strip(), before)
 
 
 if __name__ == "__main__":

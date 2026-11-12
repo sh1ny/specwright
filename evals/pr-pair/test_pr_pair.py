@@ -37,6 +37,7 @@ import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION 
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the repo with its first commit is built once and copied
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("fake_gh", ROOT / "evals" / "fakes" / "gh.py")
 fake_gh = importlib.util.module_from_spec(_spec)
@@ -2619,6 +2620,7 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         self.shim_log = self.tmp / "git-shim.log"
         self.write("bin/git", self.SHIM)
         os.chmod(self.tmp / "bin" / "git", 0o755)
+        fakeexe.add_launcher(self.tmp / "bin" / "git", exe=True)  # sw starts git by PATHEXT name on Windows (D9)
         self.extra_env.update({"SHIM_REAL_GIT": fixtures.posix(shutil.which("git")), "SHIM_LOG": fixtures.posix(self.shim_log),
                                "SHIM_STORE_TOKEN": "tok-s", "SHIM_BARE": fixtures.posix(bare)})
 

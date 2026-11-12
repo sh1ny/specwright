@@ -8,6 +8,26 @@ void main() {
     double now = 1000,
   }) => resolveLimits(env, paged: paged, epochSeconds: () => now);
 
+  test('RunLimits with no argument has no deadline and no byte bound', () {
+    const limits = RunLimits();
+    expect(limits.deadline, isNull);
+    expect(limits.maxBytes, isNull);
+    expect(limits.stdoutCap, isNull);
+  });
+
+  test('a stdout cap is its own bound, apart from the byte bound', () {
+    const capped = RunLimits(stdoutCap: 1024);
+    expect(capped.stdoutCap, 1024);
+    expect(capped.maxBytes, isNull);
+    expect(capped.deadline, isNull);
+    // resolved limits (a bounded caller) carry both a deadline and a bound
+    // and no separate stdout cap
+    final resolved = resolve({});
+    expect(resolved.deadline, isNotNull);
+    expect(resolved.maxBytes, isNotNull);
+    expect(resolved.stdoutCap, isNull);
+  });
+
   test('defaults are 120 s, 300 s paged and 32 MiB', () {
     expect(resolve({}).deadline, const Duration(seconds: 120));
     expect(resolve({}, paged: true).deadline, const Duration(seconds: 300));

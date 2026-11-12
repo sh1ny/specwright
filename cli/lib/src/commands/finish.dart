@@ -105,12 +105,15 @@ Future<int> runFinishCommand(
     document = stop.object();
     code = stop.code;
   } on Object catch (e) {
-    document = {
-      'ok': false,
-      'error': 'internal_error',
-      'message': '${e.runtimeType}: ${e is StateError ? e.message : e}',
-    };
-    code = 1;
+    final stop = VcsStop.refusal(e);
+    document =
+        stop?.object() ??
+        {
+          'ok': false,
+          'error': 'internal_error',
+          'message': '${e.runtimeType}: ${e is StateError ? e.message : e}',
+        };
+    code = stop?.code ?? 1;
   }
   writeOut(documentBytes(document));
   return code;

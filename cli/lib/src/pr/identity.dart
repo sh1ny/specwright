@@ -1,3 +1,5 @@
+import 'dart:io' show Directory;
+
 import '../commit/task_cover.dart' show pyStrip;
 import '../settings/yaml.dart' show pySpaceClass;
 import 'context.dart';
@@ -25,7 +27,7 @@ String? parseRepo(String url) {
 /// `identity(d)`: the answer, or a [PairStop] (`not-a-repo`, `no-origin`, `not-github`, `mismatch`).
 Future<Map<String, Object?>> identityOf(PrContext ctx, String dir) async {
   if (dir.isEmpty ||
-      !rawDirectory(dir).existsSync() ||
+      !Directory(dir).existsSync() ||
       (await ctx.git(dir, ['rev-parse', '--git-dir'])).code != 0) {
     throw PairStop('not-a-repo', '$dir is not a git work tree');
   }

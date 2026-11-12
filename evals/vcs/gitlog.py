@@ -2,8 +2,11 @@
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import fakeexe  # noqa: E402
 
 _WRITE_COMMANDS = {
     "add", "am", "apply", "branch", "checkout", "cherry-pick", "clean", "clone", "commit", "init",
@@ -75,24 +78,23 @@ class GitShim:
 
 
 def install(directory, real_git=None, log_path=None):
-    """Create an executable `git` shim; jj itself should use the real executable via repo config."""
+    """Create an executable `git` shim (with a `.exe` launcher on Windows, D9); jj itself should use the real executable via repo config."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     real_git = str(real_git or shutil.which("git") or "")
     if not real_git:
         raise AssertionError("git not installed")
     log_path = Path(log_path or directory / "git-calls.jsonl")
-    script = directory / "git"
-    script.write_text(
+    fakeexe.write_fake(
+        directory / "git",
         "#!/bin/sh\n"
         "set -e\n"
         "\"${SPECWRIGHT_PYTHON:-python}\" -c '"
         "import json,os,sys; a=sys.argv[1:]; c=__import__(\"vcs.gitlog\",fromlist=[\"classify\"]).classify(a); "
         "open(os.environ[\"SPECWRIGHT_GIT_LOG\"],\"a\",encoding=\"utf-8\").write(json.dumps({\"argv\":a,**c},ensure_ascii=False)+\"\\n\")' \"$@\"\n"
         "exec \"$SPECWRIGHT_REAL_GIT\" \"$@\"\n",
-        encoding="utf-8",
+        exe=True,  # sw calls git with `--format=%H`, which a `.cmd` refuses (D9)
     )
-    script.chmod(0o755)
     return GitShim(directory, log_path, real_git)
 
 

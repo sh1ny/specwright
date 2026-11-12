@@ -4,11 +4,10 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:test/test.dart';
+import 'package:specwright_cli/src/fs/link.dart';
 import 'package:specwright_cli/src/pr/feedback_record.dart';
 import 'package:specwright_cli/src/pr/pair.dart';
-import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/process/limits.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 
 class FaultFiles implements RecordFiles {
   FaultFiles({RecordFiles? actual}) : actual = actual ?? RecordFiles.native();
@@ -138,6 +137,7 @@ void replacementReader((String, SendPort) input) {
 }
 
 void main() {
+  linkTests();
   late Directory tmp;
   late String path;
   setUp(() {
@@ -654,51 +654,6 @@ void main() {
     expect(opens, 2);
     expect(File(path).statSync().mode & 0x1ff, 0x180);
   }, skip: Platform.isWindows ? 'POSIX permission bits' : false);
-  test('raw POSIX parent bytes survive locking publication and replacement', () async {
-    // Probe the filesystem with actual Python bytes first. A successful OS
-    // probe must still be followed by the Dart assertions below; never turn
-    // an SDK path-handling failure into a skip.
-    final probe = await Process.run('python3', [
-      '-c',
-      r'''
-import json, os, sys
-path = os.fsencode(sys.argv[1]) + b'/\xff'
-try:
-    os.mkdir(path)
-except OSError as error:
-    print(json.dumps({'ok': False, 'error': str(error)}))
-else:
-    os.rmdir(path)
-    print(json.dumps({'ok': True}))
-''',
-      tmp.path,
-    ]);
-    expect(probe.exitCode, 0, reason: '${probe.stdout}\n${probe.stderr}');
-    final capability =
-        jsonDecode(probe.stdout as String) as Map<String, dynamic>;
-    if (capability['ok'] != true) {
-      if (Platform.isLinux) {
-        fail('Linux raw-path probe must succeed: ${capability['error']}');
-      }
-      markTestSkipped(
-        '${Platform.operatingSystem} filesystem refuses raw path bytes: ${capability['error']}',
-      );
-      return;
-    }
-    final directory = decodeEscaped([...utf8.encode(tmp.path), 47, 0xff]);
-    rawDirectory(directory).createSync();
-    final store = FeedbackRecordStore('$directory/new/nested');
-    final record = store.recordPath('o/r', 'raw-path');
-    store.writeNew(record, {'version': 2, 'owner': 'before'});
-    await store.withLock(record, () {
-      expect(rawFile('$record.lock').existsSync(), true);
-      store.replaceRecord(record, {'version': 2, 'owner': 'after'});
-    });
-    expect(rawFile('$record.lock').existsSync(), false);
-    expect((store.load(record) as Map)['owner'], 'after');
-    rawFile(record).deleteSync();
-    rawDirectory(directory).deleteSync(recursive: true);
-  }, skip: Platform.isWindows ? 'POSIX filename bytes' : false);
   test('missing records differ from unreadable files and directories', () {
     final store = FeedbackRecordStore(tmp.path);
     expect(store.load(path), null);
@@ -766,4 +721,49 @@ class _Limited extends FaultFiles {
     seen.add(limit);
     return List<int>.filled(limit == null ? size : limit + 1, 0x20);
   }
+}
+
+void linkTests() {
+  group('fs/link.dart (D8: the link and rename of ln and mv -f)', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('sw-link-'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('hardLink makes a second name for the same bytes', () {
+      final a = File('${dir.path}/a')..writeAsStringSync('one');
+      hardLink(a.path, '${dir.path}/b');
+      expect(File('${dir.path}/b').readAsStringSync(), 'one');
+      a.deleteSync();
+      expect(File('${dir.path}/b').readAsStringSync(), 'one');
+    });
+
+    test('hardLink never replaces an existing destination', () {
+      File('${dir.path}/a').writeAsStringSync('new');
+      File('${dir.path}/b').writeAsStringSync('first');
+      expect(
+        () => hardLink('${dir.path}/a', '${dir.path}/b'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(File('${dir.path}/b').readAsStringSync(), 'first');
+    });
+
+    test('replaceFile replaces the destination and removes the source', () {
+      File('${dir.path}/a').writeAsStringSync('new');
+      File('${dir.path}/b').writeAsStringSync('old');
+      replaceFile('${dir.path}/a', '${dir.path}/b');
+      expect(File('${dir.path}/b').readAsStringSync(), 'new');
+      expect(File('${dir.path}/a').existsSync(), isFalse);
+    });
+
+    test('a missing source is a FileSystemException', () {
+      expect(
+        () => replaceFile('${dir.path}/none', '${dir.path}/b'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(
+        () => hardLink('${dir.path}/none', '${dir.path}/b'),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
+  });
 }

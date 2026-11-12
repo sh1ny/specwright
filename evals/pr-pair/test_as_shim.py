@@ -21,6 +21,7 @@ from test_as_sh import AS_SH, ROOT, fixtures_kill, bashexe, vcs_test_support  # 
 
 sys.path.append(str(ROOT / "evals" / "cli"))
 import swharness  # noqa: E402
+import fakeexe  # noqa: E402  (evals/ is on sys.path through test_as_sh)
 
 STOP = "sw missing or mismatched: rerun the install prompt"
 USAGE = "as.sh: line 47: 1: usage: as.sh <login> <command> [args...] | as.sh --resolve"
@@ -74,14 +75,97 @@ class TestShim(ShimCase):
         self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
         self.assertEqual(r.stderr, "as.sh: no_python: needs python 3.8+ for its bounded gh calls\n")
 
+    def failing_bash(self):
+        """A recording `bash` that exits 1 (a `.cmd` on Windows, where only PATHEXT names start), first on PATH.
+
+        Returns the environment that puts it there and the log it appends to. sw starts no shell for its own work, so the
+        log stays empty; the fenced command in these tests names its bash by absolute path."""
+        shells = self.tmp / "failing-shells"
+        shells.mkdir()
+        log = self.tmp / "shell.log"
+        if os.name == "nt":
+            (shells / "bash.cmd").write_bytes(b'@echo bash>>"%SW_SHELL_LOG%"\r\n@exit /b 1\r\n')
+        else:
+            fakeexe.write_script(shells / "bash", '#!/bin/sh\nprintf "%s\\n" bash >> "$SW_SHELL_LOG"\nexit 1\n')
+        return {"PATH": str(shells) + os.pathsep + self.env()["PATH"], "SW_SHELL_LOG": str(log)}, log
+
     def test_argument_bytes_and_exit_status(self):
         out = self.tmp / "args.out"
         args = ["a b", "", "$x \"y\" *", "--sw-end--", "-n", "tab\there", "end"]
         if os.name != "nt":  # on Windows the MSYS bash that starts the shim brace-expands this one before the shim sees it
             args.insert(3, "{1,2}")
-        r = self.as_sh(self.code, "sh1ny", *self.bash_command('printf "%s|" "${@:2}" > "$1"; exit 7', out.as_posix(), *args))
+        env, log = self.failing_bash()
+        r = self.as_sh(self.code, "sh1ny", *self.bash_command('printf "%s|" "${@:2}" > "$1"; exit 7', out.as_posix(), *args), env=env)
         self.assertEqual(r.returncode, 7, r.stderr)
         self.assertEqual(out.read_text(encoding="utf-8"), "".join(a + "|" for a in args))
+        self.assertFalse(log.exists(), "a shell started")
+
+    def test_fenced_shell_command_runs_as_asked(self):
+        """A fenced command the caller names, even a shell, runs as given: `bash` is found on PATH and started once."""
+        shells = self.tmp / "named-bash"
+        shells.mkdir()
+        log = self.tmp / "named-bash.log"
+        real = Path(bashexe.bash()).as_posix()
+        if os.name == "nt":
+            (shells / "bash.cmd").write_bytes(('@echo bash>>"%%SW_SHELL_LOG%%"\r\n@"%s" %%*\r\n' % real).encode("utf-8"))
+        else:
+            fakeexe.write_script(shells / "bash", '#!/bin/sh\nprintf "%%s\\n" bash >> "$SW_SHELL_LOG"\nexec "%s" "$@"\n' % real)
+        env = {"PATH": str(shells) + os.pathsep + self.env()["PATH"], "SW_SHELL_LOG": str(log)}
+        r = self.as_sh(self.code, "sh1ny", "bash", "-c", "exit 7", env=env)
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertEqual(log.read_text().split(), ["bash"], "bash started once, as the fenced command")  # bare-bash: not started
+
+    @unittest.skipUnless(os.name == "nt", "platform: Windows batch files")
+    def test_fenced_batch_command_keeps_caller_stdio(self):
+        bin_dir = self.tmp / "batch-bin"
+        bin_dir.mkdir()
+        (bin_dir / "fake.cmd").write_bytes(b"@echo off\r\nset /p L=\r\necho got:%L% token:%GH_TOKEN%\r\nexit /b 3\r\n")
+        env = {"PATH": str(bin_dir) + os.pathsep + self.env()["PATH"]}
+        r = self.as_sh(self.code, "sh1ny", "fake", env=env, stdin="from the caller\n")
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("got:from the caller token:tok-s", r.stdout)
+        self.assertEqual(r.stderr, "", "no helper frame on stderr")
+
+    def argv_tool(self):
+        """A fake `fake-tool` that writes its argument list as JSON to the file named by FAKE_ARGV_OUT; returns that file."""
+        out = self.tmp / "argv.json"
+        source = ('import json, os, sys\n'
+                  'with open(os.environ["FAKE_ARGV_OUT"], "w", encoding="utf-8") as f:\n'
+                  '    json.dump(sys.argv[1:], f)\n')
+        fakeexe.write_python_fake(self.tmp / "bin" / "fake-tool", source)
+        return out
+
+    def test_fenced_tool_receives_unicode_values(self):
+        out = self.argv_tool()
+        args = ["a b", "", 'q "uo" te', "back\\slash", "trail\\", "h\u00e9llo \u20ac", "\u65e5\u672c\u8a9e", "tab\there"]
+        if os.name != "nt":  # the MSYS bash that starts the shim on Windows splits an argument at a newline before the shim sees it
+            args.insert(5, "two\nlines")
+        r = self.as_sh(self.code, "sh1ny", "fake-tool", *args, env={"FAKE_ARGV_OUT": str(out)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(out.read_text(encoding="utf-8")), args)
+
+    @unittest.skipUnless(os.name == "nt", "platform: Windows command lines")
+    def test_long_argument_reaches_fenced_tool_on_windows(self):
+        out = self.argv_tool()
+        arg = "".join(chr(ord("a") + i % 26) for i in range(20000))
+        r = self.as_sh(self.code, "sh1ny", "fake-tool", arg, env={"FAKE_ARGV_OUT": str(out)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(out.read_text(encoding="utf-8")), [arg])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: Linux file names hold any byte")
+    def test_non_utf8_argument_is_refused(self):
+        ran = self.tmp / "git.ran"
+        fakeexe.write_fake(self.tmp / "bin" / "git", '#!/bin/sh\necho ran >> "$FAKE_GIT_RAN"\nexit 0\n')
+        name = os.fsdecode(b"a\xff.txt")  # the byte 0xFF, which no UTF-8 text holds
+        r = self.as_sh(self.code, "sh1ny", "git", "add", "--", name, env={"FAKE_GIT_RAN": str(ran)})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        lines = r.stderr.splitlines()
+        self.assertEqual(len(lines), 1, r.stderr)
+        self.assertTrue(lines[0].startswith("as.sh:"), lines[0])
+        self.assertIn("a\\xFF.txt", lines[0])
+        self.assertIn("rename", lines[0])
+        self.assertEqual(self.gh_calls(), [], "no token was read")
+        self.assertFalse(ran.exists(), "git ran")
 
     def test_missing_command_exits_127(self):
         r = self.as_sh(self.code, "sh1ny", "sw-no-such-command-xyz")

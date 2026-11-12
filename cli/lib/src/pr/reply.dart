@@ -1,8 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import '../options.dart';
-import '../vcs/codec.dart';
 import 'context.dart';
 import 'gh.dart';
 import 'queries.dart';
@@ -12,7 +12,7 @@ import 'queries.dart';
 /// Every argument and body check runs before the first GitHub call (exit 4). A pending review of the viewer stops with
 /// exit 2, a changed revision with exit 5 (exit 3 when it cannot be read), the reply is posted with its marker, and the
 /// exit status is 1 when the reply was posted but its resolution or reaction failed. The body file with its marker is
-/// made by the external `mktemp` and removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform has them
+/// made by an exclusive create (`PrContext.makeTemp`) and removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform has them
 /// (the script's `EXIT` trap).
 Future<int> runReply(PrContext ctx, List<String> argv) async {
   final reply = _Reply(ctx);
@@ -225,7 +225,7 @@ class _Reply {
   }
 
   Future<bool> readable(String path) async {
-    final file = rawFile(await ctx.native(path));
+    final file = File(await ctx.native(path));
     try {
       if (file.statSync().type != FileSystemEntityType.file) return false;
       if (file.lengthSync() == 0) return false;
@@ -300,7 +300,7 @@ class _Reply {
     }
   }
 
-  /// Writes the body file and its marker to a temp file from `mktemp`; a failed write stops the script.
+  /// Writes the body file and its marker to a temp file from `PrContext.makeTemp`; a failed write stops the script.
   Future<void> bodyWithMarker(String bodyFile, String marker) async {
     final mkind = waiting ? 'waiting' : 'handled';
     final path = await ctx.makeTemp();
@@ -313,13 +313,13 @@ class _Reply {
     tmp = path;
     try {
       final bytes = BytesBuilder(copy: false)
-        ..add(rawFile(await ctx.native(bodyFile)).readAsBytesSync())
+        ..add(File(await ctx.native(bodyFile)).readAsBytesSync())
         ..add(
-          encodeEscaped(
+          utf8.encode(
             '\n\n<!-- specwright:$mkind $marker${rev.isEmpty ? '' : ' rev=$rev'} -->\n',
           ),
         );
-      rawFile(path).writeAsBytesSync(bytes.takeBytes());
+      File(path).writeAsBytesSync(bytes.takeBytes());
     } on FileSystemException {
       stop(
         'pr-reply: the reply for body file $bodyFile could not be written in full; nothing was posted',

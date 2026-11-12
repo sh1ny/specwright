@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
+import '../fs/walk.dart';
+import '../native/libc.dart' as libc;
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart';
@@ -25,10 +27,14 @@ VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
 
 /// `vcs.sh`'s `jj(repo, *args)`.
 Future<TextResult> jj(VcsSession s, List<String> args) =>
-    runText(s.scripts.bash, s.repo, ['jj', ...args]);
+    runText(s.repo, ['jj', ...args]);
 
 /// `vcs.sh`'s `jj_result`: jj's stdout, or the `jj_error` stop.
-Future<String> jjResult(VcsSession s, List<String> args) async {
+Future<String> jjResult(
+  VcsSession s,
+  List<String> args, {
+  String? names,
+}) async {
   final r = await jj(s, args);
   if (r.code != 0) {
     final said = orElse(
@@ -37,7 +43,8 @@ Future<String> jjResult(VcsSession s, List<String> args) async {
     );
     throw VcsStop('jj_error', said);
   }
-  return r.stdout;
+  // [names] says the output lists names: they are decoded strictly (D4)
+  return names == null ? r.stdout : r.names(names);
 }
 
 /// `vcs.sh`'s `jj_log`.
@@ -256,7 +263,12 @@ Future<Map<String, Object?>> jjState(VcsSession s, [String? scope]) async {
       );
     }
   }
-  final status = await jjResult(s, ['diff', '--summary', '-r', '@']);
+  final status = await jjResult(s, [
+    'diff',
+    '--summary',
+    '-r',
+    '@',
+  ], names: 'file name');
   final entries = <Map<String, Object?>>[];
   for (final line in _lines(status)) {
     if (line.length >= 3 &&
@@ -318,22 +330,23 @@ String windowsCommandLine(List<String> args) => args
 
 /// `vcs.sh`'s `jj_commit_argv_check`: `too_many_paths` when `jj commit` would
 /// not fit on a command line (32,000 bytes of the quoted form on Windows;
-/// `ARG_MAX` less the environment and 4096 elsewhere).
+/// `sysconf(_SC_ARG_MAX)` less the environment and 4096 elsewhere, 100000 when
+/// the system gives none). [argMax] replaces the `sysconf` read.
 Future<void> jjCommitArgvCheck(
   VcsSession s,
   List<String> filesets,
   String message, {
   bool? windows,
+  int? Function()? argMax,
 }) async {
   final argv = ['jj', 'commit', ...filesets, '-m', message];
   final int size;
   final int limit;
   if (windows ?? Platform.isWindows) {
-    size = encodeEscaped(windowsCommandLine(argv)).length;
+    size = utf8.encode(windowsCommandLine(argv)).length;
     limit = 32000;
   } else {
-    final r = await runText(s.scripts.bash, s.repo, ['getconf', 'ARG_MAX']);
-    final max = r.code == 0 ? int.tryParse(r.stdout.trim()) : null;
+    final max = (argMax ?? libc.argMax)();
     if (max == null) {
       limit = 100000;
     } else {
@@ -343,7 +356,7 @@ Future<void> jjCommitArgvCheck(
       });
       limit = max - env - 4096;
     }
-    size = argv.fold(0, (n, a) => n + encodeEscaped(a).length + 1);
+    size = argv.fold(0, (n, a) => n + utf8.encode(a).length + 1);
   }
   if (size > limit) {
     throw VcsStop(
@@ -354,17 +367,17 @@ Future<void> jjCommitArgvCheck(
   }
 }
 
-bool _isFile(String full) => File.fromRawPath(encodeEscaped(full)).existsSync();
+bool _isFile(String full) => File(full).existsSync();
 
-bool _isDir(String full) =>
-    Directory.fromRawPath(encodeEscaped(full)).existsSync();
+bool _isDir(String full) => Directory(full).existsSync();
 
-bool _isLink(String full) => Link.fromRawPath(encodeEscaped(full)).existsSync();
+bool _isLink(String full) => Link(full).existsSync();
 
 /// `vcs.sh`'s `check_directory_snapshot`: one snapshotted file does not cover
 /// a named directory, because jj leaves out a new file over the size limit.
-/// The directory is walked as D4 describes ([walkFiles]); the first oversize,
-/// unlisted file that Git does not ignore is the `path_not_tracked` stop.
+/// The directory is walked in process ([walkFiles], D6) and a name that is not
+/// UTF-8 stops the walk with [NotUtf8]; the first oversize, unlisted file that
+/// Git does not ignore is the `path_not_tracked` stop.
 Future<void> checkDirectorySnapshot(
   VcsSession s,
   String path,
@@ -372,20 +385,25 @@ Future<void> checkDirectorySnapshot(
 ) async {
   final limit = await snapshotLimit(s);
   final oversize = <String>[];
-  for (final f in await walkFiles(s.scripts.bash, s.repo, path)) {
+  final root = walkRoot(s.repo, path);
+  final base = relpathText(root, s.repo);
+  for (final f in walkFiles(root, prefix: base == '.' ? '' : base)) {
     if (!listed.contains(f.name) && f.size > limit) oversize.add(f.name);
   }
   if (oversize.isEmpty) return;
   // NUL-separated both ways: git quotes a non-ASCII path otherwise
   final names = oversize.map((rel) => '$rel\u0000').join();
-  final checked = await runTool(s.scripts.bash, s.repo, [
+  final checked = await runTool(s.repo, [
     'git',
     'check-ignore',
     '-z',
     '--stdin',
-  ], input: encodeEscaped(names));
+  ], input: utf8.encode(names));
   final ignored = {
-    for (final name in decodeText(checked.stdout).split('\u0000'))
+    for (final name in decodeStrict(
+      checked.stdout,
+      'file name',
+    ).split('\u0000'))
       if (name.isNotEmpty) pathText(name),
   };
   for (final rel in oversize) {
@@ -418,7 +436,13 @@ Future<void> checkTracked(
   final named = [for (final p in present) p.$2];
   final listed = [
     for (final l in _lines(
-      await jjResult(s, ['file', 'list', '-r', '@', ...named]),
+      await jjResult(s, [
+        'file',
+        'list',
+        '-r',
+        '@',
+        ...named,
+      ], names: 'file name'),
     ))
       pathText(l),
   ];
@@ -436,7 +460,13 @@ Future<void> checkTracked(
       // a directory whose tracked files were all deleted names those deletions
       parentListed ??= [
         for (final l in _lines(
-          await jjResult(s, ['file', 'list', '-r', '@-', ...named]),
+          await jjResult(s, [
+            'file',
+            'list',
+            '-r',
+            '@-',
+            ...named,
+          ], names: 'file name'),
         ))
           pathText(l),
       ];
@@ -449,8 +479,7 @@ Future<void> checkTracked(
     final String reason;
     if (_isFile(full) &&
         !_isLink(full) &&
-        File.fromRawPath(encodeEscaped(full)).lengthSync() >
-            await snapshotLimit(s)) {
+        File(full).lengthSync() > await snapshotLimit(s)) {
       reason =
           'it is larger than snapshot.max-new-file-size '
           '(${await snapshotLimit(s)} bytes)';
@@ -489,7 +518,7 @@ final _wideSpace = RegExp(r'\s{2,}');
 Future<List<String>> _resolveList(VcsSession s, String revision) async {
   final listed = await jj(s, ['resolve', '--list', '-r', revision]);
   return [
-    for (final line in _lines(listed.stdout))
+    for (final line in _lines(listed.names('file name')))
       if (line.trim().isNotEmpty) pathText(line.trim().split(_wideSpace).first),
   ];
 }
@@ -677,7 +706,7 @@ Future<String> jjFindMerge(
 String _readMessage(String path) {
   final List<int> bytes;
   try {
-    bytes = File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
+    bytes = File(path).readAsBytesSync();
   } on FileSystemException {
     throw StateError('[Errno 2] No such file or directory: ${pyRepr(path)}');
   }
@@ -924,11 +953,12 @@ Future<Map<String, Object?>> jjPush(VcsSession s, String? login) async {
 }
 
 /// `vcs.sh`'s `run_jj_operation` for [command]. [windows] overrides the OS for
-/// the commit's command-line size check.
+/// the commit's command-line size check, [argMax] replaces its `sysconf` read.
 Future<Map<String, Object?>> runJjOperation(
   VcsSession session,
   String command, {
   bool? windows,
+  int? Function()? argMax,
 }) async {
   // jj runs in the Git work tree's root, not in the directory `--repo` named.
   final s = VcsSession(
@@ -982,7 +1012,13 @@ Future<Map<String, Object?>> runJjOperation(
       ];
       final filesets = [for (final p in paths) filesetText(p)];
       final message = _readMessage(messageFile);
-      await jjCommitArgvCheck(s, filesets, message, windows: windows);
+      await jjCommitArgvCheck(
+        s,
+        filesets,
+        message,
+        windows: windows,
+        argMax: argMax,
+      );
       await checkTracked(s, paths, filesets);
       final changed = await jjResult(s, [
         'diff',

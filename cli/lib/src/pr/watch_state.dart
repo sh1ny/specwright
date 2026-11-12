@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:io';
 import 'dart:math';
 
 import '../fence/urls.dart' show lowerAscii;
+import '../fs/link.dart';
 import '../vcs/codec.dart';
 import 'context.dart';
 import 'text.dart';
@@ -11,8 +13,8 @@ import 'text.dart';
 // the claim names, the nonce format and the order of claims. `pr-pair.sh` and a watcher of the old script read and
 // write the same files.
 
-/// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`. On Windows a `/`-path (Git Bash's form of `HOME`) goes through
-/// `cygpath -m`, so it names the directory the old script used (D9).
+/// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`. On Windows a `/`-path (Git Bash's form of `HOME`) converts by
+/// the fixed rules of `nativePath`, so it names the directory the old script used (D7).
 Future<String> stateBase(PrContext ctx) async {
   final env = ctx.env;
   var base = env['SPECWRIGHT_STATE_DIR'];
@@ -46,7 +48,7 @@ List<_Listed> _listClaims(String dir) {
   final out = <_Listed>[];
   final List<FileSystemEntity> entries;
   try {
-    entries = rawDirectory(dir).listSync(followLinks: false);
+    entries = Directory(dir).listSync(followLinks: false);
   } on FileSystemException {
     return out;
   }
@@ -69,8 +71,8 @@ List<_Listed> _listClaims(String dir) {
 
 /// Bytewise order of two nonces (`[[ a > b ]]` compares by the locale's collation; C15 accepts the difference).
 int _byBytes(String a, String b) {
-  final x = encodeEscaped(a);
-  final y = encodeEscaped(b);
+  final x = utf8.encode(a);
+  final y = utf8.encode(b);
   for (var i = 0; i < x.length && i < y.length; i++) {
     if (x[i] != y[i]) return x[i] - y[i];
   }
@@ -96,7 +98,7 @@ class WatchClaim {
   /// or the file cannot be created: the watcher polls unowned and the caller says so.
   static WatchClaim? claim(String dir, {Random? random, int? pid}) {
     try {
-      rawDirectory(dir).createSync(recursive: true);
+      Directory(dir).createSync(recursive: true);
     } on FileSystemException {
       return null;
     }
@@ -109,7 +111,7 @@ class WatchClaim {
       '${pid ?? io.pid}.${five()}${five()}',
     );
     try {
-      rawFile(claim._path).createSync(exclusive: true);
+      File(claim._path).createSync(exclusive: true);
     } on FileSystemException {
       return null;
     }
@@ -127,7 +129,7 @@ class WatchClaim {
 
   /// `still_owner`: the own file exists and no claim is above it.
   bool stillOwner() {
-    if (!rawFile(_path).existsSync()) return false;
+    if (!File(_path).existsSync()) return false;
     for (final c in _listClaims(dir)) {
       if (c.name != name && above(c.number, c.nonce)) return false;
     }
@@ -157,7 +159,7 @@ final RegExp _httpDate = RegExp(
 bool isHttpDate(String text) => grepQuiet(_httpDate, text);
 
 /// `resolve_first_seen`: the earliest GitHub time any snapshot on this machine saw head [oid], kept in `<[dir]>/<oid>`.
-/// The record is written to a temp file from `mktemp` and published with a no-clobber `ln`, so the first writer wins and
+/// The record is written to a temp file and published with a no-clobber hard link, so the first writer wins and
 /// nobody sees an empty record; publishing it removes the records of the PR's other heads. If it can be neither published
 /// nor read (or does not parse), [firstSeen], this process's own sighting, is used (`first_seen_unsaved`).
 Future<FirstSeen> resolveFirstSeen(
@@ -171,17 +173,16 @@ Future<FirstSeen> resolveFirstSeen(
   var seen = FirstSeen(firstSeen, 'first_seen_unsaved');
   var made = false;
   try {
-    rawDirectory(dir).createSync(recursive: true);
+    Directory(dir).createSync(recursive: true);
     made = true;
   } on FileSystemException {
     // unsaved
   }
   final tmp = made ? await ctx.makeTemp('$slashed/.tmp.XXXXXX') : null;
   if (tmp != null) {
-    if (_write(tmp, '$firstSeen\n') &&
-        (await ctx.tool(['ln', tmp, '$slashed/$oid'])).exitCode == 0) {
+    if (_write(tmp, '$firstSeen\n') && _publish(tmp, '$slashed/$oid')) {
       try {
-        for (final e in rawDirectory(dir).listSync(followLinks: false)) {
+        for (final e in Directory(dir).listSync(followLinks: false)) {
           final b = e.path.substring(e.path.lastIndexOf(RegExp(r'[\\/]')) + 1);
           if (!b.startsWith('.') && b != oid) removeFile(e.path);
         }
@@ -192,7 +193,7 @@ Future<FirstSeen> resolveFirstSeen(
     removeFile(tmp);
   }
   try {
-    final d = firstLine(decodeEscaped(rawFile(record).readAsBytesSync()));
+    final d = firstLine(decodeReplacing(File(record).readAsBytesSync()));
     if (isHttpDate(d)) seen = FirstSeen(d, 'first_seen');
   } on FileSystemException {
     // unsaved
@@ -200,9 +201,19 @@ Future<FirstSeen> resolveFirstSeen(
   return seen;
 }
 
+/// `ln`: a hard link that never replaces [record], so the first writer wins (D8).
+bool _publish(String temp, String record) {
+  try {
+    hardLink(temp, record);
+    return true;
+  } on FileSystemException {
+    return false;
+  }
+}
+
 bool _write(String path, String text) {
   try {
-    rawFile(path).writeAsBytesSync(encodeEscaped(text));
+    File(path).writeAsBytesSync(utf8.encode(text));
     return true;
   } on FileSystemException {
     return false;

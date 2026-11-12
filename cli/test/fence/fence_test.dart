@@ -1,21 +1,21 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/fence/urls.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/process/limit_line.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
 GhResult ok(String out) =>
-    GhResult(exitCode: 0, stdout: encodeEscaped(out), stderr: Uint8List(0));
+    GhResult(exitCode: 0, stdout: utf8.encode(out), stderr: Uint8List(0));
 
 GhResult fail([int code = 1]) =>
     GhResult(exitCode: code, stdout: Uint8List(0), stderr: Uint8List(0));
 
 ToolResult tool(String out, [int code = 0]) =>
-    ToolResult(code, encodeEscaped(out), Uint8List(0));
+    ToolResult(code, utf8.encode(out), Uint8List(0));
 
 void main() {
   group('urls', () {
@@ -396,5 +396,26 @@ void main() {
       expect(r.$1, 3);
       expect(r.$4, isEmpty);
     });
+
+    test(
+      'input the launcher cannot represent is an as.sh stop, exit 2',
+      () async {
+        final err = StringBuffer();
+        final code = await runFence(
+          ['me', 'git', 'fetch'],
+          environment: {'KEEP': '1'},
+          gh: (a, e) async => a.first == 'auth'
+              ? (a.contains('--help') ? ok('--user\n') : ok('tok\n'))
+              : ok('me\n'),
+          git: (c, e) async => tool('false\n'),
+          launch: (c, e) async =>
+              throw const Unrepresentable('git', 'argument'),
+          out: (_) {},
+          err: err.write,
+        );
+        expect(code, 2);
+        expect(err.toString(), 'as.sh: unrepresentable argument: git\n');
+      },
+    );
   });
 }

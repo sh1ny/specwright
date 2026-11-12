@@ -1,8 +1,5 @@
 import 'dart:io';
 
-import '../vcs/codec.dart';
-import '../vcs/tool_runner.dart';
-
 /// A path argument could not be converted to a native path (design D9). The
 /// callers stop: task-cover prints `"error": "bad_path"` and exits 2,
 /// fit-subject prints `fit-subject.sh: could not convert path: <path>` on
@@ -16,18 +13,21 @@ class BadPathException implements Exception {
   String toString() => 'could not convert path: $path';
 }
 
-/// On Windows, path arguments starting with `/` are converted with `cygpath -m`
-/// through the handoff's bash before any use, because the stdin handoff skips
-/// Git Bash's own argument conversion. A failed conversion stops (bad_path,
-/// exit 2; fit-subject exit 2) and is never replaced by the unconverted path.
+/// On Windows, path arguments starting with `/` are converted by fixed rules
+/// (design D7), because the stdin handoff skips Git Bash's own argument
+/// conversion. No `cygpath` runs and no fstab is read. A path that cannot be
+/// converted stops (bad_path, exit 2; fit-subject exit 2) and is never replaced
+/// by the unconverted path.
 ///
 /// Returns [path] unchanged when [windows] (default: this OS) is false or the
-/// path does not start with `/` (a drive form, a relative path): nothing runs.
-/// Otherwise runs `cygpath -m -- <path>` with [bash] and returns its output
-/// without the trailing newline: the drive form (`C:/Users/x/m.txt`) or the
-/// UNC form (`//server/share/m.txt`). A non-zero exit, empty output or output
-/// that is neither absolute form throws [BadPathException]. [environment]
-/// replaces the child's environment (tests put a stub `cygpath` first on PATH).
+/// path does not start with `/` (a drive form, a relative path). Otherwise:
+/// `/x` or `/x/...` with one drive letter is `X:/...`; `//host/share/...` stays
+/// UNC; `/tmp` and `/tmp/...` go under `TEMP`, else `TMP` (Git for Windows'
+/// `usertemp` mount); any other `/...` goes under the Git root, which is
+/// [bash] without a trailing `\usr\bin\bash.exe` or `\bin\bash.exe`, matched
+/// without regard to case. A missing `TEMP`/`TMP` or Git root throws
+/// [BadPathException]. [environment] (default: this process's) is where `TEMP`
+/// and `TMP` are read.
 Future<String> nativePath(
   String path,
   String bash, {
@@ -35,19 +35,48 @@ Future<String> nativePath(
   Map<String, String>? environment,
 }) async {
   if (!(windows ?? Platform.isWindows) || !path.startsWith('/')) return path;
-  final result = await runTool(bash, Directory.current.path, [
-    'cygpath',
-    '-m',
-    '--',
-    path,
-  ], environment: environment);
-  if (result.exitCode != 0) throw BadPathException(path);
-  var out = decodeEscaped(result.stdout);
-  if (out.endsWith('\n')) out = out.substring(0, out.length - 1);
-  if (out.endsWith('\r')) out = out.substring(0, out.length - 1);
-  if (!_absoluteNative.hasMatch(out)) throw BadPathException(path);
-  return out;
+  final drive = _driveForm.firstMatch(path);
+  if (drive != null) return '${drive[1]!.toUpperCase()}:/${drive[2] ?? ''}';
+  if (_uncForm.hasMatch(path)) return path;
+  final String base;
+  final String rest;
+  if (path == '/tmp' || path.startsWith('/tmp/')) {
+    final env = environment ?? Platform.environment;
+    final temp = _first(env['TEMP'], env['TMP']);
+    if (temp == null) throw BadPathException(path);
+    base = temp;
+    rest = path.substring('/tmp'.length);
+  } else if (path.startsWith('//')) {
+    throw BadPathException(path);
+  } else {
+    final root = _gitRoot(bash);
+    if (root == null) throw BadPathException(path);
+    base = root;
+    rest = path;
+  }
+  return '${_trimEnd(base.replaceAll(r'\', '/'))}$rest';
 }
 
-/// A drive form (`C:/x`) or a UNC form (`//server/share`).
-final RegExp _absoluteNative = RegExp(r'^(?:[A-Za-z]:/|//[^/])');
+/// `/c` or `/c/rest`: one drive letter, then the rest of the path.
+final RegExp _driveForm = RegExp(r'^/([A-Za-z])(?:/(.*))?$');
+
+/// `//host/share...`: two slashes, then a name.
+final RegExp _uncForm = RegExp(r'^//[^/]');
+
+/// The Git for Windows install root named by [bash], or null.
+String? _gitRoot(String bash) {
+  final text = bash.replaceAll(r'\', '/');
+  final m = RegExp(
+    r'^(.+?)/(?:usr/)?bin/bash\.exe$',
+    caseSensitive: false,
+  ).firstMatch(text);
+  return m?[1];
+}
+
+String? _first(String? a, String? b) => a != null && a.isNotEmpty
+    ? a
+    : b != null && b.isNotEmpty
+    ? b
+    : null;
+
+String _trimEnd(String path) => path.replaceFirst(RegExp(r'/+$'), '');

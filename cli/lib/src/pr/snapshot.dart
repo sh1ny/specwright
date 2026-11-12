@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 
@@ -24,10 +25,10 @@ final RegExp _pushPattern = RegExp(
 /// list. The GraphQL and jq texts are the script's (`queries.dart`) and `gh` runs the jq; the text tools between the
 /// calls are the Dart functions of `text.dart`.
 ///
-/// Constraint C5: `mktemp`, `ln` and `sleep` run as external commands through bash, because the evals fake them on
-/// `PATH`; the evaluator's material file comes from `mktemp` too, and `sw pr reviewers` runs through the bounded helper with
-/// its limit named as the script named it. `native-cli-retire-scripts` replaces them together with those hooks. The poll's
-/// deadline needs no `date`: the script's `date +%s` fallback covered a bounded helper that printed nothing usable.
+/// `mktemp`, `ln` and `sleep` are Dart operations (D8): an exclusive create, a hard link and `Future.delayed`. The
+/// evaluator's material file is a temp file too, and `sw pr reviewers` runs through the bounded helper with its limit
+/// named as the script named it. The poll's deadline needs no `date`: the script's `date +%s` fallback covered a bounded
+/// helper that printed nothing usable.
 ///
 /// The watch claim and the material file are removed on every exit, and on SIGINT, SIGTERM and SIGHUP where the platform
 /// has them (the script's one `EXIT` trap). Exit codes: 0; 1 for any failed read, poll or log; 2 for a bad argument or
@@ -132,7 +133,6 @@ class _Snapshot {
   String owner = '';
   String name = '';
   String? matFile;
-  String? cfgCopy;
   WatchClaim? claim;
 
   // `prepare_cfg`'s state, kept across polls.
@@ -161,40 +161,7 @@ class _Snapshot {
   void cleanup() {
     removeFile(matFile);
     matFile = null;
-    removeFile(cfgCopy);
-    cfgCopy = null;
     claim?.release();
-  }
-
-  /// [path], or a temp copy of its file when the name is not UTF-8. `sw pr reviewers` takes the path in its argv, and
-  /// the Dart VM does not start on an argument that is not UTF-8, so such a name never reaches it. The copy holds the
-  /// same bytes, so the digest is the same; it is removed with the material file. A file that cannot be read keeps its
-  /// own path, and the check reports it.
-  Future<String> utf8Named(String path) async {
-    if (!hasEscapedBytes(path)) return path;
-    final List<int> bytes;
-    try {
-      bytes = rawFile(path).readAsBytesSync();
-    } on FileSystemException {
-      return path;
-    }
-    final copy = await ctx.makeTemp();
-    if (copy == null || copy.isEmpty) {
-      stop(
-        'pr-snapshot: cannot create a temp file for the reviewer evaluator',
-        1,
-      );
-    }
-    cfgCopy = copy;
-    try {
-      rawFile(copy).writeAsBytesSync(bytes);
-    } on FileSystemException {
-      stop(
-        'pr-snapshot: cannot create a temp file for the reviewer evaluator',
-        1,
-      );
-    }
-    return copy;
   }
 
   Future<GhResult> gh(List<String> args) => ctx.gh(args, environment: pollEnv);
@@ -289,7 +256,7 @@ class _Snapshot {
       if (error != null) stop(error, 2);
       logins = [for (final login in checked.logins) documentText(login)]
           .join(',');
-      rcfgArg = await utf8Named(path);
+      rcfgArg = path;
     }
     if (repo.isEmpty) {
       final r = await gh([
@@ -364,7 +331,7 @@ class _Snapshot {
         final r = await ctx.gh(['run', 'view', id, '-R', repo, '--log-failed']);
         // `2>&1 | tail -n 80`: what the call printed, stdout then stderr, or the limit line the helper printed
         final bytes = r.limitLine != null
-            ? encodeEscaped(r.limitLine!)
+            ? utf8.encode(r.limitLine!)
             : [...r.stdout, ...r.stderr];
         ctx.writeOut(tailLines(bytes, 80));
         if (r.exitCode == 124 || r.exitCode == 125) {
@@ -540,7 +507,7 @@ class _Snapshot {
   /// process without a bound.
   Future<_Result> evaluate(String out, Map<String, Object?> material) async {
     try {
-      rawFile(matFile!).writeAsBytesSync(encodeEscaped('$out\n'));
+      File(matFile!).writeAsBytesSync(utf8.encode('$out\n'));
     } on FileSystemException {
       return _Result(1);
     }
@@ -571,7 +538,7 @@ class _Snapshot {
       ctx.writeErr(r.stderr);
     }
     if (r.exitCode != 0) return _Result(r.exitCode);
-    final text = decodeEscaped(r.stdout);
+    final text = decodeReplacing(r.stdout);
     final doc = _document(text);
     if (doc == null) {
       ctx.err('pr-snapshot: the reviewer evaluator printed no JSON document\n');
@@ -694,12 +661,7 @@ class _Snapshot {
       if (limit == null || elapsed >= limit) break;
       final every = int.tryParse(interval) ?? limit;
       final nap = every <= limit - elapsed ? every : limit - elapsed;
-      // `set -e` ended the script when `sleep` failed; never poll without the nap
-      final slept = await ctx.tool(['sleep', '$nap']);
-      if (slept.exitCode != 0) {
-        ctx.writeErr(slept.stderr);
-        throw PrExit(slept.exitCode);
-      }
+      await ctx.sleep(nap);
       if (!stillOwner()) takeOver();
       // keep the last good snapshot; a failed poll never replaces it
       final next = await poll();

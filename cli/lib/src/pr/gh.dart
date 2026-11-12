@@ -1,12 +1,17 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
+
 import '../process/bounded_run.dart';
+import '../process/command_line.dart';
+import '../process/launch.dart' show Unrepresentable, checkLaunchInput;
 import '../process/limit_line.dart';
 import '../process/limits.dart';
+import '../process/missing_directory.dart';
 import '../process/platform_tree.dart';
-import '../vcs/codec.dart';
-import '../vcs/tool_runner.dart';
+import '../process/resolve.dart';
 
 /// What one bounded `gh` (or `sw pr reviewers`) call ended in. Without a [limit],
 /// the output and [exitCode] are the command's own; a call that could not
@@ -31,27 +36,21 @@ class GhResult {
   final Uint8List stderr;
 }
 
-/// [vcsPrelude] with the `bounded:` message prefix `sw run --bounded` printed.
-final String boundedPrelude = vcsPrelude.replaceAll(
-  'vcs: argument transport failed',
-  'bounded: argument transport failed',
-);
-
 /// Runs `gh <args>` in [cwd] under the bounded helper: a deadline, a byte bound
 /// on each stream and a stop of the whole process tree.
 ///
-/// Constraint C16: `gh` and `sw pr reviewers` arguments reach the command only as
-/// escaped records on stdin, never through Dart's process arguments. The helper
-/// starts `bash -c '<prelude>; exec "$@"'`, which reads the working directory
-/// and the argument records the parent sends after the go byte, so on every OS
-/// MSYS never expands them and on POSIX an escaped byte keeps its value.
+/// `gh` is found by `resolveCommand` (on Windows only a `PATHEXT` name counts)
+/// and started by the helper through `planLaunch`, with no shell: the arguments
+/// reach it as they are, as process arguments, and the helper starts it in
+/// [cwd]. A call that cannot start (no such directory, no such command, input
+/// the launcher cannot represent, an unsafe batch argument) is exit 127 with
+/// the reason on stderr.
 ///
 /// [environment] is the whole environment of the call (see
 /// [BoundedRun.environment]); null keeps `sw`'s own. [paged] picks the longer
 /// paged deadline. [limits] overrides the resolved ones, and [helperCommand] the
 /// helper's command line (tests run it from source).
 Future<GhResult> runGh(
-  String bash,
   String cwd,
   List<String> args, {
   Map<String, String>? environment,
@@ -59,9 +58,7 @@ Future<GhResult> runGh(
   RunLimits? limits,
   List<String>? helperCommand,
 }) => _run(
-  bash,
-  'gh',
-  frameCommand(cwd, ['gh', ...args]),
+  cwd,
   ['gh', ...args],
   environment: environment,
   paged: paged,
@@ -69,29 +66,10 @@ Future<GhResult> runGh(
   helperCommand: helperCommand,
 );
 
-/// [runGh] with the bytes sent on stdin given as they are, so a test can send
-/// a bad count or a short read.
-Future<GhResult> runGhFramed(
-  String bash,
-  List<int> stdinBytes, {
-  Map<String, String>? environment,
-  RunLimits? limits,
-  List<String>? helperCommand,
-}) => _run(
-  bash,
-  'gh',
-  stdinBytes,
-  const ['gh'],
-  environment: environment,
-  paged: false,
-  limits: limits,
-  helperCommand: helperCommand,
-);
-
 /// Runs `sw pr reviewers <args>` the same way (the caller's [command] starts with
-/// the `sw` executable).
+/// the `sw` executable). A [command] that starts `bash -c` keeps the Windows
+/// stdin transport of `planLaunch`.
 Future<GhResult> runBoundedCommand(
-  String bash,
   String cwd,
   List<String> command, {
   Map<String, String>? environment,
@@ -99,9 +77,7 @@ Future<GhResult> runBoundedCommand(
   RunLimits? limits,
   List<String>? helperCommand,
 }) => _run(
-  bash,
-  command.first,
-  frameCommand(cwd, command),
+  cwd,
   command,
   environment: environment,
   paged: paged,
@@ -109,30 +85,55 @@ Future<GhResult> runBoundedCommand(
   helperCommand: helperCommand,
 );
 
+GhResult _notStarted(String text) => GhResult(
+  exitCode: 127,
+  stdout: Uint8List(0),
+  stderr: utf8.encode('bounded: $text\n'),
+);
+
 Future<GhResult> _run(
-  String bash,
-  String name,
-  List<int> stdinBytes,
-  List<String> logical, {
+  String cwd,
+  List<String> command, {
   required Map<String, String>? environment,
   required bool paged,
   required RunLimits? limits,
   required List<String>? helperCommand,
 }) async {
+  final name = command.first;
+  final env = _platformEnv(environment);
+  try {
+    checkLaunchInput(command, cwd: cwd, environment: environment);
+  } on Unrepresentable catch (e) {
+    return _notStarted('cannot start $name: $e');
+  }
+  final dir = p.absolute(cwd);
+  if (!Directory(dir).existsSync()) {
+    return _notStarted(
+      missingDirectoryText(cwd, isFile: File(dir).existsSync()),
+    );
+  }
+  final path = resolveCommand(name, env, workingDirectory: dir);
+  if (path == null) return _notStarted('$name: command not found');
+  final LaunchPlan plan;
+  try {
+    plan = planLaunch(path, command, env);
+  } on UnsafeBatchArgument catch (e) {
+    return _notStarted('cannot start $name: $e');
+  } on Unrepresentable catch (e) {
+    return _notStarted('cannot start $name: $e');
+  }
   final result = await BoundedRun(
-    command: [bash, '-c', '$boundedPrelude; exec "\$@"', name],
-    stdinBytes: stdinBytes,
+    command: plan.command,
+    rawLine: plan.rawLine,
+    stdinBytes: plan.stdinBytes,
+    workingDirectory: dir,
     environment: environment,
     // the scripts' `gh()` passed `--paged` whenever SW_PAGED was set, too
     limits:
         limits ??
-        resolveLimits(
-          _platformEnv(environment),
-          paged:
-              paged || (_platformEnv(environment)['SW_PAGED'] ?? '').isNotEmpty,
-        ),
+        resolveLimits(env, paged: paged || (env['SW_PAGED'] ?? '').isNotEmpty),
     helperCommand: helperCommand,
-    treeFor: () => platformTree(environment ?? _platformEnv(null)),
+    treeFor: () => platformTree(env),
     note: (_) {},
   ).run();
   final limit = result.limit;
@@ -140,7 +141,7 @@ Future<GhResult> _run(
     return GhResult(
       exitCode: limit.exitCode,
       limit: limit,
-      limitLine: limitLine(limit, [bash, '-c', 'exec "\$@"', ...logical]),
+      limitLine: limitLine(limit, command),
       stdout: Uint8List(0),
       stderr: Uint8List(0),
     );
@@ -149,20 +150,14 @@ Future<GhResult> _run(
     return GhResult(
       exitCode: 127,
       stdout: Uint8List(0),
-      stderr: encodeEscaped(
-        'bounded: helper exited during startup: ${commandLabel(logical)}\n',
+      stderr: utf8.encode(
+        'bounded: helper exited during startup: ${commandLabel(command)}\n',
       ),
     );
   }
   final startError = result.startError;
   if (startError != null) {
-    return GhResult(
-      exitCode: 127,
-      stdout: Uint8List(0),
-      stderr: encodeEscaped(
-        'bounded: cannot start ${logical.first}: $startError\n',
-      ),
-    );
+    return _notStarted('cannot start $name: $startError');
   }
   return GhResult(
     exitCode: result.exitCode ?? 127,

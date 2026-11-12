@@ -21,22 +21,14 @@ const String handoffUsage =
     'arguments, each record ending in a NUL byte)';
 
 /// Splits the stdin of `sw <command> --args-stdin` into NUL-terminated
-/// records, decoded with surrogateescape. Fewer than three records, or a last
+/// records, each decoded strictly ([decodeHandoffRecords]). Fewer than three records, or a last
 /// record with no NUL, is a usage stop (exit 2) whose message is [usage], so
 /// each command names itself (`sw vcs` passes [handoffUsage]).
 Handoff parseHandoff(List<int> stdin, String usage) {
   if (stdin.isNotEmpty && stdin.last != 0) {
     throw VcsStop('usage', usage, code: 2);
   }
-  final bytes = Uint8List.fromList(stdin);
-  final records = <String>[];
-  var start = 0;
-  for (var i = 0; i < bytes.length; i++) {
-    if (bytes[i] == 0) {
-      records.add(decodeEscaped(Uint8List.sublistView(bytes, start, i)));
-      start = i + 1;
-    }
-  }
+  final records = decodeHandoffRecords(Uint8List.fromList(stdin));
   if (records.length < 3) {
     throw VcsStop('usage', usage, code: 2);
   }
@@ -223,7 +215,7 @@ int _separator(List<String> args) {
 
 bool _isDirectory(String path) {
   try {
-    return Directory.fromRawPath(encodeEscaped(path)).existsSync();
+    return Directory(path).existsSync();
   } on Object {
     return false;
   }

@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "fit-subject.sh"
@@ -136,6 +137,19 @@ class FitSubject(unittest.TestCase):
         self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))
         self.assertEqual(msg.read_bytes(), data)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_path_is_refused(self):
+        raw = os.fsencode(self.tmp) + b"/m\xff.txt"
+        data = (GREETING + "\n\nBody.\n").encode("utf-8")
+        with open(raw, "wb") as stream:
+            stream.write(data)
+        r = self.run_script(os.fsdecode(raw))
+        self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))
+        self.assertIn(b"fit-subject.sh: not valid UTF-8: ", r.stderr)
+        self.assertIn(b"m\\xFF.txt", r.stderr)
+        with open(raw, "rb") as stream:
+            self.assertEqual(stream.read(), data, "the file changed")
+
     def test_body_lines_kept_byte_for_byte(self):
         rest = "\n\nBody with  two spaces, a tab\there and trailing space \r\nCRLF line\n\nCo-authored-by: X <x@example.invalid>"
         msg = self.message(GREETING + rest)
@@ -219,18 +233,33 @@ class FitSubjectWindowsPaths(unittest.TestCase):
 
     DATA = (GREETING + "\n\nBody.\n").encode("utf-8")
 
+    def recording_cygpath(self):
+        """A stub dir with a `cygpath` that logs its arguments and runs the real one (the shim's own conversions
+        need it). Returns (dir, log): no logged call may name the path argument, because sw converts by its own rules."""
+        stub = self.tmp / "stub"
+        stub.mkdir(exist_ok=True)
+        log = self.tmp / "cygpath.log"
+        fakeexe.write_fake(
+            stub / "cygpath",
+            '#!/bin/sh\nprintf \'%%s\\n\' "$*" >> "%s"\nexec "%s" "$@"\n'
+            % (log.as_posix(), Path(shutil.which("cygpath")).as_posix()))
+        return stub, log
+
     def test_git_bash_paths_on_windows(self):
         name = "swfit-%d" % os.getpid()
-        in_tmp = self.scratch_in(self.cygpath("-w", "/tmp"), name)
-        for where in (self.tmp, in_tmp):
+        temp = os.environ.get("TEMP") or os.environ["TMP"]
+        in_tmp = self.scratch_in(temp, name)  # what the shim's /tmp/<name> names: the TEMP directory
+        stub, log = self.recording_cygpath()
+        for where, arg in ((self.tmp, None), (in_tmp, "/tmp/%s/m.txt" % name)):
             with self.subTest(where=str(where)):
                 msg = where / "m.txt"
                 msg.write_bytes(self.DATA)
-                arg = self.cygpath("-u", msg)  # /c/Users/... and /tmp/...
+                arg = arg or self.cygpath("-u", msg)  # /c/Users/...
                 self.assertTrue(arg.startswith("/"), arg)
-                r = self.run_shim(arg)
+                r = self.run_shim(arg, shim=stub)
                 self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
                 self.assert_fitted_file(msg)
+                self.assertNotIn(arg, log.read_text(encoding="utf-8") if log.exists() else "", "cygpath ran for the path")
 
     def test_unc_path_on_windows(self):
         msg = self.tmp / "m.txt"
@@ -245,23 +274,23 @@ class FitSubjectWindowsPaths(unittest.TestCase):
         self.assert_fitted_file(msg)
 
     def test_failed_path_conversion_changes_nothing(self):
+        # The shim hands over its own bash, whose install root is always found. So the handoff the shim
+        # writes is made here with a bash path that holds no Git root: /etc/m.txt has nowhere to go.
         name = "swfit-%d" % os.getpid()
-        on_drive = self.scratch_in(self.tmp.drive + "\\tmp", name)  # \tmp\<name> on the current drive
-        in_tmp = self.scratch_in(self.cygpath("-w", "/tmp"), name)  # what Git Bash calls /tmp/<name>
-        for d in (on_drive, in_tmp):
+        on_drive = self.scratch_in(self.tmp.drive + "\\etc", name)  # \etc\<name> on the current drive
+        in_root = self.tmp / "gitroot" / "etc"
+        in_root.mkdir(parents=True)
+        for d in (on_drive, in_root):
             (d / "m.txt").write_bytes(self.DATA)
-        arg = "/tmp/%s/m.txt" % name
-        stub = self.tmp / "stub"
-        stub.mkdir()
-        # fails for the message path only: the resolver and the shim convert their own paths with cygpath too
-        (stub / "cygpath").write_text(
-            '#!/bin/sh\nfor a in "$@"; do [ "$a" = "%s" ] && exit 1; done\nexec "%s" "$@"\n'
-            % (arg, Path(shutil.which("cygpath")).as_posix()), encoding="utf-8", newline="\n")
-        r = self.run_shim(arg, shim=stub)
+        arg = "/etc/m.txt"
+        records = [str(SCRIPT.parent), r"C:\tools\bash.exe", "fit-subject", arg]
+        r = subprocess.run([os.environ["SPECWRIGHT_SW"], "commit", "--args-stdin"],
+                           input=b"".join(x.encode("utf-8") + b"\0" for x in records),
+                           capture_output=True, cwd=self.tmp)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("fit-subject.sh: could not convert path: " + arg, r.stderr)
+        self.assertIn(b"fit-subject.sh: could not convert path: " + arg.encode(), r.stderr)
         self.assertEqual((on_drive / "m.txt").read_bytes(), self.DATA)
-        self.assertEqual((in_tmp / "m.txt").read_bytes(), self.DATA)
+        self.assertEqual((in_root / "m.txt").read_bytes(), self.DATA)
 
 
 if __name__ == "__main__":

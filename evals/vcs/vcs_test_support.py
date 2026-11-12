@@ -66,9 +66,16 @@ def stamp_version(repo):
     vfile.parent.mkdir(parents=True, exist_ok=True)
     nl = chr(10)
     vfile.write_bytes((tree_version() + nl).encode("utf-8"))
-    if not (repo / ".git").exists():
+    dotgit = repo / ".git"
+    if not dotgit.exists():
         return
-    exclude = repo / ".git" / "info" / "exclude"
+    if dotgit.is_dir():
+        exclude = dotgit / "info" / "exclude"
+    else:
+        # a linked worktree: `.git` is a file, and Git reads the common dir's exclude file
+        out = subprocess.run([jjenv.real_git(), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+                             cwd=repo, capture_output=True, check=True).stdout
+        exclude = Path(os.fsdecode(out.rstrip(b"\n")))
     exclude.parent.mkdir(parents=True, exist_ok=True)
     text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
     if STAMP not in text.splitlines():
@@ -170,8 +177,8 @@ class VcsTestCase(unittest.TestCase):
                                      **(env or {})}, capture_output=True, text=True)
         return result
 
-    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None):
-        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's)."""
+    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None, cwd=None):
+        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's); `cwd` is the directory it runs in (default: `repo`)."""
         target = Path(repo or self.repo)
         scripts = Path(scripts) if scripts is not None else SCRIPTS
         args = ["--repo", str(target), "--role", role]
@@ -189,7 +196,7 @@ class VcsTestCase(unittest.TestCase):
         result = subprocess.run(
             [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test",
              (scripts / "vcs.sh").as_posix(), command, *args, *map(str, options)],
-            cwd=target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
+            cwd=cwd or target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)

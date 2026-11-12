@@ -36,6 +36,7 @@ sys.path.append(str(ROOT / "evals"))
 import snapfix  # noqa: E402
 from snapfix import SnapCase, T0, fake_gh, fixtures, rev  # noqa: E402
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 import test_as_sh as tas  # noqa: E402  module attributes only: its test classes are not collected here
 import vcs_test_support  # noqa: E402
 sys.path.insert(0, str(ROOT / "evals" / "cli"))
@@ -317,21 +318,17 @@ class SnapshotParity(PrParity):
                 self.assertEqual(old["calls"], [], "no gh call before the config check")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs Linux")
-    def test_config_name_with_a_non_utf8_byte_for_the_check_and_the_evaluation(self):
-        name = os.fsdecode(b"reviewers-\xff.json")
-        good, good_old = self.config_pair(rev("genrev"), name=name)
-        self.add_activity("a" * 40, T0)
-        self.add_comment("genrev", "looks good")
-        new, old = self.reviewer_snapshot_pair(good, good_old)  # the evaluation
-        self.assertParity((new, old), 0)
-        self.assertEqual(json.loads(old["stdout"])["reviewers"][0]["login"], "genrev")
-        bad = self.tmp / os.fsdecode(b"bad-\xff.json")
-        bad.write_text("{not json", encoding="utf-8")
-        new, old = self.snapshot_pair("--reviewer-config", fixtures.posix(bad))  # the check
-        self.assertParity((new, old), 2, prefix="reviewers.py: ")
-        # reviewers.py opened the file by its bytes (a lost byte would be "No such file"); Python's stderr writes the name
-        # with backslashreplace, so the byte shows as \udcff in both
-        self.assertIn(b"not valid JSON", new["stderr"], "the check opened the file by its bytes")
+    def test_config_name_with_a_non_utf8_byte_is_refused(self):
+        # Strict handoff (D4): the script refuses a --reviewer-config path that is not UTF-8 by name, before any gh call;
+        # the oracle opened it by its bytes.
+        good, _ = self.config_pair(rev("genrev"), name=os.fsdecode(b"reviewers-\xff.json"))
+        new = self.one("pr-snapshot.sh", (self.PR, "--repo", self.SLUG, "--reviewer-config", good), "new", "me", None)
+        self.assertEqual(new["code"], 2, new)
+        self.assertEqual(new["stdout"], b"")
+        self.assertTrue(new["stderr"].startswith(b"pr-snapshot.sh: "), new["stderr"])
+        self.assertIn(b"not valid UTF-8", new["stderr"])
+        self.assertIn(b"reviewers-\\xFF.json", new["stderr"])
+        self.assertEqual(new["calls"], [], "no gh call before the refusal")
 
 
 class ReplyParity(PrParity):
@@ -407,6 +404,7 @@ class WatcherTakeover(PrParity):
         sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
                          encoding="utf-8", newline="\n")
         sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+        fakeexe.add_launcher(sleep)  # for the oracle script only: sw sleeps in its own process and never starts it (D8)
         self.procs = []
         self.addCleanup(self._reap)
 
@@ -558,7 +556,10 @@ class AsParity(tas.AsShCase, ParityAsserts):
         old = dict(old, stdout=b"".join(l for l in old["stdout"].splitlines(True) if not l.startswith(b"ORACLE_SW_DIR=")))
         # the order of an environment dump follows how each program built the block, not what it holds: compare the sets
         # (a Windows environment has one variable for NO_PROXY and no_proxy, which the fixture sets both: the two programs keep a different spelling)
-        dump = lambda out: sorted(l for l in out.splitlines() if l.split(b"=", 1)[0].lower() != b"no_proxy")
+        # (on Windows the command is started by sw, not by the shim's bash, and a Git for Windows program started by a non-MSYS parent
+        # sets `PWD` itself, in the MSYS form: sw leaves `PWD` out, as the script did, and does not compare the one the program makes)
+        skipped = (b"no_proxy", b"pwd") if os.name == "nt" else (b"no_proxy",)
+        dump = lambda out: sorted(l for l in out.splitlines() if l.split(b"=", 1)[0].lower() not in skipped)
         self.maxDiff = None
         self.assertEqual(set(dump(new["stdout"])) ^ set(dump(old["stdout"])), set())
         self.assertParity((dict(new, stdout=b""), dict(old, stdout=b"")), 0)
@@ -577,7 +578,11 @@ class AsParity(tas.AsShCase, ParityAsserts):
 
     def test_the_command_exit_status_and_stdout_pass_through(self):
         self.assertParity(self.pair("sh1ny", "bash", "-c", 'printf %s "$1"; exit 7', "x", 'a "b" $c'), 7)
-        self.assertParity(self.pair("sh1ny", "no-such-tool"), 127)
+        # native-cli-launcher D3: the fence finds the command itself, so the name is bash's `exec` text no more
+        pair = self.pair("sh1ny", "no-such-tool")
+        self.assertEqual((pair[0]["code"], pair[1]["code"]), (127, 127))
+        self.assertEqual((pair[0]["stdout"], pair[0]["calls"]), (pair[1]["stdout"], pair[1]["calls"]))
+        self.assertEqual(pair[0]["stderr"].decode("utf-8").strip(), "as.sh: no-such-tool: command not found")
 
 
 CONFIG_PATH = re.compile(r"[/\\]reviewers[/\\]([0-9a-f]{64})\.json$")
@@ -755,10 +760,17 @@ class PairParity(PrParity):
                 self.run_pair("tier", "--code", self.repo(f"t{i}", settings=settings), code=0)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a directory name that is not UTF-8 needs Linux")
-    def test_checkout_under_a_non_utf8_directory_reads_its_settings(self):
+    def test_checkout_under_a_non_utf8_directory_is_not_utf8(self):
+        # Strict handoff (D4): the script refuses a path that is not UTF-8 by name; the oracle kept the bytes.
         code = self.repo(os.fsdecode(b"co-\xff"), settings="vcs: jj\nfinish: pr\ngithub:\n  login: me\n")
-        self.assertEqual(self.run_pair("vcs", "--code", code, code=0)["code"], "jj")
-        self.run_pair("tier", "--code", code, code=0)
+        for sub in ("vcs", "tier"):
+            with self.subTest(sub=sub):
+                new = self.side("new", (sub, "--code", code), None)
+                self.assertEqual(new["code"], 1, new)
+                doc = json.loads(new["stdout"])
+                self.assertEqual((doc["ok"], doc["error"]), (False, "not_utf8"), doc)
+                self.assertIn("co-\\xFF", doc["message"])
+                self.assertEqual(new["calls"], [], "no gh call before the refusal")
 
     def test_vcs_and_tier_usage_exit_2(self):
         for sub in ("vcs", "tier"):

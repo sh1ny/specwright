@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
-import '../vcs/codec.dart';
 import 'yaml.dart';
 
 // The setting rules of `pr-pair.sh`: `duration`, `settle_of`, `reviewers_of`, `merge_mode`, `merge_options`, `repo_ctx`
@@ -567,7 +566,7 @@ Map<String, Object?> tierChoice(Map<String, Object?> s) {
 /// text-mode newlines (`\r\n` and `\r` read as `\n`), a byte-order mark kept.
 String? readSettingsText(Iterable<String> bases) {
   for (final base in bases) {
-    final f = File.fromRawPath(encodeEscaped('$base/openspec/specwright.yaml'));
+    final f = File('$base/openspec/specwright.yaml');
     if (f.existsSync()) {
       return pyUtf8Decode(f.readAsBytesSync())
           .replaceAll('\r\n', '\n')

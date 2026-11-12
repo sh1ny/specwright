@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_pr_pair as original
 import test_parity as parity
+import fakeexe  # parity puts evals/ on sys.path
 
 
 def setUpModule():
@@ -152,53 +153,42 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertEqual(result.returncode, expect, (result.stdout, result.stderr))
         return json.loads(result.stdout.decode('utf-8', errors='surrogateescape'))
 
+    def assert_stops_naming(self, result, variable):
+        self.assertEqual(result['error'], 'not_utf8', result)
+        self.assertFalse(result['ok'])
+        self.assertIn(f'{variable} is not valid UTF-8', result['message'])
+        self.assertIn('\\xFF', result['message'])
+        self.assertIn('UTF-8 path', result['message'])
+
     @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
-    def test_raw_posix_state_directory_keeps_the_record_location(self):
+    def test_non_utf8_posix_state_directory_stops_by_name(self):
         root = self.raw_root(b'raw-state')
         home = os.fsencode(self.tmp / 'unused-home')
         environment = self.raw_environment(state=root, home=home)
         intent = self.write_json('raw-intent.json', self.intent([]))
-        written = self.raw_pp(['pass', 'write', *self.common(), '--intent', intent], environment)
-        expected = root + b'/feedback/' + original.record_key(original.CODE, original.CHANGE).encode()
-        self.assertTrue(os.path.isfile(expected))
-        self.assertEqual(os.fsencode(written['path']), expected)
-        for which in ('native', 'frozen'):
-            plan = self.raw_pp(['pass', 'plan', *self.common(), '--owner', written['owner']], environment, which)
-            self.assertTrue(plan['record'])
-            self.assertEqual(os.fsencode(plan['path']), expected)
+        for args in (['pass', 'write', *self.common(), '--intent', intent],
+                     ['pass', 'plan', *self.common()]):
+            result = self.raw_pp(args, environment, expect=1)
+            self.assert_stops_naming(result, 'SPECWRIGHT_STATE_DIR')
+        self.assertEqual(os.listdir(root), [], 'no record or directory was created under the state directory')
         self.assertFalse(os.path.exists(home + b'/.cache/specwright/feedback'))
         self.assertFalse(self.record_path().exists())
 
     @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
-    def test_raw_posix_home_keeps_the_record_location(self):
+    def test_non_utf8_posix_home_stops_by_name(self):
         home = self.raw_root(b'raw-home')
-        for index, state in enumerate((None, b'')):
-            change = f'raw-home-{index}'
+        intent = self.write_json('raw-intent.json', self.intent([]))
+        for state in (None, b''):
             environment = self.raw_environment(state=state, home=home)
-            args = [*self.common(), '--change', change]
-            expected = home + b'/.cache/specwright/feedback/' + original.record_key(original.CODE, change).encode()
-            os.makedirs(os.path.dirname(expected), exist_ok=True)
-            record = {**self.intent([]), 'version': 2, 'change': change, 'code_repo': original.CODE,
-                      'owner': {'id': 'old', 'at': original.T0, 'checkout': str(self.code), 'host': 'fixture'},
-                      'written_at': original.T0, 'marker': None,
-                      'heads': {'code': self.tip(self.code), 'store': self.tip(self.store)}}
-            with open(expected, 'wb') as output:
-                output.write(json.dumps(record).encode('utf-8'))
-            adopted = self.raw_pp(['pass', 'adopt', *args, '--owner', 'native', '--from', 'old'], environment)
-            self.assertEqual(os.fsencode(adopted['path']), expected)
-            self.assertTrue(os.path.isfile(expected))
-            adopted = self.raw_pp(['pass', 'adopt', *args, '--owner', 'frozen', '--from', 'native'], environment, 'frozen')
-            self.assertEqual(os.fsencode(adopted['path']), expected)
-            before = Path(os.fsdecode(expected)).read_bytes()
-            for which in ('native', 'frozen'):
-                refused = self.raw_pp(['pass', 'done', *args, '--owner', 'native'], environment, which, expect=1)
-                self.assertEqual(refused['error'], 'not_owner')
-                self.assertEqual(refused['owner']['id'], 'frozen')
-                self.assertEqual(Path(os.fsdecode(expected)).read_bytes(), before)
+            result = self.raw_pp(['pass', 'write', *self.common(), '--intent', intent], environment, expect=1)
+            self.assert_stops_naming(result, 'HOME')
+            self.assertEqual(os.listdir(home), [], 'no record or directory was created under the home')
+            self.assertFalse(self.record_path().exists())
 
     @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_process_state_override_does_not_need_a_home(self):
-        root = self.raw_root(b'no-home-state')
+        root = os.fsencode(self.tmp) + b'/no-home-state'
+        os.mkdir(root)
         environment = self.raw_environment(state=root)
         self.assertNotIn(b'HOME', environment)
         intent = self.write_json('raw-intent.json', self.intent([]))
@@ -226,15 +216,16 @@ class WorkflowRecords(NativePass, original.PassBase):
                     self.assertEqual(usage['error'], 'usage')
 
     @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
-    def test_first_seen_read_follows_the_raw_state_directory(self):
-        root = self.raw_root(b'first-seen-state')
-        environment = self.raw_environment(state=root, home=os.fsencode(self.tmp / 'unused-home'))
+    def test_non_utf8_state_directory_never_falls_back(self):
+        raw = self.raw_root(b'no-fallback-state')
+        home = os.fsencode(self.tmp / 'default-home')
+        defaults = self.raw_environment(home=home)  # no state override: the default directory under home
         intent = self.write_json('raw-intent.json', self.intent([self.finding()]))
-        written = self.raw_pp(['pass', 'write', *self.common(), '--intent', intent], environment)
+        written = self.raw_pp(['pass', 'write', *self.common(), '--intent', intent], defaults)
         self.fix_store()
         self.push_all()
         head = self.tip(self.store)
-        path = root + b'/heads/' + original.STORE.lower().encode() + b'/3/' + head.encode()
+        path = home + b'/.cache/specwright/heads/' + original.STORE.lower().encode() + b'/3/' + head.encode()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'wb') as output:
             output.write(b'Thu, 08 Oct 2026 12:00:00 GMT\n')
@@ -242,10 +233,12 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.add_comment(original.STORE, 3, '@codex review', 'KintsugiBot', 2001, created_at='2026-10-08T12:05:00Z')
         args = ['pass', 'plan', *self.common(), '--owner', written['owner'],
                 *self.snapshots(original.snap(threads=[original.thread()]))]
-        for which in ('native', 'frozen'):
-            row = self.row(self.raw_pp(args, environment, which), 'rerequest', 'store')
-            self.assertEqual((row['cutoff_source'], row['cutoff'], row['state']),
-                             ('first_seen', '2026-10-08T12:00:00Z', 'done'))
+        environment = self.raw_environment(state=raw, home=home)
+        result = self.raw_pp(args, environment, expect=1)
+        self.assert_stops_naming(result, 'SPECWRIGHT_STATE_DIR')
+        self.assertNotIn('rows', result, 'the default directory record must not be read')
+        self.assertEqual(os.listdir(raw), [])
+
     def snapshots(self, snapshot=None):
         return ["--snapshot", f"code={self.write_json('code-snap.json', snapshot or original.snap())}",
                 "--snapshot", f"store={self.write_json('store-snap.json', original.snap())}"]
@@ -344,6 +337,7 @@ class WorkflowRecords(NativePass, original.PassBase):
             'fi\n'
             f'exec "{real_git}" "$@"\n', encoding="utf-8", newline="\n")
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_RECORD_LOCK=lock.as_posix(), WF_DONE_HELD=held.as_posix(),
                               WF_DONE_RELEASE=release.as_posix())
         results = []
@@ -403,6 +397,7 @@ class WorkflowRecords(NativePass, original.PassBase):
                         'if [ "$1" = status ]; then cat "$WF_BUT_STATUS"; exit 0; fi\nexit 1\n',
                         encoding="utf-8", newline="\n")
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env["WF_BUT_STATUS"] = status.as_posix()
         (self.code / "unrelated.txt").write_text("already present", encoding="utf-8")
         # Another applied branch's work must not satisfy this pass's edit.

@@ -10,15 +10,16 @@ import 'tool_runner.dart';
 
 export 'text_result.dart';
 
-/// Runs [command] (tool name first) in [cwd] through the transport and decodes
-/// its output as text. This is `vcs.sh`'s `run` with `bash -c 'exec "$@"'`.
-Future<TextResult> runText(
-  String bash,
-  String cwd,
-  List<String> command,
-) async {
-  final r = await runTool(bash, cwd, command);
-  return TextResult(r.exitCode, decodeText(r.stdout), decodeText(r.stderr));
+/// Runs [command] (tool name first) in [cwd] without a shell and decodes its output
+/// as text. This is `vcs.sh`'s `run`.
+Future<TextResult> runText(String cwd, List<String> command) async {
+  final r = await runTool(cwd, command);
+  return TextResult(
+    r.exitCode,
+    decodeText(r.stdout),
+    decodeText(r.stderr),
+    stdoutBytes: r.stdout,
+  );
 }
 
 /// The identity fence, run in process: `as.sh`'s argument list in, the
@@ -47,7 +48,7 @@ class VcsScripts {
   /// `as.sh <argv...>` in [repo], run in this process.
   Future<TextResult> fenced(String repo, List<String> argv) {
     final run = fence;
-    return run != null ? run(repo, argv) : fencedText(bash, repo, argv);
+    return run != null ? run(repo, argv) : fencedText(repo, argv);
   }
 }
 

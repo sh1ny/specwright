@@ -37,6 +37,7 @@ if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: path-independent repo stages are built once and copied
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402  a fake `sw` must start gets a `.cmd` wrapper on Windows (D9)
 
 
 def git(repo, *args):
@@ -115,8 +116,11 @@ def env_file(dest, **extra):
 
 def install_fake_gh(dest):
     """Put the fake gh on the fixture's PATH; its state and call log live in <dest>."""
-    write(dest, "bin/gh", f'#!/bin/sh\nexec "{posix(sys.executable)}" "{posix(ROOT / "evals" / "fakes" / "gh.py")}" "$@"\n')
-    (dest / "bin" / "gh").chmod(0o755)
+    (dest / "bin").mkdir(parents=True, exist_ok=True)
+    # sw calls gh with GraphQL text (`ID!`, quotes), which a `.cmd` refuses (D9): a Python launcher `.exe` on Windows
+    fakeexe.write_fake(dest / "bin" / "gh",
+                       f'#!/bin/sh\nexec "{posix(sys.executable)}" "{posix(ROOT / "evals" / "fakes" / "gh.py")}" "$@"\n',
+                       exe=True)
     env_file(dest, FAKE_GH_STATE=posix(dest / "gh-state.json"), FAKE_GH_LOG=posix(dest / "gh-log.jsonl"))
 
 
@@ -1518,8 +1522,7 @@ def jj_colocate(repo):
 def vcs_helpers(dest):
     """bin/jj (the stub), and eval.env with GIT_TRACE; the first call to env_file also puts bin/ on PATH."""
     (dest / "bin").mkdir(exist_ok=True)
-    write(dest, "bin/jj", JJ_STUB)
-    (dest / "bin" / "jj").chmod(0o755)
+    fakeexe.write_fake(dest / "bin" / "jj", JJ_STUB)  # sw starts `jj` by PATHEXT name on Windows
     env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
 
 

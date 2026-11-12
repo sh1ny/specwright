@@ -1,17 +1,13 @@
 @Tags(['process'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/pr/watch_state.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
-import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
-
-import '../vcs/bash_support.dart';
 
 /// A random source that answers [values] in turn.
 class Fixed implements Random {
@@ -31,7 +27,6 @@ class Fixed implements Random {
 }
 
 void main() {
-  final bash = findBash();
   late Directory dir;
   String names(Directory d) => ([
     for (final e in d.listSync())
@@ -44,7 +39,7 @@ void main() {
   PrContext context({Map<String, String>? env, PrMakeTemp? makeTemp}) =>
       PrContext(
         scriptsDir: 'scripts',
-        bash: bash!,
+        bash: 'bash',
         writeOut: (_) {},
         writeErr: (_) {},
         environment: env,
@@ -69,20 +64,23 @@ void main() {
       );
     });
 
-    test('a /-path state base is converted by cygpath on Windows', () async {
-      final posix = Process.runSync(bash!, [
-        '-c',
-        'cygpath -u "\$1"',
-        'x',
-        dir.path.replaceAll(r'\', '/'),
-      ]).stdout.toString().trim();
-      expect(posix, startsWith('/'));
-      final base = await stateBase(
-        context(env: {'SPECWRIGHT_STATE_DIR': '$posix/state'}),
-      );
-      expect(base, '${dir.path.replaceAll(r'\', '/')}/state');
-      expect(Directory(base).parent.existsSync(), isTrue);
-    }, skip: Platform.isWindows ? false : 'a Windows path conversion');
+    test(
+      'a /tmp state base on Windows goes under TEMP, with no cygpath',
+      () async {
+        final base = await stateBase(
+          context(
+            env: {
+              'SPECWRIGHT_STATE_DIR': '/tmp/state',
+              'TEMP': dir.path,
+              'PATH': '',
+            },
+          ),
+        );
+        expect(base, '${dir.path.replaceAll(r'\', '/')}/state');
+        expect(Directory(base).parent.existsSync(), isTrue);
+      },
+      skip: Platform.isWindows ? false : 'a Windows path conversion',
+    );
 
     test(
       'the claim and head directories are lower case ASCII, and only ASCII',
@@ -327,7 +325,7 @@ void main() {
     test('a record with a carriage return still reads', () async {
       Directory(heads).createSync(recursive: true);
       File('$heads/$oid')
-          .writeAsBytesSync(encodeEscaped('$date\r\nsecond line\n'));
+          .writeAsBytesSync(utf8.encode('$date\r\nsecond line\n'));
       final seen = await resolveFirstSeen(
         context(),
         dir: heads,
@@ -338,18 +336,19 @@ void main() {
     });
 
     test(
-      'a failed ln leaves no published record and the temp file is removed',
+      'a failed link leaves no published record and the temp file is removed',
       () async {
         Directory(heads).createSync(recursive: true);
         final fake = File('$heads/.tmp.fake')..writeAsStringSync('');
+        // a directory where the record goes: the no-clobber link fails
+        Directory('$heads/$oid').createSync();
         final seen = await resolveFirstSeen(
           PrContext(
             scriptsDir: 's',
-            bash: bash!,
+            bash: 'bash',
             writeOut: (_) {},
             writeErr: (_) {},
             makeTemp: ([t]) async => fake.path,
-            tool: (c) async => ToolResult(1, Uint8List(0), Uint8List(0)),
           ),
           dir: heads,
           oid: oid,
@@ -359,5 +358,56 @@ void main() {
         expect(fake.existsSync(), isFalse);
       },
     );
+  });
+
+  group('makeTemp (D8: no mktemp)', () {
+    test('a template gets its X run replaced and a new empty file', () async {
+      final slashed = dir.path.replaceAll(r'\', '/');
+      final path = await context().makeTemp('$slashed/.tmp.XXXXXX');
+      expect(path, isNotNull);
+      expect(path, startsWith('$slashed/.tmp.'));
+      expect(path!.length, '$slashed/.tmp.XXXXXX'.length);
+      expect(path, isNot(endsWith('XXXXXX')));
+      expect(File(path).existsSync(), isTrue);
+      expect(File(path).lengthSync(), 0);
+    });
+
+    test('two calls never give the same file', () async {
+      final slashed = dir.path.replaceAll(r'\', '/');
+      final a = await context().makeTemp('$slashed/t.XXXXXX');
+      final b = await context().makeTemp('$slashed/t.XXXXXX');
+      expect(a, isNot(b));
+    });
+
+    test(
+      'no template makes tmp.XXXXXXXXXX in the system temp directory',
+      () async {
+        final path = await context().makeTemp();
+        addTearDown(() => File(path!).deleteSync());
+        expect(path, isNotNull);
+        expect(
+          path!.split('/').last,
+          matches(RegExp(r'^tmp\.[A-Za-z0-9]{10}$')),
+        );
+        expect(File(path).existsSync(), isTrue);
+        expect(path.contains(r'\'), isFalse, reason: 'the drive form with /');
+      },
+    );
+
+    test('POSIX files are owner-only (0600), as mktemp made them', () async {
+      final slashed = dir.path.replaceAll(r'\', '/');
+      final named = await context().makeTemp('$slashed/m.XXXXXX');
+      final plain = await context().makeTemp();
+      addTearDown(() => File(plain!).deleteSync());
+      for (final path in [named!, plain!]) {
+        expect(FileStat.statSync(path).mode & 0x1FF, 0x180, reason: path);
+      }
+    }, skip: Platform.isWindows ? 'POSIX modes only' : false);
+
+    test('a template with no X, or in a missing directory, is null', () async {
+      final slashed = dir.path.replaceAll(r'\', '/');
+      expect(await context().makeTemp('$slashed/plain'), isNull);
+      expect(await context().makeTemp('$slashed/none/t.XXXXXX'), isNull);
+    });
   });
 }

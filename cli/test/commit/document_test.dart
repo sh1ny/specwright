@@ -1,6 +1,6 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:test/test.dart';
 
@@ -21,7 +21,7 @@ void main() {
       0x5c, 0x22, // \"
       0x62, 0x22, // b"
     ]);
-    expect(encodeEscaped(documentText(value)), expected);
+    expect(utf8.encode(documentText(value)), expected);
     expect(documentBytes(value), [...expected, 0x0a]);
   });
 }

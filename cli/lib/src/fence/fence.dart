@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -103,7 +104,7 @@ List<Uint8List> _readLines(List<int> output) {
 }
 
 List<String> _lines(List<int> output) => [
-  for (final line in _readLines(output)) decodeEscaped(line),
+  for (final line in _readLines(output)) decodeReplacing(line),
 ];
 
 /// The caller's values of what the fence overrides, saved once: `sw as` started
@@ -118,7 +119,7 @@ Map<String, String> saveOriginals(Map<String, String> env, {bool? windows}) {
   final configNames = [
     for (final key in env.keys)
       if (_gitConfigName.hasMatch(key)) key,
-  ]..sort((a, b) => _compareBytes(encodeEscaped(a), encodeEscaped(b)));
+  ]..sort((a, b) => _compareBytes(utf8.encode(a), utf8.encode(b)));
   var listed = '';
   for (final name in [..._savedVariables, ...configNames]) {
     final key = _keyOf(env, name, win);
@@ -172,7 +173,7 @@ String _stripNewlines(String text) {
 Future<void> checkGhVersion(GhCall gh, Map<String, String> env) async {
   final help = await gh(['auth', 'token', '--help'], env);
   _limitStop(help, 'gh auth token --help');
-  final text = decodeEscaped([...help.stdout, ...help.stderr]);
+  final text = decodeReplacing([...help.stdout, ...help.stderr]);
   if (text.contains('--user')) return;
   // `$(gh --version | head -n 1 || echo 'gh not found')` under pipefail: a gh
   // that fails adds the second line after whatever it printed.
@@ -190,7 +191,9 @@ Future<void> checkGhVersion(GhCall gh, Map<String, String> env) async {
 String _firstLine(List<int> output) {
   final bytes = Uint8List.fromList(output);
   final end = bytes.indexOf(0x0a);
-  return decodeEscaped(end < 0 ? bytes : Uint8List.sublistView(bytes, 0, end));
+  return decodeReplacing(
+    end < 0 ? bytes : Uint8List.sublistView(bytes, 0, end),
+  );
 }
 
 /// `--resolve`: the active github.com account, once, when gh holds its token.
@@ -206,7 +209,9 @@ Future<String> resolveLogin(GhCall gh, Map<String, String> env) async {
     '.login',
   ], env);
   _limitStop(r, 'gh api user');
-  final login = r.exitCode == 0 ? _stripNewlines(decodeEscaped(r.stdout)) : '';
+  final login = r.exitCode == 0
+      ? _stripNewlines(decodeReplacing(r.stdout))
+      : '';
   const how =
       "run 'gh auth login' or set github.login in openspec/specwright.yaml "
       '(GH_TOKEN and GITHUB_TOKEN are not used to pick the login)';
@@ -251,7 +256,7 @@ Future<Map<String, String>> verifyIdentity(
   ], env);
   _limitStop(read, 'gh auth token --user $login');
   final token = read.exitCode == 0
-      ? _stripNewlines(decodeEscaped(read.stdout))
+      ? _stripNewlines(decodeReplacing(read.stdout))
       : '';
   if (token.isEmpty) {
     throw FenceStop("as.sh: no gh credential for '$login' (gh auth login)");
@@ -267,7 +272,7 @@ Future<Map<String, String>> verifyIdentity(
   ], withToken);
   _limitStop(who, 'gh api user');
   final actual = who.exitCode == 0
-      ? _stripNewlines(decodeEscaped(who.stdout))
+      ? _stripNewlines(decodeReplacing(who.stdout))
       : '';
   if (actual != login) {
     throw FenceStop(
@@ -442,7 +447,7 @@ void _checkJj(List<String> command) {
 /// github.com URL.
 Future<void> checkRemotes(GitCall git, Map<String, String> env) async {
   final inside = await git(['git', 'rev-parse', '--is-inside-work-tree'], env);
-  if (_stripNewlines(decodeEscaped(inside.stdout)) != 'true') return;
+  if (_stripNewlines(decodeReplacing(inside.stdout)) != 'true') return;
   final remotes = await git(['git', 'remote'], env);
   for (final r in _lines(remotes.stdout)) {
     if (r.isEmpty) continue;
@@ -522,7 +527,7 @@ Future<Map<String, String>> fencedEnvironment(
   for (final key in keys) {
     if (previous != null && _compareBytes(previous, key) == 0) continue;
     previous = key;
-    cfg(decodeEscaped(key), '');
+    cfg(decodeStrict(key, 'git config name'), '');
   }
   cfg('credential.helper', '');
   cfg('credential.helper', _credentialHelper);
@@ -531,7 +536,8 @@ Future<Map<String, String>> fencedEnvironment(
 }
 
 /// `as.sh`'s whole run after the handoff: [argv] is its argument list. Returns
-/// the exit status (3 for any refusal or limit, the command's own otherwise);
+/// the exit status (3 for any refusal or limit, 2 for input the launcher cannot
+/// represent, the command's own otherwise);
 /// messages go to [err] and `--resolve`'s login to [out].
 Future<int> runFence(
   List<String> argv, {
@@ -573,5 +579,13 @@ Future<int> runFence(
   } on FenceStop catch (stop) {
     err('${stop.message}\n');
     return stop.code;
+  } on NotUtf8 catch (e) {
+    // D4: a git config name is copied into the environment of the command, so it is read strictly
+    err('as.sh: ${e.message}; rename it and run again\n');
+    return 2;
+  } on Unrepresentable catch (e) {
+    // D5: input the launcher cannot hand to a tool is refused by name, exit 2
+    err('as.sh: unrepresentable ${e.what}: ${e.command}\n');
+    return 2;
   }
 }

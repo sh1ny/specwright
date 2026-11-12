@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
+import '../native/libc.dart' as libc;
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart' show requireBranch;
@@ -30,15 +31,20 @@ Future<Map<String, Object?>> gitbutlerStateDocument(VcsSession s) =>
     GitButler(s).state();
 
 /// `vcs.sh`'s `run_gitbutler_operation`. [windows] overrides the OS for the
-/// commit's command-line size check, [environment] is the full environment
+/// commit's command-line size check, [argMax] replaces its `sysconf` read, [environment] is the full environment
 /// `but` runs in (the parent's when null).
 Future<Map<String, Object?>> runGitbutlerOperation(
   VcsSession s,
   String command, {
   bool? windows,
   Map<String, String>? environment,
-}) =>
-    GitButler(s, windows: windows, environment: environment).operation(command);
+  int? Function()? argMax,
+}) => GitButler(
+  s,
+  windows: windows,
+  environment: environment,
+  argMax: argMax,
+).operation(command);
 
 /// Python truthiness of a decoded JSON value.
 bool _truthy(Object? v) =>
@@ -108,11 +114,14 @@ String _quoteArg(String arg) {
 }
 
 class GitButler {
-  GitButler(this.s, {this.windows, this.environment});
+  GitButler(this.s, {this.windows, this.environment, this.argMax});
 
   final VcsSession s;
   final bool? windows;
   final Map<String, String>? environment;
+
+  /// Replaces the `sysconf(_SC_ARG_MAX)` read of the command-line size check.
+  final int? Function()? argMax;
 
   String get root => s.info.repo;
   VcsScripts get scripts => s.scripts;
@@ -123,7 +132,6 @@ class GitButler {
   /// that many bytes were read the child is killed and the run stops.
   Future<String> butRun(List<String> args, {int? cap}) async {
     final r = await runToolCapped(
-      scripts.bash,
       root,
       ['but', ...args],
       cap: cap ?? 0x7fffffffffffffff,
@@ -238,7 +246,7 @@ class GitButler {
         tip,
       ]);
       touched = {
-        for (final name in diff.stdout.split('\u0000'))
+        for (final name in diff.names('file name').split('\u0000'))
           if (name.isNotEmpty) pathText(name),
       };
     }
@@ -456,7 +464,7 @@ class GitButler {
 
   bool _isDirectory(String path) {
     try {
-      return Directory.fromRawPath(encodeEscaped(path)).existsSync();
+      return Directory(path).existsSync();
     } on Object {
       return false;
     }
@@ -469,11 +477,10 @@ class GitButler {
     int size;
     int limit;
     if (windows ?? Platform.isWindows) {
-      size = encodeEscaped(argv.map(_quoteArg).join(' ')).length;
+      size = utf8.encode(argv.map(_quoteArg).join(' ')).length;
       limit = 32000;
     } else {
-      final max = await runText(scripts.bash, root, ['getconf', 'ARG_MAX']);
-      final arg = max.code == 0 ? int.tryParse(max.stdout.trim()) : null;
+      final arg = (argMax ?? libc.argMax)();
       var env = 0;
       Platform.environment.forEach((k, v) {
         env += utf8.encode(k).length + utf8.encode(v).length + 2;
@@ -481,7 +488,7 @@ class GitButler {
       limit = arg == null ? 100000 : arg - env - 4096;
       size = 0;
       for (final a in argv) {
-        size += encodeEscaped(a).length + 1;
+        size += utf8.encode(a).length + 1;
       }
     }
     if (size > limit) {
@@ -556,9 +563,7 @@ class GitButler {
     }
     await _argvCheck(given, messageFile);
     // Strict UTF-8, as vcs.sh read it: an invalid byte stops before `but commit`.
-    final message = utf8.decode(
-      File.fromRawPath(encodeEscaped(messageFile)).readAsBytesSync(),
-    );
+    final message = utf8.decode(File(messageFile).readAsBytesSync());
     final applied = [for (final st in stacks) ..._stackNames(st)];
     final before = <String, String>{
       for (final name in applied) name: await _tipOf(name),
@@ -596,7 +601,7 @@ class GitButler {
         newTip,
       ]);
       committed = [
-        for (final n in diff.stdout.split('\u0000'))
+        for (final n in diff.names('file name').split('\u0000'))
           if (n.isNotEmpty) pathText(n),
       ]..sort();
     }
@@ -667,7 +672,7 @@ class GitButler {
   /// `bash_command(root, "but", "pull", "--json")`: read as git and jj output
   /// is.
   Future<TextResult> _plainPull() async {
-    final r = await runTool(scripts.bash, root, [
+    final r = await runTool(root, [
       'but',
       'pull',
       '--json',
@@ -709,7 +714,9 @@ class GitButler {
       );
     }
     final paths = [
-      for (final line in const LineSplitter().convert(listed.stdout))
+      for (final line in const LineSplitter().convert(
+        listed.names('worktree path'),
+      ))
         if (line.startsWith('worktree '))
           pathText(line.substring('worktree '.length)),
     ];

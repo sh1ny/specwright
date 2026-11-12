@@ -76,6 +76,44 @@ void main() {
     }
   });
 
+  test(
+    r'an argument that is not UTF-8 is a not_utf8 document, exit 1',
+    () async {
+      final bad = [
+        ...records(['s', 'b', '--code']),
+        0x61,
+        0xff,
+        0,
+      ];
+      expect(await run(['rounds', '--args-stdin'], bad), 1);
+      final doc = jsonDecode(f.stdout) as Map<String, Object?>;
+      expect([doc['ok'], doc['error']], [false, 'not_utf8']);
+      expect(doc['message'], contains(r'a\xFF'));
+      expect(doc['message'], contains('rename'));
+      expect(f.ghCalls, isEmpty, reason: 'no credential lookup ran');
+    },
+  );
+
+  test(
+    r'snapshot and reply refuse a name that is not UTF-8 on stderr, exit 2',
+    () async {
+      for (final name in ['snapshot', 'reply']) {
+        f.err.clear();
+        final bad = [
+          ...records(['s', 'b']),
+          0x61,
+          0xff,
+          0,
+        ];
+        expect(await run([name, '--args-stdin'], bad), 2, reason: name);
+        expect(
+          f.stderr,
+          startsWith('pr-$name.sh: argument 1 is not valid UTF-8: a\\xFF'),
+        );
+      }
+    },
+  );
+
   test('parsePrHandoff splits the records', () {
     final h = parsePrHandoff(records(['d', 'b', 'a', '']))!;
     expect(

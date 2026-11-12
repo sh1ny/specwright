@@ -22,6 +22,7 @@ from pathlib import Path
 import snapfix
 from snapfix import REPLY, SCRIPTS, SNAPSHOT, T0, SnapCase, fixtures, rev
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vcs"))
 import sentinels  # noqa: E402
@@ -113,9 +114,8 @@ class TestFullNotFound(NativeSnapshotCase):
     def stub_gh(self, document):
         stub = self.tmp / "full-bin"
         stub.mkdir(exist_ok=True)
-        with (stub / "gh").open("w", encoding="utf-8", newline="\n") as stream:
-            stream.write('#!/bin/sh\nprintf "%s\\n" "$SW_FULL_DOCUMENT"\n')
-        (stub / "gh").chmod(0o755)
+        # the document has quotes, which a `.cmd` launcher refuses, so sw (PATHEXT only on Windows, D9) gets an `.exe`
+        fakeexe.write_fake(stub / "gh", '#!/bin/sh\nprintf "%s\\n" "$SW_FULL_DOCUMENT"\n', exe=True)
         return stub
 
     def read_full(self, document):

@@ -31,7 +31,6 @@ class WorkflowTransport {
 
   factory WorkflowTransport.native({
     required String directory,
-    required String bash,
     Map<String, String>? environment,
     List<String>? helperCommand,
   }) => WorkflowTransport(
@@ -40,7 +39,6 @@ class WorkflowTransport {
     runner: (dir, command, env, limits) async {
       if (limits != null) {
         return runBoundedCommand(
-          bash,
           dir,
           command,
           environment: env,
@@ -48,7 +46,7 @@ class WorkflowTransport {
           helperCommand: helperCommand,
         );
       }
-      final r = await runTool(bash, dir, command, environment: env);
+      final r = await runTool(dir, command, environment: env);
       return GhResult(exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr);
     },
   );
@@ -66,7 +64,7 @@ class WorkflowTransport {
       extra: {'unknown': true},
     );
     void checkOuter() {
-      if (outer != null && watch.elapsed >= outer.deadline) {
+      if (outer != null && watch.elapsed >= outer.deadline!) {
         limited(BoundedLimit.deadlineExceeded);
       }
     }
@@ -81,11 +79,11 @@ class WorkflowTransport {
       RunLimits? limits = inner;
       var enclosing = false;
       if (outer != null) {
-        final left = outer.deadline - watch.elapsed;
+        final left = outer.deadline! - watch.elapsed;
         enclosing = inner == null || left <= inner.deadline;
         limits = RunLimits(
           deadline: enclosing ? left : inner.deadline,
-          maxBytes: inner == null || outer.maxBytes < inner.maxBytes
+          maxBytes: inner == null || outer.maxBytes! < inner.maxBytes
               ? outer.maxBytes
               : inner.maxBytes,
         );

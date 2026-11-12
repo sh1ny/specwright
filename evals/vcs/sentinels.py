@@ -10,7 +10,7 @@ than that a sentinel cannot record. The pattern is the one of `evals/pr-pair/tes
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vcs"))
     import sentinels
 
-Importable from any suite: it needs only the standard library and `evals/bashexe.py`.
+Importable from any suite: it needs only the standard library, `evals/bashexe.py` and `evals/fakeexe.py`.
 """
 import os
 import subprocess
@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 SCRIPT_NAMES = ("as.sh", "vcs.sh", "pr-pair.sh", "sw-path.sh")
 INTERPRETER_NAMES = ("python", "python3")
@@ -85,6 +86,6 @@ def install(scripts, bin_dir, log):
     bin_dir.mkdir(parents=True, exist_ok=True)
     for name in SCRIPT_NAMES:
         _write(scripts / name, _SCRIPT.format(name=name, status=SCRIPT_STATUS, log="$" + LOG_VARIABLE))
-    for name in INTERPRETER_NAMES:
-        _write(bin_dir / name, _INTERPRETER.format(name=name, status=INTERPRETER_STATUS, log="$" + LOG_VARIABLE))
+    for name in INTERPRETER_NAMES:  # started by name from PATH, so each gets a `.cmd` wrapper on Windows (D9)
+        fakeexe.write_fake(bin_dir / name, _INTERPRETER.format(name=name, status=INTERPRETER_STATUS, log="$" + LOG_VARIABLE))
     return Sentinels(scripts, bin_dir, log)

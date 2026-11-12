@@ -13,7 +13,7 @@ String orElse(String a, String b) => a.isNotEmpty ? a : b;
 
 /// `vcs.sh`'s `git(repo, *args)`.
 Future<TextResult> git(VcsScripts scripts, String repo, List<String> args) =>
-    runText(scripts.bash, repo, ['git', ...args]);
+    runText(repo, ['git', ...args]);
 
 /// `vcs.sh`'s `git_checked`: a non-zero exit is the stop [error] with git's
 /// stderr (else stdout), or `git <args> failed`.

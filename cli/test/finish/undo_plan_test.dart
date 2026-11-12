@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/finish/script_text.dart';
 import 'package:specwright_cli/src/finish/undo_plan.dart';
@@ -8,6 +9,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
+import '../support/exe_shim.dart';
 
 List<int> _b(String s) => utf8.encode(s);
 
@@ -157,6 +159,7 @@ exit "${STUB_EXIT:-1}"
 ''';
 
 void main() {
+  useExeShim();
   final bash = findBash();
   final skip = bash == null ? 'no bash installed' : false;
   late Directory tmp;
@@ -198,9 +201,10 @@ void main() {
     String? scriptsDir,
     Map<String, String>? environment,
     bool? windows,
+    String? bash,
   }) => FinishContext(
     scriptsDir: scriptsDir ?? _finishScripts(),
-    bash: bash!,
+    bash: bash ?? findBash()!,
     environment: environment,
     windows: windows,
   );
@@ -434,6 +438,7 @@ void main() {
       final stubs = Directory('${tmp.path}/stubs')..createSync();
       final stub = File('${stubs.path}/git')..writeAsStringSync(_stubTool);
       if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+      shimExe(stub.path);
       final log = File('${tmp.path}/git.log');
       final sep = Platform.isWindows ? ';' : ':';
       Map<String, String> env([String? prompt]) => {
@@ -487,16 +492,19 @@ void main() {
     setUp(() {
       stubs = Directory('${tmp.path}/stubs')..createSync();
       log = File('${tmp.path}/tool.log');
-      for (final name in ['cygpath', 'git']) {
-        final stub = File('${stubs.path}/$name')..writeAsStringSync(_stubTool);
-        if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
-      }
+      final stub = File('${stubs.path}/git')..writeAsStringSync(_stubTool);
+      if (!Platform.isWindows) Process.runSync('chmod', ['+x', stub.path]);
+      shimExe(stub.path);
     });
 
-    test('a --dir that cygpath cannot convert is bad_path, exit 2', () async {
+    // A bash path that holds no Git root: a root-relative MSYS path has
+    // nowhere to go.
+    const rootless = r'C:\tools\bash.exe';
+
+    test('a --dir with no Git root is bad_path, exit 2', () async {
       final r = await plan(
         request('/no/such/dir'),
-        context(environment: env(), windows: true),
+        context(environment: env(), windows: true, bash: rootless),
       );
       expect(r.code, 2);
       expect(r.doc, {
@@ -505,17 +513,15 @@ void main() {
         'message': 'could not convert path: /no/such/dir',
         'path': '/no/such/dir',
       });
-      final calls = log.readAsStringSync();
-      expect(calls, contains('-m -- /no/such/dir'));
-      expect(calls, isNot(contains('rev-parse')), reason: 'no git call');
+      expect(log.existsSync(), isFalse, reason: 'no git call');
     }, skip: skip);
 
-    test('a --code that cygpath cannot convert is bad_path, exit 2', () async {
+    test('a --code with no Git root is bad_path, exit 2', () async {
       final r = await plan(
-        // A drive-form --dir is not converted, so only --code reaches cygpath
+        // A drive-form --dir is not converted, so only --code is refused
         // (tmp.path is itself a /-path off Windows).
         request('C:/no/such/dir', code: '/no/such/code'),
-        context(environment: env(), windows: true),
+        context(environment: env(), windows: true, bash: rootless),
       );
       expect(r.code, 2);
       expect(r.doc, {
@@ -524,30 +530,44 @@ void main() {
         'message': 'could not convert path: /no/such/code',
         'path': '/no/such/code',
       });
-      expect(log.readAsStringSync(), isNot(contains('rev-parse')));
+      expect(log.existsSync(), isFalse, reason: 'no git call');
     }, skip: skip);
 
     test('a usage stop comes before any conversion', () async {
       final r = await plan(
         request('/no/such/dir', main: null),
-        context(environment: env(), windows: true),
+        context(environment: env(), windows: true, bash: rootless),
       );
       expect(r.code, 2);
       expect(r.doc['error'], 'usage');
       expect(log.existsSync(), isFalse);
     }, skip: skip);
 
-    test('a drive-form or relative path runs no cygpath', () async {
-      final r = await plan(
-        request('C:/no/such/dir', code: 'rel'),
-        context(environment: env(), windows: true),
-      );
-      expect(r.doc['error'], isNot('bad_path'));
-      expect(
-        log.existsSync() ? log.readAsStringSync() : '',
-        isNot(contains('-m --')),
-      );
-    }, skip: skip);
+    test(
+      'a /tmp --dir goes under TEMP and a drive-form path is kept',
+      () async {
+        final temp = Directory('${tmp.path}/temp')..createSync();
+        final r = await plan(
+          request('/tmp/no/such/dir'),
+          context(
+            environment: {...env(), 'TEMP': temp.path},
+            windows: true,
+            bash: rootless,
+          ),
+        );
+        expect(r.doc['error'], 'not_a_repo');
+        expect(
+          r.doc['message'],
+          '${_posix(temp.path)}/no/such/dir is not inside a git work tree',
+        );
+        final kept = await plan(
+          request('C:/no/such/dir', code: 'rel'),
+          context(environment: env(), windows: true, bash: rootless),
+        );
+        expect(kept.doc['error'], isNot('bad_path'));
+      },
+      skip: skip,
+    );
 
     test('off Windows a /-path is used as it is', () async {
       final repo = makeRepo();
@@ -984,6 +1004,86 @@ void main() {
         '$ad/notes.md',
       });
     }, skip: skip);
+
+    test('carried edits sort by whole-path UTF-8 bytes', () async {
+      final repo = makeRepo();
+      git(repo, ['checkout', '-q', '-b', 'feat/x']);
+      for (final f in ['b.md', 'a.md', 'a/z.md', 'sub/c.md']) {
+        put(repo, 'openspec/changes/add-x/$f', 'original $f\n');
+      }
+      makeChange(repo, 'add-x');
+      archive(repo, ['add-x']);
+      for (final f in ['b.md', 'a.md', 'a/z.md', 'sub/c.md']) {
+        put(repo, '$ad/$f', 'edited $f\n');
+      }
+      final doc = await ok(repo);
+      expect(doc['mode'], 'uncommitted');
+      expect((doc['carried_edits']! as List).cast<String>(), [
+        '$ad/a.md',
+        '$ad/a/z.md',
+        '$ad/b.md',
+        '$ad/sub/c.md',
+      ]);
+    }, skip: skip);
+
+    // A regression guard: it passes on the `find` walk and on the native one.
+    test(
+      'linked spec.md and linked carried edit stay in the plan',
+      () async {
+        final repo = branchRepo(deltas: {'foo': 'Foo thing'});
+        put(repo, 'openspec/changes/add-x/notes.md', 'original notes\n');
+        commitAll(repo, 'docs(add-x): notes');
+        archive(repo, ['add-x']);
+        final outside = Directory('${tmp.path}/outside')..createSync();
+        File('${outside.path}/spec.md')
+            .writeAsStringSync(deltaText('Foo thing'));
+        File('${outside.path}/notes.md').writeAsStringSync('edited notes\n');
+        File('${outside.path}/inside.md').writeAsStringSync('inside\n');
+        File('$repo/$ad/specs/foo/spec.md').deleteSync();
+        Link('$repo/$ad/specs/foo/spec.md')
+            .createSync('${outside.path}/spec.md');
+        File('$repo/$ad/notes.md').deleteSync();
+        Link('$repo/$ad/notes.md').createSync('${outside.path}/notes.md');
+        Link('$repo/$ad/linkeddir').createSync(outside.path);
+        final doc = await ok(repo);
+        expect((doc['main_specs']! as Map)['created'], [
+          'openspec/specs/foo/spec.md',
+        ]);
+        expect((doc['carried_edits']! as List).cast<String>(), [
+          '$ad/notes.md',
+        ]);
+      },
+      skip: bash == null
+          ? 'no bash installed'
+          : Platform.isWindows
+          ? 'links need developer mode on Windows; POSIX only'
+          : false,
+    );
+
+    test(
+      'a non-UTF-8 name in the archive walk is not_utf8',
+      () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x']);
+        final name = Uint8List.fromList([
+          ..._b('$repo/$ad/a'),
+          0xff,
+          ..._b('.txt'),
+        ]);
+        File.fromRawPath(name).writeAsStringSync('x');
+        final r = await stop(repo);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'not_utf8');
+        expect(r.doc['message'], contains(r'a\xFF.txt'));
+        expect(r.doc.containsKey('script'), isFalse);
+      },
+      skip: bash == null
+          ? 'no bash installed'
+          : Platform.isLinux
+          ? false
+          : 'Linux only: macOS refuses names that are not valid UTF-8, and '
+                'Windows names are UTF-16',
+    );
 
     test('a marker file in the archive commit is removed again', () async {
       final repo = branchRepo();

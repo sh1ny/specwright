@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:specwright_cli/src/cli.dart';
 import 'package:specwright_cli/src/commands/commit.dart';
+import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:test/test.dart';
 
 List<int> _records(List<String> records) => [
@@ -57,6 +58,21 @@ void main() {
       });
     }
 
+    test(
+      'a launch the launcher refuses is a not_utf8 document, exit 1',
+      () async {
+        handlers['fit-subject'] = (args, ctx) async =>
+            throw const Unrepresentable('git', 'command line');
+        final code = await run([
+          '--args-stdin',
+        ], _records(['/scripts', '/bin/bash', 'fit-subject', 'm.txt']));
+        expect(code, 1);
+        final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+        expect(doc['error'], 'not_utf8');
+        expect(doc['message'], contains('cannot start git'));
+      },
+    );
+
     test('an unknown subcommand is a usage stop with exit 2', () async {
       final code = await run([
         '--args-stdin',
@@ -84,6 +100,66 @@ void main() {
         expect(seen.args, isNull);
       });
     }
+
+    test(
+      r'a task-cover argument that is not UTF-8 is a not_utf8 document, exit 1',
+      () async {
+        final code = await run(
+          ['--args-stdin'],
+          [
+            ..._records(['/s', '/b', 'task-cover', '--repo']),
+            0x61,
+            0xff,
+            0,
+          ],
+        );
+        expect(code, 1);
+        final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+        expect(doc['ok'], false);
+        expect(doc['error'], 'not_utf8');
+        expect(doc['message'], contains(r'a\xFF'));
+        expect(doc['message'], contains('rename'));
+        expect(seen.args, isNull, reason: 'no handler ran');
+      },
+    );
+
+    test(
+      r'a fit-subject path that is not UTF-8 is a stderr line, exit 2',
+      () async {
+        final code = await run(
+          ['--args-stdin'],
+          [
+            ..._records(['/s', '/b', 'fit-subject']),
+            0x6d,
+            0xff,
+            0x2e,
+            0,
+          ],
+        );
+        expect(code, 2);
+        expect(utf8.decode(err), 'fit-subject.sh: not valid UTF-8: m\\xFF.\n');
+        expect(out, isEmpty);
+        expect(seen.args, isNull, reason: 'no handler ran');
+      },
+    );
+
+    test('a fit-subject scripts directory that is not UTF-8 asks for a UTF-8 install path', () async {
+      final code = await run(
+        ['--args-stdin'],
+        [
+          0x73,
+          0xff,
+          0,
+          ..._records(['/b', 'fit-subject', 'm.txt']),
+        ],
+      );
+      expect(code, 1);
+      final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+      expect(doc['error'], 'not_utf8');
+      expect(doc['message'], contains('install the skills under a UTF-8 path'));
+      expect(err, isEmpty);
+      expect(seen.args, isNull, reason: 'no handler ran');
+    });
 
     test('a short handoff is a usage stop naming sw commit', () async {
       final code = await run(['--args-stdin'], _records(['/s', '/b']));

@@ -44,8 +44,8 @@ class VcsSession {
 /// backend, apply `--main`.
 Future<VcsSession> openSession(VcsContext ctx) async {
   final request = ctx.request;
-  final repo = await resolvePath(ctx.bash, request.repo);
-  final code = await resolvePath(ctx.bash, request.code);
+  final repo = await resolvePath(request.repo);
+  final code = await resolvePath(request.code);
   final scripts = VcsScripts(ctx.scriptsDir, ctx.bash);
   final info = await probe(scripts, repo, code, request.role);
   final main = request.main;
@@ -131,8 +131,9 @@ Future<int> runVcsCommand(
     document = stop.object();
     code = stop.code;
   } on Object catch (e) {
-    document = _internalError(e);
-    code = 1;
+    final stop = VcsStop.refusal(e);
+    document = stop?.object() ?? _internalError(e);
+    code = stop?.code ?? 1;
   }
   try {
     writeOut(documentBytes(document));

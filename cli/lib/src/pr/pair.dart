@@ -1,5 +1,6 @@
 import '../options.dart';
 import '../vcs/document.dart';
+import '../vcs/stop.dart';
 import 'context.dart';
 
 // What the five `pr-pair.sh` subcommands that moved to `sw pr` share (design D1): the script's stop, its flag reader and
@@ -95,11 +96,15 @@ Future<int> runPairCommand(
     answer = e.toJson();
     code = e.code;
   } on Object catch (e) {
-    answer = {
-      'ok': false,
-      'error': 'internal_error',
-      'message': '${e.runtimeType}: $e',
-    };
+    // D4, D5: a name that is not UTF-8 or a launch the launcher refused: not_utf8 by name, exit 1
+    final stop = VcsStop.refusal(e);
+    answer =
+        stop?.object() ??
+        {
+          'ok': false,
+          'error': 'internal_error',
+          'message': '${e.runtimeType}: $e',
+        };
     code = 1;
   }
   try {

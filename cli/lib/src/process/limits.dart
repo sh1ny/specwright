@@ -15,15 +15,39 @@ const Duration readerGrace = Duration(seconds: 2);
 /// How long to wait for the pipes to close after the tree was stopped.
 const Duration stopWait = Duration(seconds: 5);
 
+/// Constraint C6: a [RunLimits] without a deadline or byte bound exists only
+/// for batch files on the launcher's unbounded and capped paths, where the
+/// call had no such bound before the launcher and gets none from it; a capped
+/// path bounds stdout only ([stdoutCap]). A bounded caller (`sw run
+/// --bounded`, `runGh`, `runBoundedCommand`) always passes both [deadline] and
+/// [maxBytes], as [resolveLimits] does.
 class RunLimits {
-  const RunLimits({required this.deadline, required this.maxBytes});
+  const RunLimits({this.deadline, this.maxBytes, this.stdoutCap});
 
-  /// Time from the start of the run until the deadline. Already capped by
-  /// `SPECWRIGHT_NET_DEADLINE_AT`.
-  final Duration deadline;
+  /// Time from the start of the run until the deadline, already capped by
+  /// `SPECWRIGHT_NET_DEADLINE_AT`. Null: no deadline, and no timer is armed.
+  final Duration? deadline;
 
-  /// Bound on the bytes of stdout, and separately of stderr.
-  final int maxBytes;
+  /// Bound on the bytes of stdout, and separately of stderr. Null: no bound.
+  /// A [stdoutCap] takes over the bound on stdout.
+  final int? maxBytes;
+
+  /// Bound on the bytes of stdout alone: stderr is bounded by [maxBytes] or
+  /// not at all. Null: stdout follows [maxBytes].
+  final int? stdoutCap;
+}
+
+/// The limits of a bounded run: what [resolveLimits] returns, with a deadline
+/// and a byte bound that are never null (C6).
+class ResolvedLimits extends RunLimits {
+  const ResolvedLimits({required Duration deadline, required int maxBytes})
+    : super(deadline: deadline, maxBytes: maxBytes);
+
+  @override
+  Duration get deadline => super.deadline!;
+
+  @override
+  int get maxBytes => super.maxBytes!;
 }
 
 /// Parses [text] as a non-negative number; null when it is not one.
@@ -45,7 +69,7 @@ int? _nonNegativeInt(String? text) {
 ///
 /// [epochSeconds] returns the current wall time in epoch seconds; it is read
 /// once, so a later clock step cannot move the deadline.
-RunLimits resolveLimits(
+ResolvedLimits resolveLimits(
   Map<String, String> env, {
   required bool paged,
   double Function()? epochSeconds,
@@ -71,7 +95,7 @@ RunLimits resolveLimits(
     final remaining = left < 0 ? 0.0 : left;
     if (remaining < seconds) seconds = remaining;
   }
-  return RunLimits(
+  return ResolvedLimits(
     deadline: Duration(microseconds: (seconds * 1e6).round()),
     maxBytes: maxBytes,
   );

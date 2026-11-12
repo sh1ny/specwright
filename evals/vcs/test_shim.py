@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -85,6 +86,24 @@ class TestShim(ShimCase):
         self.assertTrue(done["ok"], done)
         files = self.git(self.repo, "show", "--name-only", "--format=", "HEAD").stdout.splitlines()
         self.assertEqual(files, ["dir with space/a b.txt"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_argument_is_not_utf8(self):
+        """A path argument holding the byte 0xFF stops by name at the handoff: no git or jj command ran (D4)."""
+        self.git(self.repo, "checkout", "-b", "feat/a")
+        message = self.root / "message.txt"
+        message.write_text("feat(a): add the file\n", encoding="utf-8", newline="\n")
+        before = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.shim.log_path.unlink(missing_ok=True)
+
+        done, _ = self.invoke("commit", "--branch", "feat/a", "--message-file", message, "--",
+                              os.fsdecode(b"a\xff.txt"), expected=1)
+
+        self.assertEqual((done["ok"], done["error"]), (False, "not_utf8"), done)
+        self.assertIn("a\\xFF.txt", done["message"])
+        self.assertIn("rename", done["message"])
+        self.assertEqual(self.shim.calls(), [], "no git command ran")
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), before)
 
     def test_fence_refusal_keeps_exit_3(self):
         # A remote URL that carries credentials is refused by the in-process fence before any gh call.

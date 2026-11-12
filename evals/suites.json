@@ -21,6 +21,7 @@
     {"paths": ["openspec/**"], "suites": ["git-workflow/test_specs_strict.py"]},
     {"paths": ["evals/git-workflow/fixtures.py"], "suites": ["pr-pair"]},
     {"paths": ["evals/bashexe.py"], "suites": ["finish", "git-workflow", "pr-pair", "release", "review-routes", "runner", "update", "vcs"]},
+    {"paths": ["evals/fakeexe.py"], "suites": ["finish", "git-workflow", "pr-pair", "vcs"]},
     {"paths": ["evals/git-workflow/grade.py"], "suites": ["pr-pair/test_fake_gh.py"]},
     {"paths": ["evals/suites.json", "evals/timings.md", "evals/runner/**", "JJ_VERSION", "BUT_VERSION"], "suites": ["runner"]},
     {"paths": ["cli/**", "mise.toml", ".github/workflows/cli.yml", ".github/workflows/sw-build.yml", ".github/workflows/release.yml", "skills/specwright-pr/scripts/sw-path.sh", "scripts/install-sw.sh", "evals/cli/**", "evals/fakes/gh_release.py"], "suites": ["cli"]},
@@ -34,6 +35,7 @@
     {"paths": ["cli/lib/src/settings/**", "cli/test/settings/**"], "suites": ["pr-pair", "vcs"]},
     {"paths": ["cli/lib/src/commit/**", "cli/test/commit/**"], "suites": ["git-workflow", "vcs"]},
     {"paths": ["cli/lib/src/finish/**", "cli/lib/src/commands/finish.dart", "cli/test/finish/**"], "suites": ["finish", "vcs"]},
+    {"paths": ["cli/lib/src/fs/**", "cli/test/fs/**"], "suites": ["finish", "vcs"]},
     {"paths": ["evals/vcs/**", "skills/specwright-pr/scripts/vcs.sh", "skills/specwright-pr/scripts/pr-pair.sh", "skills/specwright-pr/scripts/as.sh", "skills/specwright-review/scripts/review-run.sh", "skills/specwright-release/scripts/release.sh", "skills/specwright-finish/scripts/finish.sh"], "suites": ["vcs"]}
   ],
   "no_eval": [

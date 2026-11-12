@@ -11,7 +11,10 @@
 //     a literal, or an evaluator run without its bound;
 //   * a shipped script name (`as.sh`, `vcs.sh`, ..., or any `.py`) in a launch's
 //     arguments, or written anywhere under `lib/src` outside a listed
-//     printed-command, message or label site.
+//     printed-command, message or label site;
+//   * a shell as a launch command: a literal `bash` or `sh` (with or without
+//     `.exe`), bare or at the end of a path (`/bin/bash`, `/bin/sh`, a Git Bash
+//     path), inside any launch call. No transport through a shell is listed.
 //
 // Registering a new launch (constraints C1 and C2): add the file and runner
 // symbol to `calls` in [launchAllowlist] with its count and one of the kinds
@@ -236,12 +239,12 @@ bool _isDeclaration(String skeleton, int start, int open) {
 final Map<String, RegExp> _symbols = {
   'Process.start': RegExp(r'\bProcess\.start\('),
   'Process.run': RegExp(r'\bProcess\.run(?:Sync)?\('),
-  'runFramed': _fn('runFramed'),
+  'launch': _fn('launch'),
+  'runWithCommandLine': _fn('runWithCommandLine'),
   'runTool': _fn('runTool'),
   'runToolCapped': _fn('runToolCapped'),
   'runText': _fn('runText'),
   'runGh': _fn('runGh'),
-  'runGhFramed': _fn('runGhFramed'),
   'runBoundedCommand': _fn('runBoundedCommand'),
   'runFenced': _fn('runFenced'),
   'fencedText': _fn('fencedText'),
@@ -259,6 +262,14 @@ final RegExp _selfToken = RegExp(
 final RegExp _scriptName = RegExp(
   r'(?<![\w.-])(?:as|vcs|pr-pair|pr-snapshot|pr-reply|review-run|release|sw-path|finish)\.sh\b'
   r'|(?<![\w-])[\w-]+\.py\b',
+);
+
+/// A string literal inside a launch call that names a shell: `bash` or `sh`
+/// (with or without `.exe`), bare or at the end of any path (`/bin/bash`,
+/// `/bin/sh`, a Git Bash `...\bin\bash.exe`, written with `/`, `\` or `\\`).
+final RegExp _shellLiteral = RegExp(
+  r'''(['"])(?:[^'"]*[/\\])?(?:bash|sh)(?:\.exe)?\1''',
+  caseSensitive: false,
 );
 
 const _notFunction = {
@@ -353,6 +364,13 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
           if (call.labels.contains(name.group(0))) continue;
           findings.add(
             '$file: $symbol launch argument names shipped script ${name.group(0)}',
+          );
+        }
+        for (final shell in _shellLiteral.allMatches(
+          code.substring(open, close),
+        )) {
+          findings.add(
+            '$file: $symbol launch command is a shell (${shell.group(0)}); nothing starts a shell by name or path',
           );
         }
       }
@@ -734,6 +752,64 @@ Future<void> again(ctx) async {
       );
     });
 
+    test('no runner starts a shell by name or absolute path', () {
+      // The baseline holds no shell as a launch command (the check is not
+      // vacuous: each rejected name below is the only change).
+      expect(scanLaunchSites(_miniSources(), _miniAllow), isEmpty);
+      for (final shell in [
+        'bash',
+        'sh',
+        '/bin/bash',
+        '/bin/sh',
+        r'C:\\Program Files\\Git\\bin\\bash.exe',
+        r'C:\\Program Files\\Git\\usr\\bin\\sh.exe',
+        'C:/Program Files/Git/bin/bash.exe',
+        'bash.exe',
+      ]) {
+        // a listed runner call
+        final a = _miniSources();
+        a['run.dart'] = a['run.dart']!.replaceFirst(
+          "['git', 'status']",
+          "['$shell', '-c', 'git status']",
+        );
+        final aFindings = scanLaunchSites(a, _miniAllow);
+        expect(
+          _mentions(aFindings, ['run.dart', 'runTool', 'shell', shell]),
+          isTrue,
+          reason: '$shell: ${aFindings.join('\n')}',
+        );
+
+        // the Process.start of a listed helper, command given as a literal
+        final b = _miniSources();
+        b['helper.dart'] = b['helper.dart']!.replaceFirst(
+          'Process.start(command.first, command.sublist(1))',
+          "Process.start('$shell', ['-c', 'x'])",
+        );
+        final bFindings = scanLaunchSites(b, _miniAllow);
+        expect(
+          _mentions(bFindings, ['helper.dart', 'Process.start', 'shell']),
+          isTrue,
+          reason: '$shell: ${bFindings.join('\n')}',
+        );
+      }
+
+      // a shell name that is a label or printed command, not a launch
+      // command, is no finding: it sits outside every launch call
+      final printed = _miniSources()
+        ..['msg.dart'] =
+            "${_miniSources()['msg.dart']!}\n"
+            "final shown = ['bash', 'as.sh'];\n";
+      final printedAllow = Allowlist(
+        calls: _miniAllow.calls,
+        selfLaunches: _miniAllow.selfLaunches,
+        scriptNames: {
+          ..._miniAllow.scriptNames,
+          'msg.dart': {'as.sh': ScriptSite(2, 'message prefix, printed')},
+        },
+      );
+      expect(scanLaunchSites(printed, printedAllow), isEmpty);
+    });
+
     test('comments and string contents are not launches', () {
       final s = _miniSources();
       s['run.dart'] = '''
@@ -770,8 +846,6 @@ const launchAllowlist = Allowlist(
   calls: {
     'cli.dart': {'runExecHelper': Call(1, _helper)},
     'commands/run.dart': {'BoundedRun': Call(1, _tool)},
-    'commit/fit_subject.dart': {'runTool': Call(1, _tool)},
-    'commit/paths.dart': {'runTool': Call(1, _tool)},
     'commit/task_cover.dart': {'runTool': Call(1, _tool)},
     'fence/as_command.dart': {
       'runTool': Call(1, _tool),
@@ -779,29 +853,26 @@ const launchAllowlist = Allowlist(
       'runFenced': Call(1, _tool),
     },
     'fence/exec_inherit.dart': {
-      // the fenced command starts through the inherited bash fence prelude;
-      // `as.sh` is the prelude's `$0` label, not a launched script
-      'Process.start': Call(1, _tool, function: 'runFenced', labels: {'as.sh'}),
+      // the fenced command starts directly with the caller's stdio, no shell
+      'Process.start': Call(1, _tool, function: '_inherit'),
+      // a `.cmd` or `.bat` runs in process through its raw `cmd.exe` line
+      'runWithCommandLine': Call(1, _tool),
     },
+    'fence/fence.dart': {'launch': Call(1, _tool)},
     'fence/fenced_text.dart': {
       'runTool': Call(2, _tool),
       'runGh': Call(1, _tool),
     },
     'finish/undo_plan.dart': {'runTool': Call(1, _tool)},
-    'finish/walk.dart': {'runTool': Call(1, _tool)},
     'pr/context.dart': {
-      'runTool': Call(1, _tool),
       'runText': Call(1, _tool),
       'runGh': Call(1, _tool),
       'runBoundedCommand': Call(1, _tool),
-      'PrContext.tool': Call(1, _tool),
     },
     'pr/gh.dart': {'BoundedRun': Call(1, _tool)},
     'pr/snapshot.dart': {
-      'PrContext.tool': Call(1, _tool),
       'PrContext.bounded': Call(1, LaunchKind.reviewerEvaluator),
     },
-    'pr/watch_state.dart': {'PrContext.tool': Call(1, _tool)},
     'pr/workflow.dart': {'runBoundedCommand': Call(1, _tool)},
     'pr/workflow_transport.dart': {
       'runTool': Call(1, _tool),
@@ -811,9 +882,18 @@ const launchAllowlist = Allowlist(
     'process/bounded_run.dart': {
       'Process.start': Call(1, _helper, function: 'run'),
     },
+    'process/launch.dart': {
+      // external tools start directly, without a shell; a batch file goes
+      // through the bounded helper
+      'Process.start': Call(1, _tool, function: '_native'),
+      'BoundedRun': Call(1, _tool),
+    },
     'process/exec_helper.dart': {
       'Process.start': Call(1, _helper, function: '_run'),
+      // the in-process start of a raw `cmd.exe` line (a batch file)
+      'runWithCommandLine': Call(1, _helper),
     },
+    'vcs/tool_runner.dart': {'launch': Call(2, _tool)},
     'process/windows_tree.dart': {
       'Process.start': Call(1, _tool, function: 'killTree'),
     },
@@ -821,23 +901,16 @@ const launchAllowlist = Allowlist(
     'vcs/gitbutler_backend.dart': {
       'runTool': Call(1, _tool),
       'runToolCapped': Call(1, _tool),
-      'runText': Call(1, _tool),
     },
     'vcs/jj_backend.dart': {
       'runTool': Call(1, _tool),
-      'runText': Call(2, _tool),
+      'runText': Call(1, _tool),
     },
-    'vcs/probe.dart': {'runTool': Call(1, _tool), 'runText': Call(7, _tool)},
+    'vcs/probe.dart': {'runText': Call(7, _tool)},
     'vcs/scripts.dart': {
       'runTool': Call(1, _tool),
       'fencedText': Call(1, _tool),
     },
-    'vcs/tool_runner.dart': {
-      // external tools start through the framed bash transport
-      'Process.start': Call(1, _tool, function: 'runFramed'),
-      'runFramed': Call(2, _tool),
-    },
-    'vcs/walk.dart': {'runTool': Call(1, _tool)},
   },
   selfLaunches: {
     // the bounded process helper: `sw __exec -- <command>`
@@ -861,16 +934,16 @@ const launchAllowlist = Allowlist(
       'finish.sh': ScriptSite(2, 'message: usage and argument text'),
     },
     'fence/as_command.dart': {
-      'as.sh': ScriptSite(3, 'message: `as.sh:` refusal prefix'),
+      'as.sh': ScriptSite(4, 'message: `as.sh:` refusal prefix'),
     },
     'fence/exec_inherit.dart': {
       'as.sh': ScriptSite(
         4,
-        'message: `as.sh:` prefixes in the prelude and the start refusal, and the `\$0` label of the fence prelude',
+        'message: `as.sh:` prefixes of the start refusals',
       ),
     },
     'fence/fence.dart': {
-      'as.sh': ScriptSite(22, 'message: `as.sh:` refusal text'),
+      'as.sh': ScriptSite(24, 'message: `as.sh:` refusal text'),
     },
     'finish/undo_plan.dart': {
       'vcs.sh': ScriptSite(3, 'printed command and message text'),

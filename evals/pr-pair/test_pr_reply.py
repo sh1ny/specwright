@@ -217,14 +217,14 @@ class ReplyBody(ReplyCase):
 class ReplyMarkerWrite(ReplyCase):
     """The reply with its marker is written in full before any GitHub call, and a failed write says so."""
 
-    def fake_mktemp(self, path):
-        f = self.tmp / "bin" / "mktemp"
-        f.write_text(f'#!/bin/sh\necho "{path}"\n', encoding="utf-8", newline="\n")
-        f.chmod(0o755)
+    def no_temp_directory(self):
+        """The system temp directory is one that does not exist: sw can make no temp file (mktemp is no longer started)."""
+        gone = fixtures.posix(self.tmp / "no-such-dir")
+        self.extra_env.update({"TMPDIR": gone, "TEMP": gone, "TMP": gone})
 
     def test_failed_marker_write_makes_no_github_call(self):
         tid, c = self.add_thread("rev", "please fix")
-        self.fake_mktemp(fixtures.posix(self.tmp / "no-such-dir" / "reply.md"))  # cat > it fails
+        self.no_temp_directory()  # no temp file can be made, so nothing is written or posted
         f = self.tmp / "body.md"
         f.write_text("done", encoding="utf-8")
         path = fixtures.posix(f)

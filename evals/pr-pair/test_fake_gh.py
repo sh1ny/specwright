@@ -1047,6 +1047,20 @@ class HostileNetwork(FakeGhCase):
         self.assertGreaterEqual(time.time() - t0, 1)
         self.assertEqual(json.loads(r.stdout), {"login": "KintsugiBot"})
 
+    def test_tick_applies_from_the_second_match(self):
+        # the first matching call is the first poll: nothing moves; later ones advance the clock, then apply patch/steps
+        st = self.st()
+        st["clock"] = "2026-10-10T10:00:00Z"
+        self.seed({**st, "tick": {"match": "api user", "clock_step": 60, "patch": {"fail": [{"match": "auth token"}]}}})
+        self.gh("api", "user")
+        self.assertEqual(self.st()["clock"], "2026-10-10T10:00:00Z")
+        self.gh("api", "user")
+        after = self.st()
+        self.assertEqual((after["clock"], after["tick"]["n"]), ("2026-10-10T10:01:00Z", 2))
+        self.assertEqual(self.st()["fail"], [{"match": "auth token"}], "the patch was kept on the first tick")
+        self.gh("api", "user")
+        self.assertEqual(self.st()["clock"], "2026-10-10T10:02:00Z")
+
     def test_flood_prints_that_many_bytes_of_json_pages(self):
         self.seed({**self.st(), "flood": [{"match": "issues", "bytes": 5000}]})
         r = self.gh("api", "--paginate", "repos/o/n/issues")

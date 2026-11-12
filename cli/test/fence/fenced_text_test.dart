@@ -5,13 +5,13 @@
 @Timeout(Duration(minutes: 2))
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/fence/fenced_text.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
@@ -47,7 +47,7 @@ void main() {
         : '$active\n';
     return GhResult(
       exitCode: 0,
-      stdout: encodeEscaped(text),
+      stdout: utf8.encode(text),
       stderr: Uint8List(0),
     );
   };
@@ -56,7 +56,7 @@ void main() {
   Future<ToolResult> outsideWorkTree(
     List<String> command,
     Map<String, String> env,
-  ) async => ToolResult(0, encodeEscaped('false\n'), Uint8List(0));
+  ) async => ToolResult(0, utf8.encode('false\n'), Uint8List(0));
 
   Map<String, String> env([Map<String, String> more = const {}]) => {
     ...Platform.environment,
@@ -65,7 +65,6 @@ void main() {
 
   test('--resolve returns the active login on stdout', () async {
     final r = await fencedText(
-      bash!,
       repo,
       ['--resolve'],
       environment: env(),
@@ -81,7 +80,6 @@ void main() {
     'no active account is a refusal: exit 3 and the as.sh: message',
     () async {
       final r = await fencedText(
-        bash!,
         repo,
         ['--resolve'],
         environment: env(),
@@ -115,11 +113,10 @@ void main() {
             : command.length == 2
             ? 'origin\n'
             : '';
-        return ToolResult(0, encodeEscaped(text), Uint8List(0));
+        return ToolResult(0, utf8.encode(text), Uint8List(0));
       }
 
       final r = await fencedText(
-        bash!,
         repo,
         ['me', 'git', 'push', 'origin', 'HEAD'],
         environment: env(),
@@ -143,7 +140,6 @@ void main() {
     'the command runs in the repo and its output and exit code are kept',
     () async {
       final r = await fencedText(
-        bash!,
         repo,
         ['me', 'bash', '-c', 'pwd; echo err >&2; exit 5'],
         environment: env(),
@@ -163,7 +159,6 @@ void main() {
   test('the fenced command has no deadline', () async {
     final watch = Stopwatch()..start();
     final r = await fencedText(
-      bash!,
       repo,
       ['me', 'bash', '-c', 'sleep 3; echo done'],
       environment: env({'SPECWRIGHT_NET_DEADLINE': '1'}),

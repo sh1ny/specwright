@@ -46,6 +46,8 @@ None.
 - `native-cli`: "Arguments reach native executables unchanged", reworded to UTF-8 arguments with a named refusal, and the new launcher.
 - `vcs-backends`: name handling in "sw vcs documents keep their values and name bytes" (as renamed by `native-cli-library-foundations`) and the walk's order.
 - `change-finish` and `task-commits`: the non-UTF-8 scenarios become the named stop.
+- `github-identity`: the fenced command starts without a shell and receives UTF-8 argument values, with the named refusal.
+- `pr-script-runtime`: direct fenced reads pass argument values without a shell, and a non-UTF-8 `SPECWRIGHT_STATE_DIR` or `HOME` stops feedback with the named error instead of keeping raw bytes (S4).
 
 ## Impact
 
@@ -80,14 +82,23 @@ DECISION_MAKING: important
 - **Important:** yes, binds future changes.
 - **Chosen by:** user, "Their designs are written at their turn, because the intervening ports would make them stale."
 
+### S4: Non-UTF-8 state and home paths get the same named stop
+
+- **Choice:** A non-UTF-8 `SPECWRIGHT_STATE_DIR` or `HOME` stops feedback with the named error, so the rest of the escaping codec can go. The `getenv` FFI reader stays as a strict read, because Dart drops a non-UTF-8 variable from `Platform.environment` (design D10).
+- **Rejected:** Keep raw POSIX bytes for the feedback state paths, which keeps part of the codec for this case alone.
+- **Reversal cost:** low
+- **Important:** yes, changes what users see.
+- **Chosen by:** user, "Same named stop".
+
 ## Release Notes
 
-`sw` starts external tools without bash, and refuses file names that are not valid UTF-8 with a named error instead of carrying their bytes through.
+`sw` now starts every external tool itself, with no shell in between and no POSIX utilities (`mktemp`, `ln`, `sleep`, `cygpath` and the rest) for its own work, on Linux, macOS and Windows alike. A file name, path or argument that is not valid UTF-8, or that the platform cannot pass on, stops the command with a named error asking for a rename, instead of its bytes being carried through.
 
 ### Changed
 
 - `sw` launches external tools natively, passing UTF-8 arguments and refusing input it cannot represent by name (#148).
 - File listings use a native, stable sorted order (#148).
+- On Windows, a command `sw` starts must have a runnable extension from `PATHEXT` (such as `.exe` or `.cmd`). An extensionless script that bash used to run now fails with exit 127, so wrap it in a `.cmd` file (#148).
 
 ### Removed
 

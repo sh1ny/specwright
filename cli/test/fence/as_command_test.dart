@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:specwright_cli/src/fence/as_command.dart';
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
@@ -29,7 +28,7 @@ void main() {
       File('${dir.path}/handoff')..writeAsBytesSync(bytes);
 
   List<int> records(List<String> rs) => [
-    for (final r in rs) ...[...encodeEscaped(r), 0],
+    for (final r in rs) ...[...utf8.encode(r), 0],
   ];
 
   Future<GhResult> fakeGh(List<String> a, Map<String, String> e) async {
@@ -41,13 +40,13 @@ void main() {
         : 'me\n';
     return GhResult(
       exitCode: 0,
-      stdout: encodeEscaped(text),
+      stdout: utf8.encode(text),
       stderr: Uint8List(0),
     );
   }
 
   Future<ToolResult> fakeGit(List<String> c, Map<String, String> e) async =>
-      ToolResult(0, encodeEscaped('false\n'), Uint8List(0));
+      ToolResult(0, utf8.encode('false\n'), Uint8List(0));
 
   Future<int> run(List<String> args) => runAsCommand(
     args,
@@ -160,14 +159,29 @@ void main() {
     expect(launched, isEmpty);
   });
 
-  test('an argument that is not UTF-8 reaches the command unchanged', () async {
+  test('an argument that is not UTF-8 is refused by name, exit 2', () async {
     final odd = [0x61, 0xff, 0x62, 0];
     final file = handoff([
       ...records(['/s', '/bin/bash', 'me', 'git']),
       ...odd,
     ]);
-    expect(await run(['--args-file', file.path]), 5);
-    expect(encodeEscaped(launched.single.last), [0x61, 0xff, 0x62]);
+    expect(await run(['--args-file', file.path]), 2);
+    expect(said(), startsWith('as.sh: argument 3 is not valid UTF-8: a\\xFFb'));
+    expect(said(), contains('rename'));
+    expect(said().trim().split('\n'), hasLength(1));
+    expect(file.existsSync(), isFalse);
+    expect(ghCalls, isEmpty, reason: 'no token was read');
+    expect(launched, isEmpty);
+  });
+
+  test('a header record that is not UTF-8 is refused the same way', () async {
+    final file = handoff([
+      ...[0x2f, 0xff, 0],
+      ...records(['/bin/bash', 'me', 'git']),
+    ]);
+    expect(await run(['--args-file', file.path]), 2);
+    expect(said(), startsWith('as.sh: scripts directory is not valid UTF-8: '));
+    expect(ghCalls, isEmpty);
   });
 
   test('FenceStop carries its exit status', () {

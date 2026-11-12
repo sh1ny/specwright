@@ -71,6 +71,14 @@ def parsed(stdout):
     return json.loads(stdout.decode("utf-8", "surrogateescape"))
 
 
+def sorted_carried(doc):
+    """The document with `carried_edits` as a sorted list: the oracle lists them in `os.walk` order, sw sorts them by the
+    UTF-8 bytes of each whole path (native-cli-launcher D6), so the two compare as the same set in a fixed order."""
+    if isinstance(doc, dict) and isinstance(doc.get("carried_edits"), list):
+        doc = dict(doc, carried_edits=sorted(doc["carried_edits"], key=lambda p: p.encode("utf-8", "surrogateescape")))
+    return doc
+
+
 def compact_guard(doc):
     """The oracle's document with its printed jj branch guard in sw's form: the one listed difference (C13).
 
@@ -84,7 +92,8 @@ def compact_guard(doc):
 class ParityAsserts:
     def assertParity(self, pair, code=None):
         new, old = pair
-        self.assertEqual(parsed(new[1]), compact_guard(parsed(old[1])), "stdout documents differ between finish.sh and the oracle")
+        self.assertEqual(sorted_carried(parsed(new[1])), sorted_carried(compact_guard(parsed(old[1]))),
+                         "stdout documents differ between finish.sh and the oracle")
         self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
         if code is not None:  # the case really planned (or refused) what it names, not a broken fixture
             self.assertEqual(old[0], code, old[1] + old[2])
@@ -198,7 +207,15 @@ class TestParityGit(tp.Base, ParityAsserts):
         bad = os.path.join(os.fsencode(str(self.work)), os.fsencode(tp.ad("add-x")), b"bad-\xff-name.md")
         with open(bad, "wb") as f:
             f.write(b"not utf-8 named\n")
-        self.assertParity(self.plan())
+        # The asserted difference (native-cli-launcher D6): the oracle plans an archive holding a name with invalid
+        # UTF-8 bytes, sw stops with `not_utf8` naming the file with its bytes as \xHH and prints no script.
+        new, old = self.plan()
+        self.assertEqual(old[0], 0, old[1] + old[2])
+        self.assertEqual(new[0], 1, new[1] + new[2])
+        doc = parsed(new[1])
+        self.assertEqual(doc["error"], "not_utf8", doc)
+        self.assertIn("bad-\\xFF-name.md", doc["message"])
+        self.assertNotIn("script", doc)
 
 
 class TestParityJj(tj.JjBase, ParityAsserts):

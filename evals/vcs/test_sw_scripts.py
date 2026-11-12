@@ -97,20 +97,27 @@ class TestUnknownBackend(ScriptsCase):
 class TestNonUtf8ScriptsDirectory(ScriptsCase):
     @unittest.skipUnless(sys.platform.startswith("linux"),
                          "platform: a directory name holding the byte 0xFF needs a Linux filesystem (macOS and Windows reject it)")
-    def test_scripts_under_non_utf8_directory(self):
+    def test_scripts_under_non_utf8_directory_is_not_utf8(self):
         require_jj()
         scratch = Scratch()
         self.addCleanup(scratch.close)
+        self.scratch = scratch
+        self.shim = gitlog.install(self.root / "shim", real_git=jjenv.real_git(), log_path=self.root / "calls.jsonl")
         repo = scratch.tracked_repo().path
         self.set_settings(repo, "vcs: jj\n")
         name = os.fsdecode(b"scripts-\xff-dir")
         scripts = self.copy_scripts(name, wrap_pr_pair=True)
         log = self.root / "pr-pair.log"
+        self.shim.log_path.unlink(missing_ok=True)
 
-        state, result = self.invoke("state", repo=repo, scripts=scripts, env={"PR_PAIR_LOG": log.as_posix()})
+        state, result = self.invoke("state", repo=repo, scripts=scripts, env={"PR_PAIR_LOG": log.as_posix()},
+                                    expected=1)
 
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(state["backend"], "jj", state)
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("scripts-\\xFF-dir", state["message"])
+        self.assertIn("UTF-8 path", state["message"])
+        self.assertEqual(self.shim.calls(), [], "no git, jj or but command ran")
+        self.assertEqual(self.records(log), [], "no pr-pair.sh process was started")
 
 
 if __name__ == "__main__":

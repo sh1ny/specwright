@@ -1,12 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
-import 'package:specwright_cli/src/vcs/tool_runner.dart';
 
 /// A gh answer: exit 0 and [stdout] by default.
 GhResult answer(
@@ -17,18 +15,18 @@ GhResult answer(
   BoundedLimit? limit,
 }) => GhResult(
   exitCode: exit,
-  stdout: encodeEscaped(stdout),
-  stderr: encodeEscaped(stderr),
+  stdout: utf8.encode(stdout),
+  stderr: utf8.encode(stderr),
   limitLine: limitLine,
   limit: limit,
 );
 
 /// What the commands ran against, with every call recorded: the answers come from [onGh], the temp files from
-/// [tempDir] and the other tools from [onTool] (default: exit 0).
+/// [tempDir] and the pauses from [onSleep] (the clock moves by each one).
 class Fixture {
   Fixture({
     this.onGh,
-    this.onTool,
+    this.onSleep,
     this.onBounded,
     Directory? temp,
     Map<String, String>? environment,
@@ -54,9 +52,10 @@ class Fixture {
         if (r == null) throw StateError('unexpected gh call: $args');
         return r;
       },
-      tool: (command) async {
-        toolCalls.add(command);
-        return onTool?.call(command) ?? ToolResult0();
+      sleep: (seconds) async {
+        sleeps.add(seconds);
+        clock += seconds;
+        onSleep?.call(seconds);
       },
       makeTemp: ([template]) async {
         tempCalls.add(template);
@@ -77,23 +76,23 @@ class Fixture {
   final List<int> err = [];
   final List<List<String>> ghCalls = [];
   final List<Map<String, String>?> ghEnvs = [];
-  final List<List<String>> toolCalls = [];
+  final List<int> sleeps = [];
   final List<List<String>> boundedCalls = [];
   final List<Map<String, String>?> boundedEnvs = [];
   final List<String?> tempCalls = [];
   GhResult Function(List<String> args)? onGh;
   GhResult Function(List<String> command)? onBounded;
 
-  /// The monotonic seconds the command sees (`$SECONDS`); a test moves it from `onTool` when `sleep` runs.
+  /// The monotonic seconds the command sees (`$SECONDS`); each pause moves it.
   int clock = 0;
-  ToolResult Function(List<String> command)? onTool;
+  void Function(int seconds)? onSleep;
   bool tempFails = false;
   String? fixedTemp;
   int tempCount = 0;
   late final PrContext ctx;
 
-  String get stdout => decodeEscaped(out);
-  String get stderr => decodeEscaped(err);
+  String get stdout => decodeReplacing(out);
+  String get stderr => decodeReplacing(err);
 
   void dispose() => tempDir.deleteSync(recursive: true);
 
@@ -105,12 +104,3 @@ class Fixture {
   File file(String name, String text) =>
       File('${tempDir.path}/$name')..writeAsBytesSync(utf8.encode(text));
 }
-
-/// A process result with no output.
-class ToolResult0 extends ToolResult {
-  ToolResult0([int code = 0]) : super(code, Uint8List(0), Uint8List(0));
-}
-
-/// A tool result with [stdout].
-ToolResult toolOut(String stdout, {int code = 0}) =>
-    ToolResult(code, encodeEscaped(stdout), Uint8List(0));

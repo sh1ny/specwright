@@ -25,7 +25,6 @@ import 'fence.dart';
 /// bounded gh lookups ([helperCommand] names the helper, default `sw __exec`),
 /// the unbounded git reads, and the command with its output captured.
 Future<TextResult> fencedText(
-  String bash,
   String repo,
   List<String> argv, {
   Map<String, String>? environment,
@@ -41,18 +40,13 @@ Future<TextResult> fencedText(
     environment: environment ?? Map<String, String>.of(Platform.environment),
     gh:
         gh ??
-        (ghArgs, e) => runGh(
-          bash,
-          repo,
-          ghArgs,
-          environment: e,
-          helperCommand: helperCommand,
-        ),
-    git: git ?? (command, e) => runTool(bash, repo, command, environment: e),
+        (ghArgs, e) =>
+            runGh(repo, ghArgs, environment: e, helperCommand: helperCommand),
+    git: git ?? (command, e) => runTool(repo, command, environment: e),
     launch:
         launch ??
         (command, e) async {
-          final r = await runTool(bash, repo, command, environment: e);
+          final r = await runTool(repo, command, environment: e);
           out.write(decodeText(r.stdout));
           err.write(decodeText(r.stderr));
           return r.exitCode;

@@ -110,6 +110,12 @@ class SnapCase(unittest.TestCase):
         fake_gh.write_state(self.gh_state, st)
         return out
 
+    def set_tick(self, **spec):
+        """State that moves between the polls of a --wait loop (fake gh `tick`). sw sleeps in its own process, so the fake
+        gh does it instead, on the call each poll starts with (the head-info query, the only one naming headRepository):
+        every poll after the first applies one tick (see evals/fakes/gh.py)."""
+        self.mutate(lambda st: st.update({"tick": {"match": "headRepository", **spec}}))
+
     def advance(self, seconds):
         return self.mutate(lambda st: fake_gh.advance_clock(st, seconds))
 

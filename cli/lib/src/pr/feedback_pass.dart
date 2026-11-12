@@ -6,6 +6,7 @@ import '../settings/rules.dart';
 import '../settings/yaml.dart' show pyTruthy;
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
+import '../vcs/stop.dart';
 import 'context.dart';
 import 'feedback_environment.dart';
 import 'feedback_record.dart';
@@ -24,7 +25,7 @@ List<Object?> _list(Object? value) => value is List<Object?> ? value : [];
 String _text(Object? value) => value is String ? value : '';
 String _norm(String value) => value.replaceAll(r'\', '/');
 bool _exists(String path) =>
-    rawFile(path).existsSync() || rawDirectory(path).existsSync();
+    File(path).existsSync() || Directory(path).existsSync();
 List<Object?> _listify(Object? value) => value == null
     ? []
     : value is List<Object?>
@@ -187,9 +188,7 @@ class FeedbackPass {
 
   Future<PassDocument> _owner(String id, String checkout) async {
     final native = await ctx.native(checkout);
-    final absolute = hasEscapedBytes(native)
-        ? (Directory(native).isAbsolute ? native : '${ctx.cwd}/$native')
-        : Directory(native).absolute.path;
+    final absolute = Directory(native).absolute.path;
     return {
       'id': id,
       'at': _iso(DateTime.now()),
@@ -252,7 +251,7 @@ class FeedbackPass {
     final mref = main == null ? null : await workflow.mainRef(store, main);
     final dirs = <String>[];
     for (final directory
-        in result.stdout.split('\n').where(expression.hasMatch)) {
+        in result.names('file name').split('\n').where(expression.hasMatch)) {
       if (mref == null ||
           (await ctx.git(store, ['cat-file', '-e', '$mref:$directory'])).code !=
               0) {
@@ -509,11 +508,11 @@ class FeedbackPass {
       ]);
       return _judgeText(edit, file.code == 0, file.stdout);
     }
-    final file = rawFile('$dir/${edit['file']}');
+    final file = File('$dir/${edit['file']}');
     if (pyTruthy(edit['deleted'])) {
       return _judgeText(
         edit,
-        file.existsSync() || rawDirectory('$dir/${edit['file']}').existsSync(),
+        file.existsSync() || Directory('$dir/${edit['file']}').existsSync(),
         '',
       );
     }
@@ -527,7 +526,7 @@ class FeedbackPass {
 
   Future<Set<String>> _dirty(String dir) async {
     final status = await ctx.git(dir, ['status', '--porcelain', '-z', '-uall']);
-    final parts = status.stdout.split('\x00'), out = <String>{};
+    final parts = status.names('file name').split('\x00'), out = <String>{};
     for (var i = 0; i < parts.length; i++) {
       final item = parts[i];
       if (item.length <= 3) continue;
@@ -540,9 +539,8 @@ class FeedbackPass {
   String? _firstSeen(String repo, Object? number, String oid) {
     final state = _directories.stateRoot;
     try {
-      final lines = rawFile(
-        '$state/heads/${'$repo/$number'.toLowerCase()}/$oid',
-      ).readAsLinesSync();
+      final lines = File('$state/heads/${'$repo/$number'.toLowerCase()}/$oid')
+          .readAsLinesSync();
       final line = lines.first.trim();
       if (!RegExp(r'^[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT$')
           .hasMatch(line)) {
@@ -1285,7 +1283,7 @@ class FeedbackPass {
           extra: {'status': result['status']},
         );
       }
-      rawFile(path).deleteSync();
+      File(path).deleteSync();
       return {'ok': true, 'deleted': true};
     });
   }
@@ -1347,6 +1345,9 @@ class FeedbackPass {
         _ => pairUsage('pass write|plan|done|adopt ...'),
       };
       return {...result, if (_leftLocks.isNotEmpty) 'lock_left': _leftLocks};
+    } on NotUtf8 catch (e) {
+      // a process path variable that is not UTF-8 (feedbackDirectory, D10)
+      throw PairStop('not_utf8', '${e.message}; use a UTF-8 path');
     } on PairStop catch (e) {
       if (_leftLocks.isEmpty) rethrow;
       throw PairStop(
@@ -1357,9 +1358,10 @@ class FeedbackPass {
       );
     } on Object catch (e) {
       if (_leftLocks.isEmpty) rethrow;
+      final stop = VcsStop.refusal(e);
       throw PairStop(
-        'internal_error',
-        '${e.runtimeType}: $e',
+        stop?.error ?? 'internal_error',
+        stop?.message ?? '${e.runtimeType}: $e',
         extra: {'lock_left': _leftLocks},
       );
     }

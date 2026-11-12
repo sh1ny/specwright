@@ -223,16 +223,43 @@ final int Function(_Handle, Pointer<Uint32>) _getExitCodeProcess = _kernel32
 const int _infinite = 0xFFFFFFFF;
 const int _startupInfoSize = 104; // STARTUPINFOW on 64-bit Windows
 
+const int _createUnicodeEnvironment = 0x400;
+
+/// The UTF-16 environment block of [environment]: `NAME=value` entries each
+/// ended by a NUL, in the case-insensitive order Windows documents, and one
+/// more NUL after the last (an empty map is two NULs).
+Pointer<Uint16> _environmentBlock(Map<String, String> environment) {
+  final entries = environment.entries.toList()
+    ..sort((a, b) => a.key.toUpperCase().compareTo(b.key.toUpperCase()));
+  final units = <int>[
+    for (final e in entries) ...[...'${e.key}=${e.value}'.codeUnits, 0],
+    0,
+  ];
+  if (entries.isEmpty) units.add(0);
+  final block = calloc<Uint16>(units.length);
+  block.asTypedList(units.length).setAll(0, units);
+  return block;
+}
+
 /// Runs [application] with exactly [commandLine] (no quoting is added), lets
 /// it inherit this process's standard handles, waits for it, and returns its
 /// exit status as a signed 32-bit value. [status] is null when the process
 /// cannot be created, and [error] is then the Win32 error.
+///
+/// With [environment] the child gets exactly those variables (a UTF-16 block,
+/// `CREATE_UNICODE_ENVIRONMENT`) and none of this process's; with
+/// [workingDirectory] it starts there. Without them it inherits this process's
+/// environment and directory.
 ({int? status, int error}) runWithCommandLine(
   String application,
-  String commandLine,
-) {
+  String commandLine, {
+  Map<String, String>? environment,
+  String? workingDirectory,
+}) {
   final app = application.toNativeUtf16();
   final line = commandLine.toNativeUtf16();
+  final block = environment == null ? null : _environmentBlock(environment);
+  final directory = workingDirectory?.toNativeUtf16();
   final startup = calloc<Uint8>(_startupInfoSize);
   final info = calloc<Uint8>(24); // PROCESS_INFORMATION
   try {
@@ -243,9 +270,9 @@ const int _startupInfoSize = 104; // STARTUPINFOW on 64-bit Windows
       nullptr,
       nullptr,
       1,
-      0,
-      nullptr,
-      nullptr,
+      block == null ? 0 : _createUnicodeEnvironment,
+      block?.cast<Void>() ?? nullptr,
+      directory ?? nullptr,
       startup,
       info,
     );
@@ -269,6 +296,8 @@ const int _startupInfoSize = 104; // STARTUPINFOW on 64-bit Windows
   } finally {
     calloc.free(app);
     calloc.free(line);
+    if (block != null) calloc.free(block);
+    if (directory != null) calloc.free(directory);
     calloc.free(startup);
     calloc.free(info);
   }

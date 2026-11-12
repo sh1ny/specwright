@@ -7,11 +7,13 @@ import signal
 import subprocess
 import sys
 import time
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vcs'))
 import sentinels
+import fakeexe  # sentinels puts evals/ on sys.path
 import test_workflow_parity as wp
 from test_bounded import pid_alive
 
@@ -62,6 +64,7 @@ class WorkflowTransport(wp.WorkflowParity):
                         'printf "%s\\n" "$WF_SHA"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n',
                         encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         result, doc = self.native_rounds(code)
         self.assertEqual(result['code'], 0, doc)
         self.assertEqual(doc['rounds'], 1)
@@ -108,6 +111,7 @@ class WorkflowTransport(wp.WorkflowParity):
             'if [ "$1" = ls-remote ]; then printf "%s\\n" "$WF_REMOTE_SHA"; exit 0; fi\n'
             'exec '+shlex.quote(real)+' "$@"\n', encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         cwd = code if github else self.tmp
         for phase in ['ls-remote', 'fetch']:
             for kind, error in [('deadline', 'deadline_exceeded'), ('bytes', 'response_too_large')]:
@@ -154,6 +158,7 @@ class WorkflowTransport(wp.WorkflowParity):
         script = self.tmp / 'bin' / 'git'
         script.write_text('#!/bin/sh\nif [ "$1" = status ]; then echo git-state >> "$WF_VCS_DELAY_LOG"; sleep 3; fi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
         script.chmod(0o755)
+        fakeexe.add_launcher(script, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[]))
         result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
         self.assertEqual(result['code'], 0, doc)
@@ -183,6 +188,7 @@ class WorkflowTransport(wp.WorkflowParity):
             ' printf "%s|%s\\n" "$target" "${GH_TOKEN-unset}" >> "$WF_FETCH_LOG"\n'
             ' printf "%s\\n" "$WF_SHA" > "$WF_FETCH_HEAD"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
         shim.chmod(0o755)
+        fakeexe.add_launcher(shim, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         sentinel = sentinels.install(self.tmp / 'fetch-scripts', self.tmp / 'fetch-bin', self.tmp / 'fetch-sentinel-log')
         self.workflow_scripts = sentinel.scripts
         self.extra_env.update(sentinel.env, WF_FETCH_LOG=fetch.as_posix(),
@@ -242,6 +248,7 @@ class WorkflowTransport(wp.WorkflowParity):
             'fi\n'
             f'exec "{real.as_posix()}" "$@"\n', encoding='utf-8', newline='\n')
         gh.chmod(0o755)
+        fakeexe.add_launcher(gh, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_FENCE_START=started.as_posix(), WF_CHILD_PID=child_pid.as_posix(),
                               WF_FENCE_DIR=code, SPECWRIGHT_NET_DEADLINE='8')
         try:
@@ -285,6 +292,7 @@ class WorkflowTransport(wp.WorkflowParity):
             'fi\n'
             f'exec "{real}" "$@"\n', encoding='utf-8', newline='\n')
         tool.chmod(0o755)
+        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_SHA=sha)
         return code, store
 
@@ -294,6 +302,24 @@ class WorkflowTransport(wp.WorkflowParity):
             args += ['--store', store]
         result = self.side('new', args, self.tmp)
         return result, json.loads(result['stdout'])
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'platform: a file name that is not UTF-8 needs a Linux file system')
+    def test_non_utf8_path_argument_is_refused(self):
+        code, _ = self.setup_remote(github=True)
+        raw = os.fsencode(code) + b'-\xff'
+        os.mkdir(raw)
+        e = self.env('me', SPECWRIGHT_HOME=str(self.home), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+        records = [wp.parity.fixtures.posix(wp.parity.SCRIPTS), wp.parity.bashexe.bash(), 'rounds', '--code', os.fsdecode(raw),
+                   '--branch', 'feat/x']
+        payload = b''.join(os.fsencode(x) + b'\0' for x in records)
+        before = len(wp.parity.calls_of(self.gh_log, lambda c: c))
+        r = subprocess.run([os.environ['SPECWRIGHT_SW'], 'pr', 'rounds', '--args-stdin'], input=payload, cwd=self.tmp,
+                           env=e, capture_output=True, timeout=120)
+        self.assertEqual(r.returncode, 1, (r.stdout, r.stderr))
+        doc = json.loads(r.stdout.decode('utf-8'))
+        self.assertEqual((doc['ok'], doc['error']), (False, 'not_utf8'), doc)
+        self.assertIn('\\xFF', doc['message'])
+        self.assertEqual(len(wp.parity.calls_of(self.gh_log, lambda c: c)), before, 'a credential lookup ran')
 
     def test_rounds_reports_an_outer_read_deadline_as_unreadable(self):
         code, _ = self.setup_remote()
@@ -339,6 +365,29 @@ class WorkflowTransport(wp.WorkflowParity):
         branch = 'feat/$x;é[quoted]'
         d = self.run_pair('discover', '--repo', self.SLUG, '--branch', branch, code=0)
         self.assertEqual(d['branch'], branch)
+        # The same call again with a failing recording `bash` first on PATH, as the native side only: the frozen oracle
+        # is itself bash scripts and needs a working bash, so it is not run against the recorder. The native side starts
+        # no shell, so the recorder never runs and the arguments reach gh unchanged.
+        recorder_dir = self.tmp / 'failing-bash'
+        recorder_dir.mkdir()
+        log = self.tmp / 'failing-bash-log'
+        for name in ('bash', 'sh'):  # bare-bash: not started (recorder names)
+            fakeexe.write_fake(recorder_dir / name,
+                               '#!/bin/sh\nprintf "%s\\n" ' + name + ' >> "$SW_SHELL_LOG"\nexit 1\n')
+        self.extra_env.update(SW_SHELL_LOG=log.as_posix(),
+                              PATH=os.pathsep.join([str(recorder_dir), str(self.tmp / 'bin'), os.environ.get('PATH', '')]))
+        # the recorder must record, or the empty log below would hold for the wrong reason
+        probe = subprocess.run([str(recorder_dir / ('bash.cmd' if os.name == 'nt' else 'bash'))],
+                               env=self.env('me'), capture_output=True, timeout=30)
+        self.assertEqual(probe.returncode, 1, probe)
+        self.assertEqual(log.read_text(encoding='utf-8').splitlines(), ['bash'])  # bare-bash: not started (the recorder log)
+        log.unlink()
+        before = self.gh_state.read_bytes()
+        native =self.side('new', ['discover', '--repo', self.SLUG, '--branch', branch], None)
+        self.gh_state.write_bytes(before)
+        self.assertEqual(native['code'], 0, native)
+        self.assertEqual(json.loads(native['stdout'])['branch'], branch)
+        self.assertFalse(log.exists(), 'a shell ran: ' + log.read_text(encoding='utf-8') if log.exists() else '')
 
     def test_absolute_gitbutler_metadata_path_keeps_fetch_refmap_empty(self):
         code, _ = self.setup_remote()

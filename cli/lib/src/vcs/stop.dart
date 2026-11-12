@@ -1,3 +1,6 @@
+import '../process/launch.dart' show Unrepresentable;
+import 'codec.dart';
+
 /// A stop `vcs.sh` reports as one document: [error], [message], the exit [code]
 /// (1 by default, 2 for a usage error, 3 for a fence refusal) and any [extra]
 /// fields after the message.
@@ -8,6 +11,33 @@ class VcsStop implements Exception {
     this.code = 1,
     this.extra = const <String, Object?>{},
   });
+
+  /// A name `sw` acts on or reports was not valid UTF-8: `not_utf8`, exit 1,
+  /// with a message that asks for a rename, or for a UTF-8 install path when
+  /// the name is the directory the skills are installed under.
+  factory VcsStop.notUtf8(NotUtf8 e) => VcsStop(
+    'not_utf8',
+    e.what == 'scripts directory'
+        ? '${e.message}; install the skills under a UTF-8 path'
+        : '${e.message}; rename it',
+  );
+
+  /// The launcher refused input it cannot hand to a tool whole (a NUL, a lone
+  /// surrogate, a command line past the Windows limit): `not_utf8`, exit 1,
+  /// naming the command and the input (D5).
+  factory VcsStop.unrepresentable(Unrepresentable e) => VcsStop(
+    'not_utf8',
+    'cannot start ${e.command}: its ${e.what} cannot be represented',
+  );
+
+  /// The one mapping every command that prints a document uses for the two
+  /// refusals (D4, D5): a [NotUtf8] name and an [Unrepresentable] launch both
+  /// become a `not_utf8` stop; any other exception gives null.
+  static VcsStop? refusal(Object e) => switch (e) {
+    NotUtf8() => VcsStop.notUtf8(e),
+    Unrepresentable() => VcsStop.unrepresentable(e),
+    _ => null,
+  };
 
   final String error;
   final String message;

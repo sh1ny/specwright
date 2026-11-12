@@ -3,8 +3,6 @@ import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/context.dart';
 
-import 'package:specwright_cli/src/vcs/codec.dart';
-
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -101,26 +99,6 @@ void main() {
   });
 
   test(
-    'workflow JSON reader preserves raw POSIX snapshot paths',
-    () async {
-      final directory = Directory.systemTemp.createTempSync('workflow-json-');
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final rawDirectory = Uint8List.fromList([
-        ...encodeEscaped(directory.path),
-        0x2f,
-        0x80,
-      ]);
-      Directory.fromRawPath(rawDirectory).createSync();
-      final rawFile = Uint8List.fromList([...rawDirectory, 0x2f, 0xff]);
-      File.fromRawPath(rawFile).writeAsStringSync('{"value":"é"}');
-      expect(await readWorkflowJson(decodeEscaped(rawFile)), {'value': 'é'});
-    },
-    skip: !Platform.isLinux
-        ? 'Linux only: macOS and Windows refuse invalid UTF-8 filenames'
-        : false,
-  );
-
-  test(
     'workflow JSON reader retains Unicode and unreadable-file errors',
     () async {
       final directory = Directory.systemTemp.createTempSync('workflow-json-');
@@ -175,13 +153,12 @@ void main() {
   });
 
   test(
-    'real workflow command preserves empty long and raw argument bytes',
+    'real workflow command preserves empty, long and special arguments',
     () async {
       final bash = findBash();
       expect(bash, isNotNull);
       final native = WorkflowTransport.native(
         directory: Directory.current.path,
-        bash: bash!,
       );
       final transport = WorkflowTransport(
         directory: Directory.current.path,
@@ -198,18 +175,19 @@ void main() {
         '',
         'space quote " dollar \$ glob *',
         'é',
-        List.filled(100000, 'x').join(),
-        if (!Platform.isWindows) decodeEscaped([0x80, 0xff]),
+        // under the Windows command-line limit; a longer one, or a byte that
+        // is not UTF-8, is refused by the launcher as unrepresentable
+        List.filled(20000, 'x').join(),
       ];
       final r = await transport.fenced('bot', [
-        bash,
+        bash!,
         '-c',
         r'printf "%s\0" "$@"',
         'capture',
         ...args,
       ]);
       expect(r.exitCode, 0);
-      expect(r.stdout, encodeEscaped('${args.join('\x00')}\x00'));
+      expect(r.stdout, utf8.encode('${args.join('\x00')}\x00'));
     },
   );
   test('typed lookup byte limit remains refusal for lower equal and larger outer caps', () async {
@@ -424,7 +402,6 @@ void main() {
         final late = File('${temp.path}/late');
         final native = WorkflowTransport.native(
           directory: temp.path,
-          bash: bash!,
           helperCommand: helper,
         );
         final transport = WorkflowTransport(
@@ -442,7 +419,7 @@ void main() {
           transport.fenced(
             'bot',
             [
-              bash,
+              bash!,
               '-c',
               r'(sleep 2; printf late > "$1") & wait',
               'x',

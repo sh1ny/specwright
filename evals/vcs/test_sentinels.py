@@ -2,6 +2,7 @@
 
 Run: python -m unittest evals/vcs/test_sentinels.py
 """
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +24,8 @@ class TestSentinels(unittest.TestCase):
     def test_the_four_scripts_and_both_interpreters_exist(self):
         self.assertEqual(sorted(p.name for p in self.sent.scripts.iterdir()),
                          sorted(["as.sh", "pr-pair.sh", "sw-path.sh", "vcs.sh"]))
-        self.assertEqual(sorted(p.name for p in self.sent.bin.iterdir()), ["python", "python3"])
+        wrappers = ["python.cmd", "python3.cmd"] if os.name == "nt" else []  # D9: started by name on Windows
+        self.assertEqual(sorted(p.name for p in self.sent.bin.iterdir()), sorted(["python", "python3", *wrappers]))
 
 
 if __name__ == "__main__":

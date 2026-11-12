@@ -33,6 +33,11 @@ class Transport {
 /// line and sends the arguments after `name` on stdin as UTF-8, each followed
 /// by a NUL, then an end marker. Nothing reaches disk. Every other command is
 /// returned unchanged with no bytes.
+///
+/// Constraint C7: `sw run --bounded` (and a bounded call such as
+/// `runBoundedCommand`) keeps this Windows `bash -c` stdin transport for callers
+/// that ask for bash, until `native-cli-retire-scripts`. It is a deliberate gap,
+/// not a launcher path: `sw`'s own tool calls no longer start a shell.
 Transport transportFor(List<String> command, {bool? windows}) {
   final win = windows ?? Platform.isWindows;
   if (!win ||

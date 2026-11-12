@@ -21,6 +21,7 @@ ROOT = HERE.parents[1]
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
+import fakeexe  # noqa: E402  (jjenv puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402
 from vcs_test_support import STAMP, bash_run, sw_home, stamp_version, tree_version  # noqa: E402
 
@@ -105,28 +106,55 @@ class TestPlanRunsSw(ShimCase):
         self.assertIn(f"undo archive of {name}", doc["script"])
         self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", doc["script"])
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_committed_name_is_not_utf8(self):
+        """A committed archive file whose name holds 0xFF stops the plan by name: no script, exit 1 (D4)."""
+        fx.git(self.work, "checkout", "-q", "-b", BRANCH)
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing"})
+        raw = os.fsencode(self.work) + b"/" + os.fsencode(P) + b"/changes/add-x/notes-\xff.md"
+        with open(raw, "wb") as stream:
+            stream.write(b"notes\n")
+        fx.archive(self.work, "add-x", commit_it=True)
+
+        result = self.run_shim(*self.plan())
+
+        doc = self.document(result, 1)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "not_utf8"), doc)
+        self.assertIn("notes-\\xFF.md", doc["message"])
+        self.assertNotIn("script", doc)
+
     @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
     def test_git_bash_dir_on_windows(self):
         self.archived(self.work)
         bash_form = subprocess.run(["cygpath", "-u", str(self.work)], capture_output=True, text=True).stdout.strip()
         self.assertTrue(bash_form.startswith("/"), bash_form)
         drive = self.run_shim(*self.plan(dir_=Path(self.work).as_posix()), cwd=self.tmp)
-        bash = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp)
+        # a cygpath that logs its arguments and runs the real one: the shim's own conversions need it,
+        # but sw converts the --dir path by its own rules and never runs it for that path
+        stub = self.tmp / "stub"
+        gitlog.install(stub, real_git=jjenv.real_git(), log_path=self.shim.log_path)
+        log = self.tmp / "cygpath.log"
+        fakeexe.write_fake(
+            stub / "cygpath",
+            '#!/bin/sh\nprintf \'%%s\\n\' "$*" >> "%s"\nexec "%s" "$@"\n'
+            % (log.as_posix(), Path(shutil.which("cygpath")).as_posix()))
+        bash = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp, shim_dir=stub)
         self.assertEqual(bash.returncode, 0, bash.stdout + bash.stderr)
         self.assertNotIn("not_a_repo", bash.stdout)
         self.assertEqual(json.loads(bash.stdout), json.loads(drive.stdout))
+        self.assertNotIn(bash_form, log.read_text(encoding="utf-8") if log.exists() else "", "cygpath ran for --dir")
 
     @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
     def test_failed_dir_conversion_is_bad_path(self):
         self.archived(self.work)
-        bash_form = subprocess.run(["cygpath", "-u", str(self.work)], capture_output=True, text=True).stdout.strip()
-        stub = self.tmp / "stub"
-        gitlog.install(stub, real_git=jjenv.real_git(), log_path=self.shim.log_path)
-        # fails for the --dir path only: the resolver and the shim convert their own paths with cygpath too
-        (stub / "cygpath").write_text(
-            '#!/bin/sh\nfor a in "$@"; do [ "$a" = "%s" ] && exit 1; done\nexec "%s" "$@"\n'
-            % (bash_form, Path(shutil.which("cygpath")).as_posix()), encoding="utf-8", newline="\n")
-        result = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp, shim_dir=stub)
+        # The shim hands over its own bash, whose install root is always found. So the handoff the shim
+        # writes is made here with a bash path that holds no Git root: /etc/x has nowhere to go.
+        bash_form = "/etc/x"
+        records = [str(FINISH_SCRIPTS), r"C:\tools\bash.exe", *self.plan(dir_=bash_form)]
+        result = subprocess.run([os.environ["SPECWRIGHT_SW"], "finish", "--args-stdin"],
+                                input=b"".join(x.encode("utf-8") + b"\0" for x in records),
+                                capture_output=True, cwd=self.tmp, env={**os.environ, **self.shim.env})
+        result.stdout, result.stderr = result.stdout.decode("utf-8"), result.stderr.decode("utf-8")
         doc = self.document(result, 2)
         self.assertEqual((doc["ok"], doc["error"]), (False, "bad_path"), doc)
         self.assertIn(bash_form, doc["message"])

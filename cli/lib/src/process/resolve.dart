@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 /// Finds the file `sw run` starts for [name], or null when there is none.
 ///
 /// A name with a path separator is used as given. Otherwise `PATH` is walked,
@@ -10,16 +12,39 @@ import 'dart:io';
 /// two colons) is the current directory, searched in its position as the shell
 /// and `execvp` search it, and found as `./<name>`. On Windows empty entries
 /// are dropped (#202).
+///
+/// With [workingDirectory] a relative name, and a relative `PATH` entry
+/// (including the `.` an empty POSIX entry stands for), is looked for under
+/// that directory and the result is the joined path (on POSIX with its `..`
+/// kept, as the OS follows links before `..`); nothing is
+/// checked against this process's own directory (C11). Without it, relative
+/// candidates are checked and returned as they are.
 String? resolveCommand(
   String name,
   Map<String, String> env, {
   bool? windows,
   bool Function(String path)? isFile,
+  String? workingDirectory,
 }) {
   final win = windows ?? Platform.isWindows;
   final exists = isFile ?? _isFile;
   final separator = win ? RegExp(r'[\\/]') : RegExp('/');
-  if (name.contains(separator)) return exists(name) ? name : null;
+  final style = win ? p.Context(style: p.Style.windows) : p.posix;
+  // A relative candidate is anchored to the working directory when the caller
+  // names one. Windows resolves `..` by name, so it is normalised there; POSIX
+  // resolves `..` after following a link, so only `.` segments go.
+  String anchor(String candidate) {
+    if (workingDirectory == null || style.isAbsolute(candidate)) {
+      return candidate;
+    }
+    final joined = style.join(workingDirectory, candidate);
+    return win ? style.normalize(joined) : _dropDots(joined);
+  }
+
+  if (name.contains(separator)) {
+    final found = anchor(name);
+    return exists(found) ? found : null;
+  }
 
   final path = _lookup(env, 'PATH', win);
   if (path == null) return null; // no PATH searches nothing, not `.`
@@ -34,13 +59,21 @@ String? resolveCommand(
     final base = dir.endsWith('/') || (win && dir.endsWith(r'\'))
         ? '$dir$name'
         : '$dir${win ? r'\' : '/'}$name';
-    if (hasKnownExtension && exists(base)) return base;
+    if (hasKnownExtension && exists(anchor(base))) return anchor(base);
     for (final ext in extensions) {
-      final candidate = '$base$ext';
+      final candidate = anchor('$base$ext');
       if (exists(candidate)) return candidate;
     }
   }
   return null;
+}
+
+/// [path] without its `.` segments and repeated `/`, its `..` kept.
+String _dropDots(String path) {
+  final kept = path.split('/').where((s) => s.isNotEmpty && s != '.');
+  final joined = kept.join('/');
+  if (path.startsWith('/')) return '/$joined';
+  return joined.isEmpty ? '.' : joined;
 }
 
 /// The lower-cased extension of [name] with its dot, or ''.

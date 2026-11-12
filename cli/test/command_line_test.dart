@@ -3,6 +3,20 @@ import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // D5 on Linux and macOS CI too: the check takes the platform as a parameter.
+  test('the Windows command-line limit is checked on every host', () {
+    checkCommandLine('tool', ['tool', 'x' * 100], windows: true);
+    checkCommandLine('tool', ['tool', 'x' * 40000], windows: false);
+    expect(
+      () => checkCommandLine('tool', ['tool', 'x' * 40000], windows: true),
+      throwsA(
+        isA<Unrepresentable>()
+            .having((e) => e.command, 'command', 'tool')
+            .having((e) => e.what, 'what', 'command line'),
+      ),
+    );
+  });
+
   group('quoteBatchLine', () {
     test('quotes the path and every argument, empty included', () {
       expect(
@@ -162,6 +176,35 @@ void main() {
           isFile: files({'./tool'}),
         ),
         isNull,
+      );
+    });
+
+    test('a relative name keeps its `..` after a link on POSIX', () {
+      final seen = <String>[];
+      final found = resolveCommand(
+        'link/../tool',
+        {'PATH': '/usr/bin'},
+        windows: false,
+        workingDirectory: '/work',
+        isFile: (path) {
+          seen.add(path);
+          return true;
+        },
+      );
+      expect(found, '/work/link/../tool');
+      expect(seen, ['/work/link/../tool']);
+    });
+
+    test('a relative PATH entry keeps its `..`, drops its `.`', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': './link/..//bin'},
+          windows: false,
+          workingDirectory: '/work',
+          isFile: (path) => true,
+        ),
+        '/work/link/../bin/tool',
       );
     });
 

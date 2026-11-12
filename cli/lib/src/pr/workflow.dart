@@ -84,7 +84,6 @@ class Workflow {
     final limits = resolveLimits(ctx.env, paged: false);
     Future<GhResult> unfenced(Map<String, String> environment) async {
       final result = await runBoundedCommand(
-        ctx.bash,
         dir,
         ['git', ...args],
         environment: environment,
@@ -107,14 +106,15 @@ class Workflow {
 
     if (slug == null) return unfenced(unfencedEnvironment());
     var login = _repoLogin[slug.toLowerCase()];
+    // D4: both are compared as paths, so they are read strictly
     final top = (await ctx.git(dir, [
       'rev-parse',
       '--show-toplevel',
-    ])).stdout.trim();
+    ])).names('repository path').trim();
     final started = (await ctx.git(ctx.cwd, [
       'rev-parse',
       '--show-toplevel',
-    ])).stdout.trim();
+    ])).names('repository path').trim();
     if (login == null && top.isNotEmpty && top == started) {
       return unfenced(ctx.env);
     }
@@ -125,7 +125,6 @@ class Workflow {
     await tokenFor(login);
     return WorkflowTransport.native(
       directory: dir,
-      bash: ctx.bash,
       environment: ctx.env,
       helperCommand: ctx.helperCommand,
     ).fenced(login, ['git', ...args], outer: limits);
@@ -154,9 +153,9 @@ class Workflow {
       final top = (await ctx.git(dir, [
         'rev-parse',
         '--show-toplevel',
-      ])).stdout.trim();
+      ])).names('repository path').trim();
       final gb = (await ctx.git(dir, ['rev-parse', '--git-path', 'gitbutler']));
-      final metadata = gb.stdout.trim();
+      final metadata = gb.names('git directory').trim();
       final absolute =
           metadata.startsWith('/') ||
           Platform.isWindows &&

@@ -4,7 +4,6 @@ import '../commit/task_cover.dart' show pyStrip;
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
 import '../settings/yaml.dart';
-import '../vcs/codec.dart';
 import 'context.dart';
 import 'identity.dart';
 import 'pair.dart';
@@ -52,7 +51,8 @@ Future<Contexts> workflowContexts(
 /// `toplevel(d)`: the git top level of [d], else [d].
 Future<String> _toplevel(PrContext ctx, String d) async {
   final r = await ctx.git(d, ['rev-parse', '--show-toplevel']);
-  final top = pyStrip(r.stdout);
+  // D4: a path, read strictly
+  final top = pyStrip(r.names('repository path'));
   return r.code == 0 && top.isNotEmpty ? top : d;
 }
 
@@ -83,10 +83,8 @@ Future<String> _detectMain(PrContext ctx, String d) async {
 Future<String?> _settingsPath(PrContext ctx, String code) async {
   for (final base in [code, null]) {
     final dir = base ?? await _toplevel(ctx, code);
-    final f = rawFile('$dir/openspec/specwright.yaml');
+    final f = File('$dir/openspec/specwright.yaml');
     if (f.existsSync()) {
-      // Dart's resolved path is a string, which cannot hold a name that is not UTF-8
-      if (hasEscapedBytes(dir)) return '$dir/openspec/specwright.yaml';
       try {
         return f.resolveSymbolicLinksSync().replaceAll(r'\', '/');
       } on FileSystemException {
@@ -132,9 +130,7 @@ Future<void> _settingsPinned(
   if (path != null) {
     String resolvedTop = top;
     try {
-      if (!hasEscapedBytes(top)) {
-        resolvedTop = Directory(top).resolveSymbolicLinksSync();
-      }
+      resolvedTop = Directory(top).resolveSymbolicLinksSync();
     } on FileSystemException {
       // keep the top level as git printed it
     }
@@ -181,10 +177,10 @@ Future<void> _settingsPinned(
 Future<bool> _gitbutlerPins(PrContext ctx, String code) async {
   if ((await _loadSettings(ctx, code))['vcs'] == 'gitbutler') return true;
   final r = await ctx.git(code, ['rev-parse', '--git-common-dir']);
-  final common = pyStrip(r.stdout);
+  final common = pyStrip(r.names('Git common directory'));
   if (r.code != 0 || common.isEmpty) return false;
   final commonDir = Directory(common).isAbsolute ? common : '$code/$common';
-  if (!rawDirectory('$commonDir/gitbutler').existsSync()) return false;
+  if (!Directory('$commonDir/gitbutler').existsSync()) return false;
   final t = await ctx.git(code, [
     'config',
     '--get',
@@ -209,7 +205,7 @@ Future<String> _pinRef(
     '--get',
     'gitbutler.project.targetRef',
   ]);
-  final target = r.code == 0 ? pyStrip(r.stdout) : '';
+  final target = r.code == 0 ? pyStrip(r.names('GitButler target ref')) : '';
   if (target.isEmpty) {
     throw PairStop(
       'git_error',
