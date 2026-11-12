@@ -166,3 +166,7 @@ Trial: `F:/Temp/omp-network-cVwF0p/failure-controls-v3e25dlx`, same fixed flags 
 - Before/after porcelain byte-equal. No module-free fallback or relaxed invocation was used.
 
 `omp-native.json.network_policy_prototype` retains exact argv, overlay, prompts, module sources, paired native results, fixture counters and checkout state. Task 6.5 must replace neither these observations nor their limited scope with an inventory-only or model-only pass.
+
+## Task 1.5 disposition
+
+Fresh independent design review round 6 approved this mechanism and its explicitly limited prototype scope. The native observations above satisfy the foundation mechanism/failure-control check; production grammar and emitted-module acceptance remain task 6.5. No inventory-only or model-only result is promoted to a network-isolation pass.
