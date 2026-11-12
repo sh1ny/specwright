@@ -106,6 +106,23 @@ class TestPlanRunsSw(ShimCase):
         self.assertIn(f"undo archive of {name}", doc["script"])
         self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", doc["script"])
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_committed_name_is_not_utf8(self):
+        """A committed archive file whose name holds 0xFF stops the plan by name: no script, exit 1 (D4)."""
+        fx.git(self.work, "checkout", "-q", "-b", BRANCH)
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing"})
+        raw = os.fsencode(self.work) + b"/" + os.fsencode(P) + b"/changes/add-x/notes-\xff.md"
+        with open(raw, "wb") as stream:
+            stream.write(b"notes\n")
+        fx.archive(self.work, "add-x", commit_it=True)
+
+        result = self.run_shim(*self.plan())
+
+        doc = self.document(result, 1)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "not_utf8"), doc)
+        self.assertIn("notes-\\xFF.md", doc["message"])
+        self.assertNotIn("script", doc)
+
     @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
     def test_git_bash_dir_on_windows(self):
         self.archived(self.work)

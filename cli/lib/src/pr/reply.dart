@@ -1,8 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import '../options.dart';
-import '../vcs/codec.dart';
 import 'context.dart';
 import 'gh.dart';
 import 'queries.dart';
@@ -225,7 +225,7 @@ class _Reply {
   }
 
   Future<bool> readable(String path) async {
-    final file = rawFile(await ctx.native(path));
+    final file = File(await ctx.native(path));
     try {
       if (file.statSync().type != FileSystemEntityType.file) return false;
       if (file.lengthSync() == 0) return false;
@@ -313,13 +313,13 @@ class _Reply {
     tmp = path;
     try {
       final bytes = BytesBuilder(copy: false)
-        ..add(rawFile(await ctx.native(bodyFile)).readAsBytesSync())
+        ..add(File(await ctx.native(bodyFile)).readAsBytesSync())
         ..add(
-          encodeEscaped(
+          utf8.encode(
             '\n\n<!-- specwright:$mkind $marker${rev.isEmpty ? '' : ' rev=$rev'} -->\n',
           ),
         );
-      rawFile(path).writeAsBytesSync(bytes.takeBytes());
+      File(path).writeAsBytesSync(bytes.takeBytes());
     } on FileSystemException {
       stop(
         'pr-reply: the reply for body file $bodyFile could not be written in full; nothing was posted',

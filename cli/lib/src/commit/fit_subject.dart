@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../fs/link.dart';
-import '../vcs/codec.dart';
 import 'context.dart';
 import 'paths.dart';
 
@@ -50,7 +49,7 @@ Future<int> fitSubject(
   } on BadPathException {
     return _fail(ctx, 'fit-subject.sh: could not convert path: $arg', 2);
   }
-  final file = arg.isEmpty ? null : File.fromRawPath(encodeEscaped(path));
+  final file = arg.isEmpty ? null : File(path);
   if (file == null || !file.existsSync()) {
     return _fail(ctx, "fit-subject.sh: no message file: '$arg'", 2);
   }
@@ -109,7 +108,7 @@ Future<int> fitSubject(
 
   if (fitted.length != line.length) {
     final tmpPath = '$path.fit.$pid';
-    final tmp = File.fromRawPath(encodeEscaped(tmpPath));
+    final tmp = File(tmpPath);
     try {
       final out = BytesBuilder(copy: false)
         ..add(fitted)

@@ -64,7 +64,7 @@ void main() {
       final args = ['api', 'x y', '', '--jq', r'.a | "b" $c', 'e=f'];
       final r = await gh(args);
       expect(r.exitCode, 0, reason: decodeText(r.stderr));
-      expect(decodeEscaped(r.stdout).split('\x00')..removeLast(), args);
+      expect(decodeReplacing(r.stdout).split('\x00')..removeLast(), args);
     });
 
     test('a 20,000-character argument arrives whole', () async {
@@ -72,7 +72,7 @@ void main() {
       final big = 'x' * 20000;
       final r = await gh(['api', big, 'tail']);
       expect(r.exitCode, 0, reason: decodeText(r.stderr));
-      expect(decodeEscaped(r.stdout).split('\x00')..removeLast(), [
+      expect(decodeReplacing(r.stdout).split('\x00')..removeLast(), [
         'api',
         big,
         'tail',

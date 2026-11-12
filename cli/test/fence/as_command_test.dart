@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:specwright_cli/src/fence/as_command.dart';
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
@@ -29,7 +28,7 @@ void main() {
       File('${dir.path}/handoff')..writeAsBytesSync(bytes);
 
   List<int> records(List<String> rs) => [
-    for (final r in rs) ...[...encodeEscaped(r), 0],
+    for (final r in rs) ...[...utf8.encode(r), 0],
   ];
 
   Future<GhResult> fakeGh(List<String> a, Map<String, String> e) async {
@@ -41,13 +40,13 @@ void main() {
         : 'me\n';
     return GhResult(
       exitCode: 0,
-      stdout: encodeEscaped(text),
+      stdout: utf8.encode(text),
       stderr: Uint8List(0),
     );
   }
 
   Future<ToolResult> fakeGit(List<String> c, Map<String, String> e) async =>
-      ToolResult(0, encodeEscaped('false\n'), Uint8List(0));
+      ToolResult(0, utf8.encode('false\n'), Uint8List(0));
 
   Future<int> run(List<String> args) => runAsCommand(
     args,

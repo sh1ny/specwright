@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/vcs/codec.dart';
+import 'package:specwright_cli/src/vcs/text_result.dart';
 import 'package:test/test.dart';
 
 /// Expected code points come from CPython 3.14:
@@ -82,39 +83,21 @@ Uint8List _bytes(String hex) => Uint8List.fromList([
 ]);
 
 void main() {
-  group('decodeEscaped (surrogateescape)', () {
-    for (final (hex, escaped, _) in _cpython) {
-      test('matches CPython for "$hex"', () {
-        expect(decodeEscaped(_bytes(hex)).runes.toList(), escaped);
+  group('decodeStrict agrees with CPython on what is valid UTF-8', () {
+    for (final (hex, escaped, replaced) in _cpython) {
+      // CPython's surrogateescape output holds U+DC80..U+DCFF exactly where the bytes are invalid.
+      final invalid = escaped.any((u) => u >= 0xdc80 && u <= 0xdcff);
+      test('"$hex" is ${invalid ? 'refused' : 'accepted'}', () {
+        if (invalid) {
+          expect(
+            () => decodeStrict(_bytes(hex), 'name'),
+            throwsA(isA<NotUtf8>()),
+          );
+        } else {
+          expect(decodeStrict(_bytes(hex), 'name').runes.toList(), replaced);
+        }
       });
     }
-  });
-
-  group('encodeEscaped', () {
-    for (final (hex, _, _) in _cpython) {
-      test('round-trips the bytes "$hex"', () {
-        final bytes = _bytes(hex);
-        expect(encodeEscaped(decodeEscaped(bytes)), bytes);
-      });
-    }
-
-    test('encodes a valid U+FFFD as its own three bytes', () {
-      expect(encodeEscaped('\u{fffd}'), [0xef, 0xbf, 0xbd]);
-    });
-
-    test('encodes non-BMP text as four bytes', () {
-      expect(encodeEscaped('\u{1f600}'), [0xf0, 0x9f, 0x98, 0x80]);
-    });
-
-    test('rejects a lone surrogate outside U+DC80..U+DCFF', () {
-      expect(() => encodeEscaped('\ud800'), throwsFormatException);
-      expect(() => encodeEscaped('\udc7f'), throwsFormatException);
-      expect(() => encodeEscaped('\udd00'), throwsFormatException);
-    });
-
-    test('keeps an escaped byte after a valid pair', () {
-      expect(encodeEscaped('\u{1f600}\udcff'), [0xf0, 0x9f, 0x98, 0x80, 0xff]);
-    });
   });
 
   group('decodeText (git and jj output)', () {
@@ -190,6 +173,34 @@ void main() {
 
     test('leaves CRLF alone', () {
       expect(decodeReplacing(_bytes('610d0a')), 'a\r\n');
+    });
+  });
+
+  group('TextResult.names (a name list from a tool)', () {
+    test('returns the strictly decoded text', () {
+      final r = TextResult(0, 'x', '', stdoutBytes: _bytes('61c3a900'));
+      expect(r.names('file name'), 'a\u00e9\u0000');
+    });
+
+    test('throws NotUtf8 for a name that is not UTF-8, not a U+FFFD', () {
+      final r = TextResult(
+        0,
+        'a\u{fffd}',
+        '',
+        stdoutBytes: _bytes('4d20ff2e74787400'),
+      );
+      expect(
+        () => r.names('file name'),
+        throwsA(
+          isA<NotUtf8>()
+              .having((e) => e.what, 'what', 'file name')
+              .having((e) => e.shown, 'shown', 'M \\xFF.txt\u0000'),
+        ),
+      );
+    });
+
+    test('a result built from text returns that text', () {
+      expect(TextResult(0, 'a\u0000b', '').names('file name'), 'a\u0000b');
     });
   });
 }

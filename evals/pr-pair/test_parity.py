@@ -318,21 +318,17 @@ class SnapshotParity(PrParity):
                 self.assertEqual(old["calls"], [], "no gh call before the config check")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs Linux")
-    def test_config_name_with_a_non_utf8_byte_for_the_check_and_the_evaluation(self):
-        name = os.fsdecode(b"reviewers-\xff.json")
-        good, good_old = self.config_pair(rev("genrev"), name=name)
-        self.add_activity("a" * 40, T0)
-        self.add_comment("genrev", "looks good")
-        new, old = self.reviewer_snapshot_pair(good, good_old)  # the evaluation
-        self.assertParity((new, old), 0)
-        self.assertEqual(json.loads(old["stdout"])["reviewers"][0]["login"], "genrev")
-        bad = self.tmp / os.fsdecode(b"bad-\xff.json")
-        bad.write_text("{not json", encoding="utf-8")
-        new, old = self.snapshot_pair("--reviewer-config", fixtures.posix(bad))  # the check
-        self.assertParity((new, old), 2, prefix="reviewers.py: ")
-        # reviewers.py opened the file by its bytes (a lost byte would be "No such file"); Python's stderr writes the name
-        # with backslashreplace, so the byte shows as \udcff in both
-        self.assertIn(b"not valid JSON", new["stderr"], "the check opened the file by its bytes")
+    def test_config_name_with_a_non_utf8_byte_is_refused(self):
+        # Strict handoff (D4): the script refuses a --reviewer-config path that is not UTF-8 by name, before any gh call;
+        # the oracle opened it by its bytes.
+        good, _ = self.config_pair(rev("genrev"), name=os.fsdecode(b"reviewers-\xff.json"))
+        new = self.one("pr-snapshot.sh", (self.PR, "--repo", self.SLUG, "--reviewer-config", good), "new", "me", None)
+        self.assertEqual(new["code"], 2, new)
+        self.assertEqual(new["stdout"], b"")
+        self.assertTrue(new["stderr"].startswith(b"pr-snapshot.sh: "), new["stderr"])
+        self.assertIn(b"not valid UTF-8", new["stderr"])
+        self.assertIn(b"reviewers-\\xFF.json", new["stderr"])
+        self.assertEqual(new["calls"], [], "no gh call before the refusal")
 
 
 class ReplyParity(PrParity):
@@ -764,10 +760,17 @@ class PairParity(PrParity):
                 self.run_pair("tier", "--code", self.repo(f"t{i}", settings=settings), code=0)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a directory name that is not UTF-8 needs Linux")
-    def test_checkout_under_a_non_utf8_directory_reads_its_settings(self):
+    def test_checkout_under_a_non_utf8_directory_is_not_utf8(self):
+        # Strict handoff (D4): the script refuses a path that is not UTF-8 by name; the oracle kept the bytes.
         code = self.repo(os.fsdecode(b"co-\xff"), settings="vcs: jj\nfinish: pr\ngithub:\n  login: me\n")
-        self.assertEqual(self.run_pair("vcs", "--code", code, code=0)["code"], "jj")
-        self.run_pair("tier", "--code", code, code=0)
+        for sub in ("vcs", "tier"):
+            with self.subTest(sub=sub):
+                new = self.side("new", (sub, "--code", code), None)
+                self.assertEqual(new["code"], 1, new)
+                doc = json.loads(new["stdout"])
+                self.assertEqual((doc["ok"], doc["error"]), (False, "not_utf8"), doc)
+                self.assertIn("co-\\xFF", doc["message"])
+                self.assertEqual(new["calls"], [], "no gh call before the refusal")
 
     def test_vcs_and_tier_usage_exit_2(self):
         for sub in ("vcs", "tier"):

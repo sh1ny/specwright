@@ -14,7 +14,12 @@ export 'text_result.dart';
 /// as text. This is `vcs.sh`'s `run`.
 Future<TextResult> runText(String cwd, List<String> command) async {
   final r = await runTool(cwd, command);
-  return TextResult(r.exitCode, decodeText(r.stdout), decodeText(r.stderr));
+  return TextResult(
+    r.exitCode,
+    decodeText(r.stdout),
+    decodeText(r.stderr),
+    stdoutBytes: r.stdout,
+  );
 }
 
 /// The identity fence, run in process: `as.sh`'s argument list in, the

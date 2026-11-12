@@ -5,13 +5,13 @@
 @Timeout(Duration(minutes: 2))
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/fence/fenced_text.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
@@ -47,7 +47,7 @@ void main() {
         : '$active\n';
     return GhResult(
       exitCode: 0,
-      stdout: encodeEscaped(text),
+      stdout: utf8.encode(text),
       stderr: Uint8List(0),
     );
   };
@@ -56,7 +56,7 @@ void main() {
   Future<ToolResult> outsideWorkTree(
     List<String> command,
     Map<String, String> env,
-  ) async => ToolResult(0, encodeEscaped('false\n'), Uint8List(0));
+  ) async => ToolResult(0, utf8.encode('false\n'), Uint8List(0));
 
   Map<String, String> env([Map<String, String> more = const {}]) => {
     ...Platform.environment,
@@ -113,7 +113,7 @@ void main() {
             : command.length == 2
             ? 'origin\n'
             : '';
-        return ToolResult(0, encodeEscaped(text), Uint8List(0));
+        return ToolResult(0, utf8.encode(text), Uint8List(0));
       }
 
       final r = await fencedText(

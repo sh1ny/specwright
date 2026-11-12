@@ -1,7 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
-import 'codec.dart';
 import 'git_common.dart';
 import 'stop.dart';
 import 'tool_runner.dart';
@@ -72,7 +72,7 @@ Future<Map<String, Object?>> gitState(VcsSession s) async {
       said.isNotEmpty ? said : 'git status --porcelain -z failed',
     );
   }
-  final parsed = parsePorcelain(status.stdout);
+  final parsed = parsePorcelain(status.names('file name'));
   return {
     'ok': true,
     'backend': 'git',
@@ -176,9 +176,9 @@ Future<Map<String, Object?>> runGitOperation(
       if (windows ?? Platform.isWindows) {
         var size = 0;
         for (final p in paths) {
-          size += encodeEscaped(p).length + 1;
+          size += utf8.encode(p).length + 1;
         }
-        size += encodeEscaped(messageFile).length;
+        size += utf8.encode(messageFile).length;
         if (size > 32000) {
           throw VcsStop(
             'too_many_paths',

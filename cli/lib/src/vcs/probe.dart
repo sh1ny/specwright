@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'codec.dart';
 import 'scripts.dart';
 import 'stop.dart';
 
@@ -37,15 +36,10 @@ Future<String> resolvePath(String path) async {
 bool _samePath(String a, String b) =>
     Platform.isWindows ? a.toLowerCase() == b.toLowerCase() : a == b;
 
-// Raw-byte checks only: `statSync` stats the lossy `path` string (D4).
-bool _exists(String path) {
-  final bytes = encodeEscaped(path);
-  return File.fromRawPath(bytes).existsSync() ||
-      Directory.fromRawPath(bytes).existsSync();
-}
+bool _exists(String path) =>
+    File(path).existsSync() || Directory(path).existsSync();
 
-bool _isDirectory(String path) =>
-    Directory.fromRawPath(encodeEscaped(path)).existsSync();
+bool _isDirectory(String path) => Directory(path).existsSync();
 
 String _join(String base, String rel) {
   final absolute =

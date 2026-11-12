@@ -196,7 +196,7 @@ Future<Map<String, Object?>> _cover(
     if (meta.length != 3 ||
         !_fileModes.contains(meta[0]) ||
         meta[1] != 'blob' ||
-        !_bytesEqual(name, encodeEscaped(tasksRel)) ||
+        !_bytesEqual(name, utf8.encode(tasksRel)) ||
         trimmed.contains(0)) {
       throw noTasks;
     }
@@ -207,7 +207,7 @@ Future<Map<String, Object?>> _cover(
         ? tasksRel.substring(0, tasksRel.lastIndexOf('/'))
         : '';
   } else {
-    final file = File.fromRawPath(encodeEscaped(tasksPath));
+    final file = File(tasksPath);
     final stat = file.statSync();
     if (stat.type != FileSystemEntityType.file) {
       throw VcsStop('no_tasks', 'no tasks file: $tasksPath', code: 2);
@@ -470,7 +470,7 @@ Future<bool> evidenceOk(
     final name = tab < 0 ? Uint8List(0) : trimmed.sublist(tab + 1);
     if (fields.length != 3 ||
         !_fileModes.contains(fields[0]) ||
-        decodeReplacing(name) != path) {
+        !_bytesEqual(name, utf8.encode(path))) {
       return false;
     }
     final size = await call(repo, ['cat-file', '-s', fields[2]], soft: true);
@@ -505,7 +505,7 @@ Future<bool> evidenceOk(
   if (fields.length != 3 ||
       !_fileModes.contains(fields[0]) ||
       fields[2] != '0' ||
-      decodeReplacing(name) != rel) {
+      !_bytesEqual(name, utf8.encode(rel))) {
     return false;
   }
   final size = await call(changeDir, ['cat-file', '-s', fields[1]], soft: true);
@@ -762,7 +762,7 @@ String? _relpath(String path, String start) {
 String realpath(String path) {
   final a = _abspath(path);
   try {
-    return Directory.fromRawPath(encodeEscaped(a)).resolveSymbolicLinksSync();
+    return Directory(a).resolveSymbolicLinksSync();
   } on Object {
     return a;
   }

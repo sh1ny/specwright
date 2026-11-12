@@ -51,14 +51,6 @@ void main() {
         throwsA(isA<StateError>()),
       );
     });
-
-    test('a lone surrogate (an escaped raw byte) survives', () {
-      expect(relpathText('/r/a\udcffb', '/r', windows: false), 'a\udcffb');
-      expect(
-        relpathText('C:${r'\r\a'}\udcffb', r'C:\r', windows: true),
-        'a\udcffb',
-      );
-    });
   });
 
   // A4, run on package:path 1.9 with the windows style (Dart 3.13):
@@ -67,8 +59,6 @@ void main() {
   //    the remainder keeps the path's own case.
   //  - another drive: relative(r'D:\x', from: r'C:\r') is r'D:\x', an
   //    absolute path, never a '..' chain; callers refuse it by isAbsolute.
-  //  - lone surrogates: U+DCFF in a name passes through normalize, relative
-  //    and dirname unchanged.
   group('A4: package:path in the windows style', () {
     final win = p.Context(style: p.Style.windows, current: r'C:\r');
     test('compares case-insensitively', () {
@@ -82,12 +72,6 @@ void main() {
       final rel = win.relative(r'D:\x', from: r'C:\r');
       expect(rel, r'D:\x');
       expect(win.isAbsolute(rel), isTrue);
-    });
-    test('lone surrogates pass through', () {
-      const lone = '\udcff';
-      expect(win.relative('C:\\r\\a${lone}b', from: r'C:\r'), 'a${lone}b');
-      expect(win.dirname('C:\\r\\a${lone}b\\c'), 'C:\\r\\a${lone}b');
-      expect(win.normalize('C:\\r\\.\\a${lone}b\\..\\c'), r'C:\r\c');
     });
   });
 }

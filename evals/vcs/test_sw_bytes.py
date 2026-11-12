@@ -42,39 +42,44 @@ class TestSwBytes(VcsTestCase):
         self.assertIn(name, json.loads(result.stdout)["dirty_paths"])
 
     @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
-    def test_non_utf8_name_round_trips(self):
+    def test_non_utf8_name_is_not_utf8(self):
+        """A name from `git status -z` that is not UTF-8 stops the document by name (D4), never a U+FFFD look-alike."""
         name = b"a\xff.txt"
         self.write(name, "one\n")
         self.git(self.repo, "add", "--", os.fsdecode(name))
         self.git(self.repo, "commit", "-m", "add the file")
         self.git(self.repo, "checkout", "-b", BRANCH)
         self.write(name, "two\n")
+        self.write(b"other.txt", "other\n")
 
-        state, _ = self.invoke("state")
-        self.assertEqual(state["dirty_paths"], [os.fsdecode(name)])
+        state, _ = self.invoke("state", expected=1)
 
-        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(),
-                                "--", state["dirty_paths"][0])
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("a\\xFF.txt", state["message"])
+        self.assertNotIn("\ufffd", state["message"])
+        self.assertIn("rename", state["message"])
+
+        # Git commits only the named paths, so naming other files still commits them.
+        result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", "other.txt")
         self.assertTrue(result["ok"], result)
-        self.assertEqual(self.commit_names(), [name])
+        self.assertEqual(self.commit_names(), [b"other.txt"])
 
     @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_valid_replacement_char_is_a_character(self):
-        valid, other = "a\ufffd.txt", b"a\xff.txt"
+        """No name in the repo is invalid UTF-8, so a valid U+FFFD in a name is just a character."""
+        valid = "a\ufffd.txt"
         self.write(valid, "one\n")
-        self.write(other, "one\n")
-        self.git(self.repo, "add", "--", valid, os.fsdecode(other))
-        self.git(self.repo, "commit", "-m", "add both files")
+        self.git(self.repo, "add", "--", valid)
+        self.git(self.repo, "commit", "-m", "add the file")
         self.git(self.repo, "checkout", "-b", BRANCH)
         self.write(valid, "two\n")
-        self.write(other, "two\n")
 
         result, _ = self.invoke("commit", "--branch", BRANCH, "--message-file", self.message(), "--", valid)
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(self.commit_names(), [valid.encode("utf-8")])
         state, _ = self.invoke("state")
-        self.assertEqual(state["dirty_paths"], [os.fsdecode(other)])
+        self.assertEqual(state["dirty_paths"], [])
 
     @unittest.skipUnless(os.name == "nt", "platform: the check-ignore input travels the Windows transport")
     def test_check_ignore_receives_oversized_name(self):

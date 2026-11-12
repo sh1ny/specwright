@@ -256,6 +256,26 @@ void main() {
       });
     }
 
+    test(
+      r'an argument that is not UTF-8 is a not_utf8 document, exit 1',
+      () async {
+        final code = await run(
+          ['--args-stdin'],
+          [
+            ..._records(['/s', '/b', 'undo-archive-plan', '--change']),
+            0x61,
+            0xff,
+            0,
+          ],
+        );
+        expect(code, 1);
+        expect(doc()['ok'], false);
+        expect(doc()['error'], 'not_utf8');
+        expect(doc()['message'], contains(r'a\xFF'));
+        expect(seenRequest, isNull);
+      },
+    );
+
     test('a handoff that does not end in a NUL is a usage stop', () async {
       final code = await run([
         '--args-stdin',

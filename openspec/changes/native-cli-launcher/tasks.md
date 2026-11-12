@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | change-finish → The undo plan runs in the project's sw | Plan through a matching sw | evals/finish/test_finish_shim.py | test_plan_runs_sw | green |
 | change-finish → The undo plan runs in the project's sw | Arguments reach sw unchanged | evals/finish/test_finish_shim.py | test_prefix_with_space_and_non_ascii_change | green |
-| change-finish → The undo plan runs in the project's sw | A non-UTF-8 file under the archive | evals/finish/test_finish_shim.py | test_non_utf8_committed_name_is_not_utf8 | red |
+| change-finish → The undo plan runs in the project's sw | A non-UTF-8 file under the archive | evals/finish/test_finish_shim.py | test_non_utf8_committed_name_is_not_utf8 | green |
 | change-finish → The undo plan runs in the project's sw | A refusal keeps its exit status | evals/finish/test_parity.py | TestParityGit.test_refusal_no_archive | green |
 | change-finish → The undo plan runs in the project's sw | Git Bash path on Windows | evals/finish/test_finish_shim.py | test_git_bash_dir_on_windows (adds: no `cygpath` ran) | green |
 | change-finish → The undo plan runs in the project's sw | Path conversion fails on Windows | evals/finish/test_finish_shim.py | test_failed_dir_conversion_is_bad_path (`/etc/x`) | green |
@@ -52,8 +52,8 @@
 | native-cli → Arguments reach native executables unchanged | A missing transport end marker | evals/cli/test_sw_args.py | test_missing_transport_marker_exits_126 | green |
 | native-cli → Arguments reach native executables unchanged | An argument the launcher cannot represent | cli/test/run_command_test.dart | a NUL argument is unrepresentable and nothing starts | green |
 | native-cli → sw documents are compact JSON ending in one line feed | Document on Windows | evals/cli/test_documents.py | test_document_is_compact_with_one_lf | green |
-| native-cli → sw documents are compact JSON ending in one line feed | Non-UTF-8 file name in a document | evals/vcs/test_sw_bytes.py | test_non_utf8_name_is_not_utf8 (replaces test_non_utf8_name_round_trips) | red |
-| native-cli → sw documents are compact JSON ending in one line feed | Non-UTF-8 file name found by a directory walk | evals/vcs/test_sw_bytes.py | test_non_utf8_name_in_walk_stops_commit | red |
+| native-cli → sw documents are compact JSON ending in one line feed | Non-UTF-8 file name in a document | evals/vcs/test_sw_bytes.py | test_non_utf8_name_is_not_utf8 (replaces test_non_utf8_name_round_trips) | green |
+| native-cli → sw documents are compact JSON ending in one line feed | Non-UTF-8 file name found by a directory walk | evals/vcs/test_sw_bytes.py | test_non_utf8_name_in_walk_stops_commit | green |
 | native-cli → sw documents are compact JSON ending in one line feed | A value a document cannot hold | cli/test/vcs/document_test.dart | a value JSON cannot hold is internal_error | green |
 | native-cli → Batch shims get escaped arguments or none | Metacharacters reach the shim literally | evals/cli/test_sw_args.py | test_batch_metacharacters_reach_recorder | green |
 | native-cli → Batch shims get escaped arguments or none | Trailing backslashes survive forwarding | evals/cli/test_sw_args.py | test_batch_trailing_backslashes_survive | green |
@@ -81,12 +81,12 @@
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Another repository is checked under its own identity | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_another_repository_is_checked_under_its_own_identity | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Non-GitHub transport restores the original environment | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_non_github_transport_restores_the_original_environment | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Command arguments remain exact | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_command_arguments_remain_exact (values, failing `bash` first on `PATH`) | red |
-| pr-script-runtime → Native workflow integration calls every ported operation in process | A non-UTF-8 path argument is refused | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_non_utf8_path_argument_is_refused | red |
+| pr-script-runtime → Native workflow integration calls every ported operation in process | A non-UTF-8 path argument is refused | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_non_utf8_path_argument_is_refused | green |
 | pr-script-runtime → Native workflow integration calls every ported operation in process | Unbounded VCS calls remain unbounded | evals/pr-pair/test_workflow_transport.py | WorkflowTransport.test_unbounded_vcs_calls_remain_unbounded | green |
 | task-commits → Commit tooling runs in the project's sw | Coverage through a matching sw | evals/git-workflow/test_commit_shims.py | test_task_cover_runs_sw | green |
 | task-commits → Commit tooling runs in the project's sw | Fitting through a matching sw | evals/git-workflow/test_commit_shims.py | test_fit_subject_runs_sw | green |
 | task-commits → Commit tooling runs in the project's sw | Arguments reach sw unchanged | evals/git-workflow/test_commit_shims.py | test_fit_subject_path_with_space_and_dollar | green |
-| task-commits → Commit tooling runs in the project's sw | A non-UTF-8 message path | evals/git-workflow/test_fit_subject.py | test_non_utf8_path_is_refused | red |
+| task-commits → Commit tooling runs in the project's sw | A non-UTF-8 message path | evals/git-workflow/test_fit_subject.py | test_non_utf8_path_is_refused | green |
 | task-commits → Commit tooling runs in the project's sw | Git Bash paths on Windows | evals/git-workflow/test_fit_subject.py | test_git_bash_paths_on_windows (`/tmp` under `TEMP`, no `cygpath`) | green |
 | task-commits → Commit tooling runs in the project's sw | Git Bash path to tasks.md on Windows | evals/git-workflow/test_commit_shims.py | test_task_cover_git_bash_paths_on_windows | green |
 | task-commits → Commit tooling runs in the project's sw | UNC path on Windows | evals/git-workflow/test_fit_subject.py | test_unc_path_on_windows | green |
@@ -99,13 +99,13 @@
 | vcs-backends → Directory walks list files in sorted order | A valid U+FFFD name alone in the walk | cli/test/fs/walk_test.dart | a valid U+FFFD name alone is listed | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | Line separators parse back | cli/test/vcs/document_test.dart | U+2028 and U+2029 parse back | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | Line separators stay escaped | cli/test/vcs/document_test.dart | U+2028 and U+2029 parse back | green |
-| vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A non-UTF-8 name from a tool stops by name | evals/vcs/test_sw_bytes.py | test_non_utf8_name_is_not_utf8 | red |
+| vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A non-UTF-8 name from a tool stops by name | evals/vcs/test_sw_bytes.py | test_non_utf8_name_is_not_utf8 | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A valid U+FFFD in a name is just a character | evals/vcs/test_sw_bytes.py | test_valid_replacement_char_is_a_character | green |
-| vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A non-UTF-8 argument from the shim | evals/vcs/test_shim.py | test_non_utf8_argument_is_not_utf8 | red |
+| vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | A non-UTF-8 argument from the shim | evals/vcs/test_shim.py | test_non_utf8_argument_is_not_utf8 | green |
 | vcs-backends → sw vcs documents keep their values and refuse non-UTF-8 names | Tool input reaches the tool | evals/vcs/test_sw_bytes.py | test_check_ignore_receives_oversized_name | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Settings read through pr-pair.sh | evals/vcs/test_sw_scripts.py | test_settings_read_through_pr_pair | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Unknown backend in the settings | evals/vcs/test_sw_scripts.py | test_unknown_backend_stops_as_before | green |
-| vcs-backends → sw vcs reads settings and fences identity in process | Scripts installed under a non-UTF-8 directory | evals/vcs/test_sw_scripts.py | test_scripts_under_non_utf8_directory_is_not_utf8 | red |
+| vcs-backends → sw vcs reads settings and fences identity in process | Scripts installed under a non-UTF-8 directory | evals/vcs/test_sw_scripts.py | test_scripts_under_non_utf8_directory_is_not_utf8 | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Unpinned settings stop a GitButler push | evals/vcs/test_gitbutler_push.py | test_unassigned_settings_edit_stops_push | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Fenced push | evals/vcs/test_sw_fence.py | test_fenced_push_runs_in_process | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Refused fence | evals/vcs/test_sw_fence.py | test_refused_fence_maps_to_fence_failed | green |
@@ -170,9 +170,9 @@
 
 ## 8. Strict names at every boundary
 
-- [ ] 8.1 Write failing evals: `evals/vcs/test_sw_bytes.py` `test_non_utf8_name_is_not_utf8` (replacing `test_non_utf8_name_round_trips`; also drop the raw `a<0xFF>.txt` from the fixture of the green row `test_valid_replacement_char_is_a_character`, which group 2's replacing `decodeText` broke and a strict name list would turn into `not_utf8`), `evals/vcs/test_shim.py` `test_non_utf8_argument_is_not_utf8`, `evals/vcs/test_sw_scripts.py` `test_scripts_under_non_utf8_directory_is_not_utf8`, `evals/finish/test_finish_shim.py` `test_non_utf8_committed_name_is_not_utf8`, `evals/git-workflow/test_fit_subject.py` `test_non_utf8_path_is_refused`, `evals/pr-pair/test_workflow_transport.py` `test_non_utf8_path_argument_is_refused`. Verify they fail against today's byte-preserving code.
-- [ ] 8.2 Decode the handoff records strictly (`vcs/args.dart`, `pr/context.dart`, the finish and commit argument readers) and the name-listing tool outputs (`git status -z`, `ls-files -z`, `diff --name-only -z`, jj path lists); map `NotUtf8` to `not_utf8` with exit 1 in documents and to `fit-subject.sh: not valid UTF-8: <path>` with exit 2. Verify the 8.1 evals pass in CI and flip their rows green.
-- [ ] 8.3 Delete `encodeEscaped`, `decodeEscaped`, `hasEscapedBytes`, `rawFile`/`rawDirectory` and every `File.fromRawPath(encodeEscaped(...))` site, with `cli/test/vcs/raw_path_test.dart`'s byte-carrying cases. Verify `mise exec -- dart analyze` reports no use left and `grep -rn "encodeEscaped\|decodeEscaped" cli/lib` prints nothing.
+- [x] 8.1 Write failing evals: `evals/vcs/test_sw_bytes.py` `test_non_utf8_name_is_not_utf8` (replacing `test_non_utf8_name_round_trips`; also drop the raw `a<0xFF>.txt` from the fixture of the green row `test_valid_replacement_char_is_a_character`, which group 2's replacing `decodeText` broke and a strict name list would turn into `not_utf8`), `evals/vcs/test_shim.py` `test_non_utf8_argument_is_not_utf8`, `evals/vcs/test_sw_scripts.py` `test_scripts_under_non_utf8_directory_is_not_utf8`, `evals/finish/test_finish_shim.py` `test_non_utf8_committed_name_is_not_utf8`, `evals/git-workflow/test_fit_subject.py` `test_non_utf8_path_is_refused`, `evals/pr-pair/test_workflow_transport.py` `test_non_utf8_path_argument_is_refused`. Verify they fail against today's byte-preserving code.
+- [x] 8.2 Decode the handoff records strictly (`vcs/args.dart`, `pr/context.dart`, the finish and commit argument readers) and the name-listing tool outputs (`git status -z`, `ls-files -z`, `diff --name-only -z`, jj path lists); map `NotUtf8` to `not_utf8` with exit 1 in documents and to `fit-subject.sh: not valid UTF-8: <path>` with exit 2. Verify the 8.1 evals pass in CI and flip their rows green.
+- [x] 8.3 Delete `encodeEscaped`, `decodeEscaped`, `hasEscapedBytes`, `rawFile`/`rawDirectory` and every `File.fromRawPath(encodeEscaped(...))` site, with `cli/test/vcs/raw_path_test.dart`'s byte-carrying cases. Verify `mise exec -- dart analyze` reports no use left and `grep -rn "encodeEscaped\|decodeEscaped" cli/lib` prints nothing.
 
 ## 9. No shell anywhere, and integration
 

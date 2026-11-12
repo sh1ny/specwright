@@ -101,7 +101,14 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
-) => _Planner(request, ctx).run();
+) async {
+  try {
+    return await _Planner(request, ctx).run();
+  } on NotUtf8 catch (e) {
+    // a name from a tool listing (`ls-files -z`, `status -z`) that is not UTF-8
+    throw VcsStop.notUtf8(e);
+  }
+}
 
 /// The lexical normalisation of [path] (Python's `os.path.normpath`) with `/`
 /// separators: `.` and empty parts dropped, `..` folded into its parent, none
@@ -145,19 +152,6 @@ String normalizeLexical(String path, {bool? windows}) {
 
 VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
 
-/// `json.loads` of what `vcs.sh` printed, as `finish.sh` read it: a name that
-/// was not valid UTF-8 went out as raw bytes and came back as U+FFFD.
-Object? _asRead(Object? value) {
-  if (value is String) return decodeReplacing(encodeEscaped(value));
-  if (value is List) return <Object?>[for (final v in value) _asRead(v)];
-  if (value is Map) {
-    return <String, Object?>{
-      for (final e in value.entries) e.key as String: _asRead(e.value),
-    };
-  }
-  return value;
-}
-
 String _joinAll(List<String> parts) =>
     parts.where((p) => p.isNotEmpty).join('/');
 
@@ -165,11 +159,9 @@ String _joinAll(List<String> parts) =>
 String _under(String top, String path) =>
     top.endsWith('/') ? '$top$path' : '$top/$path';
 
-Uint8List _raw(String path) => encodeEscaped(path);
+bool _isDir(String path) => Directory(path).existsSync();
 
-bool _isDir(String path) => Directory.fromRawPath(_raw(path)).existsSync();
-
-bool _isFile(String path) => File.fromRawPath(_raw(path)).existsSync();
+bool _isFile(String path) => File(path).existsSync();
 
 bool _exists(String path) => _isFile(path) || _isDir(path);
 
@@ -187,7 +179,7 @@ List<WalkDirectory> _walkArchive(String top, String rel) {
 /// A file's bytes, or null when it cannot be read (`wd_bytes`).
 Uint8List? _readFile(String path) {
   try {
-    return File.fromRawPath(_raw(path)).readAsBytesSync();
+    return File(path).readAsBytesSync();
   } on FileSystemException {
     return null;
   }
@@ -228,7 +220,9 @@ class _Planner {
     final bytes = r.stdout;
     for (var i = 0; i <= bytes.length; i++) {
       if (i == bytes.length || bytes[i] == 0) {
-        if (i > start) out.add(decodeReplacing(bytes.sublist(start, i)));
+        if (i > start) {
+          out.add(decodeStrict(bytes.sublist(start, i), 'file name'));
+        }
         start = i + 1;
       }
     }
@@ -267,13 +261,13 @@ class _Planner {
     try {
       final reader = ctx.stateReader;
       if (reader != null) {
-        return (_asRead(await reader(top, code, branch))! as Map).cast();
+        return (await reader(top, code, branch)).cast();
       }
       final parsed = parseVcsArguments(['state', '--repo', top, ...role]);
       final session = await openSession(
         VcsContext(parsed, prScripts, ctx.bash),
       );
-      return (_asRead(await stateDocument(session))! as Map).cast();
+      return (await stateDocument(session)).cast();
     } on VcsStop catch (stop) {
       throw VcsStop(
         stop.error.isEmpty ? 'vcs_error' : stop.error,
@@ -579,8 +573,7 @@ class _Planner {
               head,
               _joinAll([prefix, 'changes', m.name, rel]),
             );
-            final cur = File.fromRawPath(_raw(_under(top, '${m.dir}/$rel')))
-                .readAsBytesSync();
+            final cur = File(_under(top, '${m.dir}/$rel')).readAsBytesSync();
             if (old == null || !_sameBytes(cur, old)) {
               carried.add(_joinAll([m.dir, rel]));
             }
@@ -825,7 +818,10 @@ class _Planner {
           if (i == bytes.length || bytes[i] == 0) {
             if (i - start > 3) {
               carried.add(
-                _dropPoints(decodeReplacing(bytes.sublist(start, i)), 3),
+                _dropPoints(
+                  decodeStrict(bytes.sublist(start, i), 'file name'),
+                  3,
+                ),
               );
             }
             start = i + 1;

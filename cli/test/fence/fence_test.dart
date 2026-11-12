@@ -1,21 +1,21 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/fence/urls.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/process/limit_line.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
 GhResult ok(String out) =>
-    GhResult(exitCode: 0, stdout: encodeEscaped(out), stderr: Uint8List(0));
+    GhResult(exitCode: 0, stdout: utf8.encode(out), stderr: Uint8List(0));
 
 GhResult fail([int code = 1]) =>
     GhResult(exitCode: code, stdout: Uint8List(0), stderr: Uint8List(0));
 
 ToolResult tool(String out, [int code = 0]) =>
-    ToolResult(code, encodeEscaped(out), Uint8List(0));
+    ToolResult(code, utf8.encode(out), Uint8List(0));
 
 void main() {
   group('urls', () {

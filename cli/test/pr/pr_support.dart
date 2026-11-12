@@ -15,8 +15,8 @@ GhResult answer(
   BoundedLimit? limit,
 }) => GhResult(
   exitCode: exit,
-  stdout: encodeEscaped(stdout),
-  stderr: encodeEscaped(stderr),
+  stdout: utf8.encode(stdout),
+  stderr: utf8.encode(stderr),
   limitLine: limitLine,
   limit: limit,
 );
@@ -91,8 +91,8 @@ class Fixture {
   int tempCount = 0;
   late final PrContext ctx;
 
-  String get stdout => decodeEscaped(out);
-  String get stderr => decodeEscaped(err);
+  String get stdout => decodeReplacing(out);
+  String get stderr => decodeReplacing(err);
 
   void dispose() => tempDir.deleteSync(recursive: true);
 

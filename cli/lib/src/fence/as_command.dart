@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -34,7 +35,7 @@ Future<int> runAsCommand(
   Launch? launch,
   List<String>? helperCommand,
 }) async {
-  void err(String text) => writeErr(encodeEscaped(text));
+  void err(String text) => writeErr(utf8.encode(text));
   if (args.length != 2 || args.first != '--args-file') {
     err('$asUsage\n');
     return 2;
@@ -67,7 +68,7 @@ Future<int> runAsCommand(
           return r;
         },
     launch: launch ?? (command, e) => runFenced(command, e),
-    out: (text) => writeOut(encodeEscaped(text)),
+    out: (text) => writeOut(utf8.encode(text)),
     err: err,
   );
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:specwright_cli/src/cli.dart';
 import 'package:specwright_cli/src/commands/vcs.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
+import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
@@ -44,14 +45,44 @@ void main() {
       expect(h.argv, ['state', '--repo', '/r']);
     });
 
-    test('keeps empty records and bytes that are not UTF-8', () {
-      final h = parseHandoff([
-        ..._records(['/s', '/b', 'commit', '']),
-        0x61,
-        0xff,
-        0,
-      ], handoffUsage);
-      expect(h.argv, ['commit', '', 'a\udcff']);
+    test('keeps empty records', () {
+      final h = parseHandoff(
+        _records(['/s', '/b', 'commit', '']),
+        handoffUsage,
+      );
+      expect(h.argv, ['commit', '']);
+    });
+
+    test(r'a record that is not UTF-8 is NotUtf8 naming it with \xHH', () {
+      expect(
+        () => parseHandoff([
+          ..._records(['/s', '/b', 'commit', '']),
+          0x61,
+          0xff,
+          0,
+        ], handoffUsage),
+        throwsA(
+          isA<NotUtf8>()
+              .having((e) => e.what, 'what', 'argument 3')
+              .having((e) => e.shown, 'shown', r'a\xFF'),
+        ),
+      );
+    });
+
+    test('the scripts directory and the bash path are named as such', () {
+      for (final (index, what) in [
+        (0, 'scripts directory'),
+        (1, 'bash path'),
+      ]) {
+        final records = [
+          for (var i = 0; i < 4; i++)
+            if (i == index) [0x61, 0xff, 0] else [...utf8.encode('x$i'), 0],
+        ].expand((r) => r).toList();
+        expect(
+          () => parseHandoff(records, handoffUsage),
+          throwsA(isA<NotUtf8>().having((e) => e.what, 'what', what)),
+        );
+      }
     });
 
     test('fewer than three records is a usage stop with exit 2', () {

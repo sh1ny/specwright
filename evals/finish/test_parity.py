@@ -208,13 +208,13 @@ class TestParityGit(tp.Base, ParityAsserts):
         with open(bad, "wb") as f:
             f.write(b"not utf-8 named\n")
         # The asserted difference (native-cli-launcher D6): the oracle plans an archive holding a name with invalid
-        # UTF-8 bytes, sw stops with `not_utf8` naming the file with U+FFFD and prints no script.
+        # UTF-8 bytes, sw stops with `not_utf8` naming the file with its bytes as \xHH and prints no script.
         new, old = self.plan()
         self.assertEqual(old[0], 0, old[1] + old[2])
         self.assertEqual(new[0], 1, new[1] + new[2])
         doc = parsed(new[1])
         self.assertEqual(doc["error"], "not_utf8", doc)
-        self.assertIn("bad-�-name.md", doc["message"])
+        self.assertIn("bad-\\xFF-name.md", doc["message"])
         self.assertNotIn("script", doc)
 
 

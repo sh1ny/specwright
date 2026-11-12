@@ -1,10 +1,10 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
 import '../fs/link.dart';
-import '../vcs/codec.dart';
 
 abstract class RecordOutput {
   void writeAll(List<int> bytes);
@@ -43,7 +43,7 @@ class _SdkFiles implements RecordFiles {
   final RandomAccessFile Function(File) _openCreated;
   final void Function(String)? makePrivate;
 
-  File _file(String path) => File.fromRawPath(encodeEscaped(path));
+  File _file(String path) => File(path);
 
   void _create(String path) {
     try {
@@ -55,10 +55,9 @@ class _SdkFiles implements RecordFiles {
       // Windows reports a directory collision as access denied. This check
       // classifies a failed exclusive operation; it never grants ownership.
       // Check the link itself before queries that could follow its target.
-      final raw = encodeEscaped(path);
-      if (Link.fromRawPath(raw).existsSync() ||
+      if (Link(path).existsSync() ||
           _file(path).existsSync() ||
-          Directory.fromRawPath(raw).existsSync()) {
+          Directory(path).existsSync()) {
         throw RecordAlreadyExists(path);
       }
       rethrow;
@@ -124,7 +123,7 @@ void _makePrivate(String path) {
         Int32 Function(Pointer<Uint8>, Uint32),
         int Function(Pointer<Uint8>, int)
       >('chmod');
-  final bytes = encodeEscaped(path);
+  final bytes = utf8.encode(path);
   final pointer = calloc<Uint8>(bytes.length + 1);
   pointer.asTypedList(bytes.length).setAll(0, bytes);
   try {

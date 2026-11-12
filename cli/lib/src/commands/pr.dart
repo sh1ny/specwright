@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../pr/context.dart';
 import '../pr/identity.dart';
 import '../pr/policy.dart';
@@ -7,6 +9,9 @@ import '../pr/reply.dart';
 import '../pr/snapshot.dart';
 import '../pr/workflow.dart';
 import '../pr/pair.dart';
+import '../vcs/codec.dart' show NotUtf8;
+import '../vcs/document.dart' show documentBytes;
+import '../vcs/stop.dart' show VcsStop;
 import 'vcs.dart' show readAllStdin;
 
 /// The commands that take the shim's handoff on stdin.
@@ -67,7 +72,23 @@ Future<int> runPrCommand(
     usage(_usage);
     return 2;
   }
-  final handoff = parsePrHandoff(await (readStdin ?? readAllStdin)());
+  final ({String scriptsDir, String bash, List<String> args})? handoff;
+  try {
+    handoff = parsePrHandoff(await (readStdin ?? readAllStdin)());
+  } on NotUtf8 catch (e) {
+    // D4: a name the call would act on is refused before any work. The two text scripts say so on stderr, as
+    // `fit-subject.sh` does; every other command prints its document.
+    if (args[0] == 'snapshot' || args[0] == 'reply') {
+      writeErr(
+        utf8.encode(
+          'pr-${args[0]}.sh: ${e.message}; rename it and run again\n',
+        ),
+      );
+      return 2;
+    }
+    writeOut(documentBytes(VcsStop.notUtf8(e).object()));
+    return 1;
+  }
   if (handoff == null) {
     usage(_handoffUsage);
     return 2;

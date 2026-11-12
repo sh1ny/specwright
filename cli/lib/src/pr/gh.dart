@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -11,7 +12,6 @@ import '../process/limits.dart';
 import '../process/missing_directory.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
-import '../vcs/codec.dart';
 
 /// What one bounded `gh` (or `sw pr reviewers`) call ended in. Without a [limit],
 /// the output and [exitCode] are the command's own; a call that could not
@@ -88,7 +88,7 @@ Future<GhResult> runBoundedCommand(
 GhResult _notStarted(String text) => GhResult(
   exitCode: 127,
   stdout: Uint8List(0),
-  stderr: encodeEscaped('bounded: $text\n'),
+  stderr: utf8.encode('bounded: $text\n'),
 );
 
 Future<GhResult> _run(
@@ -148,7 +148,7 @@ Future<GhResult> _run(
     return GhResult(
       exitCode: 127,
       stdout: Uint8List(0),
-      stderr: encodeEscaped(
+      stderr: utf8.encode(
         'bounded: helper exited during startup: ${commandLabel(command)}\n',
       ),
     );

@@ -246,7 +246,7 @@ class GitButler {
         tip,
       ]);
       touched = {
-        for (final name in diff.stdout.split('\u0000'))
+        for (final name in diff.names('file name').split('\u0000'))
           if (name.isNotEmpty) pathText(name),
       };
     }
@@ -464,7 +464,7 @@ class GitButler {
 
   bool _isDirectory(String path) {
     try {
-      return Directory.fromRawPath(encodeEscaped(path)).existsSync();
+      return Directory(path).existsSync();
     } on Object {
       return false;
     }
@@ -477,7 +477,7 @@ class GitButler {
     int size;
     int limit;
     if (windows ?? Platform.isWindows) {
-      size = encodeEscaped(argv.map(_quoteArg).join(' ')).length;
+      size = utf8.encode(argv.map(_quoteArg).join(' ')).length;
       limit = 32000;
     } else {
       final arg = (argMax ?? libc.argMax)();
@@ -488,7 +488,7 @@ class GitButler {
       limit = arg == null ? 100000 : arg - env - 4096;
       size = 0;
       for (final a in argv) {
-        size += encodeEscaped(a).length + 1;
+        size += utf8.encode(a).length + 1;
       }
     }
     if (size > limit) {
@@ -563,9 +563,7 @@ class GitButler {
     }
     await _argvCheck(given, messageFile);
     // Strict UTF-8, as vcs.sh read it: an invalid byte stops before `but commit`.
-    final message = utf8.decode(
-      File.fromRawPath(encodeEscaped(messageFile)).readAsBytesSync(),
-    );
+    final message = utf8.decode(File(messageFile).readAsBytesSync());
     final applied = [for (final st in stacks) ..._stackNames(st)];
     final before = <String, String>{
       for (final name in applied) name: await _tipOf(name),
@@ -603,7 +601,7 @@ class GitButler {
         newTip,
       ]);
       committed = [
-        for (final n in diff.stdout.split('\u0000'))
+        for (final n in diff.names('file name').split('\u0000'))
           if (n.isNotEmpty) pathText(n),
       ]..sort();
     }

@@ -13,9 +13,14 @@ class VcsStop implements Exception {
   });
 
   /// A name `sw` acts on or reports was not valid UTF-8: `not_utf8`, exit 1,
-  /// with a message that asks for a rename.
-  factory VcsStop.notUtf8(NotUtf8 e) =>
-      VcsStop('not_utf8', '${e.message}; rename it');
+  /// with a message that asks for a rename, or for a UTF-8 install path when
+  /// the name is the directory the skills are installed under.
+  factory VcsStop.notUtf8(NotUtf8 e) => VcsStop(
+    'not_utf8',
+    e.what == 'scripts directory'
+        ? '${e.message}; install the skills under a UTF-8 path'
+        : '${e.message}; rename it',
+  );
 
   /// The launcher refused input it cannot hand to a tool whole (a NUL, a lone
   /// surrogate, a command line past the Windows limit): `not_utf8`, exit 1,

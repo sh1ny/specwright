@@ -30,7 +30,11 @@ Future<TextResult> jj(VcsSession s, List<String> args) =>
     runText(s.repo, ['jj', ...args]);
 
 /// `vcs.sh`'s `jj_result`: jj's stdout, or the `jj_error` stop.
-Future<String> jjResult(VcsSession s, List<String> args) async {
+Future<String> jjResult(
+  VcsSession s,
+  List<String> args, {
+  String? names,
+}) async {
   final r = await jj(s, args);
   if (r.code != 0) {
     final said = orElse(
@@ -39,7 +43,8 @@ Future<String> jjResult(VcsSession s, List<String> args) async {
     );
     throw VcsStop('jj_error', said);
   }
-  return r.stdout;
+  // [names] says the output lists names: they are decoded strictly (D4)
+  return names == null ? r.stdout : r.names(names);
 }
 
 /// `vcs.sh`'s `jj_log`.
@@ -258,7 +263,12 @@ Future<Map<String, Object?>> jjState(VcsSession s, [String? scope]) async {
       );
     }
   }
-  final status = await jjResult(s, ['diff', '--summary', '-r', '@']);
+  final status = await jjResult(s, [
+    'diff',
+    '--summary',
+    '-r',
+    '@',
+  ], names: 'file name');
   final entries = <Map<String, Object?>>[];
   for (final line in _lines(status)) {
     if (line.length >= 3 &&
@@ -333,7 +343,7 @@ Future<void> jjCommitArgvCheck(
   final int size;
   final int limit;
   if (windows ?? Platform.isWindows) {
-    size = encodeEscaped(windowsCommandLine(argv)).length;
+    size = utf8.encode(windowsCommandLine(argv)).length;
     limit = 32000;
   } else {
     final max = (argMax ?? libc.argMax)();
@@ -346,7 +356,7 @@ Future<void> jjCommitArgvCheck(
       });
       limit = max - env - 4096;
     }
-    size = argv.fold(0, (n, a) => n + encodeEscaped(a).length + 1);
+    size = argv.fold(0, (n, a) => n + utf8.encode(a).length + 1);
   }
   if (size > limit) {
     throw VcsStop(
@@ -357,12 +367,11 @@ Future<void> jjCommitArgvCheck(
   }
 }
 
-bool _isFile(String full) => File.fromRawPath(encodeEscaped(full)).existsSync();
+bool _isFile(String full) => File(full).existsSync();
 
-bool _isDir(String full) =>
-    Directory.fromRawPath(encodeEscaped(full)).existsSync();
+bool _isDir(String full) => Directory(full).existsSync();
 
-bool _isLink(String full) => Link.fromRawPath(encodeEscaped(full)).existsSync();
+bool _isLink(String full) => Link(full).existsSync();
 
 /// `vcs.sh`'s `check_directory_snapshot`: one snapshotted file does not cover
 /// a named directory, because jj leaves out a new file over the size limit.
@@ -389,9 +398,12 @@ Future<void> checkDirectorySnapshot(
     'check-ignore',
     '-z',
     '--stdin',
-  ], input: encodeEscaped(names));
+  ], input: utf8.encode(names));
   final ignored = {
-    for (final name in decodeText(checked.stdout).split('\u0000'))
+    for (final name in decodeStrict(
+      checked.stdout,
+      'file name',
+    ).split('\u0000'))
       if (name.isNotEmpty) pathText(name),
   };
   for (final rel in oversize) {
@@ -424,7 +436,13 @@ Future<void> checkTracked(
   final named = [for (final p in present) p.$2];
   final listed = [
     for (final l in _lines(
-      await jjResult(s, ['file', 'list', '-r', '@', ...named]),
+      await jjResult(s, [
+        'file',
+        'list',
+        '-r',
+        '@',
+        ...named,
+      ], names: 'file name'),
     ))
       pathText(l),
   ];
@@ -442,7 +460,13 @@ Future<void> checkTracked(
       // a directory whose tracked files were all deleted names those deletions
       parentListed ??= [
         for (final l in _lines(
-          await jjResult(s, ['file', 'list', '-r', '@-', ...named]),
+          await jjResult(s, [
+            'file',
+            'list',
+            '-r',
+            '@-',
+            ...named,
+          ], names: 'file name'),
         ))
           pathText(l),
       ];
@@ -455,8 +479,7 @@ Future<void> checkTracked(
     final String reason;
     if (_isFile(full) &&
         !_isLink(full) &&
-        File.fromRawPath(encodeEscaped(full)).lengthSync() >
-            await snapshotLimit(s)) {
+        File(full).lengthSync() > await snapshotLimit(s)) {
       reason =
           'it is larger than snapshot.max-new-file-size '
           '(${await snapshotLimit(s)} bytes)';
@@ -495,7 +518,7 @@ final _wideSpace = RegExp(r'\s{2,}');
 Future<List<String>> _resolveList(VcsSession s, String revision) async {
   final listed = await jj(s, ['resolve', '--list', '-r', revision]);
   return [
-    for (final line in _lines(listed.stdout))
+    for (final line in _lines(listed.names('file name')))
       if (line.trim().isNotEmpty) pathText(line.trim().split(_wideSpace).first),
   ];
 }
@@ -683,7 +706,7 @@ Future<String> jjFindMerge(
 String _readMessage(String path) {
   final List<int> bytes;
   try {
-    bytes = File.fromRawPath(encodeEscaped(path)).readAsBytesSync();
+    bytes = File(path).readAsBytesSync();
   } on FileSystemException {
     throw StateError('[Errno 2] No such file or directory: ${pyRepr(path)}');
   }

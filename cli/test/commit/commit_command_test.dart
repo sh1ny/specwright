@@ -85,6 +85,48 @@ void main() {
       });
     }
 
+    test(
+      r'a task-cover argument that is not UTF-8 is a not_utf8 document, exit 1',
+      () async {
+        final code = await run(
+          ['--args-stdin'],
+          [
+            ..._records(['/s', '/b', 'task-cover', '--repo']),
+            0x61,
+            0xff,
+            0,
+          ],
+        );
+        expect(code, 1);
+        final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+        expect(doc['ok'], false);
+        expect(doc['error'], 'not_utf8');
+        expect(doc['message'], contains(r'a\xFF'));
+        expect(doc['message'], contains('rename'));
+        expect(seen.args, isNull, reason: 'no handler ran');
+      },
+    );
+
+    test(
+      r'a fit-subject path that is not UTF-8 is a stderr line, exit 2',
+      () async {
+        final code = await run(
+          ['--args-stdin'],
+          [
+            ..._records(['/s', '/b', 'fit-subject']),
+            0x6d,
+            0xff,
+            0x2e,
+            0,
+          ],
+        );
+        expect(code, 2);
+        expect(utf8.decode(err), 'fit-subject.sh: not valid UTF-8: m\\xFF.\n');
+        expect(out, isEmpty);
+        expect(seen.args, isNull, reason: 'no handler ran');
+      },
+    );
+
     test('a short handoff is a usage stop naming sw commit', () async {
       final code = await run(['--args-stdin'], _records(['/s', '/b']));
       expect(code, 2);

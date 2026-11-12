@@ -3,8 +3,6 @@ import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/context.dart';
 
-import 'package:specwright_cli/src/vcs/codec.dart';
-
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -101,26 +99,6 @@ void main() {
   });
 
   test(
-    'workflow JSON reader preserves raw POSIX snapshot paths',
-    () async {
-      final directory = Directory.systemTemp.createTempSync('workflow-json-');
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final rawDirectory = Uint8List.fromList([
-        ...encodeEscaped(directory.path),
-        0x2f,
-        0x80,
-      ]);
-      Directory.fromRawPath(rawDirectory).createSync();
-      final rawFile = Uint8List.fromList([...rawDirectory, 0x2f, 0xff]);
-      File.fromRawPath(rawFile).writeAsStringSync('{"value":"é"}');
-      expect(await readWorkflowJson(decodeEscaped(rawFile)), {'value': 'é'});
-    },
-    skip: !Platform.isLinux
-        ? 'Linux only: macOS and Windows refuse invalid UTF-8 filenames'
-        : false,
-  );
-
-  test(
     'workflow JSON reader retains Unicode and unreadable-file errors',
     () async {
       final directory = Directory.systemTemp.createTempSync('workflow-json-');
@@ -209,7 +187,7 @@ void main() {
         ...args,
       ]);
       expect(r.exitCode, 0);
-      expect(r.stdout, encodeEscaped('${args.join('\x00')}\x00'));
+      expect(r.stdout, utf8.encode('${args.join('\x00')}\x00'));
     },
   );
   test('typed lookup byte limit remains refusal for lower equal and larger outer caps', () async {

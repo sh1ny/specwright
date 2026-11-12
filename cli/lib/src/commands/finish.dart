@@ -3,6 +3,7 @@ import 'dart:io' as io;
 import '../finish/undo_plan.dart';
 import '../options.dart';
 import '../vcs/args.dart';
+import '../vcs/codec.dart' show NotUtf8;
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
 import 'vcs.dart' show readAllStdin;
@@ -102,6 +103,10 @@ Future<int> runFinishCommand(
       FinishContext(scriptsDir: handoff.scriptsDir, bash: handoff.bash),
     );
   } on VcsStop catch (stop) {
+    document = stop.object();
+    code = stop.code;
+  } on NotUtf8 catch (e) {
+    final stop = VcsStop.notUtf8(e);
     document = stop.object();
     code = stop.code;
   } on Object catch (e) {

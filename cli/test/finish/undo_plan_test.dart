@@ -1074,7 +1074,7 @@ void main() {
         final r = await stop(repo);
         expect(r.code, 1, reason: '${r.doc}');
         expect(r.doc['error'], 'not_utf8');
-        expect(r.doc['message'], contains('a\u{fffd}.txt'));
+        expect(r.doc['message'], contains(r'a\xFF.txt'));
         expect(r.doc.containsKey('script'), isFalse);
       },
       skip: bash == null

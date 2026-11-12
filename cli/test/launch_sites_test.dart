@@ -860,7 +860,7 @@ const launchAllowlist = Allowlist(
       ),
     },
     'fence/fence.dart': {
-      'as.sh': ScriptSite(23, 'message: `as.sh:` refusal text'),
+      'as.sh': ScriptSite(24, 'message: `as.sh:` refusal text'),
     },
     'finish/undo_plan.dart': {
       'vcs.sh': ScriptSite(3, 'printed command and message text'),

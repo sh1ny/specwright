@@ -137,6 +137,19 @@ class FitSubject(unittest.TestCase):
         self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))
         self.assertEqual(msg.read_bytes(), data)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_path_is_refused(self):
+        raw = os.fsencode(self.tmp) + b"/m\xff.txt"
+        data = (GREETING + "\n\nBody.\n").encode("utf-8")
+        with open(raw, "wb") as stream:
+            stream.write(data)
+        r = self.run_script(os.fsdecode(raw))
+        self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))
+        self.assertIn(b"fit-subject.sh: not valid UTF-8: ", r.stderr)
+        self.assertIn(b"m\\xFF.txt", r.stderr)
+        with open(raw, "rb") as stream:
+            self.assertEqual(stream.read(), data, "the file changed")
+
     def test_body_lines_kept_byte_for_byte(self):
         rest = "\n\nBody with  two spaces, a tab\there and trailing space \r\nCRLF line\n\nCo-authored-by: X <x@example.invalid>"
         msg = self.message(GREETING + rest)

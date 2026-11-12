@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/cli.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/scripts.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
@@ -282,7 +281,7 @@ void main() {
         err: StringBuffer(),
         outBytes: out.addAll,
         readStdin: () async => [
-          for (final r in records) ...[...encodeEscaped(r), 0],
+          for (final r in records) ...[...utf8.encode(r), 0],
         ],
       );
       return (code, jsonDecode(utf8.decode(out)) as Map<String, Object?>);

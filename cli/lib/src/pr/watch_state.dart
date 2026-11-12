@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:io';
 import 'dart:math';
@@ -47,7 +48,7 @@ List<_Listed> _listClaims(String dir) {
   final out = <_Listed>[];
   final List<FileSystemEntity> entries;
   try {
-    entries = rawDirectory(dir).listSync(followLinks: false);
+    entries = Directory(dir).listSync(followLinks: false);
   } on FileSystemException {
     return out;
   }
@@ -70,8 +71,8 @@ List<_Listed> _listClaims(String dir) {
 
 /// Bytewise order of two nonces (`[[ a > b ]]` compares by the locale's collation; C15 accepts the difference).
 int _byBytes(String a, String b) {
-  final x = encodeEscaped(a);
-  final y = encodeEscaped(b);
+  final x = utf8.encode(a);
+  final y = utf8.encode(b);
   for (var i = 0; i < x.length && i < y.length; i++) {
     if (x[i] != y[i]) return x[i] - y[i];
   }
@@ -97,7 +98,7 @@ class WatchClaim {
   /// or the file cannot be created: the watcher polls unowned and the caller says so.
   static WatchClaim? claim(String dir, {Random? random, int? pid}) {
     try {
-      rawDirectory(dir).createSync(recursive: true);
+      Directory(dir).createSync(recursive: true);
     } on FileSystemException {
       return null;
     }
@@ -110,7 +111,7 @@ class WatchClaim {
       '${pid ?? io.pid}.${five()}${five()}',
     );
     try {
-      rawFile(claim._path).createSync(exclusive: true);
+      File(claim._path).createSync(exclusive: true);
     } on FileSystemException {
       return null;
     }
@@ -128,7 +129,7 @@ class WatchClaim {
 
   /// `still_owner`: the own file exists and no claim is above it.
   bool stillOwner() {
-    if (!rawFile(_path).existsSync()) return false;
+    if (!File(_path).existsSync()) return false;
     for (final c in _listClaims(dir)) {
       if (c.name != name && above(c.number, c.nonce)) return false;
     }
@@ -172,7 +173,7 @@ Future<FirstSeen> resolveFirstSeen(
   var seen = FirstSeen(firstSeen, 'first_seen_unsaved');
   var made = false;
   try {
-    rawDirectory(dir).createSync(recursive: true);
+    Directory(dir).createSync(recursive: true);
     made = true;
   } on FileSystemException {
     // unsaved
@@ -181,7 +182,7 @@ Future<FirstSeen> resolveFirstSeen(
   if (tmp != null) {
     if (_write(tmp, '$firstSeen\n') && _publish(tmp, '$slashed/$oid')) {
       try {
-        for (final e in rawDirectory(dir).listSync(followLinks: false)) {
+        for (final e in Directory(dir).listSync(followLinks: false)) {
           final b = e.path.substring(e.path.lastIndexOf(RegExp(r'[\\/]')) + 1);
           if (!b.startsWith('.') && b != oid) removeFile(e.path);
         }
@@ -192,7 +193,7 @@ Future<FirstSeen> resolveFirstSeen(
     removeFile(tmp);
   }
   try {
-    final d = firstLine(decodeEscaped(rawFile(record).readAsBytesSync()));
+    final d = firstLine(decodeReplacing(File(record).readAsBytesSync()));
     if (isHttpDate(d)) seen = FirstSeen(d, 'first_seen');
   } on FileSystemException {
     // unsaved
@@ -212,7 +213,7 @@ bool _publish(String temp, String record) {
 
 bool _write(String path, String text) {
   try {
-    rawFile(path).writeAsBytesSync(encodeEscaped(text));
+    File(path).writeAsBytesSync(utf8.encode(text));
     return true;
   } on FileSystemException {
     return false;

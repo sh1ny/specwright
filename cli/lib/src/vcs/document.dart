@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../process/limits.dart';
-import 'codec.dart';
 
 /// Every JSON input the CLI reads is refused through this one type. [message] starts with `<file>: ` when the source is
 /// a file, so a caller that prints it names the file.
@@ -56,7 +55,7 @@ Object? readJsonFile(String path) =>
 List<int> readBounded(String path, {int limit = defaultMaxBytes}) {
   final Uint8List bytes;
   try {
-    final file = File.fromRawPath(encodeEscaped(path)).openSync();
+    final file = File(path).openSync();
     try {
       bytes = file.readSync(limit + 1);
     } finally {
@@ -81,10 +80,10 @@ List<int> readBounded(String path, {int limit = defaultMaxBytes}) {
 /// raw U+2028 and U+2029 are legal (`sw pr snapshot` parses the documents it reads, so no reader depends on this form).
 ///
 /// `JsonEncoder` writes a lone surrogate as the six-character escape `\udXXX` (A3 of native-cli-library-foundations
-/// found this). A document must still carry a file name that is not UTF-8, which [decodeEscaped] holds as a lone
-/// U+DC80..U+DCFF unit, so the encoder's own escapes of lone surrogates are turned back into the unit; text a caller
-/// wrote with a backslash is escaped by the encoder (`\\`) and is left alone. A value JSON cannot hold (`NaN`,
-/// `Infinity`, a `BigInt`, a key that is not a string, an unknown object) throws a `JsonUnsupportedObjectError`.
+/// found this). The encoder's own escapes of lone surrogates are turned back into the unit, so a caller that digests
+/// the text (`reviewerConfigBytes`) sees the unit; text a caller wrote with a backslash is escaped by the encoder
+/// (`\\`) and is left alone. A value JSON cannot hold (`NaN`, `Infinity`, a `BigInt`, a key that is not a string, an
+/// unknown object) throws a `JsonUnsupportedObjectError`.
 String documentText(Object? value) {
   final text = const JsonEncoder().convert(value);
   return text.contains(r'\ud') ? _restoreLoneSurrogates(text) : text;
@@ -115,8 +114,23 @@ String _restoreLoneSurrogates(String text) {
   return out.toString();
 }
 
-/// C3: the bytes `sw` writes to stdout for [value]: [documentText], encoded with surrogateescape so the original bytes
-/// of a non-UTF-8 name come back, then one LF on every platform. A lone surrogate other than U+DC80..U+DCFF is a
-/// `FormatException`, as Python fails to encode it. native-cli-launcher replaces this escaping.
-Uint8List documentBytes(Object? value) =>
-    encodeEscaped('${documentText(value)}\n');
+/// C3: the bytes `sw` writes to stdout for [value]: [documentText] as UTF-8, then one LF on every platform. A lone
+/// surrogate is a `FormatException`, as Python fails to encode it: a name that is not UTF-8 never reaches a document,
+/// because names are decoded strictly (D4).
+Uint8List documentBytes(Object? value) {
+  final text = '${documentText(value)}\n';
+  final units = text.codeUnits;
+  for (var i = 0; i < units.length; i++) {
+    final u = units[i];
+    final high = u >= 0xd800 && u <= 0xdbff;
+    if (high &&
+        i + 1 < units.length &&
+        units[i + 1] >= 0xdc00 &&
+        units[i + 1] <= 0xdfff) {
+      i++;
+    } else if (u >= 0xd800 && u <= 0xdfff) {
+      throw FormatException('lone surrogate U+${u.toRadixString(16)}');
+    }
+  }
+  return Uint8List.fromList(utf8.encode(text));
+}

@@ -1,12 +1,12 @@
 @Tags(['process'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/pr/watch_state.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:test/test.dart';
 
 /// A random source that answers [values] in turn.
@@ -325,7 +325,7 @@ void main() {
     test('a record with a carriage return still reads', () async {
       Directory(heads).createSync(recursive: true);
       File('$heads/$oid')
-          .writeAsBytesSync(encodeEscaped('$date\r\nsecond line\n'));
+          .writeAsBytesSync(utf8.encode('$date\r\nsecond line\n'));
       final seen = await resolveFirstSeen(
         context(),
         dir: heads,

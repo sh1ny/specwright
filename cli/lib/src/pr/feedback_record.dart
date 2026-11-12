@@ -5,7 +5,6 @@ import 'dart:math';
 
 import '../process/limits.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
-import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import 'feedback_record_files.dart';
 import 'pair.dart';
@@ -55,13 +54,13 @@ class FeedbackRecordStore {
           : 95,
     ),
   );
-  static File _file(String path) => File.fromRawPath(encodeEscaped(path));
+  static File _file(String path) => File(path);
   String recordPath(String repo, String change) {
     final slash = repo.indexOf('/');
     final owner = slash < 0 ? repo : repo.substring(0, slash),
         name = slash < 0 ? '' : repo.substring(slash + 1);
     final hash = sha256Hex(
-      encodeEscaped('${owner.toLowerCase()}\n${name.toLowerCase()}\n$change'),
+      utf8.encode('${owner.toLowerCase()}\n${name.toLowerCase()}\n$change'),
     ).substring(0, 32);
     final readable = '${_safe(owner)}.${_safe(name)}.${_safe(change)}';
     return '$directory/${readable.substring(0, min(120, readable.length)).toLowerCase()}-$hash.json';
@@ -144,22 +143,19 @@ class FeedbackRecordStore {
   }
 
   String _temporary(String path, Map<String, Object?> record) {
-    // Derive the parent from the original string. File.parent uses .path,
-    // which decodes and loses non-UTF-8 bytes even on File.fromRawPath.
     final parent = FileSystemEntity.parentOf(path);
-    // SDK recursive creation also derives parents from .path. Create missing
-    // ancestors individually so their original bytes survive. Directory
-    // creation may share an ancestor; unlike a lock, it grants no ownership.
+    // Create missing ancestors one at a time. Directory creation may share an
+    // ancestor; unlike a lock, it grants no ownership.
     final missing = <String>[];
     var ancestor = parent;
-    while (!Directory.fromRawPath(encodeEscaped(ancestor)).existsSync()) {
+    while (!Directory(ancestor).existsSync()) {
       missing.add(ancestor);
       final next = FileSystemEntity.parentOf(ancestor);
       if (next == ancestor) break;
       ancestor = next;
     }
     for (final directory in missing.reversed) {
-      Directory.fromRawPath(encodeEscaped(directory)).createSync();
+      Directory(directory).createSync();
     }
     for (var attempt = 0; attempt < 10; attempt++) {
       final nonce = List.generate(

@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:specwright_cli/src/pr/context.dart' show PrContext;
 import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
@@ -321,53 +320,6 @@ void main() {
         path,
       );
     });
-
-    test(
-      'a name that is not UTF-8 reaches the evaluator as a UTF-8 copy',
-      () async {
-        final name = [
-          ...utf8.encode('${f.tempDir.path}/reviewers-'),
-          0xff,
-          ...utf8.encode('.json'),
-        ];
-        File.fromRawPath(Uint8List.fromList(name)).writeAsStringSync(
-          jsonEncode({
-            'format': 2,
-            'reviewers': [
-              {
-                'login': 'a',
-                'role': 'required',
-                'timeout': 60,
-                'report': <String, Object>{},
-              },
-            ],
-          }),
-        );
-        // The copy is read while the evaluator runs: cleanup removes it once the snapshot ends.
-        final evaluate = f.onBounded!;
-        String? copied;
-        f.onBounded = (command) {
-          copied = File(command[command.indexOf('--config') + 1])
-              .readAsStringSync();
-          return evaluate(command);
-        };
-        final escaped = '${f.tempDir.path}/reviewers-\uDCFF.json';
-        expect(await snapshot(['--reviewer-config', escaped]), 0);
-        final config = f.boundedCalls.single;
-        final given = config[config.indexOf('--config') + 1];
-        expect(given, isNot(escaped));
-        expect(given.codeUnits.any((u) => u >= 0xdc80 && u <= 0xdcff), isFalse);
-        expect(copied, contains('"login":"a"'));
-        expect(
-          f.leftovers.where((n) => n.startsWith('tmp.')),
-          isEmpty,
-          reason: 'the copy is removed with the material file',
-        );
-      },
-      skip: Platform.isLinux
-          ? false
-          : 'a file name that is not UTF-8 needs Linux',
-    );
   });
 
   group('one snapshot', () {

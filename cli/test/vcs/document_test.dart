@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:specwright_cli/src/commands/vcs.dart';
 import 'package:specwright_cli/src/process/limits.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:test/test.dart';
 
@@ -16,9 +15,8 @@ import 'package:test/test.dart';
 // A2 holds. An integer past signed 64 bits decodes to a `double` (9223372036854775808 becomes 9.223372036854776e18),
 //    so an `is int` check refuses it; 9223372036854775807 stays an `int`.
 // A3 is DISPROVED. `jsonDecode` keeps a lone surrogate escape (`"\ud800"`) as a lone surrogate, but `JsonEncoder` writes
-//    it back as the six-character escape `\ud800` (a valid pair is written raw). `encodeEscaped` therefore cannot
-//    restore the byte behind a U+DC80..U+DCFF unit, and `reviewerConfigBytes` would no longer replace the surrogate by
-//    `?`. The owner-approved D1 fallback applies: `documentText` is `JsonEncoder` plus a scan that turns the encoder's own
+//    it back as the six-character escape `\ud800` (a valid pair is written raw). `reviewerConfigBytes` would therefore no
+//    longer replace the surrogate by `?`. The owner-approved D1 fallback applies: `documentText` is `JsonEncoder` plus a scan that turns the encoder's own
 //    lone-surrogate escapes back into the raw unit.
 
 Uint8List _hex(String hex) => Uint8List.fromList([
@@ -88,19 +86,12 @@ void main() {
       );
     });
 
-    // Constraint C3: non-UTF-8 name bytes survive documents until
-    // native-cli-launcher replaces the escaping.
-    test('writes lone U+DC80..U+DCFF back as the original bytes', () {
-      expect(
-        documentBytes({
-          'p\udcff': ['a\udc80b', '\udcff'],
-        }),
-        _hex('7b2270ff223a5b22618062222c22ff225d7d0a'),
-      );
-    });
-
-    test('rejects another lone surrogate, as Python fails to encode it', () {
+    // Constraint C3: a name that is not UTF-8 never reaches a document (D4), so
+    // every lone surrogate is refused, as Python fails to encode it.
+    test('rejects a lone surrogate, as Python fails to encode it', () {
       expect(() => documentBytes({'s': '\ud800'}), throwsFormatException);
+      expect(() => documentBytes({'s': '\udcff'}), throwsFormatException);
+      expect(() => documentBytes({'p\udc80': 1}), throwsFormatException);
     });
 
     test('a value JSON cannot hold is internal_error', () async {
@@ -291,15 +282,5 @@ void main() {
       expect(f.lengthSync(), defaultMaxBytes);
       expect(readJsonFile(f.path), isA<List<Object?>>());
     });
-
-    test('a non-UTF-8 path reaches the file by its bytes', () {
-      final name = Uint8List.fromList([
-        ...encodeEscaped('${dir.path}/raw-'),
-        0xff,
-        ...utf8.encode('.json'),
-      ]);
-      File.fromRawPath(name).writeAsStringSync('{"raw":true}');
-      expect(readJsonFile(decodeEscaped(name)), {'raw': true});
-    }, skip: Platform.isLinux ? false : 'a name that is not UTF-8 needs Linux');
   });
 }

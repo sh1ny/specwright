@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -53,15 +54,7 @@ typedef PrSleep = Future<void> Function(int seconds);
   List<int> stdin,
 ) {
   if (stdin.isNotEmpty && stdin.last != 0) return null;
-  final bytes = Uint8List.fromList(stdin);
-  final records = <String>[];
-  var start = 0;
-  for (var i = 0; i < bytes.length; i++) {
-    if (bytes[i] == 0) {
-      records.add(decodeEscaped(Uint8List.sublistView(bytes, start, i)));
-      start = i + 1;
-    }
-  }
+  final records = decodeHandoffRecords(Uint8List.fromList(stdin));
   if (records.length < 2) return null;
   return (scriptsDir: records[0], bash: records[1], args: records.sublist(2));
 }
@@ -108,8 +101,8 @@ class PrContext {
   /// The environment the commands read (`SPECWRIGHT_STATE_DIR`, `HOME`): the given one, else `sw`'s own.
   Map<String, String> get env => environment ?? Platform.environment;
 
-  void out(String text) => writeOut(encodeEscaped(text));
-  void err(String text) => writeErr(encodeEscaped(text));
+  void out(String text) => writeOut(utf8.encode(text));
+  void err(String text) => writeErr(utf8.encode(text));
 
   /// `gh <args>`, bounded (D6).
   Future<GhResult> gh(
@@ -187,7 +180,7 @@ class PrContext {
       try {
         if (!Platform.isWindows) {
           // Owner-only from the first instant, as mktemp made it: the file holds PR content in a shared directory.
-          if (libc.createExclusive(encodeEscaped(path), 0x180)) return path;
+          if (libc.createExclusive(utf8.encode(path), 0x180)) return path;
           // A failed create is a collision when something is there; else nothing can be made here.
           if (FileSystemEntity.typeSync(path, followLinks: false) !=
               FileSystemEntityType.notFound) {
@@ -228,21 +221,15 @@ class PrContext {
   void relayOut(GhResult r) => writeOut(r.stdout);
 
   /// `$(gh ...)`: stdout without its trailing newlines.
-  String captured(GhResult r) => dropTrailingNewlines(decodeEscaped(r.stdout));
+  String captured(GhResult r) =>
+      dropTrailingNewlines(decodeReplacing(r.stdout));
 }
-
-/// The file at [path], whose bytes are not UTF-8 text.
-File rawFile(String path) => File.fromRawPath(encodeEscaped(path));
-
-/// The directory at [path], whose bytes are not UTF-8 text.
-Directory rawDirectory(String path) =>
-    Directory.fromRawPath(encodeEscaped(path));
 
 /// `rm -f`.
 void removeFile(String? path) {
   if (path == null || path.isEmpty) return;
   try {
-    rawFile(path).deleteSync();
+    File(path).deleteSync();
   } on FileSystemException {
     // already gone, or not ours to remove
   }

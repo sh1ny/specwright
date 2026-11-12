@@ -2,12 +2,11 @@
 // D8): a hard link that never replaces its destination (`ln`), and a rename
 // that replaces it (`mv -f`). POSIX `link` and `rename`; Windows
 // `CreateHardLinkW` and `MoveFileExW` with replace. Opened on first use.
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-
-import '../vcs/codec.dart';
 
 /// Makes [destination] a hard link to [source]. Fails with a
 /// [FileSystemException] when [destination] exists or the link cannot be made.
@@ -45,7 +44,7 @@ class _PosixOperations implements _Operations {
   late final int Function(Pointer<Uint8>, Pointer<Uint8>) _link, _rename;
 
   Pointer<Uint8> _path(String path) {
-    final bytes = encodeEscaped(path);
+    final bytes = utf8.encode(path);
     final pointer = calloc<Uint8>(bytes.length + 1);
     pointer.asTypedList(bytes.length).setAll(0, bytes);
     return pointer;
