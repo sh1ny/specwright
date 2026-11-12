@@ -2,7 +2,8 @@ import 'dart:io';
 
 import '../process/bounded_run.dart';
 import '../process/command_line.dart';
-import '../process/launch.dart' show Unrepresentable, checkLaunchInput;
+import '../process/launch.dart'
+    show Unrepresentable, checkLaunchInput, checkNativeLine;
 import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
@@ -66,8 +67,9 @@ Future<int> runCommand(
 
   // D5: input the launcher cannot represent is refused first, before the lookup
   // and before the batch rules of planLaunch, and nothing starts. The Windows
-  // command-line limit is not checked here: a batch command keeps its own line
-  // limit (the unsafe-batch refusal below).
+  // command-line limit waits for the resolved path: a batch command keeps its
+  // own line limit (the unsafe-batch refusal below), a native one is checked
+  // after planLaunch.
   try {
     checkLaunchInput(
       command,
@@ -91,6 +93,16 @@ Future<int> runCommand(
   } on UnsafeBatchArgument {
     err.write('bounded: unsafe batch argument: ${command.first}\n');
     return 2;
+  }
+  // D5: a native command's Windows line is checked once its path is known,
+  // before the helper starts (a batch line was checked by planLaunch).
+  if (!plan.rawLine) {
+    try {
+      checkNativeLine(command.first, [path, ...command.skip(1)]);
+    } on Unrepresentable catch (e) {
+      err.write('bounded: unrepresentable ${e.what}: ${e.command}\n');
+      return 2;
+    }
   }
   final result = await BoundedRun(
     command: plan.command,

@@ -109,6 +109,13 @@ void _checkLine(String name, List<String> command, bool windows) {
   }
 }
 
+/// Throws [Unrepresentable] (`command line`, named by [name]) when, on Windows
+/// ([windows], default: this system), the native [command] (the resolved path
+/// first) would make a command line past [windowsCommandLineLimit] units. A
+/// batch command is not checked here: `planLaunch` keeps its own line limit.
+void checkNativeLine(String name, List<String> command, {bool? windows}) =>
+    _checkLine(name, command, windows ?? Platform.isWindows);
+
 /// Throws [Unrepresentable] for a NUL or a lone surrogate in [command] (its
 /// first item is `command`, the others `argument`), in [environment] (key or
 /// value) or in [cwd], and, when [windows] (default: this system), for a
@@ -212,7 +219,7 @@ Future<LaunchResult> launch(
       helperCommand,
     );
   }
-  _checkLine(name, [path, ...command.skip(1)], Platform.isWindows);
+  checkNativeLine(name, [path, ...command.skip(1)]);
   return _native(
     name,
     path,

@@ -196,6 +196,21 @@ void main() {
     });
 
     test(
+      'a native command line over the Windows limit is refused by name',
+      () async {
+        final (code, err) = await run([
+          'cmd',
+          'x' * 40000,
+        ], Platform.environment);
+        expect(code, 2);
+        expect(err, 'bounded: unrepresentable command line: cmd\n');
+      },
+      skip: Platform.isWindows
+          ? false
+          : 'platform: the command-line limit is Windows only',
+    );
+
+    test(
       'a NUL argument to a batch command is not the unsafe-batch refusal',
       () async {
         final dir = Directory.systemTemp.createTempSync('sw-run-nul-');

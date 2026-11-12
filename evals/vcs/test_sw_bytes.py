@@ -64,6 +64,34 @@ class TestSwBytes(VcsTestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(self.commit_names(), [b"other.txt"])
 
+    @unittest.skipUnless(LINUX, "platform: a branch name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_branch_name_is_not_utf8(self):
+        """The current branch read from git is decoded strictly: a 0xFF byte stops by name, never a U+FFFD look-alike."""
+        self.write("a.txt", "one\n")
+        self.git(self.repo, "add", "--", "a.txt")
+        self.git(self.repo, "commit", "-m", "add the file")
+        with open(os.path.join(os.fsencode(self.repo), b".git", b"HEAD"), "wb") as head:
+            head.write(b"ref: refs/heads/feat/\xff\n")
+
+        state, _ = self.invoke("state", expected=1)
+
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("feat/\\xFF", state["message"])
+        self.assertNotIn("�", state["message"])
+
+    @unittest.skipUnless(LINUX, "platform: a directory name that is not UTF-8 needs a Linux file system")
+    def test_non_utf8_repository_path_behind_a_symlink_is_not_utf8(self):
+        """A UTF-8 symlink into a checkout whose real path is not UTF-8: git's top level is that real path, refused by name."""
+        real = os.path.join(os.fsencode(self.root), b"real-\xff")
+        os.rename(os.fsencode(self.repo), real)
+        os.symlink(real, os.fsencode(self.repo))
+
+        state, _ = self.invoke("state", expected=1)
+
+        self.assertEqual((state["ok"], state["error"]), (False, "not_utf8"), state)
+        self.assertIn("real-\\xFF", state["message"])
+        self.assertNotIn("�", state["message"])
+
     @unittest.skipUnless(LINUX, "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_valid_replacement_char_is_a_character(self):
         """No name in the repo is invalid UTF-8, so a valid U+FFFD in a name is just a character."""

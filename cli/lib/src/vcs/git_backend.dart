@@ -58,7 +58,7 @@ Future<String> gitCurrent(VcsSession s) async {
       said.isNotEmpty ? said : 'git branch --show-current failed',
     );
   }
-  return r.stdout.trim();
+  return r.names('branch name').trim();
 }
 
 /// `vcs.sh`'s `git_state`.

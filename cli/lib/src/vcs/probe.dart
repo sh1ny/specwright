@@ -61,7 +61,7 @@ Future<String> gitRoot(String repo) async {
       'not inside a Git work tree: ${result.stderr.trim()}',
     );
   }
-  return resolvePath(result.stdout.trim());
+  return resolvePath(result.names('repository path').trim());
 }
 
 /// `vcs.sh`'s `detect_main`.
