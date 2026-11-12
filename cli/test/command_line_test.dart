@@ -179,6 +179,35 @@ void main() {
       );
     });
 
+    test('a relative name keeps its `..` after a link on POSIX', () {
+      final seen = <String>[];
+      final found = resolveCommand(
+        'link/../tool',
+        {'PATH': '/usr/bin'},
+        windows: false,
+        workingDirectory: '/work',
+        isFile: (path) {
+          seen.add(path);
+          return true;
+        },
+      );
+      expect(found, '/work/link/../tool');
+      expect(seen, ['/work/link/../tool']);
+    });
+
+    test('a relative PATH entry keeps its `..`, drops its `.`', () {
+      expect(
+        resolveCommand(
+          'tool',
+          {'PATH': './link/..//bin'},
+          windows: false,
+          workingDirectory: '/work',
+          isFile: (path) => true,
+        ),
+        '/work/link/../bin/tool',
+      );
+    });
+
     test('Windows still drops empty entries', () {
       expect(
         resolveCommand(

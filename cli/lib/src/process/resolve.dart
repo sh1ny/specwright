@@ -15,7 +15,8 @@ import 'package:path/path.dart' as p;
 ///
 /// With [workingDirectory] a relative name, and a relative `PATH` entry
 /// (including the `.` an empty POSIX entry stands for), is looked for under
-/// that directory and the result is the joined, normalised path; nothing is
+/// that directory and the result is the joined path (on POSIX with its `..`
+/// kept, as the OS follows links before `..`); nothing is
 /// checked against this process's own directory (C11). Without it, relative
 /// candidates are checked and returned as they are.
 String? resolveCommand(
@@ -30,12 +31,14 @@ String? resolveCommand(
   final separator = win ? RegExp(r'[\\/]') : RegExp('/');
   final style = win ? p.Context(style: p.Style.windows) : p.posix;
   // A relative candidate is anchored to the working directory when the caller
-  // names one.
+  // names one. Windows resolves `..` by name, so it is normalised there; POSIX
+  // resolves `..` after following a link, so only `.` segments go.
   String anchor(String candidate) {
     if (workingDirectory == null || style.isAbsolute(candidate)) {
       return candidate;
     }
-    return style.normalize(style.join(workingDirectory, candidate));
+    final joined = style.join(workingDirectory, candidate);
+    return win ? style.normalize(joined) : _dropDots(joined);
   }
 
   if (name.contains(separator)) {
@@ -63,6 +66,14 @@ String? resolveCommand(
     }
   }
   return null;
+}
+
+/// [path] without its `.` segments and repeated `/`, its `..` kept.
+String _dropDots(String path) {
+  final kept = path.split('/').where((s) => s.isNotEmpty && s != '.');
+  final joined = kept.join('/');
+  if (path.startsWith('/')) return '/$joined';
+  return joined.isEmpty ? '.' : joined;
 }
 
 /// The lower-cased extension of [name] with its dot, or ''.
