@@ -48,9 +48,9 @@ The `green` rows pass against the Python today. Task 4.9 re-runs them through th
 
 ## 2. The `toml` package and BoundedRun's `pipesHeld`
 
-- [ ] 2.1 [evidence] Verify A4: list the closure of `toml` 0.18.0 (`petitparser`, `collection`, `meta`, `web`), check each for build hooks and its licence against ADR 0033 → evidence/toml-package.md. Then add `toml` to `cli/pubspec.yaml` and its notices to the shipped notices. Verify: `mise exec -- dart test test/no_build_hooks_test.dart` from `cli/` passes, and the notices list each package.
-- [ ] 2.2 Write a failing test in `cli/test/bounded_run_test.dart`: a child that exits while a grandchild holds stdout gives `pipesHeld: true` and its exit code; a normal exit gives `pipesHeld: false`. Verify it fails because the field is missing.
-- [ ] 2.3 Add `BoundedResult.pipesHeld` in `cli/lib/src/process/bounded_run.dart`, set where the tree is stopped after the exit, with the C4 doc comment. Verify: the 2.2 test passes and `launch_test.dart` still passes.
+- [x] 2.1 [evidence] Verify A4: list the closure of `toml` 0.18.0 (`petitparser`, `collection`, `meta`, `web`), check each for build hooks and its licence against ADR 0033 → evidence/toml-package.md. Then add `toml` to `cli/pubspec.yaml` and its notices to the shipped notices. Verify: `mise exec -- dart test test/no_build_hooks_test.dart` from `cli/` passes, and the notices list each package.
+- [x] 2.2 Write a failing test in `cli/test/bounded_run_test.dart`: a child that exits while a grandchild holds stdout gives `pipesHeld: true` and its exit code; a normal exit gives `pipesHeld: false`. Verify it fails because the field is missing.
+- [x] 2.3 Add `BoundedResult.pipesHeld` in `cli/lib/src/process/bounded_run.dart`, set where the tree is stopped after the exit, with the C4 doc comment. Verify: the 2.2 test passes and `launch_test.dart` still passes.
 
 ## 3. Route settings, refused lists and defaults (Dart)
 

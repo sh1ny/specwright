@@ -9,8 +9,8 @@ import 'tree_stop.dart';
 
 /// What a bounded run ended in. Exactly one of [limit], [startError],
 /// [helperExited] or [exitCode] describes the end; the output is the
-/// command's own and is only meant to be passed on when there is no limit and
-/// no start failure.
+/// command's own and is only meant to be passed on when there is no limit,
+/// no start failure, and [pipesHeld] is false.
 class BoundedResult {
   const BoundedResult({
     this.exitCode,
@@ -18,6 +18,7 @@ class BoundedResult {
     this.startError,
     this.helperExited = false,
     this.helperNotStopped = false,
+    this.pipesHeld = false,
     this.stdout = const [],
     this.stderr = const [],
   });
@@ -38,6 +39,11 @@ class BoundedResult {
   /// itself nor exited within the stop wait; it was left running (C12). Set
   /// together with [limit].
   final bool helperNotStopped;
+
+  /// A pipe held after command exit fails a review even though BoundedRun keeps
+  /// the command's own exit status; callers that pass output on must check
+  /// [pipesHeld].
+  final bool pipesHeld;
 
   final List<int> stdout;
   final List<int> stderr;
@@ -67,7 +73,8 @@ class BoundedResult {
 ///   exit future races a deadline timer on a monotonic [Stopwatch]: an exit
 ///   recorded before the deadline keeps its result even if handled later.
 /// * Exited: the readers get [readerGrace]; then the tree is stopped if the
-///   pipes are still held and the command's own result stands.
+///   pipes are still held, setting [BoundedResult.pipesHeld]; the command's own
+///   result stands.
 /// * Stopping: at most [stopWait] for the helper and pipes, then let go.
 class BoundedRun {
   BoundedRun({
@@ -368,9 +375,10 @@ class BoundedRun {
         await stopAndLetGo();
         return BoundedResult(limit: limit);
       }
-      if (!(outDone.isCompleted && errDone.isCompleted)) {
-        // A process the command started still holds a pipe: stop it. The
-        // command's own result stands.
+      final pipesHeld = !(outDone.isCompleted && errDone.isCompleted);
+      if (pipesHeld) {
+        // A process started by the command still holds a pipe; mark it in the
+        // result while preserving the command's own exit status.
         await tree.stop();
         await Future.any<Object?>([
           readersDone,
@@ -381,7 +389,7 @@ class BoundedRun {
           // stderr passed the bound while the tree was being stopped
           final limit = await firstLimit.future;
           await cancelReaders();
-          return BoundedResult(limit: limit);
+          return BoundedResult(limit: limit, pipesHeld: pipesHeld);
         }
       }
       await cancelReaders();
@@ -389,6 +397,7 @@ class BoundedRun {
         exitCode: await exited.future,
         stdout: out.takeBytes(),
         stderr: err.takeBytes(),
+        pipesHeld: pipesHeld,
       );
     } finally {
       deadlineTimer?.cancel();

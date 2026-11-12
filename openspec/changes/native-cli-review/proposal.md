@@ -100,6 +100,7 @@ DECISION_MAKING: important
 - `review-run.sh` is a shim over `sw review`. Its subcommands, JSON documents, exit codes and records are unchanged, and it no longer needs Python or bash for its own work (#148).
 - The OMP reviewer's default tools are `read,grep,glob`, with OMP's memory and auto-learn off. The Codex reviewer turns off its web, image, plugin, memory, hook and goal features (#148).
 - An OMP older than 18.19.0 is skipped as a reviewer, because its memory could not be turned off reliably (#148).
+- The CLI ships `toml` to parse Codex's Windows `windows.sandbox` value as TOML (#148).
 - A review stops with `bad_settings`, naming the line, when `openspec/specwright.yaml` has a line the settings reader would misread; `review-run.sh` used to read it leniently (#148).
 
 ### Removed

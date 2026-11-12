@@ -360,5 +360,43 @@ Future<void> main(List<String> args) async {
         where.resolveSymbolicLinksSync(),
       );
     });
+
+    test('a normal exit reports no held pipes', () async {
+      final result = await run(writer(10, 0), const RunLimits());
+      expect(result.exitCode, 0);
+      expect(result.pipesHeld, isFalse);
+    });
+
+    test(
+      'a grandchild holding stdout is reported after the parent exits',
+      () async {
+        final file = File('${dir.path}/held_pipe.dart')
+          ..writeAsStringSync('''
+import 'dart:async';
+import 'dart:io';
+Future<void> main(List<String> args) async {
+  if (args.isNotEmpty) {
+    Timer.periodic(const Duration(hours: 1), (_) {});
+    stdout.write('held');
+    await stdout.flush();
+    return;
+  }
+  await Process.start(
+    Platform.resolvedExecutable,
+    [Platform.script.toFilePath(), 'hold'],
+    mode: ProcessStartMode.inheritStdio,
+  );
+  exit(7);
+}
+''');
+        final result = await run([
+          Platform.resolvedExecutable,
+          file.path,
+        ], const RunLimits(deadline: Duration(seconds: 30), maxBytes: 1 << 20));
+        expect(result.limit, isNull);
+        expect(result.exitCode, 7);
+        expect(result.pipesHeld, isTrue);
+      },
+    );
   });
 }
