@@ -170,8 +170,8 @@ class VcsTestCase(unittest.TestCase):
                                      **(env or {})}, capture_output=True, text=True)
         return result
 
-    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None):
-        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's)."""
+    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None, cwd=None):
+        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's); `cwd` is the directory it runs in (default: `repo`)."""
         target = Path(repo or self.repo)
         scripts = Path(scripts) if scripts is not None else SCRIPTS
         args = ["--repo", str(target), "--role", role]
@@ -189,7 +189,7 @@ class VcsTestCase(unittest.TestCase):
         result = subprocess.run(
             [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test",
              (scripts / "vcs.sh").as_posix(), command, *args, *map(str, options)],
-            cwd=target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
+            cwd=cwd or target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)

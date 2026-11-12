@@ -714,7 +714,9 @@ class GitButler {
       );
     }
     final paths = [
-      for (final line in const LineSplitter().convert(listed.stdout))
+      for (final line in const LineSplitter().convert(
+        listed.names('worktree path'),
+      ))
         if (line.startsWith('worktree '))
           pathText(line.substring('worktree '.length)),
     ];

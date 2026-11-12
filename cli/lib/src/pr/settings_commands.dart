@@ -51,7 +51,8 @@ Future<Contexts> workflowContexts(
 /// `toplevel(d)`: the git top level of [d], else [d].
 Future<String> _toplevel(PrContext ctx, String d) async {
   final r = await ctx.git(d, ['rev-parse', '--show-toplevel']);
-  final top = pyStrip(r.stdout);
+  // D4: a path, read strictly
+  final top = pyStrip(r.names('repository path'));
   return r.code == 0 && top.isNotEmpty ? top : d;
 }
 
@@ -176,7 +177,7 @@ Future<void> _settingsPinned(
 Future<bool> _gitbutlerPins(PrContext ctx, String code) async {
   if ((await _loadSettings(ctx, code))['vcs'] == 'gitbutler') return true;
   final r = await ctx.git(code, ['rev-parse', '--git-common-dir']);
-  final common = pyStrip(r.stdout);
+  final common = pyStrip(r.names('Git common directory'));
   if (r.code != 0 || common.isEmpty) return false;
   final commonDir = Directory(common).isAbsolute ? common : '$code/$common';
   if (!Directory('$commonDir/gitbutler').existsSync()) return false;
@@ -204,7 +205,7 @@ Future<String> _pinRef(
     '--get',
     'gitbutler.project.targetRef',
   ]);
-  final target = r.code == 0 ? pyStrip(r.stdout) : '';
+  final target = r.code == 0 ? pyStrip(r.names('GitButler target ref')) : '';
   if (target.isEmpty) {
     throw PairStop(
       'git_error',

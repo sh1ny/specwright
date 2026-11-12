@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/pr/settings_commands.dart';
 import 'package:specwright_cli/src/settings/reviewer_config.dart';
+import 'package:specwright_cli/src/vcs/text_result.dart';
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
@@ -45,6 +46,29 @@ void main() {
       run(runContext, argv, environment: environment);
 
   group('vcs', () {
+    test('a top level that is not UTF-8 is not_utf8, exit 1 (D4)', () async {
+      Directory(code()).createSync(recursive: true);
+      final out = <int>[];
+      final ctx = PrContext(
+        scriptsDir: 'scripts',
+        bash: 'bash',
+        writeOut: out.addAll,
+        writeErr: (_) {},
+        environment: env(),
+        git: (dir, args) async => TextResult(
+          0,
+          '/r\u{FFFD}',
+          '',
+          stdoutBytes: [0x2f, 0x72, 0xff, 0x0a],
+        ),
+      );
+      final exit = await runVcs(ctx, ['--code', code()]);
+      final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+      expect(exit, 1);
+      expect(doc['error'], 'not_utf8');
+      expect(doc['message'], contains('repository path'));
+    });
+
     test('absent settings default each backend to git', () async {
       Directory(code()).createSync(recursive: true);
       final r = await vcs(['--code', code()]);

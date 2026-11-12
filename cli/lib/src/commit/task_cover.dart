@@ -58,6 +58,10 @@ Future<int> taskCover(
   } on VcsStop catch (stop) {
     doc = stop.object();
     code = stop.code;
+  } on NotUtf8 catch (e) {
+    final stop = VcsStop.notUtf8(e);
+    doc = stop.object();
+    code = stop.code;
   } on Object catch (e) {
     doc = _internalError(e);
     code = 1;
@@ -158,7 +162,11 @@ Future<Map<String, Object?>> _cover(
   String? relDir;
   if (rev != null && rev.isNotEmpty) {
     final top = pyStrip(
-      decodeReplacing(await hard(repo, ['rev-parse', '--show-toplevel'])),
+      // D4: a path, so a non-UTF-8 one is not_utf8, not a look-alike
+      decodeStrict(
+        await hard(repo, ['rev-parse', '--show-toplevel']),
+        'repository path',
+      ),
     );
     // The path inside the repo is taken lexically: following a working-tree
     // symlink would let the checkout pick which committed file is read. Only

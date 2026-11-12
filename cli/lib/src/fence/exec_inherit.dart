@@ -65,6 +65,10 @@ Future<int> runFenced(
     }
     return status;
   }
+  // D5: the resolved path's Windows line is checked by planLaunch (it throws
+  // Unrepresentable, which runFence refuses); the fence starts the raw
+  // arguments, so the plan is only asked for its check.
+  planLaunch(path, command, env, transport: false);
   return _inherit(name, path, command.skip(1).toList(), env);
 }
 

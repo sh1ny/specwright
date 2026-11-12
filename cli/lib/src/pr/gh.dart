@@ -119,6 +119,8 @@ Future<GhResult> _run(
     plan = planLaunch(path, command, env);
   } on UnsafeBatchArgument catch (e) {
     return _notStarted('cannot start $name: $e');
+  } on Unrepresentable catch (e) {
+    return _notStarted('cannot start $name: $e');
   }
   final result = await BoundedRun(
     command: plan.command,

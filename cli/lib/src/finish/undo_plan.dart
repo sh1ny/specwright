@@ -214,6 +214,11 @@ class _Planner {
 
   String textOf(ToolResult r) => pyStrip(decodeReplacing(r.stdout));
 
+  /// A path the tool printed (D4): decoded strictly, so one that is not UTF-8
+  /// is [NotUtf8] naming [what], not a look-alike.
+  String pathOf(ToolResult r, String what) =>
+      pyStrip(decodeStrict(r.stdout, what));
+
   List<String> nulList(ToolResult r) {
     final out = <String>[];
     var start = 0;
@@ -317,8 +322,11 @@ class _Planner {
     if (r.exitCode != 0 || textOf(r).isEmpty) {
       throw VcsStop('not_a_repo', '$d is not inside a git work tree');
     }
-    final top = textOf(r);
-    final gitdir = textOf(await git(top, ['rev-parse', '--absolute-git-dir']));
+    final top = pathOf(r, 'repository path');
+    final gitdir = pathOf(
+      await git(top, ['rev-parse', '--absolute-git-dir']),
+      'git directory',
+    );
     r = await git(top, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']);
     if (r.exitCode != 0) {
       throw VcsStop('not_a_repo', 'the repository has no commit');

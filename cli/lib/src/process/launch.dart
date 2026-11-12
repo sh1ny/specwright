@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 
 import 'bounded_run.dart';
 import 'command_line.dart';
+
+export 'command_line.dart' show Unrepresentable, windowsCommandLineLimit;
 import 'limit_line.dart' show BoundedLimit;
 import 'limits.dart';
 import 'missing_directory.dart';
@@ -38,26 +40,6 @@ class LaunchResult {
   final bool startFailed;
 }
 
-/// Input [launch] cannot hand to a tool whole: a NUL, a lone surrogate, or on
-/// Windows a command line past the operating system's limit (D5).
-class Unrepresentable implements Exception {
-  const Unrepresentable(this.command, this.what);
-
-  /// The command's name, as the caller gave it.
-  final String command;
-
-  /// What cannot be represented: `command`, `argument`, `environment variable
-  /// name`, `environment variable value`, `working directory` or `command
-  /// line`.
-  final String what;
-
-  @override
-  String toString() => 'unrepresentable $what: $command';
-}
-
-/// The longest command line `CreateProcessW` takes, in UTF-16 units.
-const int windowsCommandLineLimit = 32767;
-
 bool _hasNul(String s) => s.contains('\x00');
 
 bool _hasLoneSurrogate(String s) {
@@ -77,44 +59,6 @@ bool _hasLoneSurrogate(String s) {
   }
   return false;
 }
-
-/// Units one argument takes on a Windows command line: wrapped in quotes when
-/// it is empty or holds a space, tab or quote, with a quote and the backslashes
-/// before it (or before the closing quote) escaped.
-int _quotedLength(String arg) {
-  if (arg.isNotEmpty && !RegExp(r'[ \t"]').hasMatch(arg)) return arg.length;
-  var n = 2;
-  var slashes = 0;
-  for (final u in arg.codeUnits) {
-    if (u == 0x5c) {
-      slashes++;
-      n++;
-      continue;
-    }
-    if (u == 0x22) n += slashes + 1;
-    slashes = 0;
-    n++;
-  }
-  return n + slashes;
-}
-
-void _checkLine(String name, List<String> command, bool windows) {
-  if (!windows) return;
-  var units = command.length - 1; // the separating spaces
-  for (final item in command) {
-    units += _quotedLength(item);
-  }
-  if (units > windowsCommandLineLimit) {
-    throw Unrepresentable(name, 'command line');
-  }
-}
-
-/// Throws [Unrepresentable] (`command line`, named by [name]) when, on Windows
-/// ([windows], default: this system), the native [command] (the resolved path
-/// first) would make a command line past [windowsCommandLineLimit] units. A
-/// batch command is not checked here: `planLaunch` keeps its own line limit.
-void checkNativeLine(String name, List<String> command, {bool? windows}) =>
-    _checkLine(name, command, windows ?? Platform.isWindows);
 
 /// Throws [Unrepresentable] for a NUL or a lone surrogate in [command] (its
 /// first item is `command`, the others `argument`), in [environment] (key or
@@ -142,7 +86,7 @@ void checkLaunchInput(
     check(entry.value, 'environment variable value');
   }
   check(cwd, 'working directory');
-  _checkLine(name, command, windows ?? Platform.isWindows);
+  checkCommandLine(name, command, windows: windows);
 }
 
 LaunchResult _startFailed(String text) => LaunchResult(
@@ -219,7 +163,10 @@ Future<LaunchResult> launch(
       helperCommand,
     );
   }
-  checkNativeLine(name, [path, ...command.skip(1)]);
+  // D5: the resolved path's Windows line is checked by planLaunch, the one
+  // place every native plan passes through. launch() starts the raw arguments
+  // (no bash transport), so the plan is only asked for its check.
+  planLaunch(path, command, env, transport: false);
   return _native(
     name,
     path,

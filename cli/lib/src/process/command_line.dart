@@ -83,15 +83,74 @@ String commandInterpreter(Map<String, String> env) {
   return '$root\\System32\\cmd.exe';
 }
 
+/// Input the launcher cannot hand to a tool whole: a NUL, a lone surrogate, or
+/// on Windows a command line past the operating system's limit (D5).
+class Unrepresentable implements Exception {
+  const Unrepresentable(this.command, this.what);
+
+  /// The command's name, as the caller gave it.
+  final String command;
+
+  /// What cannot be represented: `command`, `argument`, `environment variable
+  /// name`, `environment variable value`, `working directory` or `command
+  /// line`.
+  final String what;
+
+  @override
+  String toString() => 'unrepresentable $what: $command';
+}
+
+/// The longest command line `CreateProcessW` takes, in UTF-16 units.
+const int windowsCommandLineLimit = 32767;
+
+/// Units one argument takes on a Windows command line: wrapped in quotes when
+/// it is empty or holds a space, tab or quote, with a quote and the backslashes
+/// before it (or before the closing quote) escaped.
+int _quotedLength(String arg) {
+  if (arg.isNotEmpty && !RegExp(r'[ \t"]').hasMatch(arg)) return arg.length;
+  var n = 2;
+  var slashes = 0;
+  for (final u in arg.codeUnits) {
+    if (u == 0x5c) {
+      slashes++;
+      n++;
+      continue;
+    }
+    if (u == 0x22) n += slashes + 1;
+    slashes = 0;
+    n++;
+  }
+  return n + slashes;
+}
+
+/// Throws [Unrepresentable] (`command line`, named by [name]) when, on Windows
+/// ([windows], default: this system), [command] would make a command line past
+/// [windowsCommandLineLimit] units.
+void checkCommandLine(String name, List<String> command, {bool? windows}) {
+  if (!(windows ?? Platform.isWindows)) return;
+  var units = command.length - 1; // the separating spaces
+  for (final item in command) {
+    units += _quotedLength(item);
+  }
+  if (units > windowsCommandLineLimit) {
+    throw Unrepresentable(name, 'command line');
+  }
+}
+
 /// The plan for [command] once its first item resolved to [path]: a batch
 /// file on Windows runs as `cmd.exe /d /s /c "<line>"` ([quoteBatchLine]); a
-/// Windows `bash -c` sends its arguments on stdin ([transportFor]); anything
-/// else starts directly. Throws [UnsafeBatchArgument] before anything starts.
+/// Windows `bash -c` sends its arguments on stdin ([transportFor], unless
+/// [transport] is false); anything else starts directly. Throws
+/// [UnsafeBatchArgument] for a batch line, and [Unrepresentable] (`command
+/// line`, named by `command.first`) for a native Windows command line past
+/// [windowsCommandLineLimit] with the resolved [path], before anything starts.
+/// Every native launch plan passes through here, so the check lives only here.
 LaunchPlan planLaunch(
   String path,
   List<String> command,
   Map<String, String> env, {
   bool? windows,
+  bool transport = true,
 }) {
   final win = windows ?? Platform.isWindows;
   if (win && isBatchFile(path)) {
@@ -103,6 +162,10 @@ LaunchPlan planLaunch(
       rawLine: true,
     );
   }
-  final transport = transportFor([path, ...command.skip(1)], windows: win);
-  return LaunchPlan(transport.command, transport.stdinBytes);
+  final resolved = [path, ...command.skip(1)];
+  final started = transport
+      ? transportFor(resolved, windows: win)
+      : Transport(resolved, const []);
+  checkCommandLine(command.first, started.command, windows: win);
+  return LaunchPlan(started.command, started.stdinBytes);
 }

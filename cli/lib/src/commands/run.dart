@@ -2,8 +2,7 @@ import 'dart:io';
 
 import '../process/bounded_run.dart';
 import '../process/command_line.dart';
-import '../process/launch.dart'
-    show Unrepresentable, checkLaunchInput, checkNativeLine;
+import '../process/launch.dart' show Unrepresentable, checkLaunchInput;
 import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
@@ -93,16 +92,10 @@ Future<int> runCommand(
   } on UnsafeBatchArgument {
     err.write('bounded: unsafe batch argument: ${command.first}\n');
     return 2;
-  }
-  // D5: a native command's Windows line is checked once its path is known,
-  // before the helper starts (a batch line was checked by planLaunch).
-  if (!plan.rawLine) {
-    try {
-      checkNativeLine(command.first, [path, ...command.skip(1)]);
-    } on Unrepresentable catch (e) {
-      err.write('bounded: unrepresentable ${e.what}: ${e.command}\n');
-      return 2;
-    }
+  } on Unrepresentable catch (e) {
+    // D5: a native line past the Windows limit with the resolved path.
+    err.write('bounded: unrepresentable ${e.what}: ${e.command}\n');
+    return 2;
   }
   final result = await BoundedRun(
     command: plan.command,

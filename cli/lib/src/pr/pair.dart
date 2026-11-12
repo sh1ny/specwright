@@ -1,5 +1,7 @@
 import '../options.dart';
+import '../vcs/codec.dart' show NotUtf8;
 import '../vcs/document.dart';
+import '../vcs/stop.dart';
 import 'context.dart';
 
 // What the five `pr-pair.sh` subcommands that moved to `sw pr` share (design D1): the script's stop, its flag reader and
@@ -94,6 +96,10 @@ Future<int> runPairCommand(
   } on PairStop catch (e) {
     answer = e.toJson();
     code = e.code;
+  } on NotUtf8 catch (e) {
+    // D4: a path or name a git read printed is not UTF-8: refused by name, exit 1
+    answer = VcsStop.notUtf8(e).object();
+    code = 1;
   } on Object catch (e) {
     answer = {
       'ok': false,

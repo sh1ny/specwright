@@ -250,7 +250,7 @@ class FeedbackPass {
     final mref = main == null ? null : await workflow.mainRef(store, main);
     final dirs = <String>[];
     for (final directory
-        in result.stdout.split('\n').where(expression.hasMatch)) {
+        in result.names('file name').split('\n').where(expression.hasMatch)) {
       if (mref == null ||
           (await ctx.git(store, ['cat-file', '-e', '$mref:$directory'])).code !=
               0) {

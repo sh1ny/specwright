@@ -84,8 +84,13 @@ Future<String> detectMain(String repo, String configured) async {
 /// `.git/gitbutler/` or `gitbutler.project.targetRef` is missing.
 Future<String?> gitbutlerManaged(String root) async {
   final common = await runText(root, ['git', 'rev-parse', '--git-common-dir']);
-  final commonDir = common.code == 0 && common.stdout.trim().isNotEmpty
-      ? _join(root, common.stdout.trim())
+  // D4: the common dir is a path; read strictly, a non-UTF-8 one is not_utf8
+  // instead of a look-alike that hides the GitButler directory.
+  final commonText = common.code == 0
+      ? common.names('Git common directory').trim()
+      : '';
+  final commonDir = commonText.isNotEmpty
+      ? _join(root, commonText)
       : _join(root, '.git');
   if (!_isDirectory(_join(commonDir, 'gitbutler'))) return null;
   final target = await runText(root, [
@@ -94,9 +99,9 @@ Future<String?> gitbutlerManaged(String root) async {
     '--get',
     'gitbutler.project.targetRef',
   ]);
-  return target.code == 0 && target.stdout.trim().isNotEmpty
-      ? target.stdout.trim()
-      : null;
+  if (target.code != 0) return null;
+  final ref = target.names('GitButler target ref').trim();
+  return ref.isNotEmpty ? ref : null;
 }
 
 (int, int, int)? _versionOf(TextResult r) {
@@ -234,7 +239,10 @@ Future<ProbeInfo> probe(
     final main = await detectMain(root, settings.main);
     final jroot = await runText(repo, ['jj', 'root']);
     if (jroot.code != 0 ||
-        !_samePath(await resolvePath(jroot.stdout.trim()), root)) {
+        !_samePath(
+          await resolvePath(jroot.names('repository path').trim()),
+          root,
+        )) {
       throw VcsStop(
         'not_colocated',
         'jj workspace and Git work tree do not share the same toplevel',
