@@ -5,6 +5,7 @@
     {"paths": ["skills/specwright-finish/**"], "suites": ["finish"]},
     {"paths": ["skills/specwright-pr/**", "skills/specwright-finish/SKILL.md", "skills/*/scripts/**"], "suites": ["pr-pair"]},
     {"paths": ["skills/specwright-review/**", "skills/specwright-commit/**", "skills/specwright-pr/**", "skills/specwright-finish/**", "skills/specwright-roadmap/**"], "suites": ["review-routes"]},
+    {"paths": ["evals/review-routes/fixtures/**"], "suites": ["review-routes"]},
     {"paths": ["skills/specwright-pr/scripts/bounded.py"], "suites": ["runner"]},
     {"paths": ["schemas/**"], "suites": ["git-workflow", "release", "review-routes", "update"]},
     {"paths": ["templates/**"], "suites": ["git-workflow", "update"]},

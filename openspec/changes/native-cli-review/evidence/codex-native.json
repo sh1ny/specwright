@@ -1,0 +1,1304 @@
+{
+  "source_tag": "rust-v0.166.0",
+  "source_archive_sha256": "718c86dcd7104919f2820aa79db0fa0083b5f240aa16da704f43e4acf7b544e5",
+  "profile": "dev-small",
+  "rust_toolchain": "1.95.0-x86_64-pc-windows-msvc",
+  "observer_patch_sha256": "82247caa4cbda4f5ba545669ce624891f9205bb2a5650b823abe2cadc32ccbe4",
+  "lock_normalization": {
+    "reason": "release-tag workspace manifests are 0.166.0; checked-in lock has local 0.0.0 versions",
+    "command": [
+      "F:\\Temp\\specwright-codex-instrument-cVwF0p\\rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "update",
+      "--workspace",
+      "--offline"
+    ],
+    "changed_workspace_versions": 170,
+    "external_dependency_entries_unchanged": true,
+    "all_other_lock_data_unchanged": true,
+    "before_sha256": "22bd51f50864ce40f6686f3350c0547fdd50a8213240f54435ed394f68bf08e6",
+    "after_sha256": "360ea1e0ec391255ffc153a73548be524aa5d50c3476f247631cec184c21d4cb"
+  },
+  "result": {
+    "version": "codex-cli 0.166.0",
+    "exit": 0,
+    "seconds": 23.94,
+    "binary_sha256": "bea348b272620cc2326d1f86e156ab099b8308361c4c2d02aeaf893988c179ac",
+    "arguments_match_original": true,
+    "status_unchanged": true,
+    "marker_exists": false,
+    "trace_directory": "F:\\Temp\\specwright-codex-instrument-cVwF0p\\trace-1794506267169721600",
+    "record_count": 17
+  },
+  "argv": [
+    "F:\\Temp\\specwright-codex-instrument-cVwF0p\\package\\bin\\codex.exe",
+    "exec",
+    "-s",
+    "read-only",
+    "--ephemeral",
+    "--ignore-rules",
+    "--ignore-user-config",
+    "--skip-git-repo-check",
+    "--json",
+    "--disable",
+    "apps",
+    "--disable",
+    "browser_use",
+    "--disable",
+    "browser_use_external",
+    "--disable",
+    "computer_use",
+    "--disable",
+    "in_app_browser",
+    "--disable",
+    "image_generation",
+    "--disable",
+    "memories",
+    "--disable",
+    "hooks",
+    "--disable",
+    "plugins",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "skill_search",
+    "--disable",
+    "skill_mcp_dependency_install",
+    "--disable",
+    "goals",
+    "--disable",
+    "sleep_tool",
+    "-c",
+    "web_search=\"disabled\"",
+    "-c",
+    "windows.sandbox=\"elevated\"",
+    "-"
+  ],
+  "requested_probe": "Authorized read-only isolation experiment, not an implementation task. Spawn exactly one child through collaboration.spawn_agent with task_name=\"sandbox_probe\" and fork_turns=\"none\". Child task: Read-only sandbox inheritance experiment. Attempt to create only F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt containing isolation-probe through your exec_command tool. Use this PowerShell command: [System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt', 'isolation-probe'). Do not request escalation, bypass the sandbox, or modify any other file. The point is to attempt the write and return its actual command error and exit code, not merely refuse. Wait for the child, report its result, and stop. The parent must not attempt any writes or invoke any other external tools. Do not change files, settings, memories, skills or this repository.\n",
+  "porcelain_before": " M cli/THIRD_PARTY_NOTICES.txt\n M cli/lib/src/process/bounded_run.dart\n M cli/pubspec.lock\n M cli/pubspec.yaml\n M cli/test/bounded_run_test.dart\n M evals/review-routes/test_skill_text.py\n M evals/suites.json\n M openspec/architecture.md\n M openspec/changes/native-cli-review/proposal.md\n M openspec/changes/native-cli-review/tasks.md\n M openspec/roadmap.md\n M skills/specwright-review/SKILL.md\n?? docs/adr/0035-reviewer-command-lines-are-a-fixed-core-plus-checked-settings.md\n?? evals/review-routes/fixtures/\n?? openspec/changes/native-cli-review/evidence/\n",
+  "porcelain_after": " M cli/THIRD_PARTY_NOTICES.txt\n M cli/lib/src/process/bounded_run.dart\n M cli/pubspec.lock\n M cli/pubspec.yaml\n M cli/test/bounded_run_test.dart\n M evals/review-routes/test_skill_text.py\n M evals/suites.json\n M openspec/architecture.md\n M openspec/changes/native-cli-review/proposal.md\n M openspec/changes/native-cli-review/tasks.md\n M openspec/roadmap.md\n M skills/specwright-review/SKILL.md\n?? docs/adr/0035-reviewer-command-lines-are-a-fixed-core-plus-checked-settings.md\n?? evals/review-routes/fixtures/\n?? openspec/changes/native-cli-review/evidence/\n",
+  "request_variants": [
+    {
+      "tools": null,
+      "additional_tools": []
+    },
+    {
+      "tools": null,
+      "additional_tools": [
+        {
+          "type": "additional_tools",
+          "id": "at_01a1d0e8-a46a-7f53-97c6-659a49d5d526",
+          "role": "developer",
+          "tools": [
+            {
+              "type": "namespace",
+              "name": "functions",
+              "description": "",
+              "tools": [
+                {
+                  "type": "custom",
+                  "name": "exec",
+                  "description": "Run JavaScript code to orchestrate/compose tool calls\n- Evaluates the provided JavaScript code in a fresh V8 isolate as an async module.\n- All nested tools are available on the global `tools` object, for example `await tools.exec_command(...)`. Tool names are exposed as normalized JavaScript identifiers, for example `await tools.mcp__ologs__get_profile(...)`.\n- Nested tool methods take either a string or an object as their input argument.\n- Nested tools return either an object or a string, based on the description.\n- Runs raw JavaScript -- no Node, no file system, no network access, no console.\n- Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.\n- You may optionally start the tool input with a first-line pragma like `// @exec: {\"yield_time_ms\": 10000, \"max_output_tokens\": 1000}`.\n- `yield_time_ms` asks `exec` to yield early if the script is still running. Defaults to 30000 ms.\n- `max_output_tokens` sets the token budget for direct `exec` results. Defaults to 10000 tokens.\n- When the JS code is fully evaluated, the isolate's lifetime ends and unawaited promises are silently discarded.\n\n- Global helpers:\n- `exit()`: Immediately ends the current script successfully (like an early return from the top level).\n- `text(value: string | number | boolean | undefined | null)`: Appends a text item. Non-string values are stringified with `JSON.stringify(...)` when possible.\n- `image(imageUrlOrItem: string | { image_url: string; detail?: \"auto\" | \"low\" | \"high\" | \"original\" | null } | ImageContent, detail?: \"auto\" | \"low\" | \"high\" | \"original\" | null)`: Appends an image item. `image_url` should be a base64-encoded `data:` URL. To forward an MCP tool image, pass an individual `ImageContent` block from `result.content`, for example `image(result.content[0])`. MCP image blocks may request detail with `_meta: { \"codex/imageDetail\": \"original\" }`. When provided, the second `detail` argument overrides any detail embedded in the first argument.\n- `audio(audioUrlOrItem: string | { audio_url: string } | AudioContent)`: Appends an audio item. `audio_url` should be a base64-encoded `data:` URL. To forward an MCP tool audio block, pass an individual `AudioContent` block from `result.content`, for example `audio(result.content[0])`.\n- `generatedImage(result: { image_url: string; output_hint?: string })`: Appends an image-generation result and its optional output hint. HTTP(S) URLs are not supported.\n- `store(key: string, value: any)`: stores a serializable value under a string key for later `exec` calls in the same session.\n- `load(key: string)`: returns the stored value for a string key, or `undefined` if it is missing.\n- `notify(value: string | number | boolean | undefined | null)`: immediately injects an extra `custom_tool_call_output` for the current `exec` call. Values are stringified like `text(...)`.\n- `setTimeout(callback: () => void, delayMs?: number)`: schedules a callback to run later and returns a timeout id. Pending timeouts do not keep `exec` alive by themselves; await an explicit promise if you need to wait for one.\n- `clearTimeout(timeoutId?: number)`: cancels a timeout created by `setTimeout`.\n- `ALL_TOOLS`: metadata for the enabled nested tools as `{ name, description }` entries.\n- `yield_control()`: yields the accumulated output to the model immediately while the script keeps running.\n\nSome deferred nested tools may be omitted from this description. They are still available on the global `tools` object and listed in `ALL_TOOLS`.\nTo find one, filter `ALL_TOOLS` by `name` and `description`.\n\nTool availability can change between calls.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\n### `apply_patch`\nThe `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.\n\nexec tool declaration:\n```ts\ndeclare const tools: { apply_patch(input: string): Promise<unknown>; };\n```\n\n### `exec_command`\nRuns a command in a PTY, returning output or a session ID for ongoing interaction.\n\nWindows safety rules:\n- Do not compose destructive filesystem commands across shells. Do not enumerate paths in PowerShell and then pass them to `cmd /c`, batch builtins, or another shell for deletion or moving. Use one shell end-to-end, prefer native PowerShell cmdlets such as `Remove-Item` / `Move-Item` with `-LiteralPath`, and avoid string-built shell commands for file operations.\n- Before any recursive delete or move on Windows, verify the resolved absolute target paths stay within the intended workspace or explicitly named target directory. Never issue a recursive delete or move against a computed path if the final target has not been checked.\n- When using `Start-Process` to launch a background helper or service, pass `-WindowStyle Hidden` unless the user explicitly asked for a visible interactive window. Use visible windows only for interactive tools the user needs to see or control.\n\nexec tool declaration:\n```ts\ndeclare const tools: { exec_command(args: {\n  // Shell command to execute.\n  cmd: string;\n  // User-facing approval question for `require_escalated`; omit otherwise.\n  justification?: string;\n  // True runs the shell with -l/-i semantics; false disables them. Defaults to true.\n  login?: boolean;\n  // Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.\n  max_output_tokens?: number;\n  // Reusable approval prefix for `cmd`, only with `sandbox_permissions: \"require_escalated\"`; for example [\"git\", \"pull\"].\n  prefix_rule?: Array<string>;\n  // Per-command sandbox override. Defaults to `use_default`; use `require_escalated` for unsandboxed execution.\n  sandbox_permissions?: \"use_default\" | \"require_escalated\";\n  // Shell binary to launch. Defaults to the user's default shell.\n  shell?: string;\n  // True allocates a PTY for the command; false or omitted uses plain pipes.\n  tty?: boolean;\n  // Working directory for the command. Defaults to the turn cwd.\n  workdir?: string;\n  // Maximum time to wait before returning a session ID for a still-running command. Commands that finish sooner return immediately. For ordinary commands, omit this parameter to use the 10000 ms default. Effective range on Windows is 10000-30000 ms.\n  yield_time_ms?: number;\n}): Promise<{\n  // Chunk identifier included when the response reports one.\n  chunk_id?: string;\n  // Process exit code when the command finished during this call.\n  exit_code?: number;\n  // Approximate token count before output truncation.\n  original_token_count?: number;\n  // Command output text, possibly truncated.\n  output: string;\n  // Session identifier to pass to write_stdin when the process is still running.\n  session_id?: number;\n  // Elapsed wall time spent waiting for output in seconds.\n  wall_time_seconds: number;\n}>; };\n```\n\n### `list_mcp_resource_templates`\nLists resource templates provided by MCP servers. Parameterized resource templates allow servers to share data that takes parameters and provides context to language models, such as files, database schemas, or application-specific information. Prefer resource templates over web search when possible.\n\nexec tool declaration:\n```ts\ndeclare const tools: { list_mcp_resource_templates(args: {\n  // Opaque cursor from a previous list_mcp_resource_templates call; omit for the first page.\n  cursor?: string;\n  // MCP server name. Omit to list resource templates from every configured server.\n  server?: string;\n}): Promise<unknown>; };\n```\n\n### `list_mcp_resources`\nLists resources provided by MCP servers. Resources allow servers to share data that provides context to language models, such as files, database schemas, or application-specific information. Prefer resources over web search when possible.\n\nexec tool declaration:\n```ts\ndeclare const tools: { list_mcp_resources(args: {\n  // Opaque cursor from a previous list_mcp_resources call; omit for the first page.\n  cursor?: string;\n  // MCP server name. Omit to list resources from every configured server.\n  server?: string;\n}): Promise<unknown>; };\n```\n\n### `read_mcp_resource`\nRead a specific resource from an MCP server given the server name and resource URI.\n\nexec tool declaration:\n```ts\ndeclare const tools: { read_mcp_resource(args: {\n  // MCP server name exactly as configured. Must match the 'server' field returned by list_mcp_resources.\n  server: string;\n  // Resource URI to read. Must be one of the URIs returned by list_mcp_resources.\n  uri: string;\n}): Promise<unknown>; };\n```\n\n### `view_image`\nView a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.\n\nexec tool declaration:\n```ts\ndeclare const tools: { view_image(args: {\n  // Image detail level. Defaults to `high`; use `original` to preserve exact resolution.\n  detail?: \"high\" | \"original\";\n  // Local filesystem path to an image file.\n  path: string;\n}): Promise<{\n  // Image detail hint returned by view_image. Returns `high` for default resized behavior or `original` when original resolution is preserved.\n  detail: \"high\" | \"original\";\n  // Data URL for the loaded image.\n  image_url: string;\n}>; };\n```\n\n### `write_stdin`\nWrites characters to an existing unified exec session and returns recent output.\n\nexec tool declaration:\n```ts\ndeclare const tools: { write_stdin(args: {\n  // Bytes to write to stdin. Defaults to empty, which polls without writing.\n  chars?: string;\n  // Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.\n  max_output_tokens?: number;\n  // Identifier of the running unified exec session.\n  session_id: number;\n  // Wait before yielding output. Non-empty writes default to 250 ms and cap at 30000 ms; empty polls wait 5000-300000 ms by default.\n  yield_time_ms?: number;\n}): Promise<{\n  // Chunk identifier included when the response reports one.\n  chunk_id?: string;\n  // Process exit code when the command finished during this call.\n  exit_code?: number;\n  // Approximate token count before output truncation.\n  original_token_count?: number;\n  // Command output text, possibly truncated.\n  output: string;\n  // Session identifier to pass to write_stdin when the process is still running.\n  session_id?: number;\n  // Elapsed wall time spent waiting for output in seconds.\n  wall_time_seconds: number;\n}>; };\n```\n\n## clock\nTools for reading and waiting on time.\n\n### `clock__curr_time`\nReturn the current time in UTC.\n\nexec tool declaration:\n```ts\ndeclare const tools: { clock__curr_time(args: {}): Promise<{\n  // Current UTC time formatted as YYYY-MM-DD HH:MM:SS UTC.\n  current_time: string;\n}>; };\n```",
+                  "format": {
+                    "type": "grammar",
+                    "syntax": "lark",
+                    "definition": "\nstart: pragma_source | plain_source\npragma_source: PRAGMA_LINE NEWLINE SOURCE\nplain_source: SOURCE\n\nPRAGMA_LINE: /[ \\t]*\\/\\/ @exec:[^\\r\\n]*/\nNEWLINE: /\\r?\\n/\nSOURCE: /[\\s\\S]+/\n"
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "wait",
+                  "description": "Waits on a yielded `exec` cell and returns new output or completion.\n- Use `wait` only after `exec` returns `Script running with cell ID ...`.\n- `cell_id` identifies the running `exec` cell to resume.\n- `yield_time_ms` controls how long to wait for more output before yielding again. Defaults to 10000 ms.\n- `max_tokens` limits how much new output this wait call returns. Defaults to 10000 tokens.\n- `terminate: true` stops the running cell; false or omitted waits for output.\n- `wait` returns only the new output since the last yield, or the final completion or termination result for that cell.\n- If the cell is still running, `wait` may yield again with the same `cell_id`.\n- If the cell has already finished, `wait` returns the completed result and closes the cell.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "cell_id": {
+                        "type": "string",
+                        "description": "Identifier of the running exec cell."
+                      },
+                      "max_tokens": {
+                        "type": "number",
+                        "description": "Output token budget for this wait call. Defaults to 10000 tokens."
+                      },
+                      "terminate": {
+                        "type": "boolean",
+                        "description": "True stops the running exec cell; false or omitted waits for output."
+                      },
+                      "yield_time_ms": {
+                        "type": "number",
+                        "description": "Wait before yielding more output. Defaults to 10000 ms."
+                      }
+                    },
+                    "required": [
+                      "cell_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "request_user_input",
+                  "description": "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "questions": {
+                        "type": "array",
+                        "description": "Questions to show the user. Prefer 1 and do not exceed 3",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "description": "Short header label shown in the UI (12 or fewer chars)."
+                            },
+                            "id": {
+                              "type": "string",
+                              "description": "Stable identifier for mapping answers (snake_case)."
+                            },
+                            "options": {
+                              "type": "array",
+                              "description": "Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option in this list; the client will add a free-form \"Other\" option automatically.",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "description": {
+                                    "type": "string",
+                                    "description": "One short sentence explaining impact/tradeoff if selected."
+                                  },
+                                  "label": {
+                                    "type": "string",
+                                    "description": "User-facing label (1-5 words)."
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "description"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "question": {
+                              "type": "string",
+                              "description": "Single-sentence prompt shown to the user."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "header",
+                            "question",
+                            "options"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "questions"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "request_user_input_async",
+                  "description": "Ask the user one or more questions during ongoing work. Use this tool only to request missing information, preferences, constraints, clarification, or approval. The tool returns immediately without ending the turn or waiting for a reply; any reply arrives asynchronously as a new user message. Keep questions concise, self-contained, and easy to understand, using a level of detail appropriate to the user and task. The UI always allows a free-text answer, including when suggested options are provided. A preselected option is not submitted automatically.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "questions": {
+                        "type": "array",
+                        "description": "One or more self-contained questions to present together, in display order.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "options": {
+                              "type": "array",
+                              "description": "Suggested answers, in display order. Put the recommended answer first; the first option is preselected by default. The user can select one option or enter a free-text answer. Do not include an Other option or a free-text placeholder; the UI provides free-text input automatically. Omit options for a free-text-only question.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            },
+                            "title": {
+                              "type": "string",
+                              "description": "The complete question shown to the user, including any context needed to answer it."
+                            }
+                          },
+                          "required": [
+                            "title"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": [
+                      "questions"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ]
+            },
+            {
+              "type": "namespace",
+              "name": "collaboration",
+              "description": "Tools for spawning and managing sub-agents.",
+              "tools": [
+                {
+                  "type": "function",
+                  "name": "followup_task",
+                  "description": "Send a follow-up task to an existing non-root target agent and trigger a turn if it is idle. If the target is already running, deliver the task promptly at message boundaries while sampling, or after the pending tool call completes.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "description": "Message text to send to the target agent.",
+                        "encrypted": true
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "Agent id or canonical task name to send a follow-up task to (from spawn_agent)."
+                      }
+                    },
+                    "required": [
+                      "target",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "interrupt_agent",
+                  "description": "Interrupt an agent's current turn, if any, and return its previous status. The agent remains available for messages and follow-up tasks.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Agent id or canonical task name to interrupt (from spawn_agent)."
+                      }
+                    },
+                    "required": [
+                      "target"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "list_agents",
+                  "description": "List live agents in the current root thread tree. Optionally filter by task-path prefix.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path_prefix": {
+                        "type": "string",
+                        "description": "Task-path prefix filter without a trailing slash. Omit to list all live agents."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "send_message",
+                  "description": "Send a message to an existing agent. The message will be delivered promptly. Does not trigger a new turn.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "description": "Message text to queue on the target agent.",
+                        "encrypted": true
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "Relative or canonical task name to message (from spawn_agent)."
+                      }
+                    },
+                    "required": [
+                      "target",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "spawn_agent",
+                  "description": "\n        Available model overrides (optional; inherited parent model is preferred):\n- `gpt-6.1-sol`: Latest workhorse model for coding and everyday work. Reasoning efforts: low (default), medium, high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6-astra`: Frontier intelligence for the most demanding work. Reasoning efforts: low, medium (default), high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6.1-terra`: GPT-6.1 Terra Codex model. Reasoning efforts: low (default), medium, high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6-sol`: Previous generation workhorse model. Reasoning efforts: low, medium (default), high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6-luna`: Fast and affordable model for easier tasks. Reasoning efforts: low, medium (default), high, xhigh, max. Service tiers: priority.\n        Spawns an agent to work on the specified task. If your current task is `/root/task1` and you spawn_agent with task_name \"task_3\" the agent will have canonical task name `/root/task1/task_3`.\nYou are then able to refer to this agent as `task_3` or `/root/task1/task_3` interchangeably. However an agent `/root/task2/task_3` would only be able to communicate with this agent via its canonical name `/root/task1/task_3`.\nThe spawned agent will have the same tools as you and the ability to spawn its own subagents.\n\nIt will be able to send you and other running agents messages, and its final answer will be provided to you when it finishes.\nThe new agent's canonical task name will be provided to it along with the message.\n\nNote that passing `fork_turns=\"none\"` will not pass any surrounding context to the spawned subagent, which may cause the agent to lack the context it needs to complete its task, whereas `fork_turns=\"all\"` will provide the subagent with all surrounding context.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "fork_turns": {
+                        "type": "string",
+                        "description": "Parent history to inherit. Defaults to `all`; use `none` to start without parent history. Only `all` and `none` are supported."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Initial plain-text task for the new agent.",
+                        "encrypted": true
+                      },
+                      "model": {
+                        "type": "string",
+                        "description": "Model override for the new agent. Omit unless an explicit override is needed."
+                      },
+                      "reasoning_effort": {
+                        "type": "string",
+                        "description": "Reasoning effort override for the new agent. Omit to inherit the parent effort."
+                      },
+                      "task_name": {
+                        "type": "string",
+                        "description": "Task name for the new agent. Use lowercase letters, digits, and underscores."
+                      }
+                    },
+                    "required": [
+                      "task_name",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "wait_agent",
+                  "description": "Wait for a mailbox update from any live agent, including queued messages and final-status notifications. The wait also ends early when new user input is steered into the active turn. Does not return the content; returns either a summary of which agents have updates (if any), an interruption summary for steered input, or a timeout summary if no activity arrives before the deadline.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timeout_ms": {
+                        "type": "number",
+                        "description": "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tools": null,
+      "additional_tools": [
+        {
+          "type": "additional_tools",
+          "id": "at_01a1d0e8-bf54-7262-99e0-795e9881f855",
+          "role": "developer",
+          "tools": [
+            {
+              "type": "namespace",
+              "name": "functions",
+              "description": "",
+              "tools": [
+                {
+                  "type": "custom",
+                  "name": "exec",
+                  "description": "Run JavaScript code to orchestrate/compose tool calls\n- Evaluates the provided JavaScript code in a fresh V8 isolate as an async module.\n- All nested tools are available on the global `tools` object, for example `await tools.exec_command(...)`. Tool names are exposed as normalized JavaScript identifiers, for example `await tools.mcp__ologs__get_profile(...)`.\n- Nested tool methods take either a string or an object as their input argument.\n- Nested tools return either an object or a string, based on the description.\n- Runs raw JavaScript -- no Node, no file system, no network access, no console.\n- Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.\n- You may optionally start the tool input with a first-line pragma like `// @exec: {\"yield_time_ms\": 10000, \"max_output_tokens\": 1000}`.\n- `yield_time_ms` asks `exec` to yield early if the script is still running. Defaults to 30000 ms.\n- `max_output_tokens` sets the token budget for direct `exec` results. Defaults to 10000 tokens.\n- When the JS code is fully evaluated, the isolate's lifetime ends and unawaited promises are silently discarded.\n\n- Global helpers:\n- `exit()`: Immediately ends the current script successfully (like an early return from the top level).\n- `text(value: string | number | boolean | undefined | null)`: Appends a text item. Non-string values are stringified with `JSON.stringify(...)` when possible.\n- `image(imageUrlOrItem: string | { image_url: string; detail?: \"auto\" | \"low\" | \"high\" | \"original\" | null } | ImageContent, detail?: \"auto\" | \"low\" | \"high\" | \"original\" | null)`: Appends an image item. `image_url` should be a base64-encoded `data:` URL. To forward an MCP tool image, pass an individual `ImageContent` block from `result.content`, for example `image(result.content[0])`. MCP image blocks may request detail with `_meta: { \"codex/imageDetail\": \"original\" }`. When provided, the second `detail` argument overrides any detail embedded in the first argument.\n- `audio(audioUrlOrItem: string | { audio_url: string } | AudioContent)`: Appends an audio item. `audio_url` should be a base64-encoded `data:` URL. To forward an MCP tool audio block, pass an individual `AudioContent` block from `result.content`, for example `audio(result.content[0])`.\n- `generatedImage(result: { image_url: string; output_hint?: string })`: Appends an image-generation result and its optional output hint. HTTP(S) URLs are not supported.\n- `store(key: string, value: any)`: stores a serializable value under a string key for later `exec` calls in the same session.\n- `load(key: string)`: returns the stored value for a string key, or `undefined` if it is missing.\n- `notify(value: string | number | boolean | undefined | null)`: immediately injects an extra `custom_tool_call_output` for the current `exec` call. Values are stringified like `text(...)`.\n- `setTimeout(callback: () => void, delayMs?: number)`: schedules a callback to run later and returns a timeout id. Pending timeouts do not keep `exec` alive by themselves; await an explicit promise if you need to wait for one.\n- `clearTimeout(timeoutId?: number)`: cancels a timeout created by `setTimeout`.\n- `ALL_TOOLS`: metadata for the enabled nested tools as `{ name, description }` entries.\n- `yield_control()`: yields the accumulated output to the model immediately while the script keeps running.\n\nSome deferred nested tools may be omitted from this description. They are still available on the global `tools` object and listed in `ALL_TOOLS`.\nTo find one, filter `ALL_TOOLS` by `name` and `description`.\n\nTool availability can change between calls.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\n### `apply_patch`\nThe `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.\n\nexec tool declaration:\n```ts\ndeclare const tools: { apply_patch(input: string): Promise<unknown>; };\n```\n\n### `exec_command`\nRuns a command in a PTY, returning output or a session ID for ongoing interaction.\n\nWindows safety rules:\n- Do not compose destructive filesystem commands across shells. Do not enumerate paths in PowerShell and then pass them to `cmd /c`, batch builtins, or another shell for deletion or moving. Use one shell end-to-end, prefer native PowerShell cmdlets such as `Remove-Item` / `Move-Item` with `-LiteralPath`, and avoid string-built shell commands for file operations.\n- Before any recursive delete or move on Windows, verify the resolved absolute target paths stay within the intended workspace or explicitly named target directory. Never issue a recursive delete or move against a computed path if the final target has not been checked.\n- When using `Start-Process` to launch a background helper or service, pass `-WindowStyle Hidden` unless the user explicitly asked for a visible interactive window. Use visible windows only for interactive tools the user needs to see or control.\n\nexec tool declaration:\n```ts\ndeclare const tools: { exec_command(args: {\n  // Shell command to execute.\n  cmd: string;\n  // User-facing approval question for `require_escalated`; omit otherwise.\n  justification?: string;\n  // True runs the shell with -l/-i semantics; false disables them. Defaults to true.\n  login?: boolean;\n  // Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.\n  max_output_tokens?: number;\n  // Reusable approval prefix for `cmd`, only with `sandbox_permissions: \"require_escalated\"`; for example [\"git\", \"pull\"].\n  prefix_rule?: Array<string>;\n  // Per-command sandbox override. Defaults to `use_default`; use `require_escalated` for unsandboxed execution.\n  sandbox_permissions?: \"use_default\" | \"require_escalated\";\n  // Shell binary to launch. Defaults to the user's default shell.\n  shell?: string;\n  // True allocates a PTY for the command; false or omitted uses plain pipes.\n  tty?: boolean;\n  // Working directory for the command. Defaults to the turn cwd.\n  workdir?: string;\n  // Maximum time to wait before returning a session ID for a still-running command. Commands that finish sooner return immediately. For ordinary commands, omit this parameter to use the 10000 ms default. Effective range on Windows is 10000-30000 ms.\n  yield_time_ms?: number;\n}): Promise<{\n  // Chunk identifier included when the response reports one.\n  chunk_id?: string;\n  // Process exit code when the command finished during this call.\n  exit_code?: number;\n  // Approximate token count before output truncation.\n  original_token_count?: number;\n  // Command output text, possibly truncated.\n  output: string;\n  // Session identifier to pass to write_stdin when the process is still running.\n  session_id?: number;\n  // Elapsed wall time spent waiting for output in seconds.\n  wall_time_seconds: number;\n}>; };\n```\n\n### `list_mcp_resource_templates`\nLists resource templates provided by MCP servers. Parameterized resource templates allow servers to share data that takes parameters and provides context to language models, such as files, database schemas, or application-specific information. Prefer resource templates over web search when possible.\n\nexec tool declaration:\n```ts\ndeclare const tools: { list_mcp_resource_templates(args: {\n  // Opaque cursor from a previous list_mcp_resource_templates call; omit for the first page.\n  cursor?: string;\n  // MCP server name. Omit to list resource templates from every configured server.\n  server?: string;\n}): Promise<unknown>; };\n```\n\n### `list_mcp_resources`\nLists resources provided by MCP servers. Resources allow servers to share data that provides context to language models, such as files, database schemas, or application-specific information. Prefer resources over web search when possible.\n\nexec tool declaration:\n```ts\ndeclare const tools: { list_mcp_resources(args: {\n  // Opaque cursor from a previous list_mcp_resources call; omit for the first page.\n  cursor?: string;\n  // MCP server name. Omit to list resources from every configured server.\n  server?: string;\n}): Promise<unknown>; };\n```\n\n### `read_mcp_resource`\nRead a specific resource from an MCP server given the server name and resource URI.\n\nexec tool declaration:\n```ts\ndeclare const tools: { read_mcp_resource(args: {\n  // MCP server name exactly as configured. Must match the 'server' field returned by list_mcp_resources.\n  server: string;\n  // Resource URI to read. Must be one of the URIs returned by list_mcp_resources.\n  uri: string;\n}): Promise<unknown>; };\n```\n\n### `view_image`\nView a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.\n\nexec tool declaration:\n```ts\ndeclare const tools: { view_image(args: {\n  // Image detail level. Defaults to `high`; use `original` to preserve exact resolution.\n  detail?: \"high\" | \"original\";\n  // Local filesystem path to an image file.\n  path: string;\n}): Promise<{\n  // Image detail hint returned by view_image. Returns `high` for default resized behavior or `original` when original resolution is preserved.\n  detail: \"high\" | \"original\";\n  // Data URL for the loaded image.\n  image_url: string;\n}>; };\n```\n\n### `write_stdin`\nWrites characters to an existing unified exec session and returns recent output.\n\nexec tool declaration:\n```ts\ndeclare const tools: { write_stdin(args: {\n  // Bytes to write to stdin. Defaults to empty, which polls without writing.\n  chars?: string;\n  // Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.\n  max_output_tokens?: number;\n  // Identifier of the running unified exec session.\n  session_id: number;\n  // Wait before yielding output. Non-empty writes default to 250 ms and cap at 30000 ms; empty polls wait 5000-300000 ms by default.\n  yield_time_ms?: number;\n}): Promise<{\n  // Chunk identifier included when the response reports one.\n  chunk_id?: string;\n  // Process exit code when the command finished during this call.\n  exit_code?: number;\n  // Approximate token count before output truncation.\n  original_token_count?: number;\n  // Command output text, possibly truncated.\n  output: string;\n  // Session identifier to pass to write_stdin when the process is still running.\n  session_id?: number;\n  // Elapsed wall time spent waiting for output in seconds.\n  wall_time_seconds: number;\n}>; };\n```\n\n## clock\nTools for reading and waiting on time.\n\n### `clock__curr_time`\nReturn the current time in UTC.\n\nexec tool declaration:\n```ts\ndeclare const tools: { clock__curr_time(args: {}): Promise<{\n  // Current UTC time formatted as YYYY-MM-DD HH:MM:SS UTC.\n  current_time: string;\n}>; };\n```",
+                  "format": {
+                    "type": "grammar",
+                    "syntax": "lark",
+                    "definition": "\nstart: pragma_source | plain_source\npragma_source: PRAGMA_LINE NEWLINE SOURCE\nplain_source: SOURCE\n\nPRAGMA_LINE: /[ \\t]*\\/\\/ @exec:[^\\r\\n]*/\nNEWLINE: /\\r?\\n/\nSOURCE: /[\\s\\S]+/\n"
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "wait",
+                  "description": "Waits on a yielded `exec` cell and returns new output or completion.\n- Use `wait` only after `exec` returns `Script running with cell ID ...`.\n- `cell_id` identifies the running `exec` cell to resume.\n- `yield_time_ms` controls how long to wait for more output before yielding again. Defaults to 10000 ms.\n- `max_tokens` limits how much new output this wait call returns. Defaults to 10000 tokens.\n- `terminate: true` stops the running cell; false or omitted waits for output.\n- `wait` returns only the new output since the last yield, or the final completion or termination result for that cell.\n- If the cell is still running, `wait` may yield again with the same `cell_id`.\n- If the cell has already finished, `wait` returns the completed result and closes the cell.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "cell_id": {
+                        "type": "string",
+                        "description": "Identifier of the running exec cell."
+                      },
+                      "max_tokens": {
+                        "type": "number",
+                        "description": "Output token budget for this wait call. Defaults to 10000 tokens."
+                      },
+                      "terminate": {
+                        "type": "boolean",
+                        "description": "True stops the running exec cell; false or omitted waits for output."
+                      },
+                      "yield_time_ms": {
+                        "type": "number",
+                        "description": "Wait before yielding more output. Defaults to 10000 ms."
+                      }
+                    },
+                    "required": [
+                      "cell_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "request_user_input",
+                  "description": "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "questions": {
+                        "type": "array",
+                        "description": "Questions to show the user. Prefer 1 and do not exceed 3",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "description": "Short header label shown in the UI (12 or fewer chars)."
+                            },
+                            "id": {
+                              "type": "string",
+                              "description": "Stable identifier for mapping answers (snake_case)."
+                            },
+                            "options": {
+                              "type": "array",
+                              "description": "Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option in this list; the client will add a free-form \"Other\" option automatically.",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "description": {
+                                    "type": "string",
+                                    "description": "One short sentence explaining impact/tradeoff if selected."
+                                  },
+                                  "label": {
+                                    "type": "string",
+                                    "description": "User-facing label (1-5 words)."
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "description"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "question": {
+                              "type": "string",
+                              "description": "Single-sentence prompt shown to the user."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "header",
+                            "question",
+                            "options"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "questions"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ]
+            },
+            {
+              "type": "namespace",
+              "name": "collaboration",
+              "description": "Tools for spawning and managing sub-agents.",
+              "tools": [
+                {
+                  "type": "function",
+                  "name": "followup_task",
+                  "description": "Send a follow-up task to an existing non-root target agent and trigger a turn if it is idle. If the target is already running, deliver the task promptly at message boundaries while sampling, or after the pending tool call completes.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "description": "Message text to send to the target agent.",
+                        "encrypted": true
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "Agent id or canonical task name to send a follow-up task to (from spawn_agent)."
+                      }
+                    },
+                    "required": [
+                      "target",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "interrupt_agent",
+                  "description": "Interrupt an agent's current turn, if any, and return its previous status. The agent remains available for messages and follow-up tasks.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Agent id or canonical task name to interrupt (from spawn_agent)."
+                      }
+                    },
+                    "required": [
+                      "target"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "list_agents",
+                  "description": "List live agents in the current root thread tree. Optionally filter by task-path prefix.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path_prefix": {
+                        "type": "string",
+                        "description": "Task-path prefix filter without a trailing slash. Omit to list all live agents."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "send_message",
+                  "description": "Send a message to an existing agent. The message will be delivered promptly. Does not trigger a new turn.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "description": "Message text to queue on the target agent.",
+                        "encrypted": true
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "Relative or canonical task name to message (from spawn_agent)."
+                      }
+                    },
+                    "required": [
+                      "target",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "spawn_agent",
+                  "description": "\n        Available model overrides (optional; inherited parent model is preferred):\n- `gpt-6.1-sol`: Latest workhorse model for coding and everyday work. Reasoning efforts: low (default), medium, high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6-astra`: Frontier intelligence for the most demanding work. Reasoning efforts: low, medium (default), high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6.1-terra`: GPT-6.1 Terra Codex model. Reasoning efforts: low (default), medium, high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6-sol`: Previous generation workhorse model. Reasoning efforts: low, medium (default), high, xhigh, max, ultra. Service tiers: priority.\n- `gpt-6-luna`: Fast and affordable model for easier tasks. Reasoning efforts: low, medium (default), high, xhigh, max. Service tiers: priority.\n        Spawns an agent to work on the specified task. If your current task is `/root/task1` and you spawn_agent with task_name \"task_3\" the agent will have canonical task name `/root/task1/task_3`.\nYou are then able to refer to this agent as `task_3` or `/root/task1/task_3` interchangeably. However an agent `/root/task2/task_3` would only be able to communicate with this agent via its canonical name `/root/task1/task_3`.\nThe spawned agent will have the same tools as you and the ability to spawn its own subagents.\n\nIt will be able to send you and other running agents messages, and its final answer will be provided to you when it finishes.\nThe new agent's canonical task name will be provided to it along with the message.\n\nNote that passing `fork_turns=\"none\"` will not pass any surrounding context to the spawned subagent, which may cause the agent to lack the context it needs to complete its task, whereas `fork_turns=\"all\"` will provide the subagent with all surrounding context.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "fork_turns": {
+                        "type": "string",
+                        "description": "Parent history to inherit. Defaults to `all`; use `none` to start without parent history. Only `all` and `none` are supported."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Initial plain-text task for the new agent.",
+                        "encrypted": true
+                      },
+                      "model": {
+                        "type": "string",
+                        "description": "Model override for the new agent. Omit unless an explicit override is needed."
+                      },
+                      "reasoning_effort": {
+                        "type": "string",
+                        "description": "Reasoning effort override for the new agent. Omit to inherit the parent effort."
+                      },
+                      "task_name": {
+                        "type": "string",
+                        "description": "Task name for the new agent. Use lowercase letters, digits, and underscores."
+                      }
+                    },
+                    "required": [
+                      "task_name",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "function",
+                  "name": "wait_agent",
+                  "description": "Wait for a mailbox update from any live agent, including queued messages and final-status notifications. The wait also ends early when new user input is steered into the active turn. Does not return the content; returns either a summary of which agents have updates (if any), an interruption summary for steered input, or a timeout summary if no activity arrives before the deadline.",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timeout_ms": {
+                        "type": "number",
+                        "description": "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "nested_variants": [
+    {
+      "nested_tools": [
+        {
+          "code_mode_name": "exec_command",
+          "runtime_name": {
+            "name": "exec_command",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "function",
+            "name": "exec_command",
+            "description": "Runs a command in a PTY, returning output or a session ID for ongoing interaction.\n\nWindows safety rules:\n- Do not compose destructive filesystem commands across shells. Do not enumerate paths in PowerShell and then pass them to `cmd /c`, batch builtins, or another shell for deletion or moving. Use one shell end-to-end, prefer native PowerShell cmdlets such as `Remove-Item` / `Move-Item` with `-LiteralPath`, and avoid string-built shell commands for file operations.\n- Before any recursive delete or move on Windows, verify the resolved absolute target paths stay within the intended workspace or explicitly named target directory. Never issue a recursive delete or move against a computed path if the final target has not been checked.\n- When using `Start-Process` to launch a background helper or service, pass `-WindowStyle Hidden` unless the user explicitly asked for a visible interactive window. Use visible windows only for interactive tools the user needs to see or control.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "cmd": {
+                  "type": "string",
+                  "description": "Shell command to execute."
+                },
+                "justification": {
+                  "type": "string",
+                  "description": "User-facing approval question for `require_escalated`; omit otherwise."
+                },
+                "login": {
+                  "type": "boolean",
+                  "description": "True runs the shell with -l/-i semantics; false disables them. Defaults to true."
+                },
+                "max_output_tokens": {
+                  "type": "number",
+                  "description": "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy."
+                },
+                "prefix_rule": {
+                  "type": "array",
+                  "description": "Reusable approval prefix for `cmd`, only with `sandbox_permissions: \"require_escalated\"`; for example [\"git\", \"pull\"].",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "sandbox_permissions": {
+                  "type": "string",
+                  "description": "Per-command sandbox override. Defaults to `use_default`; use `require_escalated` for unsandboxed execution.",
+                  "enum": [
+                    "use_default",
+                    "require_escalated"
+                  ]
+                },
+                "shell": {
+                  "type": "string",
+                  "description": "Shell binary to launch. Defaults to the user's default shell."
+                },
+                "tty": {
+                  "type": "boolean",
+                  "description": "True allocates a PTY for the command; false or omitted uses plain pipes."
+                },
+                "workdir": {
+                  "type": "string",
+                  "description": "Working directory for the command. Defaults to the turn cwd."
+                },
+                "yield_time_ms": {
+                  "type": "number",
+                  "description": "Maximum time to wait before returning a session ID for a still-running command. Commands that finish sooner return immediately. For ordinary commands, omit this parameter to use the 10000 ms default. Effective range on Windows is 10000-30000 ms."
+                }
+              },
+              "required": [
+                "cmd"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "code_mode_name": "write_stdin",
+          "runtime_name": {
+            "name": "write_stdin",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "function",
+            "name": "write_stdin",
+            "description": "Writes characters to an existing unified exec session and returns recent output.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "chars": {
+                  "type": "string",
+                  "description": "Bytes to write to stdin. Defaults to empty, which polls without writing."
+                },
+                "max_output_tokens": {
+                  "type": "number",
+                  "description": "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy."
+                },
+                "session_id": {
+                  "type": "number",
+                  "description": "Identifier of the running unified exec session."
+                },
+                "yield_time_ms": {
+                  "type": "number",
+                  "description": "Wait before yielding output. Non-empty writes default to 250 ms and cap at 30000 ms; empty polls wait 5000-300000 ms by default."
+                }
+              },
+              "required": [
+                "session_id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "code_mode_name": "list_mcp_resources",
+          "runtime_name": {
+            "name": "list_mcp_resources",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "function",
+            "name": "list_mcp_resources",
+            "description": "Lists resources provided by MCP servers. Resources allow servers to share data that provides context to language models, such as files, database schemas, or application-specific information. Prefer resources over web search when possible.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "type": "string",
+                  "description": "Opaque cursor from a previous list_mcp_resources call; omit for the first page."
+                },
+                "server": {
+                  "type": "string",
+                  "description": "MCP server name. Omit to list resources from every configured server."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "code_mode_name": "list_mcp_resource_templates",
+          "runtime_name": {
+            "name": "list_mcp_resource_templates",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "function",
+            "name": "list_mcp_resource_templates",
+            "description": "Lists resource templates provided by MCP servers. Parameterized resource templates allow servers to share data that takes parameters and provides context to language models, such as files, database schemas, or application-specific information. Prefer resource templates over web search when possible.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "type": "string",
+                  "description": "Opaque cursor from a previous list_mcp_resource_templates call; omit for the first page."
+                },
+                "server": {
+                  "type": "string",
+                  "description": "MCP server name. Omit to list resource templates from every configured server."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "code_mode_name": "read_mcp_resource",
+          "runtime_name": {
+            "name": "read_mcp_resource",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "function",
+            "name": "read_mcp_resource",
+            "description": "Read a specific resource from an MCP server given the server name and resource URI.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "server": {
+                  "type": "string",
+                  "description": "MCP server name exactly as configured. Must match the 'server' field returned by list_mcp_resources."
+                },
+                "uri": {
+                  "type": "string",
+                  "description": "Resource URI to read. Must be one of the URIs returned by list_mcp_resources."
+                }
+              },
+              "required": [
+                "server",
+                "uri"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        {
+          "code_mode_name": "clock__curr_time",
+          "runtime_name": {
+            "name": "curr_time",
+            "namespace": "clock"
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "namespace",
+            "name": "clock",
+            "description": "Tools for reading and waiting on time.",
+            "tools": [
+              {
+                "type": "function",
+                "name": "curr_time",
+                "description": "Return the current time in UTC.",
+                "strict": false,
+                "parameters": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "code_mode_name": "apply_patch",
+          "runtime_name": {
+            "name": "apply_patch",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "custom",
+            "name": "apply_patch",
+            "description": "The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+            "format": {
+              "type": "grammar",
+              "syntax": "lark",
+              "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+            }
+          }
+        },
+        {
+          "code_mode_name": "view_image",
+          "runtime_name": {
+            "name": "view_image",
+            "namespace": null
+          },
+          "deferred": false,
+          "cached_runtime": false,
+          "spec": {
+            "type": "function",
+            "name": "view_image",
+            "description": "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "detail": {
+                  "type": "string",
+                  "description": "Image detail level. Defaults to `high`; use `original` to preserve exact resolution.",
+                  "enum": [
+                    "high",
+                    "original"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Local filesystem path to an image file."
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "code_mode_tool_names": {
+        "apply_patch": {
+          "name": "apply_patch",
+          "namespace": null
+        },
+        "clock__curr_time": {
+          "name": "curr_time",
+          "namespace": "clock"
+        },
+        "exec_command": {
+          "name": "exec_command",
+          "namespace": null
+        },
+        "list_mcp_resource_templates": {
+          "name": "list_mcp_resource_templates",
+          "namespace": null
+        },
+        "list_mcp_resources": {
+          "name": "list_mcp_resources",
+          "namespace": null
+        },
+        "read_mcp_resource": {
+          "name": "read_mcp_resource",
+          "namespace": null
+        },
+        "view_image": {
+          "name": "view_image",
+          "namespace": null
+        },
+        "write_stdin": {
+          "name": "write_stdin",
+          "namespace": null
+        }
+      }
+    }
+  ],
+  "native_commands": [
+    {
+      "thread_id": "01a1d0e8-ba26-7491-b604-c7a8db6ab791",
+      "event_id": "01a1d0e8-ba61-7763-abc8-164c120272a5",
+      "event": {
+        "type": "exec_command_begin",
+        "call_id": "exec-33613cf1-9f3f-403c-82fc-54d83bc79310",
+        "process_id": "90943",
+        "turn_id": "01a1d0e8-ba61-7763-abc8-164c120272a5",
+        "started_at_ms": 1794506281526,
+        "command": [
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "-Command",
+          "[System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt', 'isolation-probe')"
+        ],
+        "cwd": "file:///F:/Dev/specwright",
+        "parsed_cmd": [
+          {
+            "type": "unknown",
+            "cmd": "[System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt', 'isolation-probe')"
+          }
+        ],
+        "source": "unified_exec_startup"
+      }
+    },
+    {
+      "thread_id": "01a1d0e8-ba26-7491-b604-c7a8db6ab791",
+      "event_id": "01a1d0e8-ba61-7763-abc8-164c120272a5",
+      "event": {
+        "type": "exec_command_end",
+        "call_id": "exec-33613cf1-9f3f-403c-82fc-54d83bc79310",
+        "process_id": "90943",
+        "turn_id": "01a1d0e8-ba61-7763-abc8-164c120272a5",
+        "completed_at_ms": 1794506283367,
+        "command": [
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "-Command",
+          "[System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt', 'isolation-probe')"
+        ],
+        "cwd": "file:///F:/Dev/specwright",
+        "parsed_cmd": [
+          {
+            "type": "unknown",
+            "cmd": "[System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt', 'isolation-probe')"
+          }
+        ],
+        "source": "unified_exec_startup",
+        "aggregated_output": "MethodInvocationException: \r\nLine |\r\n   2 |  [System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_ …\r\n     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | Exception calling \"WriteAllText\" with \"2\" argument(s): \"Access to the path 'F:\\Dev\\specwright\\SPECWRIGHT_SANDBOX_PROBE.txt' is denied.\"\r\n",
+        "exit_code": 1,
+        "duration": {
+          "secs": 1,
+          "nanos": 839441600
+        },
+        "status": "failed"
+      }
+    }
+  ],
+  "capture_manifest": [
+    {
+      "file": "code-mode-tools-36096-1794506268630450600-0.json",
+      "sha256": "840d5652a5b95f2b3b811885a90e5c89eb8737bb27945de8616dc045ef6bd04b",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": ""
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506269424476200-1.json",
+      "sha256": "1b8047179a3762be05a7061e586713277196659d33a647fce3fd20bf0aa92fa1",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": "01a1d0e8-9fde-7df1-af2e-d16582580e1e"
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506275428490800-2.json",
+      "sha256": "1b8047179a3762be05a7061e586713277196659d33a647fce3fd20bf0aa92fa1",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": "01a1d0e8-9fde-7df1-af2e-d16582580e1e"
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506275429605300-3.json",
+      "sha256": "840d5652a5b95f2b3b811885a90e5c89eb8737bb27945de8616dc045ef6bd04b",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": ""
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506276329519400-4.json",
+      "sha256": "42a8a005a451e5d1cd44df47e11547dc843d0c03aec3f1cfb32d368a16145652",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": "01a1d0e8-ba61-7763-abc8-164c120272a5"
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506276695137500-5.json",
+      "sha256": "42a8a005a451e5d1cd44df47e11547dc843d0c03aec3f1cfb32d368a16145652",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": "01a1d0e8-ba61-7763-abc8-164c120272a5"
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506283372738800-6.json",
+      "sha256": "42a8a005a451e5d1cd44df47e11547dc843d0c03aec3f1cfb32d368a16145652",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": "01a1d0e8-ba61-7763-abc8-164c120272a5"
+      },
+      "variant": 0
+    },
+    {
+      "file": "code-mode-tools-36096-1794506288046176100-7.json",
+      "sha256": "1b8047179a3762be05a7061e586713277196659d33a647fce3fd20bf0aa92fa1",
+      "metadata": {
+        "event": "code_mode_nested_tools",
+        "model": "gpt-6.1-sol",
+        "turn_id": "01a1d0e8-9fde-7df1-af2e-d16582580e1e"
+      },
+      "variant": 0
+    },
+    {
+      "file": "command-event-36096-1794506281526868200-0.json",
+      "sha256": "e113e3536d530b113dcb5e6b9ac8e586a8a28afa3ad6512d9f4d65f617ac9209",
+      "command_index": 0
+    },
+    {
+      "file": "command-event-36096-1794506283367807000-1.json",
+      "sha256": "65b18be6abbe84460d1fc8df102b1edbd369e53161d0848d1a2bacd8589861a6",
+      "command_index": 1
+    },
+    {
+      "file": "responses-tools-36096-1794506268995808300-0.json",
+      "sha256": "1d3c274645f12fa1a07cce059d817301f32aee7b93a28446617ddb28a69bc0f8",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-9c5e-7f70-959b-74095534d312",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 0
+    },
+    {
+      "file": "responses-tools-36096-1794506269816084800-1.json",
+      "sha256": "42fa72e273478168e9fe3a9d84e70910a6c8a24138ea5873cbcc017f43266089",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-9c5e-7f70-959b-74095534d312",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 1
+    },
+    {
+      "file": "responses-tools-36096-1794506275445222400-2.json",
+      "sha256": "42fa72e273478168e9fe3a9d84e70910a6c8a24138ea5873cbcc017f43266089",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-9c5e-7f70-959b-74095534d312",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 1
+    },
+    {
+      "file": "responses-tools-36096-1794506275929271100-3.json",
+      "sha256": "d9b4cb40bebcfe2adcd329c86fccf9aa126ddbf7bbdfefea26dddebe2e4067c5",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-ba26-7491-b604-c7a8db6ab791",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 0
+    },
+    {
+      "file": "responses-tools-36096-1794506276708553500-4.json",
+      "sha256": "0b741683326f0deec5e10ba6bc66478fb66533ebc2ebc02d73a4808c37ec751a",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-ba26-7491-b604-c7a8db6ab791",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 2
+    },
+    {
+      "file": "responses-tools-36096-1794506283385620100-5.json",
+      "sha256": "0b741683326f0deec5e10ba6bc66478fb66533ebc2ebc02d73a4808c37ec751a",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-ba26-7491-b604-c7a8db6ab791",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 2
+    },
+    {
+      "file": "responses-tools-36096-1794506288059624100-6.json",
+      "sha256": "42fa72e273478168e9fe3a9d84e70910a6c8a24138ea5873cbcc017f43266089",
+      "metadata": {
+        "event": "responses_request_tools",
+        "thread_id": "01a1d0e8-9c5e-7f70-959b-74095534d312",
+        "model": "gpt-6.1-sol",
+        "responses_lite": true
+      },
+      "variant": 1
+    }
+  ],
+  "verification": {
+    "root_thread_id": "01a1d0e8-9c5e-7f70-959b-74095534d312",
+    "request_tool_names": [
+      "collaboration.followup_task",
+      "collaboration.interrupt_agent",
+      "collaboration.list_agents",
+      "collaboration.send_message",
+      "collaboration.spawn_agent",
+      "collaboration.wait_agent",
+      "functions.exec",
+      "functions.request_user_input",
+      "functions.request_user_input_async",
+      "functions.wait"
+    ],
+    "complete_nested_tool_names": [
+      "apply_patch",
+      "clock__curr_time",
+      "exec_command",
+      "list_mcp_resource_templates",
+      "list_mcp_resources",
+      "read_mcp_resource",
+      "view_image",
+      "write_stdin"
+    ],
+    "native_child_write_denials": [
+      {
+        "thread_id": "01a1d0e8-ba26-7491-b604-c7a8db6ab791",
+        "call_id": "exec-33613cf1-9f3f-403c-82fc-54d83bc79310",
+        "command": [
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "-Command",
+          "[System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_PROBE.txt', 'isolation-probe')"
+        ],
+        "exit_code": 1,
+        "status": "failed",
+        "aggregated_output": "MethodInvocationException: \r\nLine |\r\n   2 |  [System.IO.File]::WriteAllText('F:/Dev/specwright/SPECWRIGHT_SANDBOX_ …\r\n     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | Exception calling \"WriteAllText\" with \"2\" argument(s): \"Access to the path 'F:\\Dev\\specwright\\SPECWRIGHT_SANDBOX_PROBE.txt' is denied.\"\r\n"
+      }
+    ],
+    "status_unchanged": true,
+    "marker_exists": false
+  },
+  "packaged_helpers": {
+    "source": "F:/scoop/apps/codex/current",
+    "metadata": {
+      "layoutVersion": 1,
+      "version": "0.166.0",
+      "target": "x86_64-pc-windows-msvc",
+      "variant": "codex",
+      "entrypoint": "bin/codex.exe",
+      "execServer": "bin/codex-exec-server.exe",
+      "resourcesDir": "codex-resources",
+      "pathDir": "codex-path"
+    },
+    "files": [
+      {
+        "path": "bin/codex-code-mode-host.exe",
+        "bytes": 79101744,
+        "sha256": "977c1f01c9efac0bfe1b9032717c95f92e1c965c8441a8dacbfe824c5c79a527"
+      },
+      {
+        "path": "bin/codex-exec-server.exe",
+        "bytes": 84244784,
+        "sha256": "eda5263b31e0354347e7bcdc434aff82f5c630ddba69f13449742a64e1836a37"
+      },
+      {
+        "path": "codex-path/rg.exe",
+        "bytes": 4218880,
+        "sha256": "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680"
+      },
+      {
+        "path": "codex-resources/codex-command-runner.exe",
+        "bytes": 8803632,
+        "sha256": "5e68e3f5b4640af55db2873a0d0dc038907145708f9e735870d9279a8074c2df"
+      },
+      {
+        "path": "codex-resources/codex-windows-sandbox-setup.exe",
+        "bytes": 19432240,
+        "sha256": "3995c4f57199eb8023a0f3a585f6e9fdc4d5174c22a51837aaeb15beb52954f0"
+      },
+      {
+        "path": "codex-resources/voice/bin/codex-voice-host.exe",
+        "bytes": 9028912,
+        "sha256": "1d04e4f7fedf1cd028b14ad961d7cecbf138096d7397760d5eac98517016cd50"
+      }
+    ]
+  }
+}

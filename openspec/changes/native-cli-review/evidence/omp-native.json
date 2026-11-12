@@ -1,0 +1,147 @@
+{
+  "version": "omp/18.19.0",
+  "reviewer_argv": [
+    "omp",
+    "-p",
+    "--no-skills",
+    "--no-extensions",
+    "--no-rules",
+    "--tools",
+    "read,grep,glob",
+    "--session-dir",
+    "C:\\Users\\bgshi\\AppData\\Local\\Temp\\native-cli-review-probe.6ho2nM\\omp-session",
+    "--mode",
+    "json",
+    "--model",
+    "@default",
+    "--config",
+    "C:\\Users\\bgshi\\AppData\\Local\\Temp\\native-cli-review-probe.6ho2nM\\omp-overlay.yml",
+    "@C:\\Users\\bgshi\\AppData\\Local\\Temp\\native-cli-review-probe.6ho2nM\\omp-prompt.txt"
+  ],
+  "overlay": "autolearn:\n  enabled: false\nmemories:\n  enabled: false\nfind:\n  enabled: false\n",
+  "rpc_mode_difference": "Explicit reviewer tools/config/model/isolation settings retained; remove -p and prompt, select --mode rpc and a fresh session directory. Source-grounded equivalence is in cli-tools.md.",
+  "native_top_level_definitions": [
+    {
+      "source_line": 5,
+      "type": "response",
+      "command": "get_state",
+      "dumpTools": [
+        {
+          "name": "read",
+          "description": "Use `read` for static web; browser only if needed.\n\nPut line ranges in `path`, never a separate range/offset/limit parameter:\n- `{\"path\":\"notes.txt:450-455\"}` reads lines 450-455; `{\"path\":\"notes.txt:-5\"}` reads the last 5.\n- Include the selector on every ranged call; repeating a bare path does not advance through the file.\n\nPath suffixes:\n- :50 or :50- starts at line 50; :50-200 inclusive; :50+150 counts lines; :-60 last 60.\n- Commas join ranges (:5-16,960-973) or individual lines (:19,59).\n- A single non-raw range also shows 1 line before and 3 after (:50-80 shows 49-83).\n- Non-raw reads (comma lists too) may add the open/close line of a cut block; only :raw stays exact.\n- :raw verbatim without anchors/prefixes; combine :2-4:raw or :raw:2-4 for exactly those lines.\n- Beside :raw a bare number is that one line (:17:raw), :17-:raw runs on.\n\nSources:\n- Bare code: declarations only; re-read ONLY footer-named omissions, NEVER guess `..`/`…`.\n- Directory: complete root; child listings cap at 12 (`… N more`), read child; page via :N-M/:-N.\n- URLs: reader text/markdown, :raw original HTML; bare host:port needs trailing slash.\n- PDF/documents: extracted text; notebooks: editable cells; images: decoded inline.\n- Also, with selectors in xd://read/sources (read it before first use):\n  - SQLite, archives (ZIP, TAR, 7z, RAR and more), JSON/JSONL by jq filter, video, SVG as image, merge conflicts.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Local path, internal URI, or URL; selectors inline."
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "grep",
+          "description": "Regex: Rust, then PCRE2. `path`: `;`-separated file/dir/glob/URL; default `.`. Default case-sensitive, gitignore respected; `skip` paginates files.\nFile-only selector: `src/foo.ts:50-100`. Literal `\\n`/`\\\\n` enables cross-line.\nBare glob `*.ts` matches any depth; `dir/*.ts` only `dir`'s direct children (`dir/**/*.ts` recurses). A `!glob` entry excludes matching files and folders below the searched paths (`src;!**/*.test.ts`).",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "case": {
+                "type": "boolean"
+              },
+              "gitignore": {
+                "type": "boolean"
+              },
+              "skip": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "glob",
+          "description": "Glob files/dirs: `;`-separated paths or internal URLs (local://*.md, omp://**/*.md); default workspace root.\n`gitignore` and `hidden` default true; ignored dotfiles need `gitignore: false`. Newest-first by directory; dirs end `/`.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "hidden": {
+                "type": "boolean"
+              },
+              "gitignore": {
+                "type": "boolean"
+              },
+              "limit": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  ],
+  "exact_print_mode_mounted_inventory_events": [
+    {
+      "type": "tool_execution_start",
+      "toolCallId": "call_0c33348911774f77ac98bd4434638420|fc_0f0920d160b9335f016af5e530289887d29f14e7c22cda265a",
+      "toolName": "read",
+      "args": {
+        "path": "xd://"
+      },
+      "intent": "Reading mounted-device inventory"
+    },
+    {
+      "type": "tool_execution_end",
+      "toolCallId": "call_0c33348911774f77ac98bd4434638420|fc_0f0920d160b9335f016af5e530289887d29f14e7c22cda265a",
+      "toolName": "read",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "xd:// 0 mounted tool devices.\n\nRead xd://<tool> for docs + JSON schema; write the JSON args object to xd://<tool> to execute. Active top-level tools accept the same dispatch."
+          }
+        ],
+        "details": {
+          "contentType": "text/plain",
+          "totalLines": 3,
+          "rowPrefixes": false,
+          "displayContent": {
+            "text": "xd:// 0 mounted tool devices.\n\nRead xd://<tool> for docs + JSON schema; write the JSON args object to xd://<tool> to execute. Active top-level tools accept the same dispatch.",
+            "startLine": 1,
+            "lineNumbers": [
+              1,
+              2,
+              3
+            ]
+          },
+          "meta": {
+            "source": {
+              "type": "internal",
+              "value": "xd://"
+            }
+          }
+        }
+      },
+      "isError": false
+    }
+  ]
+}
