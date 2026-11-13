@@ -15,6 +15,7 @@ class BoundedResult {
   const BoundedResult({
     this.exitCode,
     this.limit,
+    this.limitStream,
     this.startError,
     this.helperExited = false,
     this.helperNotStopped = false,
@@ -28,6 +29,9 @@ class BoundedResult {
 
   /// The limit that ended the run, if one did.
   final BoundedLimit? limit;
+
+  /// The first stream to exceed its response byte bound, or null otherwise.
+  final String? limitStream;
 
   /// Why the command could not be started (exit 127), if it could not.
   final String? startError;
@@ -68,13 +72,12 @@ class BoundedResult {
 ///   hello or the exit, else leaves the helper (C12). A missing or malformed
 ///   frame is a start error; a helper that cannot be identified or exited
 ///   before the go is `helperExited`.
-/// * Running: every chunk is counted per stream into memory (never disk); past
-///   the bound both subscriptions are cancelled and the tree is stopped. The
-///   exit future races a deadline timer on a monotonic [Stopwatch]: an exit
-///   recorded before the deadline keeps its result even if handled later.
-/// * Exited: the readers get [readerGrace]; then the tree is stopped if the
-///   pipes are still held, setting [BoundedResult.pipesHeld]; the command's own
-///   result stands.
+/// * Running: chunks are counted per stream; stdout is buffered or passed to
+///   its sink. Past the bound both subscriptions are cancelled and the tree is
+///   stopped. An exit recorded before the monotonic deadline keeps its result.
+/// * Exited: readers get [readerGrace] of idle time, excluding time awaiting
+///   the async stdout consumer. If pipes remain held, the tree is stopped and
+///   [BoundedResult.pipesHeld] is set; the command's own exit result stands.
 /// * Stopping: at most [stopWait] for the helper and pipes, then let go.
 class BoundedRun {
   BoundedRun({
@@ -87,6 +90,7 @@ class BoundedRun {
     this.preGoFile,
     this.environment,
     this.workingDirectory,
+    this.stdoutSink,
     void Function(String line)? note,
   }) : helperCommand = helperCommand ?? [Platform.resolvedExecutable, '__exec'],
        _note = note ?? stderr.write;
@@ -122,17 +126,64 @@ class BoundedRun {
   final Map<String, String>? environment;
 
   /// The directory the helper starts in, and so the command it starts, which
-  /// takes it from the helper (the helper's `Process.start` and
+  /// it takes from the helper (the helper's `Process.start` and
   /// `CreateProcessW` name no directory of their own). Null: `sw`'s own.
   final String? workingDirectory;
+
+  /// Streams stdout to this consumer sequentially, without retaining it.
+  /// Pausing the process stream until each Future completes applies
+  /// backpressure; configured byte limits still count streamed bytes.
+  final Future<void> Function(List<int>)? stdoutSink;
 
   final void Function(String line) _note;
 
   Future<BoundedResult> run() async {
     final clock = Stopwatch()..start();
     final firstLimit = Completer<BoundedLimit>();
-    void hit(BoundedLimit limit) {
-      if (!firstLimit.isCompleted) firstLimit.complete(limit);
+    String? firstLimitStream;
+    final sinkSettled = stdoutSink == null ? null : Completer<void>();
+    Object? sinkError;
+    StackTrace? sinkStack;
+    var sinkPauseMicros = 0;
+    int? sinkPauseStartedMicros;
+    void Function()? sinkStateChanged;
+
+    int pausedForSinkMicros() {
+      final started = sinkPauseStartedMicros;
+      return sinkPauseMicros +
+          (started == null ? 0 : clock.elapsedMicroseconds - started);
+    }
+
+    void rethrowSinkError() {
+      if (sinkError != null) {
+        Error.throwWithStackTrace(sinkError!, sinkStack!);
+      }
+    }
+
+    Future<Object?> race(List<Future<Object?>> events) async {
+      final settled = sinkSettled;
+      if (settled == null || settled.isCompleted) {
+        rethrowSinkError();
+        return Future.any<Object?>(events);
+      }
+      final result = await Future.any<Object?>([...events, settled.future]);
+      if (settled.isCompleted) {
+        rethrowSinkError();
+        return Future.any<Object?>(events);
+      }
+      return result;
+    }
+
+    void settleSink() {
+      final settled = sinkSettled;
+      if (settled != null && !settled.isCompleted) settled.complete();
+    }
+
+    void hit(BoundedLimit limit, [String? stream]) {
+      if (!firstLimit.isCompleted) {
+        firstLimitStream = stream;
+        firstLimit.complete(limit);
+      }
     }
 
     Duration? exitAt;
@@ -174,50 +225,34 @@ class BoundedRun {
       if (!c.isCompleted) c.complete();
     }
 
-    void count(BytesBuilder buffer, List<int> chunk, int? bound) {
-      buffer.add(chunk);
-      if (bound != null && buffer.length > bound) {
-        hit(BoundedLimit.responseTooLarge);
+    var outBytes = 0;
+    final outBound = limits.stdoutCap ?? limits.maxBytes;
+    var errBytes = 0;
+    late final StreamSubscription<List<int>> outSub;
+    late final StreamSubscription<List<int>> errSub;
+    final exited = Completer<int>();
+    void count(
+      BytesBuilder buffer,
+      List<int> chunk,
+      int? bound,
+      String stream,
+    ) {
+      if (stream == 'stdout') {
+        if (stdoutSink == null) {
+          buffer.add(chunk);
+          outBytes = buffer.length;
+        } else {
+          outBytes += chunk.length;
+        }
+      } else {
+        buffer.add(chunk);
+        errBytes = buffer.length;
+      }
+      final length = stream == 'stdout' ? outBytes : errBytes;
+      if (bound != null && length > bound) {
+        hit(BoundedLimit.responseTooLarge, stream);
       }
     }
-
-    final outBound = limits.stdoutCap ?? limits.maxBytes;
-    final outSub = helper.stdout.listen(
-      (chunk) => count(out, chunk, outBound),
-      onError: (Object _) => settle(outDone),
-      onDone: () => settle(outDone),
-    );
-    final errSub = helper.stderr.listen(
-      (chunk) {
-        final rest = parser.add(chunk);
-        if (parser.hello != null) settle(helloSettled);
-        if (parser.state == FrameState.ready ||
-            parser.state == FrameState.malformed) {
-          settle(helloSettled);
-          settle(frameSettled);
-        }
-        if (rest.isNotEmpty) count(err, rest, limits.maxBytes);
-      },
-      onError: (Object _) => settle(errDone),
-      onDone: () {
-        parser.close();
-        settle(helloSettled);
-        settle(frameSettled);
-        settle(errDone);
-      },
-    );
-
-    final exited = Completer<int>();
-    unawaited(
-      helper.exitCode.then((code) {
-        final at = clock.elapsed;
-        exitAt = at;
-        if (deadline != null && at >= deadline) {
-          hit(BoundedLimit.deadlineExceeded);
-        }
-        exited.complete(code);
-      }),
-    );
 
     void closeControlPipe() {
       unawaited(helper.stdin.close().catchError((Object _) {}));
@@ -229,6 +264,7 @@ class BoundedRun {
         outSub.cancel().catchError((Object _) {}),
         errSub.cancel().catchError((Object _) {}),
       ]);
+      settleSink();
     }
 
     Future<void> waitForExit() => Future.any<Object?>([
@@ -242,26 +278,97 @@ class BoundedRun {
       await waitForExit();
     }
 
-    // Before the go the helper is the whole tree: stop it first and close the
-    // pipe second, so it cannot exit on end-of-file and free its PID first.
-    Future<BoundedResult> limitBeforeGo() async {
-      await tree.stop();
-      closeControlPipe(); // without the go byte
-      await cancelReaders();
-      await waitForExit();
-      return BoundedResult(limit: await firstLimit.future);
+    Future<BoundedResult> limitedResult({
+      bool helperNotStopped = false,
+      bool pipesHeld = false,
+    }) async {
+      final limit = await firstLimit.future;
+      rethrowSinkError();
+      return BoundedResult(
+        limit: limit,
+        limitStream: firstLimitStream,
+        helperNotStopped: helperNotStopped,
+        pipesHeld: pipesHeld,
+      );
     }
 
+    outSub = helper.stdout.listen(
+      (chunk) {
+        count(out, chunk, outBound, 'stdout');
+        final sink = stdoutSink;
+        if (sink == null || firstLimit.isCompleted) return;
+        sinkPauseStartedMicros = clock.elapsedMicroseconds;
+        outSub.pause();
+        sinkStateChanged?.call();
+        unawaited(() async {
+          try {
+            await sink(chunk);
+          } catch (error, stack) {
+            if (sinkError == null) {
+              sinkError = error;
+              sinkStack = stack;
+              if (!sinkSettled!.isCompleted) sinkSettled.complete();
+            }
+          } finally {
+            sinkPauseMicros +=
+                clock.elapsedMicroseconds - sinkPauseStartedMicros!;
+            sinkPauseStartedMicros = null;
+            sinkStateChanged?.call();
+          }
+          if (!firstLimit.isCompleted && sinkError == null) outSub.resume();
+        }());
+      },
+      onError: (Object _) {
+        settle(outDone);
+        settleSink();
+      },
+      onDone: () {
+        settle(outDone);
+        settleSink();
+      },
+    );
+    errSub = helper.stderr.listen(
+      (chunk) {
+        final rest = parser.add(chunk);
+        if (parser.hello != null) settle(helloSettled);
+        if (parser.state == FrameState.ready ||
+            parser.state == FrameState.malformed) {
+          settle(helloSettled);
+          settle(frameSettled);
+        }
+        if (rest.isNotEmpty) count(err, rest, limits.maxBytes, 'stderr');
+      },
+      onError: (Object _) => settle(errDone),
+      onDone: () {
+        parser.close();
+        settle(helloSettled);
+        settle(frameSettled);
+        settle(errDone);
+      },
+    );
+
+    unawaited(
+      helper.exitCode.then((code) {
+        final at = clock.elapsed;
+        exitAt = at;
+        if (deadline != null && at >= deadline) {
+          hit(BoundedLimit.deadlineExceeded);
+        }
+        exited.complete(code);
+      }),
+    );
+
     var letGo = false; // a helper that was never identified: do not signal it
+    var sinkFailureStopped = false;
     try {
-      // Starting: the hello frame, or a limit.
-      await Future.any<Object?>([helloSettled.future, firstLimit.future]);
+      // Starting: the hello frame, or a limit or a sink failure.
+      await race([helloSettled.future, firstLimit.future]);
       if (parser.hello == null && parser.state != FrameState.malformed) {
         // A limit before the helper announced itself: close the pipe without
         // the go, and give the helper the stop wait to announce itself or
         // exit. Nothing is signalled that has not been identified (C12).
         closeControlPipe();
-        await Future.any<Object?>([
+        await race([
           helloSettled.future,
           exited.future,
           Future<void>.delayed(stopWait),
@@ -274,10 +381,8 @@ class BoundedRun {
           letGo = true;
         }
         await cancelReaders();
-        return BoundedResult(
-          limit: await firstLimit.future,
-          helperNotStopped: letGo,
-        );
+        rethrowSinkError();
+        return await limitedResult(helperNotStopped: letGo);
       }
       if (parser.hello == null) {
         // malformed before any hello: another binary answered
@@ -293,20 +398,26 @@ class BoundedRun {
         // terminated, and no go is written.
         closeControlPipe();
         await cancelReaders();
-        if (firstLimit.isCompleted) {
-          return BoundedResult(limit: await firstLimit.future);
-        }
+        if (firstLimit.isCompleted) return await limitedResult();
         return const BoundedResult(helperExited: true);
       }
-      if (firstLimit.isCompleted) return await limitBeforeGo();
+      if (firstLimit.isCompleted) {
+        await tree.stop();
+        closeControlPipe();
+        await cancelReaders();
+        await waitForExit();
+        return await limitedResult();
+      }
 
       // The ready frame, or a limit, or the helper's end.
-      await Future.any<Object?>([
-        frameSettled.future,
-        firstLimit.future,
-        exited.future,
-      ]);
-      if (firstLimit.isCompleted) return await limitBeforeGo();
+      await race([frameSettled.future, firstLimit.future, exited.future]);
+      if (firstLimit.isCompleted) {
+        await tree.stop();
+        closeControlPipe();
+        await cancelReaders();
+        await waitForExit();
+        return await limitedResult();
+      }
       if (parser.state != FrameState.ready) {
         closeControlPipe();
         await cancelReaders();
@@ -333,15 +444,23 @@ class BoundedRun {
         }
         while (!firstLimit.isCompleted &&
             !exited.isCompleted &&
+            sinkSettled?.isCompleted != true &&
             File(hold).existsSync()) {
-          await Future.any<Object?>([
+          await race([
             firstLimit.future,
             exited.future,
             Future<void>.delayed(const Duration(milliseconds: 20)),
           ]);
         }
       }
-      if (firstLimit.isCompleted) return await limitBeforeGo();
+      rethrowSinkError();
+      if (firstLimit.isCompleted) {
+        await tree.stop();
+        closeControlPipe();
+        await cancelReaders();
+        await waitForExit();
+        return await limitedResult();
+      }
       if (exited.isCompleted || tree.helperGone) {
         // The helper ended after its frames and before the go: nothing is
         // written to it, and the command never starts.
@@ -356,40 +475,64 @@ class BoundedRun {
       closeControlPipe();
 
       // Running.
-      await Future.any<Object?>([firstLimit.future, exited.future]);
+      await race([firstLimit.future, exited.future]);
       if (firstLimit.isCompleted) {
-        final limit = await firstLimit.future;
         await cancelReaders();
         await stopAndLetGo();
-        return BoundedResult(limit: limit);
+        return await limitedResult();
       }
 
-      // Exited before the deadline: the readers get the grace period.
+      // Exited before the deadline: the grace counts idle reader time, not
+      // time spent awaiting an async stdout consumer. A fast scanner still
+      // detects a descendant holding a pipe; a slow disk sink is not one.
       final grace = Completer<void>();
-      final graceTimer = Timer(readerGrace, () => settle(grace));
-      await Future.any<Object?>([readersDone, firstLimit.future, grace.future]);
-      graceTimer.cancel();
+      Timer? graceTimer;
+      if (stdoutSink == null) {
+        graceTimer = Timer(readerGrace, () => settle(grace));
+      } else {
+        final graceStartedMicros = clock.elapsedMicroseconds;
+        final pausedAtGrace = pausedForSinkMicros();
+        void armGrace() {
+          graceTimer?.cancel();
+          if (sinkPauseStartedMicros != null || grace.isCompleted) return;
+          final remaining =
+              readerGrace.inMicroseconds -
+              (clock.elapsedMicroseconds - graceStartedMicros) +
+              (pausedForSinkMicros() - pausedAtGrace);
+          graceTimer = Timer(
+            remaining <= 0 ? Duration.zero : Duration(microseconds: remaining),
+            () => settle(grace),
+          );
+        }
+
+        sinkStateChanged = armGrace;
+        armGrace();
+      }
+      try {
+        await race([readersDone, firstLimit.future, grace.future]);
+      } finally {
+        sinkStateChanged = null;
+        graceTimer?.cancel();
+      }
       if (firstLimit.isCompleted) {
-        final limit = await firstLimit.future;
         await cancelReaders();
         await stopAndLetGo();
-        return BoundedResult(limit: limit);
+        return await limitedResult();
       }
       final pipesHeld = !(outDone.isCompleted && errDone.isCompleted);
       if (pipesHeld) {
         // A process started by the command still holds a pipe; mark it in the
         // result while preserving the command's own exit status.
         await tree.stop();
-        await Future.any<Object?>([
+        await race([
           readersDone,
           firstLimit.future,
           Future<void>.delayed(stopWait),
         ]);
         if (firstLimit.isCompleted) {
           // stderr passed the bound while the tree was being stopped
-          final limit = await firstLimit.future;
           await cancelReaders();
-          return BoundedResult(limit: limit, pipesHeld: pipesHeld);
+          return await limitedResult(pipesHeld: pipesHeld);
         }
       }
       await cancelReaders();
@@ -399,9 +542,21 @@ class BoundedRun {
         stderr: err.takeBytes(),
         pipesHeld: pipesHeld,
       );
+    } catch (error, stack) {
+      closeControlPipe();
+      await cancelReaders();
+      try {
+        await stopAndLetGo();
+      } on Object {
+        // Preserve the original failure from the sink.
+      }
+      sinkFailureStopped = sinkError != null;
+      Error.throwWithStackTrace(error, stack);
     } finally {
       deadlineTimer?.cancel();
-      if (!exited.isCompleted && !letGo) await tree.stop();
+      if (!exited.isCompleted && !letGo && !sinkFailureStopped) {
+        await tree.stop();
+      }
       tree.dispose();
     }
   }

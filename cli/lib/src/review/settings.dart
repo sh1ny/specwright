@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../settings/rules.dart' show loadSettings, readSettingsText;
-import '../settings/yaml.dart' show pyTruthy, pyUtf8Decode, yamlProblem;
+import '../settings/yaml.dart' show pyUtf8Decode, yamlProblem;
 import 'routes.dart';
 import 'stop.dart';
 
@@ -52,21 +52,9 @@ ReviewSettings readReviewSettings({
   return ReviewSettings(values, review, parseReviewRoutes(review['routes']));
 }
 
-// Preserve the shared reader's `s.get(k) or {}` section/error semantics.
+// Review.__init__ ignored a non-mapping review section, unlike PR settings.
 Map<String, Object?> _reviewSection(Object? value) {
-  if (!pyTruthy(value)) return const {};
   if (value is Map<String, Object?>) return value;
   if (value is Map) return value.cast<String, Object?>();
-  final type = switch (value) {
-    String() => 'str',
-    bool() => 'bool',
-    int() || BigInt() => 'int',
-    double() => 'float',
-    List() => 'list',
-    _ => value.runtimeType.toString(),
-  };
-  throw ReviewStop(
-    'internal_error',
-    "AttributeError: '$type' object has no attribute 'get'",
-  );
+  return const {};
 }

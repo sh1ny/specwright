@@ -1,6 +1,7 @@
-"""review-run.sh select / run against fake codex, claude and omp CLIs (add-preship-review, group 3).
+"""review-run.sh contracts through its native sw shim and executable reviewer fixtures.
 
-Run: python -m unittest discover evals/review-routes
+C8: black-box outcomes plus the captured pre-port record fixture are the oracle; a frozen Python implementation is not.
+Run: python -m unittest evals/review-routes/test_review_run.py
 """
 import hashlib
 import json
@@ -12,12 +13,16 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
+sys.path.append(str(ROOT / "evals" / "vcs"))
+from vcs_test_support import bash_path_env, stamp_version, sw_home  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
 CHANGE = "demo-change"
@@ -109,6 +114,8 @@ class Base(unittest.TestCase):
                                    {"mathutil.py": "def clamp(v, lo, hi):\n    # CODE_MARKER_LINE\n    return max(lo, min(v, hi))\n"})
         self.store = self.make_repo("store", "plan.md", "# plan\n", "store",
                                     {"openspec/changes/demo-change/proposal.md": "STORE_MARKER_LINE needs clamp\n"})
+        self.extra_env["SPECWRIGHT_HOME"] = str(sw_home())
+        stamp_version(self.code)
 
     # ---- fixtures ----------------------------------------------------------------------------------------
     def env(self):
@@ -145,11 +152,15 @@ class Base(unittest.TestCase):
 
     def install(self, *names):
         for n in names:
-            (self.bin / f"{n}.cmd").write_text(f'@"{sys.executable}" "{FAKE}" {n} %*\r\n', encoding="utf-8")
-            sh = self.bin / n
-            sh.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "{FAKE.as_posix()}" {n} "$@"\n',
-                          encoding="utf-8", newline="\n")
-            sh.chmod(0o755)
+            if os.name == "nt":
+                source = (f"import runpy, sys\nsys.argv = [{str(FAKE)!r}, {n!r}, *sys.argv[1:]]\n"
+                          f"runpy.run_path({str(FAKE)!r}, run_name='__main__')\n")
+                fakeexe.write_python_fake(self.bin / n, source)
+            else:
+                sh = self.bin / n
+                sh.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "{FAKE.as_posix()}" {n} "$@"\n',
+                              encoding="utf-8", newline="\n")
+                sh.chmod(0o755)
             self.extra_env[f"FAKE_{n.upper()}_ARGV_LOG"] = str(self.tmp / f"{n}.log")
 
     def put(self, name, text):
@@ -169,8 +180,11 @@ class Base(unittest.TestCase):
         return [c for c in self.calls(cli) if c["argv"][:1] not in (["--version"], ["config"], ["models"])]
 
     def script(self, *args, cwd=None, expect=0):
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, env=self.env(),
-                           cwd=cwd or self.code, encoding="utf-8")
+        env = bash_path_env(extra_path=(self.bin,), environment=self.env())
+        env["VCS_TEST_SEARCH"] = env["PATH"]
+        r = subprocess.run([bashexe.bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
+                            "review-eval", str(SCRIPT), *map(str, args)], capture_output=True, text=True,
+                           env=env, cwd=cwd or self.code, encoding="utf-8")
         lines = r.stdout.strip().splitlines()
         if expect is not None:
             self.assertEqual(r.returncode, expect, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")
@@ -268,10 +282,15 @@ class SelectTests(Base):
     def test_select_block_sequence_order(self):
         self.install("codex", "omp")
         self.set_settings("review:\n  order:\n    - omp\n    - codex\n")
-        out = self.select("other")
-        self.assertEqual(out["route"], "omp")
-        self.set_settings("review:\n  order:\n  - codex\n")  # sequence at the key's indent
-        self.assertEqual(self.select("other")["route"], "codex")
+        out = self.select("other", expect=1)
+        self.assertEqual(out["error"], "bad_settings")
+        self.assertIn("line 3", out["message"])
+        self.set_settings("review:\n  order:\n  - codex\n")
+        out = self.select("other", expect=1)
+        self.assertEqual(out["error"], "bad_settings")
+        self.assertIn("line 3", out["message"])
+        self.assertEqual(self.calls("codex"), [])
+        self.assertEqual(self.calls("omp"), [])
 
     def test_select_order_not_a_list_exits_1(self):
         self.install("codex")
@@ -347,11 +366,6 @@ class RunTests(Base):
         for a in (pre_local, des_local):
             self.assertNotIn("--add-dir", a)
 
-    def test_no_python310_only_newline_argument(self):
-        # Path.write_text/read_text take newline= only on Python 3.10+; the script promises 3.8+
-        src = SCRIPT.read_text(encoding="utf-8")
-        self.assertNotRegex(src, r"(write|read)_text\([^)]*newline=", "review-run.sh uses a Python 3.10-only argument")
-
     def test_omp_fresh_session_dir_per_run(self):
         self.install("omp")
         self.omp_events()
@@ -374,6 +388,19 @@ class RunTests(Base):
             self.preship(route, out=f"{route}.json")
         self.assertEqual(self.status(), before)
         a = without_sandbox(self.runs("codex")[0]["argv"])
+        disabled = []
+        while "--disable" in a:
+            i = a.index("--disable")
+            disabled.append(a[i + 1])
+            del a[i:i + 2]
+        self.assertEqual(disabled, [
+            "apps", "browser_use", "browser_use_external", "computer_use", "in_app_browser",
+            "image_generation", "memories", "hooks", "plugins", "remote_plugin", "tool_suggest",
+            "skill_search", "skill_mcp_dependency_install", "goals", "sleep_tool",
+        ])
+        self.assertEqual(c_values(a), ['web_search="disabled"'])
+        i = a.index("-c")
+        del a[i:i + 2]
         self.assertEqual(a[:8], ["exec", "-s", "read-only", "--ephemeral", "--ignore-rules", "--ignore-user-config",
                                  "--skip-git-repo-check", "--output-schema"])
         self.assertTrue(a[8].endswith(".json"))
@@ -389,11 +416,13 @@ class RunTests(Base):
         self.assertEqual(Path(a[9]).resolve(), Path(self.store).resolve())
         self.assertEqual(a[10:], ["--output-format", "json"])
         a = self.runs("omp")[0]["argv"]
-        self.assertEqual(a[:7], ["-p", "--no-skills", "--no-extensions", "--no-rules", "--tools", "read,grep,find,glob",
+        self.assertEqual(a[:7], ["-p", "--no-skills", "--no-extensions", "--no-rules", "--tools", "read,grep,glob",
                                  "--session-dir"])
-        self.assertEqual(a[8:12], ["--mode", "json", "--model", "@default"])
-        self.assertEqual(len(a), 13)
-        self.assertTrue(a[12].startswith("@"))
+        self.assertEqual(a[8:11], ["--mode", "json", "--config"])
+        self.assertEqual(a[12], "--trusted-extension")
+        self.assertEqual(a[14:16], ["--model", "@default"])
+        self.assertEqual(len(a), 17)
+        self.assertTrue(a[16].startswith("@"))
 
     def test_model_and_thinking_flags(self):
         self.install("codex", "claude", "omp")
@@ -406,8 +435,9 @@ class RunTests(Base):
             self.preship(route, out=f"{route}.json")
         a = self.runs("codex")[0]["argv"]
         self.assertEqual(a[a.index("-m") + 1], "gpt-x")
-        self.assertIn("model_reasoning_effort=high", c_values(a))  # by value: a Windows sandbox adds a second -c
-        self.assertEqual([v for v in c_values(a) if not v.startswith("windows.sandbox=")], ["model_reasoning_effort=high"])
+        self.assertIn('model_reasoning_effort="high"', c_values(a))
+        self.assertEqual([v for v in c_values(a) if not v.startswith("windows.sandbox=")],
+                         ['web_search="disabled"', 'model_reasoning_effort="high"'])
         a = self.runs("claude")[0]["argv"]
         self.assertEqual((a[a.index("--model") + 1], a[a.index("--effort") + 1]), ("opus-y", "max"))
         a = self.runs("omp")[0]["argv"]
@@ -560,13 +590,12 @@ class RunTests(Base):
         self.install("codex")
         self.stdout_file("codex", json.dumps(VALID))
 
-    @unittest.skipIf(sys.version_info < (3, 11), "tomllib needs Python 3.11+")
     def test_codex_windows_forwards_sandbox_only(self):
         self.codex_config('model = "gpt-9"\n[windows]\nsandbox = "elevated"\n[projects.\'C:\\work\']\ntrust_level = "trusted"\n'
                           '[mcp_servers.evil]\ncommand = "evil"\n')
         out = self.preship("codex")
         a = self.runs("codex")[0]["argv"]
-        self.assertEqual(c_values(a), ['windows.sandbox="elevated"'])
+        self.assertEqual(c_values(a), ['web_search="disabled"', 'windows.sandbox="elevated"'])
         self.assertIn("--ignore-user-config", a)
         self.assertEqual(a[a.index("-s") + 1], "read-only")
         self.assertFalse([t for t in a if "trust" in t or "evil" in t or "gpt-9" in t], a)
@@ -581,14 +610,14 @@ class RunTests(Base):
             self.codex_config(text)
             out = self.preship("codex", out=f"{name}.json")
             a = self.runs("codex")[-1]["argv"]
-            self.assertEqual(c_values(a), [], name)
+            self.assertEqual(c_values(a), ['web_search="disabled"'], name)
             self.assertFalse([t for t in a if "windows.sandbox" in t], name)
             self.assertNotIn("windows_sandbox", out["receipt"], name)
 
     def test_codex_off_windows_adds_no_sandbox(self):
         self.codex_config('[windows]\nsandbox = "elevated"\n', os_name="posix")
         out = self.preship("codex")
-        self.assertEqual(c_values(self.runs("codex")[0]["argv"]), [])
+        self.assertEqual(c_values(self.runs("codex")[0]["argv"]), ['web_search="disabled"'])
         self.assertNotIn("windows_sandbox", out["receipt"])
 
     # ---- the OMP answer is bounded, the event stream is not (fix-m3-gaps, 3.3, D6) ----------------------
@@ -981,22 +1010,22 @@ class OutputBound(Base):
         self.assert_stopped(out, "stderr", started)
         self.assertEqual(review.read_bytes(), before)
 
-    def test_reviewer_output_on_disk_never_passes_its_bound(self):
-        # the bound holds as the bytes arrive, not at the next check of a file that already grew (review round 3)
+    def test_reviewer_capture_stays_in_memory(self):
         self.install("codex")
-        self.flood_env("codex", stderr=40 * self.MIB)
+        self.stdout_file("codex", VERDICT_OK)
         scratch = self.tmp / "tmpdir"
         scratch.mkdir()
-        for k in ("TMPDIR", "TEMP", "TMP"):
-            self.extra_env[k] = str(scratch)
-        spy = self.tmp / "spy.txt"
-        self.extra_env["FAKE_CODEX_SPY"] = str(spy)
-        started = time.time()
-        out = self.design("codex", expect=3)
-        self.assert_stopped(out, "stderr", started)
-        if spy.exists():  # the flood returned: what the capture holds on disk is within the 8 MiB bound
-            self.assertLessEqual(int(spy.read_text()), 8 * self.MIB + 1)
-        self.assertEqual(list(scratch.glob("specwright-run-*")), [])
+        for key in ("TMPDIR", "TEMP", "TMP"):
+            self.extra_env[key] = str(scratch)
+        spy = self.tmp / "capture-files.json"
+        self.extra_env.update({"FAKE_CODEX_STDERR_BYTES": str(4 * self.MIB), "FAKE_CODEX_CAPTURE_SPY": str(spy)})
+        out = self.design("codex")
+        self.assertEqual(out["status"], "ok")
+        # Four MiB was flushed while the reviewer was alive. A file-backed
+        # stderr capture would be visible; the tiny design fixture is not.
+        seen = json.loads(spy.read_text(encoding="utf-8"))
+        self.assertEqual([item for item in seen if item["bytes"] >= self.MIB], [])
+        self.assertEqual(list(scratch.iterdir()), [])
 
     def test_a_child_that_keeps_the_pipes_open_fails_the_run(self):
         # the CLI exits 0, but a process it started still holds stdout: the output may be partial, so the run fails and
@@ -1033,15 +1062,14 @@ class OutputBound(Base):
         self.assertEqual(out["status"], "failed", out)
         self.assertIn("kept its output open", out["message"])
 
-    @unittest.skipIf(os.name == "nt", "platform: needs SIGSTOP to hold the capture loop past the deadline")
+    @unittest.skipIf(os.name == "nt", "platform: needs SIGSTOP to delay the native controller")
     def test_an_exit_first_seen_after_the_deadline_is_a_timeout(self):
-        # the capture loop is frozen from 0.5 s (after it set its deadline) until 4.5 s into a 2 s timeout, and the reviewer
-        # answers and exits at 3.5 s: it was still running when review.timeout passed, so the run is a timeout, not its
-        # result (review rounds 8 and 9)
+        # Delay the controller (not its helper): the reviewer exits after its
+        # deadline, and late event handling must not turn that into success.
         self.install("codex", "claude")
         self.claude_result()
         self.set_settings("review:\n  timeout: 2s\n")
-        self.extra_env.update({"FAKE_CLAUDE_DELAY": "3", "FAKE_CLAUDE_FREEZE_PARENT": "4"})
+        self.extra_env.update({"FAKE_CLAUDE_DELAY": "3", "FAKE_CLAUDE_FREEZE_CONTROLLER": "4"})
         out = self.preship("claude", expect=3)
         self.assertEqual(out["status"], "timeout", out)
         self.assertFalse((self.tmp / "findings.json").exists())
@@ -1055,19 +1083,22 @@ class OutputBound(Base):
         self.assertFalse((self.tmp / "findings.json").exists())
         self.assertFalse(self.state_dir.exists() and list(self.state_dir.rglob("*.json")))
 
-    def test_exit_in_last_poll_interval_with_held_pipe_is_not_timeout(self):
-        # codex exits 1 s before the deadline of a 5 s timeout while the loop would only look again after 10 s, and a child
-        # holds stdout: the exit is seen when it happens, before the deadline, so the run is the held-pipe failure
+    def test_held_pipe_after_timely_exit_uses_reader_grace(self):
+        # The reviewer exits before the deadline; its held stdout is a failed
+        # run, not a timeout when the reader grace extends past that deadline.
         self.install("codex")
         self.stdout_file("codex", VERDICT_OK)
         self.set_settings("review:\n  timeout: 5s\n")
         kid_file, exit_file = self.tmp / "kid.pid", self.tmp / "exit-time"
         self.addCleanup(lambda: kid_file.exists() and kill_pid(int(kid_file.read_text(encoding="utf-8"))))
-        before = time.time()
-        self.extra_env.update({"SPECWRIGHT_TEST_POLL": "10", "FAKE_CODEX_LINGER": "40", "FAKE_CODEX_LINGER_PID_FILE": str(kid_file),
-                               "FAKE_CODEX_EXIT_AT": repr(before + 4), "FAKE_CODEX_EXIT_TIME_FILE": str(exit_file)})
+        self.extra_env.update({"FAKE_CODEX_LINGER": "40", "FAKE_CODEX_LINGER_PID_FILE": str(kid_file),
+                               "FAKE_CODEX_DELAY": "3.5", "FAKE_CODEX_EXIT_AT": "0",
+                               "FAKE_CODEX_EXIT_TIME_FILE": str(exit_file)})
         out = self.design("codex", expect=3)
-        self.assertLess(float(exit_file.read_text(encoding="utf-8")), before + 5, "codex exited after the deadline")
+        started = datetime.fromisoformat(out["receipt"]["started_at"].replace("Z", "+00:00")).timestamp()
+        exited = float(exit_file.read_text(encoding="utf-8"))
+        self.assertGreater(exited, started + 3, "fixture did not exit near the review deadline")
+        self.assertLess(exited, started + 5, "codex exited after the deadline")
         self.assertEqual(out["status"], "failed", out)
         self.assertIn("kept its output open", out["message"])
         self.assertFalse((self.tmp / "review.md").exists())
@@ -1577,6 +1608,11 @@ class RecordGateTests(Base):
 
     def test_archive_only_custom_prefix(self):
         self.git(self.code, "mv", "openspec", "plans")
+        # Installation metadata stays at the code project's fixed location,
+        # independently of where the tracked planning artifacts live.
+        (self.code / "openspec").mkdir()
+        shutil.move(str(self.code / "plans" / ".specwright"),
+                    str(self.code / "openspec" / ".specwright"))
         self.git(self.code, "commit", "-q", "-m", "chore: move planning root")
         base = self.head(self.code)
         (self.code / "plans" / "changes" / "archive").mkdir(parents=True, exist_ok=True)

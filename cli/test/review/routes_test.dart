@@ -425,6 +425,29 @@ void main() {
         isNull,
       );
     });
+    for (final origin in ['USERPROFILE', 'HOME', 'HOMEDRIVE/HOMEPATH']) {
+      test('default profile config uses .codex through $origin', () {
+        final profile = Directory('${work.path}/profile')..createSync();
+        File('${profile.path}/config.toml')
+            .writeAsStringSync('[windows]\nsandbox = "wrong-location"\n');
+        Directory('${profile.path}/.codex').createSync();
+        File('${profile.path}/.codex/config.toml')
+            .writeAsStringSync('[windows]\nsandbox = "elevated"\n');
+        final environment = <String, String>{
+          'CODEX_HOME': '',
+          if (origin != 'HOMEDRIVE/HOMEPATH') origin: profile.path,
+          if (origin == 'HOMEDRIVE/HOMEPATH') ...{
+            'HOMEDRIVE': work.path,
+            'HOMEPATH': '${Platform.pathSeparator}profile',
+          },
+        };
+        expect(
+          readWindowsSandbox(windows: true, environment: environment),
+          'elevated',
+        );
+      });
+    }
+
     for (final text in [
       '[windows]\nsandbox = "unterminated\n',
       '[windows]\nsandbox = ["elevated"]\n',

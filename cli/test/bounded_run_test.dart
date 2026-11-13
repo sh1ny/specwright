@@ -333,6 +333,95 @@ Future<void> main(List<String> args) async {
       expect(result.stderr, hasLength(3 * 1024 * 1024));
     });
 
+    for (final (stream, outBytes, errBytes) in [
+      ('stdout', 256 * 1024, 0),
+      ('stderr', 0, 256 * 1024),
+    ]) {
+      test('overflow identifies $stream for a review failure', () async {
+        final result = await run(
+          writer(outBytes, errBytes),
+          const RunLimits(stdoutCap: 1024, maxBytes: 1024),
+        );
+        expect(result.limit, BoundedLimit.responseTooLarge);
+        expect(result.limitStream, stream);
+      });
+    }
+
+    test(
+      'streaming stdout reaches its async consumer without retained capture',
+      () async {
+        final target = File('${dir.path}/streamed.bin');
+        final output = await target.open(mode: FileMode.write);
+        late BoundedResult result;
+        try {
+          result = await BoundedRun(
+            command: writer(2 * 1024 * 1024, 0),
+            limits: const RunLimits(),
+            treeFor: () => platformTree(Platform.environment),
+            helperCommand: helper,
+            stdoutSink: (chunk) async {
+              await output.writeFrom(chunk);
+            },
+            note: (_) {},
+          ).run();
+        } finally {
+          await output.close();
+        }
+        expect(result.exitCode, 0);
+        expect(result.stdout, isEmpty);
+        expect(await target.length(), 2 * 1024 * 1024);
+        var corrupted = false;
+        await for (final chunk in target.openRead()) {
+          if (chunk.any((byte) => byte != 0x78)) corrupted = true;
+        }
+        expect(corrupted, isFalse);
+      },
+    );
+
+    test('a slow streaming consumer is not a held pipe after exit', () async {
+      final received = <int>[];
+      final result = await BoundedRun(
+        command: writer(1, 0),
+        limits: const RunLimits(deadline: Duration(seconds: 30)),
+        treeFor: () => platformTree(Platform.environment),
+        helperCommand: helper,
+        stdoutSink: (chunk) async {
+          await Future<void>.delayed(
+            readerGrace + const Duration(milliseconds: 250),
+          );
+          received.addAll(chunk);
+        },
+        note: (_) {},
+      ).run();
+      expect(result.limit, isNull);
+      expect(result.exitCode, 0);
+      expect(result.pipesHeld, isFalse);
+      expect(utf8.decode(received), 'x');
+    });
+
+    test(
+      'a streaming consumer error is not a successful command result',
+      () async {
+        await expectLater(
+          BoundedRun(
+            command: writer(2 * 1024 * 1024, 0),
+            limits: const RunLimits(),
+            treeFor: () => platformTree(Platform.environment),
+            helperCommand: helper,
+            stdoutSink: (_) async => throw StateError('fixture sink failure'),
+            note: (_) {},
+          ).run(),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'fixture sink failure',
+            ),
+          ),
+        );
+      },
+    );
+
     test('a stdout cap stops on stdout overflow', () async {
       final result = await run(
         writer(256 * 1024, 0),
@@ -398,5 +487,32 @@ Future<void> main(List<String> args) async {
         expect(result.pipesHeld, isTrue);
       },
     );
+    test('streamed stdout reports a descendant-held pipe after exit', () async {
+      final file = File('${dir.path}/held_stream_pipe.dart')
+        ..writeAsStringSync('''
+import 'dart:io';
+Future<void> main(List<String> args) async {
+  if (args.isNotEmpty) {
+    await Future<void>.delayed(const Duration(seconds: 5));
+    return;
+  }
+  await Process.start(Platform.resolvedExecutable,
+      [Platform.script.toFilePath(), 'hold'],
+      mode: ProcessStartMode.inheritStdio);
+  exit(7);
+}
+''');
+      final result = await BoundedRun(
+        command: [Platform.resolvedExecutable, file.path],
+        limits: const RunLimits(),
+        treeFor: () => platformTree(Platform.environment),
+        helperCommand: helper,
+        stdoutSink: (_) async {},
+        note: (_) {},
+      ).run();
+      expect(result.limit, isNull);
+      expect(result.exitCode, 7);
+      expect(result.pipesHeld, isTrue);
+    });
   });
 }

@@ -103,6 +103,15 @@ void main() {
     },
   );
 
+  test('non-mapping review sections keep the pre-port defaults', () {
+    for (final value in ['literal', 'true', '[codex]']) {
+      final top = write('legacy', 'review: $value\n');
+      final got = readReviewSettings(bases: [top]);
+      expect(got.review, isEmpty);
+      expect(got.routes['omp']!.tools, ['read', 'grep', 'glob']);
+    }
+  });
+
   test(
     'missing explicit settings keeps the usage stop rather than defaults',
     () {

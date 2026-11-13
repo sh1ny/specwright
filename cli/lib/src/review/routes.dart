@@ -434,6 +434,7 @@ String? readWindowsSandbox({bool? windows, Map<String, String>? environment}) {
         (env['HOMEPATH']?.isNotEmpty ?? false)) {
       home = '${env['HOMEDRIVE']}${env['HOMEPATH']}';
     }
+    if (home != null && home.isNotEmpty) home = p.join(home, '.codex');
   }
   if (home == null || home.isEmpty) return null;
 
