@@ -67,10 +67,8 @@ Future<void> snapshotTip(
     _checkGit(result, 'cat-file', directory, tip);
     await writer.finish();
 
-    for (final blob in blobs) {
-      if (blob.isLink) {
-        await _materializeLink(blob, rootPath, style);
-      }
+    if (linkData != null) {
+      await _SnapshotLinks(rootPath, style).materialize(blobs);
     }
     completed = true;
   } finally {
@@ -286,60 +284,170 @@ class _BlobWriter {
 
 enum _BatchState { header, blob, separator }
 
-Future<void> _materializeLink(
-  _TreeBlob blob,
-  String root,
-  p.Context style,
-) async {
-  final dataFile = blob.linkData!;
-  final destination = blob.outputPath(Directory(root), style);
-  Directory(style.dirname(destination)).createSync(recursive: true);
-  String? target;
-  try {
-    target = await dataFile.readAsString();
-  } on FormatException {
-    // Dart's filesystem APIs cannot represent an arbitrary non-UTF-8 target.
+class _SnapshotLink {
+  _SnapshotLink(this.blob, this.destination, this.target);
+
+  final _TreeBlob blob;
+  final String destination;
+  final String? target;
+  String? resolved;
+  bool resolving = false;
+  bool done = false;
+}
+
+/// Resolves the complete committed link graph before touching link destinations.
+/// Filesystem order and the host's symlink privileges cannot change the view.
+class _SnapshotLinks {
+  _SnapshotLinks(this.root, this.style);
+
+  final String root;
+  final p.Context style;
+  final _links = <String, _SnapshotLink>{};
+  Map<String, List<_SnapshotLink>>? _children;
+  final _order = <_SnapshotLink>[];
+
+  String _key(String path) => Platform.isWindows ? path.toLowerCase() : path;
+
+  Iterable<_SnapshotLink> _childrenFor(String source) {
+    var index = _children;
+    if (index == null) {
+      index = <String, List<_SnapshotLink>>{};
+      for (final link in _links.values) {
+        (index[_key(style.dirname(link.destination))] ??= []).add(link);
+      }
+      _children = index;
+    }
+    return index[_key(source)] ?? const <_SnapshotLink>[];
   }
 
-  String? realTarget;
-  if (target != null) {
-    try {
+  Future<void> materialize(List<_TreeBlob> blobs) async {
+    final destinationRoot = Directory(root);
+    final visiting = <String>{};
+    for (final blob in blobs) {
+      if (!blob.isLink) continue;
+      final destination = blob.outputPath(destinationRoot, style);
+      final parent = style.dirname(destination);
+      Directory(parent).createSync(recursive: true);
+      String? target;
+      try {
+        target = await blob.linkData!.readAsString();
+      } on FormatException {
+        // Preserve arbitrary target bytes as a regular file.
+      }
+      final link = _SnapshotLink(blob, destination, target);
+      _links[_key(destination)] = link;
+    }
+    for (final link in _links.values) {
+      _resolveLink(link);
+    }
+    for (final link in _order) {
+      if (link.resolved != null) {
+        try {
+          final target = Platform.isWindows
+              ? link.target!.replaceAll('/', r'\')
+              : link.target!;
+          Link(link.destination).createSync(target);
+          continue;
+        } on FileSystemException {
+          // Copy the same resolved tree when symlinks are unavailable.
+        }
+      }
+      await _copyLink(link, link.destination, visiting);
+    }
+  }
+
+  String? _resolveLink(_SnapshotLink link) {
+    if (link.done) return link.resolved;
+    if (link.resolving) return null;
+    link.resolving = true;
+    final target = link.target;
+    if (target != null) {
       final requested = style.isAbsolute(target)
           ? target
-          : style.join(style.dirname(destination), target);
-      realTarget = File(requested).resolveSymbolicLinksSync();
-    } on FileSystemException {
-      // An unresolved link is materialized as its target text below.
+          : style.join(style.dirname(link.destination), target);
+      final expanded = _resolvePath(requested);
+      if (expanded != null && _isInside(root, expanded, style)) {
+        try {
+          final real = File(expanded).resolveSymbolicLinksSync();
+          if (_isInside(root, real, style)) link.resolved = real;
+        } on FileSystemException {
+          // Missing targets remain their original target bytes.
+        }
+      }
     }
+    link.resolving = false;
+    link.done = true;
+    _order.add(link);
+    return link.resolved;
   }
-  final inside = realTarget != null && _isInside(root, realTarget, style);
-  if (inside) {
+
+  String? _resolvePath(String path) {
+    final parts = style.split(path);
+    var resolved = parts.first;
+    for (var i = 1; i < parts.length; i++) {
+      final candidate = style.normalize(style.join(resolved, parts[i]));
+      final link = _links[_key(candidate)];
+      if (link == null) {
+        resolved = candidate;
+      } else {
+        final target = _resolveLink(link);
+        if (target == null) return null;
+        resolved = target;
+      }
+    }
+    return resolved;
+  }
+
+  Future<void> _copyLink(
+    _SnapshotLink link,
+    String destination,
+    Set<String> visiting,
+  ) async {
+    final source = link.resolved;
+    if (source != null) {
+      final type = FileSystemEntity.typeSync(source);
+      if (type == FileSystemEntityType.file) {
+        await File(source).copy(destination);
+        return;
+      }
+      if (type == FileSystemEntityType.directory) {
+        await _copyDirectory(source, destination, visiting);
+        return;
+      }
+    }
+    await link.blob.linkData!.copy(destination);
+  }
+
+  Future<void> _copyDirectory(
+    String source,
+    String destination,
+    Set<String> visiting,
+  ) async {
+    Directory(destination).createSync(recursive: true);
+    final key = _key(source);
+    if (!_isInside(root, source, style) || !visiting.add(key)) return;
     try {
-      Link(destination).createSync(target!);
-      return;
-    } on FileSystemException {
-      // Without symlink support, fall back to copying the safe in-tree target.
+      for (final entity in Directory(source).listSync(followLinks: false)) {
+        if (_links.containsKey(_key(entity.path))) continue;
+        final target = style.join(destination, style.basename(entity.path));
+        final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
+        if (type == FileSystemEntityType.file) {
+          await File(entity.path).copy(target);
+        } else if (type == FileSystemEntityType.directory) {
+          await _copyDirectory(entity.path, target, visiting);
+        }
+      }
+      for (final link in _childrenFor(source)) {
+        final target = style.join(
+          destination,
+          style.basename(link.destination),
+        );
+        await _copyLink(link, target, visiting);
+      }
+    } finally {
+      visiting.remove(key);
     }
   }
-  if (inside) {
-    final resolvedTarget = realTarget!;
-    final type = FileSystemEntity.typeSync(resolvedTarget);
-    if (type == FileSystemEntityType.file) {
-      await File(resolvedTarget).copy(destination);
-      return;
-    }
-    if (type == FileSystemEntityType.directory) {
-      await _copyInsideDirectory(
-        resolvedTarget,
-        destination,
-        root,
-        style,
-        <String>{},
-      );
-      return;
-    }
-  }
-  await dataFile.copy(destination);
 }
 
 bool _isInside(String root, String target, p.Context style) {
@@ -348,55 +456,4 @@ bool _isInside(String root, String target, p.Context style) {
       relative != '..' &&
       !relative.startsWith('..${style.separator}') &&
       !style.isAbsolute(relative);
-}
-
-Future<void> _copyInsideDirectory(
-  String source,
-  String destination,
-  String root,
-  p.Context style,
-  Set<String> visiting,
-) async {
-  Directory(destination).createSync(recursive: true);
-  final realSource = Directory(source).resolveSymbolicLinksSync();
-  if (!_isInside(root, realSource, style) || !visiting.add(realSource)) return;
-  try {
-    for (final entity in Directory(realSource).listSync(followLinks: false)) {
-      final target = style.join(destination, style.basename(entity.path));
-      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      if (type == FileSystemEntityType.file) {
-        await File(entity.path).copy(target);
-      } else if (type == FileSystemEntityType.directory) {
-        await _copyInsideDirectory(entity.path, target, root, style, visiting);
-      } else if (type == FileSystemEntityType.link) {
-        final linkTarget = Link(entity.path).targetSync();
-        String? realTarget;
-        try {
-          realTarget = Link(entity.path).resolveSymbolicLinksSync();
-        } on FileSystemException {
-          // An unresolved nested link becomes a file holding its target text.
-        }
-        if (realTarget != null && _isInside(root, realTarget, style)) {
-          final linkType = FileSystemEntity.typeSync(realTarget);
-          if (linkType == FileSystemEntityType.file) {
-            await File(realTarget).copy(target);
-            continue;
-          }
-          if (linkType == FileSystemEntityType.directory) {
-            await _copyInsideDirectory(
-              realTarget,
-              target,
-              root,
-              style,
-              visiting,
-            );
-            continue;
-          }
-        }
-        await File(target).writeAsString(linkTarget);
-      }
-    }
-  } finally {
-    visiting.remove(realSource);
-  }
 }

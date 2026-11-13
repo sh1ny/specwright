@@ -56,6 +56,8 @@ Every review (design or pre-ship) picks its reviewer the same way:
 
 With `--no-extensions` retained, Specwright loads exactly one fixed Specwright-owned `--trusted-extension` module inside OMP. User trusted-module arguments are refused; there is no custom policy setting or separate production interpreter. The hook rejects tool-directed remote targets before dispatch, including encoded, compound and aliased forms; optional `lsp` is restricted to its nine read-only actions. The fetch overlay also disables HTTP reads.
 
+For a single bare extensionless open-ended read selector, the hook schema-replaces the path with its explicit local form (`README:50-` → `./README:50-`) and checks that effective input before dispatch. Widening only the guard regex is unsafe because native opaque-resource routing can remain reachable. Compound/encoded/aliased ambiguity still fails closed.
+
 This is not an OS network or filesystem sandbox. Provider transport, underlying filesystem mounts, trusted native tools and language servers remain outside the lexical target boundary. Do not present the tool policy as a general no-network guarantee.
 
 ## CLI version checks

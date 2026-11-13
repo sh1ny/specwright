@@ -116,7 +116,7 @@ DECISION_MAKING: important
 
 - `review-run.sh` is a shim over native `sw review --args-stdin`. Its subcommands, JSON documents, exit codes and record paths remain compatible, including Windows MSYS filesystem paths. Review operations run without interpreter subprocesses; the compatibility shim and shared resolver still require Bash and Python (#148).
 - Reviewer output stays bounded in memory, and branch-tip snapshots stream each Git blob in at most 64 KiB chunks rather than buffering tree contents. Snapshotting still has no deadline (#148).
-- The OMP reviewer's default tools are `read,grep,glob`, with memory, auto-learn and web fetching off and a fixed trusted local-target gate. User extensions remain disabled. The Codex reviewer turns off its web, image, plugin, memory, hook and goal features (#148).
+- The OMP reviewer's default tools are `read,grep,glob`, with memory, auto-learn and web fetching off and a fixed trusted local-target gate. Bare open-ended reads are disambiguated as local before resource routing. User extensions remain disabled. The Codex reviewer turns off its web, image, plugin, memory, hook and goal features (#148).
 - An OMP older than 18.19.0 is skipped as a reviewer, because its memory could not be turned off reliably (#148).
 - The CLI ships `toml` to parse Codex's Windows `windows.sandbox` value as TOML (#148).
 - A review stops with `bad_settings`, naming the line, when `openspec/specwright.yaml` has a line the settings reader would misread; `review-run.sh` used to read it leniently (#148).

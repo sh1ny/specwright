@@ -39,9 +39,12 @@ const Set<String> _unsafeOmpTools = <String>{
   'vibe_list',
 };
 
-/// Invariant C13: OMP tool targets are checked against every native path interpretation without using mutable file
-/// existence as permission to dispatch a remote target. This fixed hook never registers or invokes tools; it is a
-/// tool-target policy, not an OS-wide network or filesystem sandbox.
+/// C13: every effective native target stays local without using mutable file
+/// existence as permission to dispatch a remote candidate. Bare extensionless
+/// open-ended reads are schema-replaced with explicit `./` local inputs first.
+/// Widening only the guard regex is unsafe: native opaque-resource routing can
+/// remain reachable. This fixed hook never registers or invokes tools and is
+/// not an OS-wide network or filesystem sandbox.
 abstract final class OmpLocalPolicy {
   static const String _id = 'local-only-v1';
   static const String _fileName = 'omp-local-policy.mjs';
@@ -61,6 +64,7 @@ const lspReadOnlyActions = new Set([
   'capabilities',
 ]);
 const selectorChain = /^(?:raw|conflicts|-?\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*)(?::(?:raw|conflicts|-?\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*))*(?:;|$)/i;
+const localReadSelectorChain = /^(?:raw|conflicts|-?\d+(?:-\d*|\+\d+)?(?:,\d+(?:-\d*|\+\d+)?)*)(?::(?:raw|conflicts|-?\d+(?:-\d*|\+\d+)?(?:,\d+(?:-\d*|\+\d+)?)*))*$/i;
 const schemeAtStart = /^[a-z][a-z0-9+.-]*:/i;
 
 function blocked(reason) {
@@ -99,6 +103,14 @@ function isLocalFileUrl(text, index) {
 
 function isSelectorSuffix(suffix) {
   return selectorChain.test(suffix);
+}
+
+function forceLocalReadSelector(input) {
+  if (typeof input.path !== 'string') return input;
+  const match = /^([a-z][a-z0-9+.-]*):(.+)$/i.exec(input.path);
+  if (!match || match[1].length === 1 || match[1].includes('.') ||
+      isSelectorSuffix(match[2]) || !localReadSelectorChain.test(match[2])) return input;
+  return {...input, path: './' + input.path};
 }
 
 function hasRemoteInterpretation(text) {
@@ -176,8 +188,10 @@ export default function register(api) {
       const input = event.input;
       if (tool === 'read' || tool === 'grep' || tool === 'glob') {
         if (!input || typeof input !== 'object' || Array.isArray(input)) return blocked('invalid tool input');
-        const reason = inspectTarget(input.path, tool !== 'read');
-        return reason ? blocked(reason) : undefined;
+        const effective = tool === 'read' ? forceLocalReadSelector(input) : input;
+        const reason = inspectTarget(effective.path, tool !== 'read');
+        if (reason) return blocked(reason);
+        return effective === input ? undefined : {input: effective};
       }
 
       if (tool === 'lsp') {

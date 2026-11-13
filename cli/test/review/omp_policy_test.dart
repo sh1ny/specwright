@@ -90,6 +90,25 @@ void main() {
     },
   );
 
+  test(
+    'bare open-ended reads are forced local before native dispatch',
+    () async {
+      final paths = [
+        'README:50-',
+        'README:17-:raw',
+        'README:raw:17-',
+        'README:1,50-',
+      ];
+      final results = await probe([
+        for (final path in paths) call('read', {'path': path}),
+      ]);
+      for (var i = 0; i < paths.length; i++) {
+        expect(results[i]['blocked'], isFalse, reason: '${results[i]}');
+        expect(results[i]['effectivePath'], './${paths[i]}');
+      }
+    },
+  );
+
   test('local selectors, literals and multiple roots retain local execution permission', () async {
     final cases = <Map<String, Object?>>[
       for (final path in [
@@ -233,6 +252,9 @@ const remoteTargets = [
   'folder/http://127.0.0.1:9/file',
   'http:/127.0.0.1:9/file',
   'local;http://127.0.0.1:9/file',
+  'README:50-;http://127.0.0.1:9/file',
+  'README:50-;other:20-',
+  '["README:50-","fixture-mcp:resource"]',
   'local,http://127.0.0.1:9/file',
   'local ssh://127.0.0.1:9/file',
   'local;!ssh://127.0.0.1:9/file',
@@ -260,7 +282,7 @@ for (let i = 0; i < cases.length; i++) {
     const decision = await callback({type: 'tool_call', toolCallId: String(i), toolName: item.tool, input: item.input}, {cwd: item.cwd});
     const blocked = Boolean(decision?.block);
     const effective = decision?.input ?? item.input;
-    const result = {blocked, reason: decision?.reason ?? null};
+    const result = {blocked, reason: decision?.reason ?? null, effectivePath: effective.path};
     if (!blocked && item.readContent) result.content = fs.readFileSync(path.resolve(item.cwd, effective.path), 'utf8');
     results.push(result);
   } catch (error) {

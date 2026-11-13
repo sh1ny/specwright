@@ -550,7 +550,7 @@ How much **init**, **close** and **pack** ask you is set by `project.decision_ma
 |---|---|---|
 | `codex` | Fixed read-only isolation; disables `apps`, `browser_use`, `browser_use_external`, `computer_use`, `in_app_browser`, `image_generation`, `memories`, `hooks`, `plugins`, `remote_plugin`, `tool_suggest`, `skill_search`, `skill_mcp_dependency_install`, `goals`, `sleep_tool` | `disable` adds features; `args` adds unprotected tokens. No `tools` key. |
 | `claude` | Restricted invocation; default tools `Read`, `Grep`, `Glob` | `tools` replaces the list (`[]` = none); `args` adds unprotected tokens. |
-| `omp` | ≥18.19.0; default `read`, `grep`, `glob`; private session; memory/auto-learning/find/fetch disabled; exactly one fixed trusted local-target module, user extensions disabled | `tools` replaces the list (`[]` = none); `args` adds unprotected tokens. Optional LSP permits nine read-only actions. The policy is not an OS sandbox: provider transport, filesystem mounts, trusted native tools and language servers are outside its lexical target boundary. |
+| `omp` | ≥18.19.0; default `read`, `grep`, `glob`; private session; memory/auto-learning/find/fetch disabled; exactly one fixed trusted local-target module, user extensions disabled; bare open-ended reads forced explicitly local | `tools` replaces the list (`[]` = none); `args` adds unprotected tokens. Optional LSP permits nine read-only actions. The policy is not an OS sandbox: provider transport, filesystem mounts, trusted native tools and language servers are outside its lexical target boundary. |
 
 
 ### Agents

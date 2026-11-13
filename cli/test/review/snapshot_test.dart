@@ -85,6 +85,68 @@ void main() {
   });
 
   test(
+    'forward link chains remain readable without exposing outside targets',
+    () async {
+      File('${repo.path}/target.txt').writeAsStringSync('chain contents\n');
+      Directory('${repo.path}/folder').createSync();
+      File('${repo.path}/folder/seed.txt')
+          .writeAsStringSync('directory contents\n');
+      File('${work.path}/outside.txt').writeAsStringSync('outside secret\n');
+      await git(repo, ['add', 'target.txt', 'folder/seed.txt']);
+      for (final (name, target) in [
+        ('a', 'b'),
+        ('b', 'target.txt'),
+        ('dir-a', 'dir-b'),
+        ('dir-b', 'folder'),
+        ('folder/linked', '../target.txt'),
+        ('a-through-dir', 'dir-a/linked'),
+        ('cycle-a', 'cycle-b'),
+        ('cycle-b', 'cycle-a'),
+        ('escape-a', 'escape-b'),
+        ('escape-b', '../outside.txt'),
+      ]) {
+        final oid = (await git(repo, [
+          'hash-object',
+          '-w',
+          '--stdin',
+        ], input: target)).trim();
+        await git(repo, [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          '120000,$oid,$name',
+        ]);
+      }
+      await git(repo, ['commit', '-q', '-m', 'forward link chains']);
+      final head = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+      final dest = Directory('${work.path}/view');
+      await snapshotTip(repo.path, head, dest, helperCommand: helper);
+      expect(File('${dest.path}/a').readAsStringSync(), 'chain contents\n');
+      expect(
+        File('${dest.path}/a-through-dir').readAsStringSync(),
+        'chain contents\n',
+      );
+      expect(
+        File('${dest.path}/dir-a/linked').readAsStringSync(),
+        'chain contents\n',
+      );
+      expect(
+        File('${dest.path}/dir-a/seed.txt').readAsStringSync(),
+        'directory contents\n',
+      );
+      for (final (name, target) in [
+        ('cycle-a', 'cycle-b'),
+        ('cycle-b', 'cycle-a'),
+        ('escape-a', 'escape-b'),
+        ('escape-b', '../outside.txt'),
+      ]) {
+        expect(Link('${dest.path}/$name').existsSync(), isFalse);
+        expect(File('${dest.path}/$name').readAsStringSync(), target);
+      }
+    },
+  );
+
+  test(
     'a non-UTF-8 tracked name is a named stop, never a replacement-name file',
     () async {
       final raw = Uint8List.fromList([...utf8.encode('${repo.path}/'), 0xff]);
