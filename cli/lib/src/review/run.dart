@@ -102,10 +102,11 @@ class ReviewConfig {
   String? model(String route) {
     final raw = models[route];
     final value = raw == null ? '' : _pyString(raw).trim();
-    if (route == 'omp')
+    if (route == 'omp') {
       return value.isEmpty || value.toLowerCase() == 'default'
           ? '@default'
           : value;
+    }
     return value.isEmpty || value.toLowerCase() == 'default' ? null : value;
   }
 
@@ -232,9 +233,7 @@ class _ReviewOperations {
       var reason = probe.reason;
       if (reason == null && route == 'omp') {
         reason = _ompFloorReason(probe.version);
-        if (reason == null) {
-          reason = await _resolveOmpModel(probe.executable!, cfg.model('omp')!);
-        }
+        reason ??= await _resolveOmpModel(probe.executable!, cfg.model('omp')!);
       }
       if (reason != null) {
         skipped.add({'route': route, 'reason': reason});
@@ -388,8 +387,9 @@ class _ReviewOperations {
     final cfg = ReviewConfig(settings.review);
 
     final exe = resolveCommand(route, Platform.environment);
-    if (exe == null)
+    if (exe == null) {
       throw ReviewStop('not_installed', '$route is not installed');
+    }
     late final _Probe probe;
 
     final work = Directory.systemTemp.createTempSync('specwright-review-');
@@ -441,8 +441,7 @@ class _ReviewOperations {
           view: view,
         );
         promptPath = p.join(work.path, 'prompt.md');
-        File(promptPath!)
-            .writeAsStringSync(prompt, encoding: utf8, flush: true);
+        File(promptPath).writeAsStringSync(prompt, encoding: utf8, flush: true);
         cwd = view ?? codeDir;
       }
       probe = await _probe(route, executable: exe);
@@ -600,7 +599,7 @@ class _ReviewOperations {
 
     if (text == null) invalid('output too large');
     if (kind == 'design') {
-      final problem = _validateDesign(text!);
+      final problem = _validateDesign(text);
       if (problem != null) invalid(problem);
       final receipt = _makeReceipt(
         route: route,
@@ -637,7 +636,7 @@ class _ReviewOperations {
       return result;
     }
 
-    final findings = _jsonFromText(text!);
+    final findings = _jsonFromText(text);
     if (findings == null) {
       invalid(
         'output is not JSON: ${text.trim().isEmpty ? '(empty)' : text.trim().substring(0, min(120, text.trim().length))}',
@@ -913,19 +912,21 @@ class _ReviewOperations {
 
   Future<String> _requireCodeRepo(String cwd) async {
     final dir = await git.toplevel(cwd);
-    if (dir == null)
+    if (dir == null) {
       throw ReviewStop('not-a-repo', '$cwd is not a git work tree');
+    }
     return dir;
   }
 
   Future<String> _requireStoreRepo(String path) async {
     final dir = await git.toplevel(path);
-    if (dir == null)
+    if (dir == null) {
       throw ReviewStop(
         'usage',
         '--store $path is not a git work tree',
         code: 2,
       );
+    }
     return dir;
   }
 
@@ -971,8 +972,9 @@ class _ReviewOperations {
   }
 
   Future<String> _tipOf(String dir, String? branch) async {
-    if (branch == null || branch.isEmpty)
+    if (branch == null || branch.isEmpty) {
       return _gitOut(dir, ['rev-parse', 'HEAD']);
+    }
     final ref = 'refs/heads/$branch^{commit}';
     final result = await git.run(dir, [
       'rev-parse',
@@ -1126,8 +1128,9 @@ class _ReviewOperations {
           final m = match.matchAsPrefix(path);
           if (m != null && m.end == path.length) found.add(m.group(1)!);
         }
-        if (found.length == 1)
+        if (found.length == 1) {
           top = p.join(root, prefix, 'changes', 'archive', found.single);
+        }
       }
     }
     return [
@@ -1313,8 +1316,9 @@ class _ReviewOperations {
     if (previous != null) candidates.add(({...current, key: previous}, true));
     for (final (heads, afterArchive) in candidates) {
       final path = await _recordPath(codeDir, change, heads);
-      if (FileSystemEntity.typeSync(path) != FileSystemEntityType.file)
+      if (FileSystemEntity.typeSync(path) != FileSystemEntityType.file) {
         continue;
+      }
       if (afterArchive) {
         final (allowed, _) = await _archiveCommitOnly(
           movedDir,
@@ -1390,8 +1394,9 @@ class _ReviewOperations {
       '1',
       sha,
     ])).split(RegExp(r'\s+'));
-    if (parents.length != 2)
+    if (parents.length != 2) {
       return (false, 'the commit is a merge or a root commit');
+    }
     final subject = await _gitOut(dir, ['log', '-1', '--format=%s', sha]);
     final subjectPattern = RegExp(
       '^[A-Za-z][\\w-]*!?\\(${RegExp.escape(change)}\\): archive change\$',
@@ -1421,8 +1426,9 @@ class _ReviewOperations {
     final pat = RegExp('^${RegExp.escape(specDir)}(.+)/spec\\.md\$');
     for (final path in _universalLines(_decodeText(specList.stdout))) {
       final match = pat.matchAsPrefix(path);
-      if (match != null && match.end == path.length)
+      if (match != null && match.end == path.length) {
         capabilities.add(match.group(1)!);
+      }
     }
     final changed = await git.run(dir, [
       'diff',
@@ -1567,11 +1573,12 @@ Future<Map<String, Object?>> runReviewer({
   }
   final processGroup = run.processGroup;
   final processGroupReason = run.processGroupReason;
-  final keepSession = () {
+  Map<String, Object?> keepSession() {
     if (sessionDir == null) return <String, Object?>{};
     sessionDir = _preserveSession(sessionDir!);
     return <String, Object?>{'session_dir': _normal(sessionDir!)};
-  };
+  }
+
   Map<String, Object?> receipt() => _makeReceipt(
     route: route,
     skipped: skipped,
@@ -1643,17 +1650,20 @@ Future<Map<String, Object?>> runReviewer({
     String? text;
     Object? parsed;
     if (route == 'codex') {
-      if (scanner!.tooLarge)
+      if (scanner!.tooLarge) {
         fail('invalid', 'invalid_output', 'output too large');
+      }
       text = scanner.codexText;
-      if (text == null)
+      if (text == null) {
         fail(
           'invalid',
           'invalid_output',
           'codex\'s event stream has no agent_message item',
         );
-      if (utf8.encode(text).length > _maxAnswer)
+      }
+      if (utf8.encode(text).length > _maxAnswer) {
         fail('invalid', 'invalid_output', 'output too large');
+      }
     } else if (route == 'claude') {
       Object? decoded;
       try {
@@ -1661,12 +1671,13 @@ Future<Map<String, Object?>> runReviewer({
       } on FormatException {
         decoded = null;
       }
-      if (decoded is! Map)
+      if (decoded is! Map) {
         fail(
           'invalid',
           'invalid_output',
           'claude printed no JSON result object',
         );
+      }
       final object = decoded.cast<String, Object?>();
       final usage = object['modelUsage'];
       if (usage is Map && usage.isNotEmpty) actualModel = usage.keys.join(', ');
@@ -1683,18 +1694,21 @@ Future<Map<String, Object?>> runReviewer({
         text = object['result'] is String ? object['result'] as String : '';
       }
     } else {
-      if (scanner!.tooLarge)
+      if (scanner!.tooLarge) {
         fail('invalid', 'invalid_output', 'output too large');
+      }
       final end = scanner.ompEnd;
       text = _ompLastText(end);
-      if (text == null)
+      if (text == null) {
         fail(
           'invalid',
           'invalid_output',
           'omp\'s event stream has no assistant message in agent_end',
         );
-      if (utf8.encode(text).length > _maxAnswer)
+      }
+      if (utf8.encode(text).length > _maxAnswer) {
         fail('invalid', 'invalid_output', 'output too large');
+      }
     }
 
     final receiptValue = receipt();
@@ -1712,8 +1726,9 @@ Future<Map<String, Object?>> runReviewer({
       if (problem != null) fail('invalid', 'invalid_output', problem);
       final encoded = '${const JsonEncoder.withIndent('  ').convert(parsed)}\n';
       _atomicWrite(outPath, encoded);
-      if (codeDir == null)
+      if (codeDir == null) {
         throw StateError('preship review has no code repository');
+      }
       final recordPathValue = await _writeNativeRecord(codeDir, {
         'kind': 'preship',
         'change': change,
@@ -1858,13 +1873,13 @@ Map<String, Object?> _makeReceipt({
     'process_group': processGroup,
     if (processGroupReason != null && processGroupReason.isNotEmpty)
       'process_group_reason': processGroupReason,
-    if (windowsSandbox != null) 'windows_sandbox': windowsSandbox,
+    'windows_sandbox': ?windowsSandbox,
     'tools': effectiveTools,
     'disabled': disabled,
     'extra_args': routeConfig?.args ?? const <String>[],
     'overlay': overlay,
-    if (policyId != null) 'policy_id': policyId,
-    if (policySha256 != null) 'policy_sha256': policySha256,
+    'policy_id': ?policyId,
+    'policy_sha256': ?policySha256,
   };
 }
 
@@ -1996,8 +2011,9 @@ Future<_Probe> _probe(String route, {String? executable}) async {
       'probe failed: --version wrote too much to ${run.limitStream ?? 'stdout'}',
     );
   }
-  if (run.pipesHeld)
+  if (run.pipesHeld) {
     return _Probe(null, null, 'probe failed: --version $_heldMessage');
+  }
   if (run.limit == BoundedLimit.deadlineExceeded) {
     return _Probe(
       null,
@@ -2043,8 +2059,9 @@ Future<String?> _resolveOmpModel(String executable, String model) async {
       'modelRoles',
       '--json',
     ]);
-    if (run.$2 != null)
+    if (run.$2 != null) {
       return 'probe failed: omp config get modelRoles wrote too much to ${run.$2}';
+    }
     if (run.$3) return 'probe failed: omp config get modelRoles $_heldMessage';
     final value = _jsonValue(run.$1);
     if (run.$4 || run.$6 || run.$5 != 0 || value is! Map) {
@@ -2070,8 +2087,9 @@ Future<String?> _resolveOmpModel(String executable, String model) async {
     selector.substring(slash + 1),
     '--json',
   ]);
-  if (run.$2 != null)
+  if (run.$2 != null) {
     return 'probe failed: omp models find wrote too much to ${run.$2}';
+  }
   if (run.$3) return 'probe failed: omp models find $_heldMessage';
   final data = _jsonValue(run.$1);
   if (run.$4 || run.$6 || run.$5 != 0 || data == null) {
@@ -2079,8 +2097,9 @@ Future<String?> _resolveOmpModel(String executable, String model) async {
   }
   final models = data is Map ? data['models'] : data;
   if (models is List &&
-      models.any((item) => item is Map && item['selector'] == selector))
+      models.any((item) => item is Map && item['selector'] == selector)) {
     return null;
+  }
   return missing;
 }
 
@@ -2166,8 +2185,9 @@ String? _validateFindings(Object? object) {
   if (object['summary'] is! String) return 'summary must be a string';
   final items = object['findings'];
   if (items is! List) return 'findings must be an array';
-  if (items.length > 100)
+  if (items.length > 100) {
     return '${items.length} findings; at most 100 are accepted';
+  }
   final seen = <String>{};
   for (var i = 0; i < items.length; i++) {
     final at = 'findings[$i]';
@@ -2183,20 +2203,24 @@ String? _validateFindings(Object? object) {
             .toList()
           ..sort();
     if (missing.isNotEmpty) return '$at lacks ${missing.join(', ')}';
-    if (extraKeys.isNotEmpty)
+    if (extraKeys.isNotEmpty) {
       return '$at has undeclared properties: ${extraKeys.join(', ')}';
+    }
     for (final key in const ['id', 'file', 'title', 'body']) {
       if (finding[key] is! String) return '$at.$key must be a string';
     }
     final id = finding['id'] as String;
     if (!seen.add(id)) return 'duplicate finding id $id';
-    if (!_priorities.contains(finding['priority']))
+    if (!_priorities.contains(finding['priority'])) {
       return '$at.priority must be one of ${_priorities.join(', ')}';
-    if (!_categories.contains(finding['category']))
+    }
+    if (!_categories.contains(finding['category'])) {
       return '$at.category must be one of ${_categories.join(', ')}';
+    }
     final line = finding['line'];
-    if (line != null && line is! int)
+    if (line != null && line is! int) {
       return '$at.line must be an integer or null';
+    }
     final specClass = finding['spec_class'];
     if (finding['category'] == 'spec' && !_specClasses.contains(specClass)) {
       return '$at.spec_class must be clarification or behaviour_change when category is spec';
@@ -2217,15 +2241,17 @@ String? _validateDesign(String text) {
       if (line.trimRight().startsWith('$key:')) _lineValue(line, key)!,
   ];
   final verdicts = values('VERDICT');
-  if (verdicts.length != 1)
+  if (verdicts.length != 1) {
     return 'expected exactly one VERDICT: line, found ${verdicts.length}';
+  }
   final verdict = verdicts.single;
   if (!_verdicts.contains(verdict)) {
     return 'VERDICT: ${_pyRepr(verdict)} is not one a reviewer may return; accepted: ${_verdicts.join(', ')}';
   }
   final applied = values('CHANGES_APPLIED');
-  if (applied.length != 1)
+  if (applied.length != 1) {
     return 'expected exactly one CHANGES_APPLIED: line, found ${applied.length}';
+  }
   final accepted = switch (verdict) {
     'APPROVE' || 'REVISE' => const ['n/a'],
     _ => const ['no', 'yes'],
@@ -2349,13 +2375,14 @@ String? _ompLastText(Map<String, Object?>? end) {
   if (messages is! List) return null;
   String? last;
   for (final message in messages) {
-    if (message is Map && message['role'] == 'assistant')
+    if (message is Map && message['role'] == 'assistant') {
       last = _textOf(message);
+    }
   }
   return last;
 }
 
-String _textOf(Map message) {
+String _textOf(Map<dynamic, dynamic> message) {
   final content = message['content'];
   if (content is String) return content;
   if (content is! List) return '';
@@ -2482,8 +2509,9 @@ String _designScratch(String change) {
     final stamp =
         '${_two(now.year, 4)}${_two(now.month)}${_two(now.day)}T${_two(now.hour)}${_two(now.minute)}${_two(now.second)}${_two(now.microsecond, 6)}Z';
     final path = p.join(dir.path, '$stamp.md');
-    if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound)
+    if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) {
       return path;
+    }
   }
 }
 
@@ -2496,8 +2524,8 @@ bool _truthy(Object? value) => switch (value) {
   bool value => value,
   num value => value != 0,
   String value => value.isNotEmpty,
-  List value => value.isNotEmpty,
-  Map value => value.isNotEmpty,
+  List<dynamic> value => value.isNotEmpty,
+  Map<dynamic, dynamic> value => value.isNotEmpty,
   _ => true,
 };
 
@@ -2591,8 +2619,8 @@ String _pyString(Object? value) => switch (value) {
   null => 'None',
   true => 'True',
   false => 'False',
-  List value => '[${value.map(_pyRepr).join(', ')}]',
-  Map value =>
+  List<dynamic> value => '[${value.map(_pyRepr).join(', ')}]',
+  Map<dynamic, dynamic> value =>
     '{${value.entries.map((entry) => '${_pyRepr(entry.key)}: ${_pyRepr(entry.value)}').join(', ')}}',
   _ => value.toString(),
 };
@@ -2615,8 +2643,9 @@ bool _jsonEquivalent(Object? a, Object? b) {
     if (a.length != b.length) return false;
     for (final entry in a.entries) {
       if (!b.containsKey(entry.key) ||
-          !_jsonEquivalent(entry.value, b[entry.key]))
+          !_jsonEquivalent(entry.value, b[entry.key])) {
         return false;
+      }
     }
     return true;
   }

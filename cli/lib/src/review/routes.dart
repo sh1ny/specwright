@@ -194,7 +194,7 @@ Map<String, RouteConfig> parseReviewRoutes(Object? raw) {
           'is not a supported route; accepted routes: ${_routeNames.join(', ')}',
         );
       }
-      final route = routeKey as String;
+      final route = routeKey;
       final accepted = _routeKeys[route]!;
       final value = entry.value;
       if (value is! Map) {
@@ -205,7 +205,7 @@ Map<String, RouteConfig> parseReviewRoutes(Object? raw) {
       }
 
       final fields = <String, Object?>{};
-      for (final fieldEntry in (value as Map).entries) {
+      for (final fieldEntry in (value).entries) {
         final fieldKey = fieldEntry.key;
         final key = fieldKey is String
             ? 'review.routes.$route.$fieldKey'
@@ -255,11 +255,11 @@ List<String> _stringList(Object? raw, String key) {
     _badRouteSetting(key, 'must be a list of names or arguments');
   }
   final values = <String>[];
-  for (final value in raw as List) {
+  for (final value in raw) {
     if (value is! String) {
       _badRouteSetting(key, 'must be a list of strings');
     }
-    if ((value as String).contains('\u0000')) {
+    if ((value).contains('\u0000')) {
       _badRouteSetting(key, 'must not contain NUL characters');
     }
     values.add(value);

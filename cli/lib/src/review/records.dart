@@ -78,8 +78,8 @@ bool _hasTime(Object? value) => switch (value) {
   bool value => value,
   num value => value != 0,
   String value => value.isNotEmpty,
-  List value => value.isNotEmpty,
-  Map value => value.isNotEmpty,
+  List<dynamic> value => value.isNotEmpty,
+  Map<dynamic, dynamic> value => value.isNotEmpty,
   _ => true,
 };
 

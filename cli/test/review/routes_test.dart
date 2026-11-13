@@ -130,7 +130,7 @@ void main() {
     );
 
     for (final (raw, key) in <(Object?, String)>[
-      ({'other': {}}, 'review.routes.other'),
+      ({'other': <String, Object?>{}}, 'review.routes.other'),
       (
         {
           'codex': {
@@ -451,7 +451,7 @@ void main() {
     for (final text in [
       '[windows]\nsandbox = "unterminated\n',
       '[windows]\nsandbox = ["elevated"]\n',
-      '[windows]\nsandbox = "x\\\" -c y"\n',
+      '[windows]\nsandbox = "x\\" -c y"\n',
       '[other]\nsandbox = "elevated"\n',
     ]) {
       test('bad or non-plain sandbox is not forwarded: $text', () {
