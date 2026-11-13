@@ -37,7 +37,7 @@ review:
 
 `tools` replaces the Claude/OMP tool list; an empty list means no tools. Codex has no `tools` setting. Codex `disable` adds to its fixed feature disables; an empty list cannot restore a disabled feature. All lists contain strings. Extra `args` cannot replace or weaken fixed isolation, tool selection, model/thinking, output capture or settings. Use `review.models`, `review.thinking` and the route's `tools` instead of their CLI flags. Known unsafe tools, protected flags and their aliases (including Codex `--yolo` and `--not-so-yolo`) stop with `route_setting_unsafe`; malformed route controls stop with `bad_route_setting`. Unsupported YAML stops with `bad_settings`, naming its line. Validate every route before any CLI probe, even when `cross_model: false` or another route would run.
 
-Refuse Codex `-c profile=...` and every `profiles` table/child override as aliases of protected profile/settings sources. Refuse OMP `fetch` both in route settings and in the fixed hook, independently of its disabled overlay.
+Refuse Codex `-c profile=...` and every `profiles` table/child override as aliases of protected profile/settings sources. Refuse `notify` overrides: their configured programs run outside the tool sandbox. Refuse OMP `fetch` both in route settings and in the fixed hook, independently of its disabled overlay.
 
 Codex always disables `apps`, `browser_use`, `browser_use_external`, `computer_use`, `in_app_browser`, `image_generation`, `memories`, `hooks`, `plugins`, `remote_plugin`, `tool_suggest`, `skill_search`, `skill_mcp_dependency_install`, `goals` and `sleep_tool`.
 

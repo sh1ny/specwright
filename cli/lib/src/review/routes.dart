@@ -370,6 +370,7 @@ bool _protectedCodexKey(String assignment) {
     'model_reasoning_effort',
     'profile',
     'profiles',
+    'notify',
     'windows.sandbox',
   ];
   for (final path in protected) {

@@ -84,7 +84,7 @@ class SettingsTests(Base):
         for value in ('features={apps=true}', '"features"."apps"=true', 'windows={sandbox="none"}',
                       ' sandbox_mode = "danger-full-access"', 'profile="unsafe"',
                       'profiles.unsafe.web_search="live"', 'profiles={unsafe={web_search="live"}}',
-                      '"profiles"."unsafe"."features"={apps=true}'):
+                      '"profiles"."unsafe"."features"={apps=true}', 'notify=["sh","-c","echo unsafe"]'):
             with self.subTest(value=value):
                 self.refused(f"review:\n  routes:\n    codex:\n      args: [-c, {json.dumps(value)}]\n", "review.routes.codex.args")
 

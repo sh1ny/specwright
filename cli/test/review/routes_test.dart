@@ -291,6 +291,7 @@ void main() {
       'profiles.unsafe.web_search="live"',
       'profiles={unsafe={web_search="live"}}',
       '"profiles"."unsafe"."features"={apps=true}',
+      'notify=["sh","-c","echo unsafe"]',
     ]) {
       for (final args in <List<String>>[
         ['-c', assignment],
