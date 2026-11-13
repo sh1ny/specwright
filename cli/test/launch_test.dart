@@ -331,6 +331,31 @@ void _launchTests() {
       timeout: const Timeout(Duration(minutes: 3)),
     );
 
+    test(
+      'held batch output cannot report success (Windows)',
+      () async {
+        final tool = _pyTool(
+          dir,
+          'held-output',
+          'import subprocess, sys\n'
+              'subprocess.Popen([sys.executable, "-c", '
+              '"import time; time.sleep(60)"], stdin=subprocess.DEVNULL)\n'
+              'print("incomplete output", flush=True)\n',
+        );
+        final result = await launch(
+          [tool],
+          cwd: dir.path,
+          environment: _env(_ownPath),
+          helperCommand: helper,
+        );
+        expect(result.exitCode, 127);
+        expect(result.stdout, isEmpty);
+        expect(utf8.decode(result.stderr), contains(tool));
+      },
+      skip: Platform.isWindows ? false : _windowsOnly,
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
     test('a capped call bounds stdout only', () async {
       final tool = _pyTool(
         dir,

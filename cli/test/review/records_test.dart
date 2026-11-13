@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:specwright_cli/src/review/records.dart';
+import 'package:specwright_cli/src/review/stop.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -64,5 +65,54 @@ void main() {
       heads: heads,
     );
     expect(p.basename(path), '${heads['code']}+abc123.json');
+  });
+
+  for (final change in [
+    '',
+    '.',
+    '..',
+    '../outside',
+    'nested/../../outside',
+    '/outside',
+    r'C:\outside',
+    r'C:outside',
+    r'\\server\outside',
+    r'nested\..\outside',
+  ]) {
+    test('record paths reject unsafe change ${jsonEncode(change)}', () {
+      final record = (fixture['record'] as Map).cast<String, Object?>();
+      expect(
+        () => recordPath(
+          stateDir: work.path,
+          commonDir: fixture['common_dir'] as String,
+          change: change,
+          heads: (record['heads'] as Map).cast<String, Object?>(),
+        ),
+        throwsA(
+          isA<ReviewStop>().having((e) => e.error, 'error', 'bad_change'),
+        ),
+      );
+    });
+  }
+
+  test('record write cannot escape its state directory', () {
+    final record = (fixture['record'] as Map).cast<String, Object?>();
+    final heads = (record['heads'] as Map).cast<String, Object?>();
+    final sentinel = File(
+      p.join(work.path, 'outside', '${heads['code']}.json'),
+    );
+    sentinel.parent.createSync();
+    sentinel.writeAsStringSync('must not overwrite');
+    final state = Directory(p.join(work.path, 'state'));
+    expect(
+      () => writeReviewRecord(
+        stateDir: state.path,
+        commonDir: fixture['common_dir'] as String,
+        record: {...record, 'change': '../../../outside'},
+      ),
+      throwsA(isA<ReviewStop>().having((e) => e.error, 'error', 'bad_change')),
+    );
+    expect(sentinel.readAsStringSync(), 'must not overwrite');
+    expect(state.existsSync(), isFalse);
   });
 }

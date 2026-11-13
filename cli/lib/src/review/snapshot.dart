@@ -292,6 +292,7 @@ class _SnapshotLink {
   final String? target;
   String? resolved;
   bool resolving = false;
+  bool cyclic = false;
   bool done = false;
 }
 
@@ -358,40 +359,53 @@ class _SnapshotLinks {
 
   String? _resolveLink(_SnapshotLink link) {
     if (link.done) return link.resolved;
-    if (link.resolving) return null;
+    if (link.resolving) {
+      link.cyclic = true;
+      return link.destination;
+    }
     link.resolving = true;
     final target = link.target;
     if (target != null) {
       final requested = style.isAbsolute(target)
           ? target
           : style.join(style.dirname(link.destination), target);
-      final expanded = _resolvePath(requested);
+      final expanded = _resolvePath(requested, link);
       if (expanded != null && _isInside(root, expanded, style)) {
-        try {
-          final real = File(expanded).resolveSymbolicLinksSync();
-          if (_isInside(root, real, style)) link.resolved = real;
-        } on FileSystemException {
-          // Missing targets remain their original target bytes.
+        if (link.cyclic) {
+          // Cycles have no resolved contents to copy. Keep their own path as
+          // the safe-link marker so a no-symlink host falls back to target bytes.
+          link.resolved = link.destination;
+        } else {
+          try {
+            final real = File(expanded).resolveSymbolicLinksSync();
+            if (_isInside(root, real, style)) link.resolved = real;
+          } on FileSystemException {
+            // Missing targets remain their original target bytes.
+          }
         }
       }
     }
+    if (link.resolved == null) link.cyclic = false;
     link.resolving = false;
     link.done = true;
     _order.add(link);
     return link.resolved;
   }
 
-  String? _resolvePath(String path) {
+  String? _resolvePath(String path, _SnapshotLink owner) {
     final parts = style.split(path);
     var resolved = parts.first;
     for (var i = 1; i < parts.length; i++) {
       final candidate = style.normalize(style.join(resolved, parts[i]));
-      final link = _links[_key(candidate)];
-      if (link == null) {
+      // A cyclic prefix cannot resolve through later components. Still
+      // normalize the suffix so a path outside the snapshot stays refused.
+      final expanded = owner.cyclic ? null : _links[_key(candidate)];
+      if (expanded == null) {
         resolved = candidate;
       } else {
-        final target = _resolveLink(link);
+        final target = _resolveLink(expanded);
         if (target == null) return null;
+        if (expanded.cyclic) owner.cyclic = true;
         resolved = target;
       }
     }

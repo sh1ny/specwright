@@ -124,7 +124,10 @@ DECISION_MAKING: important
 ### Fixed
 
 - Reviewer resolver errors preserve non-ASCII text on macOS; eval-runner failure reports retain UTF-8 diagnostics on Windows (#148).
-- Codex profile/config-source and `notify` command-hook overrides, and OMP's network `fetch` tool, are refused before probing; the emitted OMP hook independently refuses `fetch` (#148).
+- Codex profile/config-source, `notify` hooks and provider-auth command overrides, and OMP's network `fetch` tool, are refused before probing; the emitted OMP hook independently refuses `fetch` (#148).
+- Review record paths reject escaping change names before reading or writing state (#148).
+- Windows batch launches reject held output pipes instead of reporting incomplete output as success (#148).
+- Safe committed symlink cycles remain links where supported; no-symlink hosts retain their target bytes without following cycles or escaping the snapshot (#148).
 
 ### Removed
 

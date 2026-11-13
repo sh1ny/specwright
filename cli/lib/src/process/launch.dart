@@ -221,6 +221,9 @@ Future<LaunchResult> _batch(
   if (startError != null) {
     return _startFailed('cannot start $name: $startError\n');
   }
+  if (result.pipesHeld) {
+    return _startFailed('$name: stopped: output pipe held after exit\n');
+  }
   return LaunchResult(
     result.exitCode ?? 127,
     Uint8List.fromList(result.stdout),

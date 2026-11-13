@@ -292,6 +292,10 @@ void main() {
       'profiles={unsafe={web_search="live"}}',
       '"profiles"."unsafe"."features"={apps=true}',
       'notify=["sh","-c","echo unsafe"]',
+      'model_provider="owned"',
+      'model_providers.owned.auth.command="program"',
+      'model_providers={owned={auth={command="program"}}}',
+      '"model_providers"."owned"."auth"={command="program",args=["arg"]}',
     ]) {
       for (final args in <List<String>>[
         ['-c', assignment],

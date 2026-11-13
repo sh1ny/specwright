@@ -367,6 +367,8 @@ bool _protectedCodexKey(String assignment) {
     'web_search',
     'mcp_servers',
     'model',
+    'model_provider',
+    'model_providers',
     'model_reasoning_effort',
     'profile',
     'profiles',

@@ -5,6 +5,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:path/path.dart' as p;
 
+import 'stop.dart';
+
 /// C1: the pre-ship record's key and JSON fields are the Python format, so
 /// records already on disk remain readable by `gate`, `waive` and `rounds`.
 String recordPath({
@@ -13,6 +15,17 @@ String recordPath({
   required String change,
   required Map<String, Object?> heads,
 }) {
+  if (change.isEmpty ||
+      change == '.' ||
+      change == '..' ||
+      change.contains('/') ||
+      change.contains(r'\') ||
+      change.contains(':')) {
+    throw ReviewStop(
+      'bad_change',
+      'change must be one nonempty directory name, not an absolute or traversing path',
+    );
+  }
   final repoKey = crypto.sha256.convert(utf8.encode(commonDir)).toString();
   final code = heads['code'] as String;
   final store = heads['store'];

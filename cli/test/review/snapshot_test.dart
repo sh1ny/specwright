@@ -93,6 +93,14 @@ void main() {
           .writeAsStringSync('directory contents\n');
       File('${work.path}/outside.txt').writeAsStringSync('outside secret\n');
       await git(repo, ['add', 'target.txt', 'folder/seed.txt']);
+      var canCreateLinks = true;
+      try {
+        Link('${work.path}/link-probe')
+          ..createSync('${repo.path}/target.txt')
+          ..deleteSync();
+      } on FileSystemException {
+        canCreateLinks = false;
+      }
       for (final (name, target) in [
         ('a', 'b'),
         ('b', 'target.txt'),
@@ -102,6 +110,10 @@ void main() {
         ('a-through-dir', 'dir-a/linked'),
         ('cycle-a', 'cycle-b'),
         ('cycle-b', 'cycle-a'),
+        ('self-cycle', 'self-cycle'),
+        ('nested-cycle-a', 'nested-cycle-b/child'),
+        ('nested-cycle-b', 'nested-cycle-a'),
+        ('cycle-escape', 'cycle-a/../../outside.txt'),
         ('escape-a', 'escape-b'),
         ('escape-b', '../outside.txt'),
       ]) {
@@ -137,6 +149,23 @@ void main() {
       for (final (name, target) in [
         ('cycle-a', 'cycle-b'),
         ('cycle-b', 'cycle-a'),
+        ('self-cycle', 'self-cycle'),
+        ('nested-cycle-a', 'nested-cycle-b/child'),
+        ('nested-cycle-b', 'nested-cycle-a'),
+      ]) {
+        final path = '${dest.path}/$name';
+        if (canCreateLinks) {
+          expect(
+            FileSystemEntity.typeSync(path, followLinks: false),
+            FileSystemEntityType.link,
+          );
+          expect(Link(path).targetSync().replaceAll(r'\', '/'), target);
+        } else {
+          expect(File(path).readAsStringSync(), target);
+        }
+      }
+      for (final (name, target) in [
+        ('cycle-escape', 'cycle-a/../../outside.txt'),
         ('escape-a', 'escape-b'),
         ('escape-b', '../outside.txt'),
       ]) {
