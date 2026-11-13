@@ -287,6 +287,10 @@ void main() {
       'hooks=[]',
       'model="other"',
       'model_reasoning_effort="low"',
+      'profile="unsafe"',
+      'profiles.unsafe.web_search="live"',
+      'profiles={unsafe={web_search="live"}}',
+      '"profiles"."unsafe"."features"={apps=true}',
     ]) {
       for (final args in <List<String>>[
         ['-c', assignment],
@@ -510,6 +514,7 @@ const ompUnsafeTools = [
   'computer',
   'task',
   'web_search',
+  'fetch',
   'ask',
   'learn',
   'manage_skill',

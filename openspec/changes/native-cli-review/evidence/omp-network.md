@@ -1,10 +1,12 @@
 # Production OMP local-target acceptance — task 6.5
 
-Run on Windows x64, 2026-11-12–13, with installed `omp/18.19.0`; requested `@default`, reported `gpt-6.1-sol`, `high`. The candidate `sw` was stamped `0.33.0` before the planned release bump. The actual source shim and native command builder produced the reviewer invocation.
+Run on Windows x64, 2026-11-13, with installed `omp/18.19.0`; requested `@default`, reported `gpt-6.1-sol`, `high`. The final candidate `sw` was stamped `0.34.0`. The actual source shim and native command builder produced the reviewer invocation. All seven captures were renewed after fourth-round `fetch` refusal changed the emitted module bytes.
 
 ## Identity and observations
 
-The exact emitted module was `local-only-v1`, SHA-256 `dd3d66bca5206bdbaae84741e2642c443d5d686fb0cca7c680666448a127d85b`. Every normal capture and receipt matches those actual module bytes. [omp-network.json](omp-network.json) retains its full UTF-8 source, exact native argv, private overlay, controller receipts and paired native request/result events.
+The exact emitted module is `local-only-v1`, SHA-256 `33f594137149c61e0f94e801c558fbde7f64843f7107c9d68699bba3558157c0`. Every normal capture and receipt matches those actual module bytes. [omp-network.json](omp-network.json) retains its full UTF-8 source, exact native argv, private overlay, controller receipts and paired native request/result events.
+
+`fetch` is refused in route settings and independently by the emitted hook, not only disabled by the overlay. Native settings and emitted-module regressions verify that refusal. The fixed invocation does not mount `fetch`; no native `fetch` dispatch is claimed by this replay.
 
 | Control | Native calls | Observed outcome |
 |---|---|---|

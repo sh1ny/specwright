@@ -45,11 +45,11 @@ Before #95 the same route could not read the checkout on Windows: `--ignore-user
 
 ## Native production-policy replay (native-cli-review)
 
-Run on 2026-11-12–13, Windows x64, from a disposable committed fixture. The source candidate was built as `sw` 0.33.0 before the planned 0.34.0 release bump. OMP was `omp/18.19.0`, requested `@default`, reported `gpt-6.1-sol` with `high` thinking.
+Run on 2026-11-13, Windows x64, from a disposable committed fixture. The final OMP candidate was built as `sw` 0.34.0 and all seven native captures were renewed after fourth-round `fetch` refusal. OMP was `omp/18.19.0`, requested `@default`, reported `gpt-6.1-sol` with `high` thinking.
 
 The source `review-run.sh` resolved the candidate binary and built every fixed flag. A throwaway native observer forwarded argv, cwd, stdin and output unchanged to the installed reviewer; it retained native events and copied the exact private overlay/module before cleanup. This observer is test instrumentation, not a production dependency.
 
-The final production module's SHA-256 was `dd3d66bca5206bdbaae84741e2642c443d5d686fb0cca7c680666448a127d85b`, matching `receipt.policy_sha256`; `policy_id` was `local-only-v1`. The overlay disabled `autolearn.enabled`, `memories.enabled`, `find.enabled` and `fetch.enabled`. `--no-skills`, `--no-extensions` and `--no-rules` remained set; exactly one fixed `--trusted-extension` was loaded. The default tools remained `read,grep,glob`; the separate optional-LSP run added only `lsp`.
+The final production module's SHA-256 was `33f594137149c61e0f94e801c558fbde7f64843f7107c9d68699bba3558157c0`, matching `receipt.policy_sha256`; `policy_id` was `local-only-v1`. The overlay disabled `autolearn.enabled`, `memories.enabled`, `find.enabled` and `fetch.enabled`. `--no-skills`, `--no-extensions` and `--no-rules` remained set; exactly one fixed `--trusted-extension` was loaded. The default tools remained `read,grep,glob`; the separate optional-LSP run added only `lsp`. Route settings and the hook independently refuse the network `fetch` tool; the fixed native invocation does not mount it.
 
 | Control | Actual native observations |
 |---|---|

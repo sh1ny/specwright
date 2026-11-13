@@ -124,6 +124,7 @@ DECISION_MAKING: important
 ### Fixed
 
 - Reviewer resolver errors preserve non-ASCII text on macOS; eval-runner failure reports retain UTF-8 diagnostics on Windows (#148).
+- Codex profile/config-source overrides and OMP's network `fetch` tool are refused before probing; the emitted OMP hook independently refuses `fetch` (#148).
 
 ### Removed
 

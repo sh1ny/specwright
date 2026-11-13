@@ -71,7 +71,7 @@ class SettingsTests(Base):
         self.refused("review:\n  routes:\n    claude:\n      tools: [Read, Bash]\n", "review.routes.claude.tools")
 
     def test_omp_refused_tools(self):
-        for tool in ("write", "learn", "find", "eval", "ast_edit", "debug", "github", "checkpoint", "retain"):
+        for tool in ("write", "learn", "find", "fetch", "eval", "ast_edit", "debug", "github", "checkpoint", "retain"):
             with self.subTest(tool=tool):
                 self.refused(f"review:\n  routes:\n    omp:\n      tools: [read, {tool}]\n", "review.routes.omp.tools")
 
@@ -81,7 +81,10 @@ class SettingsTests(Base):
                 self.refused(f"review:\n  routes:\n    codex:\n      args: [{json.dumps(flag)}]\n", "review.routes.codex.args")
 
     def test_codex_protected_key_forms_refused(self):
-        for value in ('features={apps=true}', '"features"."apps"=true', 'windows={sandbox="none"}', ' sandbox_mode = "danger-full-access"'):
+        for value in ('features={apps=true}', '"features"."apps"=true', 'windows={sandbox="none"}',
+                      ' sandbox_mode = "danger-full-access"', 'profile="unsafe"',
+                      'profiles.unsafe.web_search="live"', 'profiles={unsafe={web_search="live"}}',
+                      '"profiles"."unsafe"."features"={apps=true}'):
             with self.subTest(value=value):
                 self.refused(f"review:\n  routes:\n    codex:\n      args: [-c, {json.dumps(value)}]\n", "review.routes.codex.args")
 

@@ -368,6 +368,8 @@ bool _protectedCodexKey(String assignment) {
     'mcp_servers',
     'model',
     'model_reasoning_effort',
+    'profile',
+    'profiles',
     'windows.sandbox',
   ];
   for (final path in protected) {

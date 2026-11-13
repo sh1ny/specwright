@@ -13,6 +13,7 @@ const Set<String> _unsafeOmpTools = <String>{
   'computer',
   'task',
   'web_search',
+  'fetch',
   'ask',
   'learn',
   'manage_skill',

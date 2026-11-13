@@ -46,6 +46,17 @@ void main() {
     bool read = false,
   }) => {'tool': tool, 'input': input, 'cwd': work.path, 'readContent': read};
 
+  test('network fetch is blocked independently of the host overlay', () async {
+    final results = await probe([
+      call('fetch', {'url': 'https://fixture.invalid/resource'}),
+      call('FETCH', {'url': 'https://fixture.invalid/resource'}),
+    ]);
+    for (final result in results) {
+      expect(result['blocked'], isTrue);
+      expect(result['reason'], contains('SPECWRIGHT_OMP_LOCAL_ONLY'));
+    }
+  });
+
   for (final tool in ['read', 'grep', 'glob']) {
     test(
       '$tool blocks direct, encoded, compound and aliased remote targets',
