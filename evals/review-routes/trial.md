@@ -49,13 +49,13 @@ Run on 2026-11-12–13, Windows x64, from a disposable committed fixture. The so
 
 The source `review-run.sh` resolved the candidate binary and built every fixed flag. A throwaway native observer forwarded argv, cwd, stdin and output unchanged to the installed reviewer; it retained native events and copied the exact private overlay/module before cleanup. This observer is test instrumentation, not a production dependency.
 
-The production module's SHA-256 was `6376703fb78b72428f7cd8ffa15362169e8b689c06bd4c439e45482f9ed74539`, matching `receipt.policy_sha256`; `policy_id` was `local-only-v1`. The overlay disabled `autolearn.enabled`, `memories.enabled`, `find.enabled` and `fetch.enabled`. `--no-skills`, `--no-extensions` and `--no-rules` remained set; exactly one fixed `--trusted-extension` was loaded. The default tools remained `read,grep,glob`; the separate optional-LSP run added only `lsp`.
+The final production module's SHA-256 was `dd3d66bca5206bdbaae84741e2642c443d5d686fb0cca7c680666448a127d85b`, matching `receipt.policy_sha256`; `policy_id` was `local-only-v1`. The overlay disabled `autolearn.enabled`, `memories.enabled`, `find.enabled` and `fetch.enabled`. `--no-skills`, `--no-extensions` and `--no-rules` remained set; exactly one fixed `--trusted-extension` was loaded. The default tools remained `read,grep,glob`; the separate optional-LSP run added only `lsp`.
 
 | Control | Actual native observations |
 |---|---|
-| Remote targets | 26 paired tool-call/error events, all with `SPECWRIGHT_OMP_LOCAL_ONLY`: HTTP(S), SSH, opaque targets, both UNC spellings, embedded aliases, semicolon/comma/whitespace compounds, exclusions, JSON lists, Unicode-escaped schemes/slashes and mixed forms |
-| Local compatibility | 11 successful calls: Unicode/spaced relative and absolute reads, contextual selectors, literal delimiter filenames, grep roots and JSON roots, remote-looking search content, local globs and multiple-root globs |
-| Exact raw selector | 1 successful read returned only fixture lines 2–3, without contextual lines |
+| Remote targets | 29 paired tool-call/error events, all with `SPECWRIGHT_OMP_LOCAL_ONLY`: 26 network-matrix cases plus three negative selector cases cover HTTP(S), SSH, opaque targets, both UNC spellings, embedded aliases, semicolon/comma/whitespace compounds, exclusions, JSON lists, Unicode-escaped schemes/slashes and mixed forms |
+| Local compatibility | 15 successful calls: Unicode/spaced relative and absolute reads, contextual/raw selectors, literal delimiter filenames, grep roots and JSON roots, remote-looking search content, local globs and multiple-root globs. Four bare extensionless open-ended reads have paired original provider inputs, effective `./` native inputs and local contents |
+| Exact raw selectors | The open-ended raw read returned exactly fixture lines 2–80; the separate optional-LSP run's raw read returned exactly lines 2–3, without contextual lines |
 | Read-only LSP | 2 successful `status`/`capabilities` calls reported no configured servers |
 | Mutating or remote LSP | 6 paired errors: rename, rename_file, applied code_actions, raw request, remote definition and opaque symbols |
 | Malformed trusted module | Native exit 1, controller exit 3, no agent/tool start, no result file |
@@ -68,3 +68,9 @@ The load/callback controls deliberately replaced the private module after record
 For a new OMP version, repeat this matrix with the actual emitted module and all fixed flags. Retain the native request/result pairs, original and fault-injected module bytes, overlay, controller receipt, all-TCP fixture counts and before/after porcelain. Establish the inventory/print-mode correspondence from the version-matched source and the [foundation captures](../../openspec/changes/native-cli-review/evidence/cli-tools.md); do not substitute a policy mirror, inventory alone or a model-authored refusal.
 
 This is a lexical tool-target/operation boundary, not an OS network or filesystem sandbox. Provider transport, underlying mounts, trusted native implementations and language servers remain outside it.
+
+## Current-default three-route recheck (native-cli-review)
+
+The [real-route evidence](../../openspec/changes/native-cli-review/evidence/real-routes.md) and its JSON companion retain the complete receipts (`tools`, `disabled`, `extra_args`), exact argv, native results and before/after porcelain for Codex 0.166.0, Claude 2.1.319 and OMP 18.19.0. Each route's real design review and write trial exited 0; each write trial's before/after porcelain was empty and byte-equal. Codex retained Windows `sandbox="elevated"` and every fixed feature disable. The direct child denied-write capture in the foundation evidence retains every isolation flag; model-authored refusal text is not the oracle.
+
+The [final production-policy evidence](../../openspec/changes/native-cli-review/evidence/omp-network.md) and JSON companion retain the exact module/overlay bytes, all native request/result pairs, original bare-selector requests, loader/callback fault bytes, pinned-source inventory/mode correspondence and zero-connection fixture counters. Earlier prototype captures remain immutable and are not the production acceptance result.

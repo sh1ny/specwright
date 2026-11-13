@@ -2,7 +2,7 @@
 
 Run: 2026-11-12, Windows, checkout `F:/Dev/specwright`.
 
-**Result: native inventories, mode correspondence, the direct child denied write, and the supported OMP local-target-hook mechanism are established. Production isolation acceptance is still pending.** Round 5 correctly rejected inventory-only network claims. The later prototype denied eight actual remote-target calls with zero fixture connections, preserved local operations, and failed closed on load/callback faults. It deliberately covers only single-root inputs; task 6.5 must replay the emitted production policy with the full input grammar. Model-authored lists and refusals are corroboration only.
+**Result: native inventories, mode correspondence, the direct child denied write, and the supported OMP local-target-hook mechanism are established. Final emitted-policy acceptance is recorded in [omp-network.md](omp-network.md) and its JSON companion.** Round 5 correctly rejected inventory-only network claims. The prototype below establishes only the foundation mechanism: eight actual remote denials, local compatibility and load/callback failure controls. Its single-root scope is not substituted for the final production-grammar replay. Model-authored lists and refusals remain corroboration only.
 
 ## Acceptance and retained captures
 
@@ -169,10 +169,10 @@ Trial: `F:/Temp/omp-network-cVwF0p/failure-controls-v3e25dlx`, same fixed flags 
 
 ## Task 1.5 disposition
 
-Fresh independent design review round 6 approved this mechanism and its explicitly limited prototype scope. The native observations above satisfy the foundation mechanism/failure-control check; production grammar and emitted-module acceptance remain task 6.5. No inventory-only or model-only result is promoted to a network-isolation pass.
+Fresh independent design review round 6 approved this mechanism and its explicitly limited prototype scope. These native observations satisfy the foundation mechanism/failure-control check. Task 6.5's separate [production replay](omp-network.md) records the final emitted bytes, complete input grammar, native event pairs and fixture counters. No inventory-only or model-only result is promoted to a network-isolation pass.
 
 ## Apply-time selector-routing evidence
 
 Pre-ship round 2 found that bare extensionless open-ended reads were blocked. Widening only the guard is unsafe: the pinned OMP 18.19.0 source uses the same restrictive selector regex in `packages/coding-agent/src/internal-urls/parse.ts:14-45`. `README:50-` is therefore classified as an opaque `readme` URI. `internal-urls/router.ts:234-241,450-455` permits unknown opaque schemes to reach the MCP-resource fallback; `tools/read.ts:1995-2038` attempts resource routing before falling back to a filesystem read after an unadvertised-resource miss.
 
-The user chose schema-revalidated fixed-hook normalization to `./README:50-`, not a regex-only relaxation or a narrower compatibility promise. An explicit `./` path does not have a URI scheme. The supported hook's input-replacement bridge is already grounded above; task 6.5 must replay the changed production bytes and observe effective local inputs and actual local contents. No literal-file existence check authorizes a remote candidate.
+The user chose schema-revalidated fixed-hook normalization to `./README:50-`, not a regex-only relaxation or a narrower compatibility promise. An explicit `./` path does not have a URI scheme. The supported hook's input-replacement bridge is grounded above; the [final production replay](omp-network.md) retains four original bare-selector requests paired with effective `./` inputs and actual local contents. Compound/encoded/aliased ambiguity remains fail-closed. No literal-file existence check authorizes a remote candidate.

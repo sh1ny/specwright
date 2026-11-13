@@ -105,7 +105,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-`sw review` now runs the design and pre-ship reviews, replacing the Python in `review-run.sh`. Each reviewer CLI can be tuned in `review.routes` while Specwright keeps its isolation controls fixed. OMP's defaults disable memory and web fetching and enforce local tool targets through one fixed trusted gate. Codex disables its dedicated web, image, plugin, memory, hook and goal features under the read-only sandbox. Model-provider traffic is not blocked.
+`sw review` runs all eight review operations natively with compatible interfaces and records. Validated `review.routes` settings tune tools, disables and flags without relaxing isolation. OMP 18.19.0+ disables memory/fetching and enforces local tool targets; Codex retains read-only isolation with dedicated risky features off. Captures stay memory-bounded and Git snapshots stream blobs with safe links. Windows/MSYS paths, profile-home state and UTF-8 diagnostics are preserved. Provider traffic is outside the OMP gate.
 
 ### Added
 

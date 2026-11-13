@@ -4,24 +4,24 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| review-routes → Review operations run in the project's sw | Pre-ship run without Python or bash | evals/review-routes/test_review_sw.py | test_preship_runs_without_python_or_bash | red |
-| review-routes → Review operations run in the project's sw | Gate reads a record written before the port | evals/review-routes/test_review_sw.py | test_gate_passes_preport_record | red |
-| review-routes → Review operations run in the project's sw | VCS backend read in process | evals/review-routes/test_review_sw.py | test_gitbutler_backend_read_without_pr_pair | red |
-| review-routes → Review operations run in the project's sw | No matching sw | evals/review-routes/test_review_sw.py | test_select_sw_missing_starts_no_probe | red |
-| review-routes → Each route's tools, features and extra flags are settings | OMP tool list from settings | evals/review-routes/test_review_settings.py | test_omp_tools_from_settings | red |
-| review-routes → Each route's tools, features and extra flags are settings | Extra Codex feature disabled | evals/review-routes/test_review_settings.py | test_codex_extra_disable_keeps_defaults | red |
-| review-routes → Each route's tools, features and extra flags are settings | Extra flag passed | evals/review-routes/test_review_settings.py | test_claude_extra_arg_after_fixed_flags | red |
-| review-routes → Each route's tools, features and extra flags are settings | Key on the wrong route | evals/review-routes/test_review_settings.py | test_wrong_route_key_bad_route_setting | red |
-| review-routes → Each route's tools, features and extra flags are settings | Wrong value type | evals/review-routes/test_review_settings.py | test_tools_string_bad_route_setting | red |
-| review-routes → A route setting that weakens isolation is refused | Shell tool for claude | evals/review-routes/test_review_settings.py | test_claude_bash_tool_refused | red |
-| review-routes → A route setting that weakens isolation is refused | OMP write and memory tools | evals/review-routes/test_review_settings.py | test_omp_refused_tools | red |
-| review-routes → A route setting that weakens isolation is refused | Sandbox override in Codex args | evals/review-routes/test_review_settings.py | test_codex_sandbox_flags_refused | red |
-| review-routes → A route setting that weakens isolation is refused | Protected Codex key set through its parent table or quoting | evals/review-routes/test_review_settings.py | test_codex_protected_key_forms_refused | red |
-| review-routes → A route setting that weakens isolation is refused | Flag Specwright sets itself | evals/review-routes/test_review_settings.py | test_omp_owned_flags_refused | red |
-| review-routes → Shipped defaults disable unsafe reviewer features | Default OMP command line | evals/review-routes/test_review_settings.py | test_default_omp_command_line | red |
-| review-routes → Shipped defaults disable unsafe reviewer features | Default Codex command line | evals/review-routes/test_review_settings.py | test_default_codex_command_line | red |
-| review-routes → Shipped defaults disable unsafe reviewer features | OMP older than the verified version | evals/review-routes/test_review_settings.py | test_omp_below_floor_skipped_and_refused | red |
-| review-routes → Shipped defaults disable unsafe reviewer features | Codex version without a listed feature | evals/review-routes/test_review_settings.py | test_codex_unknown_feature_fails_closed | red |
+| review-routes → Review operations run in the project's sw | Pre-ship run without Python or bash | evals/review-routes/test_review_sw.py | test_preship_runs_without_python_or_bash | green |
+| review-routes → Review operations run in the project's sw | Gate reads a record written before the port | evals/review-routes/test_review_sw.py | test_gate_passes_preport_record | green |
+| review-routes → Review operations run in the project's sw | VCS backend read in process | evals/review-routes/test_review_sw.py | test_gitbutler_backend_read_without_pr_pair | green |
+| review-routes → Review operations run in the project's sw | No matching sw | evals/review-routes/test_review_sw.py | test_select_sw_missing_starts_no_probe | green |
+| review-routes → Each route's tools, features and extra flags are settings | OMP tool list from settings | evals/review-routes/test_review_settings.py | test_omp_tools_from_settings | green |
+| review-routes → Each route's tools, features and extra flags are settings | Extra Codex feature disabled | evals/review-routes/test_review_settings.py | test_codex_extra_disable_keeps_defaults | green |
+| review-routes → Each route's tools, features and extra flags are settings | Extra flag passed | evals/review-routes/test_review_settings.py | test_claude_extra_arg_after_fixed_flags | green |
+| review-routes → Each route's tools, features and extra flags are settings | Key on the wrong route | evals/review-routes/test_review_settings.py | test_wrong_route_key_bad_route_setting | green |
+| review-routes → Each route's tools, features and extra flags are settings | Wrong value type | evals/review-routes/test_review_settings.py | test_tools_string_bad_route_setting | green |
+| review-routes → A route setting that weakens isolation is refused | Shell tool for claude | evals/review-routes/test_review_settings.py | test_claude_bash_tool_refused | green |
+| review-routes → A route setting that weakens isolation is refused | OMP write and memory tools | evals/review-routes/test_review_settings.py | test_omp_refused_tools | green |
+| review-routes → A route setting that weakens isolation is refused | Sandbox override in Codex args | evals/review-routes/test_review_settings.py | test_codex_sandbox_flags_refused | green |
+| review-routes → A route setting that weakens isolation is refused | Protected Codex key set through its parent table or quoting | evals/review-routes/test_review_settings.py | test_codex_protected_key_forms_refused | green |
+| review-routes → A route setting that weakens isolation is refused | Flag Specwright sets itself | evals/review-routes/test_review_settings.py | test_omp_owned_flags_refused | green |
+| review-routes → Shipped defaults disable unsafe reviewer features | Default OMP command line | evals/review-routes/test_review_settings.py | test_default_omp_command_line | green |
+| review-routes → Shipped defaults disable unsafe reviewer features | Default Codex command line | evals/review-routes/test_review_settings.py | test_default_codex_command_line | green |
+| review-routes → Shipped defaults disable unsafe reviewer features | OMP older than the verified version | evals/review-routes/test_review_settings.py | test_omp_below_floor_skipped_and_refused | green |
+| review-routes → Shipped defaults disable unsafe reviewer features | Codex version without a listed feature | evals/review-routes/test_review_settings.py | test_codex_unknown_feature_fails_closed | green |
 | review-routes → Reviewers run isolated and read-only | OMP review starts a fresh session | evals/review-routes/test_review_run.py | test_omp_fresh_session_dir_per_run | green |
 | review-routes → Reviewers run isolated and read-only | Reviewer tries to write | evals/review-routes/trial.md | recorded trial, `git status --porcelain` after the write request (task 6.3) | n/a (recorded trial: needs real reviewer CLIs) |
 | review-routes → Reviewers run isolated and read-only | Codex on Windows with a sandbox setting | evals/review-routes/test_review_run.py | test_codex_windows_forwards_sandbox_only | green |
@@ -29,23 +29,23 @@
 | review-routes → Reviewers run isolated and read-only | Codex off Windows | evals/review-routes/test_review_run.py | test_codex_off_windows_adds_no_sandbox | green |
 | review-routes → Every review records a receipt | OMP review receipt | evals/review-routes/test_review_run.py | test_receipt_omp_actual_model_from_session | green |
 | review-routes → Every review records a receipt | Model not reported | evals/review-routes/test_review_run.py | test_receipt_unknown_actual_model | green |
-| review-routes → Every review records a receipt | Effective tools in the receipt | evals/review-routes/test_review_settings.py | test_receipt_effective_tools | red |
-| review-routes → Every review records a receipt | Receipt of a refused setting | evals/review-routes/test_review_settings.py | test_refused_setting_writes_nothing | red |
+| review-routes → Every review records a receipt | Effective tools in the receipt | evals/review-routes/test_review_settings.py | test_receipt_effective_tools | green |
+| review-routes → Every review records a receipt | Receipt of a refused setting | evals/review-routes/test_review_settings.py | test_refused_setting_writes_nothing | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Output within the bounds | evals/review-routes/test_review_run.py | test_omp_stream_within_bounds_passes | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Runaway stdout | evals/review-routes/test_review_run.py | test_claude_stdout_flood_stopped_nothing_written | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Runaway stderr | evals/review-routes/test_review_run.py | test_codex_stderr_flood_stopped_review_unchanged | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Codex event stream over the bound | evals/review-routes/test_review_run.py | test_codex_event_stream_flood_stopped | green |
 | review-routes → Reviewer output is bounded while the CLI runs | Codex answer file over the bound | evals/review-routes/test_review_run.py | test_codex_command_line_has_json_and_no_answer_file | green |
-| review-routes → A route setting that weakens isolation is refused | User-supplied OMP trusted module | evals/review-routes/test_review_settings.py | test_omp_user_trusted_module_refused_before_probe | red |
-| review-routes → OMP tool operations enforce local targets | Remote targets fail without a request | evals/review-routes/test_review_settings.py | test_omp_remote_targets_blocked_without_requests | red |
-| review-routes → OMP tool operations enforce local targets | Local review inputs keep working | evals/review-routes/test_review_settings.py | test_omp_local_target_compatibility | red |
-| review-routes → OMP tool operations enforce local targets | LSP is optional and read-only | evals/review-routes/test_review_settings.py | test_omp_optional_lsp_readonly_actions | red |
-| review-routes → OMP tool operations enforce local targets | Invalid trusted policy cannot start a review | evals/review-routes/test_review_settings.py | test_omp_policy_load_failure_writes_no_review | red |
-| review-routes → OMP tool operations enforce local targets | Policy callback failure cannot bypass the gate | evals/review-routes/test_review_settings.py | test_omp_policy_callback_failure_blocks_dispatch | red |
-| review-routes → Every review records a receipt | OMP policy identity in the receipt | evals/review-routes/test_review_settings.py | test_omp_receipt_identifies_executed_policy | red |
-| review-routes → OMP tool operations enforce local targets | Bare open-ended read selectors remain local | cli/test/review/omp_policy_test.dart | bare open-ended reads are forced local before native dispatch | red |
+| review-routes → A route setting that weakens isolation is refused | User-supplied OMP trusted module | evals/review-routes/test_review_settings.py | test_omp_user_trusted_module_refused_before_probe | green |
+| review-routes → OMP tool operations enforce local targets | Remote targets fail without a request | evals/review-routes/test_review_settings.py | test_omp_remote_targets_blocked_without_requests | green |
+| review-routes → OMP tool operations enforce local targets | Local review inputs keep working | evals/review-routes/test_review_settings.py | test_omp_local_target_compatibility | green |
+| review-routes → OMP tool operations enforce local targets | LSP is optional and read-only | evals/review-routes/test_review_settings.py | test_omp_optional_lsp_readonly_actions | green |
+| review-routes → OMP tool operations enforce local targets | Invalid trusted policy cannot start a review | evals/review-routes/test_review_settings.py | test_omp_policy_load_failure_writes_no_review | green |
+| review-routes → OMP tool operations enforce local targets | Policy callback failure cannot bypass the gate | evals/review-routes/test_review_settings.py | test_omp_policy_callback_failure_blocks_dispatch | green |
+| review-routes → Every review records a receipt | OMP policy identity in the receipt | evals/review-routes/test_review_settings.py | test_omp_receipt_identifies_executed_policy | green |
+| review-routes → OMP tool operations enforce local targets | Bare open-ended read selectors remain local | cli/test/review/omp_policy_test.dart | bare open-ended reads are forced local before native dispatch | green |
 
-The `green` rows pass against the Python today. Task 4.9 re-runs them through the shim and `sw`.
+Every automated row passes through the shim/native implementation on the platform CI recorded under task 6.1; real-CLI rows retain their separate native evidence.
 
 ## 1. ADR, roadmap, assumptions and the pre-port fixture
 
@@ -92,15 +92,16 @@ The `green` rows pass against the Python today. Task 4.9 re-runs them through th
 
 ## 6. Integration and release
 
-- [ ] 6.1 Open a draft PR and run the CI evals and the Dart tests on Linux, Windows and macOS (`.github/workflows/evals.yml`, `.github/workflows/cli.yml`). Verify: both workflows are green on the PR head, and every `red` row of the test map is flipped `green`.
-- [ ] 6.2 [evidence] Run a real design review on each of `codex`, `claude` and `omp` through the shim → evidence/real-routes.md, with each receipt's `tools`, `disabled` and `extra_args`. Verify: each run exits 0.
-- [ ] 6.3 Re-run the write trial in `evals/review-routes/trial.md` on all three routes with the new defaults, and record `git status --porcelain` after each. Verify: the porcelain output is unchanged after each run.
-- [ ] 6.4 `release.sh bump --to 0.34.0` and rewrite the summary of the proposal's `## Release Notes` for the whole release. Verify: `release.sh check` passes and `release.sh notes --proposal openspec/changes/native-cli-review/proposal.md` prints the notes.
-- [ ] 6.5 [evidence] Replay the actual emitted production policy through installed OMP with every fixed flag and the D5 overlay → evidence/omp-network.md. Record exact CLI/model/argv, module bytes/digest and receipt, paired actual denials for HTTP(S)/SSH/opaque/UNC targets including compound, exclusion, encoded, mixed and aliased forms; zero accepted TCP connections/requests at the controlled fixture; successful local path/selector/multiple-root cases, including bare extensionless open-ended selectors with their effective `./` input and local contents; load/callback failure controls; unchanged before/after porcelain. Establish D11's inventory/mode correspondence for this invocation. Verify native events and fixture counters, never a final model report; the single-root task-1.5 prototype does not satisfy this task.
+- [x] 6.1 Open a draft PR and run the CI evals and the Dart tests on Linux, Windows and macOS (`.github/workflows/evals.yml`, `.github/workflows/cli.yml`). Verify: both workflows are green on the PR head, and every `red` row of the test map is flipped `green`.
+- [x] 6.2 [evidence] Run a real design review on each of `codex`, `claude` and `omp` through the shim → evidence/real-routes.md, with each receipt's `tools`, `disabled` and `extra_args`. Verify: each run exits 0.
+- [x] 6.3 Re-run the write trial in `evals/review-routes/trial.md` on all three routes with the new defaults, and record `git status --porcelain` after each. Verify: the porcelain output is unchanged after each run.
+- [x] 6.4 `release.sh bump --to 0.34.0` and rewrite the summary of the proposal's `## Release Notes` for the whole release. Verify: `release.sh check` passes and `release.sh notes --proposal openspec/changes/native-cli-review/proposal.md` prints the notes.
+- [x] 6.5 [evidence] Replay the actual emitted production policy through installed OMP with every fixed flag and the D5 overlay → evidence/omp-network.md. Record exact CLI/model/argv, module bytes/digest and receipt, paired actual denials for HTTP(S)/SSH/opaque/UNC targets including compound, exclusion, encoded, mixed and aliased forms; zero accepted TCP connections/requests at the controlled fixture; successful local path/selector/multiple-root cases, including bare extensionless open-ended selectors with their effective `./` input and local contents; load/callback failure controls; unchanged before/after porcelain. Establish D11's inventory/mode correspondence for this invocation. Verify native events and fixture counters, never a final model report; the single-root task-1.5 prototype does not satisfy this task.
 
 ## Workflow follow-up
 
 - Apply-time CI ordering decision, chosen by the user: keep group commits; task 4.9 records local proof so group 4 can be committed, and task 6.1 retains all platform eval and Dart CI requirements. No check is removed.
 - Pre-ship round 2 selector decision, chosen by the user: canonicalize bare open-ended read selectors to explicit local paths through schema-revalidated hook input replacement. Do not widen the guard alone: OMP 18.19.0's opaque-resource classifier has the same restrictive selector regex. Re-review this clarification and replay the final emitted policy.
+- Task 6.1 platform CI passed at `c341f9d7bb8480f28589dbeff54e156809f97492`: [evals](https://github.com/sh1ny/specwright/actions/runs/43412314338), [Dart builds/tests](https://github.com/sh1ny/specwright/actions/runs/43412314283). Final evidence and release-metadata changes receive their own final-head CI after this group commit.
 
 - Archive the change and ship it through `specwright-finish`; after merge, publish v0.34.0 through `specwright-release`.
