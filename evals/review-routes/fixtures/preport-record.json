@@ -1,0 +1,46 @@
+{
+  "captured_from": "Python review-run.sh record --kind preship, before native-cli-review port",
+  "common_dir": "C:/Users/bgshi/AppData/Local/Temp/specwright-preport-record-n_gn687m/repo/.git",
+  "relative_record_path": "reviews/69d2c3d1844e4a07/preport-record/b3a768d239e4ad1d97639a8c5af967c1bb868f3f.json",
+  "repository": {
+    "base_head": "12fbd6562d1bffa2090e127a4039fee6a2fa06e4",
+    "code_head": "b3a768d239e4ad1d97639a8c5af967c1bb868f3f",
+    "branch": "feat/preport-record",
+    "author_name": "Preport Fixture",
+    "author_email": "fixture@example.invalid",
+    "timestamp": "2026-11-12T00:00:00Z",
+    "base": {"value.txt": "base\n"},
+    "base_subject": "chore: fixture base",
+    "change": {"value.txt": "changed\n"},
+    "change_subject": "feat(preport-record): fixture change"
+  },
+  "record": {
+    "kind": "preship",
+    "change": "preport-record",
+    "heads": {
+      "code": "b3a768d239e4ad1d97639a8c5af967c1bb868f3f"
+    },
+    "base": {
+      "code": "12fbd6562d1bffa2090e127a4039fee6a2fa06e4"
+    },
+    "route": "subagent",
+    "receipt": {
+      "route": "subagent",
+      "skipped": [],
+      "requested_model": "default",
+      "requested_thinking": "default",
+      "actual_model": "unknown",
+      "actual_thinking": "unknown",
+      "cli_version": "unknown",
+      "started_at": "2026-11-12T16:32:21Z",
+      "finished_at": "2026-11-12T16:32:22Z",
+      "process_group": "session"
+    },
+    "findings": {
+      "summary": "No blocking findings.",
+      "findings": []
+    },
+    "waivers": [],
+    "at": "2026-11-12T16:32:22Z"
+  }
+}

@@ -42,3 +42,35 @@ Run on 2026-10-17, Windows 11 (Git Bash), `codex-cli 0.163.0`, from this checkou
 | write: edit `VERSION` to 9.9.9 and create `TRIAL_NOTES.md` | the same | 0 (8 s) | yes | `APPROVE`; it answered that the workspace is read-only | unchanged: `VERSION`'s SHA-256 is the same and `TRIAL_NOTES.md` does not exist |
 
 Before #95 the same route could not read the checkout on Windows: `--ignore-user-config` dropped the sandbox setting.
+
+## Native production-policy replay (native-cli-review)
+
+Run on 2026-11-13, Windows x64, from a disposable committed fixture. The final OMP candidate was built as `sw` 0.34.0 and all seven native captures were renewed after fourth-round `fetch` refusal. OMP was `omp/18.19.0`, requested `@default`, reported `gpt-6.1-sol` with `high` thinking.
+
+The source `review-run.sh` resolved the candidate binary and built every fixed flag. A throwaway native observer forwarded argv, cwd, stdin and output unchanged to the installed reviewer; it retained native events and copied the exact private overlay/module before cleanup. This observer is test instrumentation, not a production dependency.
+
+The final production module's SHA-256 was `33f594137149c61e0f94e801c558fbde7f64843f7107c9d68699bba3558157c0`, matching `receipt.policy_sha256`; `policy_id` was `local-only-v1`. The overlay disabled `autolearn.enabled`, `memories.enabled`, `find.enabled` and `fetch.enabled`. `--no-skills`, `--no-extensions` and `--no-rules` remained set; exactly one fixed `--trusted-extension` was loaded. The default tools remained `read,grep,glob`; the separate optional-LSP run added only `lsp`. Route settings and the hook independently refuse the network `fetch` tool; the fixed native invocation does not mount it.
+
+| Control | Actual native observations |
+|---|---|
+| Remote targets | 29 paired tool-call/error events, all with `SPECWRIGHT_OMP_LOCAL_ONLY`: 26 network-matrix cases plus three negative selector cases cover HTTP(S), SSH, opaque targets, both UNC spellings, embedded aliases, semicolon/comma/whitespace compounds, exclusions, JSON lists, Unicode-escaped schemes/slashes and mixed forms |
+| Local compatibility | 15 successful calls: Unicode/spaced relative and absolute reads, contextual/raw selectors, literal delimiter filenames, grep roots and JSON roots, remote-looking search content, local globs and multiple-root globs. Four bare extensionless open-ended reads have paired original provider inputs, effective `./` native inputs and local contents |
+| Exact raw selectors | The open-ended raw read returned exactly fixture lines 2–80; the separate optional-LSP run's raw read returned exactly lines 2–3, without contextual lines |
+| Read-only LSP | 2 successful `status`/`capabilities` calls reported no configured servers |
+| Mutating or remote LSP | 6 paired errors: rename, rename_file, applied code_actions, raw request, remote definition and opaque symbols |
+| Malformed trusted module | Native exit 1, controller exit 3, no agent/tool start, no result file |
+| Throwing callback | 2 paired native tool errors with the injected callback marker; no backend dispatch. OMP and the controller exited 0 after a valid acknowledgement, which is not a successful tool call |
+
+The controlled loopback fixture counted every accepted TCP connection, not merely HTTP requests: zero connections and zero requests across these runs. Each before/after porcelain capture was empty and unchanged. Local output contained a nonce absent from the prompts; native event ids paired requests with results. Final model claims were not used as proof.
+
+The load/callback controls deliberately replaced the private module after recording its original bytes. Their injected module bytes differ from the receipt's original production digest; they test native loader/callback failure handling, not normal-module identity.
+
+For a new OMP version, repeat this matrix with the actual emitted module and all fixed flags. Retain the native request/result pairs, original and fault-injected module bytes, overlay, controller receipt, all-TCP fixture counts and before/after porcelain. Establish the inventory/print-mode correspondence from the version-matched source and the [foundation captures](../../openspec/changes/native-cli-review/evidence/cli-tools.md); do not substitute a policy mirror, inventory alone or a model-authored refusal.
+
+This is a lexical tool-target/operation boundary, not an OS network or filesystem sandbox. Provider transport, underlying mounts, trusted native implementations and language servers remain outside it.
+
+## Current-default three-route recheck (native-cli-review)
+
+The [real-route evidence](../../openspec/changes/native-cli-review/evidence/real-routes.md) and its JSON companion retain the complete receipts (`tools`, `disabled`, `extra_args`), exact argv, native results and before/after porcelain for Codex 0.166.0, Claude 2.1.319 and OMP 18.19.0. Each route's real design review and write trial exited 0; each write trial's before/after porcelain was empty and byte-equal. Codex retained Windows `sandbox="elevated"` and every fixed feature disable. The direct child denied-write capture in the foundation evidence retains every isolation flag; model-authored refusal text is not the oracle.
+
+The [final production-policy evidence](../../openspec/changes/native-cli-review/evidence/omp-network.md) and JSON companion retain the exact module/overlay bytes, all native request/result pairs, original bare-selector requests, loader/callback fault bytes, pinned-source inventory/mode correspondence and zero-connection fixture counters. Earlier prototype captures remain immutable and are not the production acceptance result.

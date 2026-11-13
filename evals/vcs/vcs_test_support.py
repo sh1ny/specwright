@@ -83,9 +83,9 @@ def stamp_version(repo):
         exclude.write_bytes((text + prefix + STAMP + nl).encode("utf-8"))
 
 
-def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
-    """Build a Git-Bash-native PATH while retaining host tools and exposing extensionless shims."""
-    env = os.environ.copy()
+def bash_path_env(git_shim=None, extra_path=(), exclude_tools=(), environment=None):
+    """Build a Git-Bash-native PATH while retaining supplied host tools and exposing extensionless shims."""
+    env = dict(os.environ if environment is None else environment)
     bash = jjenv.find_bash()
     if os.name == "nt" and bash:
         cygpath = shutil.which("cygpath")
@@ -107,7 +107,7 @@ def bash_path_env(git_shim=None, extra_path=(), exclude_tools=()):
         converted = []
         seen = set()
         for root in roots:
-            result = subprocess.run([cygpath, "-u", str(root)], capture_output=True, text=True)
+            result = subprocess.run([cygpath, "-u", str(root)], env=env, capture_output=True, text=True)
             if result.returncode == 0 and result.stdout.strip() not in seen:
                 converted.append(result.stdout.strip())
                 seen.add(result.stdout.strip())

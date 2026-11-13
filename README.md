@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.33.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.34.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -53,7 +53,7 @@ flowchart LR
 
 ## ⚡ Install / Update
 
-> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (the review scripts run every design and pre-ship review). The PR skills also need `gh` 2.48 or later; without it the install still completes and reports `PR workflow not ready`.
+> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (legacy entry points and their shared `sw` resolver). Native `sw review` operations do not invoke Python, Bash or Node for their own work. The PR skills also need `gh` 2.48 or later; without it the install still completes and reports `PR workflow not ready`.
 
 > **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.16.0) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.16.0, override)`.
 
@@ -536,11 +536,22 @@ How much **init**, **close** and **pack** ask you is set by `project.decision_ma
 | [`specwright-branch`](skills/specwright-branch/SKILL.md) | New change (`/opsx:new`, `/opsx:propose`, `/opsx:ff`) | Clean-main gate, prefix, feature branch |
 | [`specwright-commit`](skills/specwright-commit/SKILL.md) | Apply (`/opsx:apply`) | Planning commit, one commit per task or task group, end-of-apply check, PR handoff |
 | [`specwright-finish`](skills/specwright-finish/SKILL.md) | Archive (`/opsx:archive`) | Archive commit, local merge or PR push, post-merge cleanup (a branch is deleted only when main or the merged PR's head holds its commits) |
-| [`specwright-review`](skills/specwright-review/SKILL.md) | End of apply, ship and local merge (pre-ship); design reviews | Reviewer routes (`review-run.sh`: select, run, record, gate), pre-ship fix and waiver rules — see the [brief](skills/specwright-review/references/brief.md) and [findings schema](skills/specwright-review/references/findings.schema.json) |
+| [`specwright-review`](skills/specwright-review/SKILL.md) | End of apply, ship and local merge (pre-ship); design reviews | Native `sw review` behind `review-run.sh`; validated route controls, effective receipts, pre-ship fixes and waivers — see the [brief](skills/specwright-review/references/brief.md) and [findings schema](skills/specwright-review/references/findings.schema.json). |
 | [`specwright-pr`](skills/specwright-pr/SKILL.md) | "open a PR", "address review comments", "watch the PR" | `ship` / `feedback` / `watch` — see [description guide](skills/specwright-pr/references/description.md) and [feedback rubric](skills/specwright-pr/references/rubric.md) |
 | [`specwright-debug`](skills/specwright-debug/SKILL.md) | Unexpected failures, bug reports, failing CI | Reproduce → trace → hypothesis → test-first fix; CI mode |
 | [`specwright-release`](skills/specwright-release/SKILL.md) | "release", "tag", "publish v0.5.0" (with `release.enabled`); offered by finish, watch and roadmap close | `bump` (a tracked task) and `publish`: the annotated tag on the merged main commit and the optional GitHub release, via [`release.sh`](skills/specwright-release/scripts/release.sh) |
 | [`specwright-roadmap`](skills/specwright-roadmap/SKILL.md) | "plan this project", "what's next on the roadmap", "close the milestone" | `init` / `next` / `close` / `status` — templates for [strategy](skills/specwright-roadmap/references/strategy.md), [architecture](skills/specwright-roadmap/references/architecture.md), [roadmap](skills/specwright-roadmap/references/roadmap.md) |
+
+#### Reviewer route controls
+
+`review.routes` is validated before any CLI probe: malformed controls stop with `bad_route_setting`, known unsafe tools/flags with `route_setting_unsafe`. Unsupported YAML stops with `bad_settings`, naming its line. Extra `args` never override fixed isolation. Receipts expose effective `tools`, `disabled`, `extra_args` and `overlay`; OMP adds `policy_id` and `policy_sha256`.
+
+| Route | Fixed/default controls | Optional settings |
+|---|---|---|
+| `codex` | Fixed read-only isolation; disables `apps`, `browser_use`, `browser_use_external`, `computer_use`, `in_app_browser`, `image_generation`, `memories`, `hooks`, `plugins`, `remote_plugin`, `tool_suggest`, `skill_search`, `skill_mcp_dependency_install`, `goals`, `sleep_tool` | `disable` adds features; `args` adds unprotected tokens. `profile`/`profiles` sources, `model_provider`/`model_providers` auth sources and out-of-sandbox `notify` commands are refused. No `tools` key. |
+| `claude` | Restricted invocation; default tools `Read`, `Grep`, `Glob` | `tools` replaces the list (`[]` = none); `args` adds unprotected tokens. |
+| `omp` | ≥18.19.0; default `read`, `grep`, `glob`; private session; memory/auto-learning/find/fetch disabled; exactly one fixed trusted local-target module, user extensions disabled; bare open-ended reads forced explicitly local | `tools` replaces the list (`[]` = none); `args` adds unprotected tokens. Network `fetch` is refused in settings and the hook, not only disabled by the overlay. Optional LSP permits nine read-only actions. The policy is not an OS sandbox: provider transport, filesystem mounts, trusted native tools and language servers are outside its lexical target boundary. |
+
 
 ### Agents
 
@@ -554,14 +565,14 @@ Change the model in each file's `model:` line (Claude Code), or map the role ali
 
 ### Scripts
 
-The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scripts/) (bash + `gh`); `review-run.sh` is in [`skills/specwright-review/scripts/`](skills/specwright-review/scripts/) (bash, git and Python 3.8+, no `gh`).
+The PR scripts are in [`skills/specwright-pr/scripts/`](skills/specwright-pr/scripts/). [`review-run.sh`](skills/specwright-review/scripts/review-run.sh) is a compatibility entry point to version-matched native `sw review`: its resolver still needs Bash and Python 3.8+, but review operations run in the binary (git required, no `gh` or production Node interpreter).
 
 | Script | Does |
 |---|---|
 | [`as.sh`](skills/specwright-pr/scripts/as.sh) | Runs a command as one GitHub login: pins the token per process, verifies it, and feeds it to both `gh` and `git push` (HTTPS to github.com only; SSH, prompts and inherited `http.extraHeader` auth are disabled inside it; run git from inside the target repo, since extraHeaders are scrubbed for the current repository only). Safe against a concurrent `gh auth switch`. `as.sh --resolve` reads the active github.com account once (ignoring `GH_TOKEN`/`GITHUB_TOKEN`) and prints it as the run login. Inside, `GH_HOST` and the enterprise token variables are unset so `gh` targets github.com, and a github.com URL with userinfo (token, password or bare username) in a remote, push URL, `insteadOf` rule or argument is refused with exit 3, masked, before anything runs. |
 | [`pr-snapshot.sh`](skills/specwright-pr/scripts/pr-snapshot.sh) | One GraphQL call → the whole PR as JSON (checks, unresolved threads and resolved ones with an unanswered reviewer comment, unhandled or edited comments, stale `CHANGES_REQUESTED` verdicts, and a `complete` flag when a list was cut off). `--reviewer-config <file>` (written by `pr-pair.sh context` and `policy`) adds whether each reviewer has reported on the current head (`reported` / `waiting` / `timed_out`, with `by` and `evidence`), counting reports from the head's push, or from when a snapshot first saw the head if the push is not in the activity log (`head_cutoff` says which). Bodies cut for length are marked `clipped: true`; `--full <id>` prints one item whole. `--wait` polls in-process and wakes once (at once if the snapshot is already incomplete); one watcher per PR: a newer `--wait` on the same PR takes over and the older one exits 4, and a watcher's exit never ends a newer one's ownership; `--wait --until attention` (what watch runs) keeps waiting while the only change is check progress (a CI check still pending, `checks.ci_pending` above 0, no new failing check, merge state not `DIRTY`) and reports the skipped polls as `filtered`; `--logs` appends failed CI logs. |
 | [`pr-pair.sh`](skills/specwright-pr/scripts/pr-pair.sh) | The deterministic half of ship, feedback, watch and cleanup for one PR or a code/store pair: settings (`context`), PR discovery and linking, fix-round counts, the agent merge with read-back, and the cleanup plan; one JSON document per subcommand. `tier --code <dir>` reads `cheap_tier.enabled` for apply: `{"ok": true, "cheap_tier": bool}`, true only for a boolean true, anything else false with a `note`, and no other setting can change it. |
-| [`review-run.sh`](skills/specwright-review/scripts/review-run.sh) | Picks the reviewer route (`select`), runs it with one fixed read-only command line per CLI and a deadline (`run`), validates the output against the findings schema and fails closed (exit 3, never the next route), and keeps one record per reviewed head in the state dir. `gate` derives pass / missing / blocked from the record and the user's waivers; `archive-only` tells watch that a new head only archives the change; `rounds` reads `Preship-Round:` trailers. |
+| [`review-run.sh`](skills/specwright-review/scripts/review-run.sh) | Resolves `sw review` and forwards all eight commands: `select`, `preflight`, `run`, `record`, `gate`, `waive`, `rounds`, `archive-only`. Native route controls are validated before probes; reviewer output is bounded in memory and fails closed (exit 3, never the next route). Machine-local records retain pre-port paths and fields, including Windows profile-home lookup rather than a customized Bash `HOME`, so existing gates and waivers still work. For state safety, record change names must be single directory components. Native batch launches reject held output pipes instead of returning incomplete output as success. Snapshots preserve safe cyclic symlinks when supported, with target-byte fallbacks otherwise. Missing version-matched `sw` stops before any reviewer starts. |
 | [`pr-reply.sh`](skills/specwright-pr/scripts/pr-reply.sh) | Replies over REST, checks for a pending review, resolves the thread, optionally adds a 👍/👎 (`--react`), and marks the item handled on GitHub itself. `--rev` binds the reply to the revision that was judged: the item is read again first and nothing is posted if it changed (exit 5), and the marker counts only while the item keeps that revision. `react` answers a follow-up with a reaction only; `--waiting` marks a "waiting on owner" reply, which keeps the item listed; `resolve` retries only a failed resolution. A missing, unreadable or empty body file is refused before any GitHub call, and the temp file is removed on every exit. |
 
 ---
@@ -592,6 +603,10 @@ review:
   timeout: 20m                  # a review still running after this fails
   max_diff_kb: 1024             # pre-ship input bound (code + store diff); over it no review runs
   preship: true                 # false = no pre-ship review and no ship / local-merge gate
+  routes:
+    codex: { disable: [], args: [] } # disables are additive; fixed isolation stays
+    claude: { tools: [Read, Grep, Glob], args: [] }
+    omp: { tools: [read, grep, glob], args: [] } # optional lsp remains read-only
 
 project:                        # point at existing docs instead of duplicating them
   strategy: openspec/strategy.md

@@ -40,6 +40,25 @@ review:
   # --thinking (only with a provider/id model).
   # thinking:
   #   codex: high
+  # Optional route controls. Tools replace the safe defaults (empty = none);
+  # Codex disables are additive. Extra args never override fixed isolation.
+  # Fixed Codex disables: apps, browser_use, browser_use_external, computer_use,
+  # in_app_browser, image_generation, memories, hooks, plugins, remote_plugin,
+  # tool_suggest, skill_search, skill_mcp_dependency_install, goals, sleep_tool.
+  # Invalid/unsafe controls stop before any CLI is probed.
+  # routes:
+  #   codex:
+  #     disable: []
+  #     args: []
+  #   claude:
+  #     tools: [Read, Grep, Glob]
+  #     args: []
+  #   omp:
+  #     tools: [read, grep, glob]
+  #     args: []
+  # OMP >=18.19.0 only: memory, auto-learning, find and fetch stay disabled.
+  # One fixed trusted local-target policy is loaded; user extensions cannot
+  # replace it. This is not an OS sandbox or a block on provider transport.
   # A review still running after this is stopped and counts as failed (s/m/h).
   timeout: 20m
   # Pre-ship input bound, code and store diff together. Over it, no review

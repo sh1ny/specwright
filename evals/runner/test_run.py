@@ -7,6 +7,7 @@ Run: python -m unittest discover evals/runner
 import _thread
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -117,9 +118,9 @@ class RunnerTests(unittest.TestCase):
         for fname, body in files.items():
             (d / fname).write_text(body, encoding="utf-8")
 
-    def run_runner(self, *args, timeout=120):
+    def run_runner(self, *args, timeout=120, env=None):
         r = subprocess.run([sys.executable, str(RUN), "--root", str(self.root), *args], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=timeout, env=env)
         for m in re.finditer(r"^full output: (.+)$", r.stdout, re.M):
             self.addCleanup(shutil.rmtree, Path(m.group(1)).parent, True)
         return r
@@ -173,6 +174,23 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("boom-marker", kept.read_text(encoding="utf-8", errors="replace"))
         self.assertNotIn("test_good.py", r.stdout.split("alpha/test_bad.py", 1)[1])  # the passing file prints no failure
         self.assertRegex(r.stdout, r"(?m)^alpha: 2 files, 3 tests, ")  # the other file still ran
+
+    def test_unicode_failure_retains_diagnostics_with_legacy_stdout(self):
+        marker = "non-ASCII failure 文 λ"
+        self.suite("alpha", {"test_unicode.py":
+                            "import sys, unittest\n"
+                            "sys.stderr.reconfigure(encoding='utf-8')\n"
+                            "class T(unittest.TestCase):\n"
+                            "    def test_bad(self):\n"
+                            f"        self.fail({marker!r})\n"})
+        r = self.run_runner("alpha", env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(marker, r.stdout)
+        match = re.search(r"(?m)^full output: (.+)$", r.stdout)
+        self.assertIsNotNone(match, r.stdout)
+        kept = Path(match.group(1))
+        self.assertTrue(kept.is_file())
+        self.assertIn(marker, kept.read_text(encoding="utf-8"))
 
     def test_unknown_suite_exits_2(self):
         self.suite("alpha", {"test_one.py": PASSING})

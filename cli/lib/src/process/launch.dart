@@ -106,6 +106,9 @@ LaunchResult _startFailed(String text) => LaunchResult(
 /// command). The command is found by `resolveCommand`, so on Windows only a
 /// `PATHEXT` extension counts and an extensionless file is never chosen (D9).
 /// [input], when given, is written on the tool's stdin, which is then closed.
+/// When [stdoutSink] is given, stdout is consumed sequentially by that async
+/// sink with backpressure and is not retained in [LaunchResult.stdout]. A sink
+/// failure stops the command, cancels its readers and is rethrown.
 /// [environment], when non-empty, is the tool's whole environment; otherwise
 /// it inherits this process's. A tool ended by a signal reports 128 plus the
 /// signal number on Linux and macOS.
@@ -137,6 +140,7 @@ Future<LaunchResult> launch(
   Map<String, String>? environment,
   int? stdoutCap,
   List<String>? helperCommand,
+  Future<void> Function(List<int>)? stdoutSink,
 }) async {
   checkLaunchInput(command, cwd: cwd, environment: environment);
   final name = command.first;
@@ -161,6 +165,7 @@ Future<LaunchResult> launch(
       input,
       stdoutCap,
       helperCommand,
+      stdoutSink,
     );
   }
   // D5: the resolved path's Windows line is checked by planLaunch, the one
@@ -175,6 +180,7 @@ Future<LaunchResult> launch(
     inherit ? null : environment,
     input,
     stdoutCap,
+    stdoutSink,
   );
 }
 
@@ -188,6 +194,7 @@ Future<LaunchResult> _batch(
   List<int>? input,
   int? stdoutCap,
   List<String>? helperCommand,
+  Future<void> Function(List<int>)? stdoutSink,
 ) async {
   final plan = planLaunch(path, command, env);
   final result = await BoundedRun(
@@ -199,6 +206,7 @@ Future<LaunchResult> _batch(
     helperCommand: helperCommand,
     environment: environment,
     workingDirectory: dir,
+    stdoutSink: stdoutSink,
     note: (_) {},
   ).run();
   final limit = result.limit;
@@ -212,6 +220,9 @@ Future<LaunchResult> _batch(
   final startError = result.startError;
   if (startError != null) {
     return _startFailed('cannot start $name: $startError\n');
+  }
+  if (result.pipesHeld) {
+    return _startFailed('$name: stopped: output pipe held after exit\n');
   }
   return LaunchResult(
     result.exitCode ?? 127,
@@ -228,6 +239,7 @@ Future<LaunchResult> _native(
   Map<String, String>? environment,
   List<int>? input,
   int? cap,
+  Future<void> Function(List<int>)? stdoutSink,
 ) async {
   final Process process;
   try {
@@ -246,24 +258,67 @@ Future<LaunchResult> _native(
   final err = BytesBuilder(copy: false);
   final outDone = Completer<void>();
   final errDone = Completer<void>();
+  final sinkSettled = stdoutSink == null ? null : Completer<void>();
+  Object? sinkError;
+  StackTrace? sinkStack;
+  Future<void> throwSinkError() async {
+    await sinkSettled!.future;
+    if (sinkError != null) {
+      Error.throwWithStackTrace(sinkError!, sinkStack!);
+    }
+  }
+
+  void settleSink() {
+    final settled = sinkSettled;
+    if (settled != null && !settled.isCompleted) settled.complete();
+  }
+
+  var stdoutBytes = 0;
   var tooLarge = false;
   late final StreamSubscription<List<int>> outSub;
   outSub = process.stdout.listen(
     (chunk) {
-      if (tooLarge) return;
-      out.add(chunk);
-      if (cap != null && out.length > cap) {
+      if (tooLarge || sinkError != null) return;
+      if (stdoutSink == null) {
+        out.add(chunk);
+        stdoutBytes = out.length;
+      } else {
+        stdoutBytes += chunk.length;
+      }
+      if (cap != null && stdoutBytes > cap) {
         tooLarge = true;
-        outSub.cancel();
+        unawaited(outSub.cancel().catchError((Object _) {}));
         process.kill(ProcessSignal.sigkill);
         if (!outDone.isCompleted) outDone.complete();
+        settleSink();
+        return;
       }
+      final sink = stdoutSink;
+      if (sink == null) return;
+      outSub.pause();
+      unawaited(() async {
+        try {
+          await sink(chunk);
+          if (sinkError == null && !tooLarge) outSub.resume();
+        } catch (error, stack) {
+          if (sinkError == null) {
+            sinkError = error;
+            sinkStack = stack;
+            if (!sinkSettled!.isCompleted) sinkSettled.complete();
+            process.kill(ProcessSignal.sigkill);
+            if (!outDone.isCompleted) outDone.complete();
+            unawaited(outSub.cancel().catchError((Object _) {}));
+          }
+        }
+      }());
     },
     onDone: () {
       if (!outDone.isCompleted) outDone.complete();
+      settleSink();
     },
     onError: (Object _) {
       if (!outDone.isCompleted) outDone.complete();
+      settleSink();
     },
     cancelOnError: true,
   );
@@ -289,20 +344,36 @@ Future<LaunchResult> _native(
     // broken pipe
   }
 
-  await outDone.future;
-  final code = await process.exitCode;
-  if (tooLarge) {
-    await errSub.cancel();
-  } else {
-    await errDone.future;
+  try {
+    await Future.any<Object?>([
+      outDone.future,
+      if (sinkSettled != null) throwSinkError(),
+    ]);
+    if (sinkSettled?.isCompleted == true) await throwSinkError();
+    final code = await process.exitCode;
+    if (sinkSettled?.isCompleted == true) await throwSinkError();
+    if (tooLarge) {
+      await errSub.cancel();
+    } else {
+      await errDone.future;
+    }
+    // POSIX reports a signal as its negative number; Windows codes stay as
+    // they are (0xC0000005 arrives negative).
+    final exit = code < 0 && !Platform.isWindows ? 128 - code : code;
+    return LaunchResult(
+      exit,
+      out.takeBytes(),
+      err.takeBytes(),
+      outputTooLarge: tooLarge,
+    );
+  } catch (_) {
+    process.kill(ProcessSignal.sigkill);
+    await Future.wait([
+      outSub.cancel().catchError((Object _) {}),
+      errSub.cancel().catchError((Object _) {}),
+    ]);
+    await process.exitCode;
+    settleSink();
+    rethrow;
   }
-  // POSIX reports a signal as its negative number; Windows codes stay as they
-  // are (0xC0000005 arrives negative).
-  final exit = code < 0 && !Platform.isWindows ? 128 - code : code;
-  return LaunchResult(
-    exit,
-    out.takeBytes(),
-    err.takeBytes(),
-    outputTooLarge: tooLarge,
-  );
 }

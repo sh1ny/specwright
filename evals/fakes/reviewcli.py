@@ -1,6 +1,6 @@
-"""A fake `codex`, `claude` and `omp` for review-run.sh tests. Pure stdlib; no network.
+"""A local fake `codex`, `claude` and `omp`; no model traffic. Optional policy probes use Node and loopback only.
 
-Run as `python reviewcli.py <codex|claude|omp> <args...>`; the test's bin dir holds a `.cmd` and a POSIX shim per CLI.
+Run as `python reviewcli.py <codex|claude|omp> <args...>`; tests install a native Windows console launcher or POSIX shim.
 Environment (U = the CLI name in capitals):
   FAKE_U_ARGV_LOG      append one JSON line per call: {argv, stdin, prompt_file_text (omp), session_dir_before (omp)}
   FAKE_U_READ          log [is_link, text] of this path (relative to the cwd) in the ARGV_LOG entry
@@ -22,11 +22,13 @@ Environment (U = the CLI name in capitals):
   FAKE_U_LINGER        a review call starts a child that inherits stdout and stderr and sleeps this many seconds,
                        then answers normally and exits; FAKE_U_LINGER_PID_FILE gets the child's PID, and
                        FAKE_U_LINGER_GRANDCHILD_PID_FILE (when set) makes that child start a grandchild and gets its PID
-  FAKE_U_FREEZE_PARENT POSIX only: 0.5 s in, a review call stops its parent (review-run.sh's capture loop) with SIGSTOP
-                       and has a detached helper resume it this many seconds later
-  FAKE_U_SPY          after each stdout/stderr flood returns, write here the size of the largest file under
-                       <tempdir>/specwright-run-*/ (review-run.sh's capture files)
+  FAKE_U_FREEZE_CONTROLLER POSIX only: stop the native review controller above its helper with SIGSTOP,
+                          then have a detached child resume it after this many seconds
+  FAKE_U_CAPTURE_SPY   after below-limit stderr is flushed, record temporary files and sizes while the reviewer is live
   FAKE_OMP_ROLES       file with the JSON `omp config get modelRoles --json` prints (default: roles default and slow)
+  FAKE_U_VERSION      version probe output (OMP default: omp/18.19.0)
+  FAKE_OMP_POLICY_CASES / FAKE_OMP_POLICY_REPORT  execute the actual trusted module against JSON fixture cases and save its report
+  FAKE_OMP_POLICY_NODE Node executable for the development-only policy fixture
   FAKE_OMP_MODELS      file with the JSON `omp models find <id> --json` prints (default {"models": []})
   FAKE_OMP_SESSION     file whose content a review call writes to <--session-dir>/session.jsonl
   FAKE_OMP_FIND_EXIT   exit code of `omp config get` / `omp models find` (default 0)
@@ -66,7 +68,7 @@ def main(argv):
 
     if args == ["--version"]:
         write_log()
-        print(f"{name} 0.0.0-fake")
+        print(env(f"FAKE_{u}_VERSION", "omp/18.19.0" if name == "omp" else f"{name} 0.0.0-fake"))
         return int(env(f"FAKE_{u}_VERSION_EXIT", "0"))
     if name == "omp" and args[:1] in (["config"], ["models"]):
         write_log()
@@ -99,16 +101,32 @@ def main(argv):
         entry["stdin"] = ""
     else:
         entry["stdin"] = sys.stdin.buffer.read().decode("utf-8", "replace")
+    policy_cases = env("FAKE_OMP_POLICY_CASES") if name == "omp" else None
+    if policy_cases:
+        import subprocess
+        module = args[args.index("--trusted-extension") + 1] if "--trusted-extension" in args else "-"
+        probe = subprocess.run(
+            [env("FAKE_OMP_NODE", "node"), str(Path(__file__).with_name("omp-policy.mjs")), module, policy_cases],
+            capture_output=True, text=True, encoding="utf-8", timeout=20)
+        report = json.loads(probe.stdout)
+        entry["policy"] = report
+        Path(env("FAKE_OMP_POLICY_REPORT")).write_text(json.dumps(report), encoding="utf-8")
+        if probe.returncode:
+            write_log()
+            print("Trusted extension failed: " + str(report.get("load_error") or report.get("results")), file=sys.stderr)
+            return probe.returncode
     write_log()
-    freeze = env(f"FAKE_{u}_FREEZE_PARENT")
-    if freeze:  # POSIX only: a detached helper that holds none of our pipes resumes the parent later
+    freeze = env(f"FAKE_{u}_FREEZE_CONTROLLER")
+    if freeze:
         import signal
         import subprocess
-        time.sleep(0.5)  # let the parent set its deadline first
-        ppid = os.getppid()
-        subprocess.Popen(["sh", "-c", f"sleep {float(freeze)}; kill -CONT {ppid}"], stdin=subprocess.DEVNULL,
+        time.sleep(0.5)
+        parent = subprocess.run(["ps", "-o", "ppid=", "-p", str(os.getppid())],
+                                capture_output=True, text=True, check=True)
+        controller = int(parent.stdout.strip())
+        subprocess.Popen(["sh", "-c", f"sleep {float(freeze)}; kill -CONT {controller}"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        os.kill(ppid, signal.SIGSTOP)
+        os.kill(controller, signal.SIGSTOP)
     if env(f"FAKE_{u}_LINGER"):
         import subprocess
         secs, grand = float(env(f"FAKE_{u}_LINGER")), env(f"FAKE_{u}_LINGER_GRANDCHILD_PID_FILE")
@@ -125,17 +143,17 @@ def main(argv):
     n = int(env(f"FAKE_{u}_STDERR_BYTES", "0"))
     if n:
         flood(sys.stderr.buffer, n)
+    if env(f"FAKE_{u}_CAPTURE_SPY"):
+        import tempfile
+        files = [{"path": str(p), "bytes": p.stat().st_size}
+                 for p in Path(tempfile.gettempdir()).rglob("*") if p.is_file()]
+        Path(env(f"FAKE_{u}_CAPTURE_SPY")).write_text(json.dumps(files), encoding="utf-8")
     floods = [(int(env(f"FAKE_{u}_FLOOD_{k}", "0")), k) for k in ("STDOUT", "STDERR")]
     if any(n for n, _ in floods):
         for n, k in floods:
             if not n:
                 continue
             flood(sys.stdout.buffer if k == "STDOUT" else sys.stderr.buffer, n)
-            if env(f"FAKE_{u}_SPY"):
-                import glob
-                import tempfile
-                files = glob.glob(os.path.join(tempfile.gettempdir(), "specwright-run-*", "*"))
-                Path(env(f"FAKE_{u}_SPY")).write_text(str(max((os.path.getsize(f) for f in files), default=0)))
         while not env(f"FAKE_{u}_FLOOD_EXIT"):  # keep running until killed
             time.sleep(0.2)
     src = env(f"FAKE_{u}_STDOUT")

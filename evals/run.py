@@ -26,7 +26,8 @@ Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
 Output: one line per suite `suite: F files, T tests, K skipped, S.Ss` (T from unittest's `Ran N tests` line, K from `skipped=N` on its closing `OK (...)`/`FAILED (...)` line; S from the suite's first file
 start to its last file end, so with several suites named it includes their files too: time a suite by naming it alone). Each failed or timed-out file
 prints `FAILED suite/file (exit code N)` or `FAILED suite/file (timeout after S s)`, the last 200 lines of its output (stderr
-included) and `full output: <path>`; that log is kept after the run, the logs of passed files are removed.
+included) and `full output: <path>`; that log is kept after the run, the logs of passed files are removed. Reports use UTF-8,
+including when Windows supplies a legacy-encoded output pipe.
 
 Exit codes: 0 every file passed; 1 a file failed, crashed or timed out; 2 an unknown suite, bad arguments or an invalid suite map (nothing runs);
 with --changed also a suite-map target that does not exist, or a BASE git cannot resolve (unknown, or no merge base with HEAD).
@@ -439,6 +440,9 @@ def parse(argv):
 
 
 def main(argv):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     a = parse(argv)
     root = Path(a.root).resolve()
     if not root.is_dir():

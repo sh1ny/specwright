@@ -284,11 +284,17 @@ String? _enclosingFunction(String skeleton, int offset) {
   final decl = RegExp(
     r'^ {0,2}(?:@\w+\s+)?(?:static\s+)?((?:[\w<>?,.][\w<>?,. ]*\s)?)(_?[A-Za-z]\w*)\s*\(',
   );
+  var lineEnd = offset;
   for (var i = lines.length - 1; i >= 0; i--) {
+    final lineStart = lineEnd - lines[i].length;
+    lineEnd = lineStart - 1;
     final m = decl.firstMatch(lines[i]);
     if (m == null) continue;
     final first = m.group(1)!.trim().split(RegExp(r'\s+')).first;
     if (_notFunction.contains(first) || _notFunction.contains(m.group(2))) {
+      continue;
+    }
+    if (!_isDeclaration(skeleton, lineStart + m.start, lineStart + m.end - 1)) {
       continue;
     }
     return m.group(2);
@@ -544,6 +550,30 @@ void main() {
   group('the scanner on the synthetic world', () {
     test('the baseline is clean', () {
       expect(scanLaunchSites(_miniSources(), _miniAllow), isEmpty);
+    });
+
+    test('callback types do not replace the enclosing runner identity', () {
+      final sources = _miniSources();
+      sources['helper.dart'] = sources['helper.dart']!.replaceFirst(
+        'startHelper(List<String> command)',
+        'startHelper(\n'
+            '  List<String> command,\n'
+            '  Future<void> Function(List<int>)? stdoutSink,\n'
+            ')',
+      );
+      expect(scanLaunchSites(sources, _miniAllow), isEmpty);
+      sources['helper.dart'] = sources['helper.dart']!.replaceFirst(
+        'startHelper(',
+        'unlisted(',
+      );
+      expect(
+        _mentions(scanLaunchSites(sources, _miniAllow), [
+          'Process.start',
+          'unlisted',
+          'not a listed runner',
+        ]),
+        isTrue,
+      );
     });
 
     test('an unlisted runner call fails naming the file', () {
@@ -893,6 +923,9 @@ const launchAllowlist = Allowlist(
       // the in-process start of a raw `cmd.exe` line (a batch file)
       'runWithCommandLine': Call(1, _helper),
     },
+    // Native review subprocesses and the streamed Git snapshot pipeline.
+    'review/run.dart': {'BoundedRun': Call(1, _tool)},
+    'review/snapshot.dart': {'launch': Call(2, _tool)},
     'vcs/tool_runner.dart': {'launch': Call(2, _tool)},
     'process/windows_tree.dart': {
       'Process.start': Call(1, _tool, function: 'killTree'),

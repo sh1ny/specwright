@@ -21,6 +21,7 @@ dependencies:
   ffi: ^2.1.0
   html: ^0.15.7
   path: ^1.9.1
+  toml: ^0.18.0
 
 dev_dependencies:
   lints: ^6.0.0

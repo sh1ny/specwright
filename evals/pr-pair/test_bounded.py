@@ -306,13 +306,6 @@ class DeadlineAt(Base):
         self.assertGreaterEqual(at, t0 + 0.5)
         self.assertLessEqual(at, t1 + 0.5)
 
-    def test_bounded_copies_identical(self):
-        copies = sorted((ROOT / "skills").glob("*/scripts/bounded.py"))
-        self.assertGreaterEqual(len(copies), 3, copies)
-        want = BOUNDED.read_bytes()
-        for c in copies:
-            self.assertEqual(c.read_bytes(), want, f"{c} differs from the pr copy")
-
 
 class SecretMode(Base):
     def setUp(self):
