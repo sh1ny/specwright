@@ -85,7 +85,8 @@ String _normal(String path) {
   return p;
 }
 
-String _home(Map<String, String> env) {
+/// Home directory shared by machine-local reviewer configuration and state.
+String reviewerHome(Map<String, String> env) {
   final String? home;
   if (Platform.isWindows) {
     final profile = env['USERPROFILE'];
@@ -169,7 +170,7 @@ ReviewerConfigFile writeReviewerConfig(
   final state = _normal(
     stateEnv != null && stateEnv.isNotEmpty
         ? stateEnv
-        : '${_home(env)}/.cache/specwright',
+        : '${reviewerHome(env)}/.cache/specwright',
   );
   final temp = _normal(tempDirectory ?? _tempDirectory(env));
   for (final base in [state, '$temp/specwright']) {

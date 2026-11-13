@@ -16,6 +16,7 @@ import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
+import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
 import 'records.dart';
 import 'routes.dart';
@@ -2504,7 +2505,9 @@ String _stateDirectory() {
   final env = Platform.environment;
   final configured = env['SPECWRIGHT_STATE_DIR'];
   if (configured != null && configured.isNotEmpty) return configured;
-  final home = env['HOME'] ?? env['USERPROFILE'] ?? Directory.current.path;
+  final home = Platform.isWindows
+      ? reviewerHome(env)
+      : env['HOME'] ?? env['USERPROFILE'] ?? Directory.current.path;
   return p.join(home, '.cache', 'specwright');
 }
 

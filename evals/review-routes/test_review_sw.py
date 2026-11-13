@@ -135,6 +135,34 @@ class NativeReviewTests(Base):
         self.assertEqual(document["status"], "pass")
         self.assertEqual(document["heads"], fixture["record"]["heads"])
         self.assertEqual(document["reviewed_heads"], fixture["record"]["heads"])
+        if os.name == "nt":
+            profile = self.tmp / "Windows profile"
+            bash_home = self.tmp / "custom Bash home"
+            default_record = profile / ".cache" / "specwright" / record.relative_to(self.state_dir)
+            default_record.parent.mkdir(parents=True)
+            shutil.copyfile(record, default_record)
+            for name, home_env in (
+                ("profile", {"USERPROFILE": str(profile)}),
+                ("drive-and-path", {"HOMEDRIVE": profile.drive,
+                                    "HOMEPATH": str(profile)[len(profile.drive):]}),
+            ):
+                with self.subTest(default_home=name):
+                    env = self.env()
+                    for variable in ("SPECWRIGHT_STATE_DIR", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+                        env.pop(variable, None)
+                    env.update({"HOME": str(bash_home), **home_env})
+                    document = self.native("gate", "--change", "preport-record",
+                                           "--settings", self.settings, env=env)
+                    self.assertEqual(document["status"], "pass")
+                    self.assertEqual(Path(document["record"]), default_record)
+            env = self.env()
+            for variable in ("SPECWRIGHT_STATE_DIR", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+                env.pop(variable, None)
+            env["HOME"] = str(bash_home)
+            document = self.native("gate", "--change", "preport-record",
+                                   "--settings", self.settings, env=env, expect=1)
+            self.assertEqual(document["error"], "internal_error")
+            self.assertFalse((bash_home / ".cache").exists())
 
     def test_gitbutler_backend_read_without_pr_pair(self):
         settings = self.code / "openspec" / "specwright.yaml"
