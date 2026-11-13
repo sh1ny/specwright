@@ -101,6 +101,12 @@ OMP's fixed policy SHALL deny remote URI/resource/network-root targets before `r
 - **WHEN** OMP reads, greps and globs local fixtures using normal absolute/relative paths, spaces, Unicode, supported read selectors, delimiter-bearing literal paths and multiple local search roots
 - **THEN** the operations return the expected local contents or matches without a policy-denial error
 
+#### Scenario: Bare open-ended read selectors remain local
+- **WHEN** OMP receives a single bare extensionless read path with an open-ended selector, such as `README:50-` or `README:17-:raw`
+- **THEN** the fixed hook schema-replaces it with its explicit `./` local form and validates that effective input before dispatch
+- **AND** the operation returns the expected local contents without invoking opaque URI/resource routing
+- **AND** compound, encoded and aliased inputs still require every native interpretation to remain local
+
 #### Scenario: LSP is optional and read-only
 - **WHEN** an OMP review configured with `[read, grep, glob, lsp]` requests a local definition/diagnostic query and then a rename, raw request, reload or remote file target
 - **THEN** the local read-only query remains usable and each unsafe operation is blocked before its native implementation runs

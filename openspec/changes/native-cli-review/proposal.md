@@ -95,6 +95,14 @@ DECISION_MAKING: important
 - **Important:** yes: changes the fixed extension boundary and privacy guarantee
 - **Chosen by:** user (apply-time network-boundary decision after round 5)
 
+### S6: Canonicalize bare open-ended read selectors before native dispatch
+
+- **Choice:** Preserve single-path local selector support by having the fixed hook schema-replace a bare extensionless open-ended read target with its explicit `./` local form, then validate the effective input. Keep compound/remote ambiguity fail-closed.
+- **Rejected:** Widening only the policy regex, because OMP 18.19.0 can still route the input through its opaque MCP-resource fallback. Requiring users to add `./` and narrowing the compatibility promise, because the user chose canonicalization.
+- **Reversal cost:** low (fixed-hook normalization and its native replay)
+- **Important:** yes: resolves an upstream URI/selector ambiguity at the trusted boundary
+- **Chosen by:** user (pre-ship round 2 selector-routing decision)
+
 ## Release Notes
 
 `sw review` now runs the design and pre-ship reviews, replacing the Python in `review-run.sh`. Each reviewer CLI can be tuned in `review.routes` while Specwright keeps its isolation controls fixed. OMP's defaults disable memory and web fetching and enforce local tool targets through one fixed trusted gate. Codex disables its dedicated web, image, plugin, memory, hook and goal features under the read-only sandbox. Model-provider traffic is not blocked.

@@ -170,3 +170,9 @@ Trial: `F:/Temp/omp-network-cVwF0p/failure-controls-v3e25dlx`, same fixed flags 
 ## Task 1.5 disposition
 
 Fresh independent design review round 6 approved this mechanism and its explicitly limited prototype scope. The native observations above satisfy the foundation mechanism/failure-control check; production grammar and emitted-module acceptance remain task 6.5. No inventory-only or model-only result is promoted to a network-isolation pass.
+
+## Apply-time selector-routing evidence
+
+Pre-ship round 2 found that bare extensionless open-ended reads were blocked. Widening only the guard is unsafe: the pinned OMP 18.19.0 source uses the same restrictive selector regex in `packages/coding-agent/src/internal-urls/parse.ts:14-45`. `README:50-` is therefore classified as an opaque `readme` URI. `internal-urls/router.ts:234-241,450-455` permits unknown opaque schemes to reach the MCP-resource fallback; `tools/read.ts:1995-2038` attempts resource routing before falling back to a filesystem read after an unadvertised-resource miss.
+
+The user chose schema-revalidated fixed-hook normalization to `./README:50-`, not a regex-only relaxation or a narrower compatibility promise. An explicit `./` path does not have a URI scheme. The supported hook's input-replacement bridge is already grounded above; task 6.5 must replay the changed production bytes and observe effective local inputs and actual local contents. No literal-file existence check authorizes a remote candidate.
