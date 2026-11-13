@@ -122,7 +122,7 @@ OMP's fixed policy SHALL deny remote URI/resource/network-root targets before `r
 ## MODIFIED Requirements
 
 ### Requirement: Reviewers run isolated and read-only
-Each route SHALL run with a command line built from fixed isolating flags plus the route's effective tool list, disabled features and extra flags (shipped defaults or `review.routes`). The fixed flags SHALL turn off the user's skills, extensions, rules and slash commands where the CLI supports it. OMP's sole trusted-extension exception SHALL be its fixed Specwright-owned local-target policy; ambient/user extensions remain disabled. An OMP review SHALL run with a new, empty session directory, so it never continues an earlier session. On Windows, the codex route SHALL keep the user's config file ignored and pass only that file's `windows.sandbox` value, when it is set to a plain name, as an explicit setting.
+Each route SHALL retain fixed isolation flags alongside its effective tools, disabled features and extra flags. It SHALL disable user skills, extensions, rules and slash commands where supported. OMP SHALL use only its fixed trusted local-target extension, no user extensions, and a new empty session directory, never continuing a prior session. Windows Codex SHALL ignore user config, explicitly forwarding only that file's configured plain-name `windows.sandbox` value.
 
 #### Scenario: OMP review starts a fresh session
 - **WHEN** two OMP reviews run one after the other in the same checkout
