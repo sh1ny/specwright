@@ -121,6 +121,10 @@ DECISION_MAKING: important
 - The CLI ships `toml` to parse Codex's Windows `windows.sandbox` value as TOML (#148).
 - A review stops with `bad_settings`, naming the line, when `openspec/specwright.yaml` has a line the settings reader would misread; `review-run.sh` used to read it leniently (#148).
 
+### Fixed
+
+- Reviewer resolver errors preserve non-ASCII text on macOS; eval-runner failure reports retain UTF-8 diagnostics on Windows (#148).
+
 ### Removed
 
 - `skills/specwright-review/scripts/bounded.py` (#148).

@@ -32,7 +32,8 @@ class NativeReviewTests(Base):
             return str(path)
         if drive:
             return "/" + path.drive[0].lower() + path.as_posix()[2:]
-        return subprocess.check_output(["cygpath", "-u", str(path)], env=self.env(), text=True).strip()
+        return subprocess.check_output(["cygpath", "-u", str(path)], env=self.env(),
+                                       text=True, encoding="utf-8").strip()
 
     def test_design_handoff_accepts_msys_paths(self):
         self.install("claude")

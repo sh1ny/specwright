@@ -25,7 +25,8 @@ json_string() {
       '"') result+='\"' ;;
       *)
         printf -v ordinal '%d' "'$char"
-        if ((ordinal < 32)); then
+        # Bash 3 can report UTF-8 bytes as negative signed ordinals.
+        if ((ordinal >= 0 && ordinal < 32)); then
           printf -v escaped '\\u%04x' "$ordinal"
           result+=$escaped
         else

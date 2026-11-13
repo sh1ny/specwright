@@ -149,11 +149,31 @@ void main() {
   test(
     'a non-UTF-8 tracked name is a named stop, never a replacement-name file',
     () async {
-      final raw = Uint8List.fromList([...utf8.encode('${repo.path}/'), 0xff]);
-      File.fromRawPath(raw).writeAsStringSync('fixture');
-      await git(repo, ['add', '-A']);
-      await git(repo, ['commit', '-q', '-m', 'non-utf8']);
-      final head = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+      File('${repo.path}/fixture.txt').writeAsStringSync('fixture');
+      final blob = (await git(repo, [
+        'hash-object',
+        '-w',
+        'fixture.txt',
+      ])).trim();
+      final treeFile = File('${work.path}/raw-tree');
+      treeFile.writeAsBytesSync([
+        ...ascii.encode('100644 '),
+        0xff,
+        0,
+        for (var i = 0; i < blob.length; i += 2)
+          int.parse(blob.substring(i, i + 2), radix: 16),
+      ]);
+      final tree = (await git(repo, [
+        'hash-object',
+        '-w',
+        '-t',
+        'tree',
+        treeFile.path,
+      ])).trim();
+      final head = (await git(repo, [
+        'commit-tree',
+        tree,
+      ], input: 'non-utf8\n')).trim();
       await expectLater(
         snapshotTip(
           repo.path,
@@ -164,7 +184,6 @@ void main() {
         throwsA(isA<ReviewStop>().having((e) => e.error, 'error', 'not_utf8')),
       );
     },
-    skip: Platform.isWindows ? 'Windows filesystem names are UTF-16' : false,
   );
 }
 
