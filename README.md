@@ -544,7 +544,7 @@ How much **init**, **close** and **pack** ask you is set by `project.decision_ma
 
 #### Reviewer route controls
 
-`review.routes` is validated before any CLI probe: malformed controls stop with `bad_settings`, known unsafe tools/flags with `unsafe_review_setting`. Extra `args` never override fixed isolation. Receipts expose effective `tools`, `disabled`, `extra_args` and `overlay`; OMP adds `policy_id` and `policy_sha256`.
+`review.routes` is validated before any CLI probe: malformed controls stop with `bad_route_setting`, known unsafe tools/flags with `route_setting_unsafe`. Unsupported YAML stops with `bad_settings`, naming its line. Extra `args` never override fixed isolation. Receipts expose effective `tools`, `disabled`, `extra_args` and `overlay`; OMP adds `policy_id` and `policy_sha256`.
 
 | Route | Fixed/default controls | Optional settings |
 |---|---|---|

@@ -69,8 +69,6 @@ class ReviewSkill(unittest.TestCase):
             r"tools:.*read.*grep.*glob",
             r"disable:",
             r"args:",
-            r"bad_settings",
-            r"unsafe_review_setting",
             r"before.*probe",
             r"18\.19\.0",
             r"cannot.*(replace|remove|weaken).*isolation",

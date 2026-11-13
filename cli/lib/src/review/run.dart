@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
+import '../commit/paths.dart';
 import '../pr/context.dart';
 import '../pr/pair.dart' show PairStop;
 import '../pr/settings_commands.dart' show readVcsSettings;
@@ -23,6 +24,17 @@ import 'snapshot.dart';
 import 'stop.dart';
 
 const List<String> _acceptedRoutes = ['codex', 'claude', 'omp'];
+const Set<String> _pathOptions = {
+  '--settings',
+  '--out',
+  '--prompt-file',
+  '--store',
+  '--selection',
+  '--result',
+  '--preflight',
+  '--dir',
+  '--prefix',
+};
 const List<String> _runtimes = ['claude', 'codex', 'omp', 'other'];
 const int _maxAnswer = 2 * 1024 * 1024;
 const int _maxEventLine = 16 * 1024 * 1024;
@@ -145,6 +157,34 @@ class _ReviewOperations {
     };
   }
 
+  Future<_ReviewArgs> _parseArgs(List<String> argv, Set<String> values) async {
+    final parsed = <String, String>{};
+    for (var i = 0; i < argv.length; i++) {
+      final token = argv[i];
+      if (values.contains(token)) {
+        if (i + 1 >= argv.length) {
+          throw ReviewStop('usage', '$token needs a value', code: 2);
+        }
+        var value = argv[++i];
+        // The NUL handoff bypasses MSYS argv conversion. Normalize only
+        // filesystem options, never branch names, waiver reasons or tool args.
+        if (Platform.isWindows &&
+            value.startsWith('/') &&
+            _pathOptions.contains(token)) {
+          try {
+            value = await nativePath(value, bash);
+          } on BadPathException catch (error) {
+            throw ReviewStop('bad_path', error.toString(), code: 2);
+          }
+        }
+        parsed[token.substring(2).replaceAll('-', '_')] = value;
+      } else if (token.startsWith('--')) {
+        throw ReviewStop('usage', 'unknown option $token', code: 2);
+      }
+    }
+    return _ReviewArgs(parsed);
+  }
+
   Future<ReviewSettings> _settings(String? explicitPath) async {
     final cwd = Directory.current.path;
     final top = await git.toplevel(cwd);
@@ -157,7 +197,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _select(List<String> argv) async {
-    final args = _parseArgs(argv, const {'--runtime', '--settings'});
+    final args = await _parseArgs(argv, const {'--runtime', '--settings'});
     _need(args.values, const ['runtime']);
     final runtime = args.values['runtime']!;
     if (!_runtimes.contains(runtime)) {
@@ -224,7 +264,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _preflight(List<String> argv) async {
-    final args = _parseArgs(argv, const {
+    final args = await _parseArgs(argv, const {
       '--kind',
       '--change',
       '--base',
@@ -287,7 +327,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _run(List<String> argv) async {
-    final args = _parseArgs(argv, const {
+    final args = await _parseArgs(argv, const {
       '--kind',
       '--route',
       '--out',
@@ -459,7 +499,7 @@ class _ReviewOperations {
 
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
-    final args = _parseArgs(
+    final args = await _parseArgs(
       argv.where((arg) => arg != '--scratch').toList(),
       const {
         '--kind',
@@ -691,7 +731,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _waive(List<String> argv) async {
-    final args = _parseArgs(argv, const {
+    final args = await _parseArgs(argv, const {
       '--change',
       '--finding',
       '--reason',
@@ -762,7 +802,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _gate(List<String> argv) async {
-    final args = _parseArgs(argv, const {
+    final args = await _parseArgs(argv, const {
       '--change',
       '--store',
       '--prefix',
@@ -808,7 +848,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _archiveOnly(List<String> argv) async {
-    final args = _parseArgs(argv, const {
+    final args = await _parseArgs(argv, const {
       '--base',
       '--head',
       '--change',
@@ -831,7 +871,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _rounds(List<String> argv) async {
-    final args = _parseArgs(argv, const {
+    final args = await _parseArgs(argv, const {
       '--change',
       '--store',
       '--base',
@@ -1919,22 +1959,6 @@ class _NativeGit {
 class _ReviewArgs {
   const _ReviewArgs(this.values);
   final Map<String, String> values;
-}
-
-_ReviewArgs _parseArgs(List<String> argv, Set<String> values) {
-  final parsed = <String, String>{};
-  for (var i = 0; i < argv.length; i++) {
-    final token = argv[i];
-    if (values.contains(token)) {
-      if (i + 1 >= argv.length) {
-        throw ReviewStop('usage', '$token needs a value', code: 2);
-      }
-      parsed[token.substring(2).replaceAll('-', '_')] = argv[++i];
-    } else if (token.startsWith('--')) {
-      throw ReviewStop('usage', 'unknown option $token', code: 2);
-    }
-  }
-  return _ReviewArgs(parsed);
 }
 
 void _need(Map<String, String> args, List<String> names) {

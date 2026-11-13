@@ -27,6 +27,58 @@ class NativeReviewTests(Base):
         self.assertEqual(len(lines), 1, result.stdout)
         return json.loads(lines[0])
 
+    def msys_path(self, path, drive=False):
+        if os.name != "nt":
+            return str(path)
+        if drive:
+            return "/" + path.drive[0].lower() + path.as_posix()[2:]
+        return subprocess.check_output(["cygpath", "-u", str(path)], env=self.env(), text=True).strip()
+
+    def test_design_handoff_accepts_msys_paths(self):
+        self.install("claude")
+        review = "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
+        self.stdout_file("claude", json.dumps({"type": "result", "result": review}))
+        self.set_settings("review:\n  routes:\n    claude:\n      tools: [Read]\n")
+        folder = self.tmp / "review 文 files"
+        folder.mkdir()
+        prompt = folder / "request.md"
+        prompt.write_text("Review this unique MSYS-path fixture.\n", encoding="utf-8")
+        output = folder / "review.md"
+        selection = folder / "selection.json"
+        skipped = [{"route": "codex", "reason": "not installed"}]
+        selection.write_text(json.dumps({"route": "claude", "skipped": skipped}), encoding="utf-8")
+        result = self.script("run", "--kind", "design", "--route", "claude", "--change", "demo-change",
+                             "--prompt-file", self.msys_path(prompt), "--out", self.msys_path(output),
+                             "--settings", self.msys_path(self.settings, drive=True),
+                             "--store", self.msys_path(self.store), "--selection", self.msys_path(selection))
+        self.assertEqual(output.read_text(encoding="utf-8"), review)
+        self.assertIn("unique MSYS-path fixture", self.runs("claude")[0]["stdin"])
+        self.assertEqual(result["receipt"]["tools"], ["Read"])
+        self.assertEqual(result["receipt"]["skipped"], skipped)
+
+    def test_record_handoff_accepts_msys_paths(self):
+        settings = self.msys_path(self.settings, drive=True)
+        store = self.msys_path(self.store)
+        preflight = self.script("preflight", "--kind", "preship", "--change", "demo-change",
+                                "--base", "main", "--settings", settings, "--store", store)
+        preflight_file = self.put("msys-preflight.json", json.dumps(preflight))
+        findings = self.put("msys-findings.json", json.dumps(VALID))
+        selection = self.put("msys-selection.json", json.dumps({"route": "subagent", "skipped": []}))
+        before = self.status()
+        result = self.script("record", "--kind", "preship", "--route", "subagent", "--change", "demo-change",
+                             "--result", self.msys_path(findings), "--preflight", self.msys_path(preflight_file),
+                             "--selection", self.msys_path(selection), "--settings", settings, "--store", store)
+        record = json.loads(Path(result["record"]).read_text(encoding="utf-8"))
+        self.assertEqual(record["heads"], preflight["heads"])
+        self.assertEqual(record["findings"], VALID)
+        gate = self.script("gate", "--change", "demo-change", "--settings", settings, "--store", store)
+        self.assertEqual(gate["status"], "blocked")
+        self.assertEqual([finding["id"] for finding in gate["open"]], ["F1"])
+        archive = self.script("archive-only", "--base", "main", "--head", "HEAD", "--change", "demo-change",
+                              "--dir", self.msys_path(self.code, drive=True))
+        self.assertFalse(archive["archive_only"])
+        self.assertEqual(self.status(), before)
+
     def test_preship_runs_without_python_or_bash(self):
         source = self.tmp / "fake-codex.dart"
         source.write_text("import 'dart:convert';\nimport 'dart:io';\n"
