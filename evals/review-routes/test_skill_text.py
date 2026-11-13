@@ -35,6 +35,64 @@ def positions(pattern, text):
 
 
 class ReviewSkill(unittest.TestCase):
+    def test_cli_version_checks_require_native_isolation_evidence(self):
+        procedure = sections(read(REVIEW)).get("cli version checks", "")
+        self.assertTrue(procedure, "the manual CLI-version check procedure is missing")
+        for rule in (
+            r"native tool definitions",
+            r"complete mounted-tool inventory",
+            r"equivalence.*exact reviewer invocation",
+            r"refused capabilities",
+            r"refused list",
+            r"option aliases.*aliases of protected flags",
+            r"direct child.*denied.write",
+            r"all fixed isolation flags",
+            r"--ephemeral",
+            r"-s read-only",
+            r'fork_turns="none"',
+            r"git status --porcelain",
+            r"model.*corroboration only",
+            r"missing proof.*infrastructure failure.*does not pass",
+            r"actual native.*tool.*(error|denial)",
+            r"accepted TCP.*zero|zero.*accepted TCP",
+            r"encoded.*compound",
+            r"local.*(read|content)",
+            r"load.*callback.*fail",
+        ):
+            with self.subTest(rule=rule):
+                self.assertRegex(procedure, re.compile(rule, re.IGNORECASE | re.DOTALL))
+
+    def test_route_controls_explain_immutable_isolation(self):
+        settings = sections(read(REVIEW)).get("settings", "")
+        for rule in (
+            r"routes:",
+            r"tools:.*read.*grep.*glob",
+            r"disable:",
+            r"args:",
+            r"bad_settings",
+            r"unsafe_review_setting",
+            r"before.*probe",
+            r"18\.19\.0",
+            r"cannot.*(replace|remove|weaken).*isolation",
+        ):
+            with self.subTest(rule=rule):
+                self.assertRegex(settings, re.compile(rule, re.IGNORECASE | re.DOTALL))
+
+    def test_omp_boundary_does_not_claim_an_os_sandbox(self):
+        text = read(REVIEW)
+        for rule in (
+            r"fetch\.enabled.*false",
+            r"--trusted-extension",
+            r"policy_id",
+            r"policy_sha256",
+            r"tool.directed.*remote",
+            r"not.*OS.*sandbox",
+            r"provider transport",
+            r"language servers",
+        ):
+            with self.subTest(rule=rule):
+                self.assertRegex(text, re.compile(rule, re.IGNORECASE | re.DOTALL))
+
     def setUp(self):
         self.text = read(REVIEW)
         self.assertTrue(self.text, f"{REVIEW} is missing")
@@ -268,7 +326,6 @@ class DesignReviewCallers(unittest.TestCase):
         text = re.sub(r"\s+", " ", read(REVIEW))
         self.assertRegex(text, r"(?i)CHANGES_APPLIED.{0,200}(APPROVE_WITH_CHANGES|REVISE)",
                          "the CLI-route sentence does not name the verdict value check")
-        self.assertRegex(text, r"(?i)Windows.{0,200}Python 3\.11", "the codex route note does not say Windows needs Python 3.11+")
 
     def test_schema(self):
         self.check(SCHEMA)

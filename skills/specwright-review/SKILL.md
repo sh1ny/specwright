@@ -7,7 +7,7 @@ metadata:
 
 # Specwright Review
 
-The script lives in `${CLAUDE_SKILL_DIR}/scripts/` (in other harnesses: the `scripts/` folder next to this SKILL.md); below, `scripts/review-run.sh` means that path, and other skills call it `<specwright-review>/scripts/review-run.sh`. Run it with `bash` (Git Bash on Windows) from the code checkout. It needs bash, git and Python 3.8+, makes no `gh` call, and prints one JSON document per call. Exit 0 = ok, 1 = stop (show its `message`), 2 = usage error, 3 = failed review.
+The entry point lives in `${CLAUDE_SKILL_DIR}/scripts/` (in other harnesses: the `scripts/` folder next to this SKILL.md); below, `scripts/review-run.sh` means that path. Call it with `bash` (Git Bash on Windows) from the code checkout. It resolves the version-matched `sw` and forwards the eight subcommands through native `sw review --args-stdin`. Review operations need git, not Python, Bash or Node. The compatibility entry point and shared resolver still need Bash and Python 3.8+. No `gh` call; one JSON document per call. Exit 0 = ok, 1 = stop (show its `message`), 2 = usage error, 3 = failed review.
 
 ## Settings
 
@@ -23,26 +23,60 @@ review:
   timeout: 20m               # per review run; the reviewer is killed after it
   max_diff_kb: 1024          # pre-ship input bound (code + store diff); over it, no review runs
   preship: true              # false = no pre-ship review and no ship/merge gate
+  routes:
+    codex:
+      disable: []            # additive; never removes fixed feature disables
+      args: []               # extra argv tokens, not a shell command
+    claude:
+      tools: [Read, Grep, Glob]
+      args: []
+    omp:
+      tools: [read, grep, glob]
+      args: []
 ```
+
+`tools` replaces the Claude/OMP tool list; an empty list means no tools. Codex has no `tools` setting. Codex `disable` adds to its fixed feature disables; an empty list cannot restore a disabled feature. All lists contain strings. Extra `args` cannot replace or weaken fixed isolation, tool selection, model/thinking, output capture or settings. Use `review.models`, `review.thinking` and the route's `tools` instead of their CLI flags. Known unsafe tools, protected flags and their aliases (including Codex `--yolo` and `--not-so-yolo`) stop with `unsafe_review_setting`; malformed route controls stop with `bad_settings`. Validate every route before any CLI probe, even when `cross_model: false` or another route would run.
+
+Codex always disables `apps`, `browser_use`, `browser_use_external`, `computer_use`, `in_app_browser`, `image_generation`, `memories`, `hooks`, `plugins`, `remote_plugin`, `tool_suggest`, `skill_search`, `skill_mcp_dependency_install`, `goals` and `sleep_tool`.
+
+OMP must be version 18.19.0 or newer; older or unparseable versions are skipped. Its fixed overlay sets `autolearn.enabled`, `memories.enabled`, `find.enabled` and `fetch.enabled` to `false`, and it uses a private session. Never remove these controls or permit user settings, extensions or skills to restore the refused capabilities.
 
 ## Routes
 
 Every review (design or pre-ship) picks its reviewer the same way:
 
 1. **Select:** `bash scripts/review-run.sh select --runtime <claude|codex|omp|other>`, where `--runtime` is the harness you are running in (`other` skips nothing). It prints `route` (`codex`, `claude`, `omp` or `subagent`), `skipped` (each route with its reason: `current runtime`, `not installed`, a failed probe, or OMP's `Model "<m>" not found`), `model` and `thinking`. Save the output to a temp file: `run` takes it as `--selection` so the receipt lists the skipped routes. Exit 1 (an unknown name in `review.order`) → stop and show the message.
-2. **CLI route** → `run` (below). The script holds one fixed, read-only command line per CLI; never build or change a reviewer command line yourself.
+2. **CLI route** → `run` (below). Native `sw review` builds the fixed isolation flags plus validated route controls; never construct a reviewer command line yourself.
 3. **`subagent`** → dispatch the `specwright-reviewer` agent with file paths, never your reasoning, then validate what it wrote with `record` (below). If no such agent is installed, stop and tell the user.
 4. **Background.** A review takes minutes, up to `review.timeout`. Start `run` in the background (Claude Code: `run_in_background`; other harnesses: their background or blocking exec) and wait for it to finish; do not poll it.
 5. **Exit 3 is a failed review** (`status: invalid`, `timeout`, or the reviewer crashed): nothing was reviewed. Never try the next route, never review the change yourself, and never treat it as a pass. Report the route, the status and the error, and offer to run it again. A failed pre-ship review stops ship and the local merge until a review passes.
-6. **Receipt.** Report the receipt from the output: the route, the skipped routes with their reasons, and the requested and actual model and level (`unknown` when the CLI does not say). The receipt's `process_group` says how the reviewer's processes were held together (`job` on Windows, `session` on POSIX); `none` (with `process_group_reason`) means Windows could not make a job object, and a stopped reviewer's tree was then stopped from the reviewer's own process.
+6. **Receipt.** Report the receipt from the output: route, skipped routes and reasons, requested and actual model and level (`unknown` when the CLI does not say), effective tools, feature disables, extra args and overlay. OMP also reports `policy_id` and `policy_sha256` for the exact fixed module. `process_group` says how the reviewer's processes were held together (`job` on Windows, `session` on POSIX); `none` (with `process_group_reason`) means Windows could not make a job object, and a stopped reviewer's tree was then stopped from the reviewer's own process.
+
+## OMP target boundary
+
+With `--no-extensions` retained, Specwright loads exactly one fixed Specwright-owned `--trusted-extension` module inside OMP. User trusted-module arguments are refused; there is no custom policy setting or separate production interpreter. The hook rejects tool-directed remote targets before dispatch, including encoded, compound and aliased forms; optional `lsp` is restricted to its nine read-only actions. The fetch overlay also disables HTTP reads.
+
+This is not an OS network or filesystem sandbox. Provider transport, underlying filesystem mounts, trusted native tools and language servers remain outside the lexical target boundary. Do not present the tool policy as a general no-network guarantee.
+
+## CLI version checks
+
+Before accepting a changed reviewer CLI, apply ADRs 0035 and 0036:
+
+1. Record its version, exact argv and effective settings. Capture native tool definitions and the complete mounted-tool inventory. Prove their equivalence to the exact reviewer invocation in that version's source, accounting for diagnostic/RPC defaults, settings sources and tool mounting. Use version-matched source instrumentation when the CLI exposes no complete native capture.
+2. Check refused capabilities against both captures. Add new writing, execution, network, agent-starting or memory tools to the route's refused list; extend fixed feature disables as needed. Inspect CLI option aliases and add aliases of protected flags to the static refused-flag lists.
+3. Obtain direct child denied-write evidence, not a parent-relayed report. Keep all fixed isolation flags, including Codex's `--ephemeral` and `-s read-only`; request `fork_turns="none"` for the fresh child. Record the actual denied attempt and `git status --porcelain` before and after; the output must be unchanged.
+4. For OMP, replay the production module with actual native tool calls. Pair every remote request with its tool error or denial; cover HTTP(S), SSH, encoded and compound targets, aliases, selectors and optional LSP actions. Count every accepted TCP connection, not only completed HTTP requests: both counters must be zero. Show successful local read, grep and glob results, including content, literal delimiters, selectors and multiple roots. Inject module-load and callback failures and prove that affected calls fail closed. Record the effective overlay, module identity/digest and matching controller receipt.
+5. Model-authored lists and refusals are corroboration only. Missing proof or an infrastructure failure does not pass; stop dependent work.
+
+Policy tests use Node 22 as development-only tooling; Node is not a production dependency. The emitted module runs in OMP's own runtime.
 
 ## Design reviews
 
 The schema's review step (FULL tier) and the `specwright-roadmap` baseline review use the routes above:
-- **CLI route:** write the review request (the same request the review step describes: the files to read, the installed project skills that apply, the review template) to a temp file, then `bash scripts/review-run.sh run --kind design --route <route> --prompt-file <request file> --out <review file> --change <change-name> --selection <select output>` (store-backed: `--store <store toplevel>`, so the Claude route can read the planning files). `<review file>` is the change's `review.md`; for the roadmap baseline it is `openspec/architecture-review.md` and `<change-name>` is `baseline`. The script writes it only after the output has exactly one `VERDICT: <v>` line (`<v>` is `APPROVE`, `APPROVE_WITH_CHANGES` or `REVISE`) and exactly one `CHANGES_APPLIED: <c>` line (`no` or `yes` after `APPROVE_WITH_CHANGES`, `n/a` after the other two); `BLOCKED`, `USER_OVERRIDE`, `SKIPPED_LIGHT`, `DEFERRED`, `WAIVED` or any other value is invalid, and the error names it. On exit 3 the file is untouched. `codex` on Windows needs Python 3.11+ for the script to pass on your `windows.sandbox` setting (see the Windows note below); without it the review still runs, but codex may not be able to read the checkout, and the check above then refuses a `BLOCKED` result.
+- **CLI route:** write the review request (the same request the review step describes: the files to read, the installed project skills that apply, the review template) to a temp file, then `bash scripts/review-run.sh run --kind design --route <route> --prompt-file <request file> --out <review file> --change <change-name> --selection <select output>` (store-backed: `--store <store toplevel>`, so the Claude route can read the planning files). `<review file>` is the change's `review.md`; for the roadmap baseline it is `openspec/architecture-review.md` and `<change-name>` is `baseline`. The script writes it only after the output has exactly one `VERDICT: <v>` line (`<v>` is `APPROVE`, `APPROVE_WITH_CHANGES` or `REVISE`) and exactly one `CHANGES_APPLIED: <c>` line (`no` or `yes` after `APPROVE_WITH_CHANGES`, `n/a` after the other two); `BLOCKED`, `USER_OVERRIDE`, `SKIPPED_LIGHT`, `DEFERRED`, `WAIVED` or any other value is invalid, and the error names it. On exit 3 the file is untouched.
 - **`subagent`:** first ask the script for a result file, `bash scripts/review-run.sh record --kind design --change <change-name> --scratch`, which prints `scratch`, a fresh result file under the state dir, outside the change. The `specwright-reviewer` agent writes its review to that file, never to the review file. Then `bash scripts/review-run.sh record --kind design --change <change-name> --result <scratch> --out <review file> --route subagent --selection <select output>`: it writes `<review file>` atomically only when the review validates (the same check as above) and removes the scratch file. Report its `receipt` (Routes step 6). Exit 3 → the review is invalid: `<review file>` is left as it was (an earlier review stays), the output names the scratch file, the tasks step does not start; run the review again. Bare `record` without `--out` still validates a file in place, but design reviews do not use it.
 
-**Windows and codex.** The codex route always ignores the user's codex config (`--ignore-user-config`). On Windows only, when that config's `[windows] sandbox` is a plain name (such as `elevated`), the script passes just that setting as `-c windows.sandbox="<name>"` and lists it in the receipt as `windows_sandbox`; nothing else in the file is used. Reading the file needs Python 3.11+ (`tomllib`); on an older Python nothing is passed.
+**Windows and codex.** The codex route always ignores the user's codex config (`--ignore-user-config`). On Windows only, native `sw` reads that config as TOML: when `[windows] sandbox` is a plain name (such as `elevated`), it passes just that setting as `-c windows.sandbox="<name>"` and lists it in the receipt as `windows_sandbox`. Nothing else is forwarded. Missing, unreadable, malformed or unsafe values are ignored; no Python-version prerequisite applies.
 
 ## Pre-ship review
 

@@ -102,6 +102,7 @@ DECISION_MAKING: important
 ### Added
 
 - `review.routes.<route>` settings (`tools`, `disable`, `args`) for the codex, claude and omp reviewer routes, with named stops for unsafe tools, protected flags and their aliases; receipts record effective controls and OMP's fixed policy identity and module digest (#148).
+- A reviewer-CLI upgrade checklist requires native tool inventories, protected-flag alias checks, direct child write-denial evidence and actual remote-target errors with zero fixture connections; model refusals alone do not pass (#148).
 
 ### Changed
 
