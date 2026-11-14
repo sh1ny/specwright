@@ -448,5 +448,8 @@ void main() {
         temp.deleteSync(recursive: true);
       }
     },
+    // The body compiles sw with `dart compile exe`, which alone can pass the
+    // default 30 seconds on a loaded macOS x64 runner.
+    timeout: const Timeout(Duration(minutes: 3)),
   );
 }
