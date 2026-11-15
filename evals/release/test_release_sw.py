@@ -69,7 +69,7 @@ class TestRunsInSw(tr.PubFlow):
 
     def recorders(self):
         directory = self.tmp / "failing"
-        test_no_shell.write_recorders(directory, ("bash", "sh"))
+        test_no_shell.write_recorders(directory, ("bash", "sh"))  # bare-bash: not started
         for name in ("python", "python3"):
             fakeexe.write_python_fake(directory / name, PY_RECORDER % (sys.executable, LOG, name))
         return directory
@@ -78,11 +78,11 @@ class TestRunsInSw(tr.PubFlow):
         directory = self.recorders()
         log = self.tmp / "started.log"
         # a probe first: every recorder records when started directly, so an empty log below means none started
-        for name in ("bash", "sh", "python", "python3"):
-            exe = directory / (name + (".cmd" if os.name == "nt" and name in ("bash", "sh") else ".exe" if os.name == "nt" else ""))
+        for name in ("bash", "sh", "python", "python3"):  # bare-bash: not started
+            exe = directory / (name + (".cmd" if os.name == "nt" and name in ("bash", "sh") else ".exe" if os.name == "nt" else ""))  # bare-bash: not started
             r = subprocess.run([str(exe), "probe"], env={**os.environ, LOG: str(log)}, capture_output=True, text=True)
             self.assertEqual(r.returncode, 1, f"{name}: {r.stdout}{r.stderr}")
-        self.assertEqual(sorted(log.read_text(encoding="ascii").split()), ["bash", "python", "python3", "sh"])
+        self.assertEqual(sorted(log.read_text(encoding="ascii").split()), ["bash", "python", "python3", "sh"])  # bare-bash: not started
         log.unlink()
         env = {**self.env(), LOG: str(log)}
         env["PATH"] = str(directory) + os.pathsep + env["PATH"]

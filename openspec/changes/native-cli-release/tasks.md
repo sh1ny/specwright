@@ -63,8 +63,8 @@ Every row runs through the `release.sh` shim and native `sw` on the three platfo
 
 ## 8. Integration and release
 
-- [ ] 8.1 Run the release, cli and vcs suites on Linux, Windows and macOS through PR CI (`.github/workflows/evals.yml` and `cli.yml`, on a draft PR). Verify: every job is green, and the Test map rows hold on all three platforms.
-- [ ] 8.2 `release.sh bump --to 0.35.0` and rewrite the summary of the proposal's `## Release Notes` for the whole release. Verify: `release.sh check` passes and `release.sh notes --proposal openspec/changes/native-cli-release/proposal.md` prints the notes.
+- [x] 8.1 Run the release, cli and vcs suites on Linux, Windows and macOS through PR CI (`.github/workflows/evals.yml` and `cli.yml`, on a draft PR). Verify: every job is green, and the Test map rows hold on all three platforms.
+- [x] 8.2 `release.sh bump --to 0.35.0` and rewrite the summary of the proposal's `## Release Notes` for the whole release. Verify: `release.sh check` passes and `release.sh notes --proposal openspec/changes/native-cli-release/proposal.md` prints the notes.
 
 ## Workflow follow-up
 

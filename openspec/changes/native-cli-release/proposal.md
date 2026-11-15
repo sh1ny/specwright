@@ -75,7 +75,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-`sw release` runs all six release operations natively: check, bump, status, notes, untagged and publish. Their options, JSON, error names and exit codes stay compatible, and they start no Python, bash or shipped script. `release.version_files` patterns are now JavaScript regexes in Unicode mode, and a misreadable settings line stops release with `bad_settings`.
+Release 0.35.0 moves every release operation into `sw`: check, bump, status, notes, untagged and publish run natively, with compatible options, JSON, error names and exit codes, and start no Python, bash or shipped script. `release.version_files` patterns are now JavaScript regexes in Unicode and multiline mode, a misreadable settings line stops release with `bad_settings`, and bump refuses a version file that is not valid UTF-8.
 
 ### Changed
 
