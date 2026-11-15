@@ -123,7 +123,7 @@ pr:
   #   marker      - literal text in a comment the bot edits when done
   #   ignore      - regex; comments and reviews it matches never count
   # Regexes are JavaScript regular expressions in Unicode mode (ADR 0030),
-  # case-sensitive: Python-only syntax such as (?P<name>...), \A, \Z, (?i)
+  # case-sensitive: Python-only syntax such as (?P named groups, \A, \Z, (?i)
   # or {,n}, and needless escapes such as \:, are refused.
   # Write patterns in single quotes so backslashes stay as written.
   # reviewers:
@@ -210,7 +210,9 @@ release:
   tag: "v{version}"
   # Path or glob -> regex with exactly one capture group (the version). The
   # first key is the primary file. Every file must match exactly once and all
-  # must agree. Keep the regexes single-quoted.
+  # must agree. Keep the regexes single-quoted. They are JavaScript regexes in
+  # Unicode and multiline mode: Python-only syntax (?P named groups, \A, \Z
+  # and (?i)) stops with bad_version_files.
   version_files:
     VERSION: '^(\d+\.\d+\.\d+)$'
     # package.json: '^  "version": "(\d+\.\d+\.\d+)",$'

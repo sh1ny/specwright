@@ -58,8 +58,8 @@ Every row runs through the `release.sh` shim and native `sw` on the three platfo
 
 ## 7. Skill text and settings docs
 
-- [ ] 7.1 In `skills/specwright-release/SKILL.md` and `templates/openspec/specwright.yaml`, name the `release.version_files` dialect (JavaScript regexes, Unicode and multiline mode, Python-only syntax refused with `bad_version_files`), the `bad_settings` stop and the non-UTF-8 bump stop in the stop table. Add a `evals/release/test_skill_text.py` check for the dialect line. Verify: `python -m unittest evals/release/test_skill_text.py` passes.
-- [ ] 7.2 In README.md's releases section, add a `**BREAKING (0.35.0):**` line, as README.md:506 does for 0.2.0: `release.version_files` patterns are JavaScript regexes, so rewrite any pattern with Python-only syntax; misreadable settings lines stop with `bad_settings`; bump refuses a non-UTF-8 version file. Verify: the line is there, `python -m unittest evals/release/test_skill_text.py` passes, and `grep -rn "(?P<" openspec/specwright.yaml templates/` finds nothing.
+- [x] 7.1 In `skills/specwright-release/SKILL.md` and `templates/openspec/specwright.yaml`, name the `release.version_files` dialect (JavaScript regexes, Unicode and multiline mode, Python-only syntax refused with `bad_version_files`), the `bad_settings` stop and the non-UTF-8 bump stop in the stop table. Add a `evals/release/test_skill_text.py` check for the dialect line. Verify: `python -m unittest evals/release/test_skill_text.py` passes.
+- [x] 7.2 In README.md's releases section, add a `**BREAKING (0.35.0):**` line, as README.md:506 does for 0.2.0: `release.version_files` patterns are JavaScript regexes, so rewrite any pattern with Python-only syntax; misreadable settings lines stop with `bad_settings`; bump refuses a non-UTF-8 version file. Verify: the line is there, `python -m unittest evals/release/test_skill_text.py` passes, and `grep -rn "(?P<" openspec/specwright.yaml templates/` finds nothing.
 
 ## 8. Integration and release
 

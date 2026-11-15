@@ -23,6 +23,8 @@ release:
 
 `release.enabled` with `pr.merge_method: rebase` is refused: a rebase rewrites the release commit.
 
+`release.version_files` patterns are JavaScript regular expressions, read in Unicode and multiline mode (ADR 0037): `^` and `$` match at each line, also before a CRLF. Python-only syntax (`(?P<name>`, `\A`, `\Z`, `(?i)`) is refused with `bad_version_files`, naming the entry, before anything is read or written. Each pattern has exactly one capture group, the version.
+
 ## bump
 
 A tracked task in the change's last task group, committed by the orchestrator through `specwright-commit`: `bash scripts/release.sh bump --to <version>` rewrites every version file and commits nothing. Verify with `bash scripts/release.sh check`, which reports the target version when all files agree.
@@ -81,6 +83,9 @@ Show the error and tag nothing more. None is fixed by moving, deleting or forcin
 | 1 | `push_url_mismatch`: origin pushes to another repository than it fetches from | the user fixes `remote.origin.pushurl`, or publishes from a remote whose URLs agree |
 | 1 | `tag_mismatch`: the local tag and origin's are different tag objects (a lost push race) | the user deletes the local tag (`git tag -d <tag>`); a re-run fetches origin's |
 | 1 | a `version_files` entry outside the repository, or a symlink | the user fixes `release.version_files` (list the file a link points to) |
+| 1 | `bad_version_files`: a pattern that is not a JavaScript regex in Unicode mode (Python-only syntax), or with no or several capture groups | the user rewrites the entry it names |
+| 1 | `bad_version_files` from bump: a version file it would rewrite is not valid UTF-8 | nothing was written; the user fixes the file's encoding, or bumps it by hand |
+| 1 | `bad_settings`: a line in `openspec/specwright.yaml` the settings reader would misread (a tab indent, a key given twice) | the user fixes the line it names; `notes` is unaffected |
 | 1 | an older version is untagged | publish it first (`untagged` lists it) |
 | 1 | `version_not_ahead_of_main`: the branch bumped to a version not greater than main's | rerun `bump --to` with a greater version, commit it, and ship or merge again |
 | 3 | network or fence failure | report it; a re-run of publish resumes |
