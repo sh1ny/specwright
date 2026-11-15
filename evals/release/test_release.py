@@ -24,6 +24,7 @@ _spec = importlib.util.spec_from_file_location("release_fixtures", HERE / "fixtu
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 VERSION_FILES = ["VERSION", "README.md", "skills/specwright-pr/SKILL.md", "skills/specwright-debug/SKILL.md"]
 
@@ -67,7 +68,7 @@ class Base(unittest.TestCase):
     def release(self, *args, cwd=None, env=None):
         """Run release.sh; returns (exit code, parsed JSON, raw stdout)."""
         r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
-                           encoding="utf-8", env=env)
+                           encoding="utf-8", env=fx.sw_env(env))
         try:
             doc = json.loads(r.stdout)
         except ValueError:
@@ -1236,24 +1237,33 @@ CODE_SLUG = "acme/code"
 
 
 class GhFlow(Flow):
-    """A `gh` shim on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
-    local bare repository through `url.<bare>.insteadOf`."""
+    """A `gh` fake on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
+    local bare repository through `url.<bare>.insteadOf`.
+
+    The fake is written with fakeexe.write_fake as an `.exe` on Windows (it receives `%` and quotes in `--jq` and templates,
+    which a `.cmd` refuses), so `sw` finds it. It logs every call to FAKE_GH_LOG; a publish or a store-backed read that
+    exits 0 and reaches GitHub must show a call there (`release`), so a real `gh` further down PATH cannot stand in unnoticed."""
 
     def setUp(self):
         super().setUp()
         (self.tmp / "bin").mkdir()
-        gh = self.tmp / "bin" / "gh"
-        gh.write_text(GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
-                      encoding="utf-8", newline="\n")
-        gh.chmod(0o755)
+        fakeexe.write_fake(self.tmp / "bin" / "gh",
+                           GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
+                           exe=True)
         self.state = {"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok"}, "repos": {CODE_SLUG: {"pulls": []}}}
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
+
+    def release(self, *args, **kw):
+        out = super().release(*args, **kw)
+        if out[0] == 0 and ("--store" in args or (args[0] == "publish" and out[1]["github_release"] not in ("disabled", "not_github"))):
+            self.assertTrue(self.gh_calls(), "the fake gh recorded no call: " + out[2])
+        return out
 
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
                   "FAKE_GH_LOG": str(self.gh_log), "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
-        return e
+        return fx.sw_env(e)
 
     def save(self):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
@@ -1762,7 +1772,7 @@ class TestBoundedNetwork(PubFlow):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
         t0 = time.time()
         try:
-            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=e,
+            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e),
                                capture_output=True, text=True, encoding="utf-8", timeout=self.LIMIT)
         except subprocess.TimeoutExpired:
             self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
@@ -1893,6 +1903,7 @@ class TestThisRepo(Base):
         if subprocess.run(["git", "rev-parse", "--verify", "--quiet", "origin/main"], cwd=clone, capture_output=True).returncode != 0:
             self.skipTest("no main branch in this checkout")
         fx.write(clone, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
+        fx.stamp_version(clone)
         for version, prefix, name, pr in (("0.4.1", "9b33ec5", "fix-m2-gaps", 89), ("0.4.2", "4f9b823", "pin-openspec-version", 90)):
             code, doc, raw = self.release("status", "--version", version, "--main", "origin/main", cwd=clone)
             self.assertEqual(code, 0, raw)

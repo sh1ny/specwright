@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
+if str(ROOT / "evals" / "vcs") not in sys.path:
+    sys.path.append(str(ROOT / "evals" / "vcs"))
+import vcs_test_support  # noqa: E402  sw_home (SPECWRIGHT_HOME holding the built sw) and stamp_version
 
 DEFAULT_VERSION_FILES = {
     "VERSION": r"^(\d+\.\d+\.\d+)$",
@@ -27,6 +30,22 @@ DEFAULT_VERSION_FILES = {
 DEFAULT_SKILLS = ("specwright-pr", "specwright-debug")
 DATE = "2026-10-10"
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
+
+
+def sw_env(env=None):
+    """[env] (default: this process's environment) plus SPECWRIGHT_HOME, the home that holds the matching `sw`, unless [env] names one.
+
+    Skips the test as `sw not built` when SPECWRIGHT_SW is unset (fails under SPECWRIGHT_REQUIRE_SW=1)."""
+    out = dict(os.environ if env is None else env)
+    home = str(vcs_test_support.sw_home())  # also the skip
+    if env is None or "SPECWRIGHT_HOME" not in env:  # a test that points the home elsewhere keeps its own
+        out["SPECWRIGHT_HOME"] = home
+    return out
+
+
+def stamp_version(repo):
+    """Stamp [repo] with the tree's version so the shim finds the matching `sw` (the stamp is git-excluded, so no tracked file changes)."""
+    vcs_test_support.stamp_version(repo)
 
 
 def rmtree(path):
@@ -95,6 +114,8 @@ def make_repo(tmp, version="0.4.2", version_files="default", skills=DEFAULT_SKIL
     git(origin, "init", "-q", "--bare", "-b", "main")
     git(work, "remote", "add", "origin", str(origin))
     git(work, "push", "-q", "origin", "main")
+    sw_env()  # skip here when no sw is built
+    stamp_version(work)  # after the copy, against the copy: the cached build keeps no stamp
     return work
 
 
