@@ -214,6 +214,23 @@ class TestSettingsRows(Sw, SettingsRows):
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], "0.4.2")
 
+    def test_misreadable_settings_stop_before_git(self):
+        self.repo()
+        directory = self.tmp / "git-recorder"
+        directory.mkdir()
+        fakeexe.write_python_fake(directory / "git", 'import os, sys\nwith open(os.environ[%r], "a") as log:\n'
+                                  '    log.write("git\\n")\nsys.exit(1)\n' % LOG)
+        log = self.tmp / "git.log"
+        env = {**os.environ, LOG: str(log), "PATH": str(directory) + os.pathsep + os.environ.get("PATH", "")}
+        for how in self.BAD:
+            for call in (("check",), ("bump", "--to", "0.4.3"), ("untagged", "--local")):
+                with self.subTest(how=how, call=call):
+                    line = self.settings(how)
+                    code, doc, raw = self.release(*call, env=env)
+                    self.assertEqual((code, doc and doc.get("error")), (1, "bad_settings"), raw)
+                    self.assertIn("line %d" % line, doc["message"], raw)
+                    self.assertFalse(log.exists() and log.read_text(encoding="ascii"), "git started: " + raw)
+
     def test_notes_ignores_misreadable_settings(self):
         self.repo()
         proposal = self.tmp / "proposal.md"

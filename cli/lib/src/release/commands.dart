@@ -149,6 +149,10 @@ Future<Map<String, Object?>> _run(List<String> argv, String cwd) async {
     flags: {if (command == 'untagged') '--local'},
   );
   final start = dir ?? cwd;
+  // the settings at the nearest `.git` are checked before git starts, so a
+  // misread line stops with bad_settings before any git call
+  final candidate = _nearestRepo(p.absolute(start));
+  if (candidate != null) readReleaseSettings(candidate);
   final top = await ReleaseGit(start).run(['rev-parse', '--show-toplevel']);
   if (top.exitCode != 0 || trimmed(top.stdout).isEmpty) {
     throw ReleaseStop('not_a_repo', '$start is not inside a git work tree');
@@ -163,6 +167,21 @@ Future<Map<String, Object?>> _run(List<String> argv, String cwd) async {
     'untagged' => untaggedDocument(git, settings, a),
     _ => publishDocument(git, settings, statusArgs(a)),
   };
+}
+
+/// The nearest directory at or above [start] that holds a `.git` entry (a
+/// directory, or the file of a worktree or submodule), or null.
+String? _nearestRepo(String start) {
+  var dir = p.normalize(start);
+  while (true) {
+    if (FileSystemEntity.typeSync(p.join(dir, '.git'), followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      return dir;
+    }
+    final parent = p.dirname(dir);
+    if (parent == dir) return null;
+    dir = parent;
+  }
 }
 
 /// The status options of the parsed arguments [a].

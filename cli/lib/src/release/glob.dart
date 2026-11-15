@@ -78,6 +78,30 @@ List<String> workTreeFiles(String root, String pattern) {
     return out..sort();
   }
 
+  // A `**` also descends through a directory link, as the script's recursive
+  // glob did, so a match behind it is refused below. [stack] holds the real
+  // paths of the directories being walked: a link back to one of them is a
+  // cycle, refused at once.
+  final stack = <String>[Directory(root).resolveSymbolicLinksSync()];
+  void descend(String full, String path, void Function() body) {
+    final real = Directory(full).resolveSymbolicLinksSync();
+    if (stack.contains(real)) {
+      throw ReleaseStop(
+        'bad_version_files',
+        "release.version_files entry '$pattern' reaches $path/ through a "
+            'symlink; git stores a link as its text, so status and publish '
+            'could not read the version at a commit. List the file the link '
+            'points to instead',
+      );
+    }
+    stack.add(real);
+    try {
+      body();
+    } finally {
+      stack.removeLast();
+    }
+  }
+
   void walk(String rel, int k) {
     final dir = rel.isEmpty ? root : p.join(root, rel);
     final segment = segments[k];
@@ -93,9 +117,8 @@ List<String> workTreeFiles(String root, String pattern) {
           final entity = p.join(root, path);
           if (FileSystemEntity.isFileSync(entity)) {
             hits.add(path);
-          } else if (FileSystemEntity.isDirectorySync(entity) &&
-              !FileSystemEntity.isLinkSync(entity)) {
-            all(path);
+          } else if (FileSystemEntity.isDirectorySync(entity)) {
+            descend(entity, path, () => all(path));
           }
         }
       }
@@ -105,9 +128,11 @@ List<String> workTreeFiles(String root, String pattern) {
     }
     if (segment == '**' && !last) {
       walk(rel, k + 1);
-      for (final entity in Directory(dir).listSync(followLinks: false)) {
-        final name = p.basename(entity.path);
-        if (entity is Directory && !name.startsWith('.')) walk(child(name), k);
+      for (final name in names(dir)) {
+        final full = p.join(dir, name);
+        if (!name.startsWith('.') && FileSystemEntity.isDirectorySync(full)) {
+          descend(full, child(name), () => walk(child(name), k));
+        }
       }
       return;
     }

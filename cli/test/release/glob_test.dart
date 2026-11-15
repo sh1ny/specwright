@@ -199,6 +199,35 @@ void main() {
       );
     });
 
+    test('a double star descends through a directory link and refuses it', () {
+      try {
+        Link(p.join(root.path, 'inner')).createSync(p.join(root.path, 'a'));
+      } on FileSystemException {
+        markTestSkipped('no symlinks here');
+        return;
+      }
+      for (final pattern in ['**/VERSION', '**', 'inner/**']) {
+        expect(
+          () => files(pattern),
+          stops('bad_version_files', ['inner/VERSION', 'through a symlink;']),
+          reason: pattern,
+        );
+      }
+    });
+
+    test('a link cycle under a double star ends', () {
+      try {
+        Link(p.join(root.path, 'b', 'c', 'up')).createSync(root.path);
+      } on FileSystemException {
+        markTestSkipped('no symlinks here');
+        return;
+      }
+      expect(
+        () => files('**/VERSION'),
+        stops('bad_version_files', ['b/c/up/', 'through a symlink;']),
+      );
+    });
+
     test('a link to a file is refused too', () {
       try {
         Link(p.join(root.path, 'LINK')).createSync(p.join(root.path, 'top.md'));
