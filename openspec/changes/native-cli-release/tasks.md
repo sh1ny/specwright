@@ -47,8 +47,8 @@ Every row runs through the `release.sh` shim and native `sw` on the three platfo
 
 ## 5. Publish and bounded network commands (Dart)
 
-- [ ] 5.1 Implement `cli/lib/src/release/git.dart` (`ReleaseGit`: local `git` through `launch`, `ls-remote`, `fetch` and `push` through `runBoundedCommand`) and `publish.dart` (push-destination check, tag checks, tag create with the notes temp file, push, GitHub release, read-backs of `release.sh:1680-1748`). `gh` runs with `GH_REPO` removed and no `bash -c`. Write C2 as the `ReleaseGit` doc comment and C5 as a note on `resolveLimits` in `cli/lib/src/process/limits.dart`. Verify: `TestPublish*`, `TestBoundedNetwork` and `test_release_jj.py` pass against `sw release` directly.
-- [ ] 5.2 Fix #211 in `test_release_create_cut_off_not_found` (design D9): a first publish under the normal bound with `release create` failing, then the cut-off run. Verify: the test passes, and with the first run removed it still fails the way #211 reported only when the push is slow (reasoned in the test's docstring, not timed).
+- [x] 5.1 Implement `cli/lib/src/release/git.dart` (`ReleaseGit`: local `git` through `launch`, `ls-remote`, `fetch` and `push` through `runBoundedCommand`) and `publish.dart` (push-destination check, tag checks, tag create with the notes temp file, push, GitHub release, read-backs of `release.sh:1680-1748`). `gh` runs with `GH_REPO` removed and no `bash -c`. Write C2 as the `ReleaseGit` doc comment and C5 as a note on `resolveLimits` in `cli/lib/src/process/limits.dart`. Verify: `TestPublish*`, `TestBoundedNetwork` and `test_release_jj.py` pass against `sw release` directly.
+- [x] 5.2 Fix #211 in `test_release_create_cut_off_not_found` (design D9): a first publish under the normal bound with `release create` failing, then the cut-off run. Verify: the test passes, and with the first run removed it still fails the way #211 reported only when the push is slow (reasoned in the test's docstring, not timed).
 
 ## 6. The shim, launch sites and removals
 

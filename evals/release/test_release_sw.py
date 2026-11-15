@@ -226,7 +226,7 @@ class TestSettingsRows(Sw, SettingsRows):
                 self.assertEqual([i["text"] for i in doc["items"]["added"]], ["New --dry-run flag"])
 
 
-class TestPublishSettings(tr.PubFlow, SettingsRows):
+class TestPublishSettings(Sw, tr.PubFlow, SettingsRows):
     def test_misreadable_settings_publish_bad_settings(self):
         for how in self.BAD:
             with self.subTest(how):

@@ -1863,6 +1863,19 @@ class TestBoundedNetwork(PubFlow):
         self.assertNothingRunning()
 
     def test_release_create_cut_off_not_found(self):
+        """The cut-off must hit `gh release create` and nothing earlier. With one publish under the 5 s bound, the bound also
+        covers the real `git push` of the tag (and the `ls-remote` reads before it), so on a loaded machine a slow push is cut
+        off first: the run stops with a push limit, not with the release create's, and the assertions below fail (#211). So
+        a first publish runs under the normal bound with `release create` failing: it pushes the tag and stops with
+        release_create_failed. The cut-off run then finds the local and the remote tag done, and only `ls-remote` reads and
+        `gh release view` come before the hung `release create`: the 5 s bound can only reach the call under test. Without
+        the first run the test fails as reported only when the tag push is slow; nothing here measures time."""
+        self.state["fail"] = [{"match": "release create", "stderr": "gh: connection reset"}]
+        code, doc, raw = self.publish()
+        self.assertEqual((code, doc["error"]), (3, "release_create_failed"), raw)
+        self.assertIn(self.TAG, fx.git(self.bare, "tag", "-l"))
+        del self.state["fail"]
+        self.gh_log.unlink()
         self.state["hang"] = [{"match": "release create", "pid_file": str(self.tmp / "gh.pid")}]
         code, doc, raw, took = self.run_publish()
         self.assertEqual(code, 3, raw)

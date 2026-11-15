@@ -36,6 +36,21 @@ String lossy(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
 /// [lossy] without the surrounding whitespace.
 String trimmed(List<int> bytes) => lossy(bytes).trim();
 
+/// Runs [use] with the path of a temp file holding [text], removed afterwards.
+Future<T> withTempFile<T>(
+  String text,
+  Future<T> Function(String path) use,
+) async {
+  final dir = await Directory.systemTemp.createTemp('release-notes-');
+  try {
+    final file = File('${dir.path}${Platform.pathSeparator}notes');
+    await file.writeAsString(text);
+    return await use(file.path);
+  } finally {
+    await dir.delete(recursive: true);
+  }
+}
+
 /// The configured `owner/name` of a `github.com` URL in any form (https, ssh,
 /// scp-like, any case), or null.
 RegExpMatch? githubUrl(String url) => _githubUrl.firstMatch(url);
@@ -203,6 +218,37 @@ class ReleaseGit {
       object: object,
     );
   }
+
+  /// The message of local tag [tag], with one final newline. Exit 3
+  /// (`git_failed`) when `git tag -l` fails.
+  Future<String> tagMessage(String tag) async {
+    final r = await run(['tag', '-l', '--format=%(contents)', tag]);
+    if (r.exitCode != 0) {
+      throw ReleaseStop(
+        'git_failed',
+        'git tag -l $tag failed: ${trimmed(r.stderr)}',
+        code: 3,
+      );
+    }
+    return '${lossy(r.stdout).replaceFirst(RegExp(r'\n+$'), '')}\n';
+  }
+
+  /// Creates the annotated local tag [tag] at [sha] with [message] verbatim,
+  /// passed through a temp file that is removed after the call.
+  Future<LaunchResult> createTag(String tag, String sha, String message) =>
+      withTempFile(
+        message,
+        (path) =>
+            run(['tag', '-a', '--cleanup=verbatim', '-F', path, tag, sha]),
+      );
+
+  /// Fetches origin's [tag] into the local tags, under the network bounds.
+  Future<GhResult> fetchTag(String tag) =>
+      net(['fetch', 'origin', 'refs/tags/$tag:refs/tags/$tag']);
+
+  /// Pushes only `refs/tags/<tag>` to origin, under the network bounds.
+  Future<GhResult> pushTag(String tag) =>
+      net(['push', 'origin', 'refs/tags/$tag:refs/tags/$tag']);
 
   /// The `owner/name` of the GitHub release: the configured origin URL when it
   /// is a github.com URL, else the fetch URL after `insteadOf` rewriting (a

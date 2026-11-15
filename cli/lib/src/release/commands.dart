@@ -9,6 +9,7 @@ import '../settings/rules.dart' show SettingsStop;
 import 'git.dart';
 import 'history.dart';
 import 'notes.dart';
+import 'publish.dart';
 import 'settings.dart';
 import 'status.dart';
 import 'stop.dart';
@@ -160,7 +161,7 @@ Future<Map<String, Object?>> _run(List<String> argv, String cwd) async {
     'bump' => bumpDocument(git, settings, a),
     'status' => statusDocument(git, settings, statusArgs(a)),
     'untagged' => untaggedDocument(git, settings, a),
-    _ => publishDocument(git, settings, a),
+    _ => publishDocument(git, settings, statusArgs(a)),
   };
 }
 
@@ -280,17 +281,6 @@ Future<Map<String, Object?>> untaggedDocument(
         },
     ],
   };
-}
-
-/// `publish --version V`: tags the release commit and publishes the tag and
-/// the GitHub release.
-Future<Map<String, Object?>> publishDocument(
-  ReleaseGit git,
-  ReleaseSettings settings,
-  Map<String, String> a,
-) async {
-  settings.gate(rebase: true);
-  throw _usage('publish is not available in this build yet');
 }
 
 /// `notes --proposal <file>`: parses one proposal's `## Release Notes`
