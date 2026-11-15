@@ -36,8 +36,8 @@ Every row runs through the `release.sh` shim and native `sw` on the three platfo
 
 ## 3. Settings, globs and version files (Dart)
 
-- [ ] 3.1 Write failing unit tests in `cli/test/release/glob_test.dart` (the `glob_regex` rules, the dot-name rule from 1.5, links refused at every path segment) and `cli/test/release/versions_test.dart` (one match per file, agreement, `bad_version_files` for a pattern with no or two groups and for a refused dialect, CRLF offsets, the bump write plan, an interrupted bump completed, a non-UTF-8 file refused before any write). Verify: they fail because `cli/lib/src/release/` does not exist yet.
-- [ ] 3.2 Implement `cli/lib/src/release/settings.dart` (D2: `yamlProblem`, then `loadSettings`; the `Settings` mapping and gate of `release.sh:390-441`), `glob.dart` (D5) and `versions.dart` (D3, D4: work tree and commit trees, `cat-file --batch` through `launch`, `agree`, `bump` with temp file and rename per file). Write C3 into the spec requirement already carried (no extra text) and C4 as the `VersionGlob` doc comment. Verify: the 3.1 tests pass.
+- [x] 3.1 Write failing unit tests in `cli/test/release/glob_test.dart` (the `glob_regex` rules, the dot-name rule from 1.5, links refused at every path segment) and `cli/test/release/versions_test.dart` (one match per file, agreement, `bad_version_files` for a pattern with no or two groups and for a refused dialect, CRLF offsets, the bump write plan, an interrupted bump completed, a non-UTF-8 file refused before any write). Verify: they fail because `cli/lib/src/release/` does not exist yet.
+- [x] 3.2 Implement `cli/lib/src/release/settings.dart` (D2: `yamlProblem`, then `loadSettings`; the `Settings` mapping and gate of `release.sh:390-441`), `glob.dart` (D5) and `versions.dart` (D3, D4: work tree and commit trees, `cat-file --batch` through `launch`, `agree`, `bump` with temp file and rename per file). Write C3 into the spec requirement already carried (no extra text) and C4 as the `VersionGlob` doc comment. Verify: the 3.1 tests pass.
 
 ## 4. History, gates, notes and status (Dart)
 
