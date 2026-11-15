@@ -298,7 +298,7 @@ def msys(path):
     return "/" + text[0].lower() + text[2:]
 
 
-@unittest.skipUnless(os.name == "nt", "Git Bash path forms exist on Windows only")
+@unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
 class TestMsysPaths(Sw):
     """The handoff skips Git Bash's argument conversion, so `sw` converts a `/c/...` path option itself."""
 
