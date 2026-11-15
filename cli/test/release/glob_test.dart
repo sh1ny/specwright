@@ -96,6 +96,12 @@ void main() {
       ]);
     });
 
+    test('a final double star matches every path below', () {
+      expect(commitFiles('b/**', names, {}, 'x'), ['b/c/VERSION']);
+      expect(commitFiles('a/**', names, {}, 'x'), ['a/.VERSION', 'a/VERSION']);
+      expect(commitFiles('**', names, {}, 'x'), names);
+    });
+
     test('a literal path is matched exactly, sorted hits otherwise', () {
       expect(commitFiles('a/VERSION', names, {}, 'x'), ['a/VERSION']);
       expect(commitFiles('a/NOPE', names, {}, 'x'), isEmpty);
@@ -151,6 +157,12 @@ void main() {
       expect(files('**/top.md'), ['top.md']);
       expect(files('b/**/VERSION'), ['b/c/VERSION']);
       expect(files('*/*/VERSION'), ['b/c/VERSION']);
+    });
+
+    test('a final double star reaches nested files, skipping dot-names', () {
+      expect(files('b/**'), ['b/c/VERSION']);
+      expect(files('**'), ['a/VERSION', 'b/c/VERSION', 'top.md']);
+      expect(files('a/**'), ['a/VERSION']);
     });
 
     test('a missing path or a directory matches nothing', () {

@@ -5,8 +5,9 @@ import 'package:path/path.dart' as p;
 import 'stop.dart';
 
 /// A version-file glob over whole relative paths with `/` separators: `*` and
-/// `?` stop at `/`, `**/` spans any number of directories (also none), and
-/// `[...]` is a class (`[!...]` and `[^...]` negate it).
+/// `?` stop at `/`, `**/` spans any number of directories (also none), a final
+/// `**` segment matches every path below, and `[...]` is a class (`[!...]` and
+/// `[^...]` negate it).
 ///
 /// The work-tree glob skips dot-names under wildcards, while the commit glob
 /// matches them: kept from the script, not a goal.
@@ -31,6 +32,14 @@ class VersionGlob {
       if (glob.startsWith('**/', i)) {
         out.write('(?:.*/)?');
         i += 3;
+        continue;
+      } else if (i + 2 == glob.length &&
+          glob.startsWith('**', i) &&
+          (i == 0 || glob[i - 1] == '/')) {
+        // a final `**` segment spans every name below, files in nested
+        // directories too, as the script's recursive glob did
+        out.write('.+');
+        i += 2;
         continue;
       } else if (c == '*') {
         out.write('[^/]*');
@@ -74,6 +83,26 @@ List<String> workTreeFiles(String root, String pattern) {
     final segment = segments[k];
     final last = k == segments.length - 1;
     String child(String name) => rel.isEmpty ? name : '$rel/$name';
+    if (segment == '**' && last) {
+      // every file below, in nested directories too; dot-names are skipped
+      void all(String at) {
+        final full = at.isEmpty ? root : p.join(root, at);
+        for (final name in names(full)) {
+          if (name.startsWith('.')) continue;
+          final path = at.isEmpty ? name : '$at/$name';
+          final entity = p.join(root, path);
+          if (FileSystemEntity.isFileSync(entity)) {
+            hits.add(path);
+          } else if (FileSystemEntity.isDirectorySync(entity) &&
+              !FileSystemEntity.isLinkSync(entity)) {
+            all(path);
+          }
+        }
+      }
+
+      all(rel);
+      return;
+    }
     if (segment == '**' && !last) {
       walk(rel, k + 1);
       for (final entity in Directory(dir).listSync(followLinks: false)) {

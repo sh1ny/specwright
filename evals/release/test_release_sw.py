@@ -275,5 +275,25 @@ class TestUtf8Rows(Sw):
         self.assertEqual(doc["version"], "0.4.2")
 
 
+def msys(path):
+    """`C:\\x\\y` as Git Bash writes it, `/c/x/y`."""
+    text = str(Path(path).resolve()).replace("\\", "/")
+    return "/" + text[0].lower() + text[2:]
+
+
+@unittest.skipUnless(os.name == "nt", "Git Bash path forms exist on Windows only")
+class TestMsysPaths(Sw):
+    """The handoff skips Git Bash's argument conversion, so `sw` converts a `/c/...` path option itself."""
+
+    def test_dir_and_proposal_in_msys_form(self):
+        self.repo()
+        code, doc, raw = self.release("--dir", msys(self.work), "check", cwd=self.tmp)
+        self.assertEqual((code, doc and doc.get("version")), (0, "0.4.2"), raw)
+        proposal = self.tmp / "proposal.md"
+        proposal.write_text("## Why\n\nx\n\n## Release Notes\n\nS.\n\n### Added\n\n- New flag (#1)\n", encoding="utf-8")
+        code, doc, raw = self.release("notes", "--proposal", msys(proposal))
+        self.assertEqual((code, doc and doc.get("summary")), (0, "S."), raw)
+
+
 if __name__ == "__main__":
     unittest.main()

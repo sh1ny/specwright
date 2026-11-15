@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../commit/paths.dart';
 import '../release/commands.dart';
 import '../vcs/args.dart';
 import '../vcs/document.dart' show documentBytes;
@@ -33,7 +34,13 @@ Future<int> runReleaseCommand(
           stdin.where((byte) => byte == 0).length == 2) {
         stdin = [...stdin, 0];
       }
-      argv = parseHandoff(stdin, _handoffUsage).argv;
+      final handoff = parseHandoff(stdin, _handoffUsage);
+      argv = await nativeReleaseArgs(handoff.argv, handoff.bash);
+    } on BadPathException catch (e) {
+      writeOut(
+        documentBytes(VcsStop('bad_path', e.toString(), code: 2).object()),
+      );
+      return 2;
     } on VcsStop catch (stop) {
       writeOut(documentBytes(stop.object()));
       return stop.code;
@@ -47,4 +54,50 @@ Future<int> runReleaseCommand(
   final outcome = await releaseOutcome(argv, cwd: Directory.current.path);
   writeOut(documentBytes(outcome.document));
   return outcome.code;
+}
+
+/// The options whose value is a path: `--dir` (leading), `--store` and
+/// `--proposal`.
+const _pathOptions = {'--dir', '--store', '--proposal'};
+
+/// The options that take a value that is not a path.
+const _valueOptions = {
+  '--main',
+  '--branch',
+  '--to',
+  '--version',
+  '--base',
+  '--store-main',
+  '--store-prefix',
+};
+
+/// [argv] with each path option's value converted by [nativePath]: the stdin
+/// handoff skips Git Bash's own conversion, so on Windows `/c/x` would
+/// otherwise reach `sw` as written. [windows] and [environment] are test
+/// seams; an unconvertible path throws [BadPathException].
+Future<List<String>> nativeReleaseArgs(
+  List<String> argv,
+  String bash, {
+  bool? windows,
+  Map<String, String>? environment,
+}) async {
+  final out = [...argv];
+  var i = 0;
+  while (i < out.length) {
+    final t = out[i];
+    if (i + 1 < out.length && _pathOptions.contains(t)) {
+      out[i + 1] = await nativePath(
+        out[i + 1],
+        bash,
+        windows: windows,
+        environment: environment,
+      );
+      i += 2;
+    } else if (_valueOptions.contains(t)) {
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+  return out;
 }
