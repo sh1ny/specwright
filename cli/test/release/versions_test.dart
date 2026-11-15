@@ -415,6 +415,24 @@ pr:
       );
     });
 
+    test(
+      'a capture group with alternatives reads and bumps on either branch',
+      () async {
+        const alt = r'v=(0\.\d+\.\d+|1\.\d+\.\d+);';
+        write('VERSION', 'head v=0.4.2; tail\n');
+        final list = entries({'VERSION': alt});
+        final first = await bump(root.path, list, '1.0.0');
+        expect((first.from, first.to), ('0.4.2', '1.0.0'));
+        expect(text('VERSION'), 'head v=1.0.0; tail\n');
+        final second = await bump(root.path, list, '1.0.1');
+        expect((second.from, second.to), ('1.0.0', '1.0.1'));
+        expect(text('VERSION'), 'head v=1.0.1; tail\n');
+        final named = entries({'VERSION': r'v=(?<v>0\.\d+\.\d+|1\.\d+\.\d+);'});
+        expect((await bump(root.path, named, '1.0.2')).from, '1.0.1');
+        expect(text('VERSION'), 'head v=1.0.2; tail\n');
+      },
+    );
+
     test('CRLF line ends are kept', () async {
       write('VERSION', '0.4.2\r\nsecond\r\n');
       final list = entries({'VERSION': r'^(\d+\.\d+\.\d+)$'});

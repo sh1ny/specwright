@@ -15,8 +15,10 @@ String locatingPattern(String pattern) {
       ? pattern.indexOf('>', open) + 1
       : open + 1;
   const mark = r'(?<=([\s\S]*))';
+  // the body goes in a non-capturing group, so an alternation inside the
+  // capture group (`(a|b)`) keeps both markers on every branch
   return '${pattern.substring(0, body)}$mark'
-      '${pattern.substring(body, close)}$mark${pattern.substring(close)}';
+      '(?:${pattern.substring(body, close)})$mark${pattern.substring(close)}';
 }
 
 // The `(` of the capture group: not `(?:`, `(?=`, `(?!`, `(?<=` or `(?<!`.
