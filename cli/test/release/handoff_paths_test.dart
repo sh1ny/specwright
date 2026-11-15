@@ -1,6 +1,8 @@
 // Tests of the release handoff's path conversion (nativeReleaseArgs in
 // cli/lib/src/commands/release.dart): the stdin handoff skips Git Bash's own
 // argument conversion, so sw converts each path option's value itself.
+import 'dart:convert';
+
 import 'package:specwright_cli/src/commands/release.dart';
 import 'package:specwright_cli/src/commit/paths.dart';
 import 'package:test/test.dart';
@@ -54,4 +56,21 @@ void main() {
       throwsA(isA<BadPathException>()),
     );
   });
+
+  test(
+    'an unexpected handoff error still prints one internal_error document',
+    () async {
+      final out = <int>[];
+      final code = await runReleaseCommand(
+        ['--args-stdin'],
+        writeOut: out.addAll,
+        readStdin: () async => throw StateError('stdin broke'),
+      );
+      final doc = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+      expect(code, 1);
+      expect(doc['ok'], false);
+      expect(doc['error'], 'internal_error');
+      expect(doc['message'], contains('stdin broke'));
+    },
+  );
 }

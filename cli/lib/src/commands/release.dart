@@ -46,9 +46,13 @@ Future<int> runReleaseCommand(
       return stop.code;
     } on Object catch (error) {
       final refusal = VcsStop.refusal(error);
-      if (refusal is! VcsStop) rethrow;
-      writeOut(documentBytes(refusal.object()));
-      return refusal.code;
+      // any other failure still answers with one document, as every
+      // subcommand does, so the shim's caller always reads JSON
+      final stop = refusal is VcsStop
+          ? refusal
+          : VcsStop('internal_error', '${error.runtimeType}: $error');
+      writeOut(documentBytes(stop.object()));
+      return stop.code;
     }
   }
   final outcome = await releaseOutcome(argv, cwd: Directory.current.path);
