@@ -210,6 +210,40 @@ def rebase_style(repo, change, version, tasks=2, why="Operators cannot tell whic
     return shas
 
 
+PREPORT_DATE = "2026-10-10T12:00:00+00:00"
+
+
+def preport_status_repo(tmp):
+    """The repository behind evals/release/fixtures/preport-status.json, with fixed commit dates so its commit ids repeat.
+
+    v0.4.0 tagged on the initial commit, then `zeta` squash-merged at 0.4.1 (#1, with a `## Release Notes` section) and
+    `alpha` merged at 0.5.0 (#2, a Why line only). Returns (work tree, {name: commit id})."""
+    keys = ("GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL")
+    saved = {k: os.environ.get(k) for k in keys}
+    os.environ.update({"GIT_AUTHOR_DATE": PREPORT_DATE, "GIT_COMMITTER_DATE": PREPORT_DATE, "GIT_AUTHOR_NAME": NAME,
+                       "GIT_AUTHOR_EMAIL": EMAIL, "GIT_COMMITTER_NAME": NAME, "GIT_COMMITTER_EMAIL": EMAIL})
+    try:
+        # a skill name no other fixture uses, so the per-process cache never hands back an undated build
+        work = make_repo(tmp, version="0.4.0", skills=("specwright-preport",))
+        commits = {"initial": git(work, "rev-parse", "HEAD")}
+        git(work, "tag", "v0.4.0")
+        notes = ("## Release Notes\n\nZeta tells operators which build they run.\n\n### Added\n\n"
+                 "- A version line in the status output.\n\n### Fixed\n\n- The badge shows the real version (#7).\n")
+        commits["zeta"] = squash_merge(work, "zeta", "0.4.1", 1, why="Zeta first. More detail.", date="2026-10-11",
+                                       extra_files={"openspec/changes/archive/2026-10-11-zeta/proposal.md":
+                                                    "## Why\n\nZeta first. More detail.\n\n## What Changes\n\n- zeta\n\n"
+                                                    + notes})
+        commits["alpha"] = merge_commit(work, "alpha", "0.5.0", 2, why="Alpha second.", date="2026-10-12")
+        return work, commits
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def push(repo, ref="main"):
     git(repo, "push", "-q", "origin", ref)
 

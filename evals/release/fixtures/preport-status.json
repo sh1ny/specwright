@@ -1,0 +1,54 @@
+{
+  "note": "Printed by the Python release.sh (before native-cli-release) for status --version 0.5.0 on fixtures.preport_status_repo; repo and tag_repo are the work tree.",
+  "commits": {
+    "initial": "9d3731a7c826a106f4d9f71d4e8299b2c8c38228",
+    "zeta": "94c34f5d3511fb4e8d543cb282d2fed2a117a617",
+    "alpha": "4d575d6f22698e511e037c864c6393e450f8290c"
+  },
+  "document": {
+    "ok": true,
+    "version": "0.5.0",
+    "tag": "v0.5.0",
+    "release_commit": "4d575d6f22698e511e037c864c6393e450f8290c",
+    "main": "main",
+    "files": [
+      "README.md",
+      "VERSION",
+      "skills/specwright-preport/SKILL.md"
+    ],
+    "previous": {
+      "commit": "9d3731a7c826a106f4d9f71d4e8299b2c8c38228",
+      "version": "0.4.0",
+      "basis": "tag"
+    },
+    "range": {
+      "from": "9d3731a7c826a106f4d9f71d4e8299b2c8c38228",
+      "to": "4d575d6f22698e511e037c864c6393e450f8290c",
+      "commits": 2
+    },
+    "changes": [
+      {
+        "name": "zeta",
+        "why": null,
+        "pr": 1
+      },
+      {
+        "name": "alpha",
+        "why": "Alpha second.",
+        "pr": 2
+      }
+    ],
+    "warnings": [],
+    "notes": "Zeta tells operators which build they run.\n\nAdded:\n- A version line in the status output. (#1)\n\nFixed:\n- The badge shows the real version (#7).\n\nChanges:\n- alpha (#2): Alpha second.",
+    "tag_local": null,
+    "tag_remote": null,
+    "tag_lightweight": [],
+    "tag_object": {
+      "local": null,
+      "remote": null
+    },
+    "github_release": "not_github",
+    "repo": "<work>",
+    "tag_repo": "<work>"
+  }
+}
