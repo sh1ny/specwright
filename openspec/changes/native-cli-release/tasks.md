@@ -41,9 +41,9 @@ Every row runs through the `release.sh` shim and native `sw` on the three platfo
 
 ## 4. History, gates, notes and status (Dart)
 
-- [ ] 4.1 Write failing unit tests in `cli/test/release/history_test.dart` for `primary_history`, `Releases`, the D3/D5/D9 bump-detection walk of `release.sh:694-776` (one case per branch of `own_bump`, taken from the existing `TestCheckMain*` evals), the release-commit shape and the older-untagged gate, and in `cli/test/release/notes_test.dart` for the section parser, the first Why sentence, the summary choice and `build_notes`. Verify: they fail for missing code.
-- [ ] 4.2 Implement `history.dart` and `notes.dart`, including the store-backed code-merge proof with `gh api --paginate --slurp` through `runBoundedCommand` (D6). Write C6 as the `whyLines` doc comment. Verify: the 4.1 tests pass.
-- [ ] 4.3 Implement `check` (with the in-process `readVcsSettings` backend read, D7), `bump`, `notes`, `status` and `untagged` in `cli/lib/src/release/commands.dart`, printing the script's JSON fields and exit codes. Verify: the `TestCheck*`, `TestBump*`, `TestNotes*`, `TestStatus*` and `TestUntagged*` classes of `evals/release/test_release.py` pass against `sw release` directly (`SPECWRIGHT_RELEASE_SW=1` selects it in the fixtures until the shim lands in 6.1).
+- [x] 4.1 Write failing unit tests in `cli/test/release/history_test.dart` for `primary_history`, `Releases`, the D3/D5/D9 bump-detection walk of `release.sh:694-776` (one case per branch of `own_bump`, taken from the existing `TestCheckMain*` evals), the release-commit shape and the older-untagged gate, and in `cli/test/release/notes_test.dart` for the section parser, the first Why sentence, the summary choice and `build_notes`. Verify: they fail for missing code.
+- [x] 4.2 Implement `history.dart` and `notes.dart`, including the store-backed code-merge proof with `gh api --paginate --slurp` through `runBoundedCommand` (D6). Write C6 as the `whyLines` doc comment. Verify: the 4.1 tests pass.
+- [x] 4.3 Implement `check` (with the in-process `readVcsSettings` backend read, D7), `bump`, `notes`, `status` and `untagged` in `cli/lib/src/release/commands.dart`, printing the script's JSON fields and exit codes. Verify: the `TestCheck*`, `TestBump*`, `TestNotes*`, `TestStatus*` and `TestUntagged*` classes of `evals/release/test_release.py` pass against `sw release` directly (`SPECWRIGHT_RELEASE_SW=1` selects it in the fixtures until the shim lands in 6.1).
 
 ## 5. Publish and bounded network commands (Dart)
 

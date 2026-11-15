@@ -6,6 +6,7 @@ import 'package:args/args.dart';
 import 'commands/commit.dart';
 import 'commands/finish.dart';
 import 'commands/pr.dart';
+import 'commands/release.dart';
 import 'commands/review.dart';
 import 'commands/run.dart';
 import 'commands/vcs.dart';
@@ -26,6 +27,8 @@ const _usage =
     '  commit --args-stdin  run task-cover or fit-subject; same stdin as vcs\n'
     '  finish --args-stdin  print the undo plan of an archive; same stdin as vcs\n'
     '  review --args-stdin  select, run or record a design/pre-ship review; same stdin as vcs\n'
+    '  release [--dir <repo>] <sub> [options]\n'
+    '                    check, bump, status, untagged, publish or notes\n'
     '  pr snapshot|reply --args-stdin  read or answer a pull request; same stdin as vcs\n'
     '  as --args-file <path>  run the identity fence for the as.sh shim; the\n'
     '                    file holds the same records, and is deleted when read\n';
@@ -90,6 +93,12 @@ Future<int> runCli(
       writeOut: outBytes ?? io.stdout.add,
       readStdin: readStdin,
       planner: undoPlanner,
+    );
+  }
+  if (args.isNotEmpty && args.first == 'release') {
+    return runReleaseCommand(
+      args.sublist(1),
+      writeOut: outBytes ?? io.stdout.add,
     );
   }
   if (args.isNotEmpty && args.first == 'review') {
