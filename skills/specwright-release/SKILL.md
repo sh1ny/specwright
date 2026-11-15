@@ -2,7 +2,7 @@
 name: specwright-release
 description: "Opt-in release tagging for Specwright projects (release.enabled): bumps the version files as a tracked task in a change, and after the change is on main publishes the annotated tag and the GitHub release through scripts/release.sh. Backfills an older untagged version on request. Triggers: 'release', 'tag', 'publish v0.5.0', 'backfill a tag', or specwright-finish, specwright-pr watch and specwright-roadmap close offering a release."
 metadata:
-  version: 0.34.0
+  version: 0.35.0
 ---
 
 # Specwright Release
@@ -22,6 +22,8 @@ release:
 ```
 
 `release.enabled` with `pr.merge_method: rebase` is refused: a rebase rewrites the release commit.
+
+`release.version_files` patterns are JavaScript regular expressions, read in Unicode and multiline mode (ADR 0037): `^` and `$` match at each line, also before a CRLF. Python-only syntax (`(?P<name>`, `\A`, `\Z`, `(?i)`) is refused with `bad_version_files`, naming the entry, before anything is read or written. Each pattern has exactly one capture group, the version.
 
 ## bump
 
@@ -45,7 +47,7 @@ One or two sentences saying what this release brings.
 
 An item that names no issue or PR (`#<n>` or `<owner>/<repo>#<n>` outside a code span) is listed with the change's PR appended, ` (#<pr>)`; with no PR known it is listed as written. The notes open with the release summary, then list `Added:`, `Changed:`, `Fixed:` and `Removed:` with every change's items in the changes' order (150 items at most, then `…and <n> more items`), and `Changes:` with one line per change that has no valid section.
 
-The summary comes from the bumping change: the change in the release's range whose archived `tasks.md` has a ticked `release.sh bump --to <version>` task and a valid section; with none or several, the last change with a valid section. The bump task rewrites that summary to describe the whole release, not only its own change, and checks the section with `bash scripts/release.sh notes --proposal <proposal.md>`, where `<proposal.md>` is the change's `<P>/changes/<change>/proposal.md` in the planning repo: in the store when the project is store-backed, not under the code checkout. That subcommand reads one file, needs no repo, git or network and no `release.enabled`; it exits 0 with the summary and each item's line (an unreferenced item ends in the literal ` (#<pr>)`), 1 with `release_notes_invalid` and every error with its line (or `no_release_notes`), 2 when the file is missing. Run it again after every edit of the section.
+The summary comes from the bumping change: the change in the release's range whose archived `tasks.md` has a ticked `release.sh bump --to <version>` task and a valid section; with none or several, the last change with a valid section. The bump task rewrites that summary to describe the whole release, not only its own change, and checks the section with `bash scripts/release.sh notes --proposal <proposal.md>`, where `<proposal.md>` is the change's `<P>/changes/<change>/proposal.md` in the planning repo: in the store when the project is store-backed, not under the code checkout. That subcommand reads one file, needs no git, network or `release.enabled`, and reads no settings; run it from the code checkout, where the script finds the project's `sw`; it exits 0 with the summary and each item's line (an unreferenced item ends in the literal ` (#<pr>)`), 1 with `release_notes_invalid` and every error with its line (or `no_release_notes`), 2 when the file is missing. Run it again after every edit of the section.
 
 A change whose section is invalid, or whose proposal is over 64 KB, falls back to its Why line under `Changes:`, and `status` and `publish` list it in `warnings` (the change and the first error) without stopping. A change with no section is listed as before.
 
@@ -81,6 +83,9 @@ Show the error and tag nothing more. None is fixed by moving, deleting or forcin
 | 1 | `push_url_mismatch`: origin pushes to another repository than it fetches from | the user fixes `remote.origin.pushurl`, or publishes from a remote whose URLs agree |
 | 1 | `tag_mismatch`: the local tag and origin's are different tag objects (a lost push race) | the user deletes the local tag (`git tag -d <tag>`); a re-run fetches origin's |
 | 1 | a `version_files` entry outside the repository, or a symlink | the user fixes `release.version_files` (list the file a link points to) |
+| 1 | `bad_version_files`: a pattern that is not a JavaScript regex in Unicode mode (Python-only syntax), or with no or several capture groups | the user rewrites the entry it names |
+| 1 | `bad_version_files` from bump: a version file it would rewrite is not valid UTF-8 | nothing was written; the user fixes the file's encoding, or bumps it by hand |
+| 1 | `bad_settings`: a line in `openspec/specwright.yaml` the settings reader would misread (a tab indent, a key given twice) | the user fixes the line it names; `notes` is unaffected |
 | 1 | an older version is untagged | publish it first (`untagged` lists it) |
 | 1 | `version_not_ahead_of_main`: the branch bumped to a version not greater than main's | rerun `bump --to` with a greater version, commit it, and ship or merge again |
 | 3 | network or fence failure | report it; a re-run of publish resumes |

@@ -24,6 +24,7 @@ _spec = importlib.util.spec_from_file_location("release_fixtures", HERE / "fixtu
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 VERSION_FILES = ["VERSION", "README.md", "skills/specwright-pr/SKILL.md", "skills/specwright-debug/SKILL.md"]
 
@@ -67,7 +68,7 @@ class Base(unittest.TestCase):
     def release(self, *args, cwd=None, env=None):
         """Run release.sh; returns (exit code, parsed JSON, raw stdout)."""
         r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
-                           encoding="utf-8", env=env)
+                           encoding="utf-8", env=fx.sw_env(env))
         try:
             doc = json.loads(r.stdout)
         except ValueError:
@@ -457,6 +458,7 @@ class Notes(Base):
     def notes_cmd(self, text, raw=None):
         path = self.tmp / "proposal.md"
         path.write_bytes(raw if raw is not None else text.encode("utf-8"))
+        fx.stamp_version(self.tmp)  # no repository here, but the shim still finds the matching sw through the stamp
         return self.release("notes", "--proposal", str(path), cwd=self.tmp)
 
     def invalid(self, text):
@@ -548,6 +550,7 @@ class TestNotesCommand(Notes):
 
     def test_missing_file_exit_2(self):
         missing = self.tmp / "nope" / "proposal.md"
+        fx.stamp_version(self.tmp)
         code, doc, raw = self.release("notes", "--proposal", str(missing), cwd=self.tmp)
         self.assertEqual(code, 2, raw)
         self.assertIn(str(missing), doc["message"])
@@ -1236,24 +1239,33 @@ CODE_SLUG = "acme/code"
 
 
 class GhFlow(Flow):
-    """A `gh` shim on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
-    local bare repository through `url.<bare>.insteadOf`."""
+    """A `gh` fake on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
+    local bare repository through `url.<bare>.insteadOf`.
+
+    The fake is written with fakeexe.write_fake as an `.exe` on Windows (it receives `%` and quotes in `--jq` and templates,
+    which a `.cmd` refuses), so `sw` finds it. It logs every call to FAKE_GH_LOG; a publish or a store-backed read that
+    exits 0 and reaches GitHub must show a call there (`release`), so a real `gh` further down PATH cannot stand in unnoticed."""
 
     def setUp(self):
         super().setUp()
         (self.tmp / "bin").mkdir()
-        gh = self.tmp / "bin" / "gh"
-        gh.write_text(GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
-                      encoding="utf-8", newline="\n")
-        gh.chmod(0o755)
+        fakeexe.write_fake(self.tmp / "bin" / "gh",
+                           GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
+                           exe=True)
         self.state = {"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok"}, "repos": {CODE_SLUG: {"pulls": []}}}
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
+
+    def release(self, *args, **kw):
+        out = super().release(*args, **kw)
+        if out[0] == 0 and ("--store" in args or (args[0] == "publish" and out[1]["github_release"] not in ("disabled", "not_github"))):
+            self.assertTrue(self.gh_calls(), "the fake gh recorded no call: " + out[2])
+        return out
 
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
                   "FAKE_GH_LOG": str(self.gh_log), "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
-        return e
+        return fx.sw_env(e)
 
     def save(self):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
@@ -1762,7 +1774,7 @@ class TestBoundedNetwork(PubFlow):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
         t0 = time.time()
         try:
-            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=e,
+            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e),
                                capture_output=True, text=True, encoding="utf-8", timeout=self.LIMIT)
         except subprocess.TimeoutExpired:
             self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
@@ -1853,6 +1865,19 @@ class TestBoundedNetwork(PubFlow):
         self.assertNothingRunning()
 
     def test_release_create_cut_off_not_found(self):
+        """The cut-off must hit `gh release create` and nothing earlier. With one publish under the 5 s bound, the bound also
+        covers the real `git push` of the tag (and the `ls-remote` reads before it), so on a loaded machine a slow push is cut
+        off first: the run stops with a push limit, not with the release create's, and the assertions below fail (#211). So
+        a first publish runs under the normal bound with `release create` failing: it pushes the tag and stops with
+        release_create_failed. The cut-off run then finds the local and the remote tag done, and only `ls-remote` reads and
+        `gh release view` come before the hung `release create`: the 5 s bound can only reach the call under test. Without
+        the first run the test fails as reported only when the tag push is slow; nothing here measures time."""
+        self.state["fail"] = [{"match": "release create", "stderr": "gh: connection reset"}]
+        code, doc, raw = self.publish()
+        self.assertEqual((code, doc["error"]), (3, "release_create_failed"), raw)
+        self.assertIn(self.TAG, fx.git(self.bare, "tag", "-l"))
+        del self.state["fail"]
+        self.gh_log.unlink()
         self.state["hang"] = [{"match": "release create", "pid_file": str(self.tmp / "gh.pid")}]
         code, doc, raw, took = self.run_publish()
         self.assertEqual(code, 3, raw)
@@ -1893,6 +1918,7 @@ class TestThisRepo(Base):
         if subprocess.run(["git", "rev-parse", "--verify", "--quiet", "origin/main"], cwd=clone, capture_output=True).returncode != 0:
             self.skipTest("no main branch in this checkout")
         fx.write(clone, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
+        fx.stamp_version(clone)
         for version, prefix, name, pr in (("0.4.1", "9b33ec5", "fix-m2-gaps", 89), ("0.4.2", "4f9b823", "pin-openspec-version", 90)):
             code, doc, raw = self.release("status", "--version", version, "--main", "origin/main", cwd=clone)
             self.assertEqual(code, 0, raw)
@@ -1915,6 +1941,7 @@ class TestVersionFiles(Base):
             dst.write_bytes((ROOT / rel).read_bytes())
         fx.write(work, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
         fx.git(work, "init", "-q", "-b", "main")
+        fx.stamp_version(work)
         code, doc, raw = self.release("check", cwd=work)
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], (ROOT / "VERSION").read_text(encoding="utf-8").strip())

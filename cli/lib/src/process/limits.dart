@@ -69,6 +69,9 @@ int? _nonNegativeInt(String? text) {
 ///
 /// [epochSeconds] returns the current wall time in epoch seconds; it is read
 /// once, so a later clock step cannot move the deadline.
+///
+/// A per-command test deadline in `sw` was rejected (native-cli-release C5);
+/// evals arrange their own ordering instead.
 ResolvedLimits resolveLimits(
   Map<String, String> env, {
   required bool paged,

@@ -62,6 +62,25 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertRegex(text, r"(?i)store")
         self.assertRegex(text, r"(?i)backfill")
 
+    def test_names_the_version_pattern_dialect(self):
+        # ADR 0037: the skill, the settings template and the README name the dialect and its stops.
+        text = read(SKILLS / "specwright-release" / "SKILL.md")
+        dialect = line_with(text, r"^`release\.version_files` patterns are JavaScript regular expressions", "the dialect line")
+        self.assertRegex(dialect, r"(?i)unicode and multiline mode")
+        self.assertIn("bad_version_files", dialect)
+        for syntax in ("(?P<name>", "\\A", "\\Z", "(?i)"):
+            self.assertIn(syntax, dialect)
+        stops = sections(text).get("stops", "")
+        for error in ("bad_version_files", "bad_settings", "UTF-8"):
+            self.assertIn(error, stops, f"the stop table does not name {error}")
+        template = read(ROOT / "templates" / "openspec" / "specwright.yaml")
+        self.assertRegex(template, r"JavaScript regexes in\s*#?\s*Unicode and multiline mode")
+        self.assertIn("bad_version_files", template)
+        readme = read(ROOT / "README.md")
+        breaking = line_with(readme, r"^- \*\*BREAKING \(0\.35\.0\):\*\* `release\.version_files`", "the 0.35.0 note")
+        for needle in ("JavaScript", "bad_settings", "UTF-8"):
+            self.assertIn(needle, breaking)
+
     def test_publish_is_fenced_and_fetches_main_only(self):
         # A user-started publish resolves its run login instead of running unfenced, and step 1 fetches main alone:
         # `--tags` would fail on a divergent local tag before release.sh can report tag_mismatch.

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.34.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.35.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -702,6 +702,7 @@ pr:
 Since 0.13.0 the default branch decides (ADR 0020). Before it archives and before each merge request, watch reads `pr.merge`, `pr.merge_method`, `pr.delete_branch` and the reviewers (`pr.reviewers`, `planning_store.reviewers`) from GitHub, on the default branch and at the head it would merge, never from your checkout. It archives and merges without asking only when main has `pr.merge: agent`, the PR leaves those settings alone, and main's required reviewers reported on that head. A PR that changes them, including one that turns agent merge on for itself, gets the differences listed and is merged only after your yes for that head (asked only when the head has `pr.merge: agent` and its own required reviewers reported); otherwise watch reports ready and stops. When the policy cannot be read, watch merges nothing.
 
 **Releases.** Opt-in with `release.enabled`. The version bump is a tracked task in the change's last task group (`bash skills/specwright-release/scripts/release.sh bump --to <version>`, checked with `check`). After the change is on main, `publish` tags the merged main commit with an annotated `v<version>` tag, with notes taken from the archived changes, pushes only that tag and optionally creates the GitHub release. Tags are never moved, deleted or forced, and a rebase-merged release is refused. A store-backed project tags the code repo only.
+- **BREAKING (0.35.0):** `release.version_files` patterns are JavaScript regexes in Unicode and multiline mode (ADR 0037), so rewrite any pattern with Python-only syntax (`(?P<name>`, `\A`, `\Z`, `(?i)`); such a pattern stops with `bad_version_files`. A line in `openspec/specwright.yaml` that the settings reader would misread (a tab indent, a key given twice) stops release with `bad_settings`, naming the line. Bump refuses a version file that is not valid UTF-8, before writing any file.
 
 **GitHub identity (0.3.0).** Every `gh` call and every git fetch, pull and push to a github.com remote runs through `as.sh` as one verified login (ADR 0008). With `github.login` empty, the first step you start resolves the active `gh` account once and hands it to every step it runs (ship, watch, feedback, archive, finish), so another agent's `gh auth switch` cannot redirect the run. A new request in a later session resolves again: if you switch `gh` accounts between sessions, set `github.login`. Remotes on other hosts are not fenced.
 - **BREAKING:** with `github.login` empty, an environment that has only `GH_TOKEN` and no stored `gh` login (CI, containers, cloud agents) now stops before its first GitHub call; environment tokens never pick the login. Run `gh auth login --with-token` (and optionally set `github.login`).

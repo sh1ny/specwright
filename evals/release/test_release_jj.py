@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("release_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
@@ -40,10 +41,10 @@ class JjRelease(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(fx.rmtree, self.tmp)
         (self.tmp / "bin").mkdir()
-        gh = self.tmp / "bin" / "gh"
-        gh.write_text(GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
-                      encoding="utf-8", newline="\n")
-        gh.chmod(0o755)
+        # an `.exe` on Windows: the fake receives `%` and quotes in `--jq` and templates, which a `.cmd` refuses
+        fakeexe.write_fake(self.tmp / "bin" / "gh",
+                           GH_SCRIPT.format(Path(sys.executable).resolve().as_posix(), (ROOT / "evals" / "fakes" / "gh.py").resolve().as_posix()),
+                           exe=True)
         self.state = {"user": "KintsugiBot", "tokens": {"KintsugiBot": "tok"}, "repos": {CODE_SLUG: {"pulls": [], "releases": {}}}}
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
         self.trace = self.tmp / "git-trace.jsonl"
@@ -65,7 +66,7 @@ class JjRelease(unittest.TestCase):
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
                   "FAKE_GH_LOG": str(self.gh_log), "GIT_TRACE2_EVENT": str(self.trace),
                   "JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL})
-        return e
+        return fx.sw_env(e)
 
     def release(self, *args):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
@@ -74,6 +75,8 @@ class JjRelease(unittest.TestCase):
             doc = json.loads(r.stdout)
         except ValueError:
             doc = None
+        if r.returncode == 0 and args[0] == "publish":  # the fake gh, not a real one on PATH, answered
+            self.assertTrue(self.gh_calls(), "the fake gh recorded no call: " + r.stdout + r.stderr)
         return r.returncode, doc, r.stdout + r.stderr
 
     def gh_calls(self):

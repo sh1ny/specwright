@@ -926,6 +926,13 @@ const launchAllowlist = Allowlist(
     // Native review subprocesses and the streamed Git snapshot pipeline.
     'review/run.dart': {'BoundedRun': Call(1, _tool)},
     'review/snapshot.dart': {'launch': Call(2, _tool)},
+    // Local git reads of version files at a commit (`ls-tree`, `cat-file`).
+    'release/versions.dart': {'launch': Call(1, _tool)},
+    // Release git: local reads through `launch`, network git and `gh` bounded.
+    'release/git.dart': {
+      'launch': Call(1, _tool),
+      'runBoundedCommand': Call(1, _tool),
+    },
     'vcs/tool_runner.dart': {'launch': Call(2, _tool)},
     'process/windows_tree.dart': {
       'Process.start': Call(1, _tool, function: 'killTree'),
