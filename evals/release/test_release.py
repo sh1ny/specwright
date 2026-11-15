@@ -458,6 +458,7 @@ class Notes(Base):
     def notes_cmd(self, text, raw=None):
         path = self.tmp / "proposal.md"
         path.write_bytes(raw if raw is not None else text.encode("utf-8"))
+        fx.stamp_version(self.tmp)  # no repository here, but the shim still finds the matching sw through the stamp
         return self.release("notes", "--proposal", str(path), cwd=self.tmp)
 
     def invalid(self, text):
@@ -549,6 +550,7 @@ class TestNotesCommand(Notes):
 
     def test_missing_file_exit_2(self):
         missing = self.tmp / "nope" / "proposal.md"
+        fx.stamp_version(self.tmp)
         code, doc, raw = self.release("notes", "--proposal", str(missing), cwd=self.tmp)
         self.assertEqual(code, 2, raw)
         self.assertIn(str(missing), doc["message"])
@@ -1939,6 +1941,7 @@ class TestVersionFiles(Base):
             dst.write_bytes((ROOT / rel).read_bytes())
         fx.write(work, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES))
         fx.git(work, "init", "-q", "-b", "main")
+        fx.stamp_version(work)
         code, doc, raw = self.release("check", cwd=work)
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["version"], (ROOT / "VERSION").read_text(encoding="utf-8").strip())

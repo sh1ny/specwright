@@ -29,6 +29,7 @@ const _usage =
     '  review --args-stdin  select, run or record a design/pre-ship review; same stdin as vcs\n'
     '  release [--dir <repo>] <sub> [options]\n'
     '                    check, bump, status, untagged, publish or notes\n'
+    '  release --args-stdin  run a release subcommand for the shim; same stdin as vcs\n'
     '  pr snapshot|reply --args-stdin  read or answer a pull request; same stdin as vcs\n'
     '  as --args-file <path>  run the identity fence for the as.sh shim; the\n'
     '                    file holds the same records, and is deleted when read\n';
@@ -99,6 +100,7 @@ Future<int> runCli(
     return runReleaseCommand(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
+      readStdin: readStdin,
     );
   }
   if (args.isNotEmpty && args.first == 'review') {

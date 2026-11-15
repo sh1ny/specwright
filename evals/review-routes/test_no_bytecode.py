@@ -48,9 +48,12 @@ class NoBytecode(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="release-bytecode-"))
         self.addCleanup(shutil.rmtree, tmp, True)
         scripts = tmp / "skills" / "specwright-release" / "scripts"
+        resolver = tmp / "skills" / "specwright-pr" / "scripts"
         scripts.mkdir(parents=True)
-        for name in ("release.sh", "bounded.py"):
-            shutil.copy2(ROOT / "skills" / "specwright-release" / "scripts" / name, scripts / name)
+        resolver.mkdir(parents=True)
+        shutil.copy2(ROOT / "skills" / "specwright-release" / "scripts" / "release.sh", scripts / "release.sh")
+        for name in ("sw-path.sh", "bounded.py"):
+            shutil.copy2(ROOT / "skills" / "specwright-pr" / "scripts" / name, resolver / name)
         repo, origin = tmp / "repo", tmp / "origin.git"
         repo.mkdir()
         def git(*args):
@@ -69,7 +72,9 @@ class NoBytecode(unittest.TestCase):
         git("commit", "-q", "-m", "feat: fixture (#1)")
         git("remote", "add", "origin", str(origin))
         git("push", "-q", "origin", "main")
+        stamp_version(repo)
         env = {k: v for k, v in os.environ.items() if k not in ("PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX")}
+        env["SPECWRIGHT_HOME"] = str(sw_home())
         env = bash_path_env(environment=env)
         env["VCS_TEST_SEARCH"] = env["PATH"]
         result = subprocess.run(
@@ -80,8 +85,8 @@ class NoBytecode(unittest.TestCase):
         document = json.loads(result.stdout)
         self.assertEqual(document["tags"], "origin")
         self.assertEqual([entry["version"] for entry in document["untagged"]], ["0.1.0"])
-        self.assertEqual(list(scripts.rglob("__pycache__")), [])
-        self.assertEqual(list(scripts.rglob("*.pyc")), [])
+        self.assertEqual(list((tmp / "skills").rglob("__pycache__")), [])
+        self.assertEqual(list((tmp / "skills").rglob("*.pyc")), [])
 
 
 if __name__ == "__main__":

@@ -154,7 +154,8 @@ class TestSwResolution(Sw):
                 self.assertEqual(code, 1, raw)
                 self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), raw)
                 self.assertEqual(raw.count('"error"'), 1, raw)  # one document
-                self.assertFalse(log.exists() and log.read_text(encoding="utf-8").strip(), "started: " + log.read_text(encoding="utf-8"))
+                started = log.read_text(encoding="utf-8") if log.exists() else ""
+                self.assertEqual(started.strip(), "", "started: " + started)
 
 
 class TestVersionPatterns(Sw):

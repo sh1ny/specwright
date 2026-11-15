@@ -4,19 +4,19 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| releases → Release operations run in the project's sw | Publish without Python or bash | evals/release/test_release_sw.py | test_publish_runs_without_python_or_bash | red |
-| releases → Release operations run in the project's sw | Check reads the GitButler backend in process | evals/release/test_release_sw.py | test_gitbutler_backend_read_without_pr_pair | red |
-| releases → Release operations run in the project's sw | Status keeps its document | evals/release/test_release_sw.py | test_status_matches_preport_document | red |
-| releases → Release operations run in the project's sw | No matching sw | evals/release/test_release_sw.py | test_untagged_sw_missing_starts_no_network | red |
-| releases → Version file patterns are JavaScript regular expressions | Shipped patterns read the version | evals/release/test_release_sw.py | test_shipped_patterns_read_version | red |
-| releases → Version file patterns are JavaScript regular expressions | CRLF line ends | evals/release/test_release_sw.py | test_crlf_version_read_and_bump_keeps_crlf | red |
-| releases → Version file patterns are JavaScript regular expressions | Python-only syntax | evals/release/test_release_sw.py | test_python_only_pattern_bad_version_files | red |
-| releases → A misreadable settings line stops a release | Settings read as written | evals/release/test_release_sw.py | test_shipped_settings_check_passes | red |
-| releases → A misreadable settings line stops a release | Misreadable line | evals/release/test_release_sw.py | test_misreadable_settings_publish_bad_settings | red |
-| releases → A misreadable settings line stops a release | Notes ignores the settings | evals/release/test_release_sw.py | test_notes_ignores_misreadable_settings | red |
-| releases → Bump refuses a version file that is not UTF-8 | Valid UTF-8 files | evals/release/test_release_sw.py | test_bump_valid_utf8_files | red |
-| releases → Bump refuses a version file that is not UTF-8 | A malformed file after a valid one | evals/release/test_release_sw.py | test_bump_malformed_file_changes_nothing | red |
-| releases → Bump refuses a version file that is not UTF-8 | Check reads the malformed file | evals/release/test_release_sw.py | test_check_reads_malformed_file | red |
+| releases → Release operations run in the project's sw | Publish without Python or bash | evals/release/test_release_sw.py | test_publish_runs_without_python_or_bash | green |
+| releases → Release operations run in the project's sw | Check reads the GitButler backend in process | evals/release/test_release_sw.py | test_gitbutler_backend_read_without_pr_pair | green |
+| releases → Release operations run in the project's sw | Status keeps its document | evals/release/test_release_sw.py | test_status_matches_preport_document | green |
+| releases → Release operations run in the project's sw | No matching sw | evals/release/test_release_sw.py | test_untagged_sw_missing_starts_no_network | green |
+| releases → Version file patterns are JavaScript regular expressions | Shipped patterns read the version | evals/release/test_release_sw.py | test_shipped_patterns_read_version | green |
+| releases → Version file patterns are JavaScript regular expressions | CRLF line ends | evals/release/test_release_sw.py | test_crlf_version_read_and_bump_keeps_crlf | green |
+| releases → Version file patterns are JavaScript regular expressions | Python-only syntax | evals/release/test_release_sw.py | test_python_only_pattern_bad_version_files | green |
+| releases → A misreadable settings line stops a release | Settings read as written | evals/release/test_release_sw.py | test_shipped_settings_check_passes | green |
+| releases → A misreadable settings line stops a release | Misreadable line | evals/release/test_release_sw.py | test_misreadable_settings_publish_bad_settings | green |
+| releases → A misreadable settings line stops a release | Notes ignores the settings | evals/release/test_release_sw.py | test_notes_ignores_misreadable_settings | green |
+| releases → Bump refuses a version file that is not UTF-8 | Valid UTF-8 files | evals/release/test_release_sw.py | test_bump_valid_utf8_files | green |
+| releases → Bump refuses a version file that is not UTF-8 | A malformed file after a valid one | evals/release/test_release_sw.py | test_bump_malformed_file_changes_nothing | green |
+| releases → Bump refuses a version file that is not UTF-8 | Check reads the malformed file | evals/release/test_release_sw.py | test_check_reads_malformed_file | green |
 
 Every row runs through the `release.sh` shim and native `sw` on the three platforms of `.github/workflows/evals.yml` (task 8.1). The existing `evals/release/test_release.py` and `test_release_jj.py` cases are the port's contract (design D8) and must stay green there too.
 
@@ -52,9 +52,9 @@ Every row runs through the `release.sh` shim and native `sw` on the three platfo
 
 ## 6. The shim, launch sites and removals
 
-- [ ] 6.1 Add `sw release --args-stdin` and plain `sw release <sub>` to `cli/lib/src/cli.dart` and `cli/lib/src/commands/release.dart` (D1), and replace `skills/specwright-release/scripts/release.sh` with an ADR 0028 shim that takes the project from a leading `--dir`, else from `pwd`. Remove `skills/specwright-release/scripts/bounded.py` and its `evals/suites.json` entry (D10), and drop the `SPECWRIGHT_RELEASE_SW` switch from 4.3. Verify: `python -m unittest evals/runner/test_suite_map.py` passes and `evals/release/test_release.py` passes through the shim.
-- [ ] 6.2 List every process-runner call of `cli/lib/src/release/` in `cli/test/launch_sites_test.dart` as an external tool. Verify: `mise exec -- dart test test/launch_sites_test.dart` passes, and fails when a `Process.start` is added to `cli/lib/src/release/git.dart`.
-- [ ] 6.3 Run `python -m unittest evals/release/test_release_sw.py` and flip every Test map row green. Verify: all 13 tests pass locally on this platform.
+- [x] 6.1 Add `sw release --args-stdin` and plain `sw release <sub>` to `cli/lib/src/cli.dart` and `cli/lib/src/commands/release.dart` (D1), and replace `skills/specwright-release/scripts/release.sh` with an ADR 0028 shim that takes the project from a leading `--dir`, else from `pwd`. Remove `skills/specwright-release/scripts/bounded.py` and its `evals/suites.json` entry (D10), and drop the `SPECWRIGHT_RELEASE_SW` switch from 4.3. Verify: `python -m unittest evals/runner/test_suite_map.py` passes and `evals/release/test_release.py` passes through the shim.
+- [x] 6.2 List every process-runner call of `cli/lib/src/release/` in `cli/test/launch_sites_test.dart` as an external tool. Verify: `mise exec -- dart test test/launch_sites_test.dart` passes, and fails when a `Process.start` is added to `cli/lib/src/release/git.dart`.
+- [x] 6.3 Run `python -m unittest evals/release/test_release_sw.py` and flip every Test map row green. Verify: all 13 tests pass locally on this platform.
 
 ## 7. Skill text and settings docs
 

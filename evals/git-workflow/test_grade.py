@@ -1158,7 +1158,8 @@ class ReleaseEvals(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), main, "a fetch before the merge must see main without the squash")
         check = subprocess.run([bashexe.bash(), str(Path(__file__).resolve().parents[2] / "skills" / "specwright-release" / "scripts" / "release.sh"), "check", "--main", "origin/main"],
-                               cwd=repo, capture_output=True, text=True)
+                               cwd=repo, capture_output=True, text=True,
+                               env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))  # the shim runs `sw` from the stamped fixture
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.agent_run(repo, publish=False)
         self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), grade.git(repo / "ob.git", "rev-parse", "main"),
