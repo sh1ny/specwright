@@ -231,6 +231,41 @@ class TestSettingsRows(Sw, SettingsRows):
                     self.assertIn("line %d" % line, doc["message"], raw)
                     self.assertFalse(log.exists() and log.read_text(encoding="ascii"), "git started: " + raw)
 
+    def git_recorder(self):
+        """An environment whose `git` only logs that it started: the log stays empty when a stop comes before any git call."""
+        directory = self.tmp / "git-recorder"
+        directory.mkdir()
+        fakeexe.write_python_fake(directory / "git", 'import os, sys\nwith open(os.environ[%r], "a") as log:\n'
+                                  '    log.write("git\\n")\nsys.exit(1)\n' % LOG)
+        log = self.tmp / "git.log"
+        return {**os.environ, LOG: str(log), "PATH": str(directory) + os.pathsep + os.environ.get("PATH", "")}, log
+
+    def test_capitalised_no_stops_check_before_git(self):
+        self.repo()
+        text = (self.work / "openspec" / "specwright.yaml").read_text(encoding="utf-8")
+        fx.write(self.work, "openspec/specwright.yaml", text.replace("release:\n  enabled: true\n", "release:\n  enabled: No\n"))
+        line = (self.work / "openspec" / "specwright.yaml").read_text(encoding="utf-8").split("\n").index("  enabled: No") + 1
+        env, log = self.git_recorder()
+        code, doc, raw = self.release("check", env=env)
+        self.assertEqual((code, doc and doc.get("error")), (1, "bad_settings"), raw)
+        for word in ("line %d" % line, "true", "false"):
+            self.assertIn(word, doc["message"], raw)
+        self.assertFalse(log.exists() and log.read_text(encoding="ascii"), "git started: " + raw)
+
+    def test_non_mapping_release_or_pr_stops_check_before_git(self):
+        self.repo()
+        head = (self.work / "openspec" / "specwright.yaml").read_text(encoding="utf-8").split("release:\n", 1)[0]
+        env, log = self.git_recorder()
+        for key in ("release", "pr"):
+            for form in ("\n  - a\n", " [a, b]\n", " scalar\n", " ''\n"):
+                with self.subTest(key=key, form=form):
+                    body = key + ":" + form if key == "release" else "release:\n  enabled: true\n" + key + ":" + form
+                    fx.write(self.work, "openspec/specwright.yaml", head + body)
+                    code, doc, raw = self.release("check", env=env)
+                    self.assertEqual((code, doc and doc.get("error")), (1, "bad_settings"), raw)
+                    self.assertIn(key, doc["message"], raw)
+                    self.assertFalse(log.exists() and log.read_text(encoding="ascii"), "git started: " + raw)
+
     def test_notes_ignores_misreadable_settings(self):
         self.repo()
         proposal = self.tmp / "proposal.md"
@@ -256,6 +291,21 @@ class TestPublishSettings(Sw, tr.PubFlow, SettingsRows):
                 self.assertEqual(self.tags(), ("", ""))
                 self.assertEqual(self.releases(), {})
                 self.assertEqual(self.gh_calls(), [], "no network call before the settings are read")
+
+
+class TestYesEnabled(Sw, tr.PubFlow):
+    def test_yes_enabled_stops_publish(self):
+        path = self.work / "openspec" / "specwright.yaml"
+        fx.write(self.work, "openspec/specwright.yaml", path.read_text(encoding="utf-8").replace("enabled: true", "enabled: yes"))
+        line = path.read_text(encoding="utf-8").split("\n").index("  enabled: yes") + 1
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "bad_settings"), raw)
+        for word in ("line %d" % line, "true", "false"):
+            self.assertIn(word, doc["message"], raw)
+        self.assertEqual(self.tags(), ("", ""))
+        self.assertEqual(self.releases(), {})
+        self.assertEqual(self.gh_calls(), [], "no network call before the settings are read")
 
 
 class TestUtf8Rows(Sw):

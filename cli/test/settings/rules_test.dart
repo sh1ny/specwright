@@ -237,7 +237,7 @@ void main() {
 
     test('a flow-map pr has no text: a boolean reads as true', () {
       final pr =
-          parseYaml('pr: {settle: yes}\n')['pr']! as Map<String, Object?>;
+          parseYaml('pr: {settle: true}\n')['pr']! as Map<String, Object?>;
       expect(settleOf(pr).problem!.why, startsWith('true must be'));
     });
   });
@@ -251,7 +251,7 @@ void main() {
           'request': '@kody review',
         },
         'plain': <String, Object?>{},
-        'scalar': 'x',
+        'scalar': null,
       });
       expect(_json({for (final e in out.entries) e.key: e.value.toJson()}), {
         'kody-ai': {
@@ -332,7 +332,7 @@ void main() {
           'report': {'check': 'Bot Code Review', 'zzz': 'x'},
         },
         'empty': {'report': <String, Object?>{}},
-        'blank': {'report': ''},
+        'blank': {'report': null},
       });
       expect(out['r']!.report, {'check': 'Bot Code Review', 'zzz': 'x'});
       expect(out['empty']!.report, isEmpty);
@@ -340,37 +340,28 @@ void main() {
     });
 
     test(
-      'a report that is not a mapping of strings is a problem, read as none',
+      'a report with a value that is not a string is a problem, read as none',
       () {
         final problems = <SettingProblem>[];
         final out = reviewersOf({
           'check-bot[bot]': {
             'report': {'check': 'Bot Code Review', 'n': 1},
           },
-          'e': {'report': 'x'},
           'f': {'report': <String, Object?>{}},
-          'g': {'report': <Object?>[]},
           'i': {
             'report': {'a': 's', 'b': 2, 'c': 't'},
           },
         }, problems: problems);
         expect(out['check-bot']!.report, isEmpty);
-        expect(out['e']!.report, isEmpty);
-        expect(out['g']!.report, isEmpty);
+        expect(out['f']!.report, isEmpty);
         expect(out['i']!.report, isEmpty);
         expect(
           [for (final p in problems) p.key],
-          [
-            'pr.reviewers.check-bot.report',
-            'pr.reviewers.e.report',
-            'pr.reviewers.g.report',
-            'pr.reviewers.i.report',
-          ],
+          ['pr.reviewers.check-bot.report', 'pr.reviewers.i.report'],
         );
         expect(problems.every((p) => p.error == 'bad_setting'), true);
         expect(problems[0].why, startsWith('n must be a string'));
-        expect(problems[1].why, startsWith('must be a mapping'));
-        expect(problems[3].why, startsWith('b must be a string'));
+        expect(problems[1].why, startsWith('b must be a string'));
       },
     );
 
@@ -378,23 +369,41 @@ void main() {
       final problems = <SettingProblem>[];
       reviewersOf(
         {
-          'x': {'report': 'bad'},
+          'x': {
+            'report': {'k': 1},
+          },
         },
         problems: problems,
         where: 'planning_store.reviewers',
       );
       expect(problems.single.key, 'planning_store.reviewers.x.report');
+      expect(
+        () => reviewersOf(
+          {
+            'x': {'report': 'bad'},
+          },
+          where: 'planning_store.reviewers',
+        ),
+        throwsA(
+          isA<SettingsStop>().having(
+            (e) => e.message,
+            'message',
+            startsWith('planning_store.reviewers.x.report: '),
+          ),
+        ),
+      );
     });
 
     test('no problems list: nothing is collected and nothing fails', () {
       expect(
         reviewersOf({
-          'x': {'report': 'bad'},
+          'x': {
+            'report': {'k': 1},
+          },
         }),
         hasLength(1),
       );
       expect(reviewersOf(null), isEmpty);
-      expect(reviewersOf(''), isEmpty);
     });
 
     test('20 reviewers are fine; 21 is too_many_reviewers and the set is read whole', () {
@@ -429,10 +438,25 @@ void main() {
       expect(problems.single.error, 'too_many_reviewers');
     });
 
-    test('a set that is not a mapping is not counted', () {
-      final problems = <SettingProblem>[];
-      expect(reviewersOf(['a', 'b'], problems: problems), isEmpty);
-      expect(problems, isEmpty);
+    test('a set that is not a mapping stops, whatever it holds', () {
+      for (final v in <Object?>[
+        ['a', 'b'],
+        '',
+        'x',
+        5,
+        true,
+      ]) {
+        expect(
+          () => reviewersOf(v, problems: <SettingProblem>[]),
+          throwsA(
+            isA<SettingsStop>()
+                .having((e) => e.error, 'error', 'bad_setting')
+                .having((e) => e.code, 'code', 2)
+                .having((e) => e.message, 'message', startsWith('pr.reviewers: ')),
+          ),
+          reason: '$v',
+        );
+      }
     });
   });
 
@@ -475,7 +499,7 @@ void main() {
 
     test('reads the three methods and a boolean', () {
       var r = mergeOptions(
-        _pr('pr:\n  merge_method: squash\n  delete_branch: no\n'),
+        _pr('pr:\n  merge_method: squash\n  delete_branch: false\n'),
       );
       expect((r.method, r.deleteBranch), ('squash', false));
       r = mergeOptions(
@@ -497,8 +521,8 @@ void main() {
           "pr.merge_method: '' must be merge, squash or rebase",
         ),
         (
-          'merge_method: yes',
-          'pr.merge_method: yes must be merge, squash or rebase',
+          'merge_method: true',
+          'pr.merge_method: true must be merge, squash or rebase',
         ),
         (
           'delete_branch: maybe',
@@ -588,54 +612,129 @@ void main() {
     String detect(String _) => 'main';
     Contexts read(Map<String, Object?> s, {String? store}) =>
         contexts(s, 'c', store, detectMain: detect);
-    Matcher stops(String type) => throwsA(
+    // D5: a key that is present with anything but a mapping stops the read, naming the key
+    Matcher stops(String key) => throwsA(
       isA<SettingsStop>()
-          .having((e) => e.error, 'error', 'internal_error')
-          .having((e) => e.code, 'code', 1)
-          .having(
-            (e) => e.message,
-            'message',
-            "AttributeError: '$type' object has no attribute 'get'",
-          ),
+          .having((e) => e.error, 'error', 'bad_setting')
+          .having((e) => e.code, 'code', 2)
+          .having((e) => e.message, 'message', startsWith('$key: ')),
     );
 
-    test('a truthy section that is not a mapping stops as the script did', () {
-      expect(() => read({'pr': 'oops'}), stops('str'));
-      expect(() => read({'pr': 5}), stops('int'));
-      expect(() => read({'pr': 1.5}), stops('float'));
-      expect(() => read({'pr': true}), stops('bool'));
+    test('a present section that is not a mapping stops, naming the key', () {
+      expect(() => read({'pr': 'oops'}), stops('pr'));
+      expect(() => read({'pr': 5}), stops('pr'));
+      expect(() => read({'pr': 1.5}), stops('pr'));
+      expect(() => read({'pr': true}), stops('pr'));
+      expect(() => read({'pr': ''}), stops('pr'));
+      expect(() => read({'pr': 0}), stops('pr'));
+      expect(() => read({'pr': false}), stops('pr'));
       expect(
         () => read({
           'pr': ['a'],
         }),
-        stops('list'),
+        stops('pr'),
       );
-      expect(() => read({'github': 'oops'}), stops('str'));
+      expect(() => read({'github': 'oops'}), stops('github'));
       expect(
         () => read({
           'github': {'review_request': 'oops'},
         }),
-        stops('str'),
+        stops('github.review_request'),
       );
-      expect(() => read({'planning_store': 'oops'}, store: 's'), stops('str'));
+      expect(
+        () => read({'planning_store': 'oops'}, store: 's'),
+        stops('planning_store'),
+      );
     });
 
-    test('a falsy section reads as empty', () {
-      for (final v in <Object?>[null, '', 0, false, <Object?>[]]) {
-        expect(read({'pr': v, 'github': v}).code.login, '');
-      }
+    test('a key that is absent or has no value keeps its default', () {
+      expect(read({'pr': null, 'github': null}).code.login, '');
+      expect(read(<String, Object?>{}).code.login, '');
     });
 
     test('planning_store is read only for the store repo', () {
       expect(read({'planning_store': 'oops'}).store, isNull);
     });
 
-    test(
-      'vcs keeps treating a planning_store that is not a mapping as absent',
-      () {
-        expect(vcsChoices({'planning_store': 'oops'}).store, 'git');
-      },
-    );
+    test('vcs stops on a planning_store that is not a mapping', () {
+      expect(
+        () => vcsChoices({'planning_store': 'oops'}),
+        stops('planning_store'),
+      );
+      expect(vcsChoices({'planning_store': null}).store, 'git');
+    });
+
+    test('a reviewer set or entry that is not a mapping stops, naming it', () {
+      expect(
+        () => read({
+          'pr': {'reviewers': 'foo'},
+        }),
+        stops('pr.reviewers'),
+      );
+      expect(
+        () => read({
+          'pr': {
+            'reviewers': {
+              'guard': ['role'],
+            },
+          },
+        }),
+        stops('pr.reviewers.guard'),
+      );
+      expect(
+        () => read({
+          'planning_store': {'reviewers': 'foo'},
+        }, store: 's'),
+        stops('planning_store.reviewers'),
+      );
+      expect(
+        () => read({
+          'planning_store': {
+            'reviewers': {'guard': 'x'},
+          },
+        }, store: 's'),
+        stops('planning_store.reviewers.guard'),
+      );
+    });
+
+    test('only an absent or null planning_store.reviewers inherits the code set', () {
+      final pr = {
+        'reviewers': {
+          'a': {'role': 'required'},
+        },
+      };
+      for (final ps in <Map<String, Object?>>[
+        {},
+        {'reviewers': null},
+      ]) {
+        final c = read({'pr': pr, 'planning_store': ps}, store: 's');
+        expect(c.store!.reviewers.keys, ['a'], reason: '$ps');
+        expect(c.store!.requestsDisabled, false);
+      }
+    });
+
+    test('a non-mapping report stops the read', () {
+      final yaml = parseYaml(
+        'pr:\n  reviewers:\n    rev-bot:\n      report: [check, x]\n',
+      );
+      expect(() => read(yaml), stops('pr.reviewers.rev-bot.report'));
+      for (final v in <Object?>['x', '', 5, true, <Object?>[]]) {
+        expect(
+          () => reviewersOf({
+            'r': {'report': v},
+          }),
+          stops('pr.reviewers.r.report'),
+          reason: '$v',
+        );
+      }
+      expect(
+        reviewersOf({
+          'r': {'report': null},
+          's': <String, Object?>{},
+        }).keys,
+        ['r', 's'],
+      );
+    });
   });
 
   group('vcsChoices', () {
@@ -651,17 +750,15 @@ void main() {
       expect((r.code, r.store), ('git', 'jj'));
       r = vcsChoices(parseYaml('vcs: jj\n'));
       expect((r.code, r.store), ('jj', 'git'));
-      r = vcsChoices(parseYaml('planning_store: x\nvcs: git\n'));
-      expect((r.code, r.store), ('git', 'git'));
     });
 
     test('a refusal keeps the script\'s error code', () {
       for (final (yaml, error) in [
         ('vcs: gitbutler\n', 'unsupported_combination'),
         ('vcs: gitbutler\nfinish: local\n', 'unsupported_combination'),
-        ('vcs: gitbutler\nfinish: yes\n', 'unsupported_combination'),
+        ('vcs: gitbutler\nfinish: true\n', 'unsupported_combination'),
         ('vcs: svn\n', 'unknown_vcs'),
-        ('vcs: yes\n', 'unknown_vcs'),
+        ('vcs: true\n', 'unknown_vcs'),
         ('planning_store:\n  vcs: gitbutler\n', 'unsupported_vcs'),
         ('planning_store:\n  vcs: svn\n', 'unknown_vcs'),
       ]) {
@@ -703,8 +800,8 @@ void main() {
         ('', {'ok': true, 'cheap_tier': false}),
         ('cheap_tier:\n  enabled: true\n', {'ok': true, 'cheap_tier': true}),
         ('cheap_tier:\n  enabled: false\n', {'ok': true, 'cheap_tier': false}),
-        ('cheap_tier:\n  enabled: yes\n', {'ok': true, 'cheap_tier': true}),
-        ('cheap_tier: {enabled: yes}\n', {'ok': true, 'cheap_tier': true}),
+        ('cheap_tier:\n  enabled: true\n', {'ok': true, 'cheap_tier': true}),
+        ('cheap_tier: {enabled: true}\n', {'ok': true, 'cheap_tier': true}),
         ('cheap_tier:\n  other: 1\n', {'ok': true, 'cheap_tier': false}),
         ('cheap_tier:\n', {'ok': true, 'cheap_tier': false}),
       ]) {
@@ -730,6 +827,31 @@ void main() {
           'note': 'cheap_tier must hold enabled: true|false; treated as false',
         }, reason: yaml);
       }
+    });
+
+    test('a wrong-shaped section is off with a note naming the key', () {
+      for (final (yaml, key) in [
+        ('pr: [a]\ncheap_tier:\n  enabled: true\n', 'pr'),
+        ('pr: x\ncheap_tier:\n  enabled: true\n', 'pr'),
+        ('github: [a]\ncheap_tier:\n  enabled: true\n', 'github'),
+        (
+          'planning_store: x\ncheap_tier:\n  enabled: true\n',
+          'planning_store',
+        ),
+        (
+          'pr:\n  reviewers:\n    a: [x]\ncheap_tier:\n  enabled: true\n',
+          'pr.reviewers.a',
+        ),
+      ]) {
+        final out = tierChoice(parseYaml(yaml));
+        expect(out['cheap_tier'], false, reason: yaml);
+        expect(out['note'], startsWith('$key: '), reason: yaml);
+      }
+      expect(
+        tierChoice(parseYaml('pr:\n  merge_method: fast\ncheap_tier:\n  enabled: true\n'))['cheap_tier'],
+        true,
+        reason: 'a value problem never reaches the tier',
+      );
     });
   });
 
@@ -762,9 +884,28 @@ void main() {
       expect(readSettingsText([a]), 'a: x\u{fffd}y\nb: 1\nc: 2\n');
     });
 
-    test('loadSettings: no text is an empty map, else the lenient read', () {
+    test('loadSettings: no text is an empty map, else the one reader', () {
       expect(loadSettings(null), isEmpty);
-      expect(loadSettings('a: yes\n'), {'a': true});
+      expect(loadSettings(''), isEmpty);
+      expect(loadSettings('a: true\n'), {'a': true});
+    });
+
+    test('loadSettings: a refused file is bad_setting, exit 2, naming the line', () {
+      for (final (text, line) in [
+        ('a: yes\n', 'line 1'),
+        ('a: 1\nb:\n\tc: 2\n', 'line 3'),
+        ('pr:\n  x: 1\npr:\n  y: 2\n', 'line 3'),
+        ('- pr\n', 'line 1'),
+      ]) {
+        try {
+          loadSettings(text);
+          fail('${text.trim()} should stop');
+        } on SettingsStop catch (e) {
+          expect(e.error, 'bad_setting', reason: text);
+          expect(e.code, 2, reason: text);
+          expect(e.message, startsWith('openspec/specwright.yaml $line:'));
+        }
+      }
     });
   });
 }
@@ -773,7 +914,7 @@ void main() {
 final _contextCases = <(String, String, String, String?, bool, String)>[
   (
     'every setting',
-    'github:\n  login: me\n  review_request:\n    body: "@codex review"\n    login: poster\n    after_fixes: yes\nmain_branch: trunk\nfinish: pr\nplanning_store:\n  login: storeme\n  validate: make check\n  reviewers:\n    store-bot: { role: required }\npr:\n  request_as: asker\n  validate: make test\n  reviewers:\n    kody-ai: { role: advisory }\n    codex: { role: required, request: "@codex review" }\n  max_fix_rounds: 3\n  after_limit: stop\n  react: yes\n  poll_interval: 2m\n  settle: 2m\n  merge: agent\n  merge_method: squash\n  delete_branch: no\n',
+    'github:\n  login: me\n  review_request:\n    body: "@codex review"\n    login: poster\n    after_fixes: true\nmain_branch: trunk\nfinish: pr\nplanning_store:\n  login: storeme\n  validate: make check\n  reviewers:\n    store-bot: { role: required }\npr:\n  request_as: asker\n  validate: make test\n  reviewers:\n    kody-ai: { role: advisory }\n    codex: { role: required, request: "@codex review" }\n  max_fix_rounds: 3\n  after_limit: stop\n  react: true\n  poll_interval: 2m\n  settle: 2m\n  merge: agent\n  merge_method: squash\n  delete_branch: false\n',
     '/w/code',
     '/w/store',
     true,
@@ -781,7 +922,7 @@ final _contextCases = <(String, String, String, String?, bool, String)>[
   ),
   (
     'no store and no merge check',
-    'github:\n  login: me\n  review_request:\n    body: "@codex review"\n    login: poster\n    after_fixes: yes\nmain_branch: trunk\nfinish: pr\nplanning_store:\n  login: storeme\n  validate: make check\n  reviewers:\n    store-bot: { role: required }\npr:\n  request_as: asker\n  validate: make test\n  reviewers:\n    kody-ai: { role: advisory }\n    codex: { role: required, request: "@codex review" }\n  max_fix_rounds: 3\n  after_limit: stop\n  react: yes\n  poll_interval: 2m\n  settle: 2m\n  merge: agent\n  merge_method: squash\n  delete_branch: no\n',
+    'github:\n  login: me\n  review_request:\n    body: "@codex review"\n    login: poster\n    after_fixes: true\nmain_branch: trunk\nfinish: pr\nplanning_store:\n  login: storeme\n  validate: make check\n  reviewers:\n    store-bot: { role: required }\npr:\n  request_as: asker\n  validate: make test\n  reviewers:\n    kody-ai: { role: advisory }\n    codex: { role: required, request: "@codex review" }\n  max_fix_rounds: 3\n  after_limit: stop\n  react: true\n  poll_interval: 2m\n  settle: 2m\n  merge: agent\n  merge_method: squash\n  delete_branch: false\n',
     '/w/code',
     null,
     false,
@@ -829,7 +970,7 @@ final _contextCases = <(String, String, String, String?, bool, String)>[
   ),
   (
     'a merge note, a boolean round count and a bad settle',
-    'pr:\n  merge: Agent\n  max_fix_rounds: yes\n  settle: 30s\n',
+    'pr:\n  merge: Agent\n  max_fix_rounds: true\n  settle: 30s\n',
     '/w/code',
     null,
     true,

@@ -30,7 +30,7 @@ void main() {
   });
 
   test('falls back to the toplevel and keeps shared YAML scalar semantics', () {
-    final top = write('top', 'review:\n  cross_model: no\n  timeout: 5m\n');
+    final top = write('top', 'review:\n  cross_model: false\n  timeout: 5m\n');
     final got = readReviewSettings(bases: ['${root.path}/absent', top]);
     expect(got.review['cross_model'], isFalse);
     expect(got.review['timeout'], '5m');
@@ -65,21 +65,32 @@ void main() {
     },
   );
 
-  test(
-    'unsupported YAML stops with the actual line before lenient parsing',
-    () {
-      final top = write('top', 'review:\n  order:\n    - codex\n');
-      expect(
-        () => readReviewSettings(bases: [top]),
-        throwsA(
-          isA<ReviewStop>()
-              .having((e) => e.error, 'error', 'bad_settings')
-              .having((e) => e.code, 'code', 1)
-              .having((e) => e.message, 'message', contains('line 3')),
-        ),
-      );
-    },
-  );
+  test('a refused file stops with the actual line before any value is read', () {
+    final top = write('top', 'review:\n  order: &a [codex]\n');
+    expect(
+      () => readReviewSettings(bases: [top]),
+      throwsA(
+        isA<ReviewStop>()
+            .having((e) => e.error, 'error', 'bad_settings')
+            .having((e) => e.code, 'code', 1)
+            .having((e) => e.message, 'message', contains('line 2')),
+      ),
+    );
+  });
+
+  test('review.order as a block sequence reads like the flow form', () {
+    final block = write(
+      'block',
+      'review:\n  order:\n    - codex\n    - claude\n    - omp\n',
+    );
+    final flow = write('flow', 'review:\n  order: [codex, claude, omp]\n');
+    final got = readReviewSettings(bases: [block]);
+    expect(got.review['order'], ['codex', 'claude', 'omp']);
+    expect(
+      got.review['order'],
+      readReviewSettings(bases: [flow]).review['order'],
+    );
+  });
 
   test(
     'invalid route settings are checked even before a route is selected',
@@ -103,11 +114,32 @@ void main() {
     },
   );
 
-  test('non-mapping review sections keep the pre-port defaults', () {
-    for (final value in ['literal', 'true', '[codex]']) {
-      final top = write('legacy', 'review: $value\n');
-      final got = readReviewSettings(bases: [top]);
-      expect(got.review, isEmpty);
+  test('a non-mapping review section stops before any probe', () {
+    for (final value in [
+      '\n  - codex',
+      ' [codex]',
+      ' literal',
+      ' true',
+      " ''",
+    ]) {
+      final top = write('legacy', 'review:$value\n');
+      expect(
+        () => readReviewSettings(bases: [top]),
+        throwsA(
+          isA<ReviewStop>()
+              .having((e) => e.error, 'error', 'bad_settings')
+              .having((e) => e.code, 'code', 1)
+              .having((e) => e.message, 'message', contains('review')),
+        ),
+        reason: 'review:$value',
+      );
+    }
+  });
+
+  test('an absent or empty review section keeps the defaults', () {
+    for (final text in ['finish: pr\n', 'review:\n']) {
+      final got = readReviewSettings(bases: [write('legacy', text)]);
+      expect(got.review, isEmpty, reason: text);
       expect(got.routes['omp']!.tools, ['read', 'grep', 'glob']);
     }
   });

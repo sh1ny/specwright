@@ -706,6 +706,13 @@ class PairParity(PrParity):
             self.assertEqual(old["code"], code, old["stdout"] + old["stderr"])
         return new_doc
 
+    def new_side(self, args, cwd=None):
+        """The shim's answer alone, for a case whose outcome differs from the oracle's by design: (exit code, its document, the
+        raw side)."""
+        side = self.side("new", args, cwd)
+        lines = side["stdout"].decode("utf-8").strip().splitlines()
+        return side["code"], (json.loads(lines[0]) if len(lines) == 1 else None), side
+
     # ---- identity ----------------------------------------------------------------------------------------
     def test_identity_answers_and_stops(self):
         cases = [
@@ -754,8 +761,7 @@ class PairParity(PrParity):
 
     def test_tier_reads_only_cheap_tier(self):
         for i, settings in enumerate([None, "cheap_tier:\n  enabled: true\n", "cheap_tier:\n  enabled: false\n",
-                                      "cheap_tier:\n  enabled: maybe\n", "cheap_tier: yes\n", "pr:\n  merge_method: bogus\n",
-                                      "cheap_tier:\n\tenabled: true\n"]):
+                                      "cheap_tier:\n  enabled: maybe\n", "cheap_tier: true\n", "pr:\n  merge_method: bogus\n"]):
             with self.subTest(settings=settings):
                 self.run_pair("tier", "--code", self.repo(f"t{i}", settings=settings), code=0)
 
@@ -788,20 +794,22 @@ class PairParity(PrParity):
         self.run_pair("context", "--code", code, "--store", store, "--only", "repos", code=0)
 
     def test_context_stops_on_a_section_that_is_not_a_mapping(self):
+        """Both sides stop on a truthy section that is no mapping, with their own error (`internal_error`, exit 1 in the oracle;
+        D5's `bad_setting`, exit 2 in the shim: test_refused_settings_are_a_listed_difference); an absent section is no stop."""
         for i, text in enumerate(("pr: oops\n", "pr: 5\n", "pr: true\n", "pr: [a]\n", "github: oops\n", "github:\n  review_request: oops\n")):
             code = self.repo(f"bad{i}", settings=text)
-            self.run_pair("context", "--code", code, code=1)
-        for i, text in enumerate(("pr: 0\n", "github: false\n", "planning_store: oops\n")):
+            self.assertEqual(self.side("old", ["context", "--code", code], None)["code"], 1, text)
+            new = self.side("new", ["context", "--code", code], None)
+            self.assertEqual(new["code"], 2, text)
+            self.assertEqual(json.loads(new["stdout"])["error"], "bad_setting", text)
+        for i, text in enumerate(("planning_store: oops\n", "pr:\ngithub:\n")):
             code = self.repo(f"empty{i}", settings=text)
             self.run_pair("context", "--code", code, code=0)
-        code, store = self.repo("code", settings="planning_store: oops\n"), self.repo("store", "https://github.com/o/plans.git")
-        self.run_pair("context", "--code", code, "--store", store, code=1)
 
     def test_context_stops_and_problems(self):
         cases = [
             ("pr:\n  merge: agent\n  merge_method: bogus\n", 2), ("pr:\n  merge: agent\n  delete_branch: maybe\n", 2),
-            ("pr:\n  settle: 30s\n", 0), ("pr:\n  settle: forever\n", 0), ("pr:\n\treviewers: x\n", 0),
-            ("pr:\n  reviewers:\n    r: { report: 3 }\n", 0), ("pr:\n  merge: yes\n", 0), ("a: [\n", 0),
+            ("pr:\n  settle: 30s\n", 0), ("pr:\n  settle: forever\n", 0),
         ]
         for i, (settings, code) in enumerate(cases):
             with self.subTest(settings=settings):
@@ -827,7 +835,6 @@ class PairParity(PrParity):
         for i, (main, head) in enumerate([
             (self.AGENT, self.AGENT), (self.AGENT, self.USER), (self.USER, self.AGENT), (None, self.AGENT),
             (self.AGENT, "pr:\n  merge: agent\n  merge_method: rebase\n  delete_branch: true\n"),
-            ("pr:\n  reviewers: [a, b]\n", self.AGENT), (self.AGENT, "pr:\n  reviewers: nope\n"),
         ]):
             with self.subTest(i=i):
                 self.contents("main", main)
@@ -838,13 +845,31 @@ class PairParity(PrParity):
         self.contents("main", self.AGENT)
         self.contents(self.HEAD, None)
         self.run_pair(self.policy_args(), code=3)
-        self.contents(self.HEAD, "pr:\n  merge: agent\n  items:\n    - a\n")
-        self.run_pair(self.policy_args(), code=3)
-        self.contents("main", "pr:\n  merge: agent\n  merge_method: bogus\n")
+        # a duplicate key and refused syntax: both sides refuse (the oracle's strict check, the shim's reader)
+        for text in ("pr:\n  merge: user\n  merge: agent\n", "pr:\n  merge: [unterminated\n", "pr:\n\tmerge: agent\n"):
+            self.contents(self.HEAD, text)
+            self.run_pair(self.policy_args(), code=3)
         self.contents(self.HEAD, self.AGENT)
+        self.contents("main", "pr:\n  merge: agent\n  merge_method: bogus\n")
         self.run_pair(self.policy_args(), code=2)
         self.contents("main", "pr:\n  merge: agent\n  settle: forever\n")
         self.run_pair(self.policy_args(), code=2)
+        # a wrong shape is `lookup_failed` in the shim, where the oracle read it as empty (a listed difference)
+        for text in ("pr: [a]\n", "pr: oops\n", "pr:\n  reviewers: [a, b]\n", "pr:\n  reviewers:\n    rev: [x]\n"):
+            for main, head in ((text, self.AGENT), (self.AGENT, text)):
+                with self.subTest(main=main, head=head):
+                    self.contents("main", main)
+                    self.contents(self.HEAD, head)
+                    code, doc, raw = self.new_side(self.policy_args()("new"))
+                    self.assertEqual((code, doc["error"]), (3, "lookup_failed"), raw)
+
+    def test_policy_deep_nesting_is_lookup_failed(self):
+        self.contents("main", self.AGENT)
+        self.contents(self.HEAD, "a: " + "{a: " * 100000 + "1" + "}" * 100000 + "\n")
+        code, doc, raw = self.new_side(self.policy_args()("new"))
+        self.assertEqual((code, doc["error"]), (3, "lookup_failed"), raw)
+        self.assertNotRegex(raw["stderr"].decode("utf-8", "replace") + raw["stdout"].decode("utf-8", "replace"),
+                            r"(?i)stack ?overflow|traceback|\.dart:\d+")
 
     def test_policy_reported_and_rules_mismatch(self):
         self.contents("main", self.AGENT)
@@ -882,14 +907,54 @@ class PairParity(PrParity):
                 yield from self.find(v, key)
 
     def test_context_tab_in_indentation_names_line_7(self):
+        """The shim stops with `bad_setting`, exit 2, naming line 7 (the one reader, D4); the frozen oracle still reports the
+        line as a soft `settings_problem` and exits 0."""
         text = "github:\n  login: me\nvalidate: make check\npr:\n  merge: user\n  reviewers:\n\trev: { role: required }\n"
         self.assertEqual(text.splitlines()[6][0], "\t")
         code = self.repo("tab", settings=text)
-        problems = [p for p in self.find(self.run_pair("context", "--code", code, code=0), "settings_problem")]
-        self.assertTrue(problems and all(p.startswith("line 7:") for p in problems), problems)
-        for side in ("new", "old"):  # the raw text on each side, not only the compared prefix
-            raw = self.side(side, ["context", "--code", code], None)["stdout"].decode("utf-8")
-            self.assertRegex(raw, r'"settings_problem": ?"line 7:')
+        status, doc, raw = self.new_side(["context", "--code", code])
+        self.assertEqual((status, doc["ok"], doc["error"]), (2, False, "bad_setting"), raw)
+        self.assertIn("line 7", doc["message"])
+        old = self.side("old", ["context", "--code", code], None)
+        self.assertEqual(old["code"], 0)
+        self.assertRegex(old["stdout"].decode("utf-8"), r'"settings_problem": ?"line 7:')
+
+    def test_refused_settings_are_a_listed_difference(self):
+        """Settings the one reader refuses, or reads as YAML where the oracle skipped or misread them, are listed differences
+        (spec: pr-script-runtime): each case gives the oracle's exit code and the shim's."""
+        listed = [  # (args, settings text, oracle exit, shim exit, shim error)
+            ("context", "pr:\n  merge: yes\n", 0, 2, "bad_setting"),
+            ("context", "pr:\n  settle: 5m\n  react: No\n", 0, 2, "bad_setting"),
+            ("context", "a: [\n", 0, 2, "bad_setting"),
+            ("context", "pr:\n  merge: user\n  merge: agent\n", 0, 2, "bad_setting"),
+            ("context", "pr:\n  reviewers:\n    r: { report: 3 }\n", 0, 2, "bad_setting"),
+            ("context", "pr:\n  reviewers:\n    guard:\n      - role: required\n", 0, 2, "bad_setting"),
+            ("context", "pr:\n  reviewers:\n    r: [x]\n", 0, 2, "bad_setting"),
+            ("context", "pr: 0\n", 0, 2, "bad_setting"),
+            ("vcs", "vcs: jj\npr:\n\tx: 1\n", 0, 2, "bad_setting"),
+            ("tier", "cheap_tier:\n  enabled: yes\n", 0, 0, None),
+        ]
+        for i, (sub, text, old_code, new_code, error) in enumerate(listed):
+            with self.subTest(sub=sub, settings=text):
+                code = self.repo(f"listed{i}", settings=text)
+                old = self.side("old", [sub, "--code", code], None)
+                status, doc, raw = self.new_side([sub, "--code", code])
+                self.assertEqual((old["code"], status), (old_code, new_code), (old["stdout"], raw))
+                if error:
+                    self.assertEqual(doc["error"], error, raw)
+        status, doc, raw = self.new_side(["tier", "--code", self.repo("listed-tier", settings="cheap_tier:\n  enabled: yes\n")])
+        self.assertEqual((doc["cheap_tier"], "line 2" in doc["note"]), (False, True), raw)
+        for i, (main, head, old_code, new_code) in enumerate([
+            ("pr:\n  reviewers: [a, b]\n", self.AGENT, 0, 3), (self.AGENT, "pr:\n  reviewers: nope\n", 0, 3),
+            (self.AGENT, "pr:\n  merge: agent\n  items:\n    - a\n", 3, 0),
+            (self.AGENT, self.AGENT.replace("{ role: required }", "{ role: required, }"), 3, 0),
+        ]):
+            with self.subTest(i=i, main=main, head=head):
+                self.contents("main", main)
+                self.contents(self.HEAD, head)
+                old = self.side("old", self.policy_args()("old"), None)
+                status, doc, raw = self.new_side(self.policy_args()("new"))
+                self.assertEqual((old["code"], status), (old_code, new_code), (old["stdout"], raw))
 
     def test_policy_bad_base64_keeps_lookup_failed(self):
         self.contents(self.HEAD, self.AGENT)
@@ -904,31 +969,48 @@ class PairParity(PrParity):
 
     # ---- unicode and shape cases ------------------------------------------------------------------------
     def test_context_unicode_digits_and_spaces_in_settings(self):
+        """D3 and the one reader (the oracle refused a non-ASCII space; YAML reads it as text): a non-ASCII digit or space is
+        part of a string, never a refusal on its own. Only the new side answers; a section that becomes a string stops."""
         nbsp, ideo, arab = chr(0xA0), chr(0x3000), "".join(chr(0x660 + int(d)) for d in "30")
+        stops = "bad_setting"
         cases = [
-            f"pr:\n  settle: {arab}0s\n",
-            f"pr:\n  reviewers:\n    rev: {{ timeout: {arab}m }}\n",
-            f"pr:\n  reviewers:\n    rev: {{ timeout: {chr(0xFF12)}{chr(0xFF10)}m }}\n",
-            f"pr:\n{nbsp}{nbsp}merge: agent\n",
-            f"pr:\n{ideo}merge: agent\n",
-            f"pr:\n  merge:{nbsp}agent\n",
-            f"pr:\n  merge: agent{ideo}\n",
-            f"pr:\n  settle:{ideo}2m{nbsp}\n",
-            f"pr:\n  reviewers:\n    rev:{ideo}{{ role: advisory }}\n",
-            f"github:\n  login:{nbsp}me\n",
+            (f"pr:\n  settle: {arab}0s\n", 0, f"{arab}0s"),  # a string, not a duration: the default and a value problem
+            (f"pr:\n  reviewers:\n    rev: {{ timeout: {arab}m }}\n", 0, None),
+            (f"pr:\n  reviewers:\n    rev: {{ timeout: {chr(0xFF12)}{chr(0xFF10)}m }}\n", 0, None),
+            (f"pr:\n{nbsp}{nbsp}merge: agent\n", 0, None),  # a key named with the space, not merge
+            (f"pr:\n{ideo}merge: agent\n", 0, None),
+            (f"pr:\n  merge:{nbsp}agent\n", stops, f"pr: merge:{chr(0xA0)}agent"),  # pr is the string the space joins
+            (f"pr:\n  merge: agent{ideo}\n", 0, None),  # the value is a string that is not agent
+            (f"pr:\n  settle:{ideo}2m{nbsp}\n", stops, "pr: settle:"),
+            (f"pr:\n  reviewers:\n    rev:{ideo}{{ role: advisory }}\n", stops, "pr.reviewers.rev:"),
+            (f"github:\n  login:{nbsp}me\n", stops, "github: login:"),
         ]
-        for i, text in enumerate(cases):
+        for i, (text, want, shown) in enumerate(cases):
             with self.subTest(i=i):
-                self.run_pair("context", "--code", self.repo(f"u{i}", settings=text), code=None)
+                code, doc, _ = self.new_side(["context", "--code", self.repo(f"u{i}", settings=text)])
+                if want == stops:
+                    self.assertEqual((code, doc["error"]), (2, stops))
+                    self.assertIn(shown, doc["message"])
+                    continue
+                self.assertEqual(code, 0, doc)
+                self.assertEqual(doc["merge"], "user", "a space that is not YAML's never turns the policy on")
+                if shown:
+                    self.assertIn(shown, doc["settings_problem"])
 
     def test_policy_unicode_digits_and_spaces_in_settings(self):
+        """The same string outcome on the remote read: a space that is not YAML's no longer leaves the policy unknown."""
         nbsp, ideo, arab = chr(0xA0), chr(0x3000), "".join(chr(0x660 + int(d)) for d in "30")
-        for i, text in enumerate([f"pr:\n  merge: agent\n  settle: {arab}0s\n", f"pr:\n{nbsp}merge: agent\n",
-                                  f"pr:\n  merge: agent{ideo}\n  reviewers:\n    rev: {{ timeout: {arab}m }}\n"]):
+        for i, (text, want) in enumerate([(f"pr:\n  merge: agent\n  settle: {arab}0s\n", 2), (f"pr:\n{nbsp}merge: agent\n", 0),
+                                          (f"pr:\n  merge: agent{ideo}\n  reviewers:\n    rev: {{ timeout: {arab}m }}\n", 0)]):
             with self.subTest(i=i):
                 self.contents("main", text)
                 self.contents(self.HEAD, self.AGENT)
-                self.run_pair(self.policy_args(), code=None)
+                code, doc, _ = self.new_side(self.policy_args())
+                self.assertEqual(code, want, doc)
+                if want == 0:
+                    self.assertEqual(doc["merge"], "user", "main's text never turns the policy on")
+                else:
+                    self.assertEqual(doc["error"], "bad_setting")
 
     def test_bot_login_with_a_final_newline(self):
         """Python's `$` in the [bot]-stripping regex also matches before a final newline: a snapshot login `rev[bot]<LF>`

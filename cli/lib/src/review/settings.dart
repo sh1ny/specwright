@@ -2,8 +2,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../settings/rules.dart' show loadSettings, readSettingsText;
-import '../settings/yaml.dart' show pyUtf8Decode, yamlProblem;
+import '../settings/rules.dart'
+    show SettingsStop, loadSettings, readSettingsText, settingSection;
+import '../settings/yaml.dart' show pyUtf8Decode;
 import 'routes.dart';
 import 'stop.dart';
 
@@ -43,18 +44,12 @@ ReviewSettings readReviewSettings({
         .replaceAll('\r\n', '\n')
         .replaceAll('\r', '\n');
   }
-  if (text != null) {
-    final problem = yamlProblem(text);
-    if (problem != null) throw ReviewStop('bad_settings', problem);
+  // D4: this reader's stop is bad_settings, exit 1, whatever the reason
+  try {
+    final values = loadSettings(text);
+    final review = settingSection(values, 'review', 'review');
+    return ReviewSettings(values, review, parseReviewRoutes(review['routes']));
+  } on SettingsStop catch (e) {
+    throw ReviewStop('bad_settings', e.message);
   }
-  final values = loadSettings(text);
-  final review = _reviewSection(values['review']);
-  return ReviewSettings(values, review, parseReviewRoutes(review['routes']));
-}
-
-// Review.__init__ ignored a non-mapping review section, unlike PR settings.
-Map<String, Object?> _reviewSection(Object? value) {
-  if (value is Map<String, Object?>) return value;
-  if (value is Map) return value.cast<String, Object?>();
-  return const {};
 }

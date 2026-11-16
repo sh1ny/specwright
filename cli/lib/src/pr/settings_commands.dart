@@ -3,7 +3,6 @@ import 'dart:io';
 import '../commit/task_cover.dart' show pyStrip;
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
-import '../settings/yaml.dart';
 import 'context.dart';
 import 'identity.dart';
 import 'pair.dart';
@@ -61,8 +60,14 @@ Future<String?> _settingsText(PrContext ctx, String code) async =>
     readSettingsText([code]) ?? readSettingsText([await _toplevel(ctx, code)]);
 
 /// `load_settings(code)`.
-Future<Map<String, Object?>> _loadSettings(PrContext ctx, String code) async =>
-    loadSettings(await _settingsText(ctx, code));
+Future<Map<String, Object?>> _loadSettings(PrContext ctx, String code) async {
+  final text = await _settingsText(ctx, code);
+  try {
+    return loadSettings(text);
+  } on SettingsStop catch (e) {
+    throw _stopOf(e);
+  }
+}
 
 /// `has_ref(d, ref)`.
 Future<bool> _hasRef(PrContext ctx, String d, String ref) async =>
@@ -292,7 +297,13 @@ Future<int> runTier(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {
       final a = parsePairArgs(argv, const {'--code': 'code'});
       needArgs(a, ['code']);
-      return tierChoice(await _loadSettings(ctx, await ctx.native(a['code']!)));
+      // D4: a refused file or a wrong-shaped section is a note with the cheap tier off, never a stop.
+      final text = await _settingsText(ctx, await ctx.native(a['code']!));
+      try {
+        return tierChoice(loadSettings(text));
+      } on SettingsStop catch (e) {
+        return {'ok': true, 'cheap_tier': false, 'note': e.message};
+      }
     });
 
 /// `cmd_context`.
@@ -343,7 +354,6 @@ Future<int> runContext(
   }
   final text = await _settingsText(ctx, code);
   final problems = <SettingProblem>[];
-  final strict = text != null ? yamlProblem(text) : null;
   final mains = {
     code: await _detectMain(ctx, code),
     if (store != null && store.isNotEmpty) store: await _detectMain(ctx, store),
@@ -377,7 +387,7 @@ Future<int> runContext(
   final out = c.toJson();
   out['code'] = await withRepo(c.code, code);
   if (c.store != null) out['store'] = await withRepo(c.store!, store!);
-  final first = strict ?? (problems.isNotEmpty ? problems.first.text : null);
+  final first = problems.isNotEmpty ? problems.first.text : null;
   return {
     'ok': true,
     ...out,

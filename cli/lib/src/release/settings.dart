@@ -1,5 +1,6 @@
-import '../settings/rules.dart' show loadSettings, readSettingsText;
-import '../settings/yaml.dart' show pyStr, yamlProblem;
+import '../settings/rules.dart'
+    show SettingsStop, loadSettings, readSettingsText, settingSection;
+import '../settings/yaml.dart' show pyStr;
 import 'pattern.dart';
 import 'stop.dart';
 
@@ -25,8 +26,8 @@ class VersionEntry {
 /// The release settings of `openspec/specwright.yaml`.
 class ReleaseSettings {
   ReleaseSettings._(Map<String, Object?> doc) {
-    final release = _section(doc['release']);
-    final pr = _section(doc['pr']);
+    final release = settingSection(doc, 'release', 'release');
+    final pr = settingSection(doc, 'pr', 'pr');
     enabled = release['enabled'] == true;
     versionFiles = release['version_files'];
     final template = release['tag'];
@@ -155,18 +156,14 @@ class ReleaseSettings {
   }
 }
 
-Map<String, Object?> _section(Object? value) =>
-    value is Map ? value.cast<String, Object?>() : const {};
-
-/// Reads the release settings of the repository at [root]: the file is checked
-/// with `yamlProblem` first, and a line it would misread stops with
-/// `bad_settings` naming that line, before any git or write. A missing file
-/// reads as empty.
+/// Reads the release settings of the repository at [root]. A refused file, or a `release` or `pr` that is not a
+/// mapping, stops with `bad_settings` naming the line or the key, before any git or write (D4). A missing file reads as
+/// empty.
 ReleaseSettings readReleaseSettings(String root) {
   final text = readSettingsText([root]);
-  if (text != null) {
-    final problem = yamlProblem(text);
-    if (problem != null) throw ReleaseStop('bad_settings', problem);
+  try {
+    return ReleaseSettings._(loadSettings(text));
+  } on SettingsStop catch (e) {
+    throw ReleaseStop('bad_settings', e.message);
   }
-  return ReleaseSettings._(loadSettings(text));
 }
