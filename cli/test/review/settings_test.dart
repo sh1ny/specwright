@@ -65,18 +65,21 @@ void main() {
     },
   );
 
-  test('a refused file stops with the actual line before any value is read', () {
-    final top = write('top', 'review:\n  order: &a [codex]\n');
-    expect(
-      () => readReviewSettings(bases: [top]),
-      throwsA(
-        isA<ReviewStop>()
-            .having((e) => e.error, 'error', 'bad_settings')
-            .having((e) => e.code, 'code', 1)
-            .having((e) => e.message, 'message', contains('line 2')),
-      ),
-    );
-  });
+  test(
+    'a refused file stops with the actual line before any value is read',
+    () {
+      final top = write('top', 'review:\n  order: &a [codex]\n');
+      expect(
+        () => readReviewSettings(bases: [top]),
+        throwsA(
+          isA<ReviewStop>()
+              .having((e) => e.error, 'error', 'bad_settings')
+              .having((e) => e.code, 'code', 1)
+              .having((e) => e.message, 'message', contains('line 2')),
+        ),
+      );
+    },
+  );
 
   test('review.order as a block sequence reads like the flow form', () {
     final block = write(

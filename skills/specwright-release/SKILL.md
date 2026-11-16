@@ -2,7 +2,7 @@
 name: specwright-release
 description: "Opt-in release tagging for Specwright projects (release.enabled): bumps the version files as a tracked task in a change, and after the change is on main publishes the annotated tag and the GitHub release through scripts/release.sh. Backfills an older untagged version on request. Triggers: 'release', 'tag', 'publish v0.5.0', 'backfill a tag', or specwright-finish, specwright-pr watch and specwright-roadmap close offering a release."
 metadata:
-  version: 0.35.0
+  version: 0.36.0
 ---
 
 # Specwright Release
@@ -85,7 +85,7 @@ Show the error and tag nothing more. None is fixed by moving, deleting or forcin
 | 1 | a `version_files` entry outside the repository, or a symlink | the user fixes `release.version_files` (list the file a link points to) |
 | 1 | `bad_version_files`: a pattern that is not a JavaScript regex in Unicode mode (Python-only syntax), or with no or several capture groups | the user rewrites the entry it names |
 | 1 | `bad_version_files` from bump: a version file it would rewrite is not valid UTF-8 | nothing was written; the user fixes the file's encoding, or bumps it by hand |
-| 1 | `bad_settings`: a line in `openspec/specwright.yaml` the settings reader would misread (a tab indent, a key given twice) | the user fixes the line it names; `notes` is unaffected |
+| 1 | `bad_settings`: a line in `openspec/specwright.yaml` the settings reader would misread (a tab indent, a key given twice, a plain `yes` or `no` for a boolean: write `true` or `false`) | the user fixes the line it names; `notes` is unaffected |
 | 1 | an older version is untagged | publish it first (`untagged` lists it) |
 | 1 | `version_not_ahead_of_main`: the branch bumped to a version not greater than main's | rerun `bump --to` with a greater version, commit it, and ship or merge again |
 | 3 | network or fence failure | report it; a re-run of publish resumes |

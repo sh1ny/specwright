@@ -480,23 +480,26 @@ void main() {
       );
     });
 
-    test('reviewers that are not a mapping are lookup_failed, per side', () async {
-      for (final (m, h, side, written) in [
-        ('pr:\n  reviewers: nobody\n', '', 'main', 'nobody'),
-        ('', 'pr:\n  reviewers: [a, b]\n', 'head', '[a, b]'),
-      ]) {
-        serve(main: m, headText: h);
-        final r = await run();
-        expect(r.code, 3, reason: f.stdout);
-        expect(r.json['error'], 'lookup_failed');
-        expect(
-          r.json['message'],
-          contains('pr.reviewers: $written must be a mapping'),
-          reason: side,
-        );
-        f.out.clear();
-      }
-    });
+    test(
+      'reviewers that are not a mapping are lookup_failed, per side',
+      () async {
+        for (final (m, h, side, written) in [
+          ('pr:\n  reviewers: nobody\n', '', 'main', 'nobody'),
+          ('', 'pr:\n  reviewers: [a, b]\n', 'head', '[a, b]'),
+        ]) {
+          serve(main: m, headText: h);
+          final r = await run();
+          expect(r.code, 3, reason: f.stdout);
+          expect(r.json['error'], 'lookup_failed');
+          expect(
+            r.json['message'],
+            contains('pr.reviewers: $written must be a mapping'),
+            reason: side,
+          );
+          f.out.clear();
+        }
+      },
+    );
 
     test('the head can be invalid where main would stop', () async {
       final many = [
@@ -1044,69 +1047,82 @@ void main() {
       );
     }
 
-    test("this repository's settings read the same locally and remotely", () async {
-      final text = File('../openspec/specwright.yaml').readAsStringSync();
-      final local = loadSettings(text);
-      final pr = local['pr']! as Map<String, Object?>;
-      serve(main: text, headText: text);
-      final r = await run();
-      expect(r.code, 0, reason: f.stdout);
-      expect(r.json['drift'], isEmpty);
-      for (final side in ['main', 'head']) {
-        final got = r.json[side]! as Map;
-        expect(got['pr.merge'], pr['merge'], reason: side);
-        expect(got['pr.merge_method'], pr['merge_method'], reason: side);
-        expect(got['pr.delete_branch'], pr['delete_branch'], reason: side);
-        expect(
-          got['pr.reviewers'],
-          jsonDecode(
-            jsonEncode({
-              for (final e in reviewersOf(pr['reviewers']).entries)
-                e.key: e.value.toJson(),
-            }),
-          ),
-          reason: side,
-        );
-      }
-      expect(r.json['merge_method'], 'squash');
-      expect(r.json['delete_branch'], true);
-    });
-
-    test('a store reviewer list on main and head is lookup_failed, block and flow', () async {
-      for (final own in [
-        'planning_store:\n  reviewers:\n    - a\n    - b\n',
-        'planning_store:\n  reviewers: [a, b]\n',
-      ]) {
-        serve(main: '$required$own', headText: '$required$own');
-        final r = await runStore();
-        expect(r.code, 3, reason: own);
-        expect(r.json['error'], 'lookup_failed', reason: own);
-        expect(r.json['message'], contains('planning_store.reviewers'));
-        f.out.clear();
-      }
-      expectNothingWritten();
-      serve(main: required, headText: required);
-      final r = await runStore();
-      expect(r.code, 0, reason: 'an absent planning_store.reviewers inherits');
-      expect(r.json['merge_ready'], {'code': true, 'store': true});
-    });
-
-    test('non-finite numbers at the head are lookup_failed, never internal_error', () async {
-      for (final (text, line) in [
-        ('pr:\n  delete_branch: .nan\n', 2),
-        ('pr:\n  merge_method: .inf\n', 2),
-        ('pr:\n  merge_method: -.inf\n', 2),
-        ('pr:\n  reviewers:\n    rev:\n      timeout: -.inf\n', 4),
-        ('pr:\n  reviewers:\n    rev: { timeout: .NaN }\n', 3),
-      ]) {
-        serve(main: reviewersMain, headText: text);
+    test(
+      "this repository's settings read the same locally and remotely",
+      () async {
+        final text = File('../openspec/specwright.yaml').readAsStringSync();
+        final local = loadSettings(text);
+        final pr = local['pr']! as Map<String, Object?>;
+        serve(main: text, headText: text);
         final r = await run();
-        expect(r.code, 3, reason: text);
-        expect(r.json['error'], 'lookup_failed', reason: text);
-        expect(r.json['message'], contains('line $line'), reason: text);
-        f.out.clear();
-      }
-    });
+        expect(r.code, 0, reason: f.stdout);
+        expect(r.json['drift'], isEmpty);
+        for (final side in ['main', 'head']) {
+          final got = r.json[side]! as Map;
+          expect(got['pr.merge'], pr['merge'], reason: side);
+          expect(got['pr.merge_method'], pr['merge_method'], reason: side);
+          expect(got['pr.delete_branch'], pr['delete_branch'], reason: side);
+          expect(
+            got['pr.reviewers'],
+            jsonDecode(
+              jsonEncode({
+                for (final e in reviewersOf(pr['reviewers']).entries)
+                  e.key: e.value.toJson(),
+              }),
+            ),
+            reason: side,
+          );
+        }
+        expect(r.json['merge_method'], 'squash');
+        expect(r.json['delete_branch'], true);
+      },
+    );
+
+    test(
+      'a store reviewer list on main and head is lookup_failed, block and flow',
+      () async {
+        for (final own in [
+          'planning_store:\n  reviewers:\n    - a\n    - b\n',
+          'planning_store:\n  reviewers: [a, b]\n',
+        ]) {
+          serve(main: '$required$own', headText: '$required$own');
+          final r = await runStore();
+          expect(r.code, 3, reason: own);
+          expect(r.json['error'], 'lookup_failed', reason: own);
+          expect(r.json['message'], contains('planning_store.reviewers'));
+          f.out.clear();
+        }
+        expectNothingWritten();
+        serve(main: required, headText: required);
+        final r = await runStore();
+        expect(
+          r.code,
+          0,
+          reason: 'an absent planning_store.reviewers inherits',
+        );
+        expect(r.json['merge_ready'], {'code': true, 'store': true});
+      },
+    );
+
+    test(
+      'non-finite numbers at the head are lookup_failed, never internal_error',
+      () async {
+        for (final (text, line) in [
+          ('pr:\n  delete_branch: .nan\n', 2),
+          ('pr:\n  merge_method: .inf\n', 2),
+          ('pr:\n  merge_method: -.inf\n', 2),
+          ('pr:\n  reviewers:\n    rev:\n      timeout: -.inf\n', 4),
+          ('pr:\n  reviewers:\n    rev: { timeout: .NaN }\n', 3),
+        ]) {
+          serve(main: reviewersMain, headText: text);
+          final r = await run();
+          expect(r.code, 3, reason: text);
+          expect(r.json['error'], 'lookup_failed', reason: text);
+          expect(r.json['message'], contains('line $line'), reason: text);
+          f.out.clear();
+        }
+      },
+    );
 
     test('a trailing flow comma or block mapping reads as the same reviewer set', () async {
       const main =
@@ -1146,24 +1162,30 @@ void main() {
       expectNothingWritten();
     });
 
-    test('a wrong shape at either side is lookup_failed naming the key', () async {
-      for (final (text, key) in [
-        ('pr: [a]\n', 'pr'),
-        ('pr: x\n', 'pr'),
-        ("pr: ''\n", 'pr'),
-        ('pr:\n  reviewers: foo\n', 'pr.reviewers'),
-        ('pr:\n  reviewers: [a, b]\n', 'pr.reviewers'),
-        ('pr:\n  reviewers:\n    rev:\n      report: [check, x]\n', 'pr.reviewers.rev.report'),
-      ]) {
-        for (final (m, h) in [(text, ''), ('', text)]) {
-          serve(main: m, headText: h);
-          final r = await run();
-          expect(r.code, 3, reason: text);
-          expect(r.json['error'], 'lookup_failed', reason: text);
-          expect(r.json['message'], contains('$key: '), reason: text);
-          f.out.clear();
+    test(
+      'a wrong shape at either side is lookup_failed naming the key',
+      () async {
+        for (final (text, key) in [
+          ('pr: [a]\n', 'pr'),
+          ('pr: x\n', 'pr'),
+          ("pr: ''\n", 'pr'),
+          ('pr:\n  reviewers: foo\n', 'pr.reviewers'),
+          ('pr:\n  reviewers: [a, b]\n', 'pr.reviewers'),
+          (
+            'pr:\n  reviewers:\n    rev:\n      report: [check, x]\n',
+            'pr.reviewers.rev.report',
+          ),
+        ]) {
+          for (final (m, h) in [(text, ''), ('', text)]) {
+            serve(main: m, headText: h);
+            final r = await run();
+            expect(r.code, 3, reason: text);
+            expect(r.json['error'], 'lookup_failed', reason: text);
+            expect(r.json['message'], contains('$key: '), reason: text);
+            f.out.clear();
+          }
         }
-      }
-    });
+      },
+    );
   });
 }

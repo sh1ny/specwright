@@ -122,9 +122,13 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Settings are read by one real YAML parser for local and remote reads. Boolean settings written `yes` or `no` are now an error; write `true` or `false`.
+Settings are now read by one real YAML parser, locally and remotely. This release breaks settings that write a boolean as `yes` or `no`: after updating to 0.36.0, find those values in `openspec/specwright.yaml` and rewrite them as `true` and `false`. Until then a settings read stops and names the line.
 
 ### Changed
 
 - `openspec/specwright.yaml` is read by one parser, locally and remotely, with the same refusals (#148).
-- A boolean setting written `yes` or `no` stops with an error naming `true` and `false`. After upgrading, find such settings in `openspec/specwright.yaml` and rewrite them (#148).
+- **Breaking:** a boolean setting written `yes` or `no` (any case) stops with an error naming the line, `true` and `false`. After upgrading, find such settings and rewrite them (#148).
+- Anchors, aliases and tags, duplicate keys and NaN or infinite numbers are refused, naming the line (#148).
+- A section of the wrong shape (a list or a plain value where a mapping goes) stops the read instead of being read as empty (#148).
+- Each command stops with its own code on a refused file; `context` stops with `bad_setting`, and `settings_problem` reports only value problems (#148).
+- `sw` now depends on the `yaml` Dart package (#148).

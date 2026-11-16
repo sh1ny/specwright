@@ -2,7 +2,7 @@
 name: specwright-review
 description: "Reviewer routes and the pre-ship review for Specwright changes. Chooses the reviewer (codex, claude, omp CLI or the specwright-reviewer subagent) from review.order, runs it isolated and read-only through scripts/review-run.sh, validates the output and fails closed. Pre-ship mode reviews the finished main...<change branch tip> diff before the first PR or a local merge, blocks on P0/P1 findings, and sets the rules for fixes, waivers and spec amendments. Triggers: 'review before ship', 'run the pre-ship review', a design review step (FULL tier, roadmap baseline) choosing its reviewer, or specwright-commit, specwright-pr ship and specwright-finish calling it."
 metadata:
-  version: 0.35.0
+  version: 0.36.0
 ---
 
 # Specwright Review
@@ -35,7 +35,7 @@ review:
       args: []
 ```
 
-`tools` replaces the Claude/OMP tool list; an empty list means no tools. Codex has no `tools` setting. Codex `disable` adds to its fixed feature disables; an empty list cannot restore a disabled feature. All lists contain strings. Extra `args` cannot replace or weaken fixed isolation, tool selection, model/thinking, output capture or settings. Use `review.models`, `review.thinking` and the route's `tools` instead of their CLI flags. Known unsafe tools, protected flags and their aliases (including Codex `--yolo` and `--not-so-yolo`) stop with `route_setting_unsafe`; malformed route controls stop with `bad_route_setting`. Unsupported YAML stops with `bad_settings`, naming its line. Validate every route before any CLI probe, even when `cross_model: false` or another route would run.
+`tools` replaces the Claude/OMP tool list; an empty list means no tools. Codex has no `tools` setting. Codex `disable` adds to its fixed feature disables; an empty list cannot restore a disabled feature. All lists contain strings. Extra `args` cannot replace or weaken fixed isolation, tool selection, model/thinking, output capture or settings. Use `review.models`, `review.thinking` and the route's `tools` instead of their CLI flags. Known unsafe tools, protected flags and their aliases (including Codex `--yolo` and `--not-so-yolo`) stop with `route_setting_unsafe`; malformed route controls stop with `bad_route_setting`. Unsupported YAML (a plain `yes` or `no` for a boolean: write `true` or `false`) stops with `bad_settings`, naming its line. Validate every route before any CLI probe, even when `cross_model: false` or another route would run.
 
 Refuse Codex `-c profile=...` and every `profiles` table/child override as aliases of protected profile/settings sources. Refuse `model_provider` and `model_providers` overrides, including tables and children: provider `auth.command` programs run outside the tool sandbox. Refuse `notify` overrides for the same host-command boundary. Refuse OMP `fetch` both in route settings and in the fixed hook, independently of its disabled overlay.
 
