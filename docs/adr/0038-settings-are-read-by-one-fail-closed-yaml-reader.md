@@ -1,6 +1,6 @@
 # 0038. Settings are read by one fail-closed YAML reader
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-16
 - Supersedes: —
 - Adds to: 0020 (an unknown policy merges nothing) and 0033 (`yaml` approved once the `native-cli-yaml-settings` experiment passes)
