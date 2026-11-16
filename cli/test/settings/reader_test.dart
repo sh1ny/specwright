@@ -1,7 +1,6 @@
 import 'package:specwright_cli/src/settings/reader.dart';
-import 'package:specwright_cli/src/settings/yaml.dart';
+import 'package:specwright_cli/src/settings/values.dart';
 import 'package:test/test.dart';
-import 'package:yaml/yaml.dart' as y;
 
 Matcher refusedAt(int line, [Pattern? why]) => throwsA(
   isA<SettingsRefused>()
@@ -13,74 +12,6 @@ Matcher refusedAt(int line, [Pattern? why]) => throwsA(
 String _stackedFlow(int n) => 'k: [\n${' [\n' * (n - 1)}${' ]\n' * n}';
 
 void main() {
-  // Throwaway probes of the package assumptions A1-A5 of the design (task 2.2).
-  // Deleted once the experiment is accepted.
-  group('probe (2.2)', () {
-    test('A1: a duplicate key throws YamlException with a span', () {
-      try {
-        y.loadYamlNode('a:\n  role: x\n  role: y\n');
-        fail('no exception');
-      } on y.YamlException catch (e) {
-        expect(e.span, isNotNull);
-        expect(e.span!.start.line, 2); // 0-based: the second `role:`
-      }
-    });
-
-    test('A1: a second document throws YamlException with a span', () {
-      try {
-        y.loadYamlNode('a: 1\n---\nb: 2\n');
-        fail('no exception');
-      } on y.YamlException catch (e) {
-        expect(e.span, isNotNull);
-        expect(e.span!.start.line, 1); // 0-based: the `---` line
-      }
-    });
-
-    test('A2: yes and no load as plain-style strings', () {
-      final m = y.loadYamlNode('a: yes\nb: No\nc: YES\nd: true\n') as y.YamlMap;
-      for (final k in ['a', 'b', 'c']) {
-        final n = m.nodes[k]! as y.YamlScalar;
-        expect(n.value, isA<String>());
-        expect(n.style, y.ScalarStyle.PLAIN);
-      }
-      expect((m.nodes['d']! as y.YamlScalar).value, true);
-    });
-
-    // 100,000 levels take about a minute to overflow on the machine this was run on, which is
-    // the reason the reader scans for the depth first.
-    test('A3: 100,000-level flow nesting overflows the package stack', () {
-      final text = '${'[' * 100000}${']' * 100000}';
-      Object? outcome;
-      try {
-        y.loadYamlNode(text);
-        outcome = 'loaded';
-      } on StackOverflowError {
-        outcome = 'StackOverflowError';
-      }
-      expect(outcome, 'StackOverflowError');
-    }, timeout: const Timeout(Duration(minutes: 5)));
-
-    test('A4: an anchored node span starts with & and a tagged one with !', () {
-      final m = y.loadYamlNode(
-        'a: &r x\nb: !!str y\nc: !tag z\nd: *r\n',
-      ) as y.YamlMap;
-      expect(m.nodes['a']!.span.text, startsWith('&'));
-      expect(m.nodes['b']!.span.text, startsWith('!'));
-      expect(m.nodes['c']!.span.text, startsWith('!'));
-      // An alias returns the anchored node itself.
-      expect(identical(m.nodes['d'], m.nodes['a']), isTrue);
-    });
-
-    test('A5: a 21-digit integer loads as a double, hex as an integer', () {
-      final m = y.loadYamlNode(
-        'a: 123456789012345678901\nb: 0x10\nc: 0o17\n',
-      ) as y.YamlMap;
-      expect(m.nodes['a']!.value, isA<double>());
-      expect(m.nodes['b']!.value, 16);
-      expect(m.nodes['c']!.value, 15);
-    });
-  });
-
   group('readSettingsYaml', () {
     test('a tab in indentation is refused naming its line', () {
       const text =
@@ -474,7 +405,86 @@ void main() {
         () => readSettingsYaml('pr:\n  reviewers:\n    a: {timeout: -.inf}\n'),
         refusedAt(3, 'not a finite number'),
       );
-      expect(readSettingsYaml('a: 1.5\nb: \'.inf\'\n'), {'a': 1.5, 'b': '.inf'});
+      expect(readSettingsYaml('a: 1.5\nb: \'.inf\'\n'), {
+        'a': 1.5,
+        'b': '.inf',
+      });
+    });
+
+    group('values and stops kept from the old reader', () {
+      test('block scalars: literal, strip, fold and keep', () {
+        final got = readSettingsYaml(
+          'notes: |\n  line1\n    indented\n  line3\n\n'
+          'folded: >-\n  one\n  two\n\n  three\n'
+          'keep: |+\n  x\n\n'
+          'after: 1\n',
+        );
+        expect(got['notes'], 'line1\n  indented\nline3\n');
+        expect(got['folded'], 'one two\nthree');
+        expect(got['keep'], 'x\n\n');
+        expect(got['after'], 1);
+      });
+
+      test('a quoted key keeps its characters and its escapes decode', () {
+        final got = readSettingsYaml(
+          '"a b": 1\n\'c\'\'d\': 2\n"e\\u00e9": 3\n',
+        );
+        expect(got.keys.toList(), ['a b', "c'd", 'eé']);
+      });
+
+      test('quoted scalars decode their escapes', () {
+        final got = readSettingsYaml("a: '42'\nb: 'it''s'\nc: \"4\\x41\\n\"\n");
+        expect(got['a'], '42');
+        expect(got['b'], "it's");
+        expect(got['c'], '4A\n');
+      });
+
+      test('flow collections read as maps and lists', () {
+        final got = readSettingsYaml(
+          'a: {x: 1, y: [p, q], z: }\nb: [1, \'two\']\n',
+        );
+        expect(got['a'], {
+          'x': 1,
+          'y': ['p', 'q'],
+          'z': null,
+        });
+        expect(got['b'], [1, 'two']);
+      });
+
+      test('null, ~ and Null are null; an empty value is null', () {
+        final got = readSettingsYaml('a: ~\nb: null\nc:\nd: Null\n');
+        expect(got['a'], isNull);
+        expect(got['b'], isNull);
+        expect(got.containsKey('c'), true);
+        expect(got['c'], isNull);
+        expect(got['d'], isNull, reason: 'the package reads Null as null');
+      });
+
+      test('a line of another indentation is refused naming its line', () {
+        expect(() => readSettingsYaml('a: 1\n  b: 2\nc: 3\n'), refusedAt(2));
+      });
+
+      test('a line that is not key: value is refused', () {
+        expect(
+          () => readSettingsYaml('a: 1\nplain text\n'),
+          throwsA(isA<SettingsRefused>()),
+        );
+      });
+
+      test('a control character or an unterminated quote is refused', () {
+        expect(() => readSettingsYaml('a: 1\nb: x\u{1}y\n'), refusedAt(2));
+        expect(
+          () => readSettingsYaml('a: 1\nb: "x\n'),
+          throwsA(isA<SettingsRefused>()),
+        );
+      });
+
+      test('U+2028 does not end a line, so the line is refused', () {
+        expect(
+          () => readSettingsYaml('x: 1 y: 2\n'),
+          throwsA(isA<SettingsRefused>()),
+        );
+      });
     });
   });
 }

@@ -1,15 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:specwright_cli/src/settings/reader.dart';
 import 'package:specwright_cli/src/settings/rules.dart';
-import 'package:specwright_cli/src/settings/yaml.dart';
+import 'package:specwright_cli/src/settings/values.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:test/test.dart';
 
 // The expected values come from CPython 3.14 running the frozen `duration`, `settle_of`, `reviewers_of`, `merge_mode`,
 // `merge_options`, `repo_ctx`, `contexts`, `cmd_vcs` and `cmd_tier` of skills/specwright-pr/scripts/pr-pair.sh.
 
-YamlMap _pr(String yaml) => parseYaml(yaml)['pr']! as YamlMap;
+YamlMap _pr(String yaml) => readSettingsYaml(yaml)['pr']! as YamlMap;
 
 Object? _json(Object? v) => jsonDecode(documentText(v));
 
@@ -98,7 +99,7 @@ void main() {
     test('reviewersOf: a timeout past 64 bits is a problem and 1200', () {
       final problems = <SettingProblem>[];
       final out = reviewersOf(
-        parseYaml(
+        readSettingsYaml(
           'rev-bot:\n  role: required\n  timeout: 99999999999999999999\n'
           'other:\n  timeout: 99999999999999999999h\n',
         ),
@@ -120,7 +121,7 @@ void main() {
     test('reviewersOf: the where argument names a planning_store set', () {
       final problems = <SettingProblem>[];
       reviewersOf(
-        parseYaml('x:\n  timeout: 99999999999999999999\n'),
+        readSettingsYaml('x:\n  timeout: 99999999999999999999\n'),
         problems: problems,
         where: 'planning_store.reviewers',
       );
@@ -130,7 +131,7 @@ void main() {
     test('contexts: max_fix_rounds and poll_interval past 64 bits', () {
       final problems = <SettingProblem>[];
       final c = contexts(
-        parseYaml(
+        readSettingsYaml(
           'pr:\n  max_fix_rounds: 99999999999999999999\n'
           '  poll_interval: 99999999999999999999\n',
         ),
@@ -155,7 +156,7 @@ void main() {
       () {
         final problems = <SettingProblem>[];
         final c = contexts(
-          parseYaml(
+          readSettingsYaml(
             'pr:\n  reviewers:\n    rev-bot:\n      timeout: 99999999999999999999\n',
           ),
           '/c',
@@ -171,7 +172,7 @@ void main() {
     test('a quoted round count is still the default, with no problem', () {
       final problems = <SettingProblem>[];
       final c = contexts(
-        parseYaml("pr:\n  max_fix_rounds: '99999999999999999999'\n"),
+        readSettingsYaml("pr:\n  max_fix_rounds: '99999999999999999999'\n"),
         '/c',
         null,
         detectMain: (_) => 'main',
@@ -212,7 +213,7 @@ void main() {
         ('59s', '59s'),
         ('3601s', '3601s'),
         ('2h', '2h'),
-        ('yes', 'yes'),
+        ('true', 'true'),
         ('5', '5'),
         ('0', '0'),
         ("'1.5m'", "'1.5m'"),
@@ -237,7 +238,8 @@ void main() {
 
     test('a flow-map pr has no text: a boolean reads as true', () {
       final pr =
-          parseYaml('pr: {settle: true}\n')['pr']! as Map<String, Object?>;
+          readSettingsYaml('pr: {settle: true}\n')['pr']!
+              as Map<String, Object?>;
       expect(settleOf(pr).problem!.why, startsWith('true must be'));
     });
   });
@@ -378,12 +380,9 @@ void main() {
       );
       expect(problems.single.key, 'planning_store.reviewers.x.report');
       expect(
-        () => reviewersOf(
-          {
-            'x': {'report': 'bad'},
-          },
-          where: 'planning_store.reviewers',
-        ),
+        () => reviewersOf({
+          'x': {'report': 'bad'},
+        }, where: 'planning_store.reviewers'),
         throwsA(
           isA<SettingsStop>().having(
             (e) => e.message,
@@ -452,7 +451,11 @@ void main() {
             isA<SettingsStop>()
                 .having((e) => e.error, 'error', 'bad_setting')
                 .having((e) => e.code, 'code', 2)
-                .having((e) => e.message, 'message', startsWith('pr.reviewers: ')),
+                .having(
+                  (e) => e.message,
+                  'message',
+                  startsWith('pr.reviewers: '),
+                ),
           ),
           reason: '$v',
         );
@@ -477,7 +480,7 @@ void main() {
     test('another value is user with a note naming it as written', () {
       for (final (v, written) in [
         ('Agent', 'Agent'),
-        ('yes', 'yes'),
+        ('true', 'true'),
         ('5', '5'),
       ]) {
         final r = mergeMode(_pr('pr:\n  merge: $v\n'));
@@ -550,7 +553,7 @@ void main() {
         Object? got;
         try {
           final c = contexts(
-            parseYaml(yaml),
+            readSettingsYaml(yaml),
             code,
             store,
             detectMain: (d) => 'detected-${d.split('/').last}',
@@ -578,7 +581,7 @@ void main() {
       'both contexts: the store inherits pr.reviewers unless it has its own',
       () {
         final c = contexts(
-          parseYaml(
+          readSettingsYaml(
             'pr:\n  reviewers:\n    codex: { role: required }\n'
             'planning_store:\n  login: s\n',
           ),
@@ -596,7 +599,9 @@ void main() {
     test('detectMain is asked only when no main is set', () {
       final asked = <String>[];
       contexts(
-        parseYaml('main_branch: trunk\nplanning_store:\n  main_branch: dev\n'),
+        readSettingsYaml(
+          'main_branch: trunk\nplanning_store:\n  main_branch: dev\n',
+        ),
         '/c',
         '/s',
         detectMain: (d) {
@@ -697,24 +702,27 @@ void main() {
       );
     });
 
-    test('only an absent or null planning_store.reviewers inherits the code set', () {
-      final pr = {
-        'reviewers': {
-          'a': {'role': 'required'},
-        },
-      };
-      for (final ps in <Map<String, Object?>>[
-        {},
-        {'reviewers': null},
-      ]) {
-        final c = read({'pr': pr, 'planning_store': ps}, store: 's');
-        expect(c.store!.reviewers.keys, ['a'], reason: '$ps');
-        expect(c.store!.requestsDisabled, false);
-      }
-    });
+    test(
+      'only an absent or null planning_store.reviewers inherits the code set',
+      () {
+        final pr = {
+          'reviewers': {
+            'a': {'role': 'required'},
+          },
+        };
+        for (final ps in <Map<String, Object?>>[
+          {},
+          {'reviewers': null},
+        ]) {
+          final c = read({'pr': pr, 'planning_store': ps}, store: 's');
+          expect(c.store!.reviewers.keys, ['a'], reason: '$ps');
+          expect(c.store!.requestsDisabled, false);
+        }
+      },
+    );
 
     test('a non-mapping report stops the read', () {
-      final yaml = parseYaml(
+      final yaml = readSettingsYaml(
         'pr:\n  reviewers:\n    rev-bot:\n      report: [check, x]\n',
       );
       expect(() => read(yaml), stops('pr.reviewers.rev-bot.report'));
@@ -739,16 +747,16 @@ void main() {
 
   group('vcsChoices', () {
     test('defaults to git for both', () {
-      final r = vcsChoices(parseYaml(''));
+      final r = vcsChoices(readSettingsYaml(''));
       expect((r.code, r.store), ('git', 'git'));
     });
 
     test('reads each backend', () {
-      var r = vcsChoices(parseYaml('vcs: gitbutler\nfinish: pr\n'));
+      var r = vcsChoices(readSettingsYaml('vcs: gitbutler\nfinish: pr\n'));
       expect((r.code, r.store), ('gitbutler', 'git'));
-      r = vcsChoices(parseYaml('planning_store:\n  vcs: jj\n'));
+      r = vcsChoices(readSettingsYaml('planning_store:\n  vcs: jj\n'));
       expect((r.code, r.store), ('git', 'jj'));
-      r = vcsChoices(parseYaml('vcs: jj\n'));
+      r = vcsChoices(readSettingsYaml('vcs: jj\n'));
       expect((r.code, r.store), ('jj', 'git'));
     });
 
@@ -763,7 +771,7 @@ void main() {
         ('planning_store:\n  vcs: svn\n', 'unknown_vcs'),
       ]) {
         try {
-          vcsChoices(parseYaml(yaml));
+          vcsChoices(readSettingsYaml(yaml));
           fail('${yaml.trim()} should stop');
         } on SettingsStop catch (e) {
           expect(e.error, error, reason: yaml);
@@ -774,7 +782,7 @@ void main() {
 
     test('names an unknown backend with Python repr', () {
       try {
-        vcsChoices(parseYaml('vcs: svn\n'));
+        vcsChoices(readSettingsYaml('vcs: svn\n'));
         fail('should stop');
       } on SettingsStop catch (e) {
         expect(
@@ -783,7 +791,7 @@ void main() {
         );
       }
       try {
-        vcsChoices(parseYaml('planning_store:\n  vcs: svn\n'));
+        vcsChoices(readSettingsYaml('planning_store:\n  vcs: svn\n'));
         fail('should stop');
       } on SettingsStop catch (e) {
         expect(
@@ -805,12 +813,12 @@ void main() {
         ('cheap_tier:\n  other: 1\n', {'ok': true, 'cheap_tier': false}),
         ('cheap_tier:\n', {'ok': true, 'cheap_tier': false}),
       ]) {
-        expect(tierChoice(parseYaml(yaml)), want, reason: yaml);
+        expect(tierChoice(readSettingsYaml(yaml)), want, reason: yaml);
       }
     });
 
     test('anything else is false with a note', () {
-      expect(tierChoice(parseYaml('cheap_tier:\n  enabled: maybe\n')), {
+      expect(tierChoice(readSettingsYaml('cheap_tier:\n  enabled: maybe\n')), {
         'ok': true,
         'cheap_tier': false,
         'note':
@@ -821,7 +829,7 @@ void main() {
         'cheap_tier: []\n',
         'cheap_tier: true\n',
       ]) {
-        expect(tierChoice(parseYaml(yaml)), {
+        expect(tierChoice(readSettingsYaml(yaml)), {
           'ok': true,
           'cheap_tier': false,
           'note': 'cheap_tier must hold enabled: true|false; treated as false',
@@ -834,21 +842,22 @@ void main() {
         ('pr: [a]\ncheap_tier:\n  enabled: true\n', 'pr'),
         ('pr: x\ncheap_tier:\n  enabled: true\n', 'pr'),
         ('github: [a]\ncheap_tier:\n  enabled: true\n', 'github'),
-        (
-          'planning_store: x\ncheap_tier:\n  enabled: true\n',
-          'planning_store',
-        ),
+        ('planning_store: x\ncheap_tier:\n  enabled: true\n', 'planning_store'),
         (
           'pr:\n  reviewers:\n    a: [x]\ncheap_tier:\n  enabled: true\n',
           'pr.reviewers.a',
         ),
       ]) {
-        final out = tierChoice(parseYaml(yaml));
+        final out = tierChoice(readSettingsYaml(yaml));
         expect(out['cheap_tier'], false, reason: yaml);
         expect(out['note'], startsWith('$key: '), reason: yaml);
       }
       expect(
-        tierChoice(parseYaml('pr:\n  merge_method: fast\ncheap_tier:\n  enabled: true\n'))['cheap_tier'],
+        tierChoice(
+          readSettingsYaml(
+            'pr:\n  merge_method: fast\ncheap_tier:\n  enabled: true\n',
+          ),
+        )['cheap_tier'],
         true,
         reason: 'a value problem never reaches the tier',
       );
@@ -890,23 +899,26 @@ void main() {
       expect(loadSettings('a: true\n'), {'a': true});
     });
 
-    test('loadSettings: a refused file is bad_setting, exit 2, naming the line', () {
-      for (final (text, line) in [
-        ('a: yes\n', 'line 1'),
-        ('a: 1\nb:\n\tc: 2\n', 'line 3'),
-        ('pr:\n  x: 1\npr:\n  y: 2\n', 'line 3'),
-        ('- pr\n', 'line 1'),
-      ]) {
-        try {
-          loadSettings(text);
-          fail('${text.trim()} should stop');
-        } on SettingsStop catch (e) {
-          expect(e.error, 'bad_setting', reason: text);
-          expect(e.code, 2, reason: text);
-          expect(e.message, startsWith('openspec/specwright.yaml $line:'));
+    test(
+      'loadSettings: a refused file is bad_setting, exit 2, naming the line',
+      () {
+        for (final (text, line) in [
+          ('a: yes\n', 'line 1'),
+          ('a: 1\nb:\n\tc: 2\n', 'line 3'),
+          ('pr:\n  x: 1\npr:\n  y: 2\n', 'line 3'),
+          ('- pr\n', 'line 1'),
+        ]) {
+          try {
+            loadSettings(text);
+            fail('${text.trim()} should stop');
+          } on SettingsStop catch (e) {
+            expect(e.error, 'bad_setting', reason: text);
+            expect(e.code, 2, reason: text);
+            expect(e.message, startsWith('openspec/specwright.yaml $line:'));
+          }
         }
-      }
-    });
+      },
+    );
   });
 }
 

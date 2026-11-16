@@ -5,7 +5,7 @@ import '../commit/task_cover.dart' show isPySpace, pyStrip;
 import '../settings/reader.dart';
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
-import '../settings/yaml.dart';
+import '../settings/values.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import 'context.dart';

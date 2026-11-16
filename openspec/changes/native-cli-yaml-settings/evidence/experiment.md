@@ -4,6 +4,8 @@ Task group 2 of `native-cli-yaml-settings` (design D6). This records what was ru
 
 Machine: Windows 11, Dart 3.13.7 (the `mise.toml` pin), `yaml` 3.1.4, Python 3 for the generator, run from `cli/` (Dart) and the repository root (Python).
 
+Group 4 removed `cli/lib/src/settings/yaml.dart`, `cli/test/settings/reader_corpus_test.dart`, `cli/test/settings/gen_py_corpus.py`, `cli/test/settings/yaml_test.dart` and the `probe (2.2)` group of `reader_test.dart`; the paths below name them as they were when the experiment ran, and the results stay here.
+
 ## How it was run
 
 - `mise exec -- dart pub get` after adding `yaml: ^3.1.3` to `cli/pubspec.yaml`.

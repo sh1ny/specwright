@@ -1,7 +1,7 @@
 import 'dart:io' show Directory;
 
 import '../commit/task_cover.dart' show pyStrip;
-import '../settings/yaml.dart' show pySpaceClass;
+import '../settings/values.dart' show pySpaceClass;
 import 'context.dart';
 import 'pair.dart';
 

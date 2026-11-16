@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../settings/rules.dart';
-import '../settings/yaml.dart' show pyTruthy;
+import '../settings/values.dart' show pyTruthy;
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';

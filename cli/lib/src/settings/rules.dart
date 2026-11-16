@@ -2,7 +2,7 @@ import 'dart:io';
 
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
 import 'reader.dart';
-import 'yaml.dart';
+import 'values.dart';
 
 // The setting rules of `pr-pair.sh`: `duration`, `settle_of`, `reviewers_of`, `merge_mode`, `merge_options`, `repo_ctx`
 // and `contexts` (pr-pair.sh:788-797, 861-912, 952-1028), plus the reads of the `vcs` and `tier` subcommands

@@ -1,6 +1,6 @@
 import '../settings/rules.dart'
     show SettingsStop, loadSettings, readSettingsText, settingSection;
-import '../settings/yaml.dart' show pyStr;
+import '../settings/values.dart' show pyStr;
 import 'pattern.dart';
 import 'stop.dart';
 

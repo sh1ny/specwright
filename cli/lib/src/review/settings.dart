@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../settings/rules.dart'
     show SettingsStop, loadSettings, readSettingsText, settingSection;
-import '../settings/yaml.dart' show pyUtf8Decode;
+import '../settings/values.dart' show pyUtf8Decode;
 import 'routes.dart';
 import 'stop.dart';
 

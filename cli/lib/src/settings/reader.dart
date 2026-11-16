@@ -1,6 +1,6 @@
 import 'package:yaml/yaml.dart' as y;
 
-import 'yaml.dart' show YamlMap, pyIntNormal;
+import 'values.dart' show YamlMap, pyIntNormal;
 
 // The settings reader of `native-cli-yaml-settings` (design D1-D3, ADR 0038): `package:yaml` loads the text and this
 // file applies every refusal. Nothing else in `cli/` imports `package:yaml`.
