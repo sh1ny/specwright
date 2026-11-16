@@ -17,7 +17,7 @@ The design is written when this change starts, because the review and release po
 
 ### What the experiment must show
 
-- Every settings file above gives the same values the strict reader gives, apart from the `yes`/`no` case.
+- One acceptance matrix decides it, recorded in `experiment.md`. Each settings file above gives the same values and outcomes as the old reader, except the differences this change approves, each listed with its expected outcome: a plain `yes` or `no` is refused (S6); a file the old reader read leniently but YAML refuses is refused (S5); anchors, aliases and tags are refused (S7); hex, octal, floats and integers written with non-ASCII digits read as YAML 1.2 defines them (design D3); an empty or comment-only file is still an empty mapping. Any other difference that reaches a consumer stops adoption.
 - Duplicate keys are refused, `yes` and `no` reach the boolean check as strings, and a parse error reports a line.
 - A file nested far beyond the old limit neither crashes nor passes as valid.
 - `cli/test/no_build_hooks_test.dart` passes after `dart pub get`, and the notice covers `yaml` and its closure (`collection`, `source_span`, `string_scanner`).
@@ -51,6 +51,9 @@ None.
 - `pr-script-runtime`: the settings reader's contract, the strict remote read and the boolean error.
 - `native-cli`: the shipped dependency set gains `yaml` if the experiment passes.
 - `pr-merge`: policy reads fail closed under the new parser.
+- `pr-evidence`: `context` stops on a settings file the reader refuses instead of reporting it as `settings_problem` and going on (S5).
+- `cost-tiers`: `yes` no longer reads as true; a refused file leaves the cheap tier off with a note.
+- `releases`: a release stops on any file the reader refuses, not only on a line the old reader would misread.
 
 ## Impact
 
@@ -92,6 +95,30 @@ DECISION_MAKING: important
 - **Reversal cost:** low
 - **Important:** yes, binds future changes.
 - **Chosen by:** user, "Their designs are written at their turn, because the intervening ports would make them stale."
+
+### S5: A refused file stops every local read
+
+- **Choice:** Every command that reads the settings stops with its settings error naming the line, `context` included, so ship, finish and cleanup stop until the file is fixed. `tier` alone exits 0 with the cheap tier off and a note. `context` keeps `settings_problem` for problems with a value that was read, such as `pr.settle`.
+- **Rejected:** `context` reports the problem and returns defaults so ship, finish and cleanup go on; defaults can pick the wrong backend, main branch or account.
+- **Reversal cost:** medium
+- **Important:** yes, changes what users see.
+- **Chosen by:** user, "Every reader stops" (2026-11-15).
+
+### S6: Any plain yes or no is refused
+
+- **Choice:** The reader refuses any unquoted `yes` or `no` value, in any case, naming the line and `true`/`false`. A quoted `'yes'` stays a string.
+- **Rejected:** Each reader checks its own boolean keys, where a missed key turns a setting off silently.
+- **Reversal cost:** low
+- **Important:** yes, changes what users see.
+- **Chosen by:** user, "Any plain yes/no" (2026-11-15).
+
+### S7: Anchors, aliases and tags stay refused
+
+- **Choice:** The reader refuses them, locally and remotely, as the strict check did.
+- **Rejected:** Accept them as YAML does, with a separate bound on expanded size for remote reads.
+- **Reversal cost:** low
+- **Important:** yes, security.
+- **Chosen by:** user, "Keep refusing" (2026-11-15).
 
 ## Release Notes
 
