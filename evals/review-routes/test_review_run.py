@@ -280,17 +280,14 @@ class SelectTests(Base):
         self.assertEqual(self.calls("codex"), [])
 
     def test_select_block_sequence_order(self):
+        """A block sequence is valid YAML and reads like the flow form (native-cli-yaml-settings): it picks the route."""
         self.install("codex", "omp")
         self.set_settings("review:\n  order:\n    - omp\n    - codex\n")
-        out = self.select("other", expect=1)
-        self.assertEqual(out["error"], "bad_settings")
-        self.assertIn("line 3", out["message"])
+        out = self.select("other")
+        self.assertEqual(out["route"], "omp")
         self.set_settings("review:\n  order:\n  - codex\n")
-        out = self.select("other", expect=1)
-        self.assertEqual(out["error"], "bad_settings")
-        self.assertIn("line 3", out["message"])
-        self.assertEqual(self.calls("codex"), [])
-        self.assertEqual(self.calls("omp"), [])
+        out = self.select("other")
+        self.assertEqual(out["route"], "codex")
 
     def test_select_order_not_a_list_exits_1(self):
         self.install("codex")

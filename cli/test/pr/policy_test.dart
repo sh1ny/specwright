@@ -5,6 +5,8 @@ import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
 import 'package:specwright_cli/src/pr/policy.dart';
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/settings/reviewer_config.dart';
+import 'package:specwright_cli/src/settings/rules.dart'
+    show loadSettings, reviewersOf;
 import 'package:test/test.dart';
 
 import 'pr_support.dart';
@@ -334,15 +336,22 @@ void main() {
       expect(r.code, 0, reason: f.stdout);
       expect(r.json['merge'], 'agent');
       f.out.clear();
-      // a second one is U+FEFF in the text, which the strict check refuses
-      await stopFor(
-        file(
-          base64.encode([
-            0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf, //
-            ...utf8.encode(reviewersMain),
-          ]),
+      // a second one stays U+FEFF in the text, which the one reader skips like the first
+      serve(
+        mainRaw: answer(
+          file(
+            base64.encode([
+              0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf, //
+              ...utf8.encode(reviewersMain),
+            ]),
+          ),
         ),
+        headText: reviewersMain,
       );
+      final again = await run();
+      expect(again.code, 0, reason: f.stdout);
+      expect(again.json['merge'], 'agent');
+      f.out.clear();
     });
 
     test('the strict YAML check names the line', () async {
@@ -354,7 +363,7 @@ void main() {
       expect(json['message'], contains('line 3'));
     });
 
-    test('a block sequence is refused', () async {
+    test('a block sequence of reviewers is a wrong shape', () async {
       await stopFor(
         file(base64.encode(utf8.encode('pr:\n  reviewers:\n    - a\n'))),
       );
@@ -471,20 +480,26 @@ void main() {
       );
     });
 
-    test('invalid: reviewers that are not a mapping, per side', () async {
-      serve(
-        main: 'pr:\n  reviewers: nobody\n',
-        headText: 'pr:\n  reviewers: [a, b]\n',
-      );
-      final r = await run();
-      expect(r.code, 0, reason: f.stdout);
-      expect(r.json['invalid'], [
-        {'side': 'main', 'key': 'pr.reviewers', 'value': 'nobody'},
-        {'side': 'head', 'key': 'pr.reviewers', 'value': '[a, b]'},
-      ]);
-      expect((r.json['main']! as Map)['pr.reviewers'], <String, Object?>{});
-      expect(r.json['merge_ready'], {'code': false});
-    });
+    test(
+      'reviewers that are not a mapping are lookup_failed, per side',
+      () async {
+        for (final (m, h, side, written) in [
+          ('pr:\n  reviewers: nobody\n', '', 'main', 'nobody'),
+          ('', 'pr:\n  reviewers: [a, b]\n', 'head', '[a, b]'),
+        ]) {
+          serve(main: m, headText: h);
+          final r = await run();
+          expect(r.code, 3, reason: f.stdout);
+          expect(r.json['error'], 'lookup_failed');
+          expect(
+            r.json['message'],
+            contains('pr.reviewers: $written must be a mapping'),
+            reason: side,
+          );
+          f.out.clear();
+        }
+      },
+    );
 
     test('the head can be invalid where main would stop', () async {
       final many = [
@@ -503,11 +518,11 @@ void main() {
     });
 
     test(
-      'a reviewer report that is not a string map: invalid on head',
+      'a reviewer report value that is not a string: invalid on head',
       () async {
         serve(
           main: reviewersMain,
-          headText: 'pr:\n  reviewers:\n    rev:\n      role: required\n      report: nope\n',
+          headText: 'pr:\n  reviewers:\n    rev:\n      role: required\n      report:\n        check: 5\n',
         );
         final r = await run();
         expect(r.code, 0, reason: f.stdout);
@@ -515,7 +530,7 @@ void main() {
           {
             'side': 'head',
             'key': 'pr.reviewers.rev.report',
-            'value': 'must be a mapping of keys to strings',
+            'value': 'check must be a string (quote it if it looks like a number or a boolean)',
           },
         ]);
       },
@@ -999,5 +1014,178 @@ void main() {
       expect(r.json['error'], 'snapshot_unreadable');
       expect(r.json['message'], startsWith('${s.path}: '));
     });
+  });
+
+  group('the one settings reader (native-cli-yaml-settings)', () {
+    const required =
+        'pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev:\n      role: required\n      timeout: 60\n';
+
+    Future<({int code, Map<String, Object?> json})> runStore() {
+      final code = snapshotFile('c.json', snap());
+      final store = snapshotFile('s.json', snap());
+      return policy([
+        '--repo',
+        'o/n',
+        '--head',
+        head,
+        '--store',
+        '--snapshot',
+        'code=${code.path}',
+        '--snapshot',
+        'store=${store.path}',
+        '--reviewed-head',
+        'store=$head',
+      ]);
+    }
+
+    void expectNothingWritten() {
+      final reviewers = Directory('${state.path}/reviewers');
+      expect(
+        !reviewers.existsSync() || reviewers.listSync().isEmpty,
+        isTrue,
+        reason: 'no reviewer config is written',
+      );
+    }
+
+    test(
+      "this repository's settings read the same locally and remotely",
+      () async {
+        final text = File('../openspec/specwright.yaml').readAsStringSync();
+        final local = loadSettings(text);
+        final pr = local['pr']! as Map<String, Object?>;
+        serve(main: text, headText: text);
+        final r = await run();
+        expect(r.code, 0, reason: f.stdout);
+        expect(r.json['drift'], isEmpty);
+        for (final side in ['main', 'head']) {
+          final got = r.json[side]! as Map;
+          expect(got['pr.merge'], pr['merge'], reason: side);
+          expect(got['pr.merge_method'], pr['merge_method'], reason: side);
+          expect(got['pr.delete_branch'], pr['delete_branch'], reason: side);
+          expect(
+            got['pr.reviewers'],
+            jsonDecode(
+              jsonEncode({
+                for (final e in reviewersOf(pr['reviewers']).entries)
+                  e.key: e.value.toJson(),
+              }),
+            ),
+            reason: side,
+          );
+        }
+        expect(r.json['merge_method'], 'squash');
+        expect(r.json['delete_branch'], true);
+      },
+    );
+
+    test(
+      'a store reviewer list on main and head is lookup_failed, block and flow',
+      () async {
+        for (final own in [
+          'planning_store:\n  reviewers:\n    - a\n    - b\n',
+          'planning_store:\n  reviewers: [a, b]\n',
+        ]) {
+          serve(main: '$required$own', headText: '$required$own');
+          final r = await runStore();
+          expect(r.code, 3, reason: own);
+          expect(r.json['error'], 'lookup_failed', reason: own);
+          expect(r.json['message'], contains('planning_store.reviewers'));
+          f.out.clear();
+        }
+        expectNothingWritten();
+        serve(main: required, headText: required);
+        final r = await runStore();
+        expect(
+          r.code,
+          0,
+          reason: 'an absent planning_store.reviewers inherits',
+        );
+        expect(r.json['merge_ready'], {'code': true, 'store': true});
+      },
+    );
+
+    test(
+      'non-finite numbers at the head are lookup_failed, never internal_error',
+      () async {
+        for (final (text, line) in [
+          ('pr:\n  delete_branch: .nan\n', 2),
+          ('pr:\n  merge_method: .inf\n', 2),
+          ('pr:\n  merge_method: -.inf\n', 2),
+          ('pr:\n  reviewers:\n    rev:\n      timeout: -.inf\n', 4),
+          ('pr:\n  reviewers:\n    rev: { timeout: .NaN }\n', 3),
+        ]) {
+          serve(main: reviewersMain, headText: text);
+          final r = await run();
+          expect(r.code, 3, reason: text);
+          expect(r.json['error'], 'lookup_failed', reason: text);
+          expect(r.json['message'], contains('line $line'), reason: text);
+          f.out.clear();
+        }
+      },
+    );
+
+    test('a trailing flow comma or block mapping reads as the same reviewer set', () async {
+      const main =
+          'pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required, timeout: 60 }\n';
+      for (final headText in [
+        'pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required, timeout: 60, }\n',
+        'pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev:\n      role: required\n      timeout: 60\n',
+      ]) {
+        serve(main: main, headText: headText);
+        final r = await run();
+        expect(r.code, 0, reason: f.stdout);
+        expect(r.json['drift'], isEmpty, reason: headText);
+        expect(r.json['merge'], 'agent');
+        final reported = (r.json['reported']! as Map)['head'] as Map;
+        expect((reported['code']! as Map)['ok'], true, reason: headText);
+        f.out.clear();
+      }
+    });
+
+    test('a reviewer entry list on main and head is lookup_failed, both sets, block and flow', () async {
+      for (final (set, entry) in [
+        ('pr.reviewers', '    guard:\n      - role: required\n'),
+        ('pr.reviewers', '    guard: [required]\n'),
+        ('planning_store.reviewers', '    guard:\n      - role: required\n'),
+        ('planning_store.reviewers', '    guard: [required]\n'),
+      ]) {
+        final text = set == 'pr.reviewers'
+            ? 'pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n$entry'
+            : '${required}planning_store:\n  reviewers:\n$entry';
+        serve(main: text, headText: text);
+        final r = await runStore();
+        expect(r.code, 3, reason: text);
+        expect(r.json['error'], 'lookup_failed', reason: text);
+        expect(r.json['message'], contains('$set.guard'), reason: text);
+        f.out.clear();
+      }
+      expectNothingWritten();
+    });
+
+    test(
+      'a wrong shape at either side is lookup_failed naming the key',
+      () async {
+        for (final (text, key) in [
+          ('pr: [a]\n', 'pr'),
+          ('pr: x\n', 'pr'),
+          ("pr: ''\n", 'pr'),
+          ('pr:\n  reviewers: foo\n', 'pr.reviewers'),
+          ('pr:\n  reviewers: [a, b]\n', 'pr.reviewers'),
+          (
+            'pr:\n  reviewers:\n    rev:\n      report: [check, x]\n',
+            'pr.reviewers.rev.report',
+          ),
+        ]) {
+          for (final (m, h) in [(text, ''), ('', text)]) {
+            serve(main: m, headText: h);
+            final r = await run();
+            expect(r.code, 3, reason: text);
+            expect(r.json['error'], 'lookup_failed', reason: text);
+            expect(r.json['message'], contains('$key: '), reason: text);
+            f.out.clear();
+          }
+        }
+      },
+    );
   });
 }

@@ -179,6 +179,42 @@ void main() {
       expect(r.json['note'], startsWith('cheap_tier must hold'));
     });
 
+    test('tier notes a wrong-shaped section with the cheap tier off', () async {
+      for (final (text, key) in [
+        ('pr:\n  - merge\ncheap_tier:\n  enabled: true\n', 'pr'),
+        ('pr: [a, b]\ncheap_tier:\n  enabled: true\n', 'pr'),
+        ('github: x\ncheap_tier:\n  enabled: true\n', 'github'),
+        (
+          'pr:\n  reviewers:\n    guard: [x]\ncheap_tier:\n  enabled: true\n',
+          'pr.reviewers.guard',
+        ),
+      ]) {
+        settings(text);
+        final r = await tier(['--code', code()]);
+        expect(r.code, 0, reason: text);
+        expect(r.json['ok'], true);
+        expect(r.json['cheap_tier'], false, reason: text);
+        expect(r.json['note'], startsWith('$key: '), reason: text);
+      }
+    });
+
+    test(
+      'a refused file is the cheap tier off with a note naming the line',
+      () async {
+        settings('cheap_tier:\n  enabled: yes\n');
+        var r = await tier(['--code', code()]);
+        expect((r.code, r.json['cheap_tier']), (0, false));
+        expect(
+          r.json['note'],
+          allOf(contains('line 2'), contains('true'), contains('false')),
+        );
+        settings('pr:\n\tx: 1\ncheap_tier:\n  enabled: true\n');
+        r = await tier(['--code', code()]);
+        expect((r.code, r.json['cheap_tier']), (0, false));
+        expect(r.json['note'], contains('line 2'));
+      },
+    );
+
     test('a bad merge_method does not change it', () async {
       settings(
         'pr:\n  merge: agent\n  merge_method: fast\ncheap_tier:\n  enabled: true\n',
@@ -284,23 +320,43 @@ void main() {
       var r = await context(['--code', code()]);
       expect(r.code, 0);
       expect(r.json['settings_problem'], startsWith('pr.settle: soon must be'));
-      settings('a: 1\nb:\n  c: 1\n  d: 2\ne:\n  f:\n\tg: 1\n');
-      r = await context(['--code', code()]);
-      expect(r.code, 0);
-      expect(r.json['settings_problem'], startsWith('line 7:'));
-      expect(r.json['ok'], true);
     }, skip: skip);
 
     test(
-      'the first problem wins: the strict reader over a bad setting',
+      'a refused file stops with bad_setting, exit 2, naming the line',
       () async {
         initRepo(code(), origin: 'https://github.com/o/n');
+        settings('a: 1\nb:\n  c: 1\n  d: 2\ne:\n  f:\n\tg: 1\n');
+        var r = await context(['--code', code()]);
+        expect(r.code, 2);
+        expect(r.json['ok'], false);
+        expect(r.json['error'], 'bad_setting');
+        expect(
+          r.json['message'],
+          startsWith('openspec/specwright.yaml line 7:'),
+        );
+        expect(r.json.containsKey('settings_problem'), isFalse);
         settings('pr:\n  settle: soon\n\tx: 1\n');
-        final r = await context(['--code', code()]);
-        expect(r.json['settings_problem'], startsWith('line 3:'));
+        r = await context(['--code', code()]);
+        expect((r.code, r.json['error']), (2, 'bad_setting'));
+        expect(r.json['message'], contains('line 3'));
+        expect(
+          Directory('${tmp.path}/state').existsSync(),
+          isFalse,
+          reason: 'no reviewer config is written',
+        );
       },
       skip: skip,
     );
+
+    test('a flow reviewers list stops context naming it as written', () async {
+      initRepo(code(), origin: 'https://github.com/o/n');
+      settings('pr:\n  reviewers: [a, b]\n');
+      final r = await context(['--code', code()]);
+      expect((r.code, r.json['error']), (2, 'bad_setting'));
+      expect(r.json['message'], contains('pr.reviewers'));
+      expect(r.json['message'], contains('[a, b]'));
+    }, skip: skip);
 
     test('21 reviewers is too_many_reviewers, still read whole', () async {
       initRepo(code(), origin: 'https://github.com/o/n');

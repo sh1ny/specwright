@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
-import 'yaml.dart';
+import 'reader.dart';
+import 'values.dart';
 
 // The setting rules of `pr-pair.sh`: `duration`, `settle_of`, `reviewers_of`, `merge_mode`, `merge_options`, `repo_ctx`
 // and `contexts` (pr-pair.sh:788-797, 861-912, 952-1028), plus the reads of the `vcs` and `tier` subcommands
@@ -74,22 +75,20 @@ Map<String, Object?> _map(Object? v) => v is Map<String, Object?>
     ? v.cast<String, Object?>()
     : const <String, Object?>{};
 
-/// A section the script read as `s.get(k) or {}` and then called `.get` on: a falsy value is empty, and a truthy value
-/// that is not a mapping stops with the `AttributeError` the script's catch-all reported as `internal_error`.
-Map<String, Object?> _section(Object? v) {
-  if (!pyTruthy(v)) return const <String, Object?>{};
+/// The section [key] of [parent] (D5, ADR 0038): absent or null is empty, a mapping is itself, and anything else stops
+/// with `bad_setting`, exit 2, naming [path] and the value as written. A value is never coerced.
+Map<String, Object?> settingSection(
+  Map<String, Object?> parent,
+  String key,
+  String path,
+) {
+  final v = parent[key];
+  if (v == null) return const <String, Object?>{};
   if (v is Map) return _map(v);
-  final type = switch (v) {
-    String() => 'str',
-    bool() => 'bool',
-    int() || BigInt() => 'int',
-    double() => 'float',
-    List() => 'list',
-    _ => v.runtimeType.toString(),
-  };
   throw SettingsStop(
-    'internal_error',
-    "AttributeError: '$type' object has no attribute 'get'",
+    'bad_setting',
+    '$path: ${settingText(parent, key)} must be a mapping',
+    code: 2,
   );
 }
 
@@ -164,10 +163,7 @@ Object duration(
 /// `report_of`: a reviewer's `report` as a map of strings, and why it is not one. Unknown keys stay as read: the
 /// snapshot's evaluator validates keys and patterns.
 (Map<String, String>, String?) _reportOf(Object? v) {
-  if (v == null || v == '') return (<String, String>{}, null);
-  if (v is! Map) {
-    return (<String, String>{}, 'must be a mapping of keys to strings');
-  }
+  if (v is! Map) return (<String, String>{}, null);
   for (final e in v.entries) {
     if (e.value is! String) {
       return (
@@ -205,11 +201,34 @@ Map<String, Reviewer> reviewersOf(
       ),
     );
   }
-  if (raw is! Map) return out;
+  if (raw == null) return out;
+  if (raw is! Map) {
+    throw SettingsStop(
+      'bad_setting',
+      '$where: ${pyStr(raw)} must be a mapping',
+      code: 2,
+    );
+  }
   for (final e in raw.entries) {
-    final cfg = _map(e.value);
+    final entry = e.value;
+    if (entry != null && entry is! Map) {
+      throw SettingsStop(
+        'bad_setting',
+        '$where.${e.key}: ${settingText(raw, pyStr(e.key))} must be a mapping',
+        code: 2,
+      );
+    }
+    final cfg = entry == null ? const <String, Object?>{} : _map(entry);
     final name = stripBot(pyStr(e.key));
-    final (report, why) = _reportOf(cfg['report']);
+    final reportRaw = cfg['report'];
+    if (reportRaw != null && reportRaw is! Map) {
+      throw SettingsStop(
+        'bad_setting',
+        '$where.$name.report: ${settingText(cfg, 'report')} must be a mapping',
+        code: 2,
+      );
+    }
+    final (report, why) = _reportOf(reportRaw);
     if (why != null && problems != null) {
       problems.add(SettingProblem('$where.$name.report', why));
     }
@@ -327,11 +346,11 @@ RepoContext repoContext(
   required String Function(String dir) detectMain,
   List<SettingProblem>? problems,
 }) {
-  final g = _section(s['github']);
-  final rr = _section(g['review_request']);
-  final pr = _section(s['pr']);
+  final g = settingSection(s, 'github', 'github');
+  final rr = settingSection(g, 'review_request', 'github.review_request');
+  final pr = settingSection(s, 'pr', 'pr');
   final ps = which == 'store'
-      ? _section(s['planning_store'])
+      ? settingSection(s, 'planning_store', 'planning_store')
       : const <String, Object?>{};
   final String login;
   final String main;
@@ -344,22 +363,31 @@ RepoContext repoContext(
         ? pyStr(ps['main_branch'])
         : detectMain(dir);
     validate = _strOr(ps['validate']);
-    final own = ps['reviewers'];
-    reviewers = own is Map
-        ? reviewersOf(
-            own,
-            problems: problems,
-            where: 'planning_store.reviewers',
-          )
-        : reviewersOf(pr['reviewers'], problems: problems);
-    disabled = own is Map && own.isEmpty;
+    if (ps['reviewers'] != null) {
+      final own = settingSection(ps, 'reviewers', 'planning_store.reviewers');
+      reviewers = reviewersOf(
+        own,
+        problems: problems,
+        where: 'planning_store.reviewers',
+      );
+      disabled = own.isEmpty;
+    } else {
+      reviewers = reviewersOf(
+        settingSection(pr, 'reviewers', 'pr.reviewers'),
+        problems: problems,
+      );
+      disabled = false;
+    }
   } else {
     login = _strOr(g['login']);
     main = pyTruthy(s['main_branch'])
         ? pyStr(s['main_branch'])
         : detectMain(dir);
     validate = _strOr(pr['validate']);
-    reviewers = reviewersOf(pr['reviewers'], problems: problems);
+    reviewers = reviewersOf(
+      settingSection(pr, 'reviewers', 'pr.reviewers'),
+      problems: problems,
+    );
     disabled = false;
   }
   final ready = reviewers.values.any((r) => r.role == 'required');
@@ -441,7 +469,7 @@ Contexts contexts(
   bool checkMerge = true,
   List<SettingProblem>? problems,
 }) {
-  final pr = _section(s['pr']);
+  final pr = settingSection(s, 'pr', 'pr');
   final settle = settleOf(pr);
   if (settle.problem != null) problems?.add(settle.problem!);
   final codeContext = repoContext(
@@ -504,7 +532,7 @@ Contexts contexts(
 /// The backends the `vcs` subcommand reads (`cmd_vcs`): the code repo's and the store's. A value the script refuses
 /// throws [SettingsStop] with its error (`unknown_vcs`, `unsupported_vcs`, `unsupported_combination`).
 ({String code, String store}) vcsChoices(Map<String, Object?> s) {
-  final store = _map(s['planning_store']);
+  final store = settingSection(s, 'planning_store', 'planning_store');
 
   String selected(
     Map<String, Object?> section,
@@ -542,9 +570,38 @@ Contexts contexts(
   return (code: code, store: storeChoice);
 }
 
+/// Walks every section the readers read (`github`, `github.review_request`, `pr`, `pr.reviewers` with each entry and
+/// `report`, `planning_store` and its `reviewers` when given) and stops with `bad_setting` on the first that is not a
+/// mapping. `cheap_tier` has its own note.
+void checkShapes(Map<String, Object?> s) {
+  final g = settingSection(s, 'github', 'github');
+  settingSection(g, 'review_request', 'github.review_request');
+  final pr = settingSection(s, 'pr', 'pr');
+  reviewersOf(
+    settingSection(pr, 'reviewers', 'pr.reviewers'),
+    where: 'pr.reviewers',
+  );
+  final ps = settingSection(s, 'planning_store', 'planning_store');
+  if (ps['reviewers'] != null) {
+    reviewersOf(
+      settingSection(ps, 'reviewers', 'planning_store.reviewers'),
+      where: 'planning_store.reviewers',
+    );
+  }
+}
+
 /// `cmd_tier`: `{ok, cheap_tier}` and a `note` when `cheap_tier` is not a mapping holding `enabled: true|false`.
+///
+/// A section of any other key with the wrong shape is a stop elsewhere; here it is a `note` naming it, the cheap tier
+/// off (D4).
 Map<String, Object?> tierChoice(Map<String, Object?> s) {
   final out = <String, Object?>{'ok': true, 'cheap_tier': false};
+  try {
+    checkShapes(s);
+  } on SettingsStop catch (e) {
+    out['note'] = e.message;
+    return out;
+  }
   final section = s['cheap_tier'];
   if (section == null) return out;
   if (section is! Map) {
@@ -576,6 +633,17 @@ String? readSettingsText(Iterable<String> bases) {
   return null;
 }
 
-/// `load_settings` for the text `readSettingsText` gave: the lenient read, or an empty map when there is no file.
-Map<String, Object?> loadSettings(String? text) =>
-    text == null ? YamlMap() : parseYaml(text);
+/// The settings for the text `readSettingsText` gave, through the one reader, or an empty map when there is no file. A
+/// refused file is `bad_setting`, exit 2, naming the line.
+Map<String, Object?> loadSettings(String? text) {
+  if (text == null) return YamlMap();
+  try {
+    return readSettingsYaml(text);
+  } on SettingsRefused catch (e) {
+    throw SettingsStop(
+      'bad_setting',
+      'openspec/specwright.yaml line ${e.line}: ${e.why}',
+      code: 2,
+    );
+  }
+}

@@ -5,7 +5,7 @@ import '../commit/task_cover.dart' show pyStrip;
 import '../finish/undo_plan.dart' show prefixOf;
 import '../options.dart';
 import '../settings/reviewer_config.dart' show sha256Hex;
-import '../settings/yaml.dart' show pyDecimalValue, pyStr;
+import '../settings/values.dart' show pyDecimalValue, pyStr;
 import '../vcs/document.dart';
 
 // `sw pr reviewers`: the port of `reviewers.py`, the reviewer-detection evaluator behind the pr snapshot (design D5).

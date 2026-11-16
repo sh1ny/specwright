@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.35.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.36.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -696,6 +696,8 @@ pr:
 `report` is part of the merge policy (ADR 0020, 0022): a PR that changes it needs your yes before an agent merge, and a merge counts only reports judged under the default branch's rules. Each snapshot shows every reviewer's `by` (the rule that matched) and `evidence`, so watch can keep waiting for a bot whose only output reads as an announcement, until its timeout.
 
 **Upgrading from 0.14.** `pr-snapshot.sh --reviewer login:role:seconds` is gone: the snapshot reads `--reviewer-config <file>`, which `pr-pair.sh context` and `policy` write from your settings. Bots that relied on the built-in rules of earlier versions get the generic rule above unless you add a `report:` block like those shown.
+
+**Upgrading to 0.36.0.** Settings are now read by one YAML parser. After updating, find `yes` and `no` boolean values in `openspec/specwright.yaml` and rewrite them as `true` and `false`; a settings read stops naming the line until you do. A section of the wrong shape (a list or a plain value where a mapping goes) now stops the read too.
 
 **Agent merge (0.4.0).** With `pr.merge: agent` and `finish: pr`, **watch** finishes the job you used to do by hand: once the PR is ready it archives the change without asking, waits for the archive head, merges the PR through GitHub's REST merge at the head it reported ready (a push in between makes GitHub refuse), reads the PR back, then cleans up: main pulled, the local branch deleted under the usual check, the remote branch deleted with `pr.delete_branch` while it is still at the merged head and no open PR is based on it, and the roadmap **next** or **close** offered (ADR 0009). It needs at least one `required` reviewer, else it reports ready and merges nothing. A refusal (branch protection, a merge queue, a disallowed method) stops with GitHub's message; Specwright never uses admin rights, auto-merge, a merge queue, another method or a review dismissal. GitHub records the run login as the merger. The default, `user`, keeps the earlier behaviour.
 

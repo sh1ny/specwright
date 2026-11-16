@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
+import '../settings/reader.dart';
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
-import '../settings/yaml.dart';
+import '../settings/values.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import 'context.dart';
@@ -160,23 +161,16 @@ Future<Map<String, Object?>?> _policyFile(
       pyStr(content).codeUnits.where((u) => !isPySpace(u)),
     );
     final text = _utf8Sig(_strictBase64(compact));
-    final why = yamlProblem(text);
-    if (why != null) throw _Unreadable(why);
-    return parseYaml(text);
+    try {
+      return readSettingsYaml(text);
+    } on SettingsRefused catch (e) {
+      throw _Unreadable(e.toString());
+    }
   } on FormatException catch (e) {
     _unknown('unreadable openspec/specwright.yaml at $ref: ${e.message}');
   } on _Unreadable catch (e) {
     _unknown('unreadable openspec/specwright.yaml at $ref: ${e.why}');
   }
-}
-
-Map<String, Object?> _section(Map<String, Object?> src, String name) {
-  final v = src[name];
-  return v is Map<String, Object?>
-      ? v
-      : v is Map
-      ? v.cast<String, Object?>()
-      : const <String, Object?>{};
 }
 
 Map<String, Object?> _reviewersJson(Map<String, Reviewer> set) => {
@@ -209,20 +203,17 @@ bool _holdsBigInt(Object? v) =>
     (v is Map && v.values.any(_holdsBigInt));
 
 _Side _policySide(Map<String, Object?> s, bool withStore) {
-  final pr = _section(s, 'pr');
+  final pr = settingSection(s, 'pr', 'pr');
   final merge = mergeMode(pr);
   // an integer past 64 bits cannot reach a document (C11): it shows as the user wrote it
   final method = _asWritten(pr, 'merge_method');
   final delete = _asWritten(pr, 'delete_branch');
-  Object? raw = pr['reviewers'];
   final invalid = <Map<String, Object?>>[];
   final problems = <SettingProblem>[];
-  if (raw != null && raw is! Map) {
-    // a string or a list: no reviewers, so it authorizes nothing
-    invalid.add({'key': 'pr.reviewers', 'value': settingText(pr, 'reviewers')});
-    raw = null;
-  }
-  final codeSet = reviewersOf(raw, problems: problems);
+  final codeSet = reviewersOf(
+    settingSection(pr, 'reviewers', 'pr.reviewers'),
+    problems: problems,
+  );
   final values = <String, Object?>{
     'pr.merge': merge.mode,
     'pr.merge_method': method ?? 'merge',
@@ -233,10 +224,10 @@ _Side _policySide(Map<String, Object?> s, bool withStore) {
   };
   Map<String, Reviewer>? storeSet;
   if (withStore) {
-    final own = _section(s, 'planning_store')['reviewers'];
-    storeSet = own is Map
+    final ps = settingSection(s, 'planning_store', 'planning_store');
+    storeSet = ps['reviewers'] != null
         ? reviewersOf(
-            own,
+            settingSection(ps, 'reviewers', 'planning_store.reviewers'),
             problems: problems,
             where: 'planning_store.reviewers',
           )
@@ -416,8 +407,17 @@ Future<int> runPolicy(
   if (headSettings == null) {
     _unknown('no openspec/specwright.yaml readable at $head');
   }
-  final main = _policySide(mainSettings, withStore);
-  final headSide = _policySide(headSettings, withStore);
+  // D4: a wrong-shaped section on either side leaves the policy unknown
+  _Side sideAt(Map<String, Object?> settings, String ref) {
+    try {
+      return _policySide(settings, withStore);
+    } on SettingsStop catch (e) {
+      _unknown('unreadable openspec/specwright.yaml at $ref: ${e.message}');
+    }
+  }
+
+  final main = sideAt(mainSettings, defaultBranch);
+  final headSide = sideAt(headSettings, head);
   // main's policy: a bad value stops here, a bad head value is only the head's
   final settleBad = settleOf(main.pr).problem;
   final bads = [?settleBad, ...main.problems];

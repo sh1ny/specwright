@@ -399,14 +399,20 @@ class Context(Base):
         self.assertNotIn("merge_note", c)
 
     def test_context_merge_unknown_value_reported_as_user(self):
-        self.settings("pr:\n  merge: auto\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n")
+        self.settings("pr:\n  merge: automatic\n  reviewers:\n    chatgpt-codex-connector: { role: required }\n")
         c = self.pp("context", "--code", self.code)
         self.assertEqual(c["merge"], "user")
-        self.assertEqual(c["merge_note"], "pr.merge: auto is not user or agent; treated as user")
+        self.assertEqual(c["merge_note"], "pr.merge: automatic is not user or agent; treated as user")
 
     def test_context_merge_yes_reported_as_written(self):
-        # YAML reads `yes` as true; the note names the value as the user wrote it
-        for written in ("yes", "Yes", "true", "on"):
+        # the one reader refuses a plain yes or no (S6): context stops naming the line; `true` and `on` stay notes as written
+        for written in ("yes", "Yes", "No"):
+            self.settings(f"pr:\n  merge: {written}\n")
+            r = self.pp("context", "--code", self.code, expect=2)
+            self.assertEqual(r["error"], "bad_setting", written)
+            for word in ("line 2", written, "true", "false"):
+                self.assertIn(word, r["message"], written)
+        for written in ("true", "on"):
             self.settings(f"pr:\n  merge: {written}\n")
             c = self.pp("context", "--code", self.code)
             self.assertEqual(c["merge"], "user", written)
@@ -484,8 +490,13 @@ class Context(Base):
         self.assertNotIn("settings_problem", c)
 
     def test_context_bad_report_is_settings_problem(self):
-        for text, want in (("      report: foo\n", "rev-bot"), ("      report: [a, b]\n", "rev-bot"),
-                           ("      report:\n        marker: 5\n", "marker"), ("      report:\n        check: true\n", "check")):
+        for text, written in (("      report: foo\n", "foo"), ("      report: [a, b]\n", "[a, b]")):  # D5: a wrong shape stops
+            with self.subTest(text=text):
+                self.settings(f"pr:\n  reviewers:\n    rev-bot:\n      role: required\n{text}")
+                c = self.pp("context", "--code", self.code, expect=2)
+                self.assertEqual(c["error"], "bad_setting")
+                self.assertIn(f"pr.reviewers.rev-bot.report: {written} must be a mapping", c["message"])
+        for text, want in (("      report:\n        marker: 5\n", "marker"), ("      report:\n        check: true\n", "check")):
             with self.subTest(text=text):
                 self.settings(f"pr:\n  reviewers:\n    rev-bot:\n      role: required\n{text}")
                 c = self.pp("context", "--code", self.code)
@@ -547,13 +558,9 @@ class Context(Base):
         self.assertEqual(Path(c["code"]["reviewer_config"]).read_bytes(),
                          config_bytes(rv("rev-bot", report={"sha_pattern": pattern})))
 
-    def test_context_prints_settings_problem_without_exiting(self):
-        self.settings(self.rules('        sha_pattern: "Reviewed commit:\\*\\*"\n'))
-        c = self.pp("context", "--code", self.code)
-        self.assertEqual(c["_rc"], 0)
-        self.assertTrue(c["settings_problem"].startswith("line 6:"), c["settings_problem"])
-        self.assertIn("escape", c["settings_problem"])
-        self.assertTrue(Path(c["code"]["reviewer_config"]).is_file(), "it goes on with the lenient read")
+    def test_context_single_quoted_backslash_reads_as_written(self):
+        """The double-quoted form of this pattern is an unknown escape and stops (test_double_quoted_escape_stops_context);
+        the single-quoted one is read as written, with no settings_problem."""
         self.settings(self.rules("        sha_pattern: 'Reviewed commit:\\*\\*'\n"))
         c = self.pp("context", "--code", self.code)
         self.assertNotIn("settings_problem", c)
@@ -595,7 +602,7 @@ class Context(Base):
         self.assertIn("planning_store.reviewers", c["settings_problem"])
 
     def test_context_prints_only_the_first_problem(self):
-        self.settings("pr:\n  settle: soon\n  reviewers:\n    rev-bot:\n      report: foo\n")
+        self.settings("pr:\n  settle: soon\n  reviewers:\n    rev-bot:\n      report:\n        k: 1\n")
         c = self.pp("context", "--code", self.code)
         self.assertIsInstance(c["settings_problem"], str)
         self.assertIn("pr.settle", c["settings_problem"])
@@ -640,7 +647,83 @@ class Context(Base):
                             single = re.search(r"^\s*" + re.escape(key) + r":\s*'((?:[^']|'')*)'\s*$", text, re.M)
                             if single:
                                 self.assertEqual(value, single.group(1).replace("''", "'"))
+    # ---- native-cli-yaml-settings: the one reader stops every local read on a file it refuses ----------------------------
+    def test_context_duplicate_key_stops_bad_setting(self):
+        lines = ["finish: pr", "github:", "  login: sh1ny"] + [f"# filler {n}" for n in range(26)] + ["pr:", "  react: true", "pr:", "  merge: user"]
+        self.assertEqual(lines.index("pr:", 30) + 1, 32 - 1 + 1 if False else lines.index("pr:", 30) + 1)
+        text = "\n".join(lines) + "\n"
+        second = [i for i, l in enumerate(lines, 1) if l == "pr:"][1]
+        self.settings(text)
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
+        self.assertIn("openspec/specwright.yaml", r["message"])
+        self.assertIn(f"line {second}", r["message"])
+        self.assertEqual(self.gh_calls(), [], "ship pushes and asks GitHub nothing after the stop")
 
+    def test_context_yes_boolean_stops_naming_true_false(self):
+        self.settings("\n".join(["finish: pr", "github:", "  login: sh1ny"] + [f"# filler {n}" for n in range(8)] + ["pr:", "  react: yes"]) + "\n")
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        for word in ("line 13", "yes", "true", "false"):
+            self.assertIn(word, r["message"])
+
+    def test_context_deep_nesting_stops_without_trace(self):
+        self.settings("a: " + "{a: " * 100000 + "1" + "}" * 100000 + "\n")
+        r = subprocess.run([bashexe.bash(), str(SCRIPT), "context", "--code", str(self.code)], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=self.env(), cwd=self.tmp)
+        self.assertEqual(r.returncode, 2, r.stdout[:300] + r.stderr[:300])
+        doc = json.loads(r.stdout)
+        self.assertEqual(doc["error"], "bad_setting")
+        self.assertRegex(doc["message"], r"line \d+")
+        for text in (r.stdout, r.stderr):
+            self.assertNotRegex(text, r"(?i)stack ?overflow|traceback|\.dart:\d+")
+
+    def test_double_quoted_escape_stops_context(self):
+        self.settings('pr:\n  reviewers:\n    rev-bot:\n      report:\n        sha_pattern: "Reviewed commit:\\*\\*"\n')
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        self.assertIn("line 5", r["message"])
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_value_problem_is_settings_problem_exit_0(self):
+        self.settings("pr:\n  settle: 10x\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual(c["_rc"], 0)
+        self.assertIn("pr.settle", c["settings_problem"])
+
+    def test_context_reviewer_list_stops_bad_setting(self):
+        self.settings("pr:\n  reviewers:\n    guard:\n      - role: required\n")
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        self.assertIn("pr.reviewers.guard", r["message"])
+        self.assertEqual(list(self.state_dir.rglob("*")) if self.state_dir.exists() else [], [], "no reviewer config is written")
+
+    def test_context_quoted_empty_merge_method_named_as_written(self):
+        self.settings("pr:\n  merge: agent\n  merge_method: ''\n")
+        r = self.pp("context", "--code", self.code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        self.assertIn("pr.merge_method: '' must be merge, squash or rebase", r["message"])
+        self.settings("pr:\n  merge_method: ''\n  settle: 10x\n")
+        c = self.pp("context", "--code", self.code)
+        self.assertEqual(c["_rc"], 0)
+
+    def test_tier_on_refused_settings_is_off_with_note(self):
+        self.settings("pr:\n\treact: true\ncheap_tier:\n  enabled: true\n")
+        r = self.pp("tier", "--code", self.code)
+        self.assertEqual((r["ok"], r["cheap_tier"], r["_rc"]), (True, False, 0))
+        self.assertIn("line 2", r["note"])
+
+    def test_tier_yes_is_off_with_note_naming_line(self):
+        self.settings("\n".join(["finish: pr"] + [f"# filler {n}" for n in range(85)] + ["cheap_tier:", "  enabled: yes"]) + "\n")
+        r = self.pp("tier", "--code", self.code)
+        self.assertEqual((r["ok"], r["cheap_tier"], r["_rc"]), (True, False, 0))
+        for word in ("line 88", "true", "false"):
+            self.assertIn(word, r["note"])
+
+    def test_identity_ignores_refused_settings(self):
+        self.settings("pr:\n\treact: true\n")
+        r = self.pp("identity", self.code)
+        self.assertEqual((r["repo"], r["fetch"], r["_rc"]), (CODE, CODE, 0))
 
 
 class ContextPin(Base):
@@ -3987,14 +4070,14 @@ class TestTier(Base):
             self.assertEqual((r["ok"], r["cheap_tier"]), (True, False), text)
             self.assertNotIn("note", r, text)
 
-    def test_false_and_no_are_off(self):
-        for v in ("false", "no", "False", "NO"):
+    def test_false_is_off(self):
+        for v in ("false", "False"):
             r = self.tier(f"cheap_tier:\n  enabled: {v}\n")
             self.assertEqual((r["ok"], r["cheap_tier"]), (True, False), v)
             self.assertNotIn("note", r, v)
 
-    def test_true_and_yes_are_on(self):
-        for v in ("true", "yes", "True"):
+    def test_true_is_on(self):
+        for v in ("true", "True"):
             r = self.tier(f"cheap_tier:\n  enabled: {v}\n")
             self.assertEqual((r["ok"], r["cheap_tier"]), (True, True), v)
             self.assertNotIn("note", r, v)
@@ -4145,26 +4228,24 @@ class Policy(PolicyBase):
         self.assertEqual(set(d["head"]), {"someone-else"})
         self.assertEqual(d["main"]["chatgpt-codex-connector"], {"role": "required", "timeout": 1200, "request": "", "report": {}})
 
-    def test_non_mapping_reviewers_at_head_is_drift_not_a_crash(self):
-        # Pre-ship F1: the PR branch controls this value; a string or a list must not crash `policy`.
+    def test_non_mapping_reviewers_at_head_is_unknown_not_a_crash(self):
+        # Pre-ship F1: the PR branch controls this value; a string or a list must not crash `policy`. D5: it leaves the
+        # policy unknown, naming the key as written, instead of reading as no reviewers.
         for value, shown in (("foo", "foo"), ("[a, b]", "[a, b]")):
             with self.subTest(value=value):
                 self.seed_both(self.AGENT, f"pr:\n  merge: agent\n  merge_method: squash\n  reviewers: {value}\n")
-                r = self.policy()
-                d = self.keys(r)["pr.reviewers"]
-                self.assertEqual(set(d["main"]), {"chatgpt-codex-connector"})
-                self.assertEqual(d["head"], {})
-                self.assertIn({"side": "head", "key": "pr.reviewers", "value": shown}, r["invalid"])
-                self.assertFalse(r["reported"]["head"]["code"]["ok"])
+                r = self.policy(expect=3)
+                self.assertEqual(r["error"], "lookup_failed")
+                self.assertIn(f"pr.reviewers: {shown} must be a mapping", r["message"])
 
     def test_non_mapping_reviewers_on_main_authorizes_nothing(self):
-        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers: foo\n"
-        self.seed_both(bad, bad)
-        r = self.policy()
-        self.assertEqual(r["drift"], [])
-        self.assertFalse(r["merge_ready"]["code"])
-        self.assertFalse(r["reported"]["main"]["code"]["ok"])
-        self.assertIn({"side": "main", "key": "pr.reviewers", "value": "foo"}, r["invalid"])
+        """D5: a `pr.reviewers` that is no mapping is no longer an `invalid` entry: it stops the read, so nothing is authorized."""
+        for written in ("foo", "[a, b]", "''"):
+            bad = f"pr:\n  merge: agent\n  merge_method: squash\n  reviewers: {written}\n"
+            self.seed_both(bad, bad)
+            r = self.policy(expect=3)
+            self.assertEqual((r["ok"], r["error"]), (False, "lookup_failed"), written)
+            self.assertIn("pr.reviewers", r["message"])
 
     def test_head_turns_agent_merge_off_drifts_and_main_stays_agent(self):
         self.seed_both(self.AGENT, self.USER)
@@ -4209,10 +4290,10 @@ class Policy(PolicyBase):
         self.assertNotIn("merge_note", r)
 
     def test_unrecognised_merge_value_noted_as_user(self):
-        self.seed_both("pr:\n  merge: yes\n", "pr:\n  merge: yes\n")
+        self.seed_both("pr:\n  merge: automatic\n", "pr:\n  merge: automatic\n")
         r = self.policy()
         self.assertEqual(r["merge"], "user")
-        self.assertIn("pr.merge: yes is not user or agent; treated as user", r["merge_note"])
+        self.assertIn("pr.merge: automatic is not user or agent; treated as user", r["merge_note"])
         self.assertEqual(r["drift"], [])
 
     def test_directory_at_the_path_is_unknown(self):
@@ -4230,18 +4311,29 @@ class Policy(PolicyBase):
         self.assertTrue(r["message"].startswith("merge policy unknown: unreadable openspec/specwright.yaml at "), r["message"])
         self.assertIn(f"line {line}", r["message"])
 
+    def assert_reads_as_yaml(self, extra):
+        """Valid YAML the old strict check refused: the one reader (native-cli-yaml-settings, the `YAML` difference) reads it
+        as YAML 1.2 defines it, so the head is the same policy as main and the answer is not unknown."""
+        self.seed_both(self.AGENT, self.AGENT + extra)
+        r = self.policy()
+        self.assertEqual((r["merge"], r["drift"]), ("agent", []), extra)
+
     def test_unterminated_flow_value_at_head_is_unknown(self):
         """PR #160 review: `invalid: [unterminated` used to parse as a string, so the head read as unchanged and agent merged."""
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "invalid: [unterminated\n", 6)
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "invalid: [unterminated\n", 7)
 
     def test_line_without_a_key_on_main_is_unknown(self):
-        self.assert_malformed_unknown("pr:\n  merge agent\n", self.AGENT, 2)
+        """`merge agent` is text, so `pr` is a string: a wrong shape (D5), still unknown, naming the key as written."""
+        self.seed_both("pr:\n  merge agent\n", self.AGENT)
+        r = self.policy(expect=3)
+        self.assertEqual(r["error"], "lookup_failed")
+        self.assertIn("pr: merge agent must be a mapping", r["message"])
 
     def test_misindented_line_is_unknown_not_dropped(self):
         self.assert_malformed_unknown("pr:\n  merge: user\n merge_method: squash\n", self.AGENT, 3)
 
     def test_unterminated_quote_and_nested_colon_are_unknown(self):
-        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: \"agent\n", 2)
+        self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: \"agent\n", 3)
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent: now\n", 2)
 
     def test_unknown_double_quote_escape_is_unknown(self):
@@ -4257,28 +4349,32 @@ class Policy(PolicyBase):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + "unrelated: \"" + esc + "\"\n", 6)
 
     def test_colon_or_question_mark_led_flow_scalar_is_unknown(self):
-        """PR #160 security review: `{a: :b}` passed, but Psych reads a leading `:` (or `?`) in a flow collection as an indicator."""
+        """PR #160 security review: `{a: :b}` passed, but Psych reads a leading `:` (or `?`) in a flow collection as an indicator.
+        The one reader follows YAML 1.2 (`package:yaml`), which reads these forms, so they are no longer unknown."""
         for extra in ("unrelated: {a: :b}\n", "unrelated: [:b]\n", "unrelated: [?b]\n", "unrelated: {?a: b}\n",
                       "unrelated: [a:?x]\n", "unrelated: {a: b:?c}\n", "unrelated: {a:?b: c}\n"):  # `:?` ends the scalar
             with self.subTest(extra=extra):
-                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+                self.assert_reads_as_yaml(extra)
 
     def test_flow_key_colon_without_a_space_is_unknown(self):
-        """PR #160 security review: `{a:[]}` passed, but Psych wants a space between a flow key's `:` and its value."""
+        """PR #160 security review: `{a:[]}` passed, but Psych wants a space between a flow key's `:` and its value. YAML 1.2
+        allows it after a quoted or flow key, and the package reads the rest; none is unknown now."""
         for extra in ("unrelated: {a:[]}\n", "unrelated: {a:{}}\n", "unrelated: {\"a\":1}\n", "unrelated: {a:}\n"):
             with self.subTest(extra=extra):
-                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+                self.assert_reads_as_yaml(extra)
 
     def test_invalid_flow_entries_are_unknown(self):
         """PR #160 security review: `{ role: required,, }` is not YAML, and a trailing comma reads as an extra entry."""
         self.assert_malformed_unknown(self.AGENT, "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n"
                                       "    chatgpt-codex-connector: { role: required,, }\n", 5)
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "review:\n  order: [codex, claude,]\n", 7)
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: {a:b: 1}\n", 6)
+        # a trailing comma and `{a:b: 1}` are valid YAML 1.2: read, not unknown
+        self.assert_reads_as_yaml("review:\n  order: [codex, claude,]\n")
+        self.assert_reads_as_yaml("x: {a:b: 1}\n")
 
     def test_yaml_the_reader_misreads_is_unknown(self):
-        """Valid YAML parse_yaml does not read as written fails closed: block sequences, anchors, duplicates, tabs."""
-        for extra, line in (("x:\n  - a\n", 7), ("x: &a 1\n", 6), ("pr:\n  merge: user\n", 6), ("x:\n\ty: 1\n", 7)):
+        """What the one reader refuses fails closed: anchors, duplicates, tabs. A block sequence is valid YAML and now reads."""
+        self.assert_reads_as_yaml("x:\n  - a\n")
+        for extra, line in (("x: &a 1\n", 6), ("pr:\n  merge: user\n", 6), ("x:\n\ty: 1\n", 7)):
             with self.subTest(extra=extra):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
 
@@ -4288,17 +4384,18 @@ class Policy(PolicyBase):
 
     def test_document_markers_only_at_column_zero_first(self):
         """PR #160 security review: an indented `---` used to be dropped, and the reader then read the file as empty."""
-        self.assert_malformed_unknown(self.AGENT, "  ---\n" + self.AGENT, 1)
+        self.assert_malformed_unknown(self.AGENT, "  ---\n" + self.AGENT, 2)
         self.assert_malformed_unknown(self.AGENT, "--- pr:\n  merge: agent\n", 1)
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "---\nx: 1\n", 6)
         self.assert_malformed_unknown(self.AGENT, "---\n---\n" + self.AGENT, 2)  # PR #160 Kody review: a second leading `---`
 
     def test_breaks_controls_and_merge_keys_are_unknown(self):
         """Forms the reader splits or keeps differently from YAML: unicode line breaks, control characters, `<<`."""
-        for extra, line in (("x: a y: b\n", 6), ("x: a\x00\n", 6), ("<<: {pr: {merge: user}}\n", 6),
-                            ("x: |\n      \n  y\n", 6)):
+        for extra, line in (("x: a y: b\n", 6), ("x: a\x00\n", 6), ("x: |\n      \n  y\n", 8)):
             with self.subTest(extra=extra):
                 self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, line)
+        # `<<` is an ordinary key to the one reader, which applies no merge: valid YAML 1.2, read as written
+        self.assert_reads_as_yaml("<<: {pr: {merge: user}}\n")
 
     def test_c1_controls_and_noncharacters_are_unknown(self):
         """PR #160 security review: U+0080 passed (only U+0085 was listed); YAML allows printable characters only."""
@@ -4308,9 +4405,11 @@ class Policy(PolicyBase):
 
     def test_unicode_spaces_are_unknown(self):
         """PR #160 security review: `merge:<NBSP>agent` passed, since Python's `\\s` and strip() take NBSP as space; YAML does not."""
-        for extra in ("x:\u00a0y\n", "x: y\u00a0\n", "\u00a0x: y\n", "x: a\u3000b\n", "x: \"a\u2003b\"\n"):
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x:\u00a0y\n", 7)  # `x:<NBSP>y` is no mapping entry
+        # in any other place the space is part of a string, which YAML 1.2 reads (D3)
+        for extra in ("x: y\u00a0\n", "\u00a0x: y\n", "x: a\u3000b\n", "x: \"a\u2003b\"\n"):
             with self.subTest(extra=ascii(extra)):
-                self.assert_malformed_unknown(self.AGENT, self.AGENT + extra, 6)
+                self.assert_reads_as_yaml(extra)
 
     def test_tab_on_a_blank_or_comment_line_is_unknown(self):
         """PR #160 security review: a tab-only line was dropped before the indentation check; YAML rejects it."""
@@ -4319,23 +4418,26 @@ class Policy(PolicyBase):
 
     def test_overlong_keys_are_unknown(self):
         """PR #160 security review: YAML ends a simple key within 1024 characters; the reader read any length."""
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x" * 1025 + ": y\n", 6)
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: {" + "k" * 1025 + ": v}\n", 6)
+        # the package applies no 1024-character key limit, so a long key is read (the `YAML` difference)
+        self.assert_reads_as_yaml("x" * 1025 + ": y\n")
+        self.assert_reads_as_yaml("x: {" + "k" * 1025 + ": v}\n")
 
     def test_tab_led_line_in_a_folded_block_is_unknown(self):
-        """A tab after the indentation is text in a `|` block, but in a `>` block YAML keeps the line break."""
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n  \tb\n", 6)
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: |\n  a\n \tb\n", 6)
+        """A tab after the indentation is text in a `|` block, but in a `>` block YAML keeps the line break. The package
+        reads the `>` form and refuses the misindented `|` one."""
+        self.assert_reads_as_yaml("x: >\n  a\n  \tb\n")
+        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: |\n  a\n \tb\n", 8)
 
     def test_deep_nesting_is_unknown_not_a_crash(self):
-        """PR #160 Kody review: ~1000 nested `[` exhausted the recursion limit, an internal error rather than exit 3."""
+        """PR #160 Kody review: ~1000 nested `[` exhausted the recursion limit, an internal error rather than exit 3. Flow
+        nesting past 64 is refused by name; 1000 block levels are bounded by indentation and read."""
         self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: " + "[" * 2000 + "]" * 2000 + "\n", 6)
         deep = "".join(" " * n + f"k{n}:\n" for n in range(1000)) + " " * 1000 + "v: 1\n"
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + deep, 38)
+        self.assert_reads_as_yaml(deep)
 
     def test_folded_block_with_more_indented_lines_is_unknown(self):
-        """YAML keeps the line breaks around more-indented lines of a `>` block; the reader folds them."""
-        self.assert_malformed_unknown(self.AGENT, self.AGENT + "x: >\n  a\n    b\n  c\n", 6)
+        """YAML keeps the line breaks around more-indented lines of a `>` block, and the package reads them as YAML does."""
+        self.assert_reads_as_yaml("x: >\n  a\n    b\n  c\n")
 
     def test_integer_is_not_a_boolean_in_drift(self):
         """PR #160 review: 1 == True in Python, so `delete_branch: 1` against the default true read as no drift."""
@@ -4585,7 +4687,7 @@ class PolicyReviewers(PolicyBase):
         self.assertIn({"side": "head", "key": "pr.reviewers", "value": "too_many_reviewers"}, r["invalid"])
 
     def test_policy_bad_report_on_main_exit_2_and_on_head_listed(self):
-        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector:\n      role: required\n      report: foo\n"
+        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    chatgpt-codex-connector:\n      role: required\n      report:\n        check: 5\n"
         self.seed_both(bad, self.AGENT)
         r = self.policy(expect=2)
         self.assertEqual((r["ok"], r["error"]), (False, "bad_setting"))
@@ -4595,6 +4697,51 @@ class PolicyReviewers(PolicyBase):
         r = self.policy()
         self.assertEqual([i["key"] for i in r["invalid"]], [f"pr.reviewers.{self.CODEX}.report"])
         self.assertEqual(r["head"]["pr.reviewers"][self.CODEX]["report"], {})
+
+
+class PolicyReader(PolicyBase):
+    """native-cli-yaml-settings: the remote read goes through the one reader, and every refusal is `lookup_failed`."""
+
+    def unknown(self, main, head, *words):
+        self.seed_both(main, head)
+        r = self.policy(expect=3)
+        self.assertEqual((r["ok"], r["error"]), (False, "lookup_failed"))
+        self.assertTrue(r["message"].startswith("merge policy unknown:"), r["message"])
+        for word in words:
+            self.assertIn(word, r["message"])
+        return r
+
+    def test_policy_duplicate_key_at_head_is_unknown(self):
+        self.unknown(self.AGENT, "pr:\n  merge: user\n  merge: agent\n", "line 3")
+
+    def test_policy_yes_on_main_is_unknown(self):
+        self.unknown("pr:\n  merge: agent\n  delete_branch: yes\n", self.AGENT, "line 3", "true", "false")
+
+    def test_policy_list_pr_section_at_head_is_unknown(self):
+        self.unknown(self.AGENT, "pr:\n  - merge: agent\n", "pr")
+
+    def test_policy_reviewer_entry_list_is_unknown(self):
+        bad = "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    guard:\n      - role: required\n        report: { check: x }\n"
+        self.unknown(bad, bad, "pr.reviewers.guard")
+
+    def test_list_root_stops_context_and_policy(self):
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write("code/" + self.PATH, "- pr\n")
+        r = self.pp("context", "--code", code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        self.assertIn("line 1", r["message"])
+        self.unknown("- pr\n", "- pr\n")
+
+    def test_comment_only_settings_read_as_defaults_locally_and_remotely(self):
+        text = "# only a comment\n\n   \n# and another\n"
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write("code/" + self.PATH, text)
+        c = self.pp("context", "--code", code)
+        self.assertEqual((c["_rc"], c["merge"], c["merge_method"], c["delete_branch"]), (0, "user", "merge", True))
+        self.assertNotIn("settings_problem", c)
+        self.seed_both(text, text)
+        r = self.policy()
+        self.assertEqual((r["merge"], r["drift"]), ("user", []))
 
 
 if __name__ == "__main__":

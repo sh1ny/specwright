@@ -13,6 +13,7 @@ if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
 import vcs_test_support  # noqa: E402
+from vcs_test_support import VcsTestCase  # noqa: E402
 
 
 class TestVcsSettings(unittest.TestCase):
@@ -76,6 +77,21 @@ class TestVcsSettings(unittest.TestCase):
         result = self.vcs(expected=1)
         self.assertEqual(result.get("error"), "unsupported_combination")
         self.assertIn("finish: pr", result.get("message", ""))
+
+
+class TestRefusedSettings(VcsTestCase):
+    def test_commit_stops_on_refused_settings(self):
+        """native-cli-yaml-settings: a file the one reader refuses stops a VCS write with bad_setting, exit 2, and no commit is made."""
+        self.set_settings(self.repo, "vcs: git\npr:\n\treact: true\n")
+        self.git(self.repo, "checkout", "-b", "feat/a")
+        (self.repo / "a.txt").write_text("a\n", encoding="utf-8")
+        message = self.root / "m"
+        message.write_text("feat(a): add a\n", encoding="utf-8")
+        before = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        doc, _ = self.invoke("commit", "--branch", "feat/a", "--message-file", message, "--", "a.txt", expected=2)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "bad_setting"))
+        self.assertIn("line 3", doc["message"])
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), before, "no commit was made")
 
 
 if __name__ == "__main__":

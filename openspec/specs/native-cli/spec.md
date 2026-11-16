@@ -484,6 +484,10 @@ Every JSON document `sw` prints SHALL be one compact JSON value followed by a si
 - **WHEN** the dependency check runs after `dart pub get`
 - **THEN** no package in the closure declares build hooks, and the notice names each package in the closure with its licence text
 
+#### Scenario: The settings parser joins the closure
+- **WHEN** `yaml` is a runtime dependency of `cli/` and the dependency check runs after `dart pub get`
+- **THEN** the check passes, and the notice names `yaml` and each package it brings into the runtime closure, `collection`, `source_span` and `string_scanner` among them, with its licence text
+
 #### Scenario: A hook package enters the lock file
 - **WHEN** a package with build hooks enters `cli/pubspec.lock`
 - **THEN** the dependency check fails naming that package
