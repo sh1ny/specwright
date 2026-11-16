@@ -186,6 +186,13 @@ class _FlowScan {
   /// indented deeper.
   int? blockIndent;
 
+  /// The last token on this line in block context is a plain scalar, which may go on over the next lines.
+  bool plain = false;
+
+  /// After a line that ends inside a block-context plain scalar: the indentation of that line. Lines indented deeper
+  /// continue the scalar's text, so nothing on them opens a collection; blank lines keep it open.
+  int? plainIndent;
+
   /// A node (a quoted scalar, a flow collection or a block scalar) may start at the next character.
   bool start = false;
 
@@ -237,6 +244,14 @@ class _FlowScan {
         }
         blockIndent = null;
       }
+      if (plainIndent != null) {
+        if (i >= s.length ||
+            s.substring(i).trim().isEmpty ||
+            i > plainIndent!) {
+          return false;
+        }
+        plainIndent = null;
+      }
       lineIndent = i;
       if (s.startsWith('---') && (s.length == 3 || _ws(s[3]))) i = 3;
       while (i < s.length && _ws(s[i])) {
@@ -252,6 +267,7 @@ class _FlowScan {
       }
       start = true;
       adjacent = false;
+      plain = false;
     }
     while (i < s.length) {
       final c = s[i];
@@ -259,7 +275,10 @@ class _FlowScan {
         i++;
         continue;
       }
-      if (c == '#' && (i == 0 || _ws(s[i - 1]))) return false;
+      if (c == '#' && (i == 0 || _ws(s[i - 1]))) {
+        plain = false;
+        return false;
+      }
       if (depth > 0) {
         final next = i + 1 < s.length ? s[i + 1] : '';
         switch (c) {
@@ -329,9 +348,13 @@ class _FlowScan {
       if (c == ':' && (i + 1 == s.length || _ws(s[i + 1]))) {
         start = true;
         adjacent = false;
+        plain = false;
+      } else {
+        plain = true;
       }
       i++;
     }
+    if (depth == 0 && quote == null && plain) plainIndent = lineIndent;
     return false;
   }
 }

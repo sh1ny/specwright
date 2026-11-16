@@ -201,6 +201,26 @@ void main() {
         },
       );
 
+      test(
+        '65 literal [ on a plain scalar continuation line are read whole',
+        () {
+          final got = readSettingsYaml(
+            'notes: text\n  ${'[' * 65}\n\n  more\nz: 1\n',
+          );
+          expect(got['notes'], 'text ${'[' * 65}\nmore');
+          expect(got['z'], 1);
+          final item = readSettingsYaml('l:\n  - text\n    ${'{' * 65}\n');
+          expect(item['l'], ['text ${'{' * 65}']);
+        },
+      );
+
+      test('a flow collection after a plain scalar ends is still counted', () {
+        expect(
+          () => readSettingsYaml('notes: text\n${_stackedFlow(65)}'),
+          refusedAt(66, '64'),
+        );
+      });
+
       test('65 nested flow sequences are refused naming the 65th opening', () {
         expect(() => readSettingsYaml(_stackedFlow(65)), refusedAt(65, '64'));
       });
