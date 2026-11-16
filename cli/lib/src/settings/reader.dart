@@ -185,16 +185,21 @@ class _FlowScan {
   /// The quote character of a quoted scalar that is still open.
   String? quote;
 
-  /// While inside a `|` or `>` body: the indentation of the line that holds its header; body lines are blank or
-  /// indented deeper.
+  /// While inside a `|` or `>` body: the column of the scalar's parent (its key, or the `-` of its sequence item);
+  /// body lines are blank or indented deeper.
   int? blockIndent;
 
   /// The last token on this line in block context is a plain scalar, which may go on over the next lines.
   bool plain = false;
 
-  /// After a line that ends inside a block-context plain scalar: the indentation of that line. Lines indented deeper
-  /// continue the scalar's text, so nothing on them opens a collection; blank lines keep it open.
+  /// After a line that ends inside a block-context plain scalar: the column of the scalar's parent (its key, or the
+  /// `-` of its sequence item). Lines indented deeper continue the scalar's text, so nothing on them opens a
+  /// collection; blank lines keep it open.
   int? plainIndent;
+
+  /// After a line that ends with a value still to come (`key:` or a bare `-`): the column of that key or `-`, the
+  /// parent of a scalar that starts on a later line.
+  int? pendingParent;
 
   /// A node (a quoted scalar, a flow collection or a block scalar) may start at the next character.
   bool start = false;
@@ -230,6 +235,11 @@ class _FlowScan {
   bool line(String s) {
     var i = 0;
     var lineIndent = 0;
+    var block = false;
+    int? dashCol;
+    int? keyCol;
+    var contentCol = 0;
+    var content = false;
     if (quote != null) {
       i = _endQuote(s, 0);
       if (quote != null) return false;
@@ -263,11 +273,15 @@ class _FlowScan {
       while (i < s.length &&
           s[i] == '-' &&
           (i + 1 == s.length || _ws(s[i + 1]))) {
+        dashCol = i;
+        content = true;
         i++;
         while (i < s.length && _ws(s[i])) {
           i++;
         }
       }
+      contentCol = i;
+      block = true;
       start = true;
       adjacent = false;
       plain = false;
@@ -280,8 +294,9 @@ class _FlowScan {
       }
       if (c == '#' && (i == 0 || _ws(s[i - 1]))) {
         plain = false;
-        return false;
+        break;
       }
+      content = true;
       if (depth > 0) {
         final next = i + 1 < s.length ? s[i + 1] : '';
         switch (c) {
@@ -335,7 +350,8 @@ class _FlowScan {
             continue;
           case '|' || '>':
             if (_blockHeader.hasMatch(s.substring(i))) {
-              blockIndent = lineIndent;
+              blockIndent = keyCol ?? dashCol ?? pendingParent ?? lineIndent;
+              pendingParent = null;
               return false;
             }
             start = false;
@@ -349,6 +365,7 @@ class _FlowScan {
         }
       }
       if (c == ':' && (i + 1 == s.length || _ws(s[i + 1]))) {
+        if (depth == 0) keyCol ??= contentCol;
         start = true;
         adjacent = false;
         plain = false;
@@ -357,7 +374,11 @@ class _FlowScan {
       }
       i++;
     }
-    if (depth == 0 && quote == null && plain) plainIndent = lineIndent;
+    if (block && depth == 0 && quote == null && content) {
+      final parent = keyCol ?? dashCol;
+      if (plain) plainIndent = parent ?? pendingParent ?? lineIndent;
+      pendingParent = start && !plain ? parent : null;
+    }
     return false;
   }
 }

@@ -214,6 +214,37 @@ void main() {
         },
       );
 
+      test('a sibling key after a scalar in a sequence item is counted', () {
+        final deep = '${'[' * 65}${']' * 65}';
+        expect(
+          () => readSettingsYaml('items:\n  - a: text\n    b: $deep\n'),
+          refusedAt(3, '64'),
+        );
+        expect(
+          () => readSettingsYaml(
+            'items:\n  - a: |\n      body\n    b: $deep\n',
+          ),
+          refusedAt(4, '64'),
+        );
+        expect(
+          () => readSettingsYaml('items:\n  - text\n  - $deep\n'),
+          refusedAt(3, '64'),
+        );
+      });
+
+      test('continuations under a sequence item or a key are read whole', () {
+        final open = '[' * 65;
+        final item = readSettingsYaml(
+          'items:\n  - a: text\n      $open\n    b: 1\n',
+        );
+        expect(item['items'], [
+          {'a': 'text $open', 'b': 1},
+        ]);
+        final next = readSettingsYaml('k:\n  text\n  $open\nz: 1\n');
+        expect(next['k'], 'text $open');
+        expect(next['z'], 1);
+      });
+
       test('CR and CRLF line breaks are scanned like LF ones', () {
         final lf = '# c\n${_stackedFlow(65)}';
         for (final text in [
