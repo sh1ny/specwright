@@ -78,8 +78,8 @@ The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a t
 - **THEN** every reader refuses the file naming that line
 
 #### Scenario: A quoted empty value in a message
-- **WHEN** the settings hold `merge_method: ''` under `pr:` and `pr-pair.sh context --code <code>` runs
-- **THEN** its `settings_problem` names `pr.merge_method: ''`, the value as written
+- **WHEN** the settings hold `merge: agent` and `merge_method: ''` under `pr:` and `pr-pair.sh context --code <code>` runs
+- **THEN** it exits 2 with `bad_setting`, and its message names `pr.merge_method: ''`, the value as written
 
 #### Scenario: A duplicate key in a reviewer
 - **WHEN** a reviewer under `pr.reviewers` gives `role:` twice, the second time on line 41
