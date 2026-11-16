@@ -62,7 +62,7 @@ Test names that do not exist yet are written by the task that turns their row gr
 
 ## 1. ADR 0038
 
-- [ ] 1.1 Write `docs/adr/0038-settings-are-read-by-one-fail-closed-yaml-reader.md` (MADR-short: Status proposed until merge per the ADR rules, Date, Adds to 0020 and 0033), carrying C1: every read of `openspec/specwright.yaml` goes through the one reader, with no lenient or partial read; `yes`/`no`, anchors, aliases and tags are refused; a refused file stops each reader with its own code. Add its row to `openspec/architecture.md`'s ADR index and update the Settings contract line (`openspec/architecture.md:141`). Verify: the ADR file exists with the C1 text, and `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 1.1 Write `docs/adr/0038-settings-are-read-by-one-fail-closed-yaml-reader.md` (MADR-short: Status proposed until merge per the ADR rules, Date, Adds to 0020 and 0033), carrying C1: every read of `openspec/specwright.yaml` goes through the one reader, with no lenient or partial read; `yes`/`no`, anchors, aliases and tags are refused; a refused file stops each reader with its own code. Add its row to `openspec/architecture.md`'s ADR index and update the Settings contract line (`openspec/architecture.md:141`). Verify: the ADR file exists with the C1 text, and `python -m unittest evals/runner/test_suite_map.py` passes.
 
 ## 2. Experiment
 
