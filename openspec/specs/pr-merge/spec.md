@@ -18,8 +18,8 @@ Specwright SHALL merge a pull request only when `finish` is `pr` and either `pr.
 - **THEN** watch merges the PR, and GitHub shows it MERGED
 
 #### Scenario: Unrecognised value
-- **WHEN** `pr.merge` is `yes` on main and at the head, and watch finds the PR ready
-- **THEN** watch reports `pr.merge: yes is not user or agent; treated as user`, reports ready, and merges nothing
+- **WHEN** `pr.merge` is `automatic` on main and at the head, and watch finds the PR ready
+- **THEN** watch reports `pr.merge: automatic is not user or agent; treated as user`, reports ready, and merges nothing
 
 #### Scenario: Local finish ignores the setting
 - **WHEN** `pr.merge` is `agent` and `finish` is `local`
@@ -280,7 +280,7 @@ When the ready head's `pr.merge`, `pr.merge_method`, `pr.delete_branch`, `pr.rev
 - **THEN** watch lists the difference and asks; on yes it waits again with the head's reviewer config and merges once `reported.head` is `ok`
 
 ### Requirement: An unknown policy merges nothing
-When main's or the ready head's settings file cannot be read from GitHub (a failed or cut-off read, a response that is not a file, a file that does not parse), or the head has no settings file, the merge policy SHALL count as unknown: watch SHALL report ready, say the policy could not be read and why, and send no merge request. Only a missing file on main SHALL be read as an empty settings file.
+When main's or the ready head's settings file cannot be read from GitHub (a failed or cut-off read, a response that is not a file, a file the settings reader refuses, a plain `yes` or `no` value, a section of the wrong shape), or the head has no settings file, the merge policy SHALL count as unknown: watch SHALL report ready, say the policy could not be read and why, and send no merge request. Only a missing file on main SHALL be read as an empty settings file.
 
 #### Scenario: Read fails
 - **WHEN** reading main's settings file fails with a network error
@@ -293,6 +293,34 @@ When main's or the ready head's settings file cannot be read from GitHub (a fail
 #### Scenario: Read succeeds after a failure
 - **WHEN** one read failed and watch reaches the merge step again, and both reads now succeed with no difference and the required reviewers reported
 - **THEN** watch merges the PR
+
+#### Scenario: Duplicate key at the head
+- **WHEN** main has `pr.merge: agent` and the ready head's settings give `merge:` twice under `pr:`, once `user` and once `agent`
+- **THEN** `policy` exits 3 with `lookup_failed` naming the line, watch reports `merge policy unknown`, and no merge request is sent
+
+#### Scenario: A yes boolean on main
+- **WHEN** main's settings hold `delete_branch: yes` under `pr:` and watch reaches the merge step
+- **THEN** watch reports `merge policy unknown` naming the line and `true`/`false`, and no merge request is sent
+
+#### Scenario: Wrong shape at the head
+- **WHEN** the ready head's settings hold `pr:` as a list instead of a mapping
+- **THEN** `policy` exits 3 with `lookup_failed`, and no merge request is sent
+
+#### Scenario: A store reviewer set that is not a mapping
+- **WHEN** `policy --store` runs, `pr.merge` is `agent` with a required code reviewer, and `planning_store.reviewers` on main and at the head is a list, written as a block sequence or as a flow sequence
+- **THEN** `policy` exits 3 with `lookup_failed` naming `planning_store.reviewers`, writes no reviewer config, and the code reviewers authorize no store merge; an absent `planning_store.reviewers` still inherits the code set
+
+#### Scenario: A reviewer entry that is not a mapping
+- **WHEN** `pr.merge` is `agent` on main and at the head, and both write a required reviewer as a list (`guard:` then `- role: required` with a `report.check`)
+- **THEN** `policy` exits 3 with `lookup_failed` naming `pr.reviewers.guard`, and no merge request is sent
+
+#### Scenario: A non-finite number
+- **WHEN** the ready head's settings hold `delete_branch: .nan`, `merge_method: .inf` or a reviewer `timeout: -.inf`
+- **THEN** `policy` exits 3 with `lookup_failed` naming the line, and never stops with `internal_error`
+
+#### Scenario: Valid YAML the old reader refused
+- **WHEN** main writes a reviewer as `{ role: required }` and the head writes the same reviewer as `{ role: required, }` (a trailing flow comma), or as a block mapping
+- **THEN** `policy` reads both as the same reviewer set, reports no difference, and authorizes as it would for identical files
 
 ### Requirement: Looser rules hold the archive decision
 When main's `pr.merge` is `agent`, the policy does not differ, and `policy` reports `rules_mismatch` for main's set at the archive decision, watch SHALL archive nothing, ask nothing, and wait on the ready head with main's reviewer config.

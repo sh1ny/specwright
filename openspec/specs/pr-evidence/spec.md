@@ -224,15 +224,19 @@ Each reviewer entry SHALL carry `evidence`: the reviewer's reviews, comments and
 - **THEN** the pattern in the config file is byte-for-byte the value read from the settings, and the snapshot matches with it
 
 ### Requirement: Reviewer settings are read strictly everywhere
-`context` SHALL check the settings file with the strict reader `policy` uses and print any problem as `settings_problem` (`line N: why`) without exiting. Watch SHALL stop before its first wait when `settings_problem` is set; ship, finish and cleanup SHALL ignore it. Every `report:` example in the README and the settings template SHALL pass that reader.
+`context` SHALL read the settings with the reader `policy` uses. A file it refuses SHALL stop `context` with `bad_setting`, exit 2, naming the line, and ship, finish, cleanup and watch stop with it. A problem with a read value SHALL be printed as `settings_problem` (`key: why`) without exiting; watch SHALL stop before its first wait on it, and ship, finish and cleanup SHALL ignore it. Every `report:` example in the README and the settings template SHALL pass that reader.
 
 #### Scenario: Double-quoted escape
-- **WHEN** `report.sha_pattern` is written as `"Reviewed commit:\*\*"` in double quotes
-- **THEN** `context` prints `settings_problem` naming the line, watch starts no wait and shows it, and ship still runs
+- **WHEN** `report.sha_pattern` is written as `"Reviewed commit:\*\*"` in double quotes, an escape YAML does not define
+- **THEN** `context` exits 2 with `bad_setting` naming the line, watch starts no wait, and ship pushes nothing
 
 #### Scenario: Single-quoted pattern
 - **WHEN** the same pattern is written as `'Reviewed commit:\*\*'`
 - **THEN** `context` and `policy` both read it, and the config files they write hold the same pattern
+
+#### Scenario: A value problem keeps ship running
+- **WHEN** the settings parse and `pr.settle` holds a value it does not accept
+- **THEN** `context` exits 0 with `settings_problem` naming `pr.settle`, watch starts no wait and shows it, and ship still runs
 
 ### Requirement: A snapshot names the reviewer rules it used
 The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config file it ran with. `policy` SHALL count a set's required reviewers as reported only when that digest equals the digest of the config it writes for the set, and SHALL otherwise report `rules_mismatch` for the set. The config SHALL carry `"format": 2`, naming the JavaScript pattern dialect, and the evaluator SHALL refuse any other format, so a snapshot decided under the Python dialect (`"format": 1`) never matches.
