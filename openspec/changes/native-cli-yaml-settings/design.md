@@ -32,7 +32,7 @@ The proposal (`proposal.md`) states the goal, S1-S7 and the experiment. The fact
 
 ### D1: One reader module wraps the package
 
-- **Choice:** One settings reader in `cli/lib/src/settings/` loads the text with `package:yaml`, applies every refusal (S6, S7, D2, D3, non-string keys, a top level that is not a mapping) and returns plain Dart maps. An empty, whitespace-only or comment-only document, which the package loads as a null root with no content, is an empty mapping; an explicit scalar or list root is refused, lists and scalars, keeping each plain scalar's text for messages (`settingText`). It throws `SettingsRefused(line, why)`. `loadSettings` and `policy`'s remote read call it, and nothing else imports `package:yaml`. The Python-value helpers move to their own file, and the old reader and `yamlProblem` are deleted.
+- **Choice:** One settings reader in `cli/lib/src/settings/` loads the text with `package:yaml`, applies every refusal (S6, S7, D2, D3, D8, non-string keys, a top level that is not a mapping) and returns plain Dart maps. An empty, whitespace-only or comment-only document, which the package loads as a null root with no content, is an empty mapping; an explicit scalar or list root is refused, lists and scalars, keeping the text of each plain or quoted scalar and flow collection for messages (`settingText`), as the old reader did. It throws `SettingsRefused(line, why)`. `loadSettings` and `policy`'s remote read call it, and nothing else imports `package:yaml`. The Python-value helpers move to their own file, and the old reader and `yamlProblem` are deleted.
 - **Rejected:** each caller loads YAML itself and applies shared checks, because a new caller could skip a refusal and read leniently again, which is the split S3 removes.
 - **Reversal cost:** low
 - **Important:** yes, binds future changes
@@ -62,17 +62,17 @@ The proposal (`proposal.md`) states the goal, S1-S7 and the experiment. The fact
 - **Important:** yes, changes what users see (follows S5)
 - **Chosen by:** user (S5)
 
-### D5: Wrong shape on a remote read is unknown
+### D5: A value of the wrong shape stops the read
 
-- **Choice:** When `policy` reads a remote file whose top level is not a mapping, or whose `pr` or `planning_store` section is present and not a mapping, it stops with `lookup_failed` instead of reading it as empty.
-- **Rejected:** reading a wrong-shaped section as empty, as today, because an empty `pr` means `pr.merge: user` and a typo then looks like a policy instead of a broken file.
+- **Choice:** One shape rule, wherever `sw` reads a settings mapping: through `rules.dart` or `policy` (the top level, `pr`, `planning_store`, `github`, `github.review_request`, `cheap_tier`, `pr.reviewers`, `planning_store.reviewers`, each reviewer entry under them, and each reviewer's `report`), and through the review and release readers (`review`, `release`, and `pr` as release reads it). A key that is present and holds anything other than a mapping (a block or flow list, a scalar, a non-empty or empty string) is a wrong shape. It is never coerced to an empty mapping, a default or "no reviewers". A local read stops with `bad_setting`, exit 2, naming the key and its value as written (D4). `tier` notes it with the cheap tier off. `policy`'s remote read stops with `lookup_failed`. Review and release stop with `bad_settings`, exit 1, naming the key, before any reviewer probe, git call or release write. An absent key, or one written with no value (null), keeps its default. Only an absent or null `planning_store.reviewers` inherits the code set. Review and release coerce a non-mapping section to `{}` today too (`cli/lib/src/review/settings.dart:55-59`, `cli/lib/src/release/settings.dart:159-160`), so a `review` written as a list silently drops its route restrictions, and a list-valued `release` reads as a disabled release. Today `_map` turns a non-mapping into `{}` (`cli/lib/src/settings/rules.dart:71-75`), so a reviewer written as a list becomes a `required` reviewer with no report rule (`cli/lib/src/settings/rules.dart:208-229`). A `planning_store.reviewers` list becomes no store set, which inherits the code reviewers (`cli/lib/src/pr/policy.dart:234-243`). A non-mapping `pr.reviewers` is listed as invalid and authorizes nothing (`cli/lib/src/pr/policy.dart:220-224`). The first two let a broken policy authorize a merge.
+- **Rejected:** reading a wrong-shaped section as empty, as today, because an empty `pr` means `pr.merge: user`, and a typo then looks like a policy instead of a broken file. Also rejected: a check per key, added as each gap is found (review rounds 4 and 5 each found one), because a missed key coerces silently again.
 - **Reversal cost:** low
 - **Important:** yes, changes what users see
-- **Chosen by:** user (proposal, "has the wrong shape stops `policy` with `lookup_failed`")
+- **Chosen by:** user (proposal, "has the wrong shape stops `policy` with `lookup_failed`"; the general rule chosen at the round-5 escalation, 2026-11-16)
 
 ### D6: The experiment runs in the change, against both readers
 
-- **Choice:** The first task group adds `yaml` as a runtime dependency on the change branch, builds the new reader beside the old one, and runs a comparison test over the corpus: this repository's settings, every settings fixture under `evals/` and `cli/test/`, the dogfood projects' files and the failure cases. The results go into `experiment.md` in the change directory. `experiment.md` holds the proposal's acceptance matrix: each corpus file with its old and new values and outcomes, every difference tagged with the approved difference it falls under (S5, S6, S7, D3, empty file), and the failure cases with their outcomes, D2's 65 literal `[` in a block scalar and in a plain scalar (read) and 65 nested flow collections (refused) among them. An untagged difference that reaches a consumer, or any failed check, stops apply there: it reverts the group and asks the user. The old reader and the comparison test are deleted only after it passes.
+- **Choice:** The first task group adds `yaml` as a runtime dependency on the change branch, builds the new reader beside the old one, and runs a comparison test over the corpus: this repository's settings, every settings fixture under `evals/` and `cli/test/`, the dogfood projects' files and the failure cases. The results go into `experiment.md` in the change directory. `experiment.md` holds the proposal's acceptance matrix: each corpus file with its old and new values and outcomes, every difference tagged with the approved difference it falls under (S5, S6, S7, D3, empty file, and `YAML`: valid YAML the old reader skipped or misread, or its strict check refused only for that reason, read as YAML 1.2 defines it, added by the user at the experiment gate on 2026-11-16), and the failure cases with their outcomes, D2's 65 literal `[` in a block scalar and in a plain scalar (read) and 65 nested flow collections (refused) among them. An untagged difference that reaches a consumer, or any failed check, stops apply there: it reverts the group and asks the user. The old reader and the comparison test are deleted only after it passes.
 - **Rejected:** a throwaway script outside the repository, because its evidence would be lost and the reviewer could not check it.
 - **Reversal cost:** low
 - **Important:** no
@@ -85,6 +85,14 @@ The proposal (`proposal.md`) states the goal, S1-S7 and the experiment. The fact
 - **Reversal cost:** low
 - **Important:** yes, binds future changes
 - **Chosen by:** user
+
+### D8: Non-finite numbers are refused by the reader
+
+- **Choice:** The reader refuses a float that is NaN or infinite (`.nan`, `.inf`, `-.inf` and the other spellings YAML 1.2 reads as them), naming the line, like the other constructs a settings file never needs. Every reader then stops with its own code (D4); `policy` gets `lookup_failed` before it compares values, so `documentText`, which refuses non-finite doubles, never sees one and `policy` never stops with `internal_error`.
+- **Rejected:** keeping them as values and guarding each consumer that serialises (`_asWritten`, `_sameSetting`), because every new consumer would need the same guard.
+- **Reversal cost:** low
+- **Important:** no
+- **Chosen by:** agent (review round 4, Required Change 2)
 
 ### Decision summary
 
@@ -101,9 +109,10 @@ The proposal (`proposal.md`) states the goal, S1-S7 and the experiment. The fact
 | D2 | Deep nesting | Flow-collection depth cap 64 before the parse (scalar text not counted) + stack backstop | Private parser events; backstop alone | low | yes | user |
 | D3 | Numbers | Exact decimal ints, YAML for the rest | Hex/octal/floats as strings | low | yes | user |
 | D4 | Stop per reader | Keep each reader's code | One new code | low | yes | user |
-| D5 | Remote wrong shape | `lookup_failed` | Read as empty | low | yes | user |
+| D5 | Wrong shape | One rule for every settings mapping: local `bad_setting`, remote `lookup_failed`, `tier` notes | Read as empty; per-key checks | low | yes | user |
 | D6 | Experiment | In the change, both readers, `experiment.md` | Throwaway script | low | no | agent |
 | D7 | Reader contract record | ADR 0038 | Specs only | low | yes | user |
+| D8 | Non-finite numbers | Refused by the reader | Guard each serialising consumer | low | no | agent |
 
 ## Assumptions
 
@@ -123,6 +132,8 @@ These claims about `yaml` 3.1.4 were read in its source in the local pub cache, 
 - **C3:** The flow-depth cap is 64 and the reader catches a stack overflow from the package as a refused file; removing either needs the package to load without recursion first. Kind: invariant. Destination: doc comment: cli/lib/src/settings/reader.dart readSettingsYaml
 - **C4:** A plain decimal integer is read from its text, not from the package's value, so a 65-bit value is never rounded. Kind: invariant. Destination: doc comment: cli/lib/src/settings/reader.dart readSettingsYaml
 - **C5:** A walk of the package's private parser events was rejected (D2). Kind: rejected alternative. Destination: doc comment: cli/lib/src/settings/reader.dart readSettingsYaml
+- **C6:** A settings key that holds a mapping is never coerced, in `rules.dart`, `policy`, review or release: a present non-mapping value stops the read (D5). Only an absent or null `planning_store.reviewers` inherits the code set. Coercion to an empty mapping and per-key checks were rejected. Kind: invariant. Destination: ADR 0038
+- **C7:** The reader refuses non-finite numbers, so no settings value can fail JSON serialisation (D8); guarding each serialising consumer was rejected. Kind: invariant. Destination: ADR 0038
 
 ## Diagrams (FULL)
 

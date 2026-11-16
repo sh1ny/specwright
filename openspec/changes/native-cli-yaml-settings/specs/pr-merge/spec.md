@@ -47,3 +47,19 @@ When main's or the ready head's settings file cannot be read from GitHub (a fail
 #### Scenario: Wrong shape at the head
 - **WHEN** the ready head's settings hold `pr:` as a list instead of a mapping
 - **THEN** `policy` exits 3 with `lookup_failed`, and no merge request is sent
+
+#### Scenario: A store reviewer set that is not a mapping
+- **WHEN** `policy --store` runs, `pr.merge` is `agent` with a required code reviewer, and `planning_store.reviewers` on main and at the head is a list, written as a block sequence or as a flow sequence
+- **THEN** `policy` exits 3 with `lookup_failed` naming `planning_store.reviewers`, writes no reviewer config, and the code reviewers authorize no store merge; an absent `planning_store.reviewers` still inherits the code set
+
+#### Scenario: A reviewer entry that is not a mapping
+- **WHEN** `pr.merge` is `agent` on main and at the head, and both write a required reviewer as a list (`guard:` then `- role: required` with a `report.check`)
+- **THEN** `policy` exits 3 with `lookup_failed` naming `pr.reviewers.guard`, and no merge request is sent
+
+#### Scenario: A non-finite number
+- **WHEN** the ready head's settings hold `delete_branch: .nan`, `merge_method: .inf` or a reviewer `timeout: -.inf`
+- **THEN** `policy` exits 3 with `lookup_failed` naming the line, and never stops with `internal_error`
+
+#### Scenario: Valid YAML the old reader refused
+- **WHEN** main writes a reviewer as `{ role: required }` and the head writes the same reviewer as `{ role: required, }` (a trailing flow comma), or as a block mapping
+- **THEN** `policy` reads both as the same reviewer set, reports no difference, and authorizes as it would for identical files

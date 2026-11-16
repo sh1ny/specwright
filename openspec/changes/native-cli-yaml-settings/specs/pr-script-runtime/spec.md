@@ -71,7 +71,15 @@ The reader SHALL refuse any unquoted value `yes` or `no`, in any letter case, an
 - **THEN** the settings are read and the request comment is the string `yes`
 
 ### Requirement: Settings constructs a settings file never needs are refused
-The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a tag, and more than one document, naming the line of the first one. It SHALL read block sequences, flow collections, quoted and plain scalars and `|`/`>` block scalars as YAML defines them.
+The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a tag, a non-finite number (`.nan`, `.inf`, `-.inf` in any case YAML reads as one), and more than one document, naming the line of the first one. It SHALL read block sequences, flow collections, quoted and plain scalars and `|`/`>` block scalars as YAML defines them. Valid YAML that the old reader skipped or misread, or that its strict check refused only for that reason, SHALL read as YAML 1.2 defines it. For messages, the reader SHALL keep the text of each plain or quoted scalar (quotes kept) and each flow collection as written.
+
+#### Scenario: A non-finite number
+- **WHEN** a settings line is `  delete_branch: .inf`
+- **THEN** every reader refuses the file naming that line
+
+#### Scenario: A quoted empty value in a message
+- **WHEN** the settings hold `merge_method: ''` under `pr:` and `pr-pair.sh context --code <code>` runs
+- **THEN** its `settings_problem` names `pr.merge_method: ''`, the value as written
 
 #### Scenario: A duplicate key in a reviewer
 - **WHEN** a reviewer under `pr.reviewers` gives `role:` twice, the second time on line 41
@@ -84,6 +92,37 @@ The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a t
 #### Scenario: A block sequence
 - **WHEN** `review.order` is written as a block sequence of `codex`, `claude` and `omp`, one `- ` item per line
 - **THEN** the review route order is `codex`, `claude`, `omp`, as for `order: [codex, claude, omp]`
+
+### Requirement: A settings value of the wrong shape stops each reader
+Wherever a reader expects a mapping (the top level, `pr`, `planning_store`, `github`, `github.review_request`, `cheap_tier`, `review`, `release`, `pr.reviewers`, `planning_store.reviewers`, each reviewer entry and each reviewer's `report`), a key that is present with any other value SHALL stop the read with that reader's settings error, naming the key. No reader SHALL coerce it to an empty mapping, a default or no reviewers. A key that is absent or written with no value SHALL keep its default, and only an absent or null `planning_store.reviewers` SHALL inherit the code reviewer set.
+
+#### Scenario: A reviewer written as a list
+- **WHEN** a reviewer under `pr.reviewers` is written as a block list (`guard:` followed by `- role: required`) and `pr-pair.sh context --code <code>` runs
+- **THEN** it exits 2 with `bad_setting` naming `pr.reviewers.guard`, and no reviewer config is written
+
+#### Scenario: A reviewer written as a list, remotely
+- **WHEN** main's and the head's settings both hold a reviewer written as a block or flow list, under `pr.reviewers` or `planning_store.reviewers`, and `policy` reads them
+- **THEN** `policy` exits 3 with `lookup_failed` naming the key, writes no reviewer config, and authorizes no merge
+
+#### Scenario: A report that is not a mapping
+- **WHEN** a reviewer's `report` is `[check, x]`
+- **THEN** every reader stops with its settings error naming `report`
+
+#### Scenario: The cheap tier on a wrong shape
+- **WHEN** `pr:` is a list and `pr-pair.sh tier --code <code>` runs
+- **THEN** it exits 0 with `"cheap_tier": false` and a `note` naming `pr`
+
+#### Scenario: A review section that is not a mapping
+- **WHEN** `review:` is written as a block list, a flow list, a scalar or an empty string `''`, and the review runner starts
+- **THEN** it exits 1 with `bad_settings` naming `review`, before any reviewer CLI is probed or run
+
+#### Scenario: A release or pr section that is not a mapping
+- **WHEN** `release:` or `pr:` is written as a block list, a flow list, a scalar or an empty string `''`, and `release.sh check` runs
+- **THEN** it exits 1 with `bad_settings` naming the key, and no git call is made
+
+#### Scenario: A flow list in a message
+- **WHEN** the settings hold `reviewers: [a, b]` under `pr:` and `pr-pair.sh context --code <code>` runs
+- **THEN** it exits 2 with `bad_setting`, and its message names `pr.reviewers` and `[a, b]`, as written
 
 ### Requirement: Deeply nested settings stop without a crash
 A settings file nested beyond any depth a reader can hold SHALL be refused with the reader's settings error naming a line, and SHALL never crash a command, print a stack trace or pass as valid.
@@ -119,7 +158,7 @@ A settings file nested beyond any depth a reader can hold SHALL be refused with 
 
 #### Scenario: Differential run against the frozen script
 - **WHEN** the parity eval runs a case of each subcommand through the frozen copy of `pr-pair.sh` and through the shim, against the same repositories and fake-gh state
-- **THEN** both exit with the same status and make the same `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals have explicit difference tests. For retained inputs they print stderr with the same lines up to each line's prefix. Their stdout parses to the same JSON value, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest. A settings file the one reader refuses, or one holding a plain `yes` or `no`, is a listed difference with its own outcome test
+- **THEN** both exit with the same status and make the same `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals have explicit difference tests. For retained inputs they print stderr with the same lines up to each line's prefix. Their stdout parses to the same JSON value, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest. A settings file the one reader refuses, one holding a plain `yes` or `no`, or valid YAML the frozen script skipped, misread or refused only for that reason (a block sequence, a trailing flow comma), is a listed difference with its own outcome test
 
 #### Scenario: A malformed settings file names its line
 - **WHEN** `openspec/specwright.yaml` holds a tab in its indentation on line 7 and `pr-pair.sh context --code <code>` runs
