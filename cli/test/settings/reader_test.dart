@@ -214,6 +214,16 @@ void main() {
         },
       );
 
+      test('CR and CRLF line breaks are scanned like LF ones', () {
+        final lf = '# c\n${_stackedFlow(65)}';
+        for (final text in [
+          lf.replaceAll('\n', '\r'),
+          lf.replaceAll('\n', '\r\n'),
+        ]) {
+          expect(() => readSettingsYaml(text), refusedAt(66, '64'));
+        }
+      });
+
       test('a flow collection after a plain scalar ends is still counted', () {
         expect(
           () => readSettingsYaml('notes: text\n${_stackedFlow(65)}'),

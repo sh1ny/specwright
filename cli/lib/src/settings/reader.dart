@@ -162,7 +162,8 @@ Object? _scalar(y.YamlScalar n) {
 /// scalar, or plain scalar text in block context.
 int? _flowTooDeep(String text) {
   final scan = _FlowScan();
-  final lines = text.split('\n');
+  // YAML breaks lines at CRLF, CR and LF alike; so does the scan, or a CR-only file would hide its nesting.
+  final lines = text.split(_lineBreak);
   for (var n = 0; n < lines.length; n++) {
     final line = n == 0 && lines[0].startsWith('﻿')
         ? lines[0].substring(1)
@@ -171,6 +172,8 @@ int? _flowTooDeep(String text) {
   }
   return null;
 }
+
+final RegExp _lineBreak = RegExp('\r\n|\r|\n');
 
 final RegExp _blockHeader = RegExp(r'^[|>][+\-0-9]*[ \t\r]*(#.*)?$');
 
