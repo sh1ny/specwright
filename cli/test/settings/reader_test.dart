@@ -221,9 +221,8 @@ void main() {
           refusedAt(3, '64'),
         );
         expect(
-          () => readSettingsYaml(
-            'items:\n  - a: |\n      body\n    b: $deep\n',
-          ),
+          () =>
+              readSettingsYaml('items:\n  - a: |\n      body\n    b: $deep\n'),
           refusedAt(4, '64'),
         );
         expect(
