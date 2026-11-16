@@ -71,7 +71,7 @@ The reader SHALL refuse any unquoted value `yes` or `no`, in any letter case, an
 - **THEN** the settings are read and the request comment is the string `yes`
 
 ### Requirement: Settings constructs a settings file never needs are refused
-The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a tag, a non-finite number (`.nan`, `.inf`, `-.inf` in any case YAML reads as one), and more than one document, naming the line of the first one. It SHALL read block sequences, flow collections, quoted and plain scalars and `|`/`>` block scalars as YAML defines them. Valid YAML that the old reader skipped or misread, or that its strict check refused only for that reason, SHALL read as YAML 1.2 defines it. For messages, the reader SHALL keep the text of each plain or quoted scalar (quotes kept) and each flow collection as written.
+The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a tag, a non-finite number (`.nan`, `.inf`, `-.inf` in any case YAML reads as one) and a second document, naming the line of the first. Block sequences, flow collections, and quoted, plain and `|`/`>` block scalars SHALL read as YAML 1.2 defines them, including valid YAML the old reader skipped, misread or refused. Messages SHALL show each plain or quoted scalar (quotes kept) and each flow collection as written.
 
 #### Scenario: A non-finite number
 - **WHEN** a settings line is `  delete_branch: .inf`
@@ -94,7 +94,7 @@ The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a t
 - **THEN** the review route order is `codex`, `claude`, `omp`, as for `order: [codex, claude, omp]`
 
 ### Requirement: A settings value of the wrong shape stops each reader
-Wherever a reader expects a mapping (the top level, `pr`, `planning_store`, `github`, `github.review_request`, `cheap_tier`, `review`, `release`, `pr.reviewers`, `planning_store.reviewers`, each reviewer entry and each reviewer's `report`), a key that is present with any other value SHALL stop the read with that reader's settings error, naming the key. No reader SHALL coerce it to an empty mapping, a default or no reviewers. A key that is absent or written with no value SHALL keep its default, and only an absent or null `planning_store.reviewers` SHALL inherit the code reviewer set.
+Wherever a reader expects a mapping (the top level, `pr`, `planning_store`, `github`, `github.review_request`, `cheap_tier`, `review`, `release`, `pr.reviewers`, `planning_store.reviewers`, each reviewer entry and its `report`), a present key with another value SHALL stop the read with that reader's settings error naming the key, never coerced. An absent or null key SHALL keep its default; only an absent or null `planning_store.reviewers` SHALL inherit the code reviewer set.
 
 #### Scenario: A reviewer written as a list
 - **WHEN** a reviewer under `pr.reviewers` is written as a block list (`guard:` followed by `- role: required`) and `pr-pair.sh context --code <code>` runs

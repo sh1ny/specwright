@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Reviewer settings are read strictly everywhere
-`context` SHALL read the settings file with the one reader `policy` uses. A file that reader refuses SHALL stop `context` with `bad_setting`, exit 2, naming the line, so ship, finish, cleanup and watch stop with it. A problem with a value that was read SHALL be printed as `settings_problem` (`key: why`) without exiting: watch SHALL stop before its first wait when it is set, and ship, finish and cleanup SHALL ignore it. Every `report:` example in the README and the settings template SHALL pass that reader.
+`context` SHALL read the settings with the reader `policy` uses. A file it refuses SHALL stop `context` with `bad_setting`, exit 2, naming the line, and ship, finish, cleanup and watch stop with it. A problem with a read value SHALL be printed as `settings_problem` (`key: why`) without exiting; watch SHALL stop before its first wait on it, and ship, finish and cleanup SHALL ignore it. Every `report:` example in the README and the settings template SHALL pass that reader.
 
 #### Scenario: Double-quoted escape
 - **WHEN** `report.sha_pattern` is written as `"Reviewed commit:\*\*"` in double quotes, an escape YAML does not define
