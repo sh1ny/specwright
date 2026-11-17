@@ -59,12 +59,12 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Reviewer evaluator stays a separate process | cli/test/pr/snapshot_test.dart | a limit on the evaluator names reviewers.py, not sw | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Printed commands are not launches | evals/vcs/test_sw_fence.py | test_printed_plan_commands_are_not_launched | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | sw update checks a downloaded sw and starts no script | evals/update/test_sw_update.py | test_sw_install_and_jj_swap_start_no_script | green |
-| native-cli → A launch-site allowlist guards process starts | Current tree passes | cli/test/launch_sites_test.dart | the tree matches the allowlist | red |
+| native-cli → A launch-site allowlist guards process starts | Current tree passes | cli/test/launch_sites_test.dart | the tree matches the allowlist | green |
 | native-cli → A launch-site allowlist guards process starts | A new unlisted launch fails | cli/test/launch_sites_test.dart | an unlisted runner call fails naming the file | green |
-| native-cli → A launch-site allowlist guards process starts | A script in launch arguments fails | cli/test/launch_sites_test.dart | a script name in launch arguments fails | red |
+| native-cli → A launch-site allowlist guards process starts | A script in launch arguments fails | cli/test/launch_sites_test.dart | a script name in launch arguments fails | green |
 | native-cli → A launch-site allowlist guards process starts | A self-launch outside the allowed two fails | cli/test/launch_sites_test.dart | a changed, non-literal or unbounded self-launch fails | green |
 | native-cli → A launch-site allowlist guards process starts | A script name built away from the launch fails | cli/test/launch_sites_test.dart | a script name built away from the launch fails | green |
-| native-cli → A launch-site allowlist guards process starts | The binary checks of sw update are listed | cli/test/launch_sites_test.dart | the binary check of sw update allows only version --json | red |
+| native-cli → A launch-site allowlist guards process starts | The binary checks of sw update are listed | cli/test/launch_sites_test.dart | the binary check of sw update allows only version --json | green |
 
 The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `test_inflight.py`, `test_packs.py`, `test_shipped_packs.py`, `test_interrupt.py`, `test_update_jj_store.py`, `test_sw_install.py`) also run through the shim once group 7 lands. Their behavioural assertions stay as they are. The only expected edits are the interface number (2 → 3), the kill seam (D3) and versioned binaries (D8).
 
@@ -116,8 +116,8 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 8. Launch allowlist
 
-- [ ] 8.1 Write failing tests in `cli/test/launch_sites_test.dart`: `update.sh` and `install-sw.sh` count as shipped script names, and `the binary check of sw update allows only version --json`. Verify they fail.
-- [ ] 8.2 List `sw update`'s launch sites (`git`, `openspec`, `xattr` as external tools; the downloaded `sw` as a binary check). Verify: `mise exec -- dart test test/launch_sites_test.dart` from `cli/` passes, and the allowlist rows turn green. Re-run the green native-cli rows (`test_retrofitted_vcs_paths_run_no_script_or_python`, `test_printed_plan_commands_are_not_launched`, the evaluator test) in PR CI.
+- [x] 8.1 Write failing tests in `cli/test/launch_sites_test.dart`: `update.sh` and `install-sw.sh` count as shipped script names, and `the binary check of sw update allows only version --json`. Verify they fail.
+- [x] 8.2 List `sw update`'s launch sites (`git`, `openspec`, `xattr` as external tools; the downloaded `sw` as a binary check). Verify: `mise exec -- dart test test/launch_sites_test.dart` from `cli/` passes, and the allowlist rows turn green. Re-run the green native-cli rows (`test_retrofitted_vcs_paths_run_no_script_or_python`, `test_printed_plan_commands_are_not_launched`, the evaluator test) in PR CI.
 
 ## 9. README install prompt, CONTRIBUTING and the bootstrap eval
 
