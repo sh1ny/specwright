@@ -25,6 +25,7 @@ class LaunchResult {
     this.stderr, {
     this.outputTooLarge = false,
     this.startFailed = false,
+    this.timedOut = false,
   });
 
   final int exitCode;
@@ -38,6 +39,9 @@ class LaunchResult {
   /// Nothing ran: the working directory is missing, the command was not found,
   /// or the start failed. The exit code is 127 and [stderr] says which.
   final bool startFailed;
+
+  /// Only a call with a `deadline`: the tool ran past it and was killed.
+  final bool timedOut;
 }
 
 bool _hasNul(String s) => s.contains('\x00');
@@ -128,6 +132,10 @@ LaunchResult _startFailed(String text) => LaunchResult(
 /// helper, whose tree is stopped.) No call has a deadline or a bound on
 /// stderr, and no deadline or byte bound is added to a call that had none.
 ///
+/// A [deadline], when given, kills a native tool that has not ended by then
+/// (the batch path stops its tree) and sets [LaunchResult.timedOut]. Without
+/// one a call has no deadline, as before.
+///
 /// Constraint C11: the working directory comes from the caller, as an absolute
 /// path. A relative command path or `PATH` entry, including the current
 /// directory an empty POSIX entry stands for, is looked for under [cwd], and the
@@ -139,6 +147,7 @@ Future<LaunchResult> launch(
   List<int>? input,
   Map<String, String>? environment,
   int? stdoutCap,
+  Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
 }) async {
@@ -164,6 +173,7 @@ Future<LaunchResult> launch(
       inherit ? null : environment,
       input,
       stdoutCap,
+      deadline,
       helperCommand,
       stdoutSink,
     );
@@ -180,6 +190,7 @@ Future<LaunchResult> launch(
     inherit ? null : environment,
     input,
     stdoutCap,
+    deadline,
     stdoutSink,
   );
 }
@@ -193,6 +204,7 @@ Future<LaunchResult> _batch(
   Map<String, String>? environment,
   List<int>? input,
   int? stdoutCap,
+  Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
 ) async {
@@ -201,7 +213,7 @@ Future<LaunchResult> _batch(
     command: plan.command,
     rawLine: plan.rawLine,
     stdinBytes: [...plan.stdinBytes, ...?input],
-    limits: RunLimits(stdoutCap: stdoutCap),
+    limits: RunLimits(stdoutCap: stdoutCap, deadline: deadline),
     treeFor: () => platformTree(env),
     helperCommand: helperCommand,
     environment: environment,
@@ -239,6 +251,7 @@ Future<LaunchResult> _native(
   Map<String, String>? environment,
   List<int>? input,
   int? cap,
+  Duration? deadline,
   Future<void> Function(List<int>)? stdoutSink,
 ) async {
   final Process process;
@@ -273,6 +286,13 @@ Future<LaunchResult> _native(
     if (settled != null && !settled.isCompleted) settled.complete();
   }
 
+  var timedOut = false;
+  final timer = deadline == null
+      ? null
+      : Timer(deadline, () {
+          timedOut = true;
+          process.kill(ProcessSignal.sigkill);
+        });
   var stdoutBytes = 0;
   var tooLarge = false;
   late final StreamSubscription<List<int>> outSub;
@@ -351,8 +371,9 @@ Future<LaunchResult> _native(
     ]);
     if (sinkSettled?.isCompleted == true) await throwSinkError();
     final code = await process.exitCode;
+    timer?.cancel();
     if (sinkSettled?.isCompleted == true) await throwSinkError();
-    if (tooLarge) {
+    if (tooLarge || timedOut) {
       await errSub.cancel();
     } else {
       await errDone.future;
@@ -365,8 +386,10 @@ Future<LaunchResult> _native(
       out.takeBytes(),
       err.takeBytes(),
       outputTooLarge: tooLarge,
+      timedOut: timedOut,
     );
   } catch (_) {
+    timer?.cancel();
     process.kill(ProcessSignal.sigkill);
     await Future.wait([
       outSub.cancel().catchError((Object _) {}),

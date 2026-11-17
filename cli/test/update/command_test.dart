@@ -155,7 +155,6 @@ void main() {
       'pack-check',
       'pack-verify',
       'pack-docs',
-      'sw-install',
     ]) {
       test('$sub is not implemented yet', () async {
         final (code, out, _) = await run([

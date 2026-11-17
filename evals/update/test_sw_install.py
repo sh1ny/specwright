@@ -372,6 +372,30 @@ class TestInstall(Base):
         self.assertEqual(self.reported_version(self.final), self.version)
         self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])), "no part file may be left")
 
+    def test_install_from_temporary_copy_never_moves_itself(self):
+        # The prompt runs sw-install from its checked temporary copy. The install downloads its own file and places that
+        # (design D7 of native-cli-update): the running copy is never renamed or moved, and is left for the prompt to delete.
+        self.release()
+        scratch = self.tmp / "agent-tmp"
+        scratch.mkdir()
+        copy = scratch / EXE
+        shutil.copyfile(self.sw, copy)
+        copy.chmod(0o755)
+        before = copy.read_bytes()
+        args = [str(copy), "update", "--code", fx.posix(self.code), "--download", fx.posix(self.dl), "--ref", self.tag,
+                "--release-url", self.base, "sw-install"]
+        r = subprocess.run(args, env=self.env(), capture_output=True, text=True, timeout=240)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertTrue(doc["ok"], doc)
+        self.assertEqual(doc["action"], "installed")
+        self.assertTrue(os.path.samefile(doc["path"], self.final), doc["path"])
+        self.assertEqual(self.final.read_bytes(), self.binary)
+        self.assertTrue(copy.is_file(), "the running copy is left in place")
+        self.assertEqual(copy.read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in scratch.iterdir()), [EXE], "nothing else appears beside the copy")
+        self.assertFalse(os.path.samefile(copy, self.final))
+
     def test_specwright_home_is_the_root(self):
         self.release()
         fake = self.tmp / "userhome"
