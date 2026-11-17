@@ -135,7 +135,7 @@ A `main` install SHALL build `sw` from the downloaded tree with `mise run instal
 ## MODIFIED Requirements
 
 ### Requirement: Update installs a release tag by default
-The install/update SHALL download the latest release tag (`v<version>`) of the repository unless the user names a version or asks for `main`, and SHALL report the ref it installed. It SHALL fall back to `main` only when no tag exists. A chosen ref older than the prompt's minimum release (0.37.0, the first release with `sw update`), or whose `sw update interface` reports another interface than the prompt drives, SHALL be refused before any write. The refusal SHALL say that the tag's own README prompt installs it, and SHALL offer `main` when the latest tag is older than the minimum.
+The install/update SHALL download the latest release tag (`v<version>`) of the repository unless the user names a version or asks for `main`, and SHALL report the ref it installed. It SHALL fall back to `main` only when no tag exists. A ref older than the minimum release (0.37.0, the first with `sw update`), or whose `sw update interface` is not the prompt's, SHALL be refused before any write, naming the tag's own README prompt, and offering `main` when the latest tag predates the minimum.
 
 #### Scenario: Latest tag
 - **WHEN** the repository has tags `v0.36.0` and `v0.37.0` and the user names no version
