@@ -144,47 +144,53 @@ void main() {
     });
   });
 
-  group('--download is required by every subcommand that reads the download', () {
-    for (final sub in [
-      'plan',
-      'stage',
-      'swap',
-      'recover',
-      'pack-check',
-      'pack-verify',
-      'pack-docs',
-    ]) {
-      test('$sub without --download is a usage error and writes nothing', () async {
+  group(
+    '--download is required by every subcommand that reads the download',
+    () {
+      for (final sub in [
+        'plan',
+        'stage',
+        'swap',
+        'recover',
+        'pack-check',
+        'pack-verify',
+        'pack-docs',
+      ]) {
+        test(
+          '$sub without --download is a usage error and writes nothing',
+          () async {
+            await expectUsage([
+              sub,
+              '--code',
+              temp.path,
+            ], '$sub needs --download DIR');
+            expect(_listing(temp), isEmpty);
+          },
+        );
+      }
+
+      test('note-config and finish read no download', () async {
+        for (final sub in ['note-config', 'finish']) {
+          final (code, out, _) = await run([sub, '--code', temp.path]);
+          expect(
+            (jsonDecode(out) as Map)['error'],
+            isNot('usage'),
+            reason: '$sub: $out',
+          );
+          expect(code, isNot(2), reason: '$sub: $out');
+        }
+      });
+
+      test('recover accepts --rollback', () async {
         await expectUsage([
-          sub,
+          'recover',
+          '--rollback',
           '--code',
           temp.path,
-        ], '$sub needs --download DIR');
-        expect(_listing(temp), isEmpty);
+        ], 'recover needs --download DIR');
       });
-    }
-
-    test('note-config and finish read no download', () async {
-      for (final sub in ['note-config', 'finish']) {
-        final (code, out, _) = await run([sub, '--code', temp.path]);
-        expect(
-          (jsonDecode(out) as Map)['error'],
-          isNot('usage'),
-          reason: '$sub: $out',
-        );
-        expect(code, isNot(2), reason: '$sub: $out');
-      }
-    });
-
-    test('recover accepts --rollback', () async {
-      await expectUsage([
-        'recover',
-        '--rollback',
-        '--code',
-        temp.path,
-      ], 'recover needs --download DIR');
-    });
-  });
+    },
+  );
 }
 
 List<String> _listing(Directory dir) =>

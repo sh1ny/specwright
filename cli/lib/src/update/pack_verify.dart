@@ -90,7 +90,13 @@ Future<(Map<String, Object?>, int)> packVerify(UpdateRun r) async {
   final problems = <Map<String, Object?>>[];
   final previous = o.previous.toSet().toList()..sort();
 
-  void problem(String code, String? pack, String? line, String? target, String message) {
+  void problem(
+    String code,
+    String? pack,
+    String? line,
+    String? target,
+    String message,
+  ) {
     problems.add({
       'code': code,
       'pack': pack,
@@ -127,7 +133,9 @@ Future<(Map<String, Object?>, int)> packVerify(UpdateRun r) async {
       1,
     );
   }
-  final enabled = read.record == null ? <String>[] : (read.record!.keys.toList()..sort());
+  final enabled = read.record == null
+      ? <String>[]
+      : (read.record!.keys.toList()..sort());
   // (target, "[pack:<n>] <line>") -> (pack, line, how often the manifest lists it)
   final expected = <(String, String), (String, String, int)>{};
   for (final n in enabled) {
@@ -177,9 +185,8 @@ Future<(Map<String, Object?>, int)> packVerify(UpdateRun r) async {
     r.ops.mkdir('$scratch/openspec/specs');
     r.ops.mkdir('$scratch/openspec/schemas');
     r.ops.copy('$download/schemas/specwright', '$scratch/openspec/schemas');
-    File(
-      '$scratch/openspec/changes/$_change/.openspec.yaml',
-    ).writeAsStringSync('schema: specwright\n');
+    File('$scratch/openspec/changes/$_change/.openspec.yaml')
+        .writeAsStringSync('schema: specwright\n');
     r.ops.copy(cfg, '$scratch/openspec');
     final asks = [
       for (final a in artifacts) (a, 'rules', 'rules.$a'),
@@ -200,7 +207,12 @@ Future<(Map<String, Object?>, int)> packVerify(UpdateRun r) async {
         if (decoded is Map) {
           doc = Map<String, Object?>.from(decoded);
           final field0 = doc[field];
-          final value = field0 == null || field0 == false || (field0 is List && field0.isEmpty) ? <Object?>[] : field0;
+          final value =
+              field0 == null ||
+                  field0 == false ||
+                  (field0 is List && field0.isEmpty)
+              ? <Object?>[]
+              : field0;
           if (value is List) got = value.cast<Object?>();
         }
       } on FormatException {
@@ -235,12 +247,15 @@ Future<(Map<String, Object?>, int)> packVerify(UpdateRun r) async {
   }
   if (context != null) delivered['context'] = context;
   final keys = expected.keys.toList()
-    ..sort((a, b) => a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2));
+    ..sort(
+      (a, b) => a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2),
+    );
   for (final key in keys) {
     final (target, full) = key;
     final (n, line, count) = expected[key]!;
     final lines = delivered[target];
-    if (lines == null) continue; // its run failed: that run is already a problem
+    if (lines == null)
+      continue; // its run failed: that run is already a problem
     final have = lines.where((l) => l == full).length;
     if (have < count) {
       problem(

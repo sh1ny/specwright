@@ -568,15 +568,8 @@ void main() {
       }
     }
 
-    Future<(int, Map<String, Object?>)> docs() => update([
-      '--code',
-      code,
-      '--root',
-      code,
-      '--download',
-      dl,
-      'pack-docs',
-    ]);
+    Future<(int, Map<String, Object?>)> docs() =>
+        update(['--code', code, '--root', code, '--download', dl, 'pack-docs']);
 
     test('creates a missing document from its template, parents too', () async {
       domainPack();
@@ -595,9 +588,9 @@ void main() {
       });
       expect(File('$code/$gdd').readAsStringSync(), '# GDD\n\nFill in.\n');
       expect(
-        Directory(
-          '$code/docs/domain',
-        ).listSync().map((e) => fwd(e.path).split('/').last),
+        Directory('$code/docs/domain')
+            .listSync()
+            .map((e) => fwd(e.path).split('/').last),
         ['gdd.md'],
         reason: 'no temporary file is left',
       );
@@ -613,7 +606,12 @@ void main() {
         ..writeAsStringSync('# Ours\n');
       final (status, doc) = await docs();
       expect(status, 0);
-      expect((doc['documents'] as List).cast<Map<String, Object?>>().single['status'], 'kept');
+      expect(
+        (doc['documents'] as List)
+            .cast<Map<String, Object?>>()
+            .single['status'],
+        'kept',
+      );
       expect(File('$code/$gdd').readAsStringSync(), '# Ours\n');
     });
 
@@ -757,9 +755,8 @@ void main() {
       if (!scratchChecked) {
         scratchChecked = true;
         expect(
-          File(
-            '$cwd/openspec/changes/pack-verify/.openspec.yaml',
-          ).readAsStringSync(),
+          File('$cwd/openspec/changes/pack-verify/.openspec.yaml')
+              .readAsStringSync(),
           'schema: specwright\n',
         );
         expect(File('$cwd/openspec/config.yaml').existsSync(), isTrue);
@@ -792,19 +789,16 @@ void main() {
     Future<(int, Map<String, Object?>)> verify({
       List<String> previous = const [],
       OpenspecRunner? run,
-    }) => update(
-      [
-        '--code',
-        code,
-        '--root',
-        code,
-        '--download',
-        dl,
-        for (final p in previous) ...['--previous', p],
-        'pack-verify',
-      ],
-      openspec: run ?? fake,
-    );
+    }) => update([
+      '--code',
+      code,
+      '--root',
+      code,
+      '--download',
+      dl,
+      for (final p in previous) ...['--previous', p],
+      'pack-verify',
+    ], openspec: run ?? fake);
 
     List<Object?> problemCodes(Map<String, Object?> doc) => [
       for (final p in (doc['problems'] as List).cast<Map<String, Object?>>())
@@ -857,7 +851,9 @@ void main() {
       expect(status, 1);
       expect(doc['ok'], isFalse);
       expect(problemCodes(doc), ['duplicate', 'missing']);
-      final missing = (doc['problems'] as List).cast<Map<String, Object?>>().last;
+      final missing = (doc['problems'] as List)
+          .cast<Map<String, Object?>>()
+          .last;
       expect(missing['pack'], 'gamedev');
       expect(missing['line'], 'Name the loop');
       expect(missing['target'], 'rules.proposal');

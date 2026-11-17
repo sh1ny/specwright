@@ -71,7 +71,7 @@ String? _rollback(UpdateRun r, Journal j) {
         throw UpdateDie(
           'rename_failed',
           'could not move $oldPath back to $tgt (a directory held open by '
-          'another program?)',
+              'another program?)',
         );
       }
     } else if (t.type != 'remove' &&
@@ -278,13 +278,21 @@ PlanRecovery planRecovery(UpdateRun r) => (UpdateOptions options) async {
     return null; // an unreadable journal is left to plan's refusal
   }
   if (j == null) return null;
-  if (!const ['staging', 'staged', 'swapping', 'swapped'].contains(
-    j.str('phase'),
-  )) {
+  if (!const [
+    'staging',
+    'staged',
+    'swapping',
+    'swapped',
+  ].contains(j.str('phase'))) {
     return null;
   }
   final prev = j.data['prev_packs'];
-  final packs = prev is List ? [for (final n in prev) if (n is String) n] : null;
+  final packs = prev is List
+      ? [
+          for (final n in prev)
+            if (n is String) n,
+        ]
+      : null;
   r.acquireLock();
   final Recovered rec;
   try {

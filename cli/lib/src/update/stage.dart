@@ -27,10 +27,7 @@ String? _modelLine(String latin) {
   if (!latin.startsWith('---')) return null;
   final end = latin.indexOf('\n---', 3);
   final region = end > 0 ? latin.substring(0, end) : latin;
-  final match = RegExp(
-    r'^model:[^\r\n]*',
-    multiLine: true,
-  ).firstMatch(region);
+  final match = RegExp(r'^model:[^\r\n]*', multiLine: true).firstMatch(region);
   return match?.group(0);
 }
 
@@ -55,7 +52,8 @@ List<String> filesUnder(String dir) {
   final root = Directory(dir);
   if (!root.existsSync()) return out;
   for (final e in root.listSync(recursive: true, followLinks: false)) {
-    final isFile = e is File || (e is Link && FileSystemEntity.isFileSync(e.path));
+    final isFile =
+        e is File || (e is Link && FileSystemEntity.isFileSync(e.path));
     if (!isFile) continue;
     out.add(_forward(e.path).substring(_forward(dir).length + 1));
   }
@@ -86,9 +84,7 @@ List<Map<String, Object?>> stageItems(Map<String, Object?> group) => [
 /// The manifest a staged copy is verified against: `{group, path, sha256}`
 /// for each file of each staged item, from the download's bytes (an agent
 /// file with the installed `model:` line carried).
-List<Map<String, Object?>> expectedManifest(
-  List<Map<String, Object?>> groups,
-) {
+List<Map<String, Object?>> expectedManifest(List<Map<String, Object?>> groups) {
   final out = <Map<String, Object?>>[];
   for (final g in groups) {
     for (final it in stageItems(g)) {
@@ -173,7 +169,9 @@ UpdateDie verificationFailed(List<Map<String, Object?>> mismatches) {
   final shown = [
     for (final m in mismatches.take(5)) '${m['path']} (${m['problem']})',
   ].join(', ');
-  final more = mismatches.length > 5 ? ' and ${mismatches.length - 5} more' : '';
+  final more = mismatches.length > 5
+      ? ' and ${mismatches.length - 5} more'
+      : '';
   return UpdateDie(
     'verification_failed',
     'the staged copy differs from the download: $shown$more',
@@ -211,8 +209,7 @@ List<String> verifySwapped(Journal j) {
   for (final m in manifest) {
     final g = groups[m['group']]!;
     final top = '${m['path']}'.split('/').first;
-    if (seen.add('${g['id']}\x00$top') &&
-        !exists('${g['staging']}/new/$top')) {
+    if (seen.add('${g['id']}\x00$top') && !exists('${g['staging']}/new/$top')) {
       final d = '${g['dir']}/$top';
       for (final rel in filesUnder(d)) {
         if (!want.contains('${g['id']}\x00$top/$rel')) bad.add('$top/$rel');

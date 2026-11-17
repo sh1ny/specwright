@@ -136,22 +136,17 @@ class Layout {
     }
     copyTree('$download/agents/claude', agents);
     copyTree('$download/schemas/specwright', schema);
-    put(
-      state,
-      'VERSION',
-      File('$download/VERSION').readAsStringSync(),
-    );
+    put(state, 'VERSION', File('$download/VERSION').readAsStringSync());
     put(root, 'openspec/config.yaml', 'schema: specwright\n');
   }
 
   /// The staging directories under the checkout, relative, sorted.
-  List<String> stagingDirs() =>
-      [
-        for (final e in Directory(code).listSync(recursive: true))
-          if (e is Directory &&
-              fwd(e.path).split('/').last.startsWith('.specwright-update-'))
-            fwd(e.path).substring(fwd(code).length + 1),
-      ]..sort();
+  List<String> stagingDirs() => [
+    for (final e in Directory(code).listSync(recursive: true))
+      if (e is Directory &&
+          fwd(e.path).split('/').last.startsWith('.specwright-update-'))
+        fwd(e.path).substring(fwd(code).length + 1),
+  ]..sort();
 
   /// What is installed: skills, agents, schema and the version stamp.
   Map<String, Object?> installed() => {

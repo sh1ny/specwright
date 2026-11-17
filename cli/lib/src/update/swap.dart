@@ -93,7 +93,10 @@ void swapLoop(UpdateRun r, Journal j) {
       // a pack's skill that is no longer enabled: target -> old/<name>
       if (existsOrLink(tgt)) {
         if (existsOrLink(oldPath)) {
-          throw UpdateDie('inconsistent', '${t.name}: $tgt and $oldPath both exist');
+          throw UpdateDie(
+            'inconsistent',
+            '${t.name}: $tgt and $oldPath both exist',
+          );
         }
         aside();
       }
@@ -106,7 +109,10 @@ void swapLoop(UpdateRun r, Journal j) {
     if (!exists(newPath)) {
       // already swapped (a rerun after an interruption)
       if (!exists(tgt)) {
-        throw UpdateDie('inconsistent', '${t.name}: neither $newPath nor $tgt exists');
+        throw UpdateDie(
+          'inconsistent',
+          '${t.name}: neither $newPath nor $tgt exists',
+        );
       }
       if (t.state != 'swapped') {
         j.setTargetState(t.gid, t.name, 'swapped');
@@ -452,7 +458,8 @@ Future<void> swapCheck(UpdateRun r, Journal j) async {
     schemaDir: schema,
     role: j.str('role').isEmpty ? 'none' : j.str('role'),
   );
-  String key(Map<Object?, Object?> e) => '${e['name']}\x00${e['source']}\x00${e['status']}';
+  String key(Map<Object?, Object?> e) =>
+      '${e['name']}\x00${e['source']}\x00${e['status']}';
   final was = {
     for (final e in (rec['changes'] as List? ?? const []))
       key(e as Map<Object?, Object?>): (e).cast<String, Object?>(),
@@ -717,7 +724,10 @@ Future<(Map<String, Object?>, int)> noteConfig(UpdateRun r) async {
     }
     final cfg = '${r.options.root}/openspec/config.yaml';
     if (!FileSystemEntity.isFileSync(cfg)) {
-      throw UpdateDie('config_missing', '$cfg does not exist; run Step 5 first');
+      throw UpdateDie(
+        'config_missing',
+        '$cfg does not exist; run Step 5 first',
+      );
     }
     final sum = _fileSha(cfg);
     j.set('config_sha', sum);

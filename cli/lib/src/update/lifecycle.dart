@@ -169,10 +169,7 @@ extension JournalView on Journal {
   /// has none.
   void set(String key, Object? value) {
     if (!data.containsKey(key)) {
-      throw UpdateDie(
-        'journal_unreadable',
-        'update.json has no $key member',
-      );
+      throw UpdateDie('journal_unreadable', 'update.json has no $key member');
     }
     data[key] = value;
   }
@@ -232,7 +229,8 @@ void recoverCleanup(UpdateRun r, Journal j) {
 }
 
 /// `rel_to`: [path] relative to the planning repo's [top], or null.
-String? relToTop(String top, String path) => relativeTo(top, resolvePosix(path));
+String? relToTop(String top, String path) =>
+    relativeTo(top, resolvePosix(path));
 
 /// The success document of stage, swap and finish, from the journal
 /// (`cmd_report`).

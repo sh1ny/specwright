@@ -38,7 +38,9 @@ Future<(Map<String, Object?>, int)> packDocs(UpdateRun r) async {
   var data = <String, Object?>{};
   if (File(recordFile).existsSync()) {
     try {
-      final decoded = decodeJson(decodeJsonBytes(readBounded(recordFile), recordFile));
+      final decoded = decodeJson(
+        decodeJsonBytes(readBounded(recordFile), recordFile),
+      );
       if (decoded is! Map || decoded['packs'] is! Map) {
         throw const FormatException('not a record with a packs object');
       }
@@ -78,7 +80,9 @@ Future<(Map<String, Object?>, int)> packDocs(UpdateRun r) async {
       final path = d.value;
       final decl = declared is Map ? declared[did] : null;
       final tpl = decl is Map ? decl['template'] : null;
-      final why = path is String ? docPathProblem(top, path) : 'is not a string';
+      final why = path is String
+          ? docPathProblem(top, path)
+          : 'is not a string';
       if (why != null) {
         refusals.add({
           'code': 'pack_doc_path',

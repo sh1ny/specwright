@@ -108,7 +108,9 @@ Future<int> runUpdateCommand(
   final run = UpdateRun(
     options,
     environment: environment,
-    ops: fileOps ?? UpdateFileOps(environment: environment, exitProcess: exitProcess),
+    ops:
+        fileOps ??
+        UpdateFileOps(environment: environment, exitProcess: exitProcess),
     openspec: openspec,
   );
   if (options.subcommand == 'plan') {

@@ -52,9 +52,8 @@ void main() {
     return doc;
   }
 
-  void stamp(String version) => File(co.versionFile).writeAsStringSync(
-    '$version\n',
-  );
+  void stamp(String version) =>
+      File(co.versionFile).writeAsStringSync('$version\n');
 
   /// The disk after the download is installed (what a finished swap gives).
   Future<Map<String, Object?>> installedAfterSwap() async {
@@ -114,7 +113,9 @@ void main() {
       final journal = readJournal(co.journal);
       expect(journal['phase'], 'swapped');
       expect(
-        (journal['targets'] as List).every((t) => (t as Map)['state'] == 'swapped'),
+        (journal['targets'] as List).every(
+          (t) => (t as Map)['state'] == 'swapped',
+        ),
         isTrue,
       );
       expect(Directory(co.lock).existsSync(), isFalse);
@@ -127,7 +128,10 @@ void main() {
       File(co.journal).writeAsStringSync(
         text.replaceFirst('"phase": "staged"', '"phase": "staging"'),
       );
-      expect((await stop('swap', 'not_staged'))['message'], contains("phase 'staging'"));
+      expect(
+        (await stop('swap', 'not_staged'))['message'],
+        contains("phase 'staging'"),
+      );
       File(co.journal).writeAsStringSync(
         text.replaceFirst('"phase": "staged"', '"phase": "swapping"'),
       );
@@ -186,7 +190,9 @@ void main() {
       final total = log.length;
       expect(total, greaterThan(10));
       expect(
-        log.where((l) => l.contains(' mv ${co.journal}.tmp ${co.journal}')).length,
+        log
+            .where((l) => l.contains(' mv ${co.journal}.tmp ${co.journal}'))
+            .length,
         greaterThan(4),
       );
       restore();
@@ -247,38 +253,40 @@ void main() {
       expect(readJournal(co.journal)['config_sha'], doc['sha256']);
     });
 
-    test('finish: nothing in progress, not stamped, not swapped, then done',
-        () async {
-      var doc = await ok('finish');
-      expect(doc, {
-        'ok': true,
-        'interface': 3,
-        'subcommand': 'finish',
-        'state': 'done',
-        'finished': false,
-        'message': 'no update is in progress',
-      });
-      await ok('stage');
-      expect(
-        (await stop('finish', 'not_stamped'))['message'],
-        "VERSION reads '0.5.0', not 0.6.0; finish runs after the stamp",
-      );
-      stamp('0.6.0');
-      expect(
-        (await stop('finish', 'not_swapped'))['message'],
-        "the recorded update is in phase 'staged', not swapped; run recover "
-        'first',
-      );
-      stamp('0.5.0');
-      await ok('swap');
-      stamp('0.6.0');
-      doc = await ok('finish');
-      expect(doc['state'], 'done');
-      expect(doc['finished'], isTrue);
-      expect(doc['subcommand'], 'finish');
-      expect(File(co.journal).existsSync(), isFalse);
-      expect(co.stagingDirs(), isEmpty);
-    });
+    test(
+      'finish: nothing in progress, not stamped, not swapped, then done',
+      () async {
+        var doc = await ok('finish');
+        expect(doc, {
+          'ok': true,
+          'interface': 3,
+          'subcommand': 'finish',
+          'state': 'done',
+          'finished': false,
+          'message': 'no update is in progress',
+        });
+        await ok('stage');
+        expect(
+          (await stop('finish', 'not_stamped'))['message'],
+          "VERSION reads '0.5.0', not 0.6.0; finish runs after the stamp",
+        );
+        stamp('0.6.0');
+        expect(
+          (await stop('finish', 'not_swapped'))['message'],
+          "the recorded update is in phase 'staged', not swapped; run recover "
+          'first',
+        );
+        stamp('0.5.0');
+        await ok('swap');
+        stamp('0.6.0');
+        doc = await ok('finish');
+        expect(doc['state'], 'done');
+        expect(doc['finished'], isTrue);
+        expect(doc['subcommand'], 'finish');
+        expect(File(co.journal).existsSync(), isFalse);
+        expect(co.stagingDirs(), isEmpty);
+      },
+    );
   });
 
   group('recover', () {
@@ -310,35 +318,39 @@ void main() {
       expect(co.stagingDirs(), isEmpty);
     });
 
-    test('a swap killed halfway with a complete staged copy is resumed',
-        () async {
-      await ok('stage');
-      backup([co.code]);
-      final count = '${fwd(tmp.path)}/count.log';
-      await sub('swap', ops: KillableOps(count));
-      final after = co.installed();
-      restore();
-      final log = countLog(count);
-      final firstMove = log.indexWhere(
-        (l) => l.contains(' mv ${co.code}/.claude/.specwright-update-skills/new/'),
-      );
-      expect(firstMove, greaterThan(0));
-      expect(
-        await runKilled(
-          [...co.args(dl), 'swap'],
-          '${fwd(tmp.path)}/k.log',
-          firstMove + 2,
-          openspec: passingOpenspec,
-        ),
-        isTrue,
-      );
-      forgetKilledProcess();
-      final doc = await ok('recover');
-      expect(doc['action'], 'resumed');
-      expect(doc['message'], 'resumed update to 0.6.0');
-      expect(co.installed(), after);
-      expect(readJournal(co.journal)['phase'], 'swapped');
-    });
+    test(
+      'a swap killed halfway with a complete staged copy is resumed',
+      () async {
+        await ok('stage');
+        backup([co.code]);
+        final count = '${fwd(tmp.path)}/count.log';
+        await sub('swap', ops: KillableOps(count));
+        final after = co.installed();
+        restore();
+        final log = countLog(count);
+        final firstMove = log.indexWhere(
+          (l) => l.contains(
+            ' mv ${co.code}/.claude/.specwright-update-skills/new/',
+          ),
+        );
+        expect(firstMove, greaterThan(0));
+        expect(
+          await runKilled(
+            [...co.args(dl), 'swap'],
+            '${fwd(tmp.path)}/k.log',
+            firstMove + 2,
+            openspec: passingOpenspec,
+          ),
+          isTrue,
+        );
+        forgetKilledProcess();
+        final doc = await ok('recover');
+        expect(doc['action'], 'resumed');
+        expect(doc['message'], 'resumed update to 0.6.0');
+        expect(co.installed(), after);
+        expect(readJournal(co.journal)['phase'], 'swapped');
+      },
+    );
 
     test('a resumed update whose stamp nobody will write is stamped and '
         'finished', () async {
@@ -348,7 +360,8 @@ void main() {
       await sub('swap', ops: KillableOps(count));
       restore();
       final log = countLog(count);
-      final n = log.indexWhere((l) => l.contains(' mv ${co.code}/.claude/')) + 2;
+      final n =
+          log.indexWhere((l) => l.contains(' mv ${co.code}/.claude/')) + 2;
       await runKilled(
         [...co.args(dl), 'swap'],
         '${fwd(tmp.path)}/k.log',
@@ -374,7 +387,8 @@ void main() {
       await sub('swap', ops: KillableOps(count));
       restore();
       final log = countLog(count);
-      final n = log.indexWhere((l) => l.contains(' mv ${co.code}/.claude/')) + 2;
+      final n =
+          log.indexWhere((l) => l.contains(' mv ${co.code}/.claude/')) + 2;
       await runKilled(
         [...co.args(dl), 'swap'],
         '${fwd(tmp.path)}/k.log',
@@ -408,7 +422,11 @@ void main() {
     test('a stamped update is finished; --rollback refuses it', () async {
       final after = await installedAfterSwap();
       stamp('0.6.0');
-      final refused = await stop('recover', 'rollback_stamped', more: ['--rollback']);
+      final refused = await stop(
+        'recover',
+        'rollback_stamped',
+        more: ['--rollback'],
+      );
       expect(
         refused['message'],
         'VERSION already reads 0.6.0: the update is complete and cannot be '
@@ -436,7 +454,10 @@ void main() {
       await ok('stage');
       await ok('swap');
       final doc = await ok('recover', more: ['--rollback']);
-      expect(doc['message'], 'rolled back to the state before the first install');
+      expect(
+        doc['message'],
+        'rolled back to the state before the first install',
+      );
       expect(doc['from'], isNull);
       expect(doc['sw_note'], isNull);
       expect(files(), before);
@@ -455,42 +476,46 @@ void main() {
       expect(File(co.config).readAsStringSync(), prev);
     });
 
-    test('a config edited after note-config is kept, and the message says so',
-        () async {
-      await ok('stage');
-      await ok('swap');
-      File(co.config).writeAsStringSync('merged: 1\n');
-      await ok('note-config');
-      File(co.config).writeAsStringSync('edited by hand\n');
-      final doc = await ok('recover', more: ['--rollback']);
-      expect(
-        doc['message'],
-        'rolled back to 0.5.0; config.yaml kept: it was edited after '
-        'note-config',
-      );
-      expect(File(co.config).readAsStringSync(), 'edited by hand\n');
-    });
+    test(
+      'a config edited after note-config is kept, and the message says so',
+      () async {
+        await ok('stage');
+        await ok('swap');
+        File(co.config).writeAsStringSync('merged: 1\n');
+        await ok('note-config');
+        File(co.config).writeAsStringSync('edited by hand\n');
+        final doc = await ok('recover', more: ['--rollback']);
+        expect(
+          doc['message'],
+          'rolled back to 0.5.0; config.yaml kept: it was edited after '
+          'note-config',
+        );
+        expect(File(co.config).readAsStringSync(), 'edited by hand\n');
+      },
+    );
 
-    test('a config the update created is removed, unless it was edited',
-        () async {
-      Directory(co.code).deleteSync(recursive: true);
-      co = Layout(tmp)..init();
-      await ok('stage');
-      await ok('swap');
-      File(co.config).writeAsStringSync('schema: specwright\n');
-      await ok('note-config');
-      await ok('recover', more: ['--rollback']);
-      expect(File(co.config).existsSync(), isFalse);
+    test(
+      'a config the update created is removed, unless it was edited',
+      () async {
+        Directory(co.code).deleteSync(recursive: true);
+        co = Layout(tmp)..init();
+        await ok('stage');
+        await ok('swap');
+        File(co.config).writeAsStringSync('schema: specwright\n');
+        await ok('note-config');
+        await ok('recover', more: ['--rollback']);
+        expect(File(co.config).existsSync(), isFalse);
 
-      await ok('stage');
-      await ok('swap');
-      File(co.config).writeAsStringSync('one\n');
-      await ok('note-config');
-      File(co.config).writeAsStringSync('two\n');
-      final doc = await ok('recover', more: ['--rollback']);
-      expect(doc['message'], contains('config.yaml kept'));
-      expect(File(co.config).existsSync(), isTrue);
-    });
+        await ok('stage');
+        await ok('swap');
+        File(co.config).writeAsStringSync('one\n');
+        await ok('note-config');
+        File(co.config).writeAsStringSync('two\n');
+        final doc = await ok('recover', more: ['--rollback']);
+        expect(doc['message'], contains('config.yaml kept'));
+        expect(File(co.config).existsSync(), isTrue);
+      },
+    );
   });
 
   group('a journal from 0.36.0 update.sh', () {
@@ -591,12 +616,10 @@ ${entries.join(',\n')}
       // the stamp is written, the swap is done: recovery finishes it
       File('${co.skills}/specwright-beta/SKILL.md')
           .writeAsStringSync('beta 0.6.0\n');
-      Directory('${co.code}/.claude/.specwright-update-skills/new/specwright-alpha')
-          .deleteSync(recursive: true);
-      copyTree(
-        '$dl/skills/specwright-alpha',
-        '${co.skills}/specwright-alpha',
-      );
+      Directory(
+        '${co.code}/.claude/.specwright-update-skills/new/specwright-alpha',
+      ).deleteSync(recursive: true);
+      copyTree('$dl/skills/specwright-alpha', '${co.skills}/specwright-alpha');
       File(co.journal).writeAsStringSync(
         File(co.journal)
             .readAsStringSync()
@@ -611,41 +634,44 @@ ${entries.join(',\n')}
       expect(File(co.journal).existsSync(), isFalse);
     });
 
-    test('a format it does not know is refused and nothing is touched',
-        () async {
-      layOut();
-      final text = File(co.journal).readAsStringSync().replaceFirst(
-        '"format": 2',
-        '"format": 9',
-      );
-      File(co.journal).writeAsStringSync(text);
-      final before = textSnapshot(co.code);
-      final doc = await stop('recover', 'journal_unreadable');
-      expect(doc['message'], 'update.json has format 9, not 1 or 2');
-      expect(doc.containsKey('installed'), isFalse);
-      expect(textSnapshot(co.code), before);
+    test(
+      'a format it does not know is refused and nothing is touched',
+      () async {
+        layOut();
+        final text = File(co.journal)
+            .readAsStringSync()
+            .replaceFirst('"format": 2', '"format": 9');
+        File(co.journal).writeAsStringSync(text);
+        final before = textSnapshot(co.code);
+        final doc = await stop('recover', 'journal_unreadable');
+        expect(doc['message'], 'update.json has format 9, not 1 or 2');
+        expect(doc.containsKey('installed'), isFalse);
+        expect(textSnapshot(co.code), before);
 
-      final (code, plan) = await sub('plan');
-      expect(code, 1);
-      expect(plan.containsKey('recovered'), isFalse);
-      expect(plan['unchanged'], isTrue);
-      expect(
-        (plan['refusals'] as List).map((r) => (r as Map)['code']),
-        contains('journal_unreadable'),
-      );
-      expect(textSnapshot(co.code), before);
-    });
+        final (code, plan) = await sub('plan');
+        expect(code, 1);
+        expect(plan.containsKey('recovered'), isFalse);
+        expect(plan['unchanged'], isTrue);
+        expect(
+          (plan['refusals'] as List).map((r) => (r as Map)['code']),
+          contains('journal_unreadable'),
+        );
+        expect(textSnapshot(co.code), before);
+      },
+    );
 
-    test('text after the journal is garbage: refused, nothing touched',
-        () async {
-      layOut();
-      File(co.journal).writeAsStringSync(
-        '${File(co.journal).readAsStringSync()}trailing\n',
-      );
-      final before = textSnapshot(co.code);
-      await stop('recover', 'journal_unreadable');
-      expect(textSnapshot(co.code), before);
-    });
+    test(
+      'text after the journal is garbage: refused, nothing touched',
+      () async {
+        layOut();
+        File(
+          co.journal,
+        ).writeAsStringSync('${File(co.journal).readAsStringSync()}trailing\n');
+        final before = textSnapshot(co.code);
+        await stop('recover', 'journal_unreadable');
+        expect(textSnapshot(co.code), before);
+      },
+    );
   });
 
   group('the store half', () {
@@ -653,8 +679,8 @@ ${entries.join(',\n')}
     late String patch;
 
     String storeFile(String rel) => '$store/$rel';
-    String record() => File(storeFile('openspec/.specwright/STORE'))
-        .readAsStringSync();
+    String record() =>
+        File(storeFile('openspec/.specwright/STORE')).readAsStringSync();
 
     setUp(() {
       Directory(co.code).deleteSync(recursive: true);
@@ -705,40 +731,46 @@ ${entries.join(',\n')}
       );
     });
 
-    test('a busy store refuses the swap with everything kept as it was',
-        () async {
-      await ok('stage');
-      final lock = readJournal(co.journal)['store_lock'] as String;
-      final before = co.installed();
-      put(store, 'notes.txt', 'someone is working\n');
-      final doc = await stop('swap', 'store_busy');
-      expect(
-        doc['message'],
-        startsWith('the store has uncommitted changes: notes.txt. A store '
-            'schema is swapped only on a free store'),
-      );
-      expect(co.installed(), before);
-      expect(record(), 'version: 0.5.0\nowner: github.com/me/proj\n');
-      expect(Directory(lock).existsSync(), isFalse);
-      expect(File(co.journal).existsSync(), isFalse);
-      expect(co.stagingDirs(), isEmpty);
-    });
+    test(
+      'a busy store refuses the swap with everything kept as it was',
+      () async {
+        await ok('stage');
+        final lock = readJournal(co.journal)['store_lock'] as String;
+        final before = co.installed();
+        put(store, 'notes.txt', 'someone is working\n');
+        final doc = await stop('swap', 'store_busy');
+        expect(
+          doc['message'],
+          startsWith(
+            'the store has uncommitted changes: notes.txt. A store '
+            'schema is swapped only on a free store',
+          ),
+        );
+        expect(co.installed(), before);
+        expect(record(), 'version: 0.5.0\nowner: github.com/me/proj\n');
+        expect(Directory(lock).existsSync(), isFalse);
+        expect(File(co.journal).existsSync(), isFalse);
+        expect(co.stagingDirs(), isEmpty);
+      },
+    );
 
-    test('a record another owner wrote since the plan stops the swap',
-        () async {
-      await ok('stage');
-      File(storeFile('openspec/.specwright/STORE')).writeAsStringSync(
-        'version: 0.5.0\nowner: github.com/someone/else\n',
-      );
-      final doc = await stop('swap', 'store_owner_changed');
-      expect(
-        doc['message'],
-        "the store's schema is now owned by github.com/someone/else (version "
-        '0.5.0), not by github.com/me/proj; nothing was written. Rerun the '
-        'update to plan it again',
-      );
-      expect(File(co.journal).existsSync(), isFalse);
-    });
+    test(
+      'a record another owner wrote since the plan stops the swap',
+      () async {
+        await ok('stage');
+        File(
+          storeFile('openspec/.specwright/STORE'),
+        ).writeAsStringSync('version: 0.5.0\nowner: github.com/someone/else\n');
+        final doc = await stop('swap', 'store_owner_changed');
+        expect(
+          doc['message'],
+          "the store's schema is now owned by github.com/someone/else (version "
+          '0.5.0), not by github.com/me/proj; nothing was written. Rerun the '
+          'update to plan it again',
+        );
+        expect(File(co.journal).existsSync(), isFalse);
+      },
+    );
 
     test('a held gate lock stops the swap naming the holder', () async {
       await ok('stage');
@@ -751,24 +783,26 @@ ${entries.join(',\n')}
       final doc = await stop('swap', 'store_locked');
       expect(
         doc['message'],
-        contains('is held by add-thing (from /elsewhere), taken '
-            '2026-01-01T00:00:00Z; another session is in its gate or roadmap '
-            'step for this store'),
+        contains(
+          'is held by add-thing (from /elsewhere), taken '
+          '2026-01-01T00:00:00Z; another session is in its gate or roadmap '
+          'step for this store',
+        ),
       );
       expect(Directory(lock).existsSync(), isTrue);
     });
 
     test('a patch on a busy store swaps the code side only', () async {
       put(store, 'notes.txt', 'busy\n');
-      final (code, staged) = await update(
-        [...co.args(patch), 'stage'],
-        openspec: passingOpenspec,
-      );
+      final (code, staged) = await update([
+        ...co.args(patch),
+        'stage',
+      ], openspec: passingOpenspec);
       expect(code, 0, reason: '$staged');
-      final (c2, doc) = await update(
-        [...co.args(patch), 'swap'],
-        openspec: passingOpenspec,
-      );
+      final (c2, doc) = await update([
+        ...co.args(patch),
+        'swap',
+      ], openspec: passingOpenspec);
       expect(c2, 0, reason: '$doc');
       expect(doc['store_written'], isFalse);
       expect((doc['store'] as Map)['message'], 'store schema already current');
@@ -815,34 +849,43 @@ ${entries.join(',\n')}
       expect(Directory(lock).existsSync(), isFalse);
     });
 
-    test('--rollback restores the store files and releases the gate lock',
-        () async {
-      await ok('stage');
-      final beforeCode = co.installed();
-      await ok('swap');
-      final doc = await ok('recover', more: ['--rollback']);
-      expect(doc['action'], 'rolled-back');
-      expect(doc['message'], 'rolled back to 0.5.0');
-      expect(record(), 'version: 0.5.0\nowner: github.com/me/proj\n');
-      expect(co.installed(), beforeCode);
-      expect(co.stagingDirs(), isEmpty);
-      final status = Process.runSync('git', ['-C', store, 'status', '--porcelain']);
-      expect('${status.stdout}'.trim(), isEmpty);
-    });
+    test(
+      '--rollback restores the store files and releases the gate lock',
+      () async {
+        await ok('stage');
+        final beforeCode = co.installed();
+        await ok('swap');
+        final doc = await ok('recover', more: ['--rollback']);
+        expect(doc['action'], 'rolled-back');
+        expect(doc['message'], 'rolled back to 0.5.0');
+        expect(record(), 'version: 0.5.0\nowner: github.com/me/proj\n');
+        expect(co.installed(), beforeCode);
+        expect(co.stagingDirs(), isEmpty);
+        final status = Process.runSync('git', [
+          '-C',
+          store,
+          'status',
+          '--porcelain',
+        ]);
+        expect('${status.stdout}'.trim(), isEmpty);
+      },
+    );
 
-    test('a foreign gate lock stops the rollback; the journal is kept',
-        () async {
-      await ok('stage');
-      final lock = readJournal(co.journal)['store_lock'] as String;
-      await ok('swap');
-      Directory(lock).createSync(recursive: true);
-      File('$lock/owner').writeAsStringSync(
-        'time: 2026-01-01T00:00:00Z\nchange: add-thing\ncode: /elsewhere\n'
-        'token: t\n',
-      );
-      await stop('recover', 'store_locked', more: ['--rollback']);
-      expect(File(co.journal).existsSync(), isTrue);
-    });
+    test(
+      'a foreign gate lock stops the rollback; the journal is kept',
+      () async {
+        await ok('stage');
+        final lock = readJournal(co.journal)['store_lock'] as String;
+        await ok('swap');
+        Directory(lock).createSync(recursive: true);
+        File('$lock/owner').writeAsStringSync(
+          'time: 2026-01-01T00:00:00Z\nchange: add-thing\ncode: /elsewhere\n'
+          'token: t\n',
+        );
+        await stop('recover', 'store_locked', more: ['--rollback']);
+        expect(File(co.journal).existsSync(), isTrue);
+      },
+    );
 
     test('a gate lock without owner information is not taken over', () async {
       await ok('stage');
@@ -858,6 +901,9 @@ ${entries.join(',\n')}
   test('the journal the commands write parses as one JSON object', () async {
     await ok('stage');
     await ok('swap');
-    expect(jsonDecode(File(co.journal).readAsStringSync()), isA<Map<String, Object?>>());
+    expect(
+      jsonDecode(File(co.journal).readAsStringSync()),
+      isA<Map<String, Object?>>(),
+    );
   });
 }

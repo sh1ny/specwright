@@ -51,7 +51,10 @@ void main() {
     expect(doc['ok'], isTrue);
     expect(doc['subcommand'], 'stage');
     expect(doc['state'], 'staged');
-    expect([doc['from'], doc['to'], doc['kind']], ['0.5.0', '0.6.0', 'workflow']);
+    expect(
+      [doc['from'], doc['to'], doc['kind']],
+      ['0.5.0', '0.6.0', 'workflow'],
+    );
     expect(doc['installed'], '0.5.0');
     expect(doc['unchanged'], isTrue);
     expect(co.installed(), before);
@@ -64,9 +67,7 @@ void main() {
     ]);
     for (final name in ['specwright-alpha', 'specwright-beta']) {
       expect(
-        textSnapshot(
-          '${co.code}/.claude/.specwright-update-skills/new/$name',
-        ),
+        textSnapshot('${co.code}/.claude/.specwright-update-skills/new/$name'),
         textSnapshot('$dl/skills/$name'),
       );
     }
@@ -77,24 +78,23 @@ void main() {
       File('$dl/agents/claude/specwright-impl.md').readAsStringSync(),
     );
     expect(
-      textSnapshot('${co.code}/openspec/.specwright-update-schemas/new/specwright'),
+      textSnapshot(
+        '${co.code}/openspec/.specwright-update-schemas/new/specwright',
+      ),
       textSnapshot('$dl/schemas/specwright'),
     );
     expect(
-      File(
-        '${co.code}/openspec/.specwright-update-record/new/packs.json',
-      ).existsSync(),
+      File('${co.code}/openspec/.specwright-update-record/new/packs.json')
+          .existsSync(),
       isTrue,
     );
     expect(Directory(co.lock).existsSync(), isFalse);
 
     final groups = (doc['groups'] as List).cast<Map<String, Object?>>();
-    expect([for (final g in groups) g['id']], [
-      'skills-1',
-      'agents-1-claude',
-      'schema',
-      'record',
-    ]);
+    expect(
+      [for (final g in groups) g['id']],
+      ['skills-1', 'agents-1-claude', 'schema', 'record'],
+    );
     expect([for (final g in groups) g['targets']], [2, 1, 1, 1]);
     expect(doc['files'], 6);
   });
@@ -109,9 +109,9 @@ void main() {
     expect(lines[lines.length - 2], '}');
     // the scalar members, then one group, target and manifest entry per line
     expect(
-      lines.where((l) => RegExp(r'^  "[a-z_]+": ').hasMatch(l)).map(
-        (l) => l.split('"')[1],
-      ),
+      lines
+          .where((l) => RegExp(r'^  "[a-z_]+": ').hasMatch(l))
+          .map((l) => l.split('"')[1]),
       [
         'format',
         'from',
@@ -170,41 +170,47 @@ void main() {
     expect(targets.every((t) => t['state'] == 'staged'), isTrue);
   });
 
-  test('the manifest holds the SHA-256 of every staged file, in group order',
-      () async {
-    await stage();
-    final manifest = (readJournal(co.journal)['manifest'] as List)
-        .cast<Map<String, Object?>>();
-    expect([for (final m in manifest) '${m['group']}:${m['path']}'], [
-      'skills-1:specwright-alpha/SKILL.md',
-      'skills-1:specwright-alpha/scripts/run.sh',
-      'skills-1:specwright-beta/SKILL.md',
-      'agents-1-claude:specwright-impl.md',
-      'schema:specwright/schema.yaml',
-      'record:packs.json',
-    ]);
-    expect(
-      manifest[0]['sha256'],
-      sha(File('$dl/skills/specwright-alpha/SKILL.md').readAsBytesSync()),
-    );
-    expect(
-      manifest[4]['sha256'],
-      sha(File('$dl/schemas/specwright/schema.yaml').readAsBytesSync()),
-    );
-    expect(
-      manifest.every((m) => RegExp(r'^[0-9a-f]{64}$').hasMatch('${m['sha256']}')),
-      isTrue,
-    );
-    // the record is hashed from the bytes stage wrote
-    expect(
-      manifest[5]['sha256'],
-      sha(
-        File(
-          '${co.code}/openspec/.specwright-update-record/new/packs.json',
-        ).readAsBytesSync(),
-      ),
-    );
-  });
+  test(
+    'the manifest holds the SHA-256 of every staged file, in group order',
+    () async {
+      await stage();
+      final manifest = (readJournal(co.journal)['manifest'] as List)
+          .cast<Map<String, Object?>>();
+      expect(
+        [for (final m in manifest) '${m['group']}:${m['path']}'],
+        [
+          'skills-1:specwright-alpha/SKILL.md',
+          'skills-1:specwright-alpha/scripts/run.sh',
+          'skills-1:specwright-beta/SKILL.md',
+          'agents-1-claude:specwright-impl.md',
+          'schema:specwright/schema.yaml',
+          'record:packs.json',
+        ],
+      );
+      expect(
+        manifest[0]['sha256'],
+        sha(File('$dl/skills/specwright-alpha/SKILL.md').readAsBytesSync()),
+      );
+      expect(
+        manifest[4]['sha256'],
+        sha(File('$dl/schemas/specwright/schema.yaml').readAsBytesSync()),
+      );
+      expect(
+        manifest.every(
+          (m) => RegExp(r'^[0-9a-f]{64}$').hasMatch('${m['sha256']}'),
+        ),
+        isTrue,
+      );
+      // the record is hashed from the bytes stage wrote
+      expect(
+        manifest[5]['sha256'],
+        sha(
+          File('${co.code}/openspec/.specwright-update-record/new/packs.json')
+              .readAsBytesSync(),
+        ),
+      );
+    },
+  );
 
   test('an agent file carries the installed model line into the staged copy '
       'and the manifest', () async {
@@ -233,89 +239,101 @@ void main() {
     expect(staged.statSync().mode & 0x40, isNot(0));
   }, skip: Platform.isWindows ? 'POSIX mode bits' : false);
 
-  test('a staged copy that differs from the manifest stops verification_failed '
-      'with staging and journal removed and no installed file changed', () async {
-    final before = textSnapshot(co.code);
-    final (code, doc) = await stage(ops: _TamperOps());
-    expect(code, 1, reason: '$doc');
-    expect(doc['ok'], isFalse);
-    expect(doc['error'], 'verification_failed');
-    expect(
-      doc['message'],
-      'the staged copy differs from the download: '
-      'specwright-beta/SKILL.md (changed)',
-    );
-    final mismatches = (doc['mismatches'] as List).cast<Map<String, Object?>>();
-    expect(mismatches.single['group'], 'skills-1');
-    expect(mismatches.single['path'], 'specwright-beta/SKILL.md');
-    expect(mismatches.single['problem'], 'changed');
-    expect(doc['unchanged'], isTrue);
-    expect(doc['installed'], '0.5.0');
-    expect(co.stagingDirs(), isEmpty);
-    expect(File(co.journal).existsSync(), isFalse);
-    expect(Directory(co.lock).existsSync(), isFalse);
-    expect(textSnapshot(co.code), before);
-  });
+  test(
+    'a staged copy that differs from the manifest stops verification_failed '
+    'with staging and journal removed and no installed file changed',
+    () async {
+      final before = textSnapshot(co.code);
+      final (code, doc) = await stage(ops: _TamperOps());
+      expect(code, 1, reason: '$doc');
+      expect(doc['ok'], isFalse);
+      expect(doc['error'], 'verification_failed');
+      expect(
+        doc['message'],
+        'the staged copy differs from the download: '
+        'specwright-beta/SKILL.md (changed)',
+      );
+      final mismatches = (doc['mismatches'] as List)
+          .cast<Map<String, Object?>>();
+      expect(mismatches.single['group'], 'skills-1');
+      expect(mismatches.single['path'], 'specwright-beta/SKILL.md');
+      expect(mismatches.single['problem'], 'changed');
+      expect(doc['unchanged'], isTrue);
+      expect(doc['installed'], '0.5.0');
+      expect(co.stagingDirs(), isEmpty);
+      expect(File(co.journal).existsSync(), isFalse);
+      expect(Directory(co.lock).existsSync(), isFalse);
+      expect(textSnapshot(co.code), before);
+    },
+  );
 
-  test('a file staged that the manifest does not list is a mismatch too',
-      () async {
-    final ops = _ExtraFileOps();
-    final (code, doc) = await stage(ops: ops);
-    expect(code, 1, reason: '$doc');
-    expect(doc['error'], 'verification_failed');
-    final mismatches = (doc['mismatches'] as List).cast<Map<String, Object?>>();
-    expect(mismatches.single['problem'], 'unexpected');
-    expect(mismatches.single['path'], 'specwright-alpha/stray.txt');
-    expect(co.stagingDirs(), isEmpty);
-    expect(File(co.journal).existsSync(), isFalse);
-  });
+  test(
+    'a file staged that the manifest does not list is a mismatch too',
+    () async {
+      final ops = _ExtraFileOps();
+      final (code, doc) = await stage(ops: ops);
+      expect(code, 1, reason: '$doc');
+      expect(doc['error'], 'verification_failed');
+      final mismatches = (doc['mismatches'] as List)
+          .cast<Map<String, Object?>>();
+      expect(mismatches.single['problem'], 'unexpected');
+      expect(mismatches.single['path'], 'specwright-alpha/stray.txt');
+      expect(co.stagingDirs(), isEmpty);
+      expect(File(co.journal).existsSync(), isFalse);
+    },
+  );
 
-  test('stage refuses while a journal is pending and leaves it as it is',
-      () async {
-    final (first, _) = await stage();
-    expect(first, 0);
-    final journal = File(co.journal).readAsStringSync();
-    final staging = co.stagingDirs();
-    final (code, doc) = await stage();
-    expect(code, 1, reason: '$doc');
-    expect(doc['error'], 'journal_pending');
-    expect(
-      doc['message'],
-      'an unfinished update to 0.6.0 is recorded in ${co.journal}; run '
-      'recover first',
-    );
-    expect(File(co.journal).readAsStringSync(), journal);
-    expect(co.stagingDirs(), staging);
-    expect(Directory(co.lock).existsSync(), isFalse);
-  });
+  test(
+    'stage refuses while a journal is pending and leaves it as it is',
+    () async {
+      final (first, _) = await stage();
+      expect(first, 0);
+      final journal = File(co.journal).readAsStringSync();
+      final staging = co.stagingDirs();
+      final (code, doc) = await stage();
+      expect(code, 1, reason: '$doc');
+      expect(doc['error'], 'journal_pending');
+      expect(
+        doc['message'],
+        'an unfinished update to 0.6.0 is recorded in ${co.journal}; run '
+        'recover first',
+      );
+      expect(File(co.journal).readAsStringSync(), journal);
+      expect(co.stagingDirs(), staging);
+      expect(Directory(co.lock).existsSync(), isFalse);
+    },
+  );
 
-  test('a journal that does not parse stops stage as journal_unreadable',
-      () async {
-    put(co.state, 'update.json', '{"format": 9}\n');
-    final before = textSnapshot(co.code);
-    final (code, doc) = await stage();
-    // plan refuses first, exactly as for plan
-    expect(code, 1, reason: '$doc');
-    expect(
-      [for (final r in doc['refusals'] as List) (r as Map)['code']],
-      contains('journal_unreadable'),
-    );
-    expect(textSnapshot(co.code), before);
-  });
+  test(
+    'a journal that does not parse stops stage as journal_unreadable',
+    () async {
+      put(co.state, 'update.json', '{"format": 9}\n');
+      final before = textSnapshot(co.code);
+      final (code, doc) = await stage();
+      // plan refuses first, exactly as for plan
+      expect(code, 1, reason: '$doc');
+      expect([
+        for (final r in doc['refusals'] as List) (r as Map)['code'],
+      ], contains('journal_unreadable'));
+      expect(textSnapshot(co.code), before);
+    },
+  );
 
-  test('a refused plan is the answer: nothing is written, not even the lock',
-      () async {
-    Directory('$dl/skills').deleteSync(recursive: true);
-    final before = textSnapshot(co.code);
-    final (code, doc) = await stage();
-    expect(code, 1, reason: '$doc');
-    expect(doc['error'], 'refused');
-    expect(
-      [for (final r in doc['refusals'] as List) (r as Map)['code']],
-      ['download_incomplete'],
-    );
-    expect(textSnapshot(co.code), before);
-  });
+  test(
+    'a refused plan is the answer: nothing is written, not even the lock',
+    () async {
+      Directory('$dl/skills').deleteSync(recursive: true);
+      final before = textSnapshot(co.code);
+      final (code, doc) = await stage();
+      expect(code, 1, reason: '$doc');
+      expect(doc['error'], 'refused');
+      expect(
+        [for (final r in doc['refusals'] as List) (r as Map)['code']],
+        ['download_incomplete'],
+      );
+      expect(textSnapshot(co.code), before);
+    },
+  );
 
   test('leftovers of an earlier run go: scratch, a temporary journal, old '
       'staging', () async {
@@ -327,7 +345,8 @@ void main() {
     expect(Directory('$dl/.update-scratch').existsSync(), isFalse);
     expect(File('${co.state}/update.json.tmp').existsSync(), isFalse);
     expect(
-      File('${co.code}/.claude/.specwright-update-skills/old/junk').existsSync(),
+      File('${co.code}/.claude/.specwright-update-skills/old/junk')
+          .existsSync(),
       isFalse,
     );
     expect(File(co.journal).existsSync(), isTrue);
@@ -351,10 +370,7 @@ void main() {
       reason: 'the journal is written three times: new, targets, phase',
     );
     expect(log.last, contains('rm -rf ${co.lock}'));
-    expect(
-      log[log.length - 2],
-      contains('mv ${co.journal}.tmp ${co.journal}'),
-    );
+    expect(log[log.length - 2], contains('mv ${co.journal}.tmp ${co.journal}'));
 
     // a fresh run, killed at the first copy
     Directory(co.code).deleteSync(recursive: true);
@@ -376,7 +392,10 @@ void main() {
 
   test('the staged journal text is valid JSON of one object', () async {
     await stage();
-    expect(jsonDecode(File(co.journal).readAsStringSync()), isA<Map<String, Object?>>());
+    expect(
+      jsonDecode(File(co.journal).readAsStringSync()),
+      isA<Map<String, Object?>>(),
+    );
   });
 }
 
