@@ -31,5 +31,5 @@ run = "dart run tool/build.dart"
 
 [tasks.install-sw]
 description = "Build sw from the tree and place it at ~/.specwright/bin/<VERSION>/ for the projects at that version"
-depends = ["build"]
-run = "bash scripts/install-sw.sh"
+# Arguments after `--` reach build.dart: mise run install-sw -- --expect-update-interface 3
+run = "dart run cli/tool/build.dart --install"

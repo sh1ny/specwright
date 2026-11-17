@@ -28,9 +28,9 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | install-update → The agent fetches and checks the first sw before any write | Version report differs from the tag | evals/git-workflow/test_instructions.py | test_readme_step3_version_must_match_tag (README text) | red |
 | install-update → The bootstrap downloads are bounded and https only | Bootstrap downloads in time | evals/update/test_bootstrap.py | test_bootstrap_fetch_follows_https_redirect | red |
 | install-update → The bootstrap downloads are bounded and https only | Stalled, oversized or downgraded bootstrap download | evals/git-workflow/test_instructions.py | test_readme_step3_curl_is_bounded_and_https_only (README text) | red |
-| install-update → A main install builds sw from the clone | main install with mise | evals/cli/test_install_sw.py | test_expected_interface_build_placed | red |
+| install-update → A main install builds sw from the clone | main install with mise | evals/cli/test_install_sw.py | test_expected_interface_build_placed | green |
 | install-update → A main install builds sw from the clone | main install without mise | evals/git-workflow/test_instructions.py | test_readme_main_needs_mise (README text) | red |
-| install-update → A main install builds sw from the clone | main build reports another interface | evals/cli/test_install_sw.py | test_interface_mismatch_places_nothing | red |
+| install-update → A main install builds sw from the clone | main build reports another interface | evals/cli/test_install_sw.py | test_interface_mismatch_places_nothing | green |
 | install-update → Update installs a release tag by default | Latest tag | evals/git-workflow/test_instructions.py | test_readme_default_is_latest_tag (README text) | red |
 | install-update → Update installs a release tag by default | Named version has no tag | evals/git-workflow/test_instructions.py | test_readme_missing_tag_stops (README text) | red |
 | install-update → Update installs a release tag by default | Named version predates the update script | evals/git-workflow/test_instructions.py | test_readme_minimum_release_is_0_37_0 (README text) | red |
@@ -52,9 +52,9 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | install-update → An install whose VCS steps need a missing sw says so | main install with a matching binary already placed | evals/git-workflow/test_install_sw_warning.py | test_matching_binary_gets_no_warning | green |
 | install-update → An install whose VCS steps need a missing sw says so | Older tag whose scripts need no sw | evals/git-workflow/test_install_sw_warning.py | test_older_tag_gets_no_warning | red |
 | install-update → An install whose VCS steps need a missing sw says so | Tagged install with sw placed | evals/git-workflow/test_install_sw_warning.py | test_tagged_install_gets_no_warning | green |
-| install-update → Contributors place a tree-built sw with one task | Build placed | evals/cli/test_install_sw.py | test_build_placed_and_resolved | red |
-| install-update → Contributors place a tree-built sw with one task | Build fails the check | evals/cli/test_install_sw.py | test_mismatched_build_leaves_existing_file | red |
-| install-update → Contributors place a tree-built sw with one task | No bash on PATH | evals/cli/test_install_sw.py | test_install_sw_task_without_bash | red |
+| install-update → Contributors place a tree-built sw with one task | Build placed | evals/cli/test_install_sw.py | test_build_placed_and_resolved | green |
+| install-update → Contributors place a tree-built sw with one task | Build fails the check | evals/cli/test_install_sw.py | test_mismatched_build_leaves_existing_file | green |
+| install-update → Contributors place a tree-built sw with one task | No bash on PATH | evals/cli/test_install_sw.py | test_install_sw_task_without_bash | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Retrofitted paths with sentinels and no Python | evals/vcs/test_sw_fence.py | test_retrofitted_vcs_paths_run_no_script_or_python | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Reviewer evaluator stays a separate process | cli/test/pr/snapshot_test.dart | a limit on the evaluator names reviewers.py, not sw | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Printed commands are not launches | evals/vcs/test_sw_fence.py | test_printed_plan_commands_are_not_launched | green |
@@ -103,8 +103,8 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 6. Build tool, mise task and `install-sw.sh` removal
 
-- [ ] 6.1 Write failing tests in `evals/cli/test_install_sw.py`: `test_expected_interface_build_placed`, `test_interface_mismatch_places_nothing` (an existing binary, notice, pending journal and installed files unchanged), `test_install_sw_task_without_bash`, and update the existing tests to call the task without bash. Verify they fail for the right reason.
-- [ ] 6.2 Add `--version <v>`, `--output <file>`, `--install` and `--expect-update-interface <n>` to `cli/tool/build.dart` (D7, D8). Point the `install-sw` task in `mise.toml` at `dart run cli/tool/build.dart --install` with arguments passed through. Delete `scripts/install-sw.sh` and update `evals/suites.json`. Verify: the 6.1 tests and `evals/runner/test_suite_map.py` pass, and the rows "main install with mise", "main build reports another interface", "Build placed", "Build fails the check" and "No bash on PATH" turn green.
+- [x] 6.1 Write failing tests in `evals/cli/test_install_sw.py`: `test_expected_interface_build_placed`, `test_interface_mismatch_places_nothing` (an existing binary, notice, pending journal and installed files unchanged), `test_install_sw_task_without_bash`, and update the existing tests to call the task without bash. Verify they fail for the right reason.
+- [x] 6.2 Add `--version <v>`, `--output <file>`, `--install` and `--expect-update-interface <n>` to `cli/tool/build.dart` (D7, D8). Point the `install-sw` task in `mise.toml` at `dart run cli/tool/build.dart --install` with arguments passed through. Delete `scripts/install-sw.sh` and update `evals/suites.json`. Verify: the 6.1 tests and `evals/runner/test_suite_map.py` pass, and the rows "main install with mise", "main build reports another interface", "Build placed", "Build fails the check" and "No bash on PATH" turn green.
 
 ## 7. `update.sh` shim and the eval fixtures
 
