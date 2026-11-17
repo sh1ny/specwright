@@ -550,3 +550,10 @@ Future<void> _unquarantine(
     );
   }
 }
+
+/// This host's release target (for example `linux-x64`), or null when it has
+/// none; `SPECWRIGHT_TEST_HOST` in [env] replaces the real host.
+String? swHostTarget(Map<String, String> env) => _host(env).target;
+
+/// The release asset name of [target] (`sw-<target>`, `.exe` on Windows).
+String swAssetName(String target) => _assetName(target);

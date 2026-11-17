@@ -146,13 +146,11 @@ void main() {
 
   group('every other subcommand validates its options first', () {
     for (final sub in [
-      'plan',
       'stage',
       'swap',
       'note-config',
       'finish',
       'recover',
-      'pack-check',
       'pack-verify',
       'pack-docs',
     ]) {

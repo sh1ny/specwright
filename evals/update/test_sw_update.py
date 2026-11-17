@@ -2,6 +2,7 @@
 
 Run: SPECWRIGHT_SW=<path> python -m unittest evals/update/test_sw_update.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -41,6 +42,35 @@ class TestInterface(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertEqual(proc.stdout, '{"ok":true,"interface":3}\n')
             self.assertEqual(proc.stderr, "")
+            self.assertEqual(snapshot(tmp), before)
+
+
+class TestSettings(unittest.TestCase):
+    def test_plain_yes_setting_refused_settings_invalid(self):
+        """`sw update plan` reads `openspec/specwright.yaml` only through the shared reader: a plain `yes` stops it with
+        `settings_invalid` naming the file, the line and the fix, before any write."""
+        with tempfile.TemporaryDirectory(prefix="sw-update-yes-") as tmp:
+            tmp = Path(tmp)
+            code = tmp / "code"
+            download = tmp / "dl"
+            home = tmp / "home"
+            (code / "openspec").mkdir(parents=True)
+            download.mkdir()
+            home.mkdir()
+            (download / "VERSION").write_text("0.37.0\n", encoding="utf-8", newline="\n")
+            (code / "openspec" / "specwright.yaml").write_text(
+                "review:\n  preship: yes\n", encoding="utf-8", newline="\n")
+            before = snapshot(tmp)
+            env = swharness.fixture_env(SPECWRIGHT_HOME=str(home))
+            proc = swharness.run_sw("update", "plan", "--code", code, "--download", download, cwd=code, env=env)
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+            doc = json.loads(proc.stdout)
+            self.assertEqual(doc["error"], "settings_invalid", doc)
+            self.assertFalse(doc["ok"], doc)
+            self.assertIn("openspec/specwright.yaml", doc["message"])
+            self.assertIn("line 2", doc["message"])
+            self.assertIn("write true or false", doc["message"])
+            self.assertIn("rerun the update", doc["message"])
             self.assertEqual(snapshot(tmp), before)
 
 

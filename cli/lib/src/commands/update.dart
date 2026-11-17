@@ -1,4 +1,6 @@
 import '../update/options.dart';
+import '../update/packs.dart';
+import '../update/plan.dart';
 import '../update/stop.dart';
 import '../update/sw_install.dart';
 import '../vcs/document.dart' show documentBytes;
@@ -8,7 +10,8 @@ import '../vcs/document.dart' show documentBytes;
 /// exactly one JSON document and returns its status: 0 done, 1 a stop, 2
 /// usage.
 ///
-/// Only `interface`, `sw-install` and the option rules are here so far: every
+/// Only `interface`, `sw-install`, `plan`, `pack-check` and the option rules
+/// are here so far: every
 /// other subcommand validates its options and then stops with
 /// `not_implemented` until the later task groups fill it in. [environment]
 /// (default: the process environment) is where `sw-install` reads
@@ -55,6 +58,32 @@ Future<int> runUpdateCommand(
           'ok': false,
           'interface': updateInterface,
           'subcommand': 'sw-install',
+          'error': stop.code,
+          'message': stop.message,
+        }),
+      );
+      return 1;
+    }
+  }
+  if (options.subcommand == 'pack-check') {
+    final (doc, status) = packCheckDocument(options);
+    writeOut(documentBytes(doc));
+    return status;
+  }
+  if (options.subcommand == 'plan') {
+    try {
+      final (doc, status) = await planDocument(
+        options,
+        environment: environment,
+      );
+      writeOut(documentBytes(doc));
+      return status;
+    } on UpdateStop catch (stop) {
+      writeOut(
+        documentBytes({
+          'ok': false,
+          'interface': updateInterface,
+          'subcommand': 'plan',
           'error': stop.code,
           'message': stop.message,
         }),

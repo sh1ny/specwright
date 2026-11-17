@@ -5,6 +5,7 @@ sw-path.sh, never the project's), because a colocated jj store has a detached Gi
 Run: python -m unittest test_update_jj_store   (from evals/update)
 """
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
+sys.path.insert(0, str(ROOT / "evals" / "cli"))
 import jjenv  # noqa: E402
+import swharness  # noqa: E402
 import vcs_test_support as support  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("update_fixtures", HERE / "fixtures.py")
@@ -145,6 +148,40 @@ class TestJjStore(JjStoreBase):
         self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
         self.assertEqual(fx.store_record_path(self.store).read_text(encoding="utf-8"),
                          fx.record_text("0.5.0", fx.owner_id(self.a)))
+
+
+class TestJjStoreInProcess(JjStoreBase):
+    def sw_update(self, sub):
+        proc = swharness.run_sw("update", *self.a.args(), "--download", fx.posix(self.dl), sub,
+                                cwd=self.a.code, env=self.p.env)
+        try:
+            doc = json.loads(proc.stdout)
+        except ValueError:
+            self.fail(f"{sub}: no JSON (exit {proc.returncode}).\nstdout: {proc.stdout}\nstderr: {proc.stderr}")
+        return proc.returncode, doc
+
+    def test_busy_jj_store_read_in_process(self):
+        """The branch of a jj store is read inside sw (its own VCS interfaces): the owner's swap on a busy jj store stops
+        store_busy naming the change bookmark, and neither vcs.sh nor as.sh of the download ran (recording sentinels)."""
+        self.pair()
+        self.store_jj()
+        scripts = self.dl / "skills" / "specwright-pr" / "scripts"
+        for name in ("vcs.sh", "as.sh"):
+            (scripts / name).write_text(f'#!/bin/sh\necho ran > "$(dirname "$0")/ran-{name}"\n', encoding="utf-8", newline="\n")
+        jj = jjenv.require_jj()
+        r = subprocess.run([jj, "bookmark", "create", "feat/busy", "-r", "@-"], cwd=self.store, env=self.p.env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for sub in ("plan", "stage"):
+            code, doc = self.sw_update(sub)
+            self.assertEqual(code, 0, doc)
+        before = self.installed()
+        code, doc = self.sw_update("swap")
+        self.assertEqual((code, doc.get("error")), (1, "store_busy"), doc)
+        self.assertIn("feat/busy", doc["message"])
+        self.assertEqual(self.installed(), before)
+        self.assertEqual(sorted(p.name for p in scripts.glob("ran-*")), [], "a download script ran")
+        self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
 
 
 if __name__ == "__main__":

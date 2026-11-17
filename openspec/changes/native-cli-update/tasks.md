@@ -12,7 +12,7 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | install-update → sw update needs no bash or Python | Install and update with failing interpreters first on PATH | evals/update/test_sw_update.py | test_install_and_update_with_failing_interpreters | red |
 | install-update → sw update needs no bash or Python | Interrupted swap recovered with failing interpreters | evals/update/test_sw_update.py | test_interrupted_swap_recovered_with_failing_interpreters | red |
 | install-update → sw update needs no bash or Python | A jj store read in process | evals/update/test_update_jj_store.py | test_busy_jj_store_read_in_process | red |
-| install-update → sw update refuses settings the shared reader refuses | A plain yes in the settings | evals/update/test_sw_update.py | test_plain_yes_setting_refused_settings_invalid | red |
+| install-update → sw update refuses settings the shared reader refuses | A plain yes in the settings | evals/update/test_sw_update.py | test_plain_yes_setting_refused_settings_invalid | green |
 | install-update → sw update refuses settings the shared reader refuses | No settings file | evals/update/test_update.py | test_plan_without_installed_version_is_fresh | red |
 | install-update → update.sh hands over to the download's sw | Shim with the download's sw placed | evals/update/test_shim.py | test_shim_hands_over_to_download_sw | red |
 | install-update → update.sh hands over to the download's sw | Shim with no matching sw | evals/update/test_shim.py | test_shim_without_matching_sw_reports_sw_missing | red |
@@ -90,10 +90,10 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 4. Plan: settings, changes in flight, store, tag lookup, packs
 
-- [ ] 4.1 Write failing tests: `evals/update/test_sw_update.py::test_plain_yes_setting_refused_settings_invalid` and `cli/test/update/settings_test.dart`, for a missing file read as no settings. Then read the four settings through `readSettingsText`/`readSettingsYaml` and stop with `settings_invalid` (D5). Verify: the tests pass, and the "A plain yes in the settings" row turns green.
-- [ ] 4.2 Port the plan's kinds, targets, orphans, root checks and changes-in-flight validation (`openspec` through `launch()`) into `cli/lib/src/update/plan.dart` and `inflight.dart`, keeping every message word for word (D9). Verify with Dart tests per module in `cli/test/update/plan_test.dart` and `inflight_test.dart`.
-- [ ] 4.3 Port store roles, the store gate lock and the jj store reads in process through `sw`'s VCS interfaces (`cli/lib/src/vcs/jj_backend.dart:296`). Port the bounded `git ls-remote` tag lookup (60 s, 32 MiB, process tree stopped). Add `test_busy_jj_store_read_in_process` to `evals/update/test_update_jj_store.py`. Verify: `cli/test/update/store_test.dart` passes.
-- [ ] 4.4 Port `pack-check` and the plan's pack refusals (ADR 0023). Verify: `cli/test/update/packs_test.dart` passes.
+- [x] 4.1 Write failing tests: `evals/update/test_sw_update.py::test_plain_yes_setting_refused_settings_invalid` and `cli/test/update/settings_test.dart`, for a missing file read as no settings. Then read the four settings through `readSettingsText`/`readSettingsYaml` and stop with `settings_invalid` (D5). Verify: the tests pass, and the "A plain yes in the settings" row turns green.
+- [x] 4.2 Port the plan's kinds, targets, orphans, root checks and changes-in-flight validation (`openspec` through `launch()`) into `cli/lib/src/update/plan.dart` and `inflight.dart`, keeping every message word for word (D9). Verify with Dart tests per module in `cli/test/update/plan_test.dart` and `inflight_test.dart`.
+- [x] 4.3 Port store roles, the store gate lock and the jj store reads in process through `sw`'s VCS interfaces (`cli/lib/src/vcs/jj_backend.dart:296`). Port the bounded `git ls-remote` tag lookup (60 s, 32 MiB, process tree stopped). Add `test_busy_jj_store_read_in_process` to `evals/update/test_update_jj_store.py`. Verify: `cli/test/update/store_test.dart` passes.
+- [x] 4.4 Port `pack-check` and the plan's pack refusals (ADR 0023). Verify: `cli/test/update/packs_test.dart` passes.
 
 ## 5. Stage, swap, note-config, finish, recover, pack verify and docs
 
