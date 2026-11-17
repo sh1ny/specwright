@@ -37,7 +37,16 @@ Map<String, List<int>?> snapshot(String dir) {
   if (!root.existsSync()) return out;
   for (final e in root.listSync(recursive: true, followLinks: false)) {
     final rel = fwd(e.path).substring(fwd(dir).length + 1);
-    out[rel] = e is File ? e.readAsBytesSync() : null;
+    if (e is! File) {
+      out[rel] = null;
+      continue;
+    }
+    try {
+      out[rel] = e.readAsBytesSync();
+    } on PathNotFoundException {
+      // gone between the listing and the read: git's background maintenance
+      // makes and removes .git/objects/maintenance.lock on macOS
+    }
   }
   return out;
 }

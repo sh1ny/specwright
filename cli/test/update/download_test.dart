@@ -24,10 +24,18 @@ void main() {
   final handlers = <String, FutureOr<void> Function(HttpRequest)>{};
   final files = UpdateFileOps(environment: const {});
 
+  String squash(String pem) => pem.replaceAll(RegExp(r'\s'), '');
+
   HttpClient Function() trusting() => () {
+    final pem = File(_cert).readAsStringSync();
     final context = SecurityContext(withTrustedRoots: false)
-      ..setTrustedCertificatesBytes(File(_cert).readAsBytesSync());
-    return HttpClient(context: context);
+      ..setTrustedCertificatesBytes(utf8.encode(pem));
+    // macOS refuses a self-signed server certificate whose lifetime passes
+    // 825 days even when the context trusts it; this exact fixture is still
+    // the only certificate the client accepts
+    return HttpClient(context: context)
+      ..badCertificateCallback = (cert, host, port) =>
+          squash(cert.pem) == squash(pem);
   };
 
   Future<bool> fetch(
