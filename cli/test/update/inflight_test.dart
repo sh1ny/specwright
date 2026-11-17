@@ -53,7 +53,14 @@ OpenspecResult ok(Object json) => OpenspecResult(0, jsonEncode(json), '');
 void main() {
   late Directory tmp;
 
-  setUp(() => tmp = Directory.systemTemp.createTempSync('sw-update-inflight-'));
+  // resolved: Windows may hand out an 8.3 short temp path that git reports long
+  setUp(
+    () => tmp = Directory(
+      Directory.systemTemp
+          .createTempSync('sw-update-inflight-')
+          .resolveSymbolicLinksSync(),
+    ),
+  );
   tearDown(() => tmp.deleteSync(recursive: true));
 
   group('first error', () {

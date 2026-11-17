@@ -35,7 +35,12 @@ void main() {
   late String dl;
 
   setUp(() {
-    tmp = Directory.systemTemp.createTempSync('sw-update-plan-');
+    // resolved: Windows may hand out an 8.3 short temp path that git reports long
+    tmp = Directory(
+      Directory.systemTemp
+          .createTempSync('sw-update-plan-')
+          .resolveSymbolicLinksSync(),
+    );
     code = '${fwd(tmp.path)}/code';
     dl = '${fwd(tmp.path)}/dl';
     Directory(code).createSync(recursive: true);

@@ -254,8 +254,8 @@ Future<(Map<String, Object?>, int)> packVerify(UpdateRun r) async {
     final (target, full) = key;
     final (n, line, count) = expected[key]!;
     final lines = delivered[target];
-    if (lines == null)
-      continue; // its run failed: that run is already a problem
+    // its run failed: that run is already a problem
+    if (lines == null) continue;
     final have = lines.where((l) => l == full).length;
     if (have < count) {
       problem(

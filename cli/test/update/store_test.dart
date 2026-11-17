@@ -29,7 +29,14 @@ String fwd(String path) => path.replaceAll(r'\', '/');
 void main() {
   late Directory tmp;
 
-  setUp(() => tmp = Directory.systemTemp.createTempSync('sw-update-store-'));
+  // resolved: Windows may hand out an 8.3 short temp path that git reports long
+  setUp(
+    () => tmp = Directory(
+      Directory.systemTemp
+          .createTempSync('sw-update-store-')
+          .resolveSymbolicLinksSync(),
+    ),
+  );
   tearDown(() => tmp.deleteSync(recursive: true));
 
   String repo(String name, {String? origin}) {
