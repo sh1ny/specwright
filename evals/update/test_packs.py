@@ -1,6 +1,6 @@
 """Packs in `update.sh plan` (pack-mechanism group 3): which packs are enabled, the requires closure and install order,
 the store and user-level refusals, the ownership of pack skills (record, adoption, `unmanaged_skill`), `remove` items,
-the document paths, `packs_previous` and update-script interface 2.
+the document paths, `packs_previous` and update-script interface 3.
 
 Every test runs the real script, from a download tree that holds the fixture packs of evals/packs/fixtures/packs/, against
 a scratch checkout built by fixtures.py. Plan is read only: each refusal test also proves the checkout did not change.
@@ -343,15 +343,15 @@ class TestPackPlan(Base):
             self.assertNotIn("my-tool", self.target_names(doc))
             self.assertEqual(fx.snapshot(self.co.code), before)
 
-    def test_plan_reports_interface_2(self):
+    def test_plan_reports_interface_3(self):
         self.checkout()
         self.download()
         for packs in ((), ("--pack", WEB)):
             code, doc = self.plan(*packs)
             self.assertEqual(code, 0, doc)
-            self.assertEqual(doc["interface"], 2)
+            self.assertEqual(doc["interface"], 3)
 
-    def test_recover_and_finish_report_interface_2(self):
+    def test_recover_and_finish_report_interface_3(self):
         # with no journal, recover and finish answer from the shell; they must report the same interface as plan
         self.checkout()
         self.download()
@@ -359,7 +359,7 @@ class TestPackPlan(Base):
             code, doc, out, err = fx.run_update(self.dl, [*self.co.args(), sub])
             self.assertIsNotNone(doc, f"{sub}: no JSON (exit {code}).\nstdout: {out}\nstderr: {err}")
             self.assertEqual(code, 0, doc)
-            self.assertEqual(doc["interface"], 2, sub)
+            self.assertEqual(doc["interface"], 3, sub)
 
     def test_packs_previous_from_record(self):
         self.checkout()
@@ -435,7 +435,6 @@ class TestPackInstall(Base):
 
     def setUp(self):
         super().setUp()
-        self.shims = fx.install_shims(self.tmp / "shims")
         self.counter = self.tmp / "count"
 
     def checkout(self, *a, **kw):
@@ -444,8 +443,7 @@ class TestPackInstall(Base):
         return co
 
     def upd(self, co, sub, *extra, count=False, kill_at=None):
-        return fx.run_update(self.dl, [*co.args(), sub, *extra], shim_dir=self.shims if count else None,
-                             count_file=self.counter if count else None, kill_at=kill_at)
+        return fx.run_update(self.dl, [*co.args(), sub, *extra], count_file=self.counter if count else None, kill_at=kill_at)
 
     @staticmethod
     def packs(*names):
@@ -512,14 +510,13 @@ class TestPackInstall(Base):
         self.assertEqual(code, 0, out + err)
         code, _, out, err = self.upd(co, "swap", count=True)
         self.assertEqual(code, 0, out + err)
-        self.log = [line.split(" ", 2) for line in Path(f"{self.counter}.log").read_text(encoding="utf-8").splitlines()]
+        self.log = [line.split(" ", 2) for line in Path(self.counter).read_text(encoding="utf-8").splitlines()]
         self.reset(co)
 
     def reset(self, co):
         fx.rmtree(co.code)
         shutil.copytree(self.pristine, co.code)
-        for f in (self.counter, Path(f"{self.counter}.log")):
-            f.unlink(missing_ok=True)
+        self.counter.unlink(missing_ok=True)
 
     def mv_call(self, src_end, dst_part):
         """The number of the first logged mv whose source ends with `src_end` and whose destination contains `dst_part`."""

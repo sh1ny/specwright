@@ -1,4 +1,4 @@
-"""pack-check (scripts/update.sh pack-check): the structural checks and the crude gate-wording check on a pack.
+"""pack-check (`sw update pack-check`, through scripts/update.sh): the structural checks and the crude gate-wording check on a pack.
 
 Every test builds a scratch "download" (the fixture packs it needs under packs/, plus the fixture schema under
 schemas/specwright/) and runs the real script against it with --download. The fixtures live in evals/packs/fixtures/:
@@ -20,7 +20,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals"))
+sys.path.insert(0, str(HERE))
 import bashexe  # noqa: E402
+import packenv  # noqa: E402
 
 SCRIPT = ROOT / "scripts" / "update.sh"
 FIXTURES = HERE / "fixtures"
@@ -37,14 +39,14 @@ def tree(path):
 
 
 def script_constants():
-    """The term lists of update.sh, read from its embedded Python without running it."""
-    text = SCRIPT.read_text(encoding="utf-8")
-    src = text.split("\n#---PYSRC---\n", 1)[1].split("\nPYSRC_EOF\n", 1)[0]
+    """The term lists of the native pack-check (cli/lib/src/update/packs.dart), read without running it."""
+    text = (ROOT / "cli" / "lib" / "src" / "update" / "packs.dart").read_text(encoding="utf-8")
+    names = {"gateTerms": "GATE_TERMS", "gateTermsCapitals": "GATE_TERMS_CAPITALS", "relaxingTerms": "RELAXING_TERMS",
+             "negatedOnlyTerms": "NEGATED_ONLY_TERMS", "negators": "NEGATORS"}
     found = {}
-    for node in ast.parse(src).body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            if node.targets[0].id in ("GATE_TERMS", "GATE_TERMS_CAPITALS", "RELAXING_TERMS", "NEGATED_ONLY_TERMS", "NEGATORS"):
-                found[node.targets[0].id] = list(ast.literal_eval(node.value))
+    for dart, name in names.items():
+        m = re.search(r"const List<String> " + dart + r" = (\[.*?\]);", text, re.S)
+        found[name] = list(ast.literal_eval(m.group(1))) if m else None
     return found
 
 
@@ -66,7 +68,7 @@ class PackCheck(unittest.TestCase):
 
     def check(self, dl, *args):
         argv = [bashexe.bash(), posix(SCRIPT), "--download", posix(dl), "pack-check", *args]
-        r = subprocess.run(argv, cwd=self.tmp, capture_output=True, text=True, encoding="utf-8", timeout=120)
+        r = subprocess.run(argv, cwd=self.tmp, capture_output=True, text=True, encoding="utf-8", timeout=120, env=packenv.sw_env())
         try:
             doc = json.loads(r.stdout)
         except ValueError:

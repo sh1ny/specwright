@@ -117,7 +117,7 @@ class TestInstallSw(unittest.TestCase):
 
     def test_install_sw_task_without_bash(self):
         if os.name != "nt":
-            self.skipTest("the no-bash scenario is a Windows one")
+            self.skipTest("platform: the no-bash scenario is a Windows one")
         keep = []
         for tool in ("mise", "dart"):
             found = shutil.which(tool)

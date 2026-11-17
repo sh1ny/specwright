@@ -21,6 +21,15 @@ class _TamperOps extends UpdateFileOps {
   }
 }
 
+/// A copy that fails, as a vanished download file or a full disk would.
+class _FailCopyOps extends UpdateFileOps {
+  _FailCopyOps() : super(environment: const {});
+
+  @override
+  void copy(String source, String destDir) =>
+      throw FileSystemException('copy failed', source);
+}
+
 void main() {
   late Directory tmp;
   late Layout co;
@@ -266,6 +275,19 @@ void main() {
       expect(textSnapshot(co.code), before);
     },
   );
+
+  test('a failed copy removes the journal and staging it wrote, and no '
+      'installed file changes', () async {
+    final before = textSnapshot(co.code);
+    final (code, doc) = await stage(ops: _FailCopyOps());
+    expect(code, 1, reason: '$doc');
+    expect(doc['ok'], isFalse);
+    expect(doc['error'], 'file_operation_failed');
+    expect(co.stagingDirs(), isEmpty);
+    expect(File(co.journal).existsSync(), isFalse);
+    expect(Directory(co.lock).existsSync(), isFalse);
+    expect(textSnapshot(co.code), before);
+  });
 
   test(
     'a file staged that the manifest does not list is a mismatch too',

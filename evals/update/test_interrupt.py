@@ -2,9 +2,10 @@
 (TestInterrupt) and for the owner of a store (TestStoreInterrupt: the store's gate lock is taken before the first rename
 and must not outlive the update).
 
-update.sh calls only the external mv, cp and rm, and the shims in evals/update/shims count every call and can SIGKILL the
-script at call N (UPDATE_KILL_AT). A counting run (stage, then swap, one shared counter) gives the list of operations; the
-tests then repeat the update once per operation, killing at it, with no sampling.
+sw update does every copy, rename, remove and directory create through one counting wrapper (design D3 of native-cli-update).
+With SPECWRIGHT_UPDATE_COUNT=<file> it logs `<n> <op> <args>` before each operation, and with SPECWRIGHT_UPDATE_KILL_AT=<n> it
+exits 137 at operation n, before doing it. A counting run (stage, then swap, one shared counter) gives the list of operations;
+the tests then repeat the update once per operation, killing at it, with no sampling.
 
 The layout is a minimal one (two skills, one skills directory, one agent file, the schema) so that the whole matrix runs
 in a few minutes. The checkout is restored from a copy of its pristine state between runs.
@@ -23,6 +24,16 @@ fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
 
 
+def first_rename_op(log):
+    """The number of the first operation of the swap's first rename. The journal already says `old-moved` once the target's
+    `old/` directory is about to be made, so a kill at that directory create is a kill during the rename: the create comes
+    right before the first `mv` that names a staging directory (journal writes move update.json.tmp)."""
+    first = next(i for i, (_n, op, args) in enumerate(log) if op == "mv" and ".specwright-update-" in args)
+    while first > 0 and log[first - 1][1] == "mkdir":
+        first -= 1
+    return int(log[first][0])
+
+
 class TestInterrupt(unittest.TestCase):
     maxDiff = None
 
@@ -32,7 +43,6 @@ class TestInterrupt(unittest.TestCase):
         cls.dl_old = fx.make_mini_download(cls.tmp / "dl-0.5.0", "0.5.0", 2)
         cls.dl_new = fx.make_mini_download(cls.tmp / "dl-0.6.0", "0.6.0", 2)
         cls.co = fx.make_checkout(cls.tmp, "0.5.0", skills_dirs=(".claude/skills",), download=cls.dl_old)
-        cls.shims = fx.install_shims(cls.tmp / "shims")
         cls.pristine = cls.tmp / "pristine"
         shutil.copytree(cls.co.code, cls.pristine)
         cls.old = cls.installed()
@@ -41,14 +51,14 @@ class TestInterrupt(unittest.TestCase):
         cls.reset()
         cls.upd("stage", count=True)
         cls.upd("swap", count=True)
-        log = Path(f"{cls.counter}.log").read_text(encoding="utf-8").splitlines()
+        log = Path(cls.counter).read_text(encoding="utf-8").splitlines()
         cls.log = [line.split(" ", 2) for line in log]
         cls.co.version_file.write_text("0.6.0\n")
         cls.upd("finish")
         cls.new = cls.installed()
         cls.total = len(cls.log)
         # the first swap rename is the first mv that touches a staging directory (journal writes move update.json.tmp)
-        cls.first_rename = next(int(n) for n, tool, args in cls.log if tool == "mv" and ".specwright-update-" in args)
+        cls.first_rename = first_rename_op(cls.log)
 
     @classmethod
     def tearDownClass(cls):
@@ -63,13 +73,11 @@ class TestInterrupt(unittest.TestCase):
     def reset(cls):
         fx.rmtree(cls.co.code)
         shutil.copytree(cls.pristine, cls.co.code)
-        for f in (cls.counter, Path(f"{cls.counter}.log")):
-            f.unlink(missing_ok=True)
+        cls.counter.unlink(missing_ok=True)
 
     @classmethod
     def upd(cls, sub, count=False, kill_at=None):
-        return fx.run_update(cls.dl_new, [*cls.co.args(), sub], shim_dir=cls.shims if count else None,
-                             count_file=cls.counter if count else None, kill_at=kill_at)
+        return fx.run_update(cls.dl_new, [*cls.co.args(), sub], count_file=cls.counter if count else None, kill_at=kill_at)
 
     def leftovers(self):
         co = self.co
@@ -94,6 +102,15 @@ class TestInterrupt(unittest.TestCase):
                 r = fx.openspec(["schema", "validate", "specwright"], cwd=self.co.root)
                 self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def dead_owner(self):
+        """The killed run leaves its lock behind. Windows hands a killed run's pid to another process within moments, and the
+        rerun then reads the lock as held by a live run (`locked`, seen once at kill_at=50 in CI): name a pid no process has,
+        as an owner that is really dead. The takeover of a dead owner's lock is covered by test_update.TestStaleLockRace."""
+        owner = self.co.lock / "owner"
+        if owner.is_file():
+            lines = [l if not l.startswith("pid: ") else "pid: 999999" for l in owner.read_text(encoding="utf-8").splitlines()]
+            owner.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
     def test_kill_during_swap_resumes(self):
         for n in range(self.first_rename, self.total + 1):
             with self.subTest(kill_at=n, op=" ".join(self.log[n - 1][1:])):
@@ -102,6 +119,7 @@ class TestInterrupt(unittest.TestCase):
                 self.assertEqual(code, 0, err)
                 code, _, _, err = self.upd("swap", count=True, kill_at=n)
                 self.assertNotEqual(code, 0, "the swap was meant to be killed")
+                self.dead_owner()
                 code, doc, out, err = self.upd("plan")  # the rerun recovers first
                 self.assertEqual(code, 0, out + err)
                 action = doc["recovered"]["action"]
@@ -163,7 +181,7 @@ class TestInterrupt(unittest.TestCase):
 
 class TestStoreInterrupt(unittest.TestCase):
     """The owner A of a store updates 0.5.0 -> 0.6.0 (the schema differs). The staged state is saved once; every run
-    restores it, kills `swap` at its N-th mv/cp/rm call and reruns the update from the same checkout."""
+    restores it, kills `swap` at its N-th counted file operation and reruns the update from the same checkout."""
     maxDiff = None
 
     @classmethod
@@ -175,20 +193,19 @@ class TestStoreInterrupt(unittest.TestCase):
         cls.a, cls.store = cls.pair.a, cls.pair.store
         fx.write_store_record(cls.store, "0.5.0", fx.owner_id(cls.a))
         cls.lock = cls.store / ".git" / "specwright-gate.lock"
-        cls.shims = fx.install_shims(cls.tmp / "shims")
         cls.counter = cls.tmp / "count"
         cls.upd("stage")
         cls.saved = {"code": cls.tmp / "staged-code", "store": cls.tmp / "staged-store"}
         shutil.copytree(cls.a.code, cls.saved["code"])
         shutil.copytree(cls.store, cls.saved["store"])
         cls.old = cls.state()
-        cls.upd("swap", count=True)  # the counting run: every mv/cp/rm of the swap, numbered from 1
-        cls.log = [line.split(" ", 2) for line in Path(f"{cls.counter}.log").read_text(encoding="utf-8").splitlines()]
+        cls.upd("swap", count=True)  # the counting run: every file operation of the swap, numbered from 1
+        cls.log = [line.split(" ", 2) for line in Path(cls.counter).read_text(encoding="utf-8").splitlines()]
         cls.a.version_file.write_text("0.6.0\n")
         cls.upd("finish")
         cls.new = cls.state()
         cls.total = len(cls.log)
-        cls.first_rename = next(int(n) for n, tool, args in cls.log if tool == "mv" and ".specwright-update-" in args)
+        cls.first_rename = first_rename_op(cls.log)
         cls.gate_release = next((int(n) for n, tool, args in cls.log if tool == "rm" and "specwright-gate.lock" in args), 0)
 
     @classmethod
@@ -206,12 +223,11 @@ class TestStoreInterrupt(unittest.TestCase):
         fx.rmtree(cls.store)
         shutil.copytree(cls.saved["code"], cls.a.code)
         shutil.copytree(cls.saved["store"], cls.store)
-        for f in (cls.counter, Path(f"{cls.counter}.log")):
-            f.unlink(missing_ok=True)
+        cls.counter.unlink(missing_ok=True)
 
     @classmethod
     def upd(cls, sub, count=False, kill_at=None):
-        return fx.run_update(cls.dl_new, [*cls.a.args(), sub], env=cls.pair.env, shim_dir=cls.shims if count else None,
+        return fx.run_update(cls.dl_new, [*cls.a.args(), sub], env=cls.pair.env,
                              count_file=cls.counter if count else None, kill_at=kill_at)
 
     def lock_owner(self):

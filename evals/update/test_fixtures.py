@@ -4,7 +4,9 @@ Run: python -m unittest discover evals/update
 """
 import importlib.util
 import io
+import json
 import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -164,49 +166,60 @@ class TestChanges(Base):
         self.assertNotEqual(status["research"]["status"], "done")
 
 
-class TestShims(Base):
-    def fake_download(self, body):
-        dl = self.tmp / "fake-dl"
-        fx.write(dl, "scripts/update.sh", "#!/bin/bash\n" + body)
-        return dl
+class TestProvisionedSw(Base):
+    def test_provision_places_a_sw_that_reports_the_version_with_its_notice(self):
+        home = self.tmp / "home"
+        placed = fx.provision_sw(home, "0.5.0")
+        self.assertEqual(placed, home / ".specwright" / "bin" / "0.5.0" / ("sw.exe" if os.name == "nt" else "sw"))
+        self.assertTrue((placed.parent / "THIRD_PARTY_NOTICES.txt").is_file())
+        done = subprocess.run([str(placed), "version", "--json"], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["version"], "0.5.0")
+        other = fx.provision_sw(self.tmp / "home2", "0.5.0")  # the cached build is copied, not rebuilt
+        self.assertEqual(other.read_bytes(), placed.read_bytes())
 
-    def test_shims_count_every_call(self):
-        dl = self.fake_download('d="$1"\ncp "$d/a" "$d/b"\nmv "$d/b" "$d/c"\nrm "$d/c"\necho done > "$d/marker"\n')
-        work = self.tmp / "work"
-        fx.write(work, "a", "x")
-        shims = fx.install_shims(self.tmp / "shimbin")
+    def test_make_download_provisions_beside_it_and_can_skip(self):
+        dl = fx.make_download(self.tmp / "dl-0.6.1", "0.6.1")
+        self.assertTrue((fx.sw_home_for(dl) / ".specwright" / "bin" / "0.6.1").is_dir())
+        skipped = fx.make_download(self.tmp / "sub" / "dl-0.6.2", "0.6.2", provision=False)
+        self.assertFalse(fx.sw_home_for(skipped).exists())
+
+
+class TestKillSeam(Base):
+    """run_update counts sw's file operations and can end it before operation n (SPECWRIGHT_UPDATE_COUNT/KILL_AT)."""
+
+    def setUp(self):
+        super().setUp()
+        self.dl = fx.make_mini_download(self.tmp / "dl-0.6.0", "0.6.0")
+        self.co = fx.make_checkout(self.tmp, "0.5.0", download=fx.make_mini_download(self.tmp / "dl-0.5.0", "0.5.0"))
+
+    def stage(self, **kwargs):
+        return fx.run_update(self.dl, [*self.co.args(), "stage"], **kwargs)
+
+    def test_count_file_lists_every_file_operation_in_order(self):
         count = self.tmp / "count"
-        code, _doc, out, err = fx.run_update(dl, [fx.posix(work)], shim_dir=shims, count_file=count)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(count.read_text().strip(), "3")
-        log = Path(str(count) + ".log").read_text().splitlines()
-        self.assertEqual([line.split()[1] for line in log], ["cp", "mv", "rm"])
-        self.assertEqual((work / "marker").read_text().strip(), "done")
-        self.assertFalse((work / "b").exists() or (work / "c").exists())
-        self.assertEqual((work / "a").read_text(), "x")
+        code, doc, out, err = self.stage(count_file=count)
+        self.assertEqual(code, 0, out + err)
+        log = [line.split(" ", 2) for line in count.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([n for n, _op, _args in log], [str(i) for i in range(1, len(log) + 1)])
+        self.assertTrue({"mkdir", "cp", "mv"} <= {op for _n, op, _args in log}, log)
 
-    def test_kill_at_n_stops_the_script_before_the_nth_call(self):
-        dl = self.fake_download('d="$1"\ncp "$d/a" "$d/b"\nmv "$d/b" "$d/c"\nrm "$d/c"\necho done > "$d/marker"\n')
-        shims = fx.install_shims(self.tmp / "shimbin")
-        for n, expect in ((1, set()), (2, {"b"}), (3, {"c"})):
-            work = self.tmp / f"work{n}"
-            fx.write(work, "a", "x")
-            count = self.tmp / f"count{n}"
-            code, _doc, _out, err = fx.run_update(dl, [fx.posix(work)], shim_dir=shims, count_file=count, kill_at=n)
-            self.assertNotEqual(code, 0, f"kill_at={n} exit")
-            self.assertEqual(count.read_text().strip(), str(n))
-            self.assertFalse((work / "marker").exists(), f"kill_at={n}: the script went on")
-            present = {p.name for p in work.iterdir()} - {"a"}
-            self.assertEqual(present, expect, f"kill_at={n}")
+    def test_kill_at_n_ends_sw_before_the_nth_operation(self):
+        count = self.tmp / "count"
+        code, _doc, out, _err = self.stage(count_file=count)
+        total = len(count.read_text(encoding="utf-8").splitlines())
+        for n in (1, total):
+            fx.rmtree(self.co.code / "openspec" / ".specwright")
+            killed = self.tmp / f"count-{n}"
+            code, _doc, out, err = self.stage(count_file=killed, kill_at=n)
+            self.assertEqual(code, 137, f"kill_at={n}: {out}{err}")
+            self.assertEqual(out, "")
+            self.assertEqual(len(killed.read_text(encoding="utf-8").splitlines()), n)
 
-    def test_without_count_file_the_shim_passes_through(self):
-        dl = self.fake_download('cp "$1/a" "$1/b"\n')
-        work = self.tmp / "work"
-        fx.write(work, "a", "x")
-        shims = fx.install_shims(self.tmp / "shimbin")
-        code, _doc, _out, err = fx.run_update(dl, [fx.posix(work)], shim_dir=shims)
-        self.assertEqual(code, 0, err)
-        self.assertEqual((work / "b").read_text(), "x")
+    def test_without_count_file_nothing_is_logged_and_nothing_is_killed(self):
+        code, _doc, out, err = self.stage(kill_at=1)
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse((self.tmp / "count").exists())
 
 
 if __name__ == "__main__":

@@ -250,30 +250,14 @@ Future<(Map<String, Object?>, int)> stageUpdate(UpdateRun r) async {
     removeStaging(r, [for (final g in groups) '${g['staging']}']);
     final journal = await _newJournal(r, planDoc, groups);
     r.flush(journal);
-    for (final g in groups) {
-      final staged = '${g['staging']}/new';
-      r.ops.mkdir(staged);
-      for (final it in stageItems(g)) {
-        final data = it['data'];
-        if (data != null) {
-          // the record has no source to copy: it is written straight into
-          // staging
-          File('$staged/${it['name']}').writeAsBytesSync(data as List<int>);
-        } else {
-          r.ops.copy('${it['src']}', staged);
-        }
-      }
-    }
-    // the installed `model:` line of each agent file goes into the staged copy
-    final byId = {for (final g in journal.groups) g['id']: g};
-    for (final t in journal.targets) {
-      if (byId[t.gid]?['kind'] != 'agents') continue;
-      final staged = File(t.newPath);
-      if (staged.existsSync()) {
-        final data = staged.readAsBytesSync();
-        final out = carryModel(data, t.targetPath);
-        if (!_sameBytes(out, data)) staged.writeAsBytesSync(out);
-      }
+    try {
+      _stageFiles(r, groups, journal);
+    } on FileSystemException {
+      // the journal still says "staging": installed files were never
+      // touched, so what this run wrote goes, as update.sh's stage did
+      removeStaging(r, stagingOf(journal));
+      r.ops.remove(r.journalPath);
+      rethrow;
     }
     final mismatches = verifyStaged(journal);
     if (mismatches != null) {
@@ -289,6 +273,40 @@ Future<(Map<String, Object?>, int)> stageUpdate(UpdateRun r) async {
     return (await reportDocument(r, 'stage', journal, r.lockExtra), 0);
   } finally {
     r.releaseLock();
+  }
+}
+
+/// Copies every group's items into its staging directory and carries the
+/// installed `model:` line of each agent file into the staged copy.
+void _stageFiles(
+  UpdateRun r,
+  List<Map<String, Object?>> groups,
+  Journal journal,
+) {
+  for (final g in groups) {
+    final staged = '${g['staging']}/new';
+    r.ops.mkdir(staged);
+    for (final it in stageItems(g)) {
+      final data = it['data'];
+      if (data != null) {
+        // the record has no source to copy: it is written straight into
+        // staging
+        File('$staged/${it['name']}').writeAsBytesSync(data as List<int>);
+      } else {
+        r.ops.copy('${it['src']}', staged);
+      }
+    }
+  }
+  // the installed `model:` line of each agent file goes into the staged copy
+  final byId = {for (final g in journal.groups) g['id']: g};
+  for (final t in journal.targets) {
+    if (byId[t.gid]?['kind'] != 'agents') continue;
+    final staged = File(t.newPath);
+    if (staged.existsSync()) {
+      final data = staged.readAsBytesSync();
+      final out = carryModel(data, t.targetPath);
+      if (!_sameBytes(out, data)) staged.writeAsBytesSync(out);
+    }
   }
 }
 

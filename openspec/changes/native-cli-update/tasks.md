@@ -6,18 +6,18 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| install-update → sw update carries every update subcommand | A workflow update through sw update | evals/update/test_update.py | test_update_completes | red |
-| install-update → sw update carries every update subcommand | A refusal keeps its code | evals/update/test_update.py | test_refusal_reports_unchanged | red |
+| install-update → sw update carries every update subcommand | A workflow update through sw update | evals/update/test_update.py | test_update_completes | green |
+| install-update → sw update carries every update subcommand | A refusal keeps its code | evals/update/test_update.py | test_refusal_reports_unchanged | green |
 | install-update → sw update carries every update subcommand | A usage error | cli/test/update/command_test.dart | no subcommand or a plan-only misuse is a usage error | green |
-| install-update → sw update needs no bash or Python | Install and update with failing interpreters first on PATH | evals/update/test_sw_update.py | test_install_and_update_with_failing_interpreters | red |
-| install-update → sw update needs no bash or Python | Interrupted swap recovered with failing interpreters | evals/update/test_sw_update.py | test_interrupted_swap_recovered_with_failing_interpreters | red |
+| install-update → sw update needs no bash or Python | Install and update with failing interpreters first on PATH | evals/update/test_sw_update.py | test_install_and_update_with_failing_interpreters | green |
+| install-update → sw update needs no bash or Python | Interrupted swap recovered with failing interpreters | evals/update/test_sw_update.py | test_interrupted_swap_recovered_with_failing_interpreters | green |
 | install-update → sw update needs no bash or Python | A jj store read in process | evals/update/test_update_jj_store.py | test_busy_jj_store_read_in_process | green |
 | install-update → sw update refuses settings the shared reader refuses | A plain yes in the settings | evals/update/test_sw_update.py | test_plain_yes_setting_refused_settings_invalid | green |
-| install-update → sw update refuses settings the shared reader refuses | No settings file | evals/update/test_update.py | test_plan_without_installed_version_is_fresh | red |
-| install-update → update.sh hands over to the download's sw | Shim with the download's sw placed | evals/update/test_shim.py | test_shim_hands_over_to_download_sw | red |
-| install-update → update.sh hands over to the download's sw | Shim with no matching sw | evals/update/test_shim.py | test_shim_without_matching_sw_reports_sw_missing | red |
-| install-update → sw update recovers journals that older update scripts left | A format-2 journal from update.sh | evals/update/test_sw_update.py | test_format_2_journal_from_update_sh_resumed | red |
-| install-update → sw update recovers journals that older update scripts left | Unknown journal format | evals/update/test_sw_update.py | test_unknown_journal_format_refused | red |
+| install-update → sw update refuses settings the shared reader refuses | No settings file | evals/update/test_update.py | test_plan_without_installed_version_is_fresh | green |
+| install-update → update.sh hands over to the download's sw | Shim with the download's sw placed | evals/update/test_shim.py | test_shim_hands_over_to_download_sw | green |
+| install-update → update.sh hands over to the download's sw | Shim with no matching sw | evals/update/test_shim.py | test_shim_without_matching_sw_reports_sw_missing | green |
+| install-update → sw update recovers journals that older update scripts left | A format-2 journal from update.sh | evals/update/test_sw_update.py | test_format_2_journal_from_update_sh_resumed | green |
+| install-update → sw update recovers journals that older update scripts left | Unknown journal format | evals/update/test_sw_update.py | test_unknown_journal_format_refused | green |
 | install-update → The install prompt drives sw update interface 3 | Matching interface | evals/update/test_sw_update.py | test_interface_reports_3_and_writes_nothing | green |
 | install-update → The install prompt drives sw update interface 3 | Interface mismatch | evals/git-workflow/test_instructions.py | test_readme_interface_mismatch_stops_before_sw_install (README text) | red |
 | install-update → The install prompt needs no bash or Python | Windows host without Git Bash or Python | evals/update/test_bootstrap.py | test_bootstrap_commands_without_bash_or_python | red |
@@ -37,17 +37,17 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | install-update → Update installs a release tag by default | Latest tag predates the update script | evals/git-workflow/test_instructions.py | test_readme_latest_below_minimum_offers_main (README text) | red |
 | install-update → Update installs a release tag by default | Script interface differs from the prompt | evals/git-workflow/test_instructions.py | test_readme_interface_mismatch_stops_before_sw_install (README text) | red |
 | install-update → Update installs a release tag by default | No tags | evals/git-workflow/test_instructions.py | test_readme_no_tag_installs_main (README text) | red |
-| install-update → The release-tag lookup is bounded | Tags listed in time | evals/update/test_store.py | test_other_project_minor_refused_names_matching_tag | red |
-| install-update → The release-tag lookup is bounded | Hung tag lookup | evals/update/test_store.py | test_hung_tag_lookup_names_deadline_exceeded | red |
-| install-update → The release-tag lookup is bounded | Oversized tag list | evals/update/test_store.py | test_oversized_tag_list_names_response_too_large | red |
-| install-update → A tagged install places a checked sw for the host | Install of a tag with binaries on Linux x64 | evals/update/test_sw_install.py | test_tag_install_places_checked_binary | red |
-| install-update → A tagged install places a checked sw for the host | SPECWRIGHT_HOME set | evals/update/test_sw_install.py | test_specwright_home_is_the_root | red |
-| install-update → A tagged install places a checked sw for the host | Host on a platform with no target | evals/update/test_sw_install.py | test_unsupported_platform_stops | red |
-| install-update → A tagged install places a checked sw for the host | Run from the agent's temporary copy | evals/update/test_sw_install.py | test_install_from_temporary_copy_never_moves_itself | red |
-| install-update → An install without release binaries says so | Install of main | evals/update/test_sw_install.py | test_main_install_reports_no_sw | red |
+| install-update → The release-tag lookup is bounded | Tags listed in time | evals/update/test_store.py | test_other_project_minor_refused_names_matching_tag | green |
+| install-update → The release-tag lookup is bounded | Hung tag lookup | evals/update/test_store.py | test_hung_tag_lookup_names_deadline_exceeded | green |
+| install-update → The release-tag lookup is bounded | Oversized tag list | evals/update/test_store.py | test_oversized_tag_list_names_response_too_large | green |
+| install-update → A tagged install places a checked sw for the host | Install of a tag with binaries on Linux x64 | evals/update/test_sw_install.py | test_tag_install_places_checked_binary | green |
+| install-update → A tagged install places a checked sw for the host | SPECWRIGHT_HOME set | evals/update/test_sw_install.py | test_specwright_home_is_the_root | green |
+| install-update → A tagged install places a checked sw for the host | Host on a platform with no target | evals/update/test_sw_install.py | test_unsupported_platform_stops | green |
+| install-update → A tagged install places a checked sw for the host | Run from the agent's temporary copy | evals/update/test_sw_install.py | test_install_from_temporary_copy_never_moves_itself | green |
+| install-update → An install without release binaries says so | Install of main | evals/update/test_sw_install.py | test_main_install_reports_no_sw | green |
 | install-update → An install without release binaries says so | Install of an older tag | evals/git-workflow/test_instructions.py | test_readme_minimum_release_is_0_37_0 (README text) | red |
 | install-update → An install without release binaries says so | Install of main reports the build | evals/git-workflow/test_instructions.py | test_readme_main_reports_sw_built_from_main (README text) | red |
-| install-update → An install without release binaries says so | Existing binaries stay untouched on main | evals/update/test_sw_install.py | test_main_install_leaves_bin_untouched | red |
+| install-update → An install without release binaries says so | Existing binaries stay untouched on main | evals/update/test_sw_install.py | test_main_install_leaves_bin_untouched | green |
 | install-update → An install whose VCS steps need a missing sw says so | main install with no binary | evals/git-workflow/test_install_sw_warning.py | test_main_without_binary_warns | red |
 | install-update → An install whose VCS steps need a missing sw says so | main install with a matching binary already placed | evals/git-workflow/test_install_sw_warning.py | test_matching_binary_gets_no_warning | green |
 | install-update → An install whose VCS steps need a missing sw says so | Older tag whose scripts need no sw | evals/git-workflow/test_install_sw_warning.py | test_older_tag_gets_no_warning | red |
@@ -58,7 +58,7 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Retrofitted paths with sentinels and no Python | evals/vcs/test_sw_fence.py | test_retrofitted_vcs_paths_run_no_script_or_python | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Reviewer evaluator stays a separate process | cli/test/pr/snapshot_test.dart | a limit on the evaluator names reviewers.py, not sw | green |
 | native-cli → sw starts itself only for its helper and the reviewer evaluator | Printed commands are not launches | evals/vcs/test_sw_fence.py | test_printed_plan_commands_are_not_launched | green |
-| native-cli → sw starts itself only for its helper and the reviewer evaluator | sw update checks a downloaded sw and starts no script | evals/update/test_sw_update.py | test_sw_install_and_jj_swap_start_no_script | red |
+| native-cli → sw starts itself only for its helper and the reviewer evaluator | sw update checks a downloaded sw and starts no script | evals/update/test_sw_update.py | test_sw_install_and_jj_swap_start_no_script | green |
 | native-cli → A launch-site allowlist guards process starts | Current tree passes | cli/test/launch_sites_test.dart | the tree matches the allowlist | red |
 | native-cli → A launch-site allowlist guards process starts | A new unlisted launch fails | cli/test/launch_sites_test.dart | an unlisted runner call fails naming the file | green |
 | native-cli → A launch-site allowlist guards process starts | A script in launch arguments fails | cli/test/launch_sites_test.dart | a script name in launch arguments fails | red |
@@ -108,10 +108,10 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 7. `update.sh` shim and the eval fixtures
 
-- [ ] 7.1 Write failing tests in `evals/update/test_shim.py`: `test_shim_hands_over_to_download_sw` and `test_shim_without_matching_sw_reports_sw_missing`. Verify they fail against today's `update.sh`.
-- [ ] 7.2 Add `provision_sw(home, version)` to `evals/update/fixtures.py`. It builds once per version per run with `cli/tool/build.dart --version <v> --output <cache>/<v>/sw[.exe]`, then copies the binary and notice into each test's isolated `SPECWRIGHT_HOME`. `make_download` and `make_mini_download` call it. Switch `run_update` from the `mv`/`cp`/`rm` shims to `SPECWRIGHT_UPDATE_KILL_AT`/`SPECWRIGHT_UPDATE_COUNT` (D3). Verify: `evals/update/test_fixtures.py` passes locally.
-- [ ] 7.3 Replace `scripts/update.sh` with the ADR 0028 shim (D8), with C4 written in its header. Delete `evals/update/shims/` if nothing else uses it, and update `evals/suites.json`. Change the interface assertions from 2 to 3 (`evals/update/test_update.py::test_plan_reports_interface`, `evals/update/test_packs.py:346`, `:354`). Verify: `test_shim.py` passes locally, the header holds C4, and `evals/runner/test_suite_map.py` passes.
-- [ ] 7.4 Add `evals/update/test_sw_update.py` cases: failing `bash`/`sh`/`python`/`python3` first on `PATH` for install, update and interrupted-swap recovery; a format-2 journal left by the 0.36.0 script and recovered; `"format": 9` refused; `sw-install` and an owner's jj swap with recording sentinels. Verify: open a draft PR and run the `evals/update` suite in PR CI on Linux, Windows and macOS. Every `evals/update` row in the test map turns green.
+- [x] 7.1 Write failing tests in `evals/update/test_shim.py`: `test_shim_hands_over_to_download_sw` and `test_shim_without_matching_sw_reports_sw_missing`. Verify they fail against today's `update.sh`.
+- [x] 7.2 Add `provision_sw(home, version)` to `evals/update/fixtures.py`. It builds once per version per run with `cli/tool/build.dart --version <v> --output <cache>/<v>/sw[.exe]`, then copies the binary and notice into each test's isolated `SPECWRIGHT_HOME`. `make_download` and `make_mini_download` call it. Switch `run_update` from the `mv`/`cp`/`rm` shims to `SPECWRIGHT_UPDATE_KILL_AT`/`SPECWRIGHT_UPDATE_COUNT` (D3). Verify: `evals/update/test_fixtures.py` passes locally.
+- [x] 7.3 Replace `scripts/update.sh` with the ADR 0028 shim (D8), with C4 written in its header. Delete `evals/update/shims/` if nothing else uses it, and update `evals/suites.json`. Change the interface assertions from 2 to 3 (`evals/update/test_update.py::test_plan_reports_interface`, `evals/update/test_packs.py:346`, `:354`). Verify: `test_shim.py` passes locally, the header holds C4, and `evals/runner/test_suite_map.py` passes.
+- [x] 7.4 Add `evals/update/test_sw_update.py` cases: failing `bash`/`sh`/`python`/`python3` first on `PATH` for install, update and interrupted-swap recovery; a format-2 journal left by the 0.36.0 script and recovered; `"format": 9` refused; `sw-install` and an owner's jj swap with recording sentinels. Verify: open a draft PR and run the `evals/update` suite in PR CI on Linux, Windows and macOS. Every `evals/update` row in the test map turns green.
 - [ ] 7.5 Compare the counted operation list of one interrupted run with the 0.36.0 bash run's (D3's weak-evidence check). Verify: the interruption matrix in `evals/update/test_interrupt.py` passes in PR CI on three OSes, and the comparison is noted in the PR.
 
 ## 8. Launch allowlist
