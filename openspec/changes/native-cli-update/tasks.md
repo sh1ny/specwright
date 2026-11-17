@@ -11,7 +11,7 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | install-update → sw update carries every update subcommand | A usage error | cli/test/update/command_test.dart | no subcommand or a plan-only misuse is a usage error | green |
 | install-update → sw update needs no bash or Python | Install and update with failing interpreters first on PATH | evals/update/test_sw_update.py | test_install_and_update_with_failing_interpreters | red |
 | install-update → sw update needs no bash or Python | Interrupted swap recovered with failing interpreters | evals/update/test_sw_update.py | test_interrupted_swap_recovered_with_failing_interpreters | red |
-| install-update → sw update needs no bash or Python | A jj store read in process | evals/update/test_update_jj_store.py | test_busy_jj_store_read_in_process | red |
+| install-update → sw update needs no bash or Python | A jj store read in process | evals/update/test_update_jj_store.py | test_busy_jj_store_read_in_process | green |
 | install-update → sw update refuses settings the shared reader refuses | A plain yes in the settings | evals/update/test_sw_update.py | test_plain_yes_setting_refused_settings_invalid | green |
 | install-update → sw update refuses settings the shared reader refuses | No settings file | evals/update/test_update.py | test_plan_without_installed_version_is_fresh | red |
 | install-update → update.sh hands over to the download's sw | Shim with the download's sw placed | evals/update/test_shim.py | test_shim_hands_over_to_download_sw | red |
@@ -97,9 +97,9 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 5. Stage, swap, note-config, finish, recover, pack verify and docs
 
-- [ ] 5.1 Port staging with SHA-256 verification before any installed file changes. Every file op goes through `UpdateFileOps` (C1), and the mode is set explicitly if 1.2 disproved A2. Verify: `cli/test/update/stage_test.dart` passes.
-- [ ] 5.2 Port `swap`, `note-config`, `finish` and `recover`: the journal state machine, resume and rollback as the staged copy decides, and config rollback. Verify: `cli/test/update/swap_recover_test.dart` passes, including a format-2 journal written by the 0.36.0 script layout.
-- [ ] 5.3 Port `pack-verify` and `pack-docs`. Verify: `cli/test/update/packs_test.dart` passes.
+- [x] 5.1 Port staging with SHA-256 verification before any installed file changes. Every file op goes through `UpdateFileOps` (C1), and the mode is set explicitly if 1.2 disproved A2. Verify: `cli/test/update/stage_test.dart` passes.
+- [x] 5.2 Port `swap`, `note-config`, `finish` and `recover`: the journal state machine, resume and rollback as the staged copy decides, and config rollback. Verify: `cli/test/update/swap_recover_test.dart` passes, including a format-2 journal written by the 0.36.0 script layout.
+- [x] 5.3 Port `pack-verify` and `pack-docs`. Verify: `cli/test/update/packs_test.dart` passes.
 
 ## 6. Build tool, mise task and `install-sw.sh` removal
 

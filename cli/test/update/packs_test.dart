@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:specwright_cli/src/update/openspec.dart';
 import 'package:specwright_cli/src/update/options.dart';
 import 'package:specwright_cli/src/update/packs.dart';
 import 'package:specwright_cli/src/update/repo.dart';
 import 'package:specwright_cli/src/update/settings.dart';
 import 'package:test/test.dart';
+
+import 'lifecycle_support.dart' show update;
 
 String fwd(String path) => path.replaceAll(r'\', '/');
 
@@ -527,6 +530,483 @@ void main() {
       expect(
         [for (final c in doc['catalogue'] as List) (c as Map)['name']],
         ['a', 'b'],
+      );
+    });
+  });
+
+  group('pack-docs', () {
+    const gdd = 'docs/domain/gdd.md';
+
+    void record(Map<String, Object?> packs) {
+      File('$code/openspec/.specwright/packs.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          jsonEncode({'format': 1, 'packs': packs, 'catalogue': <Object?>[]}),
+        );
+    }
+
+    Map<String, Object?> entry(Map<String, String> documents) => {
+      'version': '0.5.0',
+      'skills': <Object?>[],
+      'documents': documents,
+      'init': {'questions': <Object?>[]},
+    };
+
+    void domainPack({bool template = true}) {
+      pack(
+        'domain',
+        good('domain', {
+          'documents': {
+            'gdd': {'path': gdd, 'template': 'documents/gdd.md'},
+          },
+        }),
+      );
+      if (template) {
+        File('$dl/packs/domain/documents/gdd.md')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('# GDD\n\nFill in.\n');
+      }
+    }
+
+    Future<(int, Map<String, Object?>)> docs() => update([
+      '--code',
+      code,
+      '--root',
+      code,
+      '--download',
+      dl,
+      'pack-docs',
+    ]);
+
+    test('creates a missing document from its template, parents too', () async {
+      domainPack();
+      record({
+        'domain': entry({'gdd': gdd}),
+      });
+      final (status, doc) = await docs();
+      expect(status, 0, reason: '$doc');
+      expect(doc, {
+        'ok': true,
+        'interface': 3,
+        'subcommand': 'pack-docs',
+        'documents': [
+          {'pack': 'domain', 'id': 'gdd', 'path': gdd, 'status': 'created'},
+        ],
+      });
+      expect(File('$code/$gdd').readAsStringSync(), '# GDD\n\nFill in.\n');
+      expect(
+        Directory(
+          '$code/docs/domain',
+        ).listSync().map((e) => fwd(e.path).split('/').last),
+        ['gdd.md'],
+        reason: 'no temporary file is left',
+      );
+    });
+
+    test('never overwrites a document: a rerun keeps it', () async {
+      domainPack();
+      record({
+        'domain': entry({'gdd': gdd}),
+      });
+      File('$code/$gdd')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Ours\n');
+      final (status, doc) = await docs();
+      expect(status, 0);
+      expect((doc['documents'] as List).cast<Map<String, Object?>>().single['status'], 'kept');
+      expect(File('$code/$gdd').readAsStringSync(), '# Ours\n');
+    });
+
+    test('no record, or no documents in it, is nothing to do', () async {
+      var (status, doc) = await docs();
+      expect([status, doc['ok'], doc['documents']], [0, true, <Object?>[]]);
+      domainPack();
+      record({'domain': entry({})});
+      (status, doc) = await docs();
+      expect([status, doc['documents']], [0, <Object?>[]]);
+    });
+
+    test('a path that leaves the checkout, or a template the download lacks, '
+        'refuses before anything is written', () async {
+      domainPack();
+      record({
+        'domain': entry({'gdd': '../outside.md'}),
+      });
+      var (status, doc) = await docs();
+      expect(status, 1);
+      expect(doc['error'], 'refused');
+      expect(
+        doc['message'],
+        'document gdd of pack domain: the path ../outside.md contains ... '
+        'Nothing was written',
+      );
+      expect(
+        (doc['refusals'] as List).cast<Map<String, Object?>>().single['code'],
+        'pack_doc_path',
+      );
+      expect(File('${fwd(tmp.path)}/outside.md').existsSync(), isFalse);
+
+      File('$dl/packs/domain/documents/gdd.md').deleteSync();
+      record({
+        'domain': entry({'gdd': gdd}),
+      });
+      (status, doc) = await docs();
+      expect(status, 1);
+      expect(
+        (doc['refusals'] as List).cast<Map<String, Object?>>().single['code'],
+        'pack_doc_template',
+      );
+      expect(
+        doc['message'],
+        'document gdd of pack domain: the download has no template for it. '
+        'Nothing was written',
+      );
+      expect(File('$code/$gdd').existsSync(), isFalse);
+    });
+
+    test('a record that cannot be read stops', () async {
+      record({'domain': entry({})});
+      File('$code/openspec/.specwright/packs.json').writeAsStringSync('{');
+      final (status, doc) = await docs();
+      expect(status, 1);
+      expect(doc['error'], 'packs_record_unreadable');
+      expect(doc['documents'], <Object?>[]);
+      expect(
+        doc['message'] as String,
+        startsWith('openspec/.specwright/packs.json is not readable ('),
+      );
+    });
+
+    test('a write that fails says so and leaves no partial document', () async {
+      domainPack();
+      record({
+        'domain': entry({'gdd': gdd}),
+      });
+      File('$code/docs').writeAsStringSync('a file in the way\n');
+      final (status, doc) = await docs();
+      expect(status, 1);
+      expect(doc['error'], 'pack_doc_write_failed');
+      expect(
+        doc['message'] as String,
+        startsWith('document gdd of pack domain: could not write $gdd ('),
+      );
+      expect(
+        doc['message'] as String,
+        endsWith(
+          'No partial document was left; rerun pack-docs once the cause is '
+          'fixed',
+        ),
+      );
+      expect(doc['documents'], <Object?>[]);
+    });
+  });
+
+  group('pack-verify', () {
+    void record(List<String> enabled) {
+      File('$code/openspec/.specwright/packs.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          jsonEncode({
+            'format': 1,
+            'packs': {
+              for (final n in enabled)
+                n: {
+                  'version': '0.5.0',
+                  'skills': <Object?>[],
+                  'documents': <String, Object?>{},
+                  'init': {'questions': <Object?>[]},
+                },
+            },
+            'catalogue': <Object?>[],
+          }),
+        );
+    }
+
+    void config() => File('$code/openspec/config.yaml')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('schema: specwright\n');
+
+    void gamedev() => pack(
+      'gamedev',
+      good('gamedev', {
+        'rules': {
+          'proposal': ['Name the loop'],
+        },
+        'operations': {
+          'apply': {
+            'guidance': ['Playtest each task'],
+          },
+        },
+        'context': ['A game'],
+      }),
+    );
+
+    final delivered = <String, List<String>>{};
+    var scratchChecked = false;
+    final calls = <String>[];
+
+    /// What OpenSpec answers for each ask, from [delivered].
+    Future<OpenspecResult> fake(
+      List<String> args,
+      String cwd, {
+      Duration? timeout,
+    }) async {
+      calls.add(args.join(' '));
+      expect(timeout, const Duration(seconds: 120));
+      expect(cwd, '$dl/.update-scratch/pack-verify');
+      if (!scratchChecked) {
+        scratchChecked = true;
+        expect(
+          File(
+            '$cwd/openspec/changes/pack-verify/.openspec.yaml',
+          ).readAsStringSync(),
+          'schema: specwright\n',
+        );
+        expect(File('$cwd/openspec/config.yaml').existsSync(), isTrue);
+        expect(
+          File('$cwd/openspec/schemas/specwright/schema.yaml').existsSync(),
+          isTrue,
+        );
+        expect(Directory('$cwd/openspec/specs').existsSync(), isTrue);
+      }
+      final what = args[1];
+      final isOp = what == 'apply' || what == 'archive';
+      final target = isOp ? 'operations.$what' : 'rules.$what';
+      return OpenspecResult(
+        0,
+        jsonEncode({
+          isOp ? 'operationGuidance' : 'rules': delivered[target] ?? <String>[],
+          'context': (delivered['context'] ?? <String>[]).join('\n'),
+        }),
+        '',
+      );
+    }
+
+    setUp(() {
+      delivered.clear();
+      calls.clear();
+      scratchChecked = false;
+      config();
+    });
+
+    Future<(int, Map<String, Object?>)> verify({
+      List<String> previous = const [],
+      OpenspecRunner? run,
+    }) => update(
+      [
+        '--code',
+        code,
+        '--root',
+        code,
+        '--download',
+        dl,
+        for (final p in previous) ...['--previous', p],
+        'pack-verify',
+      ],
+      openspec: run ?? fake,
+    );
+
+    List<Object?> problemCodes(Map<String, Object?> doc) => [
+      for (final p in (doc['problems'] as List).cast<Map<String, Object?>>())
+        p['code'],
+    ];
+
+    test('every line a pack declares reaches OpenSpec: ok, 5 runs, scratch '
+        'removed', () async {
+      gamedev();
+      record(['gamedev']);
+      delivered['rules.proposal'] = ['[pack:gamedev] Name the loop'];
+      delivered['operations.apply'] = ['[pack:gamedev] Playtest each task'];
+      delivered['context'] = ['[pack:gamedev] A game'];
+      final (status, doc) = await verify();
+      expect(status, 0, reason: '$doc');
+      expect(doc, {
+        'ok': true,
+        'interface': 3,
+        'subcommand': 'pack-verify',
+        'checked': {
+          'packs': ['gamedev'],
+          'previous': <Object?>[],
+          'lines': 3,
+          'core_lines': 0,
+          'runs': 5,
+        },
+        'problems': <Object?>[],
+      });
+      expect(calls, [
+        'instructions proposal --change pack-verify --json',
+        'instructions design --change pack-verify --json',
+        'instructions tasks --change pack-verify --json',
+        'instructions apply --change pack-verify --json',
+        'instructions archive --change pack-verify --json',
+      ]);
+      expect(Directory('$dl/.update-scratch').existsSync(), isFalse);
+    });
+
+    test('a line that does not arrive is missing; one that arrives twice is a '
+        'duplicate', () async {
+      gamedev();
+      record(['gamedev']);
+      delivered['rules.proposal'] = [];
+      delivered['operations.apply'] = [
+        '[pack:gamedev] Playtest each task',
+        '[pack:gamedev] Playtest each task',
+      ];
+      delivered['context'] = ['[pack:gamedev] A game'];
+      final (status, doc) = await verify();
+      expect(status, 1);
+      expect(doc['ok'], isFalse);
+      expect(problemCodes(doc), ['duplicate', 'missing']);
+      final missing = (doc['problems'] as List).cast<Map<String, Object?>>().last;
+      expect(missing['pack'], 'gamedev');
+      expect(missing['line'], 'Name the loop');
+      expect(missing['target'], 'rules.proposal');
+      expect(
+        missing['message'],
+        "'[pack:gamedev] Name the loop' is expected 1 time(s) in "
+        'rules.proposal and 0 reached OpenSpec',
+      );
+    });
+
+    test('a line of a pack that is no longer enabled is not_enabled', () async {
+      gamedev();
+      record(['gamedev']);
+      delivered['rules.proposal'] = [
+        '[pack:gamedev] Name the loop',
+        '[pack:old] Leftover',
+        '[pack:other] not ours to manage',
+      ];
+      delivered['operations.apply'] = ['[pack:gamedev] Playtest each task'];
+      delivered['context'] = ['[pack:gamedev] A game'];
+      final (status, doc) = await verify(previous: ['old', 'gamedev']);
+      expect(status, 1);
+      expect(problemCodes(doc), ['not_enabled']);
+      expect((doc['problems'] as List).single, {
+        'code': 'not_enabled',
+        'pack': 'old',
+        'line': 'Leftover',
+        'target': 'rules.proposal',
+        'message':
+            "'[pack:old] Leftover' in rules.proposal belongs to pack old, "
+            'which is no longer enabled',
+      });
+      expect((doc['checked'] as Map<String, Object?>)['previous'], [
+        'gamedev',
+        'old',
+      ]);
+    });
+
+    test('a core context line OpenSpec does not deliver is reported', () async {
+      gamedev();
+      record(['gamedev']);
+      File('$dl/templates/openspec/config.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          'schema: specwright\ncontext: |\n  # comment\n  Core line one\n'
+          '  Core line two\nrules: {}\n',
+        );
+      delivered['rules.proposal'] = ['[pack:gamedev] Name the loop'];
+      delivered['operations.apply'] = ['[pack:gamedev] Playtest each task'];
+      delivered['context'] = ['[pack:gamedev] A game', 'Core line one'];
+      final (status, doc) = await verify();
+      expect(status, 1);
+      expect((doc['checked'] as Map<String, Object?>)['core_lines'], 2);
+      expect((doc['problems'] as List).single, {
+        'code': 'core_context_missing',
+        'pack': null,
+        'line': 'Core line two',
+        'target': 'context',
+        'message':
+            'a Specwright context line does not reach OpenSpec (is context '
+            'over 50 KB?)',
+      });
+    });
+
+    test('an openspec run that fails is a problem; a missing CLI stops the '
+        'runs', () async {
+      gamedev();
+      record(['gamedev']);
+      var n = 0;
+      var (status, doc) = await verify(
+        run: (args, cwd, {timeout}) async {
+          n++;
+          return n == 2
+              ? const OpenspecResult(1, '', 'error: boom\n')
+              : fake(args, cwd, timeout: timeout);
+        },
+      );
+      expect(status, 1);
+      expect(problemCodes(doc).where((c) => c == 'openspec_failed').length, 1);
+      final failed = (doc['problems'] as List)
+          .cast<Map<String, Object?>>()
+          .firstWhere((p) => p['code'] == 'openspec_failed');
+      expect(failed['target'], 'rules.design');
+      expect(failed['message'], 'openspec instructions design: error: boom');
+
+      calls.clear();
+      (status, doc) = await verify(
+        run: (args, cwd, {timeout}) async {
+          calls.add(args.join(' '));
+          return const OpenspecResult(
+            127,
+            '',
+            'the openspec CLI is not on PATH',
+          );
+        },
+      );
+      expect(status, 1);
+      expect(calls, hasLength(1));
+      expect((doc['checked'] as Map<String, Object?>)['runs'], 1);
+      expect(Directory('$dl/.update-scratch').existsSync(), isFalse);
+    });
+
+    test(
+      'an unreadable manifest of an enabled pack is pack_unreadable',
+      () async {
+        record(['gone']);
+        final (status, doc) = await verify();
+        expect(status, 1);
+        expect((doc['problems'] as List).first, {
+          'code': 'pack_unreadable',
+          'pack': 'gone',
+          'line': null,
+          'target': null,
+          'message':
+              'pack gone is enabled but its manifest in the download is '
+              'unreadable: pack.json is missing',
+        });
+      },
+    );
+
+    test('a missing schema, config or an unreadable record stops with one '
+        'error', () async {
+      record([]);
+      File('$code/openspec/config.yaml').deleteSync();
+      var (status, doc) = await verify();
+      expect(status, 1);
+      expect(doc, {
+        'ok': false,
+        'interface': 3,
+        'subcommand': 'pack-verify',
+        'error': 'config_missing',
+        'message':
+            '$code/openspec/config.yaml does not exist; run Step 5 first',
+        'problems': <Object?>[],
+      });
+      config();
+      File('$code/openspec/.specwright/packs.json').writeAsStringSync('[');
+      (status, doc) = await verify();
+      expect(doc['error'], 'packs_record_unreadable');
+      expect(
+        doc['message'] as String,
+        startsWith('openspec/.specwright/packs.json is not readable JSON ('),
+      );
+      File('$dl/schemas/specwright/schema.yaml').deleteSync();
+      (status, doc) = await verify();
+      expect(doc['error'], 'schema_missing');
+      expect(
+        doc['message'],
+        '$dl/schemas/specwright/schema.yaml does not exist',
       );
     });
   });

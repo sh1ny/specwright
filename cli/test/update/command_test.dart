@@ -144,51 +144,45 @@ void main() {
     });
   });
 
-  group('every other subcommand validates its options first', () {
+  group('--download is required by every subcommand that reads the download', () {
     for (final sub in [
+      'plan',
       'stage',
       'swap',
-      'note-config',
-      'finish',
       'recover',
+      'pack-check',
       'pack-verify',
       'pack-docs',
     ]) {
-      test('$sub is not implemented yet', () async {
-        final (code, out, _) = await run([
+      test('$sub without --download is a usage error and writes nothing', () async {
+        await expectUsage([
           sub,
           '--code',
           temp.path,
-          '--skills',
-          '${temp.path}/skills',
-          '--agents',
-          'claude=${temp.path}/agents',
-          '--pack',
-          'gamedev',
-          '--pack-doc',
-          'gamedev.brief=docs/brief.md',
-          '--previous',
-          'gamedev',
-          '--ref',
-          'v1.0.0',
-          '--release-url',
-          'file:///x',
-          '--build',
-          '${temp.path}/sw',
-        ]);
-        expect(code, 1, reason: out);
-        final doc = jsonDecode(out) as Map<String, Object?>;
-        expect(doc['ok'], false);
-        expect(doc['error'], 'not_implemented');
-        expect(doc['subcommand'], sub);
+        ], '$sub needs --download DIR');
         expect(_listing(temp), isEmpty);
       });
     }
 
+    test('note-config and finish read no download', () async {
+      for (final sub in ['note-config', 'finish']) {
+        final (code, out, _) = await run([sub, '--code', temp.path]);
+        expect(
+          (jsonDecode(out) as Map)['error'],
+          isNot('usage'),
+          reason: '$sub: $out',
+        );
+        expect(code, isNot(2), reason: '$sub: $out');
+      }
+    });
+
     test('recover accepts --rollback', () async {
-      final (code, out, _) = await run(['recover', '--rollback']);
-      expect(code, 1, reason: out);
-      expect((jsonDecode(out) as Map)['error'], 'not_implemented');
+      await expectUsage([
+        'recover',
+        '--rollback',
+        '--code',
+        temp.path,
+      ], 'recover needs --download DIR');
     });
   });
 }
