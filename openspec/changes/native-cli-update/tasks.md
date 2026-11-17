@@ -8,7 +8,7 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 |---|---|---|---|---|
 | install-update → sw update carries every update subcommand | A workflow update through sw update | evals/update/test_update.py | test_update_completes | red |
 | install-update → sw update carries every update subcommand | A refusal keeps its code | evals/update/test_update.py | test_refusal_reports_unchanged | red |
-| install-update → sw update carries every update subcommand | A usage error | cli/test/update/command_test.dart | no subcommand or a plan-only misuse is a usage error | red |
+| install-update → sw update carries every update subcommand | A usage error | cli/test/update/command_test.dart | no subcommand or a plan-only misuse is a usage error | green |
 | install-update → sw update needs no bash or Python | Install and update with failing interpreters first on PATH | evals/update/test_sw_update.py | test_install_and_update_with_failing_interpreters | red |
 | install-update → sw update needs no bash or Python | Interrupted swap recovered with failing interpreters | evals/update/test_sw_update.py | test_interrupted_swap_recovered_with_failing_interpreters | red |
 | install-update → sw update needs no bash or Python | A jj store read in process | evals/update/test_update_jj_store.py | test_busy_jj_store_read_in_process | red |
@@ -18,7 +18,7 @@ New or changed behaviour starts `red`. A scenario of a MODIFIED requirement that
 | install-update → update.sh hands over to the download's sw | Shim with no matching sw | evals/update/test_shim.py | test_shim_without_matching_sw_reports_sw_missing | red |
 | install-update → sw update recovers journals that older update scripts left | A format-2 journal from update.sh | evals/update/test_sw_update.py | test_format_2_journal_from_update_sh_resumed | red |
 | install-update → sw update recovers journals that older update scripts left | Unknown journal format | evals/update/test_sw_update.py | test_unknown_journal_format_refused | red |
-| install-update → The install prompt drives sw update interface 3 | Matching interface | evals/update/test_sw_update.py | test_interface_reports_3_and_writes_nothing | red |
+| install-update → The install prompt drives sw update interface 3 | Matching interface | evals/update/test_sw_update.py | test_interface_reports_3_and_writes_nothing | green |
 | install-update → The install prompt drives sw update interface 3 | Interface mismatch | evals/git-workflow/test_instructions.py | test_readme_interface_mismatch_stops_before_sw_install (README text) | red |
 | install-update → The install prompt needs no bash or Python | Windows host without Git Bash or Python | evals/update/test_bootstrap.py | test_bootstrap_commands_without_bash_or_python | red |
 | install-update → The install prompt needs no bash or Python | No SHA-256 tool | evals/git-workflow/test_instructions.py | test_readme_step1_checks_hash_tool_not_bash_or_python (README text) | red |
@@ -76,11 +76,11 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 2. `sw update` skeleton: command, interface, file operations, journal, lock
 
-- [ ] 2.1 Write failing tests: `cli/test/update/command_test.dart` (usage errors, exit 2; `interface` prints `{"ok":true,"interface":3}` and touches no file) and `evals/update/test_sw_update.py::test_interface_reports_3_and_writes_nothing`. Verify they fail because `update` is an unknown command.
-- [ ] 2.2 Add `cli/lib/src/commands/update.dart` and `cli/lib/src/update/options.dart` with every subcommand's options, the usage document, and `sw update interface` (D11). Verify: the 2.1 tests pass, and the rows "A usage error" and "Matching interface" turn green.
-- [ ] 2.3 Write failing tests in `cli/test/update/file_ops_test.dart` for the counting wrapper: each copy, rename, remove and mkdir logs `<n> <op> <args>` when `SPECWRIGHT_UPDATE_COUNT` is set, `SPECWRIGHT_UPDATE_KILL_AT=<n>` ends the process with 137 at op n, and nothing is logged without the variables. Then implement `cli/lib/src/update/file_ops.dart` `UpdateFileOps`, with C1 written as its doc comment. Verify: the tests pass, and the doc comment holds C1.
-- [ ] 2.4 Write failing tests in `cli/test/update/journal_test.dart`: read format 1 and format 2 journals written as `update.sh` writes them (`scripts/update.sh:220-226`), write format 2 byte-compatible fields, and refuse `"format": 9` and trailing garbage as `journal_unreadable`. Then implement `cli/lib/src/update/journal.dart`. Verify: the tests pass.
-- [ ] 2.5 Write failing tests in `cli/test/update/lock_test.dart` that mirror the lock cases of `evals/update/test_update.py:436-642` (ownerless, partial-owner, dead-owner, taken meanwhile). Then implement `cli/lib/src/update/lock.dart` (`scripts/update.sh:227-229`). Verify: the tests pass.
+- [x] 2.1 Write failing tests: `cli/test/update/command_test.dart` (usage errors, exit 2; `interface` prints `{"ok":true,"interface":3}` and touches no file) and `evals/update/test_sw_update.py::test_interface_reports_3_and_writes_nothing`. Verify they fail because `update` is an unknown command.
+- [x] 2.2 Add `cli/lib/src/commands/update.dart` and `cli/lib/src/update/options.dart` with every subcommand's options, the usage document, and `sw update interface` (D11). Verify: the 2.1 tests pass, and the rows "A usage error" and "Matching interface" turn green.
+- [x] 2.3 Write failing tests in `cli/test/update/file_ops_test.dart` for the counting wrapper: each copy, rename, remove and mkdir logs `<n> <op> <args>` when `SPECWRIGHT_UPDATE_COUNT` is set, `SPECWRIGHT_UPDATE_KILL_AT=<n>` ends the process with 137 at op n, and nothing is logged without the variables. Then implement `cli/lib/src/update/file_ops.dart` `UpdateFileOps`, with C1 written as its doc comment. Verify: the tests pass, and the doc comment holds C1.
+- [x] 2.4 Write failing tests in `cli/test/update/journal_test.dart`: read format 1 and format 2 journals written as `update.sh` writes them (`scripts/update.sh:220-226`), write format 2 byte-compatible fields, and refuse `"format": 9` and trailing garbage as `journal_unreadable`. Then implement `cli/lib/src/update/journal.dart`. Verify: the tests pass.
+- [x] 2.5 Write failing tests in `cli/test/update/lock_test.dart` that mirror the lock cases of `evals/update/test_update.py:436-642` (ownerless, partial-owner, dead-owner, taken meanwhile). Then implement `cli/lib/src/update/lock.dart` (`scripts/update.sh:227-229`). Verify: the tests pass.
 
 ## 3. Downloads, binary check and placement
 

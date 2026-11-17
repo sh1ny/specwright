@@ -9,6 +9,7 @@ import 'commands/pr.dart';
 import 'commands/release.dart';
 import 'commands/review.dart';
 import 'commands/run.dart';
+import 'commands/update.dart';
 import 'commands/vcs.dart';
 import 'commands/version.dart';
 import 'fence/as_command.dart';
@@ -31,6 +32,9 @@ const _usage =
     '                    check, bump, status, untagged, publish or notes\n'
     '  release --args-stdin  run a release subcommand for the shim; same stdin as vcs\n'
     '  pr snapshot|reply --args-stdin  read or answer a pull request; same stdin as vcs\n'
+    '  update <sub> [options]  stage, swap, recover and finish an update;\n'
+    '                    plan, note-config, pack-check, pack-verify, pack-docs,\n'
+    '                    sw-install or interface\n'
     '  as --args-file <path>  run the identity fence for the as.sh shim; the\n'
     '                    file holds the same records, and is deleted when read\n';
 
@@ -108,6 +112,12 @@ Future<int> runCli(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
       readStdin: readStdin,
+    );
+  }
+  if (args.isNotEmpty && args.first == 'update') {
+    return runUpdateCommand(
+      args.sublist(1),
+      writeOut: outBytes ?? io.stdout.add,
     );
   }
   if (args.isNotEmpty && args.first == 'vcs') {
