@@ -124,6 +124,23 @@ void main() {
       expect(result.detail, contains('1 MiB'));
     });
 
+    test(
+      'stderr without end is stopped at 1 MiB, not at the deadline',
+      () async {
+        final path = installFakeSw(
+          fake,
+          '${work.path}/a',
+          _exe,
+          config: 'spew\n',
+        );
+        final watch = Stopwatch()..start();
+        final result = await check(path, deadline: const Duration(seconds: 60));
+        expect(result.ok, isFalse);
+        expect(result.detail, contains('1 MiB'));
+        expect(watch.elapsed, lessThan(const Duration(seconds: 50)));
+      },
+    );
+
     test('a binary that hangs fails at the deadline', () async {
       final path = installFakeSw(
         fake,

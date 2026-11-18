@@ -89,6 +89,7 @@ DECISION_MAKING: important
 
 - The install prompt drives `sw update` (interface 3) and no longer requires bash or Python. The agent fetches and checks the first `sw` with `curl` and the OS hash tool, and a `main` install builds `sw` with `mise run install-sw`. Older tags install with their own prompt (#148).
 - `scripts/update.sh` is now a shim to `sw update`, and `sw update recover` recovers journals left by older update scripts (#148).
+- An update now stops with `settings_invalid` when `openspec/specwright.yaml` holds something the settings reader refuses, such as a plain `yes`, where the old script went on. Fix the line it names, then rerun the update (#148).
 
 ### Removed
 

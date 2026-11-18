@@ -1688,6 +1688,8 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertRegex(b, r"(?i)delete\s+`<tmp>`", "the stop does not delete the temporary directory")
         self.assertRegex(s3, r"POSIX run: `<boot>/<asset> version --json`", "Step 3 does not run `version --json` on the checked file")
         self.assertRegex(s3, r"PowerShell run: `<boot>\\<asset> version --json`", "Step 3 has no PowerShell run command")
+        self.assertRegex(flat(s3), r"(?i)call operator, as `& \"<path>\" <arguments>`",
+                         "Step 3 does not say a quoted path runs through PowerShell's call operator")
 
     def test_readme_step3_curl_is_bounded_and_https_only(self):
         s3 = self.s(3)
@@ -1696,6 +1698,7 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertTrue(fetches[0].startswith("curl "), "the POSIX fetch is not curl")
         self.assertTrue(fetches[1].startswith("curl.exe "), "the Windows fetch is not curl.exe")
         for cmd in fetches:
+            self.assertEqual(cmd.split()[1], "-q", f"`{cmd}` does not skip the curl config file first")
             for opt in ("-fL", "--proto =https", "--proto-redir =https", "--max-time 120", "--max-filesize 64M"):
                 self.assertIn(opt, cmd, f"`{cmd}` lacks {opt}")
             self.assertNotRegex(cmd, r"http://", "a fetch names an http URL")

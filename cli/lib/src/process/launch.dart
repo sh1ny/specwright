@@ -126,11 +126,12 @@ LaunchResult _startFailed(String text) => LaunchResult(
 ///
 /// Constraint C9: a [stdoutCap] bounds stdout only. Once stdout holds more than
 /// that many bytes the child is killed, and [LaunchResult.outputTooLarge] is
-/// set. A capped native executable is not run under a tree stop: overflow
+/// set. A [stderrCap] does the same for stderr, while it is read; only the
+/// self-check of a downloaded `sw` passes one. A capped native executable is not run under a tree stop: overflow
 /// kills the direct child only, as it did before the launcher, so a
 /// descendant of the tool may outlive it. (A batch file runs under the
-/// helper, whose tree is stopped.) No call has a deadline or a bound on
-/// stderr, and no deadline or byte bound is added to a call that had none.
+/// helper, whose tree is stopped.) No deadline or byte bound is added to a
+/// call that had none.
 ///
 /// A [deadline], when given, kills a native tool that has not ended by then
 /// (the batch path stops its tree) and sets [LaunchResult.timedOut]. Without
@@ -147,6 +148,7 @@ Future<LaunchResult> launch(
   List<int>? input,
   Map<String, String>? environment,
   int? stdoutCap,
+  int? stderrCap,
   Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
@@ -173,6 +175,7 @@ Future<LaunchResult> launch(
       inherit ? null : environment,
       input,
       stdoutCap,
+      stderrCap,
       deadline,
       helperCommand,
       stdoutSink,
@@ -190,6 +193,7 @@ Future<LaunchResult> launch(
     inherit ? null : environment,
     input,
     stdoutCap,
+    stderrCap,
     deadline,
     stdoutSink,
   );
@@ -204,6 +208,7 @@ Future<LaunchResult> _batch(
   Map<String, String>? environment,
   List<int>? input,
   int? stdoutCap,
+  int? stderrCap,
   Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
@@ -213,7 +218,12 @@ Future<LaunchResult> _batch(
     command: plan.command,
     rawLine: plan.rawLine,
     stdinBytes: [...plan.stdinBytes, ...?input],
-    limits: RunLimits(stdoutCap: stdoutCap, deadline: deadline),
+    // maxBytes bounds stderr (and stdout too when there is no stdoutCap)
+    limits: RunLimits(
+      stdoutCap: stdoutCap,
+      maxBytes: stderrCap,
+      deadline: deadline,
+    ),
     treeFor: () => platformTree(env),
     helperCommand: helperCommand,
     environment: environment,
@@ -251,6 +261,7 @@ Future<LaunchResult> _native(
   Map<String, String>? environment,
   List<int>? input,
   int? cap,
+  int? stderrCap,
   Duration? deadline,
   Future<void> Function(List<int>)? stdoutSink,
 ) async {
@@ -343,7 +354,17 @@ Future<LaunchResult> _native(
     cancelOnError: true,
   );
   final errSub = process.stderr.listen(
-    err.add,
+    (chunk) {
+      if (tooLarge) return;
+      err.add(chunk);
+      if (stderrCap != null && err.length > stderrCap) {
+        tooLarge = true;
+        process.kill(ProcessSignal.sigkill);
+        unawaited(outSub.cancel().catchError((Object _) {}));
+        if (!outDone.isCompleted) outDone.complete();
+        settleSink();
+      }
+    },
     onDone: () {
       if (!errDone.isCompleted) errDone.complete();
     },

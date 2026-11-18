@@ -225,12 +225,16 @@ Step 3 - Choose the version, download and compare versions
     host, STOP before Step 4, naming the host and these five assets. Use the
     commands of the host's shell as they stand, PowerShell on Windows and the
     POSIX ones on Linux and macOS, with a path in quotes when it holds spaces.
+    In PowerShell a command whose path is in quotes runs only through the
+    call operator, as `& "<path>" <arguments>`: use it for every run of
+    `<boot>` files and of `<sw>`.
   - Fetch `<asset>`, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS` into `<boot>`,
     each with this command, `<file>` set to the file's name. It accepts https
     only, on the first URL and on every redirect, and stops at 120 seconds or
-    64 MiB:
-    - POSIX fetch: `curl -fL --proto =https --proto-redir =https --max-time 120 --max-filesize 64M -o <boot>/<file> <release>/<file>`
-    - PowerShell fetch: `curl.exe -fL --proto =https --proto-redir =https --max-time 120 --max-filesize 64M -o <boot>\<file> <release>/<file>`
+    64 MiB. Its first option, `-q`, skips the user's curl config file, so a
+    setting there such as `insecure` cannot weaken these checks:
+    - POSIX fetch: `curl -q -fL --proto =https --proto-redir =https --max-time 120 --max-filesize 64M -o <boot>/<file> <release>/<file>`
+    - PowerShell fetch: `curl.exe -q -fL --proto =https --proto-redir =https --max-time 120 --max-filesize 64M -o <boot>\<file> <release>/<file>`
     A fetch that fails or passes a bound is a stop: STOP before Step 4, name
     the file and the cause, delete its partial file and `<tmp>`, run nothing
     and write no file. A release with no `THIRD_PARTY_NOTICES.txt` or no

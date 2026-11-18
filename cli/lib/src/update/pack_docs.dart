@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
+import '../fs/link.dart';
 import '../vcs/document.dart' show decodeJson, decodeJsonBytes, readBounded;
 import 'lifecycle.dart';
 import 'options.dart';
@@ -31,6 +34,51 @@ Map<String, Object?> _doc(
 };
 
 /// `sw update pack-docs`: the document and its exit status.
+/// Puts [bytes] at [target] whole, never replacing a document made since the
+/// check. The bytes go to a sibling temporary file first and are then linked
+/// into place, so an interruption never leaves a partial document that a
+/// rerun would keep. Where the filesystem has no hard links, an exclusive
+/// create of [target] is written instead and removed again on a failed write.
+/// Returns false when a document is already at [target].
+bool _publish(String target, List<int> bytes) {
+  final dir = File(target).parent.path;
+  final tmp = File(p.join(dir, '.${p.basename(target)}.pack-docs-$pid.tmp'));
+  try {
+    tmp.writeAsBytesSync(
+      bytes,
+      flush: true,
+    ); // a killed run's leftover is overwritten
+    try {
+      hardLink(tmp.path, target);
+      return true;
+    } on FileSystemException {
+      if (FileSystemEntity.typeSync(target, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        return false;
+      }
+    }
+    try {
+      File(target).createSync(exclusive: true);
+    } on FileSystemException {
+      if (File(target).existsSync()) return false;
+      rethrow;
+    }
+    try {
+      File(target).writeAsBytesSync(bytes, flush: true);
+    } on FileSystemException {
+      File(target).deleteSync(); // never a partial document
+      rethrow;
+    }
+    return true;
+  } finally {
+    try {
+      tmp.deleteSync();
+    } on FileSystemException {
+      // already gone
+    }
+  }
+}
+
 Future<(Map<String, Object?>, int)> packDocs(UpdateRun r) async {
   final download = r.download;
   final top = await r.repo.codeTop();
@@ -128,23 +176,7 @@ Future<(Map<String, Object?>, int)> packDocs(UpdateRun r) async {
         final bytes = File(tpl).readAsBytesSync();
         // a regular file in the way throws: a failure, never `kept`
         Directory(File(target).parent.path).createSync(recursive: true);
-        try {
-          // an exclusive create never replaces a document made since the check
-          File(target).createSync(exclusive: true);
-        } on FileSystemException {
-          if (File(target).existsSync()) {
-            out.add({'pack': n, 'id': did, 'path': path, 'status': 'kept'});
-            continue;
-          }
-          rethrow;
-        }
-        try {
-          File(target).writeAsBytesSync(bytes, flush: true);
-        } on FileSystemException {
-          File(target).deleteSync(); // never a partial document
-          rethrow;
-        }
-        status = 'created';
+        status = _publish(target, bytes) ? 'created' : 'kept';
       } on FileSystemException catch (e) {
         final os = e.osError;
         return (

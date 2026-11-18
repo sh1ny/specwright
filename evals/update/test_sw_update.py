@@ -31,6 +31,10 @@ _spec.loader.exec_module(fx)
 _spec = importlib.util.spec_from_file_location("update_jj_store_tests", HERE / "test_update_jj_store.py")
 jjstore = importlib.util.module_from_spec(_spec)  # only a base class is used: its tests are not collected from here
 _spec.loader.exec_module(jjstore)
+_spec = importlib.util.spec_from_file_location("pack_merge", ROOT / "evals" / "packs" / "merge.py")
+merge = importlib.util.module_from_spec(_spec)  # the Step 5 config merge, as the prompt's agent does it
+_spec.loader.exec_module(merge)
+PACK_BASE, PACK_DOMAIN = "valid-ui-base", "valid-domain"
 
 INTERPRETERS = ("bash", "sh", "python", "python3")  # bare-bash: not started
 
@@ -234,6 +238,42 @@ class TestNoInterpreters(SwUpdateCase):
         co.version_file.write_text("0.6.0\n", encoding="utf-8", newline="")
         self.step(self.env, co, dl_new, "finish")
         self.assert_installed_from(co, dl_new)
+        self.assertEqual(self.rec.recorded(), [], "an interpreter was started")
+
+    def test_pack_commands_with_failing_interpreters(self):
+        """The commands the other two tests do not run: pack-check, note-config, pack-verify and pack-docs, with two
+        enabled packs, one of them with a document (the README's Steps 4 to 7 for a repo-local project)."""
+        packs = ROOT / "evals" / "packs" / "fixtures" / "packs"
+        dl_old = fx.make_mini_download(self.tmp / "dl-0.5.0", "0.5.0", 1, provision=False)
+        dl = fx.make_mini_download(self.tmp / "dl-0.6.0", "0.6.0", 1, provision=False)
+        (dl / "packs").mkdir()
+        for name in PACK_BASE, PACK_DOMAIN:
+            shutil.copytree(packs / name, dl / "packs" / name)
+        co = fx.make_checkout(self.tmp, "0.5.0", download=dl_old)
+        enable = ["--pack", PACK_DOMAIN, "--pack", PACK_BASE]
+        check = self.step(self.env, co, dl, "pack-check", *enable)
+        self.assertEqual(check["subcommand"], "pack-check", check)
+        plan = self.step(self.env, co, dl, "plan", *enable)
+        self.assertEqual([p["name"] for p in plan["packs"]], [PACK_BASE, PACK_DOMAIN])
+        self.step(self.env, co, dl, "stage", *enable)
+        self.step(self.env, co, dl, "swap", *enable)
+        manifests = [(p["name"], json.loads((dl / "packs" / p["name"] / "pack.json").read_text(encoding="utf-8")))
+                     for p in plan["packs"]]
+        config = co.root / "openspec" / "config.yaml"
+        template = (dl / "templates" / "openspec" / "config.yaml").read_text(encoding="utf-8")
+        text, unmanaged = merge.merge_config(config.read_text(encoding="utf-8"), template, manifests,
+                                             plan["packs_previous"])
+        self.assertEqual(unmanaged, [])
+        config.write_text(text, encoding="utf-8", newline="\n")
+        self.step(self.env, co, dl, "note-config")
+        verify = self.step(self.env, co, dl, "pack-verify")
+        self.assertEqual(verify["problems"], [], verify)
+        co.version_file.write_text("0.6.0\n", encoding="utf-8", newline="")
+        self.step(self.env, co, dl, "finish")
+        docs = self.step(self.env, co, dl, "pack-docs")
+        self.assertEqual([(d["pack"], d["id"], d["status"]) for d in docs["documents"]],
+                         [(PACK_DOMAIN, "gdd", "created")])
+        self.assertTrue((co.code / "docs" / "domain" / "gdd.md").is_file())
         self.assertEqual(self.rec.recorded(), [], "an interpreter was started")
 
 

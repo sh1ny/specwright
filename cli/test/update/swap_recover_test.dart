@@ -156,6 +156,21 @@ void main() {
       expect(co.stagingDirs(), isEmpty);
     });
 
+    test('settings that became invalid since stage stop the swap before the '
+        'lock or any rename', () async {
+      final before = co.installed();
+      await ok('stage');
+      final journal = File(co.journal).readAsStringSync();
+      File('${co.code}/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('review:\n  preship: yes\n');
+      final doc = await stop('swap', 'settings_invalid');
+      expect(doc['message'], startsWith('openspec/specwright.yaml line '));
+      expect(co.installed(), before);
+      expect(File(co.journal).readAsStringSync(), journal);
+      expect(Directory(co.lock).existsSync(), isFalse);
+    });
+
     test('changes in flight that differ from the plan refuse the swap', () async {
       await ok('stage');
       final journal = File(co.journal).readAsStringSync();

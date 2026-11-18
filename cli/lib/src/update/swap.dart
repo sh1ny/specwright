@@ -645,6 +645,9 @@ void _saveLocalConfig(UpdateRun r, Journal j) {
 
 /// `sw update swap`: the document and its exit status.
 Future<(Map<String, Object?>, int)> swapUpdate(UpdateRun r) async {
+  // settings edited since stage stop here, before the lock, the journal or
+  // the store gate: every role, also one whose swap never asks a VCS question
+  r.repo;
   r.acquireLock();
   try {
     final j = r.readJournal();

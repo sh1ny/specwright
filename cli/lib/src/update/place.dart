@@ -79,6 +79,7 @@ Future<BinaryCheck> checkBinary(
       [path, 'version', '--json'],
       cwd: p.dirname(path),
       stdoutCap: cap,
+      stderrCap: cap,
       deadline: deadline,
     );
   } on Object catch (e) {
@@ -92,7 +93,7 @@ Future<BinaryCheck> checkBinary(
       '$path version --json passed its deadline (${deadline.inSeconds} s)',
     );
   }
-  if (result.outputTooLarge || result.stderr.length > cap) {
+  if (result.outputTooLarge) {
     return fail('$path version --json wrote more than 1 MiB');
   }
   if (result.exitCode != 0) {

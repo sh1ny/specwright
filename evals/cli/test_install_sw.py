@@ -85,21 +85,27 @@ class TestInstallSw(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.bin.iterdir()), ["THIRD_PARTY_NOTICES.txt", EXE])
 
     def test_interface_mismatch_places_nothing(self):
+        # A main install's project is the downloaded tree the task runs in: here ROOT. A pending journal there must
+        # survive the probe, which runs from ROOT; a staged one is what a recovery would discard.
+        state = ROOT / "openspec" / ".specwright"
+        journal = state / "update.json"
+        if journal.exists():
+            self.skipTest("this checkout has an update in flight")
         self.bin.mkdir(parents=True)
         (self.bin / EXE).write_text("existing\n", encoding="utf-8")
         (self.bin / "THIRD_PARTY_NOTICES.txt").write_text("old notice\n", encoding="utf-8")
-        project = self.tmp / "project"
-        (project / "openspec" / ".specwright").mkdir(parents=True)
-        (project / "openspec" / ".specwright" / "update-journal.json").write_text('{"state":"pending"}\n', encoding="utf-8")
-        (project / "openspec" / ".specwright" / "VERSION").write_text("0.1.0\n", encoding="utf-8")
-        before_home, before_project = snapshot(self.home), snapshot(project)
+        state.mkdir(parents=True, exist_ok=True)
+        journal.write_text('{"format": 2, "phase": "staged", "from": "0.36.0", "to": "0.37.0", "targets": [], '
+                           '"groups": []}\n', encoding="utf-8")
+        self.addCleanup(journal.unlink, True)
+        before_home, before_state = snapshot(self.home), snapshot(state)
         before_build = sorted(p.name for p in BUILD_DIR.iterdir()) if BUILD_DIR.is_dir() else []
         done = self.task("--expect-update-interface", "2")
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("update interface 3", done.stderr)
         self.assertIn("expected 2", done.stderr)
         self.assertEqual(snapshot(self.home), before_home)
-        self.assertEqual(snapshot(project), before_project)
+        self.assertEqual(snapshot(state), before_state, "the probe touched the project's journal or state")
         # the build is deleted: nothing is left behind in cli/build
         after_build = sorted(p.name for p in BUILD_DIR.iterdir()) if BUILD_DIR.is_dir() else []
         self.assertEqual(after_build, before_build)

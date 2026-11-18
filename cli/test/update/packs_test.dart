@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:specwright_cli/src/update/openspec.dart';
 import 'package:specwright_cli/src/update/options.dart';
 import 'package:specwright_cli/src/update/packs.dart';
@@ -613,6 +614,35 @@ void main() {
         'kept',
       );
       expect(File('$code/$gdd').readAsStringSync(), '# Ours\n');
+    });
+
+    test('a run killed before publishing leaves no document, so a rerun '
+        'creates it whole', () async {
+      domainPack();
+      record({
+        'domain': entry({'gdd': gdd}),
+      });
+      // what a run killed mid-write leaves: its own temporary file, cut short
+      final dead = File('$code/docs/domain/.gdd.md.pack-docs-999999.tmp')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# GD');
+      final (status, doc) = await docs();
+      expect(status, 0, reason: '$doc');
+      expect(
+        (doc['documents'] as List)
+            .cast<Map<String, Object?>>()
+            .single['status'],
+        'created',
+      );
+      expect(File('$code/$gdd').readAsStringSync(), '# GDD\n\nFill in.\n');
+      expect(
+        Directory('$code/docs/domain')
+            .listSync()
+            .map((e) => fwd(e.path).split('/').last)
+            .toSet(),
+        {'gdd.md', p.basename(dead.path)},
+        reason: "this run's own temporary file is removed",
+      );
     });
 
     test('no record, or no documents in it, is nothing to do', () async {
