@@ -1,6 +1,6 @@
 # 0028. Ported scripts are shims that resolve the project's `sw`
 
-- Status: accepted
+- Status: superseded by 0040
 - Date: 2026-11-06
 - Adds to: 0017 (`vcs.sh` keeps its path and its JSON and exit-code contract) and 0027 (coexistence until M8; exact version, no fallback)
 
