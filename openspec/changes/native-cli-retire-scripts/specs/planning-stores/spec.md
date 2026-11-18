@@ -149,7 +149,7 @@ For a store-backed change, with the gate lock held, `specwright-branch` SHALL co
 - **THEN** the lock is removed and stdout has `"removed": true`; the same call on a lock that has a token prints `"error": "gate_not_owner"` and leaves it
 
 ### Requirement: The gate lock keeps its on-disk form
-`sw gate` SHALL use the same lock directory and the same `owner` lines, plus a `token:` line, that the inline shell lock of earlier versions used and that `sw update` uses, so a session on an older version and a `sw update` in progress see and respect a lock taken through `sw gate`, and `sw gate` sees theirs. `sw update`'s own use of the lock SHALL be unchanged.
+`sw gate` SHALL use the same lock directory (`<store's git common dir>/specwright-gate.lock`) and the same `owner` lines (`time:`, `change:`, `code:`, plus a `token:` line as `sw update` writes it), byte-compatible with the inline shell lock of earlier versions and with `sw update`'s lock, so a session on an older version and a `sw update` in progress see and respect a lock taken through `sw gate`, and `sw gate` sees theirs. `sw update`'s own use of the lock SHALL be unchanged.
 
 #### Scenario: Lock taken by an older version
 - **WHEN** a session on an earlier version took the lock with `mkdir` and wrote its `owner` file, and `sw gate lock` runs for another change
