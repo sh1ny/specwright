@@ -134,26 +134,26 @@ The install/update SHALL record each step in a journal, `openspec/.specwright/up
 - **THEN** the run first resumes or rolls back the 0.6.0 update as above and reports it, and only then starts the 0.6.1 update
 
 ### Requirement: Update installs a release tag by default
-The install/update SHALL download the latest release tag (`v<version>`) of the repository unless the user names a version or asks for `main`, and SHALL report the ref it installed. It SHALL fall back to `main` only when no tag exists. A chosen ref older than the prompt's minimum release (0.6.0), or whose update script reports another interface than the prompt drives, SHALL be refused before staging, offering `main`.
+The install/update SHALL download the latest release tag (`v<version>`) of the repository unless the user names a version or asks for `main`, and SHALL report the ref it installed. It SHALL fall back to `main` only when no tag exists. A ref older than the minimum release (0.37.0, the first with `sw update`), or whose `sw update interface` is not the prompt's, SHALL be refused before any write, naming the tag's own README prompt, and offering `main` when the latest tag predates the minimum.
 
 #### Scenario: Latest tag
-- **WHEN** the repository has tags `v0.5.0` and `v0.6.0` and the user names no version
-- **THEN** the update installs the `v0.6.0` tree and the report names `v0.6.0`
+- **WHEN** the repository has tags `v0.36.0` and `v0.37.0` and the user names no version
+- **THEN** the update installs the `v0.37.0` tree and the report names `v0.37.0`
 
 #### Scenario: Named version has no tag
-- **WHEN** the user asks for version 0.7.0 and the repository has no tag `v0.7.0`
-- **THEN** the update stops before staging, names `v0.7.0` and the tags that exist, and writes no file
+- **WHEN** the user asks for version 0.38.0 and the repository has no tag `v0.38.0`
+- **THEN** the update stops before staging, names `v0.38.0` and the tags that exist, and writes no file
 
 #### Scenario: Named version predates the update script
-- **WHEN** the user asks for version 0.5.0 and the tag `v0.5.0` exists
-- **THEN** the update stops before staging, says versions before 0.6.0 cannot be installed by this update, and writes no file
+- **WHEN** the user asks for version 0.36.0 and the tag `v0.36.0` exists
+- **THEN** the update stops before staging, says versions before 0.37.0 cannot be installed by this prompt and that the `v0.36.0` README prompt installs it, and writes no file
 
 #### Scenario: Latest tag predates the update script
-- **WHEN** the user names no version and the highest tag is `v0.5.0` (this prompt's change is merged but 0.6.0 is not yet released)
-- **THEN** the update stops before staging, names `v0.5.0` and the minimum release 0.6.0, offers to install `main`, and writes no file
+- **WHEN** the user names no version and the highest tag is `v0.36.0` (this prompt's change is merged but 0.37.0 is not yet released)
+- **THEN** the update stops before staging, names `v0.36.0` and the minimum release 0.37.0, offers to install `main`, and writes no file
 
 #### Scenario: Script interface differs from the prompt
-- **WHEN** the downloaded update script reports an interface the prompt does not drive
+- **WHEN** the checked temporary `sw`'s `sw update interface` reports an interface the prompt does not drive
 - **THEN** the update stops before staging, names the ref and both interfaces, and writes no file
 
 #### Scenario: No tags
@@ -233,7 +233,7 @@ When a change in flight fails validation against the target version, at the plan
 - **THEN** the refusal names `add-x` and the target's error, makes no claim about an installed version, and the update writes no file
 
 ### Requirement: The release-tag lookup is bounded
-The `git ls-remote --tags` that `update.sh` runs to name the highest release tag SHALL run under a 60-second deadline and read at most 32 MiB. When it passes a bound, its process tree SHALL be stopped and the tag SHALL be reported as not named, with the limit (`deadline_exceeded` or `response_too_large`) and the command in the reason. The refusal it belongs to SHALL still be made, and nothing SHALL be written.
+The `git ls-remote --tags` that `sw update plan` runs to name the highest release tag SHALL run under a 60-second deadline and read at most 32 MiB. When it passes a bound, its process tree SHALL be stopped and the tag SHALL be reported as not named, with the limit (`deadline_exceeded` or `response_too_large`) and the command in the reason. The refusal it belongs to SHALL still be made, and nothing SHALL be written.
 
 #### Scenario: Tags listed in time
 - **WHEN** another project's update would leave the store's 0.6 version, and the download's origin lists `v0.6.0` and `v0.6.2` within the deadline
@@ -241,7 +241,7 @@ The `git ls-remote --tags` that `update.sh` runs to name the highest release tag
 
 #### Scenario: Hung tag lookup
 - **WHEN** another project's update would leave the store's 0.6 version, and the download's origin never answers `git ls-remote`
-- **THEN** `update.sh plan` exits 1 within 60 seconds plus 10 seconds with the `store_version` refusal, whose message says the highest 0.6 release could not be named and names `deadline_exceeded` and `git ls-remote`, no file is written, and no process it started is still running
+- **THEN** `sw update plan` exits 1 within 60 seconds plus 10 seconds with the `store_version` refusal, whose message says the highest 0.6 release could not be named and names `deadline_exceeded` and `git ls-remote`, no file is written, and no process it started is still running
 
 #### Scenario: Oversized tag list
 - **WHEN** the download's origin answers `git ls-remote` with more than 32 MiB
@@ -355,21 +355,6 @@ The install's settings merge SHALL treat every key under `packs.` in `openspec/s
 - **WHEN** a later template adds an uncommented example key under `packs:`
 - **THEN** the merge does not add it to the user's file
 
-### Requirement: The install prompt drives update-script interface 2
-`update.sh` SHALL report `interface: 2` and SHALL write journal format 2; a format-1 journal is still recovered, and an older download refuses a format-2 journal as unreadable. The install prompt SHALL accept interface 2, and interface 1 only when `specwright.yaml` enables no pack and the installed `packs.json`, if any, lists no enabled pack; otherwise it SHALL stop before any write, naming the interface found and the one needed.
-
-#### Scenario: Matching interface
-- **WHEN** the prompt runs a download whose `plan` reports `interface: 2`
-- **THEN** the install continues to `stage`
-
-#### Scenario: An older download without packs
-- **WHEN** the prompt installs 0.12.3 (`interface: 1`) in a project with no `packs:` key and no enabled pack in `packs.json`
-- **THEN** the install continues as before this change and writes no pack state
-
-#### Scenario: An older download with packs enabled
-- **WHEN** the prompt runs a download whose `plan` reports `interface: 1`, and `packs:` enables `web` or the installed `packs.json` still lists `web` as enabled
-- **THEN** the prompt stops before `stage`, says that download predates packs (remove the packs with a 0.16.0 or later release first) and names interfaces 1 and 2, and no file changes
-
 ### Requirement: Pack documents are created by an idempotent step after the stamp
 `update.sh pack-docs` SHALL create each missing pack document from its template, never overwrite one, and report each as `created` or `kept`. It SHALL depend on no journal, so a rerun after an interruption completes it; the prompt SHALL run it after the stamp.
 
@@ -393,11 +378,11 @@ The install's settings merge SHALL treat every key under `packs.` in `openspec/s
 - **THEN** plan reports `packs_previous` as an empty list, and Step 5 removes no `[pack:` line of a pack that is not enabled now
 
 ### Requirement: A tagged install places a checked sw for the host
-When the downloaded copy offers the `sw` install step and the installed ref is a release tag, the install/update SHALL download the host's binary asset and `SHA256SUMS` from that tag's GitHub release, check the binary's SHA-256 against its line before the file runs, then confirm that `sw version --json` reports the tag's version and the skills' interface. Only then SHALL it place the file at `<home>/.specwright/bin/<version>/sw[.exe]`.
+When the installed ref is a release tag, `sw update sw-install` SHALL download the host's binary asset and `SHA256SUMS` from that tag's GitHub release, check the binary's SHA-256 against its line before the file runs, then confirm that `sw version --json` reports the tag's version and the interface of the running `sw`. Only then SHALL it place the file at `<home>/.specwright/bin/<version>/sw[.exe]`. The binary it runs from MAY be the agent's checked temporary copy.
 
 #### Scenario: Install of a tag with binaries on Linux x64
-- **WHEN** the install of `v0.24.0` runs on a linux-x64 host and the release carries `sw-linux-x64` and a `SHA256SUMS` line that matches it
-- **THEN** `<home>/.specwright/bin/0.24.0/sw` exists and is executable, `sw version --json` there reports `0.24.0`, and the report names that path
+- **WHEN** the install of `v0.37.0` runs on a linux-x64 host and the release carries `sw-linux-x64` and a `SHA256SUMS` line that matches it
+- **THEN** `<home>/.specwright/bin/0.37.0/sw` exists and is executable, `sw version --json` there reports `0.37.0`, and the report names that path
 
 #### Scenario: SPECWRIGHT_HOME set
 - **WHEN** `SPECWRIGHT_HOME` names a directory during the install
@@ -406,6 +391,10 @@ When the downloaded copy offers the `sw` install step and the installed ref is a
 #### Scenario: Host on a platform with no target
 - **WHEN** the install of a tag with binaries runs on a host that is none of the five targets (for example windows-arm64)
 - **THEN** the install stops before any installed file changes, naming the host platform and the five targets
+
+#### Scenario: Run from the agent's temporary copy
+- **WHEN** `sw update sw-install` runs from the checked copy in the temporary directory
+- **THEN** it places a separately downloaded and checked file at the final path, never moves or renames its own running file, and the temporary copy is left for the prompt to delete
 
 ### Requirement: The macOS install clears quarantine only on the file it checked
 On macOS the install SHALL remove the `com.apple.quarantine` attribute only from the downloaded file whose SHA-256 it has just checked, before it runs that file. A file whose checksum did not match SHALL never have the attribute removed and SHALL never run.
@@ -449,19 +438,23 @@ Each download of a release asset or `SHA256SUMS` SHALL run under a 120-second de
 - **THEN** the install stops naming `response_too_large` and the asset, and no partial file is left
 
 ### Requirement: An install without release binaries says so
-When the installed ref is `main`, or the downloaded copy does not offer the `sw` install step (a release older than the first with binaries), the install/update SHALL install no `sw`, change nothing under `<home>/.specwright/bin/`, continue, and say in its report that no `sw` was installed and why.
+When the installed ref is `main`, `sw update sw-install` SHALL place no binary and SHALL report `skipped` with a message, changing nothing under `<home>/.specwright/bin/`. The `main` install's `sw` comes from its build, and the report SHALL say that `sw` was built from the clone.
 
 #### Scenario: Install of main
-- **WHEN** the user installs `main`
-- **THEN** the install completes, places no binary, and the report says `sw not installed: main has no release binaries`
+- **WHEN** `sw update sw-install` runs with `--ref main`
+- **THEN** it reports `action: skipped`, places no binary, and no file under `<home>/.specwright/bin/` is created, changed or removed
 
 #### Scenario: Install of an older tag
-- **WHEN** the user installs `v0.23.0`, whose downloaded copy has no `sw` install step
-- **THEN** the install completes as before this change, places no binary, and the report says that release ships no `sw`
+- **WHEN** the user asks for `v0.23.0`, which ships no `sw`
+- **THEN** the prompt stops before any write under the minimum-release rule, and nothing under `<home>/.specwright/bin/` changes
+
+#### Scenario: Install of main reports the build
+- **WHEN** the user installs `main` and `mise run install-sw` placed `sw`
+- **THEN** the report says `sw built from main` with the placed path
 
 #### Scenario: Existing binaries stay untouched on main
-- **WHEN** the user installs `main` and `<home>/.specwright/bin/0.24.0/sw` exists
-- **THEN** that file's bytes, mode and timestamps are unchanged, and no other file under `<home>/.specwright/bin/` is created or removed
+- **WHEN** `sw update sw-install --ref main` runs and `<home>/.specwright/bin/0.36.0/sw` exists
+- **THEN** that file's bytes, mode and timestamps are unchanged
 
 ### Requirement: Placing sw is atomic and keeps other versions
 The install SHALL write the binary into its version directory under a temporary name and rename it to `sw[.exe]` only after the checks pass, so the final path never holds a partial or unchecked file. It SHALL never change another version's directory. A file already at the final path SHALL be kept only when it has the release's SHA-256 and passes the resolver's check. Any other file there SHALL be replaced by that rename.
@@ -506,31 +499,165 @@ A rollback or a discarded update SHALL leave every file under `<home>/.specwrigh
 - **THEN** `VERSION` reads `0.23.0`, and the report says no `sw` serves 0.23.0, which no 0.23.0 skill needs
 
 ### Requirement: An install whose VCS steps need a missing sw says so
-When the installed version's `vcs.sh` runs `sw` (0.25.0 or newer) and, after the install, the resolver finds no matching `sw` for the project, the Step 8 report SHALL say that every branch, commit and finish step stops with `sw_missing` until one is placed, and SHALL name a tagged install and the contributor bootstrap in `CONTRIBUTING.md`. Otherwise it SHALL add no such warning.
+After the install, the Step 8 report SHALL run the resolver for the project. When it finds no matching `sw`, the report SHALL say that every branch, commit and finish step stops with `sw_missing` until one is placed, and SHALL name a tagged install and the contributor bootstrap in `CONTRIBUTING.md`. Otherwise it SHALL add no such warning.
 
 #### Scenario: main install with no binary
-- **WHEN** the user installs `main` at 0.25.0 or newer, and `<home>/.specwright/bin/<that version>/` holds no matching `sw`
-- **THEN** the Step 8 report holds `sw not installed: main has no release binaries`, says VCS steps stop with `sw_missing`, and names a tagged install and the `CONTRIBUTING.md` bootstrap
+- **WHEN** a `main` install built `sw`, and the version directory was emptied before Step 8
+- **THEN** the Step 8 report says VCS steps stop with `sw_missing`, and names a tagged install and the `CONTRIBUTING.md` bootstrap
 
 #### Scenario: main install with a matching binary already placed
-- **WHEN** the user installs `main` and the resolver accepts an `sw` already placed for that version
+- **WHEN** the user installs `main` and the resolver accepts the built `sw`
 - **THEN** the Step 8 report holds no `sw_missing` warning
 
 #### Scenario: Older tag whose scripts need no sw
-- **WHEN** the user installs `v0.23.0`, which ships no `sw` and whose `vcs.sh` does not run one
-- **THEN** the install completes as before and the Step 8 report holds no `sw_missing` warning
+- **WHEN** the user asks for `v0.23.0`, whose `vcs.sh` runs no `sw`
+- **THEN** the prompt stops under the minimum-release rule before Step 8, so no `sw_missing` warning is reported
 
 #### Scenario: Tagged install with sw placed
 - **WHEN** a release tag's `sw-install` returns `installed`, `replaced` or `kept`
 - **THEN** the Step 8 report holds no `sw_missing` warning
 
 ### Requirement: Contributors place a tree-built sw with one task
-`mise run install-sw` in a Specwright checkout SHALL build `sw` from the tree and place it at `<home>/.specwright/bin/<tree VERSION>/sw[.exe]` (`<home>` as the resolver finds it), only after `sw-path.sh --file <built binary> --version <tree VERSION>` accepts the build, and SHALL replace an existing file there only by a rename. It SHALL print the placed path.
+`mise run install-sw` in a Specwright checkout SHALL build `sw` from the tree and run the built binary to place it at `<home>/.specwright/bin/<tree VERSION>/sw[.exe]` (`<home>` as the resolver finds it), with no bash. It SHALL place it only after the built binary reports the tree's `VERSION` and the skills' interface, SHALL place the notice before the binary, and SHALL replace an existing file there only by a rename. It SHALL print the placed path.
 
 #### Scenario: Build placed
-- **WHEN** `mise run install-sw` runs in a checkout whose `VERSION` reads `0.25.0`
-- **THEN** `<home>/.specwright/bin/0.25.0/sw[.exe]` exists, `sw-path.sh --code <a project at 0.25.0>` prints it, and the task prints that path
+- **WHEN** `mise run install-sw` runs in a checkout whose `VERSION` reads `0.37.0`
+- **THEN** `<home>/.specwright/bin/0.37.0/sw[.exe]` exists with `THIRD_PARTY_NOTICES.txt` beside it, `sw-path.sh --code <a project at 0.37.0>` prints it, and the task prints that path
 
 #### Scenario: Build fails the check
 - **WHEN** the built binary reports another version or interface than the tree's
-- **THEN** the task exits non-zero, names the mismatch, and leaves any existing file under `<home>/.specwright/bin/0.25.0/` unchanged
+- **THEN** the task exits non-zero, names the mismatch, and leaves any existing file under `<home>/.specwright/bin/0.37.0/` unchanged
+
+#### Scenario: No bash on PATH
+- **WHEN** on Windows `mise run install-sw` runs with no `bash` on `PATH`
+- **THEN** the build is placed as above
+
+### Requirement: sw update carries every update subcommand
+`sw update <subcommand>` SHALL provide `plan`, `stage`, `swap`, `note-config`, `finish`, `recover`, `pack-check`, `pack-verify`, `pack-docs` and `sw-install` with the options, JSON fields, error and refusal codes, exit codes and file effects that the requirements of this capability give for `update.sh`. Each such requirement SHALL apply to `sw update` as written, messages included. Only the order of fields MAY differ.
+
+#### Scenario: A workflow update through sw update
+- **WHEN** an update from 0.36.0 to 0.37.0 runs `sw update plan`, `stage`, `swap`, `note-config` and `finish` with the prompt's options
+- **THEN** `plan` reports `kind: workflow` and the changes in flight with their results, every target holds the 0.37.0 copy after `swap`, and after the stamp `finish` leaves no staging directory, `old/` copy or journal
+
+#### Scenario: A refusal keeps its code
+- **WHEN** `sw update plan` finds a change in flight that fails validation against the new schema
+- **THEN** it exits 1 with `"error": "refused"`, a `change_invalid` refusal naming the change, and `"unchanged": true`, and writes no file outside its scratch directory
+
+#### Scenario: A usage error
+- **WHEN** `sw update` runs with no subcommand, or with `--rollback` on `plan`
+- **THEN** it prints one JSON document with `"error": "usage"` and exits 2, and nothing is written
+
+### Requirement: sw update needs no bash or Python
+`sw update` SHALL do its own work without starting `bash`, `sh` or a Python interpreter. It SHALL copy, rename and remove files with its own operations, read the store's VCS state and run fenced calls through `sw`'s own interfaces, and start `git` and `openspec` directly through the native launcher.
+
+#### Scenario: Install and update with failing interpreters first on PATH
+- **WHEN** on Linux, Windows and macOS a fresh install and a workflow update run every `sw update` subcommand with recording `bash`, `sh`, `python` and `python3` that exit 1 placed first on `PATH`
+- **THEN** each subcommand returns the document it returns without them, `VERSION` is stamped after `finish`, and no recorder ran
+
+#### Scenario: Interrupted swap recovered with failing interpreters
+- **WHEN** a `sw update swap` is killed after its first rename, and `sw update recover` runs with the same recorders first on `PATH`
+- **THEN** recover reports `resumed update to <to>` or `rolled back to <from>` as the staged copy decides, and no recorder ran
+
+#### Scenario: A jj store read in process
+- **WHEN** an owner's swap checks a `planning_store.vcs: jj` store that is busy with a change bookmark
+- **THEN** the swap stops with `store_busy` naming the bookmark, and no `vcs.sh` or `as.sh` ran
+
+### Requirement: sw update refuses settings the shared reader refuses
+`sw update` SHALL read `openspec/specwright.yaml` only through `sw`'s shared settings reader. When that reader refuses the file, `plan` and every subcommand that reads it SHALL stop before any write with `settings_invalid`, naming the file, the line and the problem, and saying to fix the file and rerun the update. A missing file SHALL read as no settings.
+
+#### Scenario: A plain yes in the settings
+- **WHEN** `openspec/specwright.yaml` sets `review.preship` to a plain `yes` and the prompt runs `sw update plan`
+- **THEN** `plan` exits 1 with `settings_invalid`, names the file, the line and that `yes` must be written `true`, and no file is written
+
+#### Scenario: No settings file
+- **WHEN** the code checkout has no `openspec/specwright.yaml` (a fresh install)
+- **THEN** `plan` reads no `main_branch`, `vcs` or `planning_store` setting, detects the main branch, and continues
+
+### Requirement: update.sh hands over to the download's sw
+Until scripts are retired, `scripts/update.sh` SHALL be a shim that resolves `sw` for the download's `VERSION` at `<home>/.specwright/bin/<version>/` and hands every argument to `sw update` unchanged. When no matching `sw` is found it SHALL print `sw_missing` JSON and exit 1. It SHALL never run another implementation, another version or an `sw` from `PATH`.
+
+#### Scenario: Shim with the download's sw placed
+- **WHEN** `bash <download>/scripts/update.sh plan --code <project>` runs, and the download's `VERSION` is 0.37.0 with `<home>/.specwright/bin/0.37.0/sw` placed
+- **THEN** it prints the document that `sw update plan --code <project> --download <download>` prints, with the same exit status
+
+#### Scenario: Shim with no matching sw
+- **WHEN** the shim runs and `<home>/.specwright/bin/0.37.0/` holds no `sw`, or one that reports another version
+- **THEN** it prints `{"ok":false,"error":"sw_missing",...}`, exits 1, and no file is written
+
+### Requirement: sw update recovers journals that older update scripts left
+`sw update recover`, and the recovery `plan` runs first, SHALL read and recover a pending journal of format 1 or format 2 written by an older `update.sh`, with the same outcomes as for its own journal. A journal of an unknown format, or one that does not parse as a whole, SHALL be refused as `journal_unreadable`, and nothing SHALL be touched.
+
+#### Scenario: A format-2 journal from update.sh
+- **WHEN** an update by the 0.36.0 `update.sh` was interrupted mid-swap with a complete staged copy, and the 0.37.0 prompt then runs `sw update plan`
+- **THEN** `plan` reports `recovered` with `resumed update to <to>` and then plans the 0.37.0 update
+
+#### Scenario: Unknown journal format
+- **WHEN** the journal reads `"format": 9`
+- **THEN** `plan` refuses with `journal_unreadable`, `"unchanged": true`, and every installed file and the journal are unchanged
+
+### Requirement: The install prompt drives sw update interface 3
+`sw update interface` SHALL print `{"ok":true,"interface":3}` and read or write nothing else. `sw update plan` SHALL also report `interface: 3`, and `sw update` SHALL write journal format 2. The prompt SHALL drive only `sw update`, and SHALL run `sw update interface` on the checked temporary binary before `sw-install`, recovery or any other write. A failing run or another interface SHALL stop the prompt, naming the ref, the interface found or that there is none, and interface 3.
+
+#### Scenario: Matching interface
+- **WHEN** the prompt runs `sw update interface` with the checked temporary 0.37.0 `sw`
+- **THEN** it prints `interface: 3` and the install continues to `sw-install`
+
+#### Scenario: Interface mismatch
+- **WHEN** the checked temporary `sw` reports another interface, or has no `update` command, while `<home>/.specwright/bin/<version>/` holds an `sw` and its notice and the project holds a pending journal
+- **THEN** the prompt stops before `sw-install`, names the ref and both interfaces, deletes the temporary directory, and the placed binary, the notice, the journal and every installed file are unchanged
+
+### Requirement: The install prompt needs no bash or Python
+The install prompt SHALL check `openspec`, `git`, `curl` and the host's SHA-256 tool (`Get-FileHash` on Windows, `shasum -a 256` or `sha256sum` elsewhere) and SHALL NOT check for or run bash or Python. Every step SHALL be given as a command the agent can run in the host's own shell, with no bash syntax. A missing tool SHALL stop the prompt before any write, naming the tool.
+
+#### Scenario: Windows host without Git Bash or Python
+- **WHEN** the prompt runs on Windows with `git`, `openspec` and `curl.exe` on `PATH`, PowerShell's `Get-FileHash`, and no `bash` or `python`
+- **THEN** a tagged install completes, `VERSION` is stamped, and the report names the placed `sw`
+
+#### Scenario: No SHA-256 tool
+- **WHEN** on Linux neither `sha256sum` nor `shasum` is found
+- **THEN** the prompt stops before any download is run, names both tools, and writes no file
+
+### Requirement: The agent fetches and checks the first sw before any write
+For a release tag, the agent SHALL fetch the host's `sw` asset, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS` into the temporary directory with `curl` and check both files' SHA-256. Only when both match SHALL it make the asset executable (POSIX), clear macOS quarantine and run `sw version --json`, which SHALL report the tag's version. Then `sw update interface` and `sw update sw-install` run, and every later step uses the placed binary.
+
+#### Scenario: Fresh install on macOS arm64
+- **WHEN** the prompt installs `v0.37.0` on macOS arm64 with no `sw` placed, starting from a download without the executable bit
+- **THEN** the agent's check passes, the file is made executable before it runs, `sw update sw-install` reports `installed` with `<home>/.specwright/bin/0.37.0/sw`, and `plan`, `stage` and `swap` run from that path
+
+#### Scenario: Hash mismatch at the bootstrap
+- **WHEN** the downloaded asset's SHA-256 differs from its `SHA256SUMS` line
+- **THEN** the prompt stops before any write, names the asset and both hashes, deletes the file without running it, and nothing under `<home>/.specwright/bin/` changes
+
+#### Scenario: Missing or corrupt notice at the bootstrap
+- **WHEN** the release has no `THIRD_PARTY_NOTICES.txt`, or its SHA-256 differs from its line
+- **THEN** the prompt stops before any write, names the notice and the release, and the temporary binary is never made executable and never run
+
+#### Scenario: Version report differs from the tag
+- **WHEN** the checked binary's `sw version --json` reports another version than the tag's
+- **THEN** the prompt stops before any write, naming both versions, and nothing is placed
+
+### Requirement: The bootstrap downloads are bounded and https only
+Each `curl` fetch of the bootstrap SHALL accept only https, on the first URL and on every redirect, and SHALL be bounded to 120 seconds and 64 MiB. A fetch that fails or passes a bound SHALL stop the prompt before any write, naming the file and the cause, and its partial file SHALL be deleted.
+
+#### Scenario: Bootstrap downloads in time
+- **WHEN** the asset, the notice and `SHA256SUMS` arrive over https within the bounds, through GitHub's redirect to its https asset host
+- **THEN** the hash checks run on the whole files
+
+#### Scenario: Stalled, oversized or downgraded bootstrap download
+- **WHEN** a bootstrap download does not finish within 120 seconds, exceeds 64 MiB, or redirects to a URL that is not https
+- **THEN** `curl` fails, the prompt stops before any write naming the file and the cause, deletes the partial file, and runs nothing
+
+### Requirement: A main install builds sw from the clone
+A `main` install SHALL build `sw` from the downloaded tree with `mise run install-sw -- --expect-update-interface 3`, and SHALL run every `sw update` step with the placed binary. The task SHALL check the build's `sw update interface` before placing it. A missing `mise`, a failed build or a failed check SHALL stop the prompt before any write, naming the tool or the failure.
+
+#### Scenario: main install with mise
+- **WHEN** the user asks for `main` and `mise` with the pinned Dart SDK is available
+- **THEN** `sw` is placed at `<home>/.specwright/bin/<main's VERSION>/`, the install completes, and the report names `main` and that path
+
+#### Scenario: main install without mise
+- **WHEN** the user asks for `main` and `mise` is not on `PATH`
+- **THEN** the prompt stops before any write in the project, says a `main` install builds `sw` with `mise run install-sw` and names `mise`, and no file under the project or `<home>/.specwright/bin/` changes
+
+#### Scenario: main build reports another interface
+- **WHEN** the user asks for `main`, the build's `sw update interface` reports another interface or fails, `<home>/.specwright/bin/<main's VERSION>/` already holds an `sw` and its notice, and the project holds a pending journal
+- **THEN** the task stops before placement and the prompt stops, naming `main`, the interface found or that there is none, and interface 3, and the placed binary, the notice, the journal and every installed file are unchanged

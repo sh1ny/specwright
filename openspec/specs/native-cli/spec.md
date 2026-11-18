@@ -511,6 +511,10 @@ For its own work `sw` SHALL start its own binary only as the bounded process hel
 - **WHEN** `sw vcs plan` or a PR cleanup plan prints a command that names `vcs.sh` or `pr-pair.sh`
 - **THEN** the document holds that command and no such script ran
 
+#### Scenario: sw update checks a downloaded sw and starts no script
+- **WHEN** `sw update sw-install` places a downloaded `sw` and an owner's `sw update swap` checks a jj store, with recording `update.sh`, `vcs.sh`, `as.sh` and `sw-path.sh` sentinels in the download's scripts directories and failing `python` and `python3` first on `PATH`
+- **THEN** the downloaded binary ran only as `version --json`, no sentinel recorded a run, and neither interpreter ran
+
 ### Requirement: A launch-site allowlist guards process starts
 A test over `cli/lib/src`, run on Linux, Windows and macOS, SHALL list every call that starts a process and every caller of the process runners, and SHALL fail on a launch site missing from its allowlist, on a self-launch other than the helper and the evaluator, on a shipped script name in a launch's arguments, and on a shipped script name written anywhere under `cli/lib/src` outside a listed printed-command, message or label site.
 
@@ -523,7 +527,7 @@ A test over `cli/lib/src`, run on Linux, Windows and macOS, SHALL list every cal
 - **THEN** the test fails, naming the file and the call
 
 #### Scenario: A script in launch arguments fails
-- **WHEN** a listed launch site passes `as.sh`, `vcs.sh`, `pr-pair.sh`, `pr-snapshot.sh`, `pr-reply.sh`, `review-run.sh`, `release.sh` or a `.py` file as a launch argument
+- **WHEN** a listed launch site passes `as.sh`, `vcs.sh`, `pr-pair.sh`, `pr-snapshot.sh`, `pr-reply.sh`, `review-run.sh`, `release.sh`, `update.sh`, `install-sw.sh` or a `.py` file as a launch argument
 - **THEN** the test fails, naming the script and the site
 
 #### Scenario: A self-launch outside the allowed two fails
@@ -533,6 +537,10 @@ A test over `cli/lib/src`, run on Linux, Windows and macOS, SHALL list every cal
 #### Scenario: A script name built away from the launch fails
 - **WHEN** a source file under `cli/lib/src` writes `as.sh` or another shipped script name into a value outside a listed printed-command, message or label site, and passes that value to a listed launch
 - **THEN** the test fails, naming the file and the script
+
+#### Scenario: The binary checks of sw update are listed
+- **WHEN** the allowlist test runs on the `sw update` sources
+- **THEN** the run of a downloaded or placed `sw` with `version --json` is listed as a binary check, and any other argument list at that site fails the test
 
 ### Requirement: sw starts external tools without a shell
 For its own work `sw` SHALL start each external tool (`git`, `gh`, `jj`, `but`, reviewer CLIs and the like) directly, with no `bash`, `sh` or `cmd.exe` between `sw` and the tool, apart from `.cmd` and `.bat` commands on Windows, which run through `cmd.exe` as the batch-shim requirement states. A fenced command the caller asked for by name SHALL run as given, even when it is a shell or an interpreter.
