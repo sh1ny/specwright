@@ -53,7 +53,7 @@ flowchart LR
 
 ## ⚡ Install / Update
 
-> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `bash` with a POSIX userland (`awk`, `sed`, `grep`; Git Bash on Windows), and Python 3.8 or later (legacy entry points and their shared `sw` resolver). Native `sw review` operations do not invoke Python, Bash or Node for their own work. The PR skills also need `gh` 2.48 or later; without it the install still completes and reports `PR workflow not ready`.
+> **Prerequisites:** core: the OpenSpec CLI at the pinned version (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), `openspec init` run in the project, `git`, `curl` (`curl.exe` on Windows) and a SHA-256 tool (`Get-FileHash` in PowerShell on Windows, `sha256sum` or `shasum` elsewhere). The install needs no bash and no Python: the agent fetches the first `sw` with `curl` and checks it with the hash tool, and every later step is `sw update`. A `main` install also needs `mise`, which builds `sw` from the clone. The installed skills' script entry points (`vcs.sh`, `review-run.sh`, the PR scripts) still use `bash` and Python 3.8 or later when they run; the install does not check for them. Native `sw review` operations do not invoke Python, Bash or Node for their own work. The PR skills also need `gh` 2.48 or later; without it the install still completes and reports `PR workflow not ready`.
 
 > **OpenSpec version:** the install compares `openspec --version` with the version Specwright is pinned to (`OPENSPEC_VERSION`, 1.16.0) and stops on any other version, newer patch releases included, before it writes a file. To install with another version anyway, say so in your own words, naming the version you have: `continue with OpenSpec <version>` (for example `continue with OpenSpec 1.15.0`). The override covers that one run, the agent never offers it, and the report marks it `(pinned 1.16.0, override)`.
 
@@ -73,13 +73,14 @@ Step 1 - Check prerequisites
 - Run `openspec --version` and record its output (Step 3 checks it). If
   it fails, tell the user to install the pinned version
   (`npm i -g @fission-ai/openspec@1.16.0`) and STOP.
-- Core: run `git --version` and `bash -c 'command -v awk sed grep'`. If
-  either fails, tell the user to install git, or bash with a POSIX userland
-  (Git Bash on Windows), and STOP.
-- Core: look for Python 3.8+: try `python3`, then `python`, each with
-  `-c 'import sys; sys.exit(sys.version_info < (3, 8))'`. If neither
-  passes, tell the user to install Python 3.8 or later (the design and
-  pre-ship reviews run through it) and STOP.
+- Core: run `git --version` and `curl --version` (`curl.exe --version` on
+  Windows). If either fails, tell the user to install it, naming the tool,
+  and STOP before any download.
+- Core: find a SHA-256 tool for checking downloads. On Windows run
+  `Get-Command Get-FileHash` in PowerShell. On Linux and macOS run
+  `sha256sum --version`, and if that fails `shasum --version`. If none runs,
+  tell the user to install `sha256sum` or `shasum` (name both on Linux and
+  macOS), write no file, and STOP before any download.
 - PR workflow (the `specwright-pr` scripts): run `gh --version` and check
   it is 2.48 or later. If not, record `gh 2.48+` for Step 8 and continue:
   it does not block the install or the version stamp.
@@ -138,27 +139,33 @@ Ask which agents this project uses (several may apply) and confirm the paths:
   stays the user's choice (ADR 0021); only packs narrow it (ADR 0023).
 
 Step 3 - Choose the version, download and compare versions
-- Choose the ref to install. This prompt needs release 0.6.0 as its minimum
-  and drives update-script interface 2 (Step 4).
+- Choose the ref to install. This prompt needs release 0.37.0 as its minimum
+  and drives `sw update` interface 3 (Step 4).
   - Default: the latest release tag. Run
     `git ls-remote --tags --refs https://github.com/sh1ny/specwright 'v*'`,
     keep the tags of the form `v<major>.<minor>.<patch>` and take the highest
     by semver (semantic version order, not text order).
-  - A version the user named (say `0.6.1`) is the tag `v0.6.1`. If that tag
+  - A version the user named (say `0.37.1`) is the tag `v0.37.1`. If that tag
     does not exist, STOP before Step 4: name it and list the tags that exist,
     and write no file.
   - `main` only when the user asks for it, or when the repository has no
     release tag: then install `main` and record `main (no release tag)` for
     Step 8.
-  - Minimum release: if the chosen tag (the named one, or the highest) is
-    below 0.6.0, STOP before Step 4: name the tag and the minimum release
-    0.6.0, say versions before 0.6.0 cannot be installed by this update,
-    offer to install `main` instead, and write no file. Install `main` only
-    if the user then says so.
-- Clone the chosen ref to a temporary directory:
-  `git clone --depth 1 --branch <tag> https://github.com/sh1ny/specwright <tmp>`
+  - Minimum release, named version: if the user's tag is below 0.37.0 (the
+    first release with `sw update`), STOP before Step 4: name the tag and the
+    minimum release 0.37.0, say versions before 0.37.0 cannot be installed by
+    this prompt and that the README prompt of that tag installs it
+    (`https://github.com/sh1ny/specwright/blob/<tag>/README.md`), and write no
+    file.
+  - Minimum release, latest tag: if the highest tag is below 0.37.0, STOP
+    before Step 4: name it and the minimum release 0.37.0, offer to install
+    `main` instead, and write no file. Install `main` only if the user then
+    says so.
+- Create a temporary directory `<tmp>`. Clone the chosen ref to
+  `<download>`, which is `<tmp>/download`:
+  `git clone --depth 1 --branch <tag> https://github.com/sh1ny/specwright <download>`
   (`--branch main` for `main`; any other method that gets exactly that ref
-  works). Record the ref installed (`v0.6.0`, `main`, or
+  works). Record the ref installed (`v0.37.0`, `main`, or
   `main (no release tag)`) for Step 8.
 - Read the downloaded `VERSION` and `OPENSPEC_VERSION` (`<pin>`, the
   OpenSpec version this release is checked against) and the installed
@@ -206,65 +213,101 @@ Step 3 - Choose the version, download and compare versions
   step's checks on the new copy with the override in force. The override holds
   for this run only: nothing is stored, and the next run checks again. With
   it, record `OpenSpec <found> (pinned <pin>, override)` for Step 8.
-- Check the update script, before Step 4 stages anything: the download must
-  hold `scripts/update.sh`, and `bash <download>/scripts/update.sh plan`
-  (the options of Step 4, without the `--pack` and `--pack-doc` options, which
-  an older script refuses as a usage error; it writes nothing, except that it
-  first recovers a pending journal, see Step 4) must report `interface` 2. Accept interface 2, and interface 1
-  only when `openspec/specwright.yaml` enables no pack and the installed
-  `openspec/.specwright/packs.json`, if there is one, lists no enabled pack;
-  the install then continues as before packs and writes no pack state. If the
-  download has no `scripts/update.sh`, or `plan` reports another interface,
-  STOP before Step 4: name the ref, the interface found (or that there is
-  none) and interface 2 (the one this prompt drives), delete the temporary
-  directory and write no file. When `plan` reports interface 1 and a pack is
-  enabled or still listed in `packs.json`, STOP before `stage` in the same way,
-  say that download predates packs (remove the packs with a 0.16.0 or newer
-  release first), and name interfaces 1 and 2.
-- Install the native `sw` binary, before Step 4 stages anything. Only a
-  release tag whose `plan` document (the check above) has an `sw` field
-  takes this step:
-  - Run `bash <download>/scripts/update.sh sw-install` with `--code`,
-    `--root`, `--download` and `--ref` as in Step 4. It downloads the
-    host's binary and `SHA256SUMS` from that tag's GitHub release, checks
-    them and places `<home>/.specwright/bin/<version>/sw[.exe]` (`<home>`
-    is `SPECWRIGHT_HOME`, else your home directory). It writes nothing in
-    the project. Record its `path` and `action` (installed, replaced or
-    kept) for Step 8.
-    From 0.30.0, it also downloads `THIRD_PARTY_NOTICES.txt`, verifies both
-    hashes before running the binary, and places the notice beside it before
-    keeping or replacing the binary. Missing, corrupt or unplaceable notices
-    stop the install before staging. Older tags require no notice.
-  - `"ok": false` is a stop: STOP before Step 4, name its `error` and show
+- Get `sw`, before Step 4 stages anything. Every later step runs
+  `sw update` with the binary this bullet places, called `<sw>` below
+  (`<home>/.specwright/bin/<version>/sw`, `sw.exe` on Windows; `<home>` is
+  `SPECWRIGHT_HOME`, else your home directory). A release tag takes the fetch
+  below, and `main` takes the build after it.
+  - Release tag: `<boot>` is `<tmp>/boot`, `<release>` is
+    `https://github.com/sh1ny/specwright/releases/download/<tag>`, and
+    `<asset>` is the host's binary: `sw-linux-x64`, `sw-linux-arm64`,
+    `sw-macos-arm64`, `sw-macos-x64` or `sw-windows-x64.exe`. On any other
+    host, STOP before Step 4, naming the host and these five assets. Use the
+    commands of the host's shell as they stand, PowerShell on Windows and the
+    POSIX ones on Linux and macOS, with a path in quotes when it holds spaces.
+  - Fetch `<asset>`, `THIRD_PARTY_NOTICES.txt` and `SHA256SUMS` into `<boot>`,
+    each with this command, `<file>` set to the file's name. It accepts https
+    only, on the first URL and on every redirect, and stops at 120 seconds or
+    64 MiB:
+    - POSIX fetch: `curl -fL --proto =https --proto-redir =https --max-time 120 --max-filesize 64M -o <boot>/<file> <release>/<file>`
+    - PowerShell fetch: `curl.exe -fL --proto =https --proto-redir =https --max-time 120 --max-filesize 64M -o <boot>\<file> <release>/<file>`
+    A fetch that fails or passes a bound is a stop: STOP before Step 4, name
+    the file and the cause, delete its partial file and `<tmp>`, run nothing
+    and write no file. A release with no `THIRD_PARTY_NOTICES.txt` or no
+    `SHA256SUMS` stops the same way, naming the file and the release.
+  - Check both hashes, the asset's and the notice's, before anything runs.
+    Run the hash command on each file and compare the first word of its
+    output, in any letter case, with that file's line in `SHA256SUMS`
+    (`<hash>  <name>`). On Linux and macOS use the `sha256sum` line, or the
+    `shasum` line when `sha256sum` is not installed:
+    - POSIX hash: `sha256sum <boot>/<file>`
+    - POSIX hash fallback: `shasum -a 256 <boot>/<file>`
+    - PowerShell hash: `(Get-FileHash -Algorithm SHA256 <boot>\<file>).Hash`
+    A hash that differs from its line, or a file with no line, is a stop:
+    STOP before Step 4, name the file and both hashes, delete the file
+    without running it, delete `<tmp>` and write no file.
+  - Only when both hashes match, on Linux and macOS make the asset executable
+    (a fresh download is not), and on macOS clear quarantine when the check
+    lists `com.apple.quarantine`. Windows has no such step:
+    - POSIX chmod: `chmod 0755 <boot>/<asset>`
+    - POSIX quarantine check: `xattr <boot>/<asset>`
+    - POSIX quarantine: `xattr -d com.apple.quarantine <boot>/<asset>`
+  - Run the checked file. Its `version` must be the tag's version without
+    the `v`; if not, STOP before Step 4, name both versions, delete `<tmp>`
+    and write no file:
+    - POSIX run: `<boot>/<asset> version --json`
+    - PowerShell run: `<boot>\<asset> version --json`
+  - Check the interface: run `<boot>/<asset> update interface` (the same path
+    with `update interface` in place of `version --json`). It reads and
+    writes nothing and must print `"interface":3`. If the run fails (a
+    release with no `update` command) or prints another number, STOP before
+    Step 4: name the ref, the interface found (or that there is none) and
+    interface 3 (the one this prompt drives), delete `<tmp>` and write no
+    file. Nothing is recovered, placed or written first.
+  - Place it: run `<boot>/<asset> update sw-install --code <code checkout>
+    --root <root.path> --download <download> --ref <tag>`. It downloads the
+    host's binary, `SHA256SUMS` and the notice again, checks them, places the
+    notice and then the binary at `<sw>`, and never moves the copy it runs
+    from. It writes nothing in the project. Record its `path` (that is
+    `<sw>`) and `action` (installed, replaced or kept) for Step 8.
+    `"ok": false` is a stop: STOP before Step 4, name its `error` and show
     its `message`. With `assets_not_uploaded`, say the release's binaries
-    are not uploaded yet and to rerun this prompt once they are. Delete the
-    temporary directory and write no file.
-  - `main`, and a `plan` without the `sw` field (a release from before
-    0.24.0), skip this step. Record `sw not installed: main has no release
-    binaries`, or `sw not installed: <tag> ships no sw`, for Step 8.
+    are not uploaded yet and to rerun this prompt once they are. Delete
+    `<tmp>` and write no file.
+  - `main`: no release carries a binary, so build it from the clone. Run
+    `mise --version`; if it fails, STOP before Step 4, say a `main` install
+    builds `sw` with `mise run install-sw`, name `mise`, delete `<tmp>` and
+    write no file. Then run `mise run install-sw -- --expect-update-interface 3`
+    in `<download>`. The task builds `sw`, checks that its `update interface`
+    is 3 before placing anything, places it at `<sw>` and prints that path.
+    A failed build, or an interface other than 3 (or none), is a stop: STOP
+    before Step 4, name `main`, the failure or the interface found (or that
+    there is none) and interface 3, delete `<tmp>` and write no file. Record
+    `sw built from main` and the path for Step 8.
 
-Step 4 - Install files (the update script stages, then swaps)
-`update.sh` below is the downloaded `<download>/scripts/update.sh`, run from the
-download with `bash`, never an installed copy. Every call takes the same
+Step 4 - Install files (`sw update` stages, then swaps)
+`sw update` below is `<sw> update`, the binary Step 3 placed for the
+downloaded version (or built from `main`), never an `sw` found on `PATH` or one
+of another version. Every call takes the same
 options: `--code <code checkout>`, `--root <root.path>`, `--skills <dir>` for
 each chosen skills directory, `--agents claude=<dir>` and `--agents omp=<dir>`
 for each chosen agents directory, `--download <download>` and `--ref <ref>`.
 Pass each pack that `packs:` enables as `--pack <name>`, and each of its
 documents as `--pack-doc <pack>.<id>=<path>`, where `<path>` is the
 `packs.<name>.documents.<id>` override in `openspec/specwright.yaml`, else the
-manifest's default path. It prints one JSON document; `"ok": false` with an `error` is a stop. The
-script replaces every `specwright-*` skill directory, the agent files and
+manifest's default path. It prints one JSON document; `"ok": false` with an `error` is a stop. It
+replaces every `specwright-*` skill directory, the agent files and
 `<root>/openspec/schemas/specwright/` with the downloaded ones, so files
 removed upstream do not linger, and keeps the user's `model:` value in an
 installed agent file (say so in Step 8).
-- Run `update.sh` `plan`. Read `from`, `to`, `kind` (fresh, patch,
+- Run `sw update` `plan`. Read `from`, `to`, `kind` (fresh, patch,
   workflow, reinstall or downgrade), `role`, `orphans`, `journal`, `warnings`,
   the changes in flight with their validation result, `refusals`, the adopted
   pack skills and `packs_previous` (the packs enabled before this update,
   from a pending journal, else from `packs.json`; Step 5 and `pack-verify`
   use it, never the `packs.json` the swap wrote).
-  - An earlier update that did not finish: the first `plan` of this run (the
-    Step 3 check) runs `recover` on its journal before anything else and
+  - An earlier update that did not finish: the first `plan` of this run
+    runs `recover` on its journal before anything else and
     reports a `recovered` object. Tell the user its `message`:
     `discarded unfinished update to <to>`, `resumed update to <to>` or
     `rolled back to <prev>`, followed by its `sw_note` when that is not null
@@ -275,8 +318,8 @@ installed agent file (say so in Step 8).
     `recovered.store_written` in `plan`'s document, in place of `swap`'s.
   - A refusal (exit 1, `"error": "refused"`, listed in `refusals`): a change
     in flight that fails validation against the new schema, a store another
-    project owns, a busy store, and so on. Tell the user each refusal as the
-    script words it and STOP. Pack refusals are `pack_unknown`,
+    project owns, a busy store, and so on. Tell the user each refusal as
+    `sw update` words it and STOP. Pack refusals are `pack_unknown`,
     `pack_requires`, `pack_cycle`, `packs_on_store`, `packs_user_level`,
     `unmanaged_skill`, `pack_doc_path` and the pack-check codes: report each
     one; no installed file changes.
@@ -289,19 +332,19 @@ installed agent file (say so in Step 8).
       the restart notice (Step 8), and say that rerunning this prompt once the
       refusal is resolved completes the update.
   - `orphans` are installed `specwright-*` names with no downloaded
-    counterpart (the script never touches them): list them and ask before
+    counterpart (`sw update` never touches them): list them and ask before
     removing them, and remove only those the user agrees to, after `swap`.
   - Keep `warnings` for Step 8 (a change in flight found only on a remote
     branch is not validated), and the changes validated against `<to>`.
   - Keep the adopted pack skills (an identical hand copy that the install now
     records) for Step 8.
-- Run `update.sh` `stage`: it copies every new skill directory, agent file and
+- Run `sw update` `stage`: it copies every new skill directory, agent file and
   the schema into a staging directory next to its target
   (`.specwright-update-*/`) and verifies the copy. On `verification_failed`
   (it names the files and removes the staging) STOP and report that the
   installed version is unchanged. Until the swap, every installed file keeps
   its previous content.
-- Run `update.sh` `swap`. When it reports `ok`, set `swapped` to true and keep
+- Run `sw update` `swap`. When it reports `ok`, set `swapped` to true and keep
   its `store_written` value and its `restart` notice. When it refuses (the
   changes in flight differ from the plan, the store is busy, ...), `swapped`
   stays false: STOP and report that the installed version is unchanged. When
@@ -347,17 +390,15 @@ Step 5 - Merge <root>/openspec/config.yaml (never remove unrelated content)
   (escape `"` and backslash): an unquoted entry starting `[` is a YAML flow
   sequence, and OpenSpec 1.16.0 then drops that artifact's whole rules list.
   `context:` stays a block scalar.
-- After the merge (or the copy), run `update.sh` `note-config`: it records the
+- After the merge (or the copy), run `sw update` `note-config`: it records the
   merged config.yaml's hash in the journal, so a later rollback knows what this
   install wrote. On `"ok": false` (or if it was interrupted), report it and
   stop: run `note-config` again once its error is resolved, and go on only
   when it reports `"ok": true`. Without that record a later rollback cannot
   tell the merged config.yaml from the user's own.
-- Then, when `plan` reported interface 2, run `update.sh` `pack-verify`, with
+- Then run `sw update` `pack-verify`, with
   `--previous <name>` for each name in `packs_previous`. On failure (`missing`,
   `duplicate` or `not_enabled`), report each line and do not stamp `VERSION`.
-  An interface-1 download has no `pack-verify` (Step 3 accepts it only with no
-  pack enabled): skip it.
 
 Step 6 - Settings (openspec/specwright.yaml in the code checkout)
 - If it does not exist, copy the downloaded
@@ -410,9 +451,8 @@ Step 7 - Verify, stamp the version, finish, clean up
   is in them (a `gitbutler` directory that `but skill install` created at the
   user's yes in Step 6 is not Specwright's: leave it and do not count it).
 - The pack skills of every enabled pack exist in every chosen skills
-  directory, and `update.sh` `pack-verify` passes. Skip the `pack-verify`
-  check for an interface-1 download (it has no `pack-verify` and no pack is
-  enabled) and when Step 5 was skipped (no pack is enabled on a store, and the
+  directory, and `sw update` `pack-verify` passes. Skip the `pack-verify`
+  check when Step 5 was skipped (no pack is enabled on a store, and the
   config.yaml is another project's).
 - Every downloaded agent file exists in each chosen agents directory (the
   `model:` line may differ, per Step 4).
@@ -426,22 +466,21 @@ Step 7 - Verify, stamp the version, finish, clean up
   downloaded `templates/openspec/specwright.yaml` (commented-out paths are
   optional), unless the user chose otherwise in Step 6.
 - If every check passes, copy `VERSION` to `openspec/.specwright/VERSION` (the
-  stamp), then run `update.sh` `finish`: it removes the previous copies, the
+  stamp), then run `sw update` `finish`: it removes the previous copies, the
   staging directories and the journal (run it again if it was interrupted).
-  After the stamp, when `plan` reported interface 2, run `update.sh`
-  `pack-docs`: it creates each missing pack
+  After the stamp, run `sw update` `pack-docs`: it creates each missing pack
   document from its template, never overwrites one, and reports each as
   `created` or `kept`. It needs no journal, so run it again if it was
   interrupted.
   If any check fails, do not write the stamp: report each failed check and how
   to fix it, and never claim success. Say the update is swapped but not
   stamped: after the fix, rerun this prompt (it goes straight to Steps 5-7),
-  or roll back with `update.sh` `recover --rollback` (it reports
+  or roll back with `sw update` `recover --rollback` (it reports
   `rolled back to <prev>`, plus an `sw_note` when no `sw` serves `<prev>`, and
   stops when the store is busy or no longer this project's).
-- Delete the temporary directory.
+- Delete `<tmp>`.
 
-Step 8 - Report briefly: the ref installed (`v0.6.0`, `main` as asked, or
+Step 8 - Report briefly: the ref installed (`v0.37.0`, `main` as asked, or
 `main (no release tag)`), version change (fresh, <old> → <new>, or reinstall),
 directories used, skills and agents installed (new vs updated, models kept),
 orphans removed or kept, config and settings created/merged/unchanged (keys
@@ -464,19 +503,21 @@ and say the user commits them in the store; this prompt never commits.
   relying on them.
 - Without a swap (a refused, stopped or failed update that changed no installed
   file): no restart notice. Say that the installed version is unchanged.
-Report the `sw` binary as recorded in Step 3: its path and whether it was
-installed, replaced or kept, or the `sw not installed: ...` line.
-Then check whether the installed skills can run: when the installed `VERSION`
-is 0.25.0 or newer (its `vcs.sh` runs `sw`), run `bash <skills dir>/specwright-pr/scripts/sw-path.sh --code <code checkout>`.
-If the resolver finds no matching `sw` binary (it exits non-zero, as after a
-`main` install with `sw not installed: main has no release binaries`), add
-the line `sw_missing: every branch, commit and finish step stops with
-sw_missing until a matching sw is placed`, and say to use a tagged install,
-or, from a Specwright checkout, the `CONTRIBUTING.md` bootstrap. Otherwise add
-no such warning. A matching binary already placed gets no warning. A tagged
-install whose `sw-install` returned installed, replaced or kept gets no
-warning. An installed version older than 0.25.0 (its `vcs.sh` runs no `sw`)
-gets no warning.
+Report the `sw` binary as recorded in Step 3: for a tag, its path and whether
+it was installed, replaced or kept; for `main`, `sw built from main` and its
+path.
+Then check whether the installed skills can run, with the resolver's own check
+done by hand (no script): the file `<home>/.specwright/bin/<installed VERSION>/sw`
+(`sw.exe` on Windows) must exist, and running it with `version --json` must
+report the installed `VERSION`. If the resolver finds no matching `sw` binary
+(the file is missing, or reports another version, as after a `main` install
+whose build was removed), add the line `sw_missing: every branch, commit and
+finish step stops with sw_missing until a matching sw is placed`, and say to
+use a tagged install, or, from a Specwright checkout, the `CONTRIBUTING.md`
+bootstrap. Otherwise add no such warning. A matching binary already placed gets
+no warning. A tagged install whose `sw-install` returned installed, replaced or
+kept gets no warning. A ref older than 0.37.0 never reaches this step (Step 3
+stops it before any write), so it gets no warning.
 Report the OpenSpec version as recorded in Step 3: `OpenSpec <found> (pinned)`,
 or `OpenSpec <found> (pinned <pin>, override)` after an override. If Step 1
 recorded a missing PR prerequisite, add the line
@@ -742,7 +783,7 @@ Specwright works with [OpenSpec stores](https://github.com/Fission-AI/OpenSpec) 
 - **One change in progress per store per machine.** OpenSpec registers one checkout per store, so a store on another change's branch is busy: the branch gate stops and names that branch. Finish or archive that change first. The gate itself holds a lock (`specwright-gate.lock` in the store's git dir) while it creates both branches; a lock left by an interrupted session is removed only after you confirm no other session is in its gate.
 - **The PR pair.** A store-backed change has the same branch name in both repos and, in `finish: pr`, up to two PRs: the store PR (planning) and the code PR, linked to each other. The expected PR set is the PRs the change can have: a planning-only change (no code commits, marked with `specwright-change.yaml`) expects only the store PR. Watch, feedback and cleanup act on the expected PRs only, and the roadmap counts a store-backed change done only with proof that its code is merged too, or that it is planning-only; otherwise it shows "planning merged, code pending".
 - **Store settings.** `planning_store:` in the code repo's `openspec/specwright.yaml` holds the store's `vcs` (`git` default, or `jj` for a colocated store; see **Jujutsu** above), `main_branch`, `login`, `validate` (runs in `<root.path>`; `pr.validate` never runs in the store) and `reviewers`. Each but `vcs` defaults to the code repo's value; `vcs` is never inherited. See the commented block in the template.
-- **Install.** The install prompt (through `update.sh`, see below) puts the schema and the `context:` lines in `<root.path>/openspec/` only for the store's owner, and leaves those files uncommitted in the store for you to commit; `specwright.yaml`, skills and agents go in the code repo. The install never commits.
+- **Install.** The install prompt (through `sw update`, see below) puts the schema and the `context:` lines in `<root.path>/openspec/` only for the store's owner, and leaves those files uncommitted in the store for you to commit; `specwright.yaml`, skills and agents go in the code repo. The install never commits.
 - **Owner and `STORE`.** `<root.path>/openspec/.specwright/STORE` records the store's schema `version:` and its `owner:` (the code repo's `origin` as `host/owner/repo`, else `path:<checkout>`). The first project to update a store without one claims it, and the report says so. The report gives this project's role: `none` (repo-local), `claim`, `owner` or `other`. Commit `STORE` in the store, as the install leaves it uncommitted.
 - **Only the owner updates the store's schema.** Only the owner writes the store's schema and the `context:` lines of its `config.yaml`, and only while the store is free: on its main with nothing uncommitted except this update's staging. Another project installs its code-side files only (skills, agents, `VERSION`) and is refused, before any write, when its target differs from the store's recorded version in major or minor: the report names the store's version, its owner and the highest release tag with the store's major and minor version, and says the owner updates the store first.
 - **Busy store.** When the store is on a change branch or dirty, a patch update whose staged schema is byte-identical to the installed one swaps the code side only (the report says the store schema was already current); any other update is refused, naming the store's branch: finish that change first. An owner's workflow update is also refused while another project's change is in flight in the store, naming each.
@@ -844,7 +885,7 @@ Mark a task as yours with `[user]` right after its id, lowercase: `- [ ] 4.3 [us
 
 Store evals (`eval-store-*`) need two repos, so the fixture is a directory, not a repo: `code/` is the project, `store/` is its OpenSpec store. The fixture also writes `eval.env`. The agent under test must run `source <repo>/eval.env` first and work from `<repo>/code`. The file points the OpenSpec registry and config (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`) and Specwright's watch state (`SPECWRIGHT_STATE_DIR`) at the run directory, and puts a fake `gh` first on `PATH`. Your own registry and state are never touched. The fake `gh` ([`evals/fakes/gh.py`](evals/fakes/gh.py)) keeps its state in `gh-state.json` and logs every call to `gh-log.jsonl`; `grade.py` reads both repos and that log.
 
-CI ([`.github/workflows/evals.yml`](.github/workflows/evals.yml)) runs every suite on Linux, Windows and macOS for each pull request, so do not run a whole suite locally. Run only the test module you are writing (`python -m unittest evals/<suite>/test_<x>.py`), and after adding a tracked file the map test (`python -m unittest evals/runner/test_suite_map.py`). The suites cover the fake `gh` (`evals/pr-pair`), the reviewer routes (`evals/review-routes`, against fake `codex`, `claude` and `omp` executables), `release.sh` (`evals/release`, against scratch repos and the fake `gh`) and `update.sh` (`evals/update`: the staged swap, journal and recovery, against scratch repos). At a milestone close, rely on a green `gh workflow run evals.yml --ref main` run on the closing head of `main`. [`evals/suites.json`](evals/suites.json) maps each tracked path to its suites. `evals/run.py` runs the suites in parallel, one process per test file; CI uses it. [`evals/timings.md`](evals/timings.md) records the suite wall times before and after the runner.
+CI ([`.github/workflows/evals.yml`](.github/workflows/evals.yml)) runs every suite on Linux, Windows and macOS for each pull request, so do not run a whole suite locally. Run only the test module you are writing (`python -m unittest evals/<suite>/test_<x>.py`), and after adding a tracked file the map test (`python -m unittest evals/runner/test_suite_map.py`). The suites cover the fake `gh` (`evals/pr-pair`), the reviewer routes (`evals/review-routes`, against fake `codex`, `claude` and `omp` executables), `release.sh` (`evals/release`, against scratch repos and the fake `gh`) and `sw update` (`evals/update`, through the `update.sh` shim: the staged swap, journal and recovery, against scratch repos). At a milestone close, rely on a green `gh workflow run evals.yml --ref main` run on the closing head of `main`. [`evals/suites.json`](evals/suites.json) maps each tracked path to its suites. `evals/run.py` runs the suites in parallel, one process per test file; CI uses it. [`evals/timings.md`](evals/timings.md) records the suite wall times before and after the runner.
 
 To check that delegated agents can load skills, start a new session after the install, dispatch `specwright-implementer` (and `specwright-implementer-light`, if you use the cheap tier) with a small packet that names one installed skill (with its `SKILL.md` path) and look for its `Skill` call before any edit. A session that was already running before the install still has the old agent definitions, so a check there proves nothing: start a new session and run it again.
 

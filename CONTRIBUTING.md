@@ -11,14 +11,14 @@ Specwright is built with Specwright: changes to it go through the same branch â†
 
 ## Bootstrap a checkout from its own tree
 
-The install prompt installs tags and `main`, and a `main` install places no `sw`. Since 0.25.0 every `vcs.sh` call runs `sw`, so a checkout that dogfoods Specwright (this repository's own install, or a clone of it) stops its VCS steps with `sw_missing` until it holds the `sw` of its installed version. To install from the checkout's own tree, run these steps from its root, in this order:
+The install prompt installs tags and `main`, and a `main` install builds `sw` with `mise run install-sw`. Since 0.25.0 every `vcs.sh` call runs `sw`, so a checkout that dogfoods Specwright (this repository's own install, or a clone of it) stops its VCS steps with `sw_missing` until it holds the `sw` of its installed version. To install from the checkout's own tree, run these steps from its root, in this order:
 
-1. Run `bash scripts/update.sh --code . --skills <dir> --agents <kind>=<dir> --download . --ref <branch> plan`. Repeat `--skills <dir>` and `--agents <kind>=<dir>` for each target (`plan` refuses with `no_targets` without one); this repository uses `--skills .claude/skills --agents claude=.claude/agents`. `--download .` makes the checkout the download tree, and `--ref` is free text recorded as the installed ref (the checkout's branch).
-2. Run the same command with `stage`, then with `swap`. They copy the skills, agents and schema.
-3. Run the install prompt's Step 7 checks: `openspec schema validate specwright`, and the installed skills and agents match the tree.
-4. Only when they pass, copy `VERSION` to `openspec/.specwright/VERSION` (the stamp). `finish` refuses with `not_stamped` until it reads the new version.
-5. Run the same `update.sh` command with `finish`.
-6. Run `mise run install-sw`. It builds `cli/`, checks the build, and places it at `<home>/.specwright/bin/<VERSION>/sw[.exe]`, with `cli/THIRD_PARTY_NOTICES.txt` beside it; it prints the binary path.
+1. Run `mise run install-sw`. It builds `cli/`, checks the build, and places it at `<home>/.specwright/bin/<VERSION>/sw[.exe]`, with `cli/THIRD_PARTY_NOTICES.txt` beside it; it prints the binary path, called `<sw>` below. Add `-- --expect-update-interface 3` to check that the build's `sw update interface` is the one the install prompt drives; a different number stops before anything is placed.
+2. Run `<sw> update plan --code . --skills <dir> --agents <kind>=<dir> --download . --ref <branch>`. Repeat `--skills <dir>` and `--agents <kind>=<dir>` for each target (`plan` refuses with `no_targets` without one); this repository uses `--skills .claude/skills --agents claude=.claude/agents`. `--download .` makes the checkout the download tree, and `--ref` is free text recorded as the installed ref (the checkout's branch).
+3. Run the same command with `stage`, then with `swap`. They copy the skills, agents and schema.
+4. Run the install prompt's Step 7 checks: `openspec schema validate specwright`, and the installed skills and agents match the tree.
+5. Only when they pass, copy `VERSION` to `openspec/.specwright/VERSION` (the stamp). `finish` refuses with `not_stamped` until it reads the new version.
+6. Run the same `<sw> update` command with `finish`.
 7. Run `bash skills/specwright-pr/scripts/sw-path.sh --code .`. It prints the same path when the checkout's `VERSION` matches the placed binary.
 
 The build workflow packages the same LF notice bytes and SHA-256 sidecar for every target from version 0.30.0. Release attachment reads back the notice and five binaries before uploading `SHA256SUMS` last. Old tags keep the five-binary format. When changing runtime dependencies or the embedded SDK, review their licences and update `cli/THIRD_PARTY_NOTICES.txt` (ADR 0032); an integrity hash does not check attribution completeness.
@@ -65,7 +65,7 @@ Your agent follows the installed copies, not the source. A change that edits a s
 - Reviewer routes (`review-run.sh`): CI runs the `review-routes` suite; locally run only the module you are writing. It uses fake CLIs from `evals/fakes/` and hides any real `codex`, `claude` or `omp` on `PATH`. A change to a route's command line needs a new trial against the real CLIs, recorded in `evals/review-routes/trial.md`.
 - Release script (`release.sh`): CI runs the `release` suite; locally run only the module you are writing.
 - Finish script (`finish.sh`, the deferred-archive undo plan): CI runs the `finish` suite; locally run only the module you are writing. Each test builds a temp git repo, applies the printed `script` and `after_rerun` with `bash`, and asserts on the tree, index and refs.
-- Update script (`scripts/update.sh`, the install prompt's Step 4): CI runs the `update` suite; locally run only the module you are writing. It works on scratch repos and shims `mv`, `cp` and `rm` to interrupt every step.
+- Update (`sw update`, run through the `scripts/update.sh` shim, the install prompt's Step 4): CI runs the `update` suite; locally run only the module you are writing. It works on scratch repos and interrupts every file operation through `SPECWRIGHT_UPDATE_KILL_AT`. `evals/update/test_bootstrap.py` runs the README's per-OS bootstrap commands against a real release, in CI only.
 - PR scripts: exercise the changed path against a real PR, and keep them to bash, git, `gh` and the Python 3.8+ standard library. CI runs the `pr-pair` suite; locally run only the module you are writing. `test_pass_write_on_python38` (in `evals/pr-pair/`) runs a pass write on Python 3.8: install one with `uv python install 3.8` (or point `SPECWRIGHT_PY38` at a 3.8 interpreter); without one the test is skipped and names the missing interpreter.
 
 ## Releases
