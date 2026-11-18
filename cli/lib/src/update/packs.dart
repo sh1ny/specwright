@@ -960,18 +960,26 @@ bool _declares(Map<String, Object?> manifest, String id) {
 }
 
 /// True when directories [a] and [b] hold the same files with the same
-/// bytes.
+/// bytes. A link in either is never the same: an adopted directory is
+/// replaced whole, so a link the user added would be lost.
 bool sameTree(String a, String b) {
   if (!Directory(a).existsSync() || !Directory(b).existsSync()) return false;
-  Map<String, File> files(String dir) => {
+  Map<String, File>? files(String dir) {
+    final out = <String, File>{};
     for (final e in Directory(
       dir,
-    ).listSync(recursive: true, followLinks: false))
-      if (e is File)
-        resolvePosix(e.path).substring(resolvePosix(dir).length + 1): e,
-  };
+    ).listSync(recursive: true, followLinks: false)) {
+      if (e is Link) return null;
+      if (e is File) {
+        out[resolvePosix(e.path).substring(resolvePosix(dir).length + 1)] = e;
+      }
+    }
+    return out;
+  }
+
   final fa = files(a);
   final fb = files(b);
+  if (fa == null || fb == null) return false;
   if (fa.length != fb.length) return false;
   for (final k in fa.keys) {
     final other = fb[k];

@@ -886,6 +886,24 @@ ${entries.join(',\n')}
       },
     );
 
+    test('settings that turned invalid stop the rollback with the gate lock '
+        'released, and a rerun repeats the store checks', () async {
+      await ok('stage');
+      final lock = readJournal(co.journal)['store_lock'] as String;
+      await ok('swap');
+      final settings = File('${co.code}/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('review:\n  preship: yes\n');
+      await stop('recover', 'settings_invalid', more: ['--rollback']);
+      expect(Directory(lock).existsSync(), isFalse);
+      expect(File(co.journal).existsSync(), isTrue);
+      // the rerun takes the gate again, so a busy store is still refused
+      settings.deleteSync();
+      put(store, 'notes.txt', 'someone is working\n');
+      await stop('recover', 'store_busy', more: ['--rollback']);
+      expect(Directory(lock).existsSync(), isFalse);
+    });
+
     test(
       'a foreign gate lock stops the rollback; the journal is kept',
       () async {

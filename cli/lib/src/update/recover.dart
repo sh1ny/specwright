@@ -133,10 +133,12 @@ Future<void> _recoverGate(
   );
   if (rollback) {
     // design D5: repeat the store checks; a failure releases the lock and
-    // keeps everything
+    // keeps everything. Any failure: invalid settings stop as UpdateStop,
+    // and a gate left held would block every checkout on the store and mark
+    // a rerun's gate as ours, skipping these checks
     try {
       await storeCheck(r, j, swapMode: false);
-    } on UpdateDie {
+    } catch (_) {
       gateRelease(r, g);
       rethrow;
     }

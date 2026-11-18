@@ -127,8 +127,10 @@ LaunchResult _startFailed(String text) => LaunchResult(
 /// Constraint C9: a [stdoutCap] bounds stdout only. Once stdout holds more than
 /// that many bytes the child is killed, and [LaunchResult.outputTooLarge] is
 /// set. A [stderrCap] does the same for stderr, while it is read; only the
-/// self-check of a downloaded `sw` passes one. A capped native executable is not run under a tree stop: overflow
-/// kills the direct child only, as it did before the launcher, so a
+/// self-check of a downloaded `sw` passes one. On the batch path a
+/// [stderrCap] without a [stdoutCap] bounds stdout too (the helper's one
+/// byte bound). A capped native executable is not run under a tree stop:
+/// overflow kills the direct child only, as it did before the launcher, so a
 /// descendant of the tool may outlive it. (A batch file runs under the
 /// helper, whose tree is stopped.) No deadline or byte bound is added to a
 /// call that had none.
@@ -303,6 +305,10 @@ Future<LaunchResult> _native(
       : Timer(deadline, () {
           timedOut = true;
           process.kill(ProcessSignal.sigkill);
+          // a descendant that inherited stdout can keep the pipe open after
+          // the kill: stop waiting for it (the readers are cancelled below)
+          if (!outDone.isCompleted) outDone.complete();
+          settleSink();
         });
   var stdoutBytes = 0;
   var tooLarge = false;
@@ -395,7 +401,10 @@ Future<LaunchResult> _native(
     timer?.cancel();
     if (sinkSettled?.isCompleted == true) await throwSinkError();
     if (tooLarge || timedOut) {
-      await errSub.cancel();
+      await Future.wait([
+        outSub.cancel().catchError((Object _) {}),
+        errSub.cancel().catchError((Object _) {}),
+      ]);
     } else {
       await errDone.future;
     }

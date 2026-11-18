@@ -145,6 +145,15 @@ void main() {
       makeLock(owner: 'pid: soon\nhost: $_host\n');
       expectLocked(make(), contains('pid soon on $_host'));
     });
+
+    test('an owner file that is not UTF-8 is judged, never a crash', () {
+      Directory(lock).createSync(recursive: true);
+      File('$lock/owner').writeAsBytesSync([
+        ...'pid: 12\nhost: $_host\n'.codeUnits,
+        0xff, 0xfe, 0x0a, // not UTF-8
+      ]);
+      expectLocked(make(alive: (_) => true), contains('pid 12 on $_host'));
+    });
   });
 
   group('a dead owner on this host', () {

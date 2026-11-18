@@ -4,6 +4,7 @@ import 'dart:io' as io show pid;
 import '../native/kernel32.dart' as k32;
 import '../native/libc.dart' as libc;
 import 'file_ops.dart';
+import 'text.dart' show decodeLossy;
 
 /// Another update holds the lock (or just took it): reported as `locked`.
 class UpdateLocked implements Exception {
@@ -190,7 +191,8 @@ class UpdateLock {
   String? pid, host;
   final file = File('$lock/owner');
   if (file.existsSync()) {
-    for (final line in file.readAsStringSync().split('\n')) {
+    // read lossily: an owner file that is not UTF-8 is judged, never a crash
+    for (final line in decodeLossy(file.readAsBytesSync()).split('\n')) {
       if (line.startsWith('pid: ')) pid = line.substring(5);
       if (line.startsWith('host: ')) host = line.substring(6);
     }

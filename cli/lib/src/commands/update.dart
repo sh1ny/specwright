@@ -98,6 +98,19 @@ Future<int> runUpdateCommand(
         }),
       );
       return 1;
+    } on FileSystemException catch (e) {
+      writeOut(
+        documentBytes({
+          'ok': false,
+          'interface': updateInterface,
+          'subcommand': 'sw-install',
+          'error': 'file_operation_failed',
+          'message':
+              'a file operation failed: ${e.message}'
+              '${e.path == null ? '' : ' (${e.path})'}',
+        }),
+      );
+      return 1;
     }
   }
   if (options.subcommand == 'pack-check') {

@@ -37,12 +37,21 @@ String posixPath(String path) =>
 
 /// `Path(path).resolve()` as a forward-slash path: absolute, links followed,
 /// `.` and `..` folded. A path that does not exist is made absolute and
-/// normalised, as Python's non-strict `resolve` does.
+/// normalised, and its deepest existing ancestor resolved with the missing
+/// rest appended, as Python's non-strict `resolve` does.
 String resolvePosix(String path) {
-  try {
-    return posixPath(Directory(path).resolveSymbolicLinksSync());
-  } on FileSystemException {
-    // fall through
+  var head = p.normalize(p.absolute(path));
+  final tail = <String>[];
+  while (true) {
+    try {
+      final resolved = Directory(head).resolveSymbolicLinksSync();
+      return posixPath(p.joinAll([resolved, ...tail.reversed]));
+    } on FileSystemException {
+      final parent = p.dirname(head);
+      if (parent == head) break; // nothing of it exists
+      tail.add(p.basename(head));
+      head = parent;
+    }
   }
   return posixPath(p.normalize(p.absolute(path)));
 }
