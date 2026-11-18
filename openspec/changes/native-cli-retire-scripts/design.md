@@ -49,7 +49,7 @@ The proposal (proposal.md) states the goal. The current state this design builds
 
 ### D3: Refuse unrepresentable arguments at the entry
 
-- **Choice:** before dispatch, `sw` checks every argument and prints `bad_argument` naming its position, exit 2. ADR 0034's launch-time refusals stay as a second line.
+- **Choice:** before dispatch, `sw` checks every argument against the raw argument list the OS holds (`GetCommandLineW` on Windows, `/proc/self/cmdline` on Linux, `_NSGetArgv` on macOS) and prints `bad_argument` naming its position, exit 2. On Linux and macOS the Dart runtime refuses non-UTF-8 argv before `main` (task 1.1, A1), so there the refusal is the runtime's: non-zero exit, empty stdout, nothing run; the user accepted that loss (C6). ADR 0034's launch-time refusals stay as a second line.
 - **Rejected:** refusing only where each value is used, because that scatters error names and allows partial work before the stop.
 - **Reversal cost:** low
 - **Important:** yes (binds future changes: CLI contract)
@@ -156,7 +156,7 @@ The proposal (proposal.md) states the goal. The current state this design builds
 | S6 | Evals and CI tools | Stay Python | Port the harness | low | no | agent |
 | D1 | Where the version check runs | Once at the entry | Per command | low | no | agent |
 | D2 | Store-started project selection | Global leading `--project` | `--code` everywhere | medium | yes | user |
-| D3 | Bad arguments | Refused at entry, `bad_argument` | Refused where used | low | yes | user |
+| D3 | Bad arguments | Refused at entry: `bad_argument` on Windows; the runtime's refusal on Linux and macOS (C6) | Refused where used | low | yes | user |
 | D4 | Printed commands | Running binary's absolute path | `<sw>` placeholder | low | yes | user |
 | D5 | Interface | 2 | Keep 1 | low | yes | user |
 | D6 | Gate lock | `sw gate`, shared lock code, token check then remove (parity), `--stale` refuses updates | In `sw vcs`; second implementation | medium | yes | user |
@@ -171,8 +171,8 @@ The proposal (proposal.md) states the goal. The current state this design builds
 
 ## Assumptions
 
-- **A1:** On Linux and macOS, the Dart VM either hands `main` invalid UTF-8 argument bytes in a form `sw` can detect, or replaces them with U+FFFD. Not checked because it depends on the VM's argv decoding, which the repo does not show. Depends on it: D3 and every requirement that names `bad_argument` (native-cli, change-finish, vcs-backends, github-identity). Resolved by a decision gate in the first task: compiled-binary probes on Linux, Windows and macOS, run before any PR exists by pushing the probe commit to a throwaway branch and dispatching `evals.yml` on it (`workflow_dispatch`, `.github/workflows/evals.yml:5`); apply reads the run's conclusion and job logs with `gh run view` and goes on only when the run is green on all three OSes. The gate passes on an OS only when the compiled `sw` reaches `main` with a malformed argument, tells it apart from a valid argument that holds U+FFFD, and prints the `bad_argument` document with exit 2; silent replacement, or a VM refusal before `main`, fails it. If the result differs from A1 or A2, apply stops before any dependent task, amends every affected requirement together, records the accepted loss in C6, and sends the amended contract back for design review.
-- **A2:** On Windows, an unpaired surrogate in the command line reaches `main` as a lone surrogate in a Dart `String`. Not checked for the same reason. Depends on it: D3. Resolved by the same first-task decision gate as A1.
+- **A1 (failed, task 1.1; loss accepted under C6):** the probe run https://github.com/sh1ny/specwright/actions/runs/44410098089 showed that on Linux and macOS the compiled `sw` never reaches `main` with a non-UTF-8 argument: the runtime exits 255 with `Dart_NewStringFromUTF8 expects argument 'str' to be valid UTF-8.` on stderr and nothing on stdout. The user chose to accept the runtime's refusal (non-zero exit, empty stdout, nothing run) in place of the `bad_argument` document, without pinning its exit code or text; every affected requirement was amended together. Original assumption: On Linux and macOS, the Dart VM either hands `main` invalid UTF-8 argument bytes in a form `sw` can detect, or replaces them with U+FFFD. Not checked because it depends on the VM's argv decoding, which the repo does not show. Depends on it: D3 and every requirement that names `bad_argument` (native-cli, change-finish, vcs-backends, github-identity). Resolved by a decision gate in the first task: compiled-binary probes on Linux, Windows and macOS, run before any PR exists by pushing the probe commit to a throwaway branch and dispatching `evals.yml` on it (`workflow_dispatch`, `.github/workflows/evals.yml:5`); apply reads the run's conclusion and job logs with `gh run view` and goes on only when the run is green on all three OSes. The gate passes on an OS only when the compiled `sw` reaches `main` with a malformed argument, tells it apart from a valid argument that holds U+FFFD, and prints the `bad_argument` document with exit 2; silent replacement, or a VM refusal before `main`, fails it. If the result differs from A1 or A2, apply stops before any dependent task, amends every affected requirement together, records the accepted loss in C6, and sends the amended contract back for design review.
+- **A2 (holds for the gate, task 1.1):** on Windows the same run passed: `sw` reads the raw command line with `GetCommandLineW` and `CommandLineToArgvW`, tells the lone surrogate apart from a valid U+FFFD, and prints `bad_argument` with exit 2. Original assumption: On Windows, an unpaired surrogate in the command line reaches `main` as a lone surrogate in a Dart `String`. Not checked for the same reason. Depends on it: D3. Resolved by the same first-task decision gate as A1.
 - **A3:** Git Bash converts `/c/...` and `/tmp/...` arguments to Windows form when it starts a native `.exe`, so dropping `sw`'s own conversion loses nothing for Git Bash callers. Known MSYS behaviour, not checked in this repo. Depends on it: S3; checked by a Windows eval in the eval task.
 - **A4:** Every eval fixture that runs a shim today can give the eval helper a project whose `VERSION` equals the built `sw`'s. The `evals/vcs` GitButler fixture already provides it: `tracked_repo` (`evals/vcs/butenv.py:180-192`, the stamp call at `:191`) stamps the repo through `stamp_version` (`evals/vcs/vcs_test_support.py:61-83`, the exclusion write at `:83`), which writes the tree's `VERSION` and adds it to `info/exclude` so status reads never see it, and the test home holds the built `sw` (`evals/vcs/butenv.py:155-160`). The other fixture families are unchecked. Depends on it: the eval retarget task, which starts with an audit of every fixture family that writes `VERSION` or selects a separate code checkout, and lists the ones the helper must give `--project`.
 
@@ -182,8 +182,8 @@ The proposal (proposal.md) states the goal. The current state this design builds
 - **C2:** `sw` never falls back to an `sw` on `PATH` or another version's binary; the version check is the only resolution. Kind: invariant. Destination: ADR 0040
 - **C3:** Skills write `gh api` paths without a leading slash, because Git Bash converts leading-slash arguments for native executables and `sw` no longer undoes that. Kind: invariant. Destination: ADR 0040
 - **C4:** The built-in brief and schema must equal `skills/specwright-review/references/`; the drift test guards it. Kind: invariant. Destination: doc comment: cli/lib/src/review/references.g.dart reviewBrief
-- **C6:** If the first-task probes show that `sw` cannot detect a malformed argument on an OS (A1/A2), that loss of detection is accepted and stated, not hidden. Kind: invariant. Destination: ADR 0040
-- **C7:** `sw gate unlock`'s read-then-remove and an ownerless update lock, and recovery after an undo step fails mid-plan, stay at the parity of the scripts they replace; the user chose this after two design review rounds. Kind: rejected alternative. Destination: issue: harden the store gate unlock and undo-plan recovery
+- **C6:** The first-task probes showed that on Linux and macOS `sw` cannot see a non-UTF-8 argument: the Dart runtime refuses it before `main` (exit 255, empty stdout, its own stderr text). That loss of the `bad_argument` document is accepted and stated, not hidden; Windows keeps it. Kind: invariant. Destination: ADR 0040
+- **C7:** `sw gate unlock`'s read-then-remove and an ownerless update lock, and recovery after an undo step fails mid-plan, stay at the parity of the scripts they replace; the user chose this after two design review rounds. Kind: rejected alternative. Destination: issue: harden the store gate unlock and undo-plan recovery (#232)
 - **C8:** The skill's version probe keeps the 10-second deadline but drops the 1 MiB output cap that `bounded.py` gave `sw-path.sh`, because the probed binary is checksum-verified at install. Kind: rejected alternative. Destination: ADR 0040
 - **C9:** `sw run --bounded` keeps its Windows stdin transport for a caller-requested `bash -c`, which ADR 0034 left to this change; it is never used for `sw`'s own work. Kind: invariant. Destination: spec: specs/native-cli/spec.md → Requirement: sw run --bounded keeps its Windows bash -c transport
 - **C5:** The undo primitives exist so a plan stays something the user runs step by step; no command may run a whole undo. Kind: rejected alternative. Destination: doc comment: cli/lib/src/finish/undo_step.dart runUndoStep
@@ -197,7 +197,7 @@ Components after the change:
 ```mermaid
 flowchart LR
   Skill[Skill text] -->|"<sw> cmd args (argv)"| Entry[sw entry]
-  Entry --> Args[argument check: bad_argument]
+  Entry --> Args["argument check: bad_argument (Windows); runtime refusal before main (Linux, macOS)"]
   Args --> Ver[project version check: sw_mismatch]
   Ver --> Vcs[vcs]
   Ver --> Pr[pr]
@@ -234,7 +234,7 @@ sequenceDiagram
   participant A as Agent (cwd = store)
   participant S as sw 0.38.0
   A->>S: sw --project <code> pr pair-state ...
-  S->>S: check args (bad_argument?)
+  S->>S: check args (bad_argument on Windows; Linux and macOS: refused by the runtime before this point)
   S->>S: read <code>/openspec/.specwright/VERSION == 0.38.0?
   alt mismatch or missing
     S-->>A: {"error":"sw_mismatch"} exit 1
@@ -258,7 +258,7 @@ sequenceDiagram
 
 | Component | Fails / dies mid-operation → | Recovery | Retry safe? | Who finds out |
 |---|---|---|---|---|
-| Entry argument check | refuses before any work | caller fixes the argument | yes | agent (`bad_argument`, exit 2) |
+| Entry argument check | refuses before any work | caller fixes the argument | yes | agent (`bad_argument`, exit 2 on Windows; on Linux and macOS a non-zero exit, empty stdout and no work, the exit code and diagnostic text unspecified, C6) |
 | Version check | refuses before any work | run the named binary, or rerun install | yes | agent, then user (`sw_mismatch`) |
 | Missing binary at the pinned path | the shell cannot start it | skill: stop, rerun the install prompt | yes | agent → user |
 | `sw gate lock` | crash after `mkdir`, before the owner rename | `show` reports a lock with no token; the user confirms, then `unlock --stale --ownerless` | yes | agent (`show`), user confirms |

@@ -78,7 +78,7 @@ The identity check SHALL verify the token read for `<login>`, with that token in
 
 #### Scenario: A non-UTF-8 argument is refused
 - **WHEN** on Linux `<sw> as sh1ny git add -- <name holding 0xFF>` runs
-- **THEN** it prints the `bad_argument` document naming that argument's position, exits 2, reads no token, and `git` does not run
+- **THEN** the exit status is non-zero, stdout is empty, no token is read, and `git` does not run (native-cli "Arguments sw cannot represent are refused")
 
 #### Scenario: Command not found
 - **WHEN** `<sw> as sh1ny no-such-tool` runs after the identity check passes

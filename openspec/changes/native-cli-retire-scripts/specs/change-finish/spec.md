@@ -85,7 +85,7 @@ Where a change-finish requirement says the undo script or the after-rerun script
 ## MODIFIED Requirements
 
 ### Requirement: The undo plan runs in the project's sw
-The skills SHALL build the undo plan by running `sw finish undo-archive-plan` directly, which SHALL keep `finish.sh`'s arguments, refusals and exit codes, and print its undo as `steps` and `after_rerun_steps`. No other implementation of the plan SHALL remain. An argument that is not well-formed Unicode SHALL stop with the `bad_argument` document and exit 2, and an archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1; neither prints a script.
+The skills SHALL build the undo plan by running `sw finish undo-archive-plan` directly, which SHALL keep `finish.sh`'s arguments, refusals and exit codes, and print its undo as `steps` and `after_rerun_steps`. No other implementation of the plan SHALL remain. An argument that is not well-formed Unicode SHALL be refused as native-cli "Arguments sw cannot represent are refused" states (the `bad_argument` document and exit 2 on Windows; the runtime's refusal before `sw` runs on Linux and macOS), and an archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1; neither prints a script.
 
 #### Scenario: Plan through a matching sw
 - **WHEN** the project's `VERSION` reads `0.27.0`, and `sw` 0.27.0 runs `finish undo-archive-plan --change add-x --archived-name 2026-11-07-add-x --prefix openspec --main main` on a branch whose last commit archived `add-x`
@@ -97,7 +97,7 @@ The skills SHALL build the undo plan by running `sw finish undo-archive-plan` di
 
 #### Scenario: A non-UTF-8 argument
 - **WHEN** on Linux `sw finish undo-archive-plan` runs with a `--change` value holding the byte 0xFF
-- **THEN** stdout is the `bad_argument` document naming that argument's position, the exit status is 2, no Git command ran, and no script is printed
+- **THEN** the exit status is non-zero, stdout is empty, no Git command ran, and no plan is printed
 
 #### Scenario: A non-UTF-8 file under the archive
 - **WHEN** on Linux the archived change directory, committed on the branch, holds a file outside its `specs` directory whose name holds the byte 0xFF

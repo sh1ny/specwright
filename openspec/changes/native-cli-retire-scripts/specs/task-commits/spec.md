@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Commit tooling runs in the project's sw
-The skills SHALL run `sw commit task-cover` and `sw commit fit-subject` directly, and these SHALL keep the arguments and output contracts of `task-cover.sh` and `fit-subject.sh`. No other implementation of the commit tooling SHALL remain. An argument that is not well-formed Unicode SHALL stop with the `bad_argument` document and exit 2 before any file is read.
+The skills SHALL run `sw commit task-cover` and `sw commit fit-subject` directly, and these SHALL keep the arguments and output contracts of `task-cover.sh` and `fit-subject.sh`. No other implementation of the commit tooling SHALL remain. An argument that is not well-formed Unicode SHALL be refused before any file is read, as native-cli "Arguments sw cannot represent are refused" states.
 
 #### Scenario: Coverage through a matching sw
 - **WHEN** the project's `VERSION` reads `0.26.0`, `sw` 0.26.0 runs `commit task-cover --repo <r> --range main..feat/a --tasks <t> --change a` on a branch whose one commit has the subject `feat(a): task 1.1 Add it`
@@ -19,7 +19,7 @@ The skills SHALL run `sw commit task-cover` and `sw commit fit-subject` directly
 
 #### Scenario: A non-UTF-8 message path
 - **WHEN** on Linux `sw commit fit-subject <path holding 0xFF>` runs
-- **THEN** stdout is the `bad_argument` document naming that argument's position, the exit status is 2, and no file changes
+- **THEN** the exit status is non-zero, stdout is empty, and no file changes
 
 #### Scenario: Git Bash paths on Windows
 - **WHEN** on Windows Git Bash runs `<sw> commit fit-subject /c/Users/<u>/m.txt`, and that file holds a 90-character task subject

@@ -44,19 +44,23 @@ Every `sw` command SHALL take its arguments as the process's own argument list, 
 - **THEN** `sw` uses the value as given, a root-relative Windows path, and stops with the command's existing error for a directory that does not exist
 
 ### Requirement: Arguments sw cannot represent are refused
-Before any other work `sw` SHALL refuse an argument that is not well-formed Unicode as it reaches the process (a lone surrogate on Windows, bytes that are not UTF-8 on Linux and macOS), printing one JSON document with `"ok": false`, `"error": "bad_argument"` and a `message` naming the argument's position, and SHALL exit 2.
+An argument that is not well-formed Unicode as it reaches the process SHALL be refused before any work. `sw` SHALL check the raw argument list the OS holds and, on a malformed argument, print one JSON document with `"ok": false`, `"error": "bad_argument"` and a `message` naming its position, and exit 2. On Linux and macOS the Dart runtime refuses non-UTF-8 bytes before `sw`'s code runs; that refusal (non-zero exit, empty stdout, nothing run) stands in for the document there (ADR 0040, C6).
 
 #### Scenario: A well-formed argument
 - **WHEN** an argument holds `日本語` or an emoji
 - **THEN** `sw` takes it unchanged and does its work
 
+#### Scenario: A valid U+FFFD is just a character
+- **WHEN** an argument holds the character U+FFFD, well-formed, on Linux, Windows and macOS
+- **THEN** `sw` takes it unchanged and does its work; no `bad_argument` document is printed
+
 #### Scenario: A lone surrogate on Windows
 - **WHEN** on Windows an argument holds an unpaired UTF-16 surrogate
 - **THEN** `sw` prints the `bad_argument` document naming that argument's position, exits 2, starts no process and writes no file
 
-#### Scenario: Bytes that are not UTF-8 on Linux
-- **WHEN** on Linux an argument holds the byte `0xFF`
-- **THEN** `sw` prints the `bad_argument` document naming that argument's position, exits 2, starts no process and writes no file
+#### Scenario: Bytes that are not UTF-8 on Linux and macOS
+- **WHEN** on Linux or macOS an argument holds the byte `0xFF`
+- **THEN** the process exits non-zero with an empty stdout before `sw`'s own code runs, starts no process and writes no file
 
 ### Requirement: Project commands check the project's version
 `sw vcs`, `sw pr`, `sw as`, `sw commit`, `sw finish`, `sw review`, `sw release` and `sw gate` SHALL read the project's `openspec/.specwright/VERSION` before any other work. When it is missing, is not a version or differs from the running `sw`'s version, they SHALL print one JSON document with `"ok": false`, `"error": "sw_mismatch"` and a `message` naming the running version, the project's value and the expected binary path, and SHALL exit 1.

@@ -13,7 +13,7 @@ Every M8 criterion is agent-verified; this change checks its share in PR CI on t
 
 ## What Changes
 
-- **Direct entry:** skills call `sw <command> ...` with ordinary arguments. A new ADR (0040), the successor to ADR 0028, defines the entry and its UTF-8 argument contract. Arguments `sw` cannot represent stop with a named refusal before any work. **BREAKING** for anything that calls the scripts by path.
+- **Direct entry:** skills call `sw <command> ...` with ordinary arguments. A new ADR (0040), the successor to ADR 0028, defines the entry and its UTF-8 argument contract. Arguments `sw` cannot represent are refused before any work: with the `bad_argument` document on Windows, and on Linux and macOS by the Dart runtime itself (non-zero exit, empty stdout), which `sw` cannot see past (C6). **BREAKING** for anything that calls the scripts by path.
 - **Resolution without a script:** skills name `sw` as `<home>/.specwright/bin/<project VERSION>/sw[.exe]`. Every `sw` command that works on a project checks that project's `openspec/.specwright/VERSION` against its own version and stops with `sw_mismatch` when they differ. `sw-path.sh` goes.
 - **Gate lock in `sw`:** the store gate lock, which `specwright-branch` and `specwright-roadmap` now describe as inline bash (`mkdir`, `printf`, `date`, `rm -r`), becomes `sw` commands with the same lock directory, owner record and refusal rules.
 - **Skills, schema, agents and README:** each `bash <...>/scripts/<x>.sh` becomes `sw <command>`, including the `[vcs]` and `[as]` shorthands, and script-existence checks go. Commands that `sw` prints for the agent or the user to run (undo-archive plans, `vcs` plans, cleanup steps) name `sw` instead of a script.

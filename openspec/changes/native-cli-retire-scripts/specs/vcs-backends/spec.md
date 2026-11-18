@@ -88,7 +88,7 @@ With `vcs: gitbutler`, `sw vcs` SHALL run the same way whether the Specwright sk
 - **THEN** `git push` runs with the caller's environment and no fence lookup, and a failure is `git_network_error` with exit 3
 
 ### Requirement: sw vcs documents keep their values and refuse non-UTF-8 names
-Each document `sw vcs` prints SHALL parse to the same keys, key order and values `vcs.sh` printed for the same inputs. An argument that is not well-formed Unicode SHALL stop with the `bad_argument` document and exit 2 before any other work. A name that is not valid UTF-8, met in a directory listing or in `git` or `jj` output where `sw vcs` would report or act on it, SHALL stop the command before any write with `"error": "not_utf8"`, exit 1, and a `message` that shows each invalid byte as `\xHH` (U+FFFD for a walk-found name) and asks for a rename. `but` output is read as before.
+Each document `sw vcs` prints SHALL parse to the same keys, key order and values `vcs.sh` printed for the same inputs. An argument that is not well-formed Unicode SHALL be refused before any other work, as native-cli "Arguments sw cannot represent are refused" states. A name that is not valid UTF-8, met in a directory listing or in `git` or `jj` output where `sw vcs` would report or act on it, SHALL stop the command before any write with `"error": "not_utf8"`, exit 1, and a `message` that shows each invalid byte as `\xHH` (U+FFFD for a walk-found name) and asks for a rename. `but` output is read as before.
 
 #### Scenario: Line separators parse back
 - **WHEN** a message or path in the output holds U+2028 or U+2029
@@ -104,7 +104,7 @@ Each document `sw vcs` prints SHALL parse to the same keys, key order and values
 
 #### Scenario: A non-UTF-8 argument from the shim
 - **WHEN** on Linux `sw vcs commit -- <name holding 0xFF>` runs
-- **THEN** the document has `"error": "bad_argument"` naming that argument's position, the exit status is 2, and no `git` or `jj` command ran
+- **THEN** the exit status is non-zero, stdout is empty, and no `git` or `jj` command ran
 
 #### Scenario: Tool input reaches the tool
 - **WHEN** on Windows a jj commit names a directory holding a changed tracked file and an ignored file larger than `snapshot.max-new-file-size`

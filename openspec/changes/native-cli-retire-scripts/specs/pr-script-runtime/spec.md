@@ -241,8 +241,8 @@ Native PR workflow code SHALL call ported settings, fence and VCS operations dir
 - **THEN** the invoked tool receives the same argument values as through the old script, with no shell started, without expansion, truncation or credential values in diagnostics
 
 #### Scenario: A non-UTF-8 path argument is refused
-- **WHEN** a direct fenced read is handed a POSIX path argument holding non-UTF-8 bytes
-- **THEN** the workflow stops with `"error": "not_utf8"` and exit 1 before any credential lookup, and the tool does not run
+- **WHEN** on Linux `sw pr rounds` is started with a `--code` argument holding non-UTF-8 bytes in its argument list
+- **THEN** the exit status is non-zero, stdout is empty, no credential lookup ran and the tool does not run (native-cli "Arguments sw cannot represent are refused")
 
 #### Scenario: Unbounded VCS calls remain unbounded
 - **WHEN** a workflow's VCS state or plan call takes longer than the configured network deadline but completes

@@ -2,37 +2,44 @@
 
 ## Metadata
 
-- **Round:** 11
-- **Prior round:** 10
-- **Tier:** FULL
+- **Round:** 13
+- **Prior round:** 12 (REVISE)
 - **Reviewer:** Codex
-- **Change:** `native-cli-retire-scripts`
-- **Installed project skills applicable to the reviewed work:** None.
-- **Scope:** Read the explicitly requested working-tree artifacts and installed schema. Used Git-tracked files for supporting citations. Scenario-to-task assignments remain unverified because `tasks.md` has yet to be written.
+- **Change:** `native-cli-retire-scripts` (FULL)
+- **Reviewed:** Working-tree proposal, design, spec deltas, task map, prior reviews, ADR 0040 and its architecture index entry, compiled-binary probe source, and review template.
+- **Scope:** This review uses the recorded three-OS probe results. The probes were not rerun. The workspace is read-only, so the review is delivered here.
 
-## Round 10 findings
+## Findings
 
-| Finding | Status | Round 11 assessment |
-|---|---|---|
-| C1. The interface cutover can replace the binary that existing 0.37.0 projects still need | Resolved in the cutover design | D5 puts interface 2 and the `0.38.0` bump in the same commit and calls for a shared-home test with both binaries. The install delta still contains a conflicting source-build example. See M1 below. [D5](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:68) |
-| M1. The `v0.37.0` success case still permits a false-ready report | Resolved | The older-tag scenario now requires the final probe to exit successfully and report `0.37.0` with interface 1. The enclosing requirement applies the 10-second deadline. [Older-tag scenario](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/specs/install-update/spec.md:35) |
-| M2. The remaining citation gaps obscure what the oracle and fixture tests must preserve | Partially resolved | D14 now includes owner normalization and cites the Git helper. The citations still omit the fixture commit calls and environment assignment. A4 still misses the stamp call and exclusion write. See M3 below. [D14](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:124) · [A4](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:177) |
-| M3. The merged specs would require incompatible undo guard implementations | Resolved | Both deltas now require the guard to read the backend’s structured branch in process. The native CLI delta preserves the assertions that the planned branch passes and another branch refuses. [Native CLI delta](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/specs/native-cli/spec.md:244) · [Finish delta](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/specs/change-finish/spec.md:39) |
+### Critical (blocking)
 
-C7 was assessed against the current inline store gate and per-backend undo recovery. C8 was assessed with the 10-second deadline and the approved removal of the 1 MiB output cap. [Store gate](/F:/Dev/specwright/skills/specwright-branch/SKILL.md:35) · [Undo recovery](/F:/Dev/specwright/cli/lib/src/finish/undo_plan.dart:1063) · [Owner decisions](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:186)
-
-## Findings and Required Changes
+None.
 
 ### Moderate
 
-**M1. The source-build scenarios still exercise the old version slot, and the placement check has no independent skill pin.** The install delta puts a direct-entry source build in `bin/0.37.0`, the slot D5 reserves for interface 1. Its failure scenario also depends on detecting a mismatch with the skills before placement. Today `build.dart` probes the separate update interface and then invokes the built binary to install itself. The installer defaults its workflow interface check to the running binary’s own constant. A binary and its copied build can therefore agree while the skill pin differs. **Required change:** Move the source-build success and refusal scenarios to `0.38.0`, retain the older tagged-install scenario at `0.37.0`, and specify that source placement checks the workflow interface against the tree’s skill pin before replacing the binary or notice. Add a scenario where the update interface passes and the workflow interface differs from the skill pin, with both existing files unchanged. [Install delta](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/specs/install-update/spec.md:71) · [Build probe](/F:/Dev/specwright/cli/tool/build.dart:89) · [Build placement](/F:/Dev/specwright/cli/lib/src/update/sw_install.dart:294) · [Interface default](/F:/Dev/specwright/cli/lib/src/update/place.dart:67)
+**M1. The architecture index still promises `bad_argument` and exit 2 on Linux and macOS.** The index entry for ADR 0040 gives an unconditional outcome for malformed arguments. The proposal, D3 decision table, Failure & Visibility, and the affected command specs now reflect C6. The ADR itself records the runtime refusal, but its opening contract and the two design diagrams can state the platform distinction more directly. [Architecture index](/F:/Dev/specwright/openspec/architecture.md:241) · [ADR 0040](/F:/Dev/specwright/docs/adr/0040-skills-call-the-projects-sw-directly.md:15) · [Design](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:200)
 
-**M2. The cutover order conflicts with the retained last-group release requirement.** D5 puts the bump in the cutover group, and the task order puts absence evals after that group. The release spec and current task instructions require the bump in the last group. Following the latter as written can move the bump past the interface flip or schedule a second bump. **Required change:** Put the absence evals in the final cutover group and make its single commit carry the `0.38.0` bump, interface flip, consumer rewrites and verification. Align D5 and the task-order paragraph with that schedule, and update the shipped release instructions to use the native bump, check and notes commands. [Cutover order](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:312) · [Release scenario](/F:/Dev/specwright/openspec/specs/releases/spec.md:548) · [Task instructions](/F:/Dev/specwright/schemas/specwright/schema.yaml:696)
+**M2. Task 6.4 omits the tool-invocation assertion required by the fenced-workflow scenario.** Round 12’s blocking contract conflict is resolved. The scenario now calls `sw pr rounds` with malformed direct argv, and its map row points to the migrated eval. The scenario requires both no credential lookup and no tool invocation. Task 6.4 names only the credential check, and the existing eval snapshots only the fake `gh` log. A valid control can establish that the fixture would reach the fenced tool and that both checks can detect activity. The scenario’s final clause about names encountered after entry also needs a separate input and assertion, since this invocation exits before entry. [Workflow scenario](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/specs/pr-script-runtime/spec.md:243) · [Task 6.4](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/tasks.md:339) · [Existing eval](/F:/Dev/specwright/evals/pr-pair/test_workflow_transport.py:307)
 
-**M3. Two grounding gaps remain in the oracle and fixture citations.** D14 points to the `setUp` and branch-case declarations plus the generic Git helper. Those lines do not show which environment the Git calls inherit or which commits supply the SHA under comparison. A4 labels line 189 as the stamp call, but that line sets the remote URL, and its helper range ends before the exclusion is written. These are the steps the migration must preserve to keep oracle IDs repeatable and the version stamp out of status results. **Required change:** Extend the D14 citations to cover the assignment of `git_env`, the fixture’s base commit, and the branch case’s commits and comparison. In A4, include the stamp call at line 191 and the helper’s exclusion write at line 83. [Fixture environment](/F:/Dev/specwright/evals/pr-pair/test_parity.py:602) · [Base commit](/F:/Dev/specwright/evals/pr-pair/test_workflow_parity.py:142) · [Branch case](/F:/Dev/specwright/evals/pr-pair/test_workflow_parity.py:219) · [Stamp call](/F:/Dev/specwright/evals/vcs/butenv.py:191) · [Exclusion write](/F:/Dev/specwright/evals/vcs/vcs_test_support.py:83)
+**M3. The test map and task 2.2 still treat the gate regressions as tests that start red.** Task 2.1 correctly keeps the three probe cases as regressions and identifies why the new tests should fail. The POSIX probe now supplies malformed bytes directly, creates no malformed filename, and checks that the valid control emits a document. The three mapped probe rows still say `red`, and task 2.2 says the Windows and POSIX refusal rows turn green during implementation. The test module’s opening docstring also still describes the original gate expectation as the current expectation on all platforms. [Test map](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/tasks.md:100) · [Tasks 2.1 and 2.2](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/tasks.md:310) · [Probe](/F:/Dev/specwright/evals/cli/test_sw_entry.py:1)
+
+### Suggestions
+
+None. The native CLI scenario and its map row now name Linux and macOS. The VCS scenario retains its existing title for the `MODIFIED` requirement, and its steps specify direct invocation.
+
+## Prior-round findings
+
+All three round 11 findings remain resolved. The source-build scenarios use the `0.38.0` slot and check the independent skill pin before placement. The older tagged install retains `0.37.0`. The final cutover group carries the absence evals, interface flip, consumer rewrites, native release instructions, and version bump in one commit. D14 and A4 retain the expanded citations for the fixture environment, commits and comparison, version stamp, and Git exclusion write. [Install delta](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/specs/install-update/spec.md:72) · [Cutover tasks](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/tasks.md:342) · [D14](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:124) · [A4](/F:/Dev/specwright/openspec/changes/native-cli-retire-scripts/design.md:177)
+
+## Required Changes
+
+1. Update the ADR 0040 index entry and the D3 diagrams to reflect C6. State that Windows emits the `bad_argument` document and exits 2, while Linux and macOS refuse malformed argv before `main` with a non-zero exit, empty stdout, and no work. Leave the runtime exit code and diagnostic text unspecified. Use the same platform-first wording in the ADR’s opening contract and describe the raw check there as applying when execution reaches `sw`.
+2. In task 6.4, require the migrated eval to check both the credential lookup and the fenced tool invocation, using a fixture with a valid-argv control that reaches the tool. Keep the malformed-argv scenario focused on the entry refusal and give values discovered after entry their own input and `not_utf8` assertion in the applicable existing coverage.
+3. Mark the three entry probe rows as existing or updated regressions and align the test-map legend and task 2.2 with that status. Update the probe docstring to describe the current Windows and POSIX expectations.
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
+The amended command requirements implement the accepted C6 contract. The remaining changes align the architecture summary and the verification plan with that contract.
 
+VERDICT: APPROVE_WITH_CHANGES
 CHANGES_APPLIED: yes
