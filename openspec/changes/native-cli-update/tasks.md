@@ -112,7 +112,7 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 - [x] 7.2 Add `provision_sw(home, version)` to `evals/update/fixtures.py`. It builds once per version per run with `cli/tool/build.dart --version <v> --output <cache>/<v>/sw[.exe]`, then copies the binary and notice into each test's isolated `SPECWRIGHT_HOME`. `make_download` and `make_mini_download` call it. Switch `run_update` from the `mv`/`cp`/`rm` shims to `SPECWRIGHT_UPDATE_KILL_AT`/`SPECWRIGHT_UPDATE_COUNT` (D3). Verify: `evals/update/test_fixtures.py` passes locally.
 - [x] 7.3 Replace `scripts/update.sh` with the ADR 0028 shim (D8), with C4 written in its header. Delete `evals/update/shims/` if nothing else uses it, and update `evals/suites.json`. Change the interface assertions from 2 to 3 (`evals/update/test_update.py::test_plan_reports_interface`, `evals/update/test_packs.py:346`, `:354`). Verify: `test_shim.py` passes locally, the header holds C4, and `evals/runner/test_suite_map.py` passes.
 - [x] 7.4 Add `evals/update/test_sw_update.py` cases: failing `bash`/`sh`/`python`/`python3` first on `PATH` for install, update and interrupted-swap recovery; a format-2 journal left by the 0.36.0 script and recovered; `"format": 9` refused; `sw-install` and an owner's jj swap with recording sentinels. Verify: open a draft PR and run the `evals/update` suite in PR CI on Linux, Windows and macOS. Every `evals/update` row in the test map turns green.
-- [ ] 7.5 Compare the counted operation list of one interrupted run with the 0.36.0 bash run's (D3's weak-evidence check). Verify: the interruption matrix in `evals/update/test_interrupt.py` passes in PR CI on three OSes, and the comparison is noted in the PR.
+- [x] 7.5 Compare the counted operation list of one interrupted run with the 0.36.0 bash run's (D3's weak-evidence check). Verify: the interruption matrix in `evals/update/test_interrupt.py` passes in PR CI on three OSes, and the comparison is noted in the PR.
 
 ## 8. Launch allowlist
 
@@ -127,8 +127,8 @@ The `evals/update` tests not named above (`test_update.py`, `test_store.py`, `te
 
 ## 10. Release
 
-- [ ] 10.1 Verify A1, then bump: `release.sh bump --to 0.37.0`. Rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-update/proposal.md` pass, and the minimum release in the README and the specs reads 0.37.0.
-- [ ] 10.2 Integration check: every row in the test map is green, and the `evals.yml` and `cli.yml` workflows pass on the PR head on Linux, Windows and macOS.
+- [x] 10.1 Verify A1, then bump: `release.sh bump --to 0.37.0`. Rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `release.sh check` and `release.sh notes --proposal openspec/changes/native-cli-update/proposal.md` pass, and the minimum release in the README and the specs reads 0.37.0.
+- [x] 10.2 Integration check: every row in the test map is green, and the `evals.yml` and `cli.yml` workflows pass on the PR head on Linux, Windows and macOS.
 
 ## Workflow follow-up
 

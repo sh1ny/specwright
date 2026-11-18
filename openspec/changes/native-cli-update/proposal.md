@@ -83,7 +83,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-`sw update` replaces the Python and bash inside `update.sh`, so installing or updating Specwright no longer needs either runtime. The install prompt downloads and checks the first `sw` with `curl` and the OS's hash tool, then lets `sw` do the rest. The prompt now installs this release or later.
+`sw update` replaces the Python and bash inside `update.sh`, so installing or updating Specwright no longer needs either runtime. The install prompt downloads and checks the first `sw` with `curl` and the OS's hash tool, then lets `sw` do the rest. `update.sh` stays as a shim that hands over to `sw update`, and an update interrupted under an older release is still recovered. The prompt now installs this release or later.
 
 ### Changed
 
