@@ -212,7 +212,7 @@ class Base(unittest.TestCase):
         if base is not False:
             args += ["--release-url", base or self.base]
         args.append("sw-install")
-        return fx.run_update(dl or self.dl, args, env=env or self.env(**extra), timeout=240)
+        return fx.run_update(dl or self.dl, args, env=env or self.env(**extra), sw=self.sw, timeout=240)
 
     def installed(self, **extra):
         code, doc, out, err = self.sw_install(**extra)
@@ -241,7 +241,7 @@ class Base(unittest.TestCase):
 class TestNotices(Base):
     """Installer-only executable fixture reports the chosen tag through the real resolver.
 
-    The real production binary/version/interface mismatch checks remain in TestStops.
+    The version mismatch check on the real binary stays in TestStops; the interface and quarantine-order checks use the fixture.
     """
     @classmethod
     def setUpClass(cls):
@@ -254,7 +254,8 @@ import 'dart:io';
 void main(List<String> args) {
   final marker = Platform.environment['SW_NOTICE_MARKER'];
   if (marker != null) File(marker).writeAsStringSync('executed\\n', mode: FileMode.append);
-  print(jsonEncode({'version': Platform.environment['SW_NOTICE_VERSION'] ?? '0.30.0', 'interface': 1}));
+  print(jsonEncode({'version': Platform.environment['SW_NOTICE_VERSION'] ?? '0.30.0',
+      'interface': int.parse(Platform.environment['SW_NOTICE_INTERFACE'] ?? '1')}));
 }
 """, encoding="utf-8")
         cls.fixture = Path(cls.scratch.name) / EXE
@@ -356,6 +357,66 @@ void main(List<String> args) {
         self.installed()
         self.assertEqual(sorted(p.name for p in self.bin.iterdir()), [EXE])
 
+    def test_quarantine_cleared_after_checksum(self):
+        marker, shims = self.tmp / "marker", self.tmp / "shims"
+        shims.mkdir()
+        # the flag is present until -d removes it, so the probe after the removal finds it gone
+        if WINDOWS:  # found through shutil.which, so a .cmd shim stands in for xattr
+            # sw's launcher quotes each argument for cmd.exe: %~1 strips the quotes
+            (shims / "xattr.cmd").write_text('@echo off\r\necho XATTR %~1 %~2>>"%SW_MARKER%"\r\n'
+                                             'if "%~1"=="-d" type nul > "%SW_MARKER%.cleared"\r\n'
+                                             'if "%~1"=="-p" if exist "%SW_MARKER%.cleared" exit /b 1\r\nexit /b 0\r\n')
+        else:
+            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in\n'
+                                         '  -p) [ -f "$SW_MARKER.cleared" ] && exit 1; echo 0081 ;;\n'
+                                         '  -d) : > "$SW_MARKER.cleared" ;;\nesac\nexit 0\n')
+            (shims / "xattr").chmod(0o755)
+        self.release(target="macos-arm64")
+        self.installed(SPECWRIGHT_TEST_HOST="Darwin/arm64", SW_MARKER=marker.as_posix(), SW_NOTICE_MARKER=marker.as_posix(),
+                       PATH=str(shims) + os.pathsep + os.environ["PATH"])
+        log = marker.read_text().splitlines()
+        self.assertIn("XATTR -d com.apple.quarantine", log)
+        self.assertLess(log.index("XATTR -d com.apple.quarantine"), log.index("executed"), "removal comes before the first run")
+
+    def test_failed_quarantine_removal_stops_before_running(self):
+        marker, shims = self.tmp / "marker", self.tmp / "shims"
+        shims.mkdir()
+        if WINDOWS:  # found through shutil.which, so a .cmd shim stands in for xattr
+            (shims / "xattr.cmd").write_text('@echo off\r\necho XATTR %~1 %~2>>"%SW_MARKER%"\r\nif "%~1"=="-p" exit /b 0\r\nexit /b 1\r\n')
+        else:
+            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in -p) exit 0;; esac\nexit 1\n')
+            (shims / "xattr").chmod(0o755)
+        self.release(target="macos-arm64")
+        self.stopped("quarantine_not_cleared", asset_of("macos-arm64"), self.tag, SPECWRIGHT_TEST_HOST="Darwin/arm64",
+                     SW_MARKER=marker.as_posix(), SW_NOTICE_MARKER=marker.as_posix(), PATH=str(shims) + os.pathsep + os.environ["PATH"])
+        log = marker.read_text().splitlines()
+        self.assertIn("XATTR -d com.apple.quarantine", log)
+        self.assertNotIn("executed", log, "the file never ran")
+        self.assert_nothing_placed()
+
+    def test_mismatch_keeps_quarantine_and_never_runs(self):
+        marker, shims = self.tmp / "marker", self.tmp / "shims"
+        extra = {"SW_MARKER": marker.as_posix(), "SW_NOTICE_MARKER": marker.as_posix()}
+        target = self.target
+        if not WINDOWS:
+            shims.mkdir()
+            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\nexit 0\n')
+            (shims / "xattr").chmod(0o755)
+            extra.update(SPECWRIGHT_TEST_HOST="Darwin/arm64", PATH=str(shims) + os.pathsep + os.environ["PATH"])
+            target = "macos-arm64"
+        self.release(target=target, sums_text=self.sums(target=target, hash_override="0" * 64))
+        self.stopped("checksum_mismatch", asset_of(target), "0" * 64, sha(self.binary), **extra)
+        self.assertFalse(marker.exists(), "the file was neither unquarantined nor run: %s" % (marker.read_text() if marker.exists() else ""))
+        self.assert_nothing_placed()
+
+    def test_wrong_interface_stops_before_stage(self):
+        # the fixture reports another interface than the running sw's: the binary check refuses it before anything is placed
+        other = self.interface + 1
+        self.release()
+        self.stopped("sw_check_failed", "interface %d" % other, "not interface %d" % self.interface, asset_of(self.target),
+                     SW_NOTICE_INTERFACE=str(other))
+        self.assert_nothing_placed()
+
 
 class TestInstall(Base):
     def test_tag_install_places_checked_binary(self):
@@ -364,13 +425,37 @@ class TestInstall(Base):
         self.assertEqual(doc["action"], "installed")
         self.assertEqual(doc["asset"], asset_of(self.target))
         self.assertEqual(doc["version"], self.version)
-        self.assertEqual(doc["interface"], 2)
+        self.assertEqual(doc["interface"], 3)
         self.assertTrue(os.path.samefile(doc["path"], self.final), doc["path"])
         self.assertEqual(self.final.read_bytes(), self.binary)
         if not WINDOWS:
             self.assertTrue(os.access(self.final, os.X_OK))
         self.assertEqual(self.reported_version(self.final), self.version)
         self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])), "no part file may be left")
+
+    def test_install_from_temporary_copy_never_moves_itself(self):
+        # The prompt runs sw-install from its checked temporary copy. The install downloads its own file and places that
+        # (design D7 of native-cli-update): the running copy is never renamed or moved, and is left for the prompt to delete.
+        self.release()
+        scratch = self.tmp / "agent-tmp"
+        scratch.mkdir()
+        copy = scratch / EXE
+        shutil.copyfile(self.sw, copy)
+        copy.chmod(0o755)
+        before = copy.read_bytes()
+        args = [str(copy), "update", "--code", fx.posix(self.code), "--download", fx.posix(self.dl), "--ref", self.tag,
+                "--release-url", self.base, "sw-install"]
+        r = subprocess.run(args, env=self.env(), capture_output=True, text=True, timeout=240)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertTrue(doc["ok"], doc)
+        self.assertEqual(doc["action"], "installed")
+        self.assertTrue(os.path.samefile(doc["path"], self.final), doc["path"])
+        self.assertEqual(self.final.read_bytes(), self.binary)
+        self.assertTrue(copy.is_file(), "the running copy is left in place")
+        self.assertEqual(copy.read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in scratch.iterdir()), [EXE], "nothing else appears beside the copy")
+        self.assertFalse(os.path.samefile(copy, self.final))
 
     def test_specwright_home_is_the_root(self):
         self.release()
@@ -384,60 +469,6 @@ class TestInstall(Base):
         self.release()
         doc = self.stopped("unsupported_platform", "Windows", "ARM64", *TARGETS, SPECWRIGHT_TEST_HOST="Windows/ARM64")
         self.assertFalse(doc["ok"])
-        self.assert_nothing_placed()
-
-    def test_quarantine_cleared_after_checksum(self):
-        marker, shims = self.tmp / "marker", self.tmp / "shims"
-        shims.mkdir()
-        # the flag is present until -d removes it, so the probe after the removal finds it gone
-        if WINDOWS:  # found through shutil.which, so a .cmd shim stands in for xattr
-            (shims / "xattr.cmd").write_text('@echo off\r\necho XATTR %1 %2>>"%SW_MARKER%"\r\n'
-                                             'if "%1"=="-d" type nul > "%SW_MARKER%.cleared"\r\n'
-                                             'if "%1"=="-p" if exist "%SW_MARKER%.cleared" exit /b 1\r\nexit /b 0\r\n')
-        else:
-            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in\n'
-                                         '  -p) [ -f "$SW_MARKER.cleared" ] && exit 1; echo 0081 ;;\n'
-                                         '  -d) : > "$SW_MARKER.cleared" ;;\nesac\nexit 0\n')
-            (shims / "xattr").chmod(0o755)
-        self.edit_swpath("set -uo pipefail", 'set -uo pipefail\necho SWPATH >> "$SW_MARKER"')
-        self.release(target="macos-arm64")
-        self.installed(SPECWRIGHT_TEST_HOST="Darwin/arm64", SW_MARKER=marker.as_posix(),
-                       PATH=str(shims) + os.pathsep + os.environ["PATH"])
-        log = marker.read_text().splitlines()
-        self.assertIn("XATTR -d com.apple.quarantine", log)
-        self.assertLess(log.index("XATTR -d com.apple.quarantine"), log.index("SWPATH"), "removal comes before the first run")
-
-    def test_failed_quarantine_removal_stops_before_running(self):
-        marker, shims = self.tmp / "marker", self.tmp / "shims"
-        shims.mkdir()
-        if WINDOWS:  # found through shutil.which, so a .cmd shim stands in for xattr
-            (shims / "xattr.cmd").write_text('@echo off\r\necho XATTR %1 %2>>"%SW_MARKER%"\r\nif "%1"=="-p" exit /b 0\r\nexit /b 1\r\n')
-        else:
-            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\ncase "$1" in -p) exit 0;; esac\nexit 1\n')
-            (shims / "xattr").chmod(0o755)
-        self.edit_swpath("set -uo pipefail", 'set -uo pipefail\necho SWPATH >> "$SW_MARKER"')
-        self.release(target="macos-arm64")
-        self.stopped("quarantine_not_cleared", asset_of("macos-arm64"), self.tag, SPECWRIGHT_TEST_HOST="Darwin/arm64",
-                     SW_MARKER=marker.as_posix(), PATH=str(shims) + os.pathsep + os.environ["PATH"])
-        log = marker.read_text().splitlines()
-        self.assertIn("XATTR -d com.apple.quarantine", log)
-        self.assertNotIn("SWPATH", log, "the file never ran")
-        self.assert_nothing_placed()
-
-    def test_mismatch_keeps_quarantine_and_never_runs(self):
-        marker, shims = self.tmp / "marker", self.tmp / "shims"
-        self.edit_swpath("set -uo pipefail", 'set -uo pipefail\necho SWPATH >> "$SW_MARKER"')
-        extra = {"SW_MARKER": marker.as_posix()}
-        target = self.target
-        if not WINDOWS:
-            shims.mkdir()
-            (shims / "xattr").write_text('#!/bin/sh\necho "XATTR $1 $2" >> "$SW_MARKER"\nexit 0\n')
-            (shims / "xattr").chmod(0o755)
-            extra.update(SPECWRIGHT_TEST_HOST="Darwin/arm64", PATH=str(shims) + os.pathsep + os.environ["PATH"])
-            target = "macos-arm64"
-        self.release(target=target, sums_text=self.sums(target=target, hash_override="0" * 64))
-        self.stopped("checksum_mismatch", asset_of(target), "0" * 64, sha(self.binary), **extra)
-        self.assertFalse(marker.exists(), "the file was neither unquarantined nor run: %s" % (marker.read_text() if marker.exists() else ""))
         self.assert_nothing_placed()
 
 
@@ -455,12 +486,6 @@ class TestStops(Base):
     def test_checksum_mismatch_stops_before_stage(self):
         self.release(sums_text=self.sums(hash_override="f" * 64))
         self.stopped("checksum_mismatch", asset_of(self.target), "f" * 64, sha(self.binary))
-        self.assert_nothing_placed()
-
-    def test_wrong_interface_stops_before_stage(self):
-        self.edit_swpath("SW_INTERFACE=1", "SW_INTERFACE=7")
-        self.release()
-        self.stopped("sw_check_failed", "interface %d" % self.interface, "interface 7", asset_of(self.target))
         self.assert_nothing_placed()
 
     def test_wrong_version_stops(self):
@@ -546,20 +571,20 @@ class TestBounds(Base):
 class TestPlan(Base):
     def setUp(self):
         super().setUp()
-        self.dl_plan = fx.make_mini_download(self.tmp / "dl-plan", self.version, 1)
-        self.co = fx.make_checkout(self.tmp, "0.0.1", download=fx.make_mini_download(self.tmp / "dl-old", "0.0.1", 1))
+        self.dl_plan = fx.make_mini_download(self.tmp / "dl-plan", self.version, 1, provision=False)
+        self.co = fx.make_checkout(self.tmp, "0.0.1", download=fx.make_mini_download(self.tmp / "dl-old", "0.0.1", 1, provision=False))
 
     def plan(self, ref):
         args = [*self.co.args(), "--download", fx.posix(self.dl_plan)]
         if ref:
             args += ["--ref", ref]
-        code, doc, out, err = fx.run_update(self.dl_plan, [*args, "plan"], env=self.env(), timeout=240)
+        code, doc, out, err = fx.run_update(self.dl_plan, [*args, "plan"], env=self.env(), sw=self.sw, timeout=240)
         self.assertEqual(code, 0, out + err)
         return doc
 
     def test_tag_plan_reports_the_host_asset(self):
         doc = self.plan(self.tag)
-        self.assertEqual(doc["interface"], 2)
+        self.assertEqual(doc["interface"], 3)
         self.assertEqual(doc["sw"], {"asset": asset_of(self.target), "target": self.target})
 
     def test_unsupported_host_plan_has_null_asset(self):
@@ -581,7 +606,7 @@ class TestPlan(Base):
         # field is one for a ref that is not a release tag. The step then installs nothing.
         doc = self.plan(None)
         self.assertNotIn("sw", doc)
-        self.assertEqual(doc["interface"], 2)
+        self.assertEqual(doc["interface"], 3)
         code, doc, out, err = self.sw_install(ref="", base=False)
         self.assertEqual(code, 0, out + err)
         self.assertEqual(doc["action"], "skipped")
@@ -696,15 +721,14 @@ class TestRecovery(Base):
 
     def setUp(self):
         super().setUp()
-        self.dl_old = fx.make_mini_download(self.tmp / "dl-old", "0.0.1", 1)
-        self.dl_new = fx.make_mini_download(self.tmp / "dl-new", self.version, 1)
-        shutil.copytree(self.dl / SWPATH_REL.parent, self.dl_new / SWPATH_REL.parent)
+        self.dl_old = fx.make_mini_download(self.tmp / "dl-old", "0.0.1", 1, provision=False)
+        self.dl_new = fx.make_mini_download(self.tmp / "dl-new", self.version, 1, provision=False)
         self.co = fx.make_checkout(self.tmp, "0.0.1", download=self.dl_old)
         self.old_bin = self.home / ".specwright" / "bin" / "0.0.1"
 
     def update_then_roll_back(self):
         def run(sub, *more):
-            code, doc, out, err = fx.run_update(self.dl_new, [*self.co.args(), *more, sub], env=self.env(), timeout=300)
+            code, doc, out, err = fx.run_update(self.dl_new, [*self.co.args(), *more, sub], env=self.env(), sw=self.sw, timeout=300)
             self.assertEqual(code, 0, out + err)
             return doc
         run("stage")

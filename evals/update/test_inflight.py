@@ -133,10 +133,16 @@ class TestInflight(Base):
         real = shutil.which("openspec")
         wrap = self.tmp / "openspec-wrap"
         wrap.mkdir()
-        cmd = ["@echo off", f'if "%1"=="{sub}" (', f"  echo {out}", f"  echo Error: {sub} broke 1>&2", "  exit /b 1", ")",
-               f'"{real}" %*', ""]
+        # The real CLI may be a version-manager shim that looks `openspec` up on PATH again, which would find this wrapper:
+        # the wrapper drops its own directory (the first PATH entry) before it hands over.
+        # A second entry stops at once instead of starting another process.
+        cmd = ["@echo off", "if defined OPENSPEC_WRAP_ACTIVE exit /b 98", f'if "%~1"=="{sub}" (', f"  echo {out}",
+               f"  echo Error: {sub} broke 1>&2", "  exit /b 1", ")",
+               'set "PATH=%PATH:*;=%"', "set OPENSPEC_WRAP_ACTIVE=1", f'"{real}" %*', ""]
         (wrap / "openspec.cmd").write_text("\r\n".join(cmd), encoding="utf-8", newline="")
-        sh = ["#!/bin/sh", f"""if [ "$1" = {sub} ]; then echo '{out}'; echo "Error: {sub} broke" >&2; exit 1; fi""",
+        sh = ["#!/bin/sh", '[ -n "$OPENSPEC_WRAP_ACTIVE" ] && exit 98',
+              f"""if [ "$1" = {sub} ]; then echo '{out}'; echo "Error: {sub} broke" >&2; exit 1; fi""",
+              f'PATH="${{PATH#*{os.pathsep}}}"', "OPENSPEC_WRAP_ACTIVE=1; export OPENSPEC_WRAP_ACTIVE",
               f'exec "{real}" "$@"', ""]
         (wrap / "openspec").write_text("\n".join(sh), encoding="utf-8", newline="")
         (wrap / "openspec").chmod(0o755)
@@ -282,12 +288,21 @@ class TestInstalledRecheck(Base):
         real = shutil.which("openspec")
         wrap = self.tmp / "wrap"
         wrap.mkdir()
+        # The real CLI may be a version-manager shim that looks `openspec` up on PATH again and would find this
+        # wrapper: the wrapper drops its own directory from PATH before it hands over, and a second entry stops at
+        # once instead of starting another process.
         (wrap / "openspec.py").write_text(
             "import os, subprocess, sys\n"
+            "if os.environ.get('OPENSPEC_WRAP_ACTIVE'):\n"
+            "    sys.stderr.write('openspec wrapper re-entered itself\\n')\n"
+            "    sys.exit(98)\n"
             "if os.path.basename(os.getcwd()).endswith('-installed') and sys.argv[1:2] == ['validate']:\n"
             "    sys.stderr.write('Error: openspec crashed\\n')\n"
             "    sys.exit(1)\n"
-            "sys.exit(subprocess.call([os.environ['REAL_OPENSPEC'], *sys.argv[1:]]))\n", encoding="utf-8")
+            "here = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))\n"
+            "path = [p for p in os.environ.get('PATH', '').split(os.pathsep) if os.path.normcase(p) != here]\n"
+            "env = {**os.environ, 'PATH': os.pathsep.join(path), 'OPENSPEC_WRAP_ACTIVE': '1'}\n"
+            "sys.exit(subprocess.call([os.environ['REAL_OPENSPEC'], *sys.argv[1:]], env=env))\n", encoding="utf-8")
         py = Path(sys.executable).as_posix()
         (wrap / "openspec").write_text(f'#!/bin/sh\nexec "{py}" "{(wrap / "openspec.py").as_posix()}" "$@"\n', encoding="utf-8", newline="\n")
         (wrap / "openspec").chmod(0o755)

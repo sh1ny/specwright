@@ -595,6 +595,13 @@ def prerequisites():
     return find_block(read(README), r"\*\*Prerequisites:\*\*") or ""
 
 
+def prompt():
+    """The README install prompt: its ```text block."""
+    text = read(README)
+    start = text.index("```text\n") + len("```text\n")
+    return text[start:text.index("\n```", start)]
+
+
 def install_bullet(s1, *patterns):
     """The first top-level `- ` bullet of an install step matching every pattern, or None."""
     for b in re.split(r"\n(?=- )", s1 or ""):
@@ -606,22 +613,19 @@ def install_bullet(s1, *patterns):
 class PrScriptRuntime(unittest.TestCase):
     def test_install_checks_core_and_pr_prerequisites(self):
         pre = prerequisites()
-        self.assertRegex(pre, r"(?i)\bbash\b.{0,80}POSIX", "the prerequisites do not list bash with a POSIX userland")
         self.assertRegex(pre, r"`git`", "the prerequisites do not list git")
+        self.assertRegex(pre, r"`curl`", "the prerequisites do not list curl")
         self.assertRegex(pre, r"(?i)\bcore\b", "the prerequisites do not mark the core requirements")
         core_part, _, pr_part = pre.partition("PR skills")
-        self.assertRegex(core_part, r"Python 3\.8", "the prerequisites do not list Python 3.8+ as a core requirement")
+        self.assertRegex(core_part, r"(?i)Get-FileHash.{0,80}sha256sum.{0,20}shasum", "the prerequisites do not list the SHA-256 tools")
+        self.assertRegex(core_part, r"(?i)install needs no bash and no Python", "the prerequisites do not say the install needs no bash or Python")
         self.assertRegex(pr_part, r"gh`? 2\.48", "the prerequisites do not list gh 2.48+ for the PR skills")
         self.assertNotRegex(pr_part, r"Python", "Python is still listed as a PR-only requirement")
         s1 = step(read(README), "Step 1")
         self.assertTrue(s1, "README has no install Step 1")
-        core = install_bullet(s1, r"git --version", r"command -v awk sed grep")
-        self.assertTrue(core, "Step 1 does not check git and the bash userland")
+        core = install_bullet(s1, r"git --version", r"curl --version")
+        self.assertTrue(core, "Step 1 does not check git and curl")
         self.assertRegex(core, r"STOP", "a missing core requirement does not stop the install")
-        py = install_bullet(s1, r"version_info < \(3, 8\)")
-        self.assertTrue(py, "Step 1 does not check for Python 3.8+")
-        self.assertRegex(py, r"(?s)python3.{0,40}python\b", "Step 1 does not probe python3, then python")
-        self.assertRegex(py, r"STOP", "a missing Python 3.8+ does not stop the install")
         self.assertRegex(s1, r"(?s)gh --version.{0,80}2\.48", "Step 1 does not check gh 2.48+")
         dep = find_block(read(PR_SKILL), r"Scripts live in")
         self.assertRegex(dep or "", r"(?i)\bbash\b.{0,60}\bgit\b.{0,60}gh`? 2\.48.{0,60}Python 3\.8",
@@ -638,6 +642,26 @@ class PrScriptRuntime(unittest.TestCase):
         s8 = step(read(README), "Step 8")
         self.assertRegex(s8 or "", r"PR workflow not ready: <missing>", "Step 8 does not report `PR workflow not ready: <missing>`")
         self.assertRegex(s8 or "", r"PR workflow not ready: gh 2\.48\+", "Step 8's example still names Python")
+
+    def test_readme_step1_checks_hash_tool_not_bash_or_python(self):
+        s1 = step(read(README), "Step 1")
+        self.assertTrue(s1, "README has no install Step 1")
+        hashing = install_bullet(s1, r"SHA-256 tool")
+        self.assertTrue(hashing, "Step 1 does not look for a SHA-256 tool")
+        self.assertRegex(hashing, r"Get-Command Get-FileHash", "Step 1 does not check PowerShell's Get-FileHash on Windows")
+        self.assertRegex(hashing, r"(?s)`sha256sum --version`.{0,80}`shasum --version`", "Step 1 does not try sha256sum, then shasum")
+        self.assertRegex(hashing, r"(?is)name both", "the stop does not name both tools on Linux and macOS")
+        self.assertRegex(hashing, r"(?is)STOP before any download", "a missing hash tool does not stop before any download")
+        self.assertRegex(hashing, r"(?is)write no file", "a missing hash tool does not rule out writes")
+        core = install_bullet(s1, r"curl --version")
+        self.assertRegex(core, r"curl\.exe --version", "Step 1 does not check curl.exe on Windows")
+        self.assertRegex(core, r"(?is)naming the tool", "a missing tool is not named")
+        # no step of the prompt checks for or runs bash or Python
+        p = prompt()
+        for command in re.findall(r"`([^`\n]+)`", p):
+            self.assertNotRegex(command, r"(?i)^(bash|sh|python3?|py)\b|\bupdate\.sh\b|\bsw-path\b|\binstall-sw\.sh\b",
+                                f"the prompt runs a script or an interpreter: `{command}`")
+        self.assertNotRegex(p, r"(?i)\bbash\b|\bpython\b|version_info", "the prompt still mentions bash or Python")
 
 
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
@@ -1575,7 +1599,7 @@ class DebugStash(unittest.TestCase):
 
 
 class InstallUpdateLifecycle(unittest.TestCase):
-    """README install Steps 3-8 pick a release tag and drive scripts/update.sh (safe-update-lifecycle)."""
+    """README install Steps 3-8 pick a release tag and drive `sw update` (safe-update-lifecycle, native-cli-update)."""
 
     def s(self, n):
         text = step(read(README), f"Step {n}")
@@ -1596,7 +1620,7 @@ class InstallUpdateLifecycle(unittest.TestCase):
 
     # Step 3: which ref is installed.
 
-    def test_step3_installs_latest_tag(self):
+    def test_readme_default_is_latest_tag(self):
         s3 = self.s(3)
         self.assertRegex(s3, r"git ls-remote --tags --refs \S+ 'v\*'", "Step 3 does not list the release tags")
         self.assertRegex(s3, r"(?is)highest.{0,60}(semver|semantic)", "Step 3 does not take the highest semver tag")
@@ -1604,27 +1628,138 @@ class InstallUpdateLifecycle(unittest.TestCase):
         self.assertRegex(s3, r"(?is)latest.{0,40}tag|tag.{0,60}default", "the latest tag is not the default")
         self.assertRegex(self.s(8), r"(?is)\bref\b.{0,20}installed", "Step 8 does not report the ref installed")
 
-    def test_step3_named_version_without_tag_stops(self):
+    def test_readme_missing_tag_stops(self):
         b = self.branch(self.s(3), r"named", r"does not exist")
         self.assert_stops_before_staging(b)
         self.assertRegex(b, r"(?is)list.{0,40}tags.{0,40}exist|tags that (do )?exist", "the stop does not list the tags that exist")
 
-    def test_step3_refuses_below_minimum_release(self):
-        b = self.branch(self.s(3), r"minimum release", r"0\.6\.0")
-        self.assert_stops_before_staging(b)
-        self.assertRegex(b, r"(?i)named|highest|latest", "the minimum applies to the default tag too")
-        self.assertRegex(b, r"(?i)cannot be installed", "the stop does not say versions before 0.6.0 cannot be installed")
-        self.assertRegex(b, r"(?i)offer.{0,60}`main`", "the stop does not offer main")
+    def test_readme_minimum_release_is_0_37_0(self):
+        # the first release with `sw update`; an older tag is installed by its own README prompt, and no write happens
+        s3 = self.s(3)
+        self.assertRegex(flat(s3), r"(?i)needs release 0\.37\.0 as its minimum", "Step 3 does not name the minimum release 0.37.0")
+        self.assertNotRegex(s3, r"0\.6\.0", "Step 3 still names the old minimum release")
+        raw = self.branch(s3, r"minimum release, named", r"0\.37\.0")
+        self.assert_stops_before_staging(raw)
+        b = flat(raw)
+        self.assertRegex(b, r"(?i)cannot be installed", "the stop does not say versions before 0.37.0 cannot be installed")
+        self.assertRegex(b, r"(?i)README prompt of that tag installs it", "the stop does not name the tag's own README prompt")
+        self.assertRegex(b, r"blob/<tag>/README\.md", "the stop does not link the tag's README")
+        self.assertRegex(b, r"(?i)name the tag and the minimum release 0\.37\.0", "the stop does not name the tag and the minimum")
+        # an older tag stops before any fetch, so nothing is written under <home>/.specwright/bin
+        self.assertLess(s3.index("Minimum release, named"), s3.index("POSIX fetch:"), "the minimum is checked after the fetch")
 
-    def test_step3_checks_script_interface(self):
-        b = self.branch(self.s(3), r"scripts/update\.sh", r"interface")
-        self.assert_stops_before_staging(b)
-        self.assertRegex(b, r"\bplan\b", "the interface is not read from `plan`")
-        self.assertRegex(b, r"(?i)interface\s+1\b", "the prompt does not name the interface it drives")
-        self.assertRegex(b, r"(?is)name the ref.{0,80}interface", "the stop does not name the ref and the interfaces")
-        self.assertRegex(b, r"(?i)has no `scripts/update\.sh", "a download without the script is not stopped")
+    def test_readme_latest_below_minimum_offers_main(self):
+        raw = self.branch(self.s(3), r"minimum release, latest", r"0\.37\.0")
+        self.assert_stops_before_staging(raw)
+        b = flat(raw)
+        self.assertRegex(b, r"(?i)highest tag is below 0\.37\.0", "the stop does not apply to the highest tag")
+        self.assertRegex(b, r"(?i)offer to install `main`", "the stop does not offer main")
+        self.assertRegex(b, r"(?i)only if the user then says so", "main is installed without the user's word")
 
-    def test_step3_falls_back_to_main_without_tags(self):
+    def test_readme_accepts_interface_3(self):
+        s3 = flat(self.s(3))
+        self.assertRegex(s3, r"(?i)drives `sw update` interface 3", "Step 3 does not drive interface 3")
+        self.assertRegex(s3, r'(?i)`update interface`.{0,200}must print `"interface":3`', "Step 3 does not require interface 3")
+        self.assertNotRegex(s3, r"(?i)interface [12]\b", "Step 3 still names interface 1 or 2")
+        self.assertRegex(flat(self.s(4)), r"(?i)`sw update` below is `<sw> update`", "Step 4 does not run the placed sw update")
+
+    def test_readme_interface_mismatch_stops_before_sw_install(self):
+        s3 = self.s(3)
+        raw = self.branch(s3, r"check the interface", r"update interface")
+        self.assert_stops_before_staging(raw)
+        b = flat(raw)
+        self.assertRegex(b, r"(?i)name the ref, the interface found.{0,60}and interface 3", "the stop does not name the ref and both interfaces")
+        self.assertRegex(b, r"(?i)\(or that there is none\)", "a missing `update` command is not named")
+        self.assertRegex(b, r"(?i)delete\s+`<tmp>`", "the stop does not delete the temporary directory")
+        self.assertRegex(b, r"(?i)nothing is recovered, placed or written", "the check does not say it writes nothing")
+        place = self.branch(s3, r"place it", r"sw-install")
+        self.assertLess(s3.index(raw), s3.index(place), "the interface is checked after sw-install")
+        self.assertRegex(flat(place), r"update sw-install --code", "Step 3 does not run `sw update sw-install` with the project options")
+        self.assertRegex(flat(place), r"never moves the copy it runs", "the place step may move the checked temporary copy")
+        self.assertLess(s3.index("POSIX run:"), s3.index(raw), "the interface is checked before the binary is run")
+
+    def test_readme_step3_version_must_match_tag(self):
+        s3 = self.s(3)
+        raw = self.branch(s3, r"run the checked file", r"version")
+        self.assert_stops_before_staging(raw)
+        b = flat(raw)
+        self.assertRegex(b, r"(?i)`version` must be the tag's version", "the run step does not compare the version with the tag")
+        self.assertRegex(b, r"(?i)name both versions", "the stop does not name both versions")
+        self.assertRegex(b, r"(?i)delete\s+`<tmp>`", "the stop does not delete the temporary directory")
+        self.assertRegex(s3, r"POSIX run: `<boot>/<asset> version --json`", "Step 3 does not run `version --json` on the checked file")
+        self.assertRegex(s3, r"PowerShell run: `<boot>\\<asset> version --json`", "Step 3 has no PowerShell run command")
+        self.assertRegex(flat(s3), r"(?i)call operator, as `& \"<path>\" <arguments>`",
+                         "Step 3 does not say a quoted path runs through PowerShell's call operator")
+
+    def test_readme_step3_curl_is_bounded_and_https_only(self):
+        s3 = self.s(3)
+        fetches = re.findall(r"^\s*- (?:POSIX|PowerShell) fetch: `([^`\n]+)`", s3, re.M)
+        self.assertEqual(len(fetches), 2, "Step 3 gives one fetch command for POSIX and one for PowerShell")
+        self.assertTrue(fetches[0].startswith("curl "), "the POSIX fetch is not curl")
+        self.assertTrue(fetches[1].startswith("curl.exe "), "the Windows fetch is not curl.exe")
+        for cmd in fetches:
+            self.assertEqual(cmd.split()[1], "-q", f"`{cmd}` does not skip the curl config file first")
+            for opt in ("-fL", "--proto =https", "--proto-redir =https", "--max-time 120", "--max-filesize 64M"):
+                self.assertIn(opt, cmd, f"`{cmd}` lacks {opt}")
+            self.assertNotRegex(cmd, r"http://", "a fetch names an http URL")
+            self.assertNotRegex(cmd, r"\s-k\b|--insecure|--proto-default", "a fetch weakens TLS or the protocol check")
+        fetch = flat(self.branch(s3, r"fetch .{0,40}THIRD_PARTY_NOTICES\.txt.{0,40}SHA256SUMS", r"https"))
+        self.assertRegex(fetch, r"(?i)first URL and on every redirect", "the fetch is not https-only on redirects")
+        self.assertRegex(fetch, r"(?i)120 seconds or 64 MiB", "the fetch does not state the 120 s and 64 MiB bounds")
+        raw = self.branch(s3, r"fetch that fails or passes a bound")
+        self.assert_stops_before_staging(raw)
+        stop = flat(raw)
+        self.assertRegex(stop, r"(?i)name the file and the cause", "the stop does not name the file and the cause")
+        self.assertRegex(stop, r"(?i)delete its partial file", "the stop does not delete the partial file")
+        self.assertRegex(stop, r"(?i)run nothing", "the stop may run the partial file")
+        self.assertRegex(stop, r"(?i)no `THIRD_PARTY_NOTICES\.txt` or no `SHA256SUMS`", "a release without the notice or sums does not stop")
+        # both hashes are checked, in the README's order: before chmod, quarantine and the first run
+        marks = ("POSIX fetch:", "POSIX hash:", "POSIX chmod:", "POSIX quarantine check:", "POSIX quarantine:", "POSIX run:")
+        order = [s3.index(m) for m in marks]
+        self.assertEqual(order, sorted(order), "the POSIX commands are not in the order fetch, hash, chmod, quarantine, run")
+        hashes = flat(self.branch(s3, r"check both hashes"))
+        self.assertRegex(hashes, r"(?i)the asset's and the notice's, before anything runs", "both hashes are not checked before anything runs")
+        raw = self.branch(s3, r"hash that differs from its line")
+        self.assert_stops_before_staging(raw)
+        mismatch = flat(raw)
+        self.assertRegex(mismatch, r"(?i)name the file and both hashes", "a hash mismatch does not name the file and both hashes")
+        self.assertRegex(mismatch, r"(?i)delete the file without running it", "a hash mismatch does not delete the file unrun")
+        for label in ("POSIX hash", "POSIX hash fallback", "PowerShell hash"):
+            self.assertIn(f"- {label}: `", s3, f"Step 3 has no {label} command")
+        self.assertRegex(s3, r"PowerShell hash: `\(Get-FileHash -Algorithm SHA256 <boot>\\<file>\)\.Hash`", "the PowerShell hash is not Get-FileHash -Algorithm SHA256")
+        self.assertRegex(s3, r"POSIX hash fallback: `shasum -a 256 ", "the POSIX fallback is not shasum -a 256")
+        chmod = flat(self.branch(s3, r"only when both hashes match"))
+        self.assertRegex(s3, r"POSIX chmod: `chmod 0755 ", "the executable bit is not set with chmod 0755")
+        self.assertRegex(chmod, r"(?i)com\.apple\.quarantine", "macOS quarantine is not cleared")
+        self.assertRegex(chmod, r"(?i)a fresh download is not", "the README does not say why chmod is needed")
+        # no bash syntax in any Step 3 command
+        for cmd in re.findall(r"^\s*- (?:POSIX|PowerShell) [a-z ]+: `([^`\n]+)`", s3, re.M):
+            plain = re.sub(r"<[a-z]+>", "", cmd)
+            if "Get-FileHash" not in cmd:
+                self.assertNotRegex(plain, r"[|&;<>$`()]", f"`{cmd}` holds shell syntax")
+            self.assertNotRegex(cmd, r"(?i)\b(bash|python3?)\b", f"`{cmd}` runs bash or Python")
+
+    def test_readme_main_needs_mise(self):
+        s3 = self.s(3)
+        raw = self.branch(s3, r"^\s*- `main`: no release carries a binary", r"mise --version")
+        self.assert_stops_before_staging(raw)
+        b = flat(raw)
+        self.assertRegex(b, r"(?i)`mise --version`; if it fails, STOP", "a missing mise does not stop")
+        self.assertRegex(b, r"(?i)a `main` install builds `sw` with `mise run install-sw`", "the stop does not say what a main install needs")
+        self.assertRegex(b, r"(?i)name `mise`", "the stop does not name mise")
+        self.assertRegex(b, r"(?i)delete `<tmp>`", "the stop does not delete the temporary directory")
+        self.assertRegex(b, r"mise run install-sw -- --expect-update-interface 3", "main is not built with the interface check")
+        self.assertRegex(b, r"(?i)checks that its `update interface` is 3 before placing anything", "the build's interface is not checked before placement")
+        self.assertRegex(b, r"(?i)interface other than 3 \(or none\), is a stop", "a build with another interface does not stop")
+        self.assertLess(b.index("mise --version"), b.index("install-sw"), "mise is not checked before the build")
+
+    def test_readme_main_reports_sw_built_from_main(self):
+        s3, s8 = flat(self.s(3)), flat(self.s(8))
+        self.assertRegex(s3, r"(?i)Record `sw built from main` and the path for Step 8", "Step 3 does not record the main build")
+        self.assertRegex(s8, r"(?i)for `main`, `sw built from main` and its path", "Step 8 does not report `sw built from main` with the path")
+        self.assertNotIn("sw not installed", read(README), "the old `sw not installed` lines are still in the README")
+
+    def test_readme_no_tag_installs_main(self):
         s3 = self.s(3)
         self.assertIn("main (no release tag)", s3, "Step 3 does not name the no-tag report")
         self.assertRegex(s3, r"(?is)`main`.{0,120}(asks|request)", "Step 3 does not limit main to a request")
@@ -1636,8 +1771,9 @@ class InstallUpdateLifecycle(unittest.TestCase):
     def test_step4_runs_update_script_and_acts_on_refusals(self):
         s4 = self.s(4)
         for sub in ("plan", "stage", "swap"):
-            self.assertRegex(s4, rf"update\.sh.{{0,300}}`{sub}`|`{sub}`.{{0,300}}update\.sh", f"Step 4 does not run update.sh {sub}")
-        self.assertRegex(s4, r"(?i)from the download|download.{0,40}never an installed", "Step 4 may run an installed copy of the script")
+            self.assertRegex(s4, rf"sw update.{{0,300}}`{sub}`|`{sub}`.{{0,300}}sw update", f"Step 4 does not run sw update {sub}")
+        self.assertRegex(flat(s4), r"(?i)placed for the downloaded version.{0,120}never an `sw` found on `PATH`", "Step 4 may run an sw that is not the download's")
+        self.assertNotIn("update.sh", s4, "Step 4 still runs update.sh")
         self.assertRegex(s4, r"(?is)refus.{0,300}STOP", "Step 4 does not stop on a refusal")
         self.assertRegex(s4, r"(?is)refus.{0,300}(unchanged|nothing (was )?changed)", "a refusal does not say the installation is unchanged")
         self.assertRegex(s4, r"`swapped`", "Step 4 does not record the swapped flag")
@@ -2361,26 +2497,11 @@ class Packs(unittest.TestCase):
         self.assertTrue(t, "README has no install Step %d" % n)
         return flat(t)
 
-    def test_readme_accepts_interface_2(self):
-        s3 = self.s(3)
-        self.assertRegex(s3, r"(?i)drives update-script interface 2", "Step 3 does not drive interface 2")
-        self.assertRegex(s3, r"(?is)accept\w* interface 2", "Step 3 does not accept interface 2")
-
-    def test_readme_accepts_interface_1_without_packs(self):
-        s3 = self.s(3)
-        self.assertRegex(s3, r"(?is)interface 1.{0,200}only when.{0,200}enables no pack.{0,200}packs\.json`.{0,120}no enabled pack",
-                         "Step 3 does not accept interface 1 only without enabled packs")
-
-    def test_readme_refuses_interface_1_with_packs(self):
-        s3 = self.s(3)
-        self.assertRegex(s3, r"(?is)STOP before Step 4.{0,300}predates packs.{0,200}0\.16\.0.{0,200}interfaces? 1 and 2",
-                         "Step 3 does not stop on interface 1 with packs, naming interfaces 1 and 2")
-
-    def test_readme_step3_interface_check_omits_pack_options(self):
-        # an older update.sh refuses --pack as a usage error and reports no interface, so the interface check must not
-        # pass the pack options, or the "predates packs" stop can never be reached
-        s3 = self.s(3)
-        self.assertRegex(s3, r"(?is)without (the )?`--pack` and `--pack-doc`", "Step 3's interface check passes the pack options")
+    def test_readme_pack_steps_drive_sw_update(self):
+        # Step 3 no longer reads an interface from `plan`: every download is interface 3, with the pack subcommands
+        self.assertNotRegex(self.s(3), r"(?i)predates packs|interface 1|interface 2", "Step 3 still handles an older interface")
+        prompt_text = flat(prompt())
+        self.assertNotRegex(prompt_text, r"(?i)interface[- ][12]\b", "the prompt still names interface 1 or 2")
 
     def test_readme_step5_pack_lines_follow_the_copy_too(self):
         # a project with no config.yaml gets the template copied; its pack lines must still be merged, or pack-verify fails
@@ -2441,16 +2562,15 @@ class Packs(unittest.TestCase):
         self.assertRegex(s7, r"(?is)stamp.{0,400}`pack-docs`.{0,300}never overwrites.{0,100}created.{0,40}kept",
                          "Step 7 does not run pack-docs after the stamp")
 
-    def test_readme_pack_steps_only_with_interface_2_and_step5(self):
-        # an interface-1 download has no pack-verify or pack-docs, and a skipped Step 5 leaves another project's
-        # config.yaml: neither may block the stamp
+    def test_readme_pack_steps_follow_step5_through_sw_update(self):
+        # a skipped Step 5 leaves another project's config.yaml: it must not block the stamp
         s5, s7 = self.s(5), self.s(7)
-        self.assertRegex(s5, r"(?is)interface 2.{0,200}`pack-verify`|`pack-verify`.{0,200}interface 2",
-                         "Step 5 does not run pack-verify only for an interface-2 download")
-        self.assertRegex(s7, r"(?is)`pack-verify`.{0,300}interface[- ]1.{0,300}Step 5 was skipped",
-                         "Step 7 does not exempt the pack-verify check for an interface-1 download and a skipped Step 5")
-        self.assertRegex(s7, r"(?is)`pack-docs`.{0,300}interface 2|interface 2.{0,300}`pack-docs`",
-                         "Step 7 does not run pack-docs only for an interface-2 download")
+        self.assertRegex(s5, r"(?is)`sw update` `pack-verify`", "Step 5 does not run `sw update pack-verify`")
+        self.assertNotRegex(s5, r"(?is)interface", "Step 5 still conditions pack-verify on an interface")
+        self.assertRegex(s7, r"(?is)`sw update` `pack-verify` passes.{0,200}Step 5 was skipped",
+                         "Step 7 does not exempt the pack-verify check when Step 5 was skipped")
+        self.assertRegex(s7, r"(?is)after the stamp, run `sw update` `pack-docs`", "Step 7 does not run `sw update pack-docs` after the stamp")
+        self.assertNotRegex(s7, r"(?is)interface", "Step 7 still conditions a pack step on an interface")
 
     def test_readme_step8_reports_packs(self):
         s8 = self.s(8)

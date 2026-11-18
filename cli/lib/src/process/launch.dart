@@ -25,6 +25,7 @@ class LaunchResult {
     this.stderr, {
     this.outputTooLarge = false,
     this.startFailed = false,
+    this.timedOut = false,
   });
 
   final int exitCode;
@@ -38,6 +39,9 @@ class LaunchResult {
   /// Nothing ran: the working directory is missing, the command was not found,
   /// or the start failed. The exit code is 127 and [stderr] says which.
   final bool startFailed;
+
+  /// Only a call with a `deadline`: the tool ran past it and was killed.
+  final bool timedOut;
 }
 
 bool _hasNul(String s) => s.contains('\x00');
@@ -122,11 +126,18 @@ LaunchResult _startFailed(String text) => LaunchResult(
 ///
 /// Constraint C9: a [stdoutCap] bounds stdout only. Once stdout holds more than
 /// that many bytes the child is killed, and [LaunchResult.outputTooLarge] is
-/// set. A capped native executable is not run under a tree stop: overflow
-/// kills the direct child only, as it did before the launcher, so a
+/// set. A [stderrCap] does the same for stderr, while it is read; only the
+/// self-check of a downloaded `sw` passes one. On the batch path a
+/// [stderrCap] without a [stdoutCap] bounds stdout too (the helper's one
+/// byte bound). A capped native executable is not run under a tree stop:
+/// overflow kills the direct child only, as it did before the launcher, so a
 /// descendant of the tool may outlive it. (A batch file runs under the
-/// helper, whose tree is stopped.) No call has a deadline or a bound on
-/// stderr, and no deadline or byte bound is added to a call that had none.
+/// helper, whose tree is stopped.) No deadline or byte bound is added to a
+/// call that had none.
+///
+/// A [deadline], when given, kills a native tool that has not ended by then
+/// (the batch path stops its tree) and sets [LaunchResult.timedOut]. Without
+/// one a call has no deadline, as before.
 ///
 /// Constraint C11: the working directory comes from the caller, as an absolute
 /// path. A relative command path or `PATH` entry, including the current
@@ -139,6 +150,8 @@ Future<LaunchResult> launch(
   List<int>? input,
   Map<String, String>? environment,
   int? stdoutCap,
+  int? stderrCap,
+  Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
 }) async {
@@ -164,6 +177,8 @@ Future<LaunchResult> launch(
       inherit ? null : environment,
       input,
       stdoutCap,
+      stderrCap,
+      deadline,
       helperCommand,
       stdoutSink,
     );
@@ -180,6 +195,8 @@ Future<LaunchResult> launch(
     inherit ? null : environment,
     input,
     stdoutCap,
+    stderrCap,
+    deadline,
     stdoutSink,
   );
 }
@@ -193,6 +210,8 @@ Future<LaunchResult> _batch(
   Map<String, String>? environment,
   List<int>? input,
   int? stdoutCap,
+  int? stderrCap,
+  Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
 ) async {
@@ -201,7 +220,12 @@ Future<LaunchResult> _batch(
     command: plan.command,
     rawLine: plan.rawLine,
     stdinBytes: [...plan.stdinBytes, ...?input],
-    limits: RunLimits(stdoutCap: stdoutCap),
+    // maxBytes bounds stderr (and stdout too when there is no stdoutCap)
+    limits: RunLimits(
+      stdoutCap: stdoutCap,
+      maxBytes: stderrCap,
+      deadline: deadline,
+    ),
     treeFor: () => platformTree(env),
     helperCommand: helperCommand,
     environment: environment,
@@ -239,6 +263,8 @@ Future<LaunchResult> _native(
   Map<String, String>? environment,
   List<int>? input,
   int? cap,
+  int? stderrCap,
+  Duration? deadline,
   Future<void> Function(List<int>)? stdoutSink,
 ) async {
   final Process process;
@@ -273,6 +299,24 @@ Future<LaunchResult> _native(
     if (settled != null && !settled.isCompleted) settled.complete();
   }
 
+  // Ends every wait of this call: a descendant that inherited stdout or
+  // stderr can keep either pipe open after the kill, so neither is awaited
+  // once the call is over (the readers are cancelled below).
+  void stopWaiting() {
+    if (!outDone.isCompleted) outDone.complete();
+    if (!errDone.isCompleted) errDone.complete();
+    settleSink();
+  }
+
+  var timedOut = false;
+  // armed until both readers end, not only until the tool exits
+  final timer = deadline == null
+      ? null
+      : Timer(deadline, () {
+          timedOut = true;
+          process.kill(ProcessSignal.sigkill);
+          stopWaiting();
+        });
   var stdoutBytes = 0;
   var tooLarge = false;
   late final StreamSubscription<List<int>> outSub;
@@ -289,8 +333,7 @@ Future<LaunchResult> _native(
         tooLarge = true;
         unawaited(outSub.cancel().catchError((Object _) {}));
         process.kill(ProcessSignal.sigkill);
-        if (!outDone.isCompleted) outDone.complete();
-        settleSink();
+        stopWaiting();
         return;
       }
       final sink = stdoutSink;
@@ -323,7 +366,16 @@ Future<LaunchResult> _native(
     cancelOnError: true,
   );
   final errSub = process.stderr.listen(
-    err.add,
+    (chunk) {
+      if (tooLarge) return;
+      err.add(chunk);
+      if (stderrCap != null && err.length > stderrCap) {
+        tooLarge = true;
+        process.kill(ProcessSignal.sigkill);
+        unawaited(outSub.cancel().catchError((Object _) {}));
+        stopWaiting();
+      }
+    },
     onDone: () {
       if (!errDone.isCompleted) errDone.complete();
     },
@@ -352,10 +404,14 @@ Future<LaunchResult> _native(
     if (sinkSettled?.isCompleted == true) await throwSinkError();
     final code = await process.exitCode;
     if (sinkSettled?.isCompleted == true) await throwSinkError();
-    if (tooLarge) {
-      await errSub.cancel();
-    } else {
-      await errDone.future;
+    // the deadline or a cap ends this wait too (stopWaiting)
+    await errDone.future;
+    timer?.cancel();
+    if (tooLarge || timedOut) {
+      await Future.wait([
+        outSub.cancel().catchError((Object _) {}),
+        errSub.cancel().catchError((Object _) {}),
+      ]);
     }
     // POSIX reports a signal as its negative number; Windows codes stay as
     // they are (0xC0000005 arrives negative).
@@ -365,8 +421,10 @@ Future<LaunchResult> _native(
       out.takeBytes(),
       err.takeBytes(),
       outputTooLarge: tooLarge,
+      timedOut: timedOut,
     );
   } catch (_) {
+    timer?.cancel();
     process.kill(ProcessSignal.sigkill);
     await Future.wait([
       outSub.cancel().catchError((Object _) {}),

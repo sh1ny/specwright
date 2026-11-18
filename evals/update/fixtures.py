@@ -9,22 +9,22 @@ Builders:
                      registry and config live in the scratch directory, so the user's real ones are never touched
 Change helpers (a change in flight lives in the working tree, on a local branch or on a remote-tracking ref):
   add_change_worktree, add_change_branch, add_change_remote, archive_change
-Run helpers: install_shims (the mv/cp/rm shims of evals/update/shims, copied somewhere executable),
-run_update (runs `bash <download>/scripts/update.sh`, optionally killed at the N-th shim call), tree, snapshot.
+Versioned binaries: provision_sw(home, version) puts a sw that reports `version` at <home>/.specwright/bin/<version>/,
+which is where the update.sh shim looks (design D8 of native-cli-update); make_download and make_mini_download call it.
+Run helpers: run_update (runs `bash <download>/scripts/update.sh`, which hands over to the download's sw; optionally
+counts and kills at the N-th file operation through SPECWRIGHT_UPDATE_COUNT and SPECWRIGHT_UPDATE_KILL_AT), tree, snapshot.
 
 Paths handed to update.sh are posix(): forward slashes, which Git Bash and Python both read.
 """
 import json
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]  # the specwright repo
-SHIMS = Path(__file__).resolve().parent / "shims"
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
@@ -117,13 +117,51 @@ def schema_edit_dependency(new_artifact="research", ahead_of="specs"):
     return edit
 
 
-def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skills=(), add_skills=None):
+def _build_sw(version):
+    """The fixturecache builder of a sw that reports `version`: cli/tool/build.dart --version <v> --output <file>."""
+    def build(dest):
+        dest.mkdir(parents=True)
+        out = dest / ("sw.exe" if os.name == "nt" else "sw")
+        dart = shutil.which("dart")
+        if not dart:
+            raise RuntimeError("provision_sw needs dart on PATH (mise exec -- ...)")
+        r = subprocess.run([dart, "run", (ROOT / "cli" / "tool" / "build.dart").as_posix(), "--version", version,
+                            "--output", out.as_posix()], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                           timeout=900)
+        if r.returncode != 0 or not out.is_file():
+            raise RuntimeError(f"building sw {version} failed: {r.stdout}{r.stderr}")
+    return build
+
+
+def provision_sw(home, version):
+    """Place a sw that reports `version`, with the notice, at <home>/.specwright/bin/<version>/ (what the shim's
+    sw-path.sh looks for). The binary is built once per version per test process (the build is cached and removed at
+    exit; each process builds its own, so parallel test files share nothing) and copied. Returns the placed path."""
+    built = fixturecache.cached(("update.sw", version), _build_sw(version))
+    name = "sw.exe" if os.name == "nt" else "sw"
+    target = Path(home) / ".specwright" / "bin" / version
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(built / name, target / name)
+    (target / name).chmod(0o755)
+    shutil.copy2(ROOT / "cli" / "THIRD_PARTY_NOTICES.txt", target / "THIRD_PARTY_NOTICES.txt")
+    return target / name
+
+
+def sw_home_for(download):
+    """The SPECWRIGHT_HOME that holds the binaries of the downloads made beside `download`: <parent>/sw-home."""
+    return Path(download).parent / "sw-home"
+
+
+def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skills=(), add_skills=None, provision=True,
+                  home=None):
     """A download tree at `dest` (a path that does not exist yet): this repo's skills/, agents/, schemas/, scripts/
     and templates/, with VERSION = version.
 
     schema_edit: callable(schema_dir) applied to the copied schemas/specwright (see schema_edit_comment).
     stamp_skills: append a `<!-- v{version} -->` line to every SKILL.md, so two versions differ byte for byte.
     drop_skills / add_skills {name: SKILL.md text}: change the set of skill directories.
+    provision: also place a sw for `version` in `home` (default sw_home_for(dest)); a test that asserts `sw_missing`
+    passes False.
     Returns the path."""
     dest = Path(dest)
     dest.mkdir(parents=True)
@@ -143,14 +181,18 @@ def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skill
     if schema_edit:
         schema_edit(dest / "schemas" / "specwright")
     write(dest, "VERSION", version + "\n")
+    if provision:
+        provision_sw(home or sw_home_for(dest), version)
     return dest
 
 
-def make_mini_download(dest, version, skills=1, schema_edit=None):
-    """make_download with only the first `skills` specwright-* directories and one claude agent file: the same flow
-    with a handful of file operations, for the evals that run update.sh many times (the interruption matrix)."""
-    names = sorted(p.name for p in (ROOT / "skills").glob("specwright-*") if p.is_dir())
-    dl = make_download(dest, version, drop_skills=names[skills:], schema_edit=schema_edit)
+def make_mini_download(dest, version, skills=1, schema_edit=None, provision=True, home=None):
+    """make_download with only the first `skills` specwright-* directories (and specwright-pr, which holds the sw-path.sh
+    the shim runs) and one claude agent file: the same flow with a handful of file operations, for the evals that run
+    update.sh many times (the interruption matrix)."""
+    names = sorted(p.name for p in (ROOT / "skills").glob("specwright-*") if p.is_dir() and p.name != "specwright-pr")
+    # specwright-pr stays whole: the shim finds sw-path.sh in it
+    dl = make_download(dest, version, drop_skills=names[skills:], schema_edit=schema_edit, provision=provision, home=home)
     agents = sorted((dl / "agents" / "claude").glob("*.md"))
     for p in agents[1:]:
         p.unlink()
@@ -398,33 +440,34 @@ def archive_change(repo, name, date="2026-10-01", planning="openspec"):
 
 # --- running ----------------------------------------------------------------------------------------------------
 
-def install_shims(dest):
-    """Copy the mv/cp/rm shims to `dest` (made executable; the checkout does not need the mode bit). Returns the dir."""
-    dest = Path(dest)
-    dest.mkdir(parents=True, exist_ok=True)
-    for n in ("mv", "cp", "rm"):
-        target = dest / n
-        shutil.copy(SHIMS / n, target)
-        target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return dest
-
-
-def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=None, kill_at=None, timeout=300):
+def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=None, kill_at=None, sw=None, timeout=300):
     """Run `bash <download>/scripts/update.sh <args>`; returns (exit code, parsed JSON or None, stdout, stderr).
 
-    shim_dir (from install_shims) goes first on PATH. count_file: UPDATE_SHIM_COUNT. kill_at: UPDATE_KILL_AT; the
-    script is started through `bash -c 'UPDATE_KILL_PID=$$ exec bash ...'`, so the shims kill the script's own process.
-    """
+    The shim hands over to the sw at $SPECWRIGHT_HOME/.specwright/bin/<download version>/ (default home:
+    sw_home_for(download), which make_download filled). count_file: SPECWRIGHT_UPDATE_COUNT, the log of every file
+    operation sw makes (`<n> <op> <args>`, numbering continues across runs that share the file); kill_at:
+    SPECWRIGHT_UPDATE_KILL_AT, sw ends with exit 137 before operation n, as if killed between two operations.
+    shim_dir goes first on PATH (a tool a test puts in front of the real one; sw's own file operations pass no tool).
+    sw: run `<sw> update <args>` directly instead of through the shim (what the prompt does with its checked temporary
+    copy of sw, for sw-install, which places the sw the shim would need)."""
     script = Path(download) / "scripts" / "update.sh"
     env = dict(env or os.environ)
     env.setdefault("OPENSPEC_TELEMETRY", "0")
+    # Git Bash rewrites an argument that looks like a POSIX path (`/tmp/gdd.md`) when the shim execs the native sw; a pack-doc
+    # path must reach sw as given
+    env.setdefault("MSYS2_ARG_CONV_EXCL", "*")
+    env.setdefault("SPECWRIGHT_HOME", str(sw_home_for(download)))
     if shim_dir:
         env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
     if count_file:
-        env["UPDATE_SHIM_COUNT"] = posix(count_file)
+        env["SPECWRIGHT_UPDATE_COUNT"] = posix(count_file)
     if kill_at is not None:
-        env["UPDATE_KILL_AT"] = str(kill_at)
-    argv = [bashexe.bash(), "-c", 'export UPDATE_KILL_PID=$$; exec bash "$@"', "update-eval", posix(script), *map(str, args)]
+        env["SPECWRIGHT_UPDATE_KILL_AT"] = str(kill_at)
+    argv = [str(sw), "update", *map(str, args)] if sw else [bashexe.bash(), posix(script), *map(str, args)]
+    if sw:
+        args = list(args)
+        if "--download" not in map(str, args):
+            argv += ["--download", posix(download)]
     r = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
     doc = None
     out = r.stdout.strip()

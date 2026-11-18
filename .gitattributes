@@ -1,7 +1,6 @@
 *.sh text eol=lf
 *.md text eol=lf
 *.yaml text eol=lf
-evals/update/shims/* text eol=lf
 *VERSION text eol=lf
 schemas/** text eol=lf
 cli/THIRD_PARTY_NOTICES.txt text eol=lf

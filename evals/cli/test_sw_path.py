@@ -56,15 +56,17 @@ class Base(unittest.TestCase):
         shutil.copy2(self.sw, target)
         return target
 
-    def stub(self, stdout, status=0, name="stub"):
-        """A stub that prints `stdout` and exits `status`."""
+    def stub(self, stdout, status=0, name="stub", delay=0):
+        """A stub that waits `delay` seconds, prints `stdout` and exits `status`."""
         if WINDOWS:
             path = self.tmp / (name + ".cmd")
-            lines = ["@echo off"] + ["echo %s" % line for line in stdout.splitlines()] + ["exit /b %d" % status]
+            wait = ["ping -n %d 127.0.0.1 >nul" % (delay + 1)] if delay else []
+            lines = ["@echo off"] + wait + ["echo %s" % line for line in stdout.splitlines()] + ["exit /b %d" % status]
             path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8", newline="")
         else:
             path = self.tmp / name
-            path.write_text("#!/bin/sh\ncat <<'EOF_STUB'\n%s\nEOF_STUB\nexit %d\n" % (stdout, status), encoding="utf-8")
+            wait = "sleep %d\n" % delay if delay else ""
+            path.write_text("#!/bin/sh\n%scat <<'EOF_STUB'\n%s\nEOF_STUB\nexit %d\n" % (wait, stdout, status), encoding="utf-8")
             path.chmod(0o755)
         return path
 
@@ -152,10 +154,12 @@ class Resolver(Base):
         stub = self.stub('{"version":"0.24.0","interface":%d}' % self.report["interface"])
         proc = self.resolve("--file", stub, "--version", "0.24.0")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        for limit in ({"SPECWRIGHT_NET_MAX_BYTES": "8"}, {"SPECWRIGHT_NET_DEADLINE": "0"}):
+        # a stub that answers at once can exit before a 0 s deadline is checked; the slow one cannot
+        slow = self.stub('{"version":"0.24.0","interface":%d}' % self.report["interface"], name="slow", delay=3)
+        for limit, target in (({"SPECWRIGHT_NET_MAX_BYTES": "8"}, stub), ({"SPECWRIGHT_NET_DEADLINE": "0"}, slow)):
             with self.subTest(limit=limit):
-                proc = self.resolve("--file", stub, "--version", "0.24.0", **limit)
-                self.assert_stop(proc, stub)
+                proc = self.resolve("--file", target, "--version", "0.24.0", **limit)
+                self.assert_stop(proc, target)
 
     def test_looser_caller_limits_are_capped(self):
         stub = self.stub('{"version":"0.24.0","interface":%d}' % self.report["interface"])

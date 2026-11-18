@@ -4,12 +4,16 @@ make_download   a download tree: the repo's real schemas/specwright/ and templat
                 against the real schema) plus the chosen fixture packs of evals/packs/fixtures/packs/
 make_project    a code checkout directory with openspec/config.yaml (merged by merge.merge_config) and the record
                 openspec/.specwright/packs.json that the swap writes
-run_script      `bash scripts/update.sh --download D --code P <args>` -> (exit code, parsed JSON, stdout, stderr)
+run_script      `bash scripts/update.sh --download D --code P <args>` (the shim, over a provisioned sw) -> (exit code, parsed JSON, stdout, stderr)
 """
+import atexit
+import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -22,6 +26,25 @@ import merge  # noqa: E402
 SCRIPT = ROOT / "scripts" / "update.sh"
 FIXTURE_PACKS = HERE / "fixtures" / "packs"
 OPENSPEC = shutil.which("openspec")
+
+
+_SW_HOME = None
+
+
+def sw_env():
+    """An environment whose SPECWRIGHT_HOME holds a sw of this repo's VERSION (scripts/update.sh is a shim that hands over to
+    it). Built once per process through the update suite's provision_sw, in a scratch home that is removed at exit, so the
+    real home is never touched."""
+    global _SW_HOME
+    if _SW_HOME is None:
+        spec = importlib.util.spec_from_file_location("update_fixtures", ROOT / "evals" / "update" / "fixtures.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        home = Path(tempfile.mkdtemp(prefix="packs-sw-home-")).resolve()
+        atexit.register(shutil.rmtree, home, True)
+        mod.provision_sw(home, (ROOT / "VERSION").read_text(encoding="utf-8").strip())
+        _SW_HOME = home
+    return {**os.environ, "SPECWRIGHT_HOME": str(_SW_HOME), "OPENSPEC_TELEMETRY": "0"}
 
 
 def posix(p):
@@ -67,7 +90,7 @@ def make_project(tmp, dl, enabled, previous=(), existing=None, documents=None, n
 
 def run_script(dl, proj, *args, timeout=300):
     argv = [bashexe.bash(), posix(SCRIPT), "--download", posix(dl), "--code", posix(proj), *args]
-    r = subprocess.run(argv, cwd=str(proj), capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+    r = subprocess.run(argv, cwd=str(proj), capture_output=True, text=True, encoding="utf-8", timeout=timeout, env=sw_env())
     try:
         doc = json.loads(r.stdout)
     except ValueError:

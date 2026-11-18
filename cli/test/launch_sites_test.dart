@@ -8,7 +8,11 @@
 //   * a self-launch (`Platform.resolvedExecutable`) other than the process
 //     helper (`'__exec'`) and the reviewer evaluator (`'pr', 'reviewers'`
 //     under `PrContext.bounded`), including a changed head, a list that is not
-//     a literal, or an evaluator run without its bound;
+//     a literal, or an evaluator run without its bound. The one other read of
+//     the running path is `running ?? Platform.resolvedExecutable)` in
+//     `update/place.dart`, listed in `selfReferences`; it starts nothing;
+//   * a binary check (`sw update` placing a download) that runs anything but
+//     `version --json`;
 //   * a shipped script name (`as.sh`, `vcs.sh`, ..., or any `.py`) in a launch's
 //     arguments, or written anywhere under `lib/src` outside a listed
 //     printed-command, message or label site;
@@ -42,9 +46,19 @@ enum LaunchKind {
 
 /// One runner symbol in one file: how many calls, of what kind.
 class Call {
-  const Call(this.count, this.kind, {this.function, this.labels = const {}});
+  const Call(
+    this.count,
+    this.kind, {
+    this.function,
+    this.labels = const {},
+    this.binaryArgs,
+  });
   final int count;
   final LaunchKind kind;
+
+  /// For a binary check: the literal arguments after the executable, and the
+  /// only ones the launch may pass (`version --json` for `sw update`).
+  final List<String>? binaryArgs;
 
   /// For `Process.start` and `Process.run`: the function that holds the call.
   final String? function;
@@ -64,6 +78,16 @@ class SelfLaunch {
   final LaunchKind kind;
 }
 
+/// A permitted read of the running executable's path that starts nothing: how
+/// many times, and the text that must stand right before it (`??`, a default
+/// for a parameter). It must end an argument (`)` follows), so it is never an
+/// element of a list that could be launched.
+class SelfReference {
+  const SelfReference(this.count, this.before);
+  final int count;
+  final String before;
+}
+
 /// A listed non-launch site for a script name: how many times, and why.
 class ScriptSite {
   const ScriptSite(this.count, this.reason);
@@ -76,7 +100,11 @@ class Allowlist {
     required this.calls,
     required this.selfLaunches,
     required this.scriptNames,
+    this.selfReferences = const {},
   });
+
+  /// file -> permitted read of the running executable that launches nothing.
+  final Map<String, SelfReference> selfReferences;
 
   /// file -> runner symbol -> call.
   final Map<String, Map<String, Call>> calls;
@@ -260,7 +288,7 @@ final RegExp _selfToken = RegExp(
 );
 
 final RegExp _scriptName = RegExp(
-  r'(?<![\w.-])(?:as|vcs|pr-pair|pr-snapshot|pr-reply|review-run|release|sw-path|finish)\.sh\b'
+  r'(?<![\w.-])(?:as|vcs|pr-pair|pr-snapshot|pr-reply|review-run|release|sw-path|finish|update|install-sw)\.sh\b'
   r'|(?<![\w-])[\w-]+\.py\b',
 );
 
@@ -320,6 +348,7 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
     ...allow.calls.keys,
     ...allow.selfLaunches.keys,
     ...allow.scriptNames.keys,
+    ...allow.selfReferences.keys,
   ]) {
     if (!sources.containsKey(file)) {
       findings.add(
@@ -372,6 +401,10 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
             '$file: $symbol launch argument names shipped script ${name.group(0)}',
           );
         }
+        final only = call.binaryArgs;
+        if (only != null) {
+          _checkBinaryArgs(findings, file, symbol, code, open, close, only);
+        }
         for (final shell in _shellLiteral.allMatches(
           code.substring(open, close),
         )) {
@@ -392,7 +425,23 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
     // 2. self-launches
     final selves = _selfToken.allMatches(skeleton).toList();
     final self = allow.selfLaunches[file];
-    if (selves.isNotEmpty && self == null) {
+    final reference = allow.selfReferences[file];
+    if (self == null && reference != null) {
+      if (selves.length != reference.count) {
+        findings.add(
+          '$file: self reference count ${selves.length}, the allowlist lists ${reference.count}',
+        );
+      }
+      for (final m in selves) {
+        final before = skeleton.substring(0, m.start).trimRight();
+        final after = skeleton.substring(m.end).trimLeft();
+        if (!before.endsWith(reference.before) || !after.startsWith(')')) {
+          findings.add(
+            '$file: self-launch of `sw` is not allowed here; the running executable may only be read as `${reference.before} Platform.resolvedExecutable)`',
+          );
+        }
+      }
+    } else if (selves.isNotEmpty && self == null) {
       findings.add(
         '$file: self-launch of `sw` is not allowed here (${selves.length} found); only the process helper and the reviewer evaluator may start it',
       );
@@ -424,6 +473,40 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
     }
   }
   return findings;
+}
+
+/// A binary check starts a downloaded `sw` with a literal list: the
+/// executable, then exactly [only] and nothing more.
+void _checkBinaryArgs(
+  List<String> findings,
+  String file,
+  String symbol,
+  String code,
+  int open,
+  int close,
+  List<String> only,
+) {
+  final call = code.substring(open + 1, close);
+  final list = RegExp(r"^\s*\[\s*\w+\s*((?:,\s*'[^'\\]*'\s*)*),?\s*\]")
+      .firstMatch(call);
+  final shown = only.map((a) => "'$a'").join(', ');
+  if (list == null) {
+    findings.add(
+      '$file: $symbol binary check is not a literal list of the executable and [$shown]',
+    );
+    return;
+  }
+  final got = [
+    for (final a in RegExp(r"'([^'\\]*)'").allMatches(list.group(1)!))
+      a.group(1)!,
+  ];
+  if (got.length != only.length ||
+      [for (var k = 0; k < got.length; k++) got[k] == only[k]]
+          .contains(false)) {
+    findings.add(
+      "$file: $symbol binary check runs [${got.map((a) => "'$a'").join(', ')}], the allowlist permits only [$shown]",
+    );
+  }
 }
 
 void _checkSelfLaunch(
@@ -487,7 +570,15 @@ const _miniAllow = Allowlist(
       ),
     },
     'snap.dart': {'PrContext.bounded': Call(1, LaunchKind.reviewerEvaluator)},
+    'check.dart': {
+      'launch': Call(
+        1,
+        LaunchKind.binaryCheck,
+        binaryArgs: ['version', '--json'],
+      ),
+    },
   },
+  selfReferences: {'check.dart': SelfReference(1, '??')},
   selfLaunches: {
     'helper.dart': SelfLaunch(
       1,
@@ -534,6 +625,12 @@ Future<void> evaluate(ctx) async {
     '--head',
     'x',
   ]);
+}
+''',
+  'check.dart': '''
+Future<void> check(String path, [String? running]) async {
+  final same = path == (running ?? Platform.resolvedExecutable);
+  await launch([path, 'version', '--json'], cwd: '.');
 }
 ''',
   'msg.dart': '''
@@ -702,6 +799,99 @@ Future<void> spawn() async {
       }
     });
 
+    test('update.sh and install-sw.sh count as shipped script names', () {
+      for (final name in ['update.sh', 'install-sw.sh']) {
+        // in a launch argument
+        final a = _miniSources();
+        a['run.dart'] = a['run.dart']!.replaceFirst(
+          "['git', 'status']",
+          "['bash', '$name']",
+        );
+        final aFindings = scanLaunchSites(a, _miniAllow);
+        expect(
+          _mentions(aFindings, [
+            'run.dart',
+            'runTool',
+            'launch argument',
+            name,
+          ]),
+          isTrue,
+          reason: '$name: ${aFindings.join('\n')}',
+        );
+
+        // written outside a listed site
+        final b = _miniSources()..['name.dart'] = "const script = '$name';\n";
+        final bFindings = scanLaunchSites(b, _miniAllow);
+        expect(
+          _mentions(bFindings, ['name.dart', name, 'outside a listed site']),
+          isTrue,
+          reason: '$name: ${bFindings.join('\n')}',
+        );
+      }
+    });
+
+    test('the binary check of sw update allows only version --json', () {
+      // `sw version --json` and the default read of the running path pass
+      expect(scanLaunchSites(_miniSources(), _miniAllow), isEmpty);
+
+      // `update interface` (the build tool's check) is not run from lib/src
+      for (final args in [
+        "'update', 'interface'",
+        "'version', '--json', 'extra'",
+        "'version'",
+        "'version', '--json', '--help'",
+      ]) {
+        final a = _miniSources();
+        a['check.dart'] = a['check.dart']!.replaceFirst(
+          "'version', '--json'",
+          args,
+        );
+        final findings = scanLaunchSites(a, _miniAllow);
+        expect(
+          _mentions(findings, ['check.dart', 'binary check', 'permits only']),
+          isTrue,
+          reason: '$args: ${findings.join('\n')}',
+        );
+      }
+
+      // arguments that are not a literal list
+      final b = _miniSources();
+      b['check.dart'] = b['check.dart']!.replaceFirst(
+        "[path, 'version', '--json']",
+        '[path, ...args]',
+      );
+      final bFindings = scanLaunchSites(b, _miniAllow);
+      expect(
+        _mentions(bFindings, ['check.dart', 'binary check', 'literal']),
+        isTrue,
+        reason: bFindings.join('\n'),
+      );
+
+      // the running executable is read, never started: as a list element
+      final c = _miniSources();
+      c['check.dart'] = c['check.dart']!.replaceFirst(
+        "[path, 'version', '--json']",
+        "[Platform.resolvedExecutable, 'version', '--json']",
+      );
+      final cFindings = scanLaunchSites(c, _miniAllow);
+      expect(
+        _mentions(cFindings, ['check.dart', 'self-launch', 'not allowed']),
+        isTrue,
+        reason: cFindings.join('\n'),
+      );
+
+      // a read of the running path in a file that is not listed
+      final d = _miniSources()
+        ..['other.dart'] =
+            'bool same(String p, String? r) => p == (r ?? Platform.resolvedExecutable);\n';
+      final dFindings = scanLaunchSites(d, _miniAllow);
+      expect(
+        _mentions(dFindings, ['other.dart', 'self-launch', 'not allowed']),
+        isTrue,
+        reason: dFindings.join('\n'),
+      );
+    });
+
     test('a changed, non-literal or unbounded self-launch fails', () {
       // (c) the evaluator's head is 'pr', 'snapshot'; every count is equal
       final c = _miniSources();
@@ -832,6 +1022,7 @@ Future<void> again(ctx) async {
       final printedAllow = Allowlist(
         calls: _miniAllow.calls,
         selfLaunches: _miniAllow.selfLaunches,
+        selfReferences: _miniAllow.selfReferences,
         scriptNames: {
           ..._miniAllow.scriptNames,
           'msg.dart': {'as.sh': ScriptSite(2, 'message prefix, printed')},
@@ -933,6 +1124,22 @@ const launchAllowlist = Allowlist(
       'launch': Call(1, _tool),
       'runBoundedCommand': Call(1, _tool),
     },
+    // `sw update`: external tools through `launch()` (no shell), the network
+    // `git ls-remote` bounded. The downloaded `sw` runs only `version --json`
+    // (D6 of native-cli-update); the build tool's `update interface` check is
+    // in `cli/tool`, outside this scan.
+    'update/git.dart': {'launch': Call(1, _tool)},
+    'update/openspec.dart': {'launch': Call(1, _tool)},
+    'update/place.dart': {
+      'launch': Call(
+        1,
+        LaunchKind.binaryCheck,
+        binaryArgs: ['version', '--json'],
+      ),
+    },
+    'update/store.dart': {'runBoundedCommand': Call(1, _tool)},
+    // `git remote get-url origin` and `xattr`
+    'update/sw_install.dart': {'launch': Call(2, _tool)},
     'vcs/tool_runner.dart': {'launch': Call(2, _tool)},
     'process/windows_tree.dart': {
       'Process.start': Call(1, _tool, function: 'killTree'),
@@ -968,6 +1175,9 @@ const launchAllowlist = Allowlist(
       LaunchKind.reviewerEvaluator,
     ),
   },
+  // `place.dart` reads the running file's path to refuse replacing it (D7); it
+  // never starts it.
+  selfReferences: {'update/place.dart': SelfReference(1, '??')},
   scriptNames: {
     'cli.dart': {'as.sh': ScriptSite(1, 'message: usage line of `sw as`')},
     'commands/finish.dart': {
