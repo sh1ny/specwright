@@ -88,7 +88,7 @@ With `vcs: gitbutler`, `sw vcs` SHALL run the same way whether the Specwright sk
 - **THEN** `git push` runs with the caller's environment and no fence lookup, and a failure is `git_network_error` with exit 3
 
 ### Requirement: sw vcs documents keep their values and refuse non-UTF-8 names
-Each document `sw vcs` prints SHALL parse to the same keys, key order and values `vcs.sh` printed for the same inputs. An argument that is not well-formed Unicode SHALL be refused before any other work, as native-cli "Arguments sw cannot represent are refused" states. A name that is not valid UTF-8, met in a directory listing or in `git` or `jj` output where `sw vcs` would report or act on it, SHALL stop the command before any write with `"error": "not_utf8"`, exit 1, and a `message` that shows each invalid byte as `\xHH` (U+FFFD for a walk-found name) and asks for a rename. `but` output is read as before.
+Each `sw vcs` document SHALL parse to the keys, order and values `vcs.sh` printed. A malformed argument SHALL be refused as native-cli "Arguments sw cannot represent are refused" states. A name that is not valid UTF-8, met in a listing or `git` or `jj` output that `sw vcs` reports or acts on, SHALL stop it before any write: `"error": "not_utf8"`, exit 1, a `message` showing each invalid byte as `\xHH` (U+FFFD for a walk-found name) and asking for a rename. `but` output is read as before.
 
 #### Scenario: Line separators parse back
 - **WHEN** a message or path in the output holds U+2028 or U+2029

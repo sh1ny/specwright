@@ -85,7 +85,7 @@ Where a change-finish requirement says the undo script or the after-rerun script
 ## MODIFIED Requirements
 
 ### Requirement: The undo plan runs in the project's sw
-The skills SHALL build the undo plan by running `sw finish undo-archive-plan` directly, which SHALL keep `finish.sh`'s arguments, refusals and exit codes, and print its undo as `steps` and `after_rerun_steps`. No other implementation of the plan SHALL remain. An argument that is not well-formed Unicode SHALL be refused as native-cli "Arguments sw cannot represent are refused" states (the `bad_argument` document and exit 2 on Windows; the runtime's refusal before `sw` runs on Linux and macOS), and an archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1; neither prints a script.
+The skills SHALL run `sw finish undo-archive-plan` directly; it SHALL keep `finish.sh`'s arguments, refusals and exit codes and print its undo as `steps` and `after_rerun_steps`, and no other implementation SHALL remain. A malformed argument SHALL be refused as native-cli "Arguments sw cannot represent are refused" states; an archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1. Neither prints a plan.
 
 #### Scenario: Plan through a matching sw
 - **WHEN** the project's `VERSION` reads `0.27.0`, and `sw` 0.27.0 runs `finish undo-archive-plan --change add-x --archived-name 2026-11-07-add-x --prefix openspec --main main` on a branch whose last commit archived `add-x`
@@ -116,7 +116,7 @@ The skills SHALL build the undo plan by running `sw finish undo-archive-plan` di
 - **THEN** `sw` takes the value as given, a root-relative Windows path, stops with the plan's existing error for a directory that is not a repository, prints no `bad_path` and no script, and runs no Git write
 
 ### Requirement: finish.sh finds the project from --code, then --dir
-A relative `--code` SHALL be read from the planning repo (the first directory holding a `.git` entry at or above `--dir`, else at or above the current directory), as before this change. Without a leading `--project`, the project whose `VERSION` is checked SHALL be the first directory holding a `.git` entry at or above `--code` when it names a directory, else at or above `--dir` when it names a directory, else at or above the current directory, found with no Git command. `--code` SHALL keep its existing meaning for the plan.
+A relative `--code` SHALL be read from the planning repo (the first directory with a `.git` entry at or above `--dir`, else the current directory), as before. Without a leading `--project`, the checked project SHALL be the first directory with a `.git` entry at or above `--code`, else `--dir`, else the current directory (each only when it names a directory), found with no Git command. `--code` SHALL keep its meaning for the plan.
 
 #### Scenario: Store-backed plan finds the code checkout's sw
 - **WHEN** `sw finish --dir <store> undo-archive-plan ... --code <code>` runs from inside the store, whose checkout has no `openspec/.specwright/VERSION`, and `<code>` holds one matching the running `sw`

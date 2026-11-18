@@ -34,7 +34,7 @@ The install SHALL write the binary into its version directory under a temporary 
 - **THEN** the next install of that version deletes it; a temporary file modified within the last hour is left alone
 
 ### Requirement: An install whose VCS steps need a missing sw says so
-After the install, the Step 8 report SHALL check `<home>/.specwright/bin/<project VERSION>/sw[.exe]`: the file exists and its `sw version --json` exits 0 within 10 seconds reporting that version and the interface the installed skills require: the `interface` line of the installed `specwright-pr` skill, or for a tag older than this change the `SW_INTERFACE=` line of its installed `sw-path.sh`. When the check fails, the report SHALL say that every branch, commit and finish step stops until a matching `sw` is placed, and that an `sw` of another version stops with `sw_mismatch`. It SHALL name a tagged install and the contributor bootstrap in `CONTRIBUTING.md`. Otherwise it SHALL add no such warning.
+Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exists and its `version --json` exits 0 in 10 s with that version and the installed skills' interface (`specwright-pr`'s `interface` line, or an older tag's `SW_INTERFACE=`). On a failure it SHALL warn that branch, commit and finish steps stop until a matching `sw` is placed, that another version's `sw` stops with `sw_mismatch`, and name a tagged install and the `CONTRIBUTING.md` bootstrap; otherwise no warning.
 
 #### Scenario: A binary of the right version and an old interface
 - **WHEN** the installed skills require interface 2 and the pinned binary reports the project's version but interface 1
@@ -69,7 +69,7 @@ After the install, the Step 8 report SHALL check `<home>/.specwright/bin/<projec
 - **THEN** the Step 8 report holds the missing-`sw` warning
 
 ### Requirement: Contributors place a tree-built sw with one task
-`mise run install-sw` in a Specwright checkout SHALL build `sw` from the tree and run the built binary to place it at `<home>/.specwright/bin/<tree VERSION>/sw[.exe]` (`<home>` is `SPECWRIGHT_HOME` when set, else the user's home), with no bash. It SHALL place it only after the built binary reports the tree's `VERSION` and a workflow interface equal to the tree's skill pin (the `interface` line of `skills/specwright-pr/SKILL.md`), never the running binary's own constant, SHALL place the notice before the binary, and SHALL replace an existing file there only by a rename. It SHALL print the placed path.
+`mise run install-sw` in a Specwright checkout SHALL build `sw` from the tree and place it at `<home>/.specwright/bin/<tree VERSION>/sw[.exe]` (`<home>`: `SPECWRIGHT_HOME`, else the user's home), with no bash, only after the built binary reports the tree's `VERSION` and a workflow interface equal to the tree's skill pin (`skills/specwright-pr/SKILL.md`'s `interface` line), never its own constant. It SHALL place the notice first, replace a file only by rename, and print the placed path.
 
 #### Scenario: Build placed
 - **WHEN** `mise run install-sw` runs in a checkout whose `VERSION` reads `0.38.0`
