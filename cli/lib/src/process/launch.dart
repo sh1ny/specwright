@@ -299,16 +299,23 @@ Future<LaunchResult> _native(
     if (settled != null && !settled.isCompleted) settled.complete();
   }
 
+  // Ends every wait of this call: a descendant that inherited stdout or
+  // stderr can keep either pipe open after the kill, so neither is awaited
+  // once the call is over (the readers are cancelled below).
+  void stopWaiting() {
+    if (!outDone.isCompleted) outDone.complete();
+    if (!errDone.isCompleted) errDone.complete();
+    settleSink();
+  }
+
   var timedOut = false;
+  // armed until both readers end, not only until the tool exits
   final timer = deadline == null
       ? null
       : Timer(deadline, () {
           timedOut = true;
           process.kill(ProcessSignal.sigkill);
-          // a descendant that inherited stdout can keep the pipe open after
-          // the kill: stop waiting for it (the readers are cancelled below)
-          if (!outDone.isCompleted) outDone.complete();
-          settleSink();
+          stopWaiting();
         });
   var stdoutBytes = 0;
   var tooLarge = false;
@@ -326,8 +333,7 @@ Future<LaunchResult> _native(
         tooLarge = true;
         unawaited(outSub.cancel().catchError((Object _) {}));
         process.kill(ProcessSignal.sigkill);
-        if (!outDone.isCompleted) outDone.complete();
-        settleSink();
+        stopWaiting();
         return;
       }
       final sink = stdoutSink;
@@ -367,8 +373,7 @@ Future<LaunchResult> _native(
         tooLarge = true;
         process.kill(ProcessSignal.sigkill);
         unawaited(outSub.cancel().catchError((Object _) {}));
-        if (!outDone.isCompleted) outDone.complete();
-        settleSink();
+        stopWaiting();
       }
     },
     onDone: () {
@@ -398,15 +403,15 @@ Future<LaunchResult> _native(
     ]);
     if (sinkSettled?.isCompleted == true) await throwSinkError();
     final code = await process.exitCode;
-    timer?.cancel();
     if (sinkSettled?.isCompleted == true) await throwSinkError();
+    // the deadline or a cap ends this wait too (stopWaiting)
+    await errDone.future;
+    timer?.cancel();
     if (tooLarge || timedOut) {
       await Future.wait([
         outSub.cancel().catchError((Object _) {}),
         errSub.cancel().catchError((Object _) {}),
       ]);
-    } else {
-      await errDone.future;
     }
     // POSIX reports a signal as its negative number; Windows codes stay as
     // they are (0xC0000005 arrives negative).

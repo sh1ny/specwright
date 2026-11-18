@@ -25,6 +25,18 @@ void main() {
       expect(resolvePosix('$tmp/alias'), '$tmp/real');
     });
 
+    test(
+      'a .. after a link climbs from the link target',
+      () {
+        Directory('$tmp/other/sub').createSync(recursive: true);
+        Link('$tmp/link').createSync('$tmp/other/sub');
+        expect(resolvePosix('$tmp/link/../openspec'), '$tmp/other/openspec');
+        expect(resolvePosix('$tmp/link/..'), '$tmp/other');
+      },
+      // Windows folds .. as text before it follows a link
+      skip: Platform.isWindows ? 'POSIX path semantics' : false,
+    );
+
     test('a path with nothing existing is made absolute and normalised', () {
       expect(resolvePosix('$tmp/none/a/../b'), '$tmp/none/b');
     });

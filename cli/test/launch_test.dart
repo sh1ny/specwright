@@ -417,6 +417,25 @@ void _launchTests() {
       },
       skip: Platform.isWindows ? _posixOnly : false,
     );
+
+    test(
+      'the deadline ends the call while a descendant holds only stderr',
+      () async {
+        // the tool exits at once; its child keeps stderr, not stdout
+        final tool = File('${dir.path}/errholder')
+          ..writeAsStringSync('#!/bin/sh\nsleep 30 >/dev/null &\nexit 0\n');
+        Process.runSync('chmod', ['+x', tool.path]);
+        final watch = Stopwatch()..start();
+        final result = await launch(
+          [tool.path],
+          cwd: dir.path,
+          deadline: const Duration(seconds: 1),
+        );
+        expect(result.timedOut, isTrue);
+        expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+      },
+      skip: Platform.isWindows ? _posixOnly : false,
+    );
   });
 
   group('input the launcher cannot represent', () {

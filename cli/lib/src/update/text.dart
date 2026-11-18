@@ -36,16 +36,17 @@ String posixPath(String path) =>
     Platform.isWindows ? path.replaceAll(r'\', '/') : path;
 
 /// `Path(path).resolve()` as a forward-slash path: absolute, links followed,
-/// `.` and `..` folded. A path that does not exist is made absolute and
-/// normalised, and its deepest existing ancestor resolved with the missing
-/// rest appended, as Python's non-strict `resolve` does.
+/// `.` and `..` folded. The deepest existing prefix goes to the system's
+/// resolver unfolded, so a `..` after a link climbs from the link's target
+/// (`link/..` is not folded away as text); only the missing rest is folded
+/// as text, as Python's non-strict `resolve` does.
 String resolvePosix(String path) {
-  var head = p.normalize(p.absolute(path));
+  var head = p.absolute(path);
   final tail = <String>[];
   while (true) {
     try {
       final resolved = Directory(head).resolveSymbolicLinksSync();
-      return posixPath(p.joinAll([resolved, ...tail.reversed]));
+      return posixPath(p.normalize(p.joinAll([resolved, ...tail.reversed])));
     } on FileSystemException {
       final parent = p.dirname(head);
       if (parent == head) break; // nothing of it exists
