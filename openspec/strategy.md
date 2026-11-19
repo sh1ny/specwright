@@ -37,6 +37,7 @@ Specwright is a spec-driven development bundle for AI coding agents, built on un
 
 - close M6 2026-11-04: important (source: setting)
 - close M7 2026-11-07: important (source: setting)
+- close M8 2026-11-19: important (source: setting)
 
 | # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |
 |---|---|---|---|---|---|---|---|
@@ -46,3 +47,6 @@ Specwright is a spec-driven development bundle for AI coding agents, built on un
 | R4 | close M7 | M8 split | Six changes: pr-io (`as.sh`, `pr-reply.sh`, `pr-snapshot.sh`), pr-pair (`pr-pair.sh`, `reviewers.py`), review, release, update, retire-scripts | One PR-tooling change for all of specwright-pr's scripts; update path second | Leaf scripts first keep each port near one PR, `pr-pair.sh` gets its own change at about 3,000 lines, and removal waits for every port's parity | yes | user |
 | R5 | close M7 | M9 as Next | Paragraph, split at M8 close | Agree a split now | The `sw`-based configuration surface is not known until M8 ends | no | user |
 | R6 | close M7 | Gaps filed during M7 | #202 into `native-cli-pr-io`, #211 into `native-cli-release`, #201 and #208 into M9; #206 and #209 stay filed parity follow-ups | Fix them in the M8 ports' scope | Each rides with the change that touches its code; parity defects stay out of a port | no | agent |
+| R7 | close M8 | M9 split | Six changes: sw port gap fixes, spec wording sweep, GitHub connection options, reviewer settings, project conventions, agent defaults | One change per issue; configuration before the gap fixes | Each change groups the issues that touch the same code; the gap fixes and the wording sweep come first so later changes build on fixed code and current spec wording | yes | agent |
+| R8 | close M8 | M10 as Next | Pack reach (#177, #189, #192-#194, #178), as a paragraph split at M9 close | Agree a split now | The pack surface depends on M9's settings work | no | agent |
+| R9 | close M8 | Gaps filed during M8 | #206, #209, #214, #215, #223, #224, #227, #231, #232 into `fix-sw-port-gaps`; #222 into `reviewer-settings`; #234 into `spec-wording-sweep`; #161, #175, #176, #180, #181, #191 stay in Later | Leave every gap in Later | Defects the ports kept for parity are due now that no script is left to match; the hardening gaps are low-risk edge cases | no | agent |
