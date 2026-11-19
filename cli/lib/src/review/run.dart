@@ -19,6 +19,7 @@ import '../process/resolve.dart';
 import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
 import 'records.dart';
+import 'references.g.dart';
 import 'routes.dart';
 import 'settings.dart';
 import 'snapshot.dart';
@@ -437,7 +438,6 @@ class _ReviewOperations {
           store: storeRef,
           limit: cfg.maxDiffKb * 1024,
           prefix: _nonEmpty(args.values['prefix']) ?? 'openspec',
-          refsDir: _referencesDir,
           view: view,
         );
         promptPath = p.join(work.path, 'prompt.md');
@@ -467,7 +467,6 @@ class _ReviewOperations {
         change: change,
         outPath: args.values['out']!,
         workDir: work,
-        refsDir: _referencesDir,
         routeConfig: routeConfig,
         model: cfg.model(route),
         thinking: cfg.level(route),
@@ -493,9 +492,6 @@ class _ReviewOperations {
       }
     }
   }
-
-  String get _referencesDir =>
-      p.normalize(p.join(p.dirname(p.absolute(scriptsDir)), 'references'));
 
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
@@ -1150,7 +1146,6 @@ class _ReviewOperations {
     required (String?, String?, String?) store,
     required int limit,
     required String prefix,
-    required String refsDir,
     String? view,
   }) async {
     final (parts, _) = await _collectDiffs(code, store, limit);
@@ -1158,9 +1153,7 @@ class _ReviewOperations {
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final brief = File(p.join(refsDir, 'brief.md'))
-        .readAsStringSync(encoding: utf8)
-        .trimRight();
+    final brief = reviewBrief.trimRight();
     final root = store.$1 ?? code.$1;
     final lines = <String>[
       brief,
@@ -1504,7 +1497,6 @@ Future<Map<String, Object?>> runReviewer({
   required String change,
   required String outPath,
   required Directory workDir,
-  required String refsDir,
   required RouteConfig routeConfig,
   required String? model,
   required String? thinking,
@@ -1524,12 +1516,8 @@ Future<Map<String, Object?>> runReviewer({
       ? p.join(workDir.path, 'schema.json')
       : null;
   if (schemaPath != null) {
-    File(schemaPath).writeAsStringSync(
-      File(p.join(refsDir, 'findings.schema.json'))
-          .readAsStringSync(encoding: utf8),
-      encoding: utf8,
-      flush: true,
-    );
+    File(schemaPath)
+        .writeAsStringSync(findingsSchema, encoding: utf8, flush: true);
   }
   final command = buildReviewCommand(
     route: route,

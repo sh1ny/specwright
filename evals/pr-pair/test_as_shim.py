@@ -218,6 +218,44 @@ class TestShim(ShimCase):
         self.assertEqual(out.read_text(encoding="utf-8"), "|a b|é|")
 
 
+class TestGhRepo(ShimCase):
+    """`sw as` keeps an inherited GH_REPO out of the command it fences and out of its own lookups (github-identity)."""
+
+    def seed_pull(self, slug="o/r", n=5):
+        pull = {"number": n, "html_url": f"https://github.com/{slug}/pull/{n}", "state": "open", "merged_at": None,
+                "title": f"t{n}", "body": "", "created_at": "2026-10-08T10:00:00Z",
+                "head": {"ref": "feat/a", "label": "o:feat/a", "sha": f"{n:040x}", "repo": {"full_name": slug}},
+                "base": {"ref": "main"}}
+        self.state(user="sh1ny", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"}, repos={slug: {"pulls": [pull]}})
+
+    def sw_as(self, cwd, *args):
+        """`<sw> as <args>` with ordinary arguments and GH_REPO naming another repository."""
+        return subprocess.run([swharness.require_sw(), "as", *args], cwd=cwd, env={**self.env(), "GH_REPO": "other/repo"},
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
+
+    def assert_no_gh_repo(self):
+        calls = self.gh_calls()
+        self.assertTrue(calls)
+        for c in calls:
+            self.assertIsNone(c["gh_repo"], f"GH_REPO reached gh {c['argv']}")
+
+    def test_gh_repo_kept_out_of_fenced_command(self):
+        self.seed_pull()
+        r = self.sw_as(self.code, "sh1ny", "gh", "pr", "view", "5", "--repo", "o/r")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("https://github.com/o/r/pull/5", r.stdout)
+        self.assertTrue([c for c in self.gh_calls() if c["argv"][0] == "pr"], "the fenced gh ran")
+        self.assert_no_gh_repo()  # the fenced command and the fence's own lookups
+
+    def test_fenced_call_without_repo_uses_cwd_remote(self):
+        self.seed_pull()
+        self.git(self.code, "remote", "set-url", "origin", "https://github.com/o/r.git")
+        r = self.sw_as(self.code, "sh1ny", "gh", "pr", "view", "5")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("https://github.com/o/r/pull/5", r.stdout)
+        self.assert_no_gh_repo()
+
+
 class TestShimProcess(ShimCase):
     DEADLINE = 2
 

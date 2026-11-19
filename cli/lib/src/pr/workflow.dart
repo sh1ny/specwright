@@ -910,9 +910,10 @@ class Workflow {
     );
   }
 
-  /// C4: cleanup prints script commands until retirement. Only as.sh and
-  /// pr-pair.sh gain the binary-project prefix; all arguments and cwd retain
-  /// their targets. The C11 VCS store-network limitation remains deliberate.
+  /// D4: every printed command that runs Specwright's own work starts with the
+  /// running `sw` and `--project <code>`; `git` commands stay as they were. All
+  /// arguments and cwd retain their targets. The C11 VCS store-network
+  /// limitation remains deliberate.
   Future<Map<String, Object?>> cleanupPlan(List<String> argv) async {
     final a = parsePairArgs(argv, {
       '--code': 'code',
@@ -925,6 +926,7 @@ class Workflow {
     final code = printedPath(await ctx.native(a['code']!)),
         store = printedPath(await ctx.native(a['store']!)),
         branch = a['branch']!;
+    final sw = printedPath(Platform.resolvedExecutable);
     final e = await expected(code, store, branch),
         contexts = await workflowContexts(ctx, code, store);
     final choices = await workflowVcsChoices(ctx, code);
@@ -1004,9 +1006,10 @@ class Workflow {
         ent['merged'] = true;
         if (exists) {
           final check = [
-            'pr-pair.sh',
+            sw,
             '--project',
             code,
+            'pr',
             'branch-check',
             '--dir',
             cwd,
@@ -1051,10 +1054,10 @@ class Workflow {
             commands.addAll([
               command(['git', 'checkout', main]),
               command([
-                'bash',
-                '${ctx.scriptsDir}/as.sh',
+                sw,
                 '--project',
                 code,
+                'as',
                 login,
                 'git',
                 'pull',

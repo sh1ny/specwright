@@ -80,7 +80,8 @@ class NativeReviewTests(Base):
         self.assertFalse(archive["archive_only"])
         self.assertEqual(self.status(), before)
 
-    def test_preship_runs_without_python_or_bash(self):
+    def fake_codex(self):
+        """A compiled `codex` in the test's bin directory that reports a valid findings document."""
         source = self.tmp / "fake-codex.dart"
         source.write_text("import 'dart:convert';\nimport 'dart:io';\n"
                           "Future<void> main(List<String> args) async {\n"
@@ -92,6 +93,22 @@ class NativeReviewTests(Base):
         built = subprocess.run(["mise", "exec", "--", "dart", "compile", "exe", str(source), "-o", str(executable)],
                                cwd=ROOT / "cli", capture_output=True, text=True, timeout=180)
         self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+
+    def test_review_runs_without_skill_folder(self):
+        """The brief and the schema are built into sw: a scripts directory beside no `references` folder reviews as usual."""
+        self.fake_codex()
+        skill = self.tmp / "bare-skill"
+        (skill / "scripts").mkdir(parents=True)
+        output = self.tmp / "findings.json"
+        document = self.native("run", "--kind", "preship", "--route", "codex", "--change", "demo-change",
+                               "--base", "main", "--settings", self.settings, "--out", output,
+                               scripts=skill / "scripts")
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8")), VALID)
+        self.assertTrue(Path(document["record"]).is_file())
+        self.assertFalse((skill / "references").exists())
+
+    def test_preship_runs_without_python_or_bash(self):
+        self.fake_codex()
         marker = self.tmp / "interpreter-started"
         for name in ("python", "python3", "bash", "sh"):
             (self.bin / (name + ".cmd")).write_text(f'@echo started>>"{marker}"\r\n@exit /b 99\r\n', encoding="utf-8")
@@ -100,7 +117,6 @@ class NativeReviewTests(Base):
             script.chmod(0o755)
         skill = self.tmp / "skill"
         (skill / "scripts").mkdir(parents=True)
-        shutil.copytree(ROOT / "skills" / "specwright-review" / "references", skill / "references")
         output = self.tmp / "findings.json"
         document = self.native("run", "--kind", "preship", "--route", "codex", "--change", "demo-change",
                                "--base", "main", "--settings", self.settings, "--out", output,

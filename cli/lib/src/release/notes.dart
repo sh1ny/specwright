@@ -339,7 +339,8 @@ Future<List<int?>> _blobSizes(ReleaseGit git, List<String> specs) async {
 /// One size pass over every `proposal.md` and `tasks.md`, then one read of the
 /// blobs within 64 KB. A proposal over the bound is never read for its section
 /// (a warning); a `tasks.md` over it counts as having no bump task. The bump
-/// task is a ticked `release.sh bump --to <version>` item.
+/// task is a ticked `release.sh bump --to VERSION` or `sw release bump --to
+/// VERSION` item (the skills' placeholder for `sw`).
 Future<Map<String, ArchiveSection>> readSections(
   ReleaseGit git,
   String commit,
@@ -363,7 +364,7 @@ Future<Map<String, ArchiveSection>> readSections(
   final got = await catBlobs(git.root, want);
   final blobs = {for (var i = 0; i < want.length; i++) want[i]: got[i]};
   final bump = RegExp(
-    r'^[ \t]*[-*+][ \t]+\[[ \t]*x[ \t]*\][ \t]+.*release\.sh[ \t]+bump[ \t]+--to[ \t]+'
+    r'^[ \t]*[-*+][ \t]+\[[ \t]*x[ \t]*\][ \t]+.*(?:release\.sh|(?:<sw>|\bsw)[ \t]+release)[ \t]+bump[ \t]+--to[ \t]+'
     '${RegExp.escape(version)}(?!\\.?\\d)',
     caseSensitive: false,
     multiLine: true,

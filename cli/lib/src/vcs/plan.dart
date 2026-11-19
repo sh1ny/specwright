@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../commands/vcs.dart';
 import 'git_backend.dart';
 import 'stop.dart';
@@ -10,9 +12,9 @@ String shellQuote(String s) {
   return "'${s.replaceAll("'", "'\"'\"'")}'";
 }
 
-/// `vcs.sh`'s `plan`: the one `bash <scripts dir>/vcs.sh ...` line that
-/// carries out `--operation` (`switch`, `pull` or `delete-branch`). It runs
-/// nothing.
+/// `vcs plan`: the one `<sw> --project <code> vcs <operation> ...` line that
+/// carries out `--operation` (`switch`, `pull` or `delete-branch`), `<sw>` being
+/// the running binary (D4). It runs nothing.
 List<String> planArguments(VcsSession s) {
   final request = s.request;
   final operation = request.operation;
@@ -27,8 +29,10 @@ List<String> planArguments(VcsSession s) {
   }
   final branch = requireBranch(s);
   final args = [
-    'bash',
-    s.scripts.path('vcs.sh'),
+    (s.ctx.sw ?? Platform.resolvedExecutable),
+    '--project',
+    s.code,
+    'vcs',
     operation!,
     '--repo',
     s.repo,

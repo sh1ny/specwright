@@ -467,7 +467,11 @@ class FenceCase(gbnet.GitButlerNetworkCase):
         world = self.git_world()
         doc, _ = self.h.run("plan", "--operation", "pull", "--branch", "feat/a", "--login", LOGIN, repo=world.repo)
         (command,) = doc["commands"]
-        self.assertIn(posix(self.h.sent.scripts) + "/vcs.sh", command)
+        # D4: the printed command is the running `sw` with `--project`, never the script
+        self.assertIn(Path(swharness.require_sw()).name, command)
+        self.assertIn(" --project ", command)
+        self.assertIn(" vcs pull ", command)
+        self.assertNotIn("vcs.sh", command)
         self.assertEqual(self.h.sent.recorded(), [])
 
 

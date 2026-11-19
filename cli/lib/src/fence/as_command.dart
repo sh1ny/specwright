@@ -60,7 +60,8 @@ Future<int> runAsCommand(
       return 3;
     }
   }
-  final env = environment ?? Map<String, String>.of(Platform.environment);
+  // D8: an inherited GH_REPO reaches neither the lookups nor the fenced command
+  final env = {...(environment ?? Platform.environment)}..remove('GH_REPO');
   return runFence(
     records.sublist(2),
     environment: env,

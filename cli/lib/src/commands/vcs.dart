@@ -13,7 +13,10 @@ import '../vcs/stop.dart';
 /// What a subcommand handler gets: the parsed request and the two values the
 /// shim handed over (design D2).
 class VcsContext {
-  VcsContext(this.request, this.scriptsDir, this.bash);
+  VcsContext(this.request, this.scriptsDir, this.bash, {this.sw});
+
+  /// The `sw` that `plan` prints; null is the running binary. Tests only.
+  final String? sw;
 
   final VcsRequest request;
   final String scriptsDir;

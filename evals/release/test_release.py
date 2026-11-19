@@ -54,6 +54,11 @@ def bump_task(version):
     return f"## 3. Release\n\n- [x] 3.1 Run `release.sh bump --to {version}` and commit\n"
 
 
+def native_bump_task(version):
+    """The bump task as skills write it from the retire-scripts change on."""
+    return f"## 3. Release\n\n- [x] 3.1 `<sw> release bump --to {version}`\n"
+
+
 class Base(unittest.TestCase):
     maxDiff = None
 
@@ -750,6 +755,17 @@ class TestSectionedNotes(Flow):
     def test_summary_from_bump_task_in_same_commit(self):
         self.start("0.8.0")
         extra = {**change_files("b-bump", section("Bump summary.", added=["B item"]), bump_task("0.9.0")),
+                 **change_files("c-other", section("Other summary.", added=["C item"]))}
+        fx.squash_merge(self.work, "a-first", "0.9.0", 5, extra_files=extra)
+        notes = self.status("0.9.0")["notes"]
+        self.assertTrue(notes.startswith("Bump summary.\n\nAdded:\n"), notes)
+        self.assertNotIn("Other summary.", notes)
+        self.assertIn("- B item (#5)\n- C item (#5)", notes)
+
+    def test_summary_from_native_bump_task(self):
+        # `<sw> release bump --to <V>` is the bump task like `release.sh bump --to <V>`, and it wins over a later-sorting archive
+        self.start("0.8.0")
+        extra = {**change_files("b-bump", section("Bump summary.", added=["B item"]), native_bump_task("0.9.0")),
                  **change_files("c-other", section("Other summary.", added=["C item"]))}
         fx.squash_merge(self.work, "a-first", "0.9.0", 5, extra_files=extra)
         notes = self.status("0.9.0")["notes"]

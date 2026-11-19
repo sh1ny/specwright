@@ -178,6 +178,8 @@ def dart_document_matches():
     bad = []
     for path in sorted(LIB.rglob("*.dart")):
         rel = path.relative_to(ROOT).as_posix()
+        if rel == "cli/lib/src/review/references.g.dart":
+            continue  # generated: embeds the reference files verbatim (the findings schema); it matches on no document
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.lstrip()
             if stripped.startswith(("//", "#")) or not DOCUMENT_KEY.search(line):

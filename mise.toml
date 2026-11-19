@@ -24,6 +24,10 @@ run = "dart analyze --fatal-infos"
 description = "Check the formatting of cli/"
 run = "dart format --output=none --set-exit-if-changed cli"
 
+[tasks.references]
+description = "Regenerate cli/lib/src/review/references.g.dart from skills/specwright-review/references/"
+run = "dart run cli/tool/references.dart"
+
 [tasks.build]
 description = "Compile cli/bin/sw.dart to cli/build/sw with SW_VERSION from VERSION"
 dir = "cli"

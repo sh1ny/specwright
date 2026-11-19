@@ -49,7 +49,7 @@ class WorkflowTransport(wp.WorkflowParity):
         self.select_backend(code, store, 'jj')
         result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
         self.assertEqual(result['code'], 0, doc)
-        self.assertEqual(doc['code']['commands'][0]['cmd'][2], 'switch')
+        self.assertEqual(doc['code']['commands'][0]['cmd'][3:5], ['vcs', 'switch'])
         self.assertFalse(sentinel_log.exists())
 
         self.git(code, 'commit', '--allow-empty', '-m', 'fix\n\nFeedback-Round: 1')
@@ -75,6 +75,62 @@ class WorkflowTransport(wp.WorkflowParity):
                             Path(call['cwd']).resolve() == Path(code).resolve()
                             for call in result['raw_calls']))
         self.assertFalse(sentinel_log.exists())
+
+    def printed_plan(self, code, store):
+        result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
+        self.assertEqual(result['code'], 0, doc)
+        return doc
+
+    def assert_names_running_sw(self, argv, code):
+        """The command starts with the running sw's absolute path and `--project <code>`."""
+        self.assertTrue(Path(argv[0]).is_absolute(), argv)
+        self.assertEqual(Path(argv[0]).resolve(), Path(os.environ['SPECWRIGHT_SW']).resolve(), argv)
+        self.assertEqual(argv[1], '--project', argv)
+        self.assertEqual(Path(argv[2]).resolve(), Path(code).resolve(), argv)
+
+    def test_cleanup_plan_names_running_sw(self):
+        code, store = self.merged_pair()
+        plan = self.printed_plan(code, store)
+        for side, login in [('code', 'me'), ('store', 'other')]:
+            commands = plan[side]['commands']
+            self.assertEqual(commands[0]['cmd'], ['git', 'checkout', 'main'])
+            pull, check = commands[1]['cmd'], commands[2]['cmd']
+            self.assert_names_running_sw(pull, code)
+            self.assertEqual(pull[3:], ['as', login, 'git', 'pull', '--ff-only'])
+            self.assert_names_running_sw(check, code)
+            self.assertEqual(check[3:5], ['pr', 'branch-check'])
+            for entry in commands:
+                self.assertFalse([x for x in entry['cmd'] if x == 'bash' or x.endswith(('.sh', '.py'))], entry)
+        self.select_backend(code, store, 'jj')  # the vcs plans name the running sw as well
+        plan = self.printed_plan(code, store)
+        for argv in (plan['code']['commands'][0]['cmd'], plan['code']['commands'][1]['cmd'], plan['code']['delete']):
+            self.assert_names_running_sw(argv, code)
+            self.assertEqual(argv[3], 'vcs', argv)
+            self.assertFalse([x for x in argv if x == 'bash' or x.endswith('.sh')], argv)
+
+    def test_store_cleanup_names_code_project(self):
+        code, store = self.merged_pair()
+        plan = self.printed_plan(code, store)
+        self.assertEqual(Path(plan['store']['dir']).resolve(), Path(store).resolve())
+        for entry in plan['store']['commands'][1:]:
+            self.assert_names_running_sw(entry['cmd'], code)
+            self.assertNotEqual(Path(entry['cmd'][2]).resolve(), Path(store).resolve(), 'the project is the code checkout')
+            self.assertEqual(Path(entry['cwd']).resolve(), Path(store).resolve(), 'the command runs in the store')
+        self.assertEqual(plan['store']['commands'][1]['cmd'][3:], ['as', 'other', 'git', 'pull', '--ff-only'])
+
+    def test_printed_cleanup_runs_from_store(self):
+        code, store = self.merged_pair()
+        plan = self.printed_plan(code, store)
+        (Path(store) / 'openspec' / '.specwright' / 'VERSION').unlink()
+        checkout, _, check = plan['store']['commands']
+        env = self.env('me', SPECWRIGHT_HOME=str(self.home), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+        done = subprocess.run(checkout['cmd'], cwd=checkout['cwd'], env=env, capture_output=True, timeout=120)
+        self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
+        done = subprocess.run(check['cmd'], cwd=check['cwd'], env=env, capture_output=True, timeout=120)
+        self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
+        doc = json.loads(done.stdout)
+        self.assertNotEqual(doc.get('error'), 'sw_mismatch', doc)
+        self.assertTrue(doc['delete'], doc)
 
     def unfenced_pass_limits(self, github):
         code, _ = self.setup_remote(github=github)

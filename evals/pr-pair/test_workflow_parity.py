@@ -167,6 +167,38 @@ class WorkflowParity(parity.PairParity):
         self.mutate(seed)
         return code, store
 
+    @staticmethod
+    def printed_form(command, code):
+        """A frozen printed command as the native plan prints it: `<sw> --project <code> ...` (the sw bound by bind_sw)."""
+        if command[0] == 'pr-pair.sh':
+            return ['<sw>', '--project', code, 'pr', *command[1:]]
+        if command[0] == 'bash' and command[1].endswith('/as.sh'):
+            return ['<sw>', '--project', code, 'as', *command[2:]]
+        if command[0] == 'bash' and command[1].endswith('/vcs.sh'):
+            return ['<sw>', '--project', code, 'vcs', *command[2:]]
+        if command[1:2] == ['--project']:  # the frozen shim hands `vcs plan` to sw: already the native form
+            return ['<sw>', *command[1:]]
+        return command
+
+    def bind_sw(self, command, code):
+        """Check that a printed command starts with the running sw and the code project, and replace both by their
+        stand-ins (the project may print in a resolved form of the same directory)."""
+        if command[0] in ('git', 'jj'):
+            return command
+        # the running sw: SPECWRIGHT_SW itself, or under the shim its version-matched copy `<home>/.specwright/bin/<v>/sw`
+        running = Path(command[0]).resolve()
+        self.assertTrue(running == Path(os.environ['SPECWRIGHT_SW']).resolve() or running.parts[-4:-2] == ('.specwright', 'bin'), command)
+        self.assertEqual(command[1], '--project', command)
+        self.assertEqual(Path(command[2]).resolve(), Path(code).resolve(), command)
+        command[0], command[2] = '<sw>', code
+        return command
+
+    def run_printed(self, printed):
+        """Run a printed `{cmd, cwd}` as printed, with the test home; the CompletedProcess."""
+        return subprocess.run(printed['cmd'], cwd=printed['cwd'], capture_output=True, timeout=120,
+                              env=self.env('me', SPECWRIGHT_HOME=str(self.home), GIT_CONFIG_GLOBAL=os.devnull,
+                                           GIT_CONFIG_NOSYSTEM='1'))
+
     def cleanup_contract(self, code, store):
         args = ['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x']
         before = self.gh_state.read_bytes()
@@ -177,29 +209,21 @@ class WorkflowParity(parity.PairParity):
         self.assertEqual(native['code'], 0, native)
         self.assertEqual(oracle['code'], 0, oracle)
         got, expected = self.normal(native)[0], self.normal(oracle)[0]
-        # This is the explicit producer/consumer contract change in D4/C4,
-        # not normalization of a workflow decision or mutation guard.
+        # This is the explicit producer/consumer contract change in D4: the frozen plan prints scripts, the native one
+        # prints the running sw and `--project <code>`. Each frozen command is translated to that form, not normalized
+        # away: the sw path is checked on its own, then the decisions, arguments and cwd must match exactly.
+        bound = copy.deepcopy(got)
         for side in ['code', 'store']:
             for entry in expected[side]['commands']:
-                command = entry['cmd']
-                if command[0] == 'bash' and command[1].endswith(('/as.sh', '/vcs.sh')):
-                    name = Path(command[1]).name
-                    self.assertEqual(command[1], parity.fixtures.posix(Path(parity.oracle_sw_dir()) / name))
-                    native_command = got[side]['commands'][expected[side]['commands'].index(entry)]['cmd']
-                    self.assertEqual(native_command[1], parity.fixtures.posix(parity.SCRIPTS / name))
-                    command[1] = native_command[1]
-                if command[0] == 'pr-pair.sh':
-                    command[1:1] = ['--project', code]
-                elif command[0] == 'bash' and command[1].endswith('/as.sh'):
-                    command[2:2] = ['--project', code]
                 self.assertEqual(entry['cwd'], got[side]['dir'])
-        for side in ['code', 'store']:
-            delete = expected[side].get('delete', [])
-            if delete[:1] == ['bash']:  # bare-bash: not started
-                self.assertEqual(delete[1], parity.fixtures.posix(Path(parity.oracle_sw_dir()) / 'vcs.sh'))
-                self.assertEqual(got[side]['delete'][1], parity.fixtures.posix(parity.SCRIPTS / 'vcs.sh'))
-                delete[1] = got[side]['delete'][1]
-        self.assertEqual(got, expected)
+            expected[side]['commands'] = [dict(c, cmd=self.printed_form(c['cmd'], code)) for c in expected[side]['commands']]
+            if 'delete' in expected[side]:
+                expected[side]['delete'] = self.printed_form(expected[side]['delete'], code)
+            for c in bound[side]['commands']:
+                self.bind_sw(c['cmd'], code)
+            if 'delete' in bound[side]:
+                self.bind_sw(bound[side]['delete'], code)
+        self.assertEqual(bound, expected)
         self.assertEqual(native['calls'], oracle['calls'])
         return got
 
@@ -208,8 +232,8 @@ class WorkflowParity(parity.PairParity):
         plan = self.cleanup_contract(code, store)
         for side, login in [('code', 'me'), ('store', 'other')]:
             pull = plan[side]['commands'][1]['cmd']
-            self.assertEqual(pull[2:5], ['--project', code, login])
-            self.assertEqual(plan[side]['commands'][2]['cmd'][1:3], ['--project', code])
+            self.assertEqual(pull[1:6], ['--project', code, 'as', login, 'git'])
+            self.assertEqual(plan[side]['commands'][2]['cmd'][1:4], ['--project', code, 'pr'])
             self.assertEqual(plan[side]['delete'], ['git', 'branch', '-D', 'feat/x'])
         self.mutate(lambda st: st['repos']['o/plans']['pulls'][0].update(state='open', merged_at=None))
         self.assertEqual(len(self.cleanup_contract(code, store)['keep']), 1)
@@ -262,8 +286,8 @@ class WorkflowParity(parity.PairParity):
             with self.subTest(backend=backend):
                 self.select_backend(code, store, backend)
                 plan = self.cleanup_contract(code, store)
-                self.assertEqual(plan['code']['commands'][0]['cmd'][2], 'switch')
-                self.assertEqual(plan['code']['delete'][2], 'delete-branch')
+                self.assertEqual(plan['code']['commands'][0]['cmd'][3:5], ['vcs', 'switch'])
+                self.assertEqual(plan['code']['delete'][3:5], ['vcs', 'delete-branch'])
                 if backend == 'gitbutler':
                     self.assertIn('--merged-commit', plan['code']['delete'])
 
@@ -290,27 +314,20 @@ class WorkflowParity(parity.PairParity):
         for role in ['code', 'store']:
             entry = plan[role]
             for printed in entry['commands'][:2]:
-                self.assertIn(printed['cmd'][0], ['git', 'bash'])
-                # Resolve the asserted interpreter through the same Git Bash
-                # selector as every other eval. bin/bash.exe resets PATH and
-                # hides the fake git that records this consumer's effects.
-                command = ([parity.bashexe.bash(), *printed['cmd'][1:]]
-                           if printed['cmd'][0] == 'bash' else printed['cmd'])
-                result = subprocess.run(command, cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
+                # the printed commands run as printed: `git checkout`, then `<sw> --project <code> as <login> git pull`
+                result = subprocess.run(printed['cmd'], cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
                 self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
             printed = entry['commands'][2]
-            self.assertEqual(printed['cmd'][:3], ['pr-pair.sh', '--project', code])
-            # Until group8 switches the shim, consume its exact selector and
-            # send its unchanged remainder to the native entry from this cwd.
-            result = self.side('new', printed['cmd'][3:], printed['cwd'])
-            self.assertTrue(json.loads(result['stdout'])['delete'], result)
+            self.assertEqual(printed['cmd'][1:4], ['--project', code, 'pr'])
+            result = self.run_printed(printed)
+            self.assertTrue(json.loads(result.stdout)['delete'], result)
             if role == 'code':
                 self.git(code, 'checkout', 'feat/x')
                 self.git(code, 'commit', '--allow-empty', '-m', 'new work after merged PR')
                 self.git(code, 'checkout', 'main')
                 before = self.git(code, 'show-ref')
-                result = self.side('new', printed['cmd'][3:], printed['cwd'])
-                self.assertFalse(json.loads(result['stdout'])['delete'], result)
+                result = self.run_printed(printed)
+                self.assertFalse(json.loads(result.stdout)['delete'], result)
                 self.assertEqual(self.git(code, 'show-ref'), before)
             else:
                 self.git(store, *entry['delete'][1:])

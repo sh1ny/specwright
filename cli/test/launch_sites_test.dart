@@ -18,7 +18,10 @@
 //     printed-command, message or label site;
 //   * a shell as a launch command: a literal `bash` or `sh` (with or without
 //     `.exe`), bare or at the end of a path (`/bin/bash`, `/bin/sh`, a Git Bash
-//     path), inside any launch call. No transport through a shell is listed.
+//     path), inside any launch call. No transport through a shell is listed;
+//   * a shell named by absolute path anywhere under `lib/src`. The Windows
+//     `bash -c` stdin transport (C9) is the one listed caller-requested shell
+//     site (`callerShellSites`); it names bash bare and starts nothing itself.
 //
 // Registering a new launch (constraints C1 and C2): add the file and runner
 // symbol to `calls` in [launchAllowlist] with its count and one of the kinds
@@ -101,7 +104,13 @@ class Allowlist {
     required this.selfLaunches,
     required this.scriptNames,
     this.selfReferences = const {},
+    this.callerShellSites = const {},
   });
+
+  /// file -> why it may name a shell: a site that runs a shell only because a
+  /// caller asked for one (the Windows `bash -c` stdin transport, C9). It may
+  /// name a shell bare; no file names one by absolute path.
+  final Map<String, String> callerShellSites;
 
   /// file -> permitted read of the running executable that launches nothing.
   final Map<String, SelfReference> selfReferences;
@@ -349,6 +358,7 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
     ...allow.selfLaunches.keys,
     ...allow.scriptNames.keys,
     ...allow.selfReferences.keys,
+    ...allow.callerShellSites.keys,
   ]) {
     if (!sources.containsKey(file)) {
       findings.add(
@@ -454,6 +464,23 @@ List<String> scanLaunchSites(Map<String, String> sources, Allowlist allow) {
       for (final m in selves) {
         _checkSelfLaunch(findings, file, code, skeleton, m, self);
       }
+    }
+
+    // 2b. a shell by absolute path, anywhere under `lib/src`; a listed
+    // caller-requested shell site must still name one (bare)
+    final shells = _shellLiteral.allMatches(code).toList();
+    for (final shell in shells) {
+      final text = shell.group(0)!;
+      if (text.contains('/') || text.contains(r'\')) {
+        findings.add(
+          '$file: shell named by absolute path ($text); a shell is only named bare, at a caller-requested shell site',
+        );
+      }
+    }
+    if (allow.callerShellSites.containsKey(file) && shells.isEmpty) {
+      findings.add(
+        '$file: listed as a caller-requested shell site but names no shell',
+      );
     }
 
     // 3. script names anywhere
@@ -579,6 +606,7 @@ const _miniAllow = Allowlist(
     },
   },
   selfReferences: {'check.dart': SelfReference(1, '??')},
+  callerShellSites: {'transport.dart': 'the caller asked for bash'},
   selfLaunches: {
     'helper.dart': SelfLaunch(
       1,
@@ -632,6 +660,9 @@ Future<void> check(String path, [String? running]) async {
   final same = path == (running ?? Platform.resolvedExecutable);
   await launch([path, 'version', '--json'], cwd: '.');
 }
+''',
+  'transport.dart': '''
+bool wantsBash(List<String> command) => stem(command[0]) == 'bash';
 ''',
   'msg.dart': '''
 void refuse(void Function(String) err) {
@@ -1031,6 +1062,55 @@ Future<void> again(ctx) async {
       expect(scanLaunchSites(printed, printedAllow), isEmpty);
     });
 
+    test('an absolute-path shell at a listed site fails', () {
+      // the baseline names bash bare at the caller-requested site and is clean
+      expect(scanLaunchSites(_miniSources(), _miniAllow), isEmpty);
+      for (final shell in [
+        '/bin/bash',
+        '/bin/sh',
+        r'C:\Program Files\Git\bin\bash.exe',
+        'C:/Program Files/Git/usr/bin/sh.exe',
+      ]) {
+        // a listed launch site, the path held away from the launch call
+        final a = _miniSources();
+        a['run.dart'] = "const shell = '$shell';\n${a['run.dart']!}";
+        final aFindings = scanLaunchSites(a, _miniAllow);
+        expect(
+          _mentions(aFindings, ['run.dart', 'absolute path', shell]),
+          isTrue,
+          reason: '$shell: ${aFindings.join('\n')}',
+        );
+
+        // the caller-requested shell site names a shell bare, never by path
+        final b = _miniSources();
+        b['transport.dart'] = b['transport.dart']!.replaceFirst(
+          "'bash'",
+          "'$shell'",
+        );
+        final bFindings = scanLaunchSites(b, _miniAllow);
+        expect(
+          _mentions(bFindings, ['transport.dart', 'absolute path', shell]),
+          isTrue,
+          reason: '$shell: ${bFindings.join('\n')}',
+        );
+      }
+
+      // a caller-requested site that no longer names a shell is a stale entry
+      final c = _miniSources();
+      c['transport.dart'] = 'int none() => 0;\n';
+      expect(
+        _mentions(scanLaunchSites(c, _miniAllow), [
+          'transport.dart',
+          'caller-requested shell site',
+        ]),
+        isTrue,
+      );
+
+      // a bare shell name outside the listed site stays unflagged (a label)
+      final d = _miniSources()..['label.dart'] = "const tool = 'bash';\n";
+      expect(scanLaunchSites(d, _miniAllow), isEmpty);
+    });
+
     test('comments and string contents are not launches', () {
       final s = _miniSources();
       s['run.dart'] = '''
@@ -1182,6 +1262,13 @@ const launchAllowlist = Allowlist(
     'update/place.dart': SelfReference(1, '??'),
     // the printed steps name the running `sw`; nothing here starts it
     'finish/undo_plan.dart': SelfReference(1, '??'),
+    'vcs/plan.dart': SelfReference(1, '??'),
+    'pr/workflow.dart': SelfReference(1, 'printedPath('),
+  },
+  // `transport.dart` rewrites a `bash -c` command a caller asked for (the
+  // Windows stdin transport, C9); it starts nothing and names bash bare.
+  callerShellSites: {
+    'process/transport.dart': 'Windows bash -c stdin transport (C9)',
   },
   scriptNames: {
     'cli.dart': {'as.sh': ScriptSite(1, 'message: usage line of `sw as`')},
@@ -1219,16 +1306,11 @@ const launchAllowlist = Allowlist(
       'pr-pair.sh': ScriptSite(1, 'message text'),
       'reviewers.py': ScriptSite(1, 'label of the limit line'),
     },
-    'pr/workflow.dart': {
-      'pr-pair.sh': ScriptSite(1, 'printed command'),
-      'as.sh': ScriptSite(1, 'printed command'),
-    },
     'pr/workflow_transport.dart': {'as.sh': ScriptSite(1, 'message text')},
     'vcs/args.dart': {'vcs.sh': ScriptSite(1, 'message: usage line')},
     'vcs/gitbutler_backend.dart': {
       'as.sh': ScriptSite(1, 'message prefix compared, not launched'),
     },
-    'vcs/plan.dart': {'vcs.sh': ScriptSite(1, 'printed command')},
     'vcs/scripts.dart': {'as.sh': ScriptSite(1, 'message text')},
   },
 );

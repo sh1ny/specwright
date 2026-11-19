@@ -60,7 +60,8 @@ Future<GhResult> runGh(
 }) => _run(
   cwd,
   ['gh', ...args],
-  environment: environment,
+  // D8: an inherited GH_REPO never picks the repository of a gh call
+  environment: {...(environment ?? Platform.environment)}..remove('GH_REPO'),
   paged: paged,
   limits: limits,
   helperCommand: helperCommand,

@@ -13,7 +13,7 @@ from pathlib import Path
 import jjenv
 from butenv import Scratch, require_but
 from gbnet import LOGIN, GitButlerNetworkCase
-from vcs_test_support import stamp_version, sw_home
+from vcs_test_support import home_sw, stamp_version, sw_home
 
 ROOT = Path(__file__).resolve().parents[2]
 PR_PAIR = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
@@ -48,15 +48,19 @@ class GitButlerFlowCase(GitButlerNetworkCase):
         wrap.set_assignments({"feat/b": ["src/b.py"]})
 
     def run_argv(self, scratch, wrap, argv, cwd, expected=0):
-        """Run `bash <script> <args>` (argv[0] is "bash") with the Git shim, the logging `but` and the fake gh on PATH; one JSON line out."""
-        self.assertEqual(argv[0], "bash", argv)
+        """Run `bash <script> <args>` (argv[0] is "bash"), or a printed `<sw> ...` command as printed (any other argv[0]),
+        with the Git shim, the logging `but` and the fake gh on PATH; one JSON line out."""
         env = self.fenced_env(scratch, wrap)
         env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
                     "SPECWRIGHT_HOME": str(sw_home())})
         stamp_version(self.repo_path)
         env["VCS_TEST_SEARCH"] = env["PATH"]
-        done = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "flow",
-                               *map(str, argv[1:])], cwd=str(cwd), env=env, capture_output=True, text=True, encoding="utf-8")
+        if argv[0] == "bash":
+            command = [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "flow", *map(str, argv[1:])]
+        else:
+            env["PATH"] = env["VCS_TEST_SEARCH"]
+            command = [str(a) for a in argv]
+        done = subprocess.run(command, cwd=str(cwd), env=env, capture_output=True, text=True, encoding="utf-8")
         lines = done.stdout.strip().splitlines()
         self.assertEqual(done.returncode, expected, "%s\nstdout: %s\nstderr: %s" % (argv, done.stdout, done.stderr))
         self.assertEqual(len(lines), 1, "want one JSON line from %s, got %r / %r" % (argv, done.stdout, done.stderr))
@@ -229,17 +233,20 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             self.assertEqual(plan["keep"], [])
             self.assertTrue(code["merged"] and code["branch_exists"], code)
             argvs = [c["cmd"] for c in code["commands"]] + [code["delete"]]
-            self.assertFalse([argv for argv in argvs if "git" in argv or argv[0] == "git" or "as.sh" in argv[1].lower()],
+            self.assertFalse([argv for argv in argvs if "git" in argv or argv[0] == "git" or "as" in argv[3:4]],
                              "a Git command in the GitButler code repo's plan: %s" % argvs)
             subs = []
             for argv in argvs:
-                if argv[0] == "pr-pair.sh":
-                    self.assertEqual(argv[:4], ["pr-pair.sh", "--project", repo.path.as_posix(), "branch-check"])
-                    subs.append(argv[3])
+                # D4: every printed command is the running sw, then `--project <code>`
+                self.assertEqual(Path(argv[0]).resolve(), home_sw().resolve(), argv)
+                self.assertEqual(argv[1], "--project", argv)
+                self.assertEqual(Path(argv[2]).resolve(), repo.path.resolve(), argv)
+                self.assertNotIn("bash", [Path(a).stem for a in argv], argv)
+                if argv[3] == "pr":
+                    subs.append(argv[4])
                 else:
-                    self.assertEqual(argv[0], "bash")
-                    self.assertTrue(argv[1].lower().endswith("vcs.sh"), argv)
-                    subs.append(argv[2])
+                    self.assertEqual(argv[3], "vcs", argv)
+                    subs.append(argv[4])
             self.assertEqual(subs, ["switch", "pull", "branch-check", "delete-branch"], argvs)
 
             def option(argv, name):
@@ -260,8 +267,7 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             self.shim.log_path.unlink(missing_ok=True)
             results = []
             for argv in argvs:
-                run = ["bash", PR_PAIR.as_posix(), *argv[1:]] if argv[0] == "pr-pair.sh" else argv  # bare-bash: not started
-                results.append(self.run_argv(scratch, wrap, run, repo.path))
+                results.append(self.run_argv(scratch, wrap, argv, repo.path))
             switched, pulled, checked, deleted = results
             self.assertFalse(switched["switched"])
             self.assertEqual((pulled["pulled"], pulled["reason"], pulled["applied_branches"]), (False, "pull_skipped", ["feat/b"]))

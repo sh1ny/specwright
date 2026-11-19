@@ -38,6 +38,11 @@ def make_sw_home(sw):
     return home
 
 
+def home_sw():
+    """The `sw` a shim runs from `sw_home()`: <home>/.specwright/bin/<tree VERSION>/sw[.exe], as `sw` prints its own path."""
+    return sw_home() / ".specwright" / "bin" / tree_version() / ("sw.exe" if os.name == "nt" else "sw")
+
+
 def forget_sw_homes():
     """Delete every cached test home (the process exit does the same)."""
     while _SW_HOMES:

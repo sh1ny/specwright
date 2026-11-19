@@ -120,13 +120,13 @@ class ProjectShims(ShimCase):
         for side in ('code', 'store'):
             entry = plan[side]
             pull, check = (row['cmd'] for row in entry['commands'][1:])
-            self.assertEqual(pull[2:5], ['--project', code, 'KintsugiBot'])
+            self.assertEqual(pull[1:5], ['--project', code, 'as', 'KintsugiBot'])
             self.assertEqual(pull[5:], ['git', 'pull', '--ff-only'])
-            self.assertEqual(check[:4], ['pr-pair.sh', '--project', code, 'branch-check'])
-            self.assertEqual(check[4:], ['--dir', entry['dir'], '--branch', original.BRANCH,
+            self.assertEqual(check[1:5], ['--project', code, 'pr', 'branch-check'])
+            self.assertEqual(check[5:], ['--dir', entry['dir'], '--branch', original.BRANCH,
                                         '--main', 'main', '--head', fixture.tip(getattr(fixture, side))])
             self.assertTrue(all(row['cwd'] == entry['dir'] for row in entry['commands']))
-            result = subprocess.run([bashexe.bash(), str(PAIR), *check[1:]], cwd=entry['dir'],
+            result = subprocess.run(check, cwd=entry['dir'],  # the printed command runs as printed
                                     capture_output=True, text=True, env=fixture.env(), timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(json.loads(result.stdout)['delete'])

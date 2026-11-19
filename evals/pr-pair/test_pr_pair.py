@@ -138,6 +138,14 @@ class Base(unittest.TestCase):
         out["_rc"] = r.returncode
         return out
 
+    def sw_pr(self, *args, env=None, cwd=None, project=None):
+        """`<sw> [--project <code>] pr <args>` with ordinary arguments (no shim); the parsed JSON line, exit 0 required."""
+        lead = ["--project", fixtures.posix(project)] if project else []
+        r = subprocess.run([vcs_test_support.swharness.require_sw(), *lead, "pr", *map(str, args)], capture_output=True, text=True,
+                           encoding="utf-8", env={**self.env(), **(env or {})}, cwd=cwd or self.tmp, timeout=120)
+        self.assertEqual(r.returncode, 0, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")
+        return json.loads(r.stdout.strip())
+
     # ---- git fixtures ------------------------------------------------------------------------------------
     def make_repo(self, name, remote):
         d = self.tmp / name
@@ -1114,20 +1122,8 @@ class Ship(Base):
         self.assertEqual(r["error"], "already_merged")
         self.assertEqual(len(self.pulls(STORE)), 1)
 
-    def test_gh_repo_env_ignored(self):
-        # GH_REPO names the code repo; every store lookup must still hit the store's origin repository
-        self.add_pull(STORE, 9, body="store pr")
-        env = {"GH_REPO": CODE}
-        d = self.pp("discover", "--repo", STORE, "--branch", BRANCH, "--base", "main", env=env)
-        self.assertEqual([p["url"] for p in d["prs"]], [f"https://github.com/{STORE}/pull/9"])
-        e = self.pp("ensure-pr", "--repo", STORE, "--branch", BRANCH, "--base", "main", "--title", "t",
-                    "--body-file", self.write("b.md", "b"), env=env)
-        self.assertEqual((e["action"], e["pr"]["number"]), ("found", 9))
-        self.pp("link", "--repo", STORE, "--pr", 9, "--kind", "code", "--peer-url", f"https://github.com/{CODE}/pull/1",
-                "--login", self.login, env=env)
-        self.assertEqual(len(self.comments(STORE, 9)), 1)
-        self.assertEqual(self.comments(CODE, 9), [])
-        self.assertEqual(self.pulls(CODE), [])
+    def assert_calls_scoped(self):
+        """Every gh call ran with no GH_REPO, and each repository call names its repository."""
         calls = self.gh_calls()
         self.assertTrue(calls)
         for c in calls:
@@ -1137,6 +1133,36 @@ class Ship(Base):
                 self.assertTrue(any(x.startswith("repos/") for x in a) or "user" in a, f"unscoped api call {a}")
             if a[0] == "pr":
                 self.assertTrue("--repo" in a or "-R" in a, f"pr command without --repo: {a}")
+
+    def test_gh_repo_unset_reads_origin(self):
+        # <sw> pr discover --repo o/store with GH_REPO unset: every call names the store, and the list is the store's
+        self.add_pull(STORE, 9, body="store pr")
+        self.add_pull(CODE, 4, body="code pr")
+        d = self.sw_pr("discover", "--repo", STORE, "--branch", BRANCH, "--base", "main")
+        self.assertEqual([p["url"] for p in d["prs"]], [f"https://github.com/{STORE}/pull/9"])
+        self.assert_calls_scoped()
+        repo_calls = [c["argv"] for c in self.gh_calls() if c["argv"][0] == "api" and "user" not in c["argv"]]
+        self.assertTrue(repo_calls)
+        for a in repo_calls:
+            self.assertTrue(any(x.startswith(f"repos/{STORE}/") for x in a), f"call not naming {STORE}: {a}")
+
+    def test_gh_repo_env_ignored(self):
+        # GH_REPO names the code repo; every store lookup must still hit the store's repository, from the store checkout
+        store = self.make_repo("store", f"https://github.com/{STORE}.git")
+        self.add_pull(STORE, 9, body="store pr")
+        env = {"GH_REPO": CODE}
+        run = dict(env=env, cwd=store, project=self.tmp)
+        d = self.sw_pr("discover", "--repo", STORE, "--branch", BRANCH, "--base", "main", **run)
+        self.assertEqual([p["url"] for p in d["prs"]], [f"https://github.com/{STORE}/pull/9"])
+        e = self.sw_pr("ensure-pr", "--repo", STORE, "--branch", BRANCH, "--base", "main", "--title", "t",
+                       "--body-file", self.write("b.md", "b"), **run)
+        self.assertEqual((e["action"], e["pr"]["number"]), ("found", 9))
+        self.sw_pr("link", "--repo", STORE, "--pr", 9, "--kind", "code", "--peer-url", f"https://github.com/{CODE}/pull/1",
+                   "--login", self.login, **run)
+        self.assertEqual(len(self.comments(STORE, 9)), 1)
+        self.assertEqual(self.comments(CODE, 9), [])
+        self.assertEqual(self.pulls(CODE), [])
+        self.assert_calls_scoped()
 
 
 # =======================================================================================================
@@ -2951,16 +2977,20 @@ class Cleanup(Base):
         return [c["cmd"] for c in entry["commands"]]
 
     def fenced_pull(self, login):
-        """The fenced pull cleanup-plan emits: as.sh runs git pull as the login that reads the repo."""
-        return ["bash", str(SCRIPT.parent / "as.sh").replace("\\", "/"), "--project", str(self.code).replace("\\", "/"), login, "git", "pull", "--ff-only"]  # bare-bash: not started
+        """The fenced pull cleanup-plan emits: `<sw> as` runs git pull as the login that reads the repo (D4)."""
+        return [self.sw_head(), "--project", str(self.code).replace("\\", "/"), "as", login, "git", "pull", "--ff-only"]
+
+    @staticmethod
+    def sw_head():
+        return vcs_test_support.home_sw().resolve().as_posix()  # the shim runs the version-matched copy
 
     def same_cmds(self, got, want):
-        fold = lambda cs: [[x.lower() if i == 1 and c[:1] == ["bash"] else x for i, x in enumerate(c)] for c in cs]  # bare-bash: not started
+        fold = lambda cs: [[x.lower() if i == 0 and c[1:2] == ["--project"] else x for i, x in enumerate(c)] for c in cs]
         self.assertEqual(fold(got), fold(want))
 
     def check_cmd(self, entry, head, main="main"):
         """The branch-check command a merged side runs after the pull: --head is the merged PR's head commit."""
-        return ["pr-pair.sh", "--project", str(self.code).replace("\\", "/"), "branch-check", "--dir", entry["dir"], "--branch", BRANCH, "--main", main, "--head", head]
+        return [self.sw_head(), "--project", str(self.code).replace("\\", "/"), "pr", "branch-check", "--dir", entry["dir"], "--branch", BRANCH, "--main", main, "--head", head]
 
     def test_cleanup_plan_both_merged(self):
         self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)  # squash: not the local tip
@@ -2970,7 +3000,7 @@ class Cleanup(Base):
             e = p[repo]
             self.assertTrue(e["merged"])
             self.same_cmds(self.cmds(e)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
-            self.assertEqual(self.cmds(e)[2], self.check_cmd(e, "a" * 40 if repo == "code" else self.tip(self.store)))
+            self.same_cmds([self.cmds(e)[2]], [self.check_cmd(e, "a" * 40 if repo == "code" else self.tip(self.store))])
             self.assertEqual(len(e["commands"]), 3)
             self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])
             self.assertNotIn("force_delete", e)
@@ -2979,7 +3009,7 @@ class Cleanup(Base):
         self.assertEqual(p["keep"], [])
 
     def test_cleanup_plan_jj_commands(self):
-        """A jj repo's switch, pull and delete come from vcs.sh plan; the paired Git store keeps its Git commands."""
+        """A jj repo's switch, pull and delete come from `sw vcs plan`; the paired Git store keeps its Git commands."""
         jj = jjenv.require_jj()
         r = subprocess.run([jj, "git", "init", "--colocate"], cwd=self.code, capture_output=True, text=True, env=self.env())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -2987,7 +3017,6 @@ class Cleanup(Base):
         self.add_pull(CODE, 5, state="closed", merged=self.merged, sha="a" * 40)
         self.add_pull(STORE, 2, state="closed", merged=self.merged, sha=self.tip(self.store))
         p = self.plan()
-        vcs_sh = str(SCRIPT.parent / "vcs.sh").replace("\\", "/").lower()
 
         def opt(cmd, flag):
             return cmd[cmd.index(flag) + 1]
@@ -2995,13 +3024,16 @@ class Cleanup(Base):
         e = p["code"]
         switch, pull, check = self.cmds(e)
         for cmd, op in ((switch, "switch"), (pull, "pull")):
-            self.assertEqual((cmd[0], cmd[1].lower(), cmd[2]), ("bash", vcs_sh, op), cmd)  # bare-bash: not started
+            self.assertEqual((cmd[1], cmd[3:5]), ("--project", ["vcs", op]), cmd)
+            self.same_cmds([cmd[:2]], [[self.sw_head(), "--project"]])
             self.assertEqual((opt(cmd, "--role"), opt(cmd, "--branch")), ("code", "main"), cmd)
             self.assertEqual(Path(opt(cmd, "--repo")).resolve(), Path(self.code).resolve(), cmd)
         self.assertEqual(opt(pull, "--login"), "KintsugiBot")
-        self.assertEqual(check, self.check_cmd(e, "a" * 40))
+        self.same_cmds([check], [self.check_cmd(e, "a" * 40)])
         delete = e["delete"]
-        self.assertEqual((delete[0], delete[1].lower(), delete[2]), ("bash", vcs_sh, "delete-branch"), delete)  # bare-bash: not started
+        self.assertEqual((delete[1], delete[3:5]), ("--project", ["vcs", "delete-branch"]), delete)
+        self.same_cmds([delete[:2]], [[self.sw_head(), "--project"]])
+        self.assertNotIn("vcs.sh", " ".join(delete))
         self.assertEqual(opt(delete, "--branch"), BRANCH)
         self.assertIn("--force", delete)
         self.assertEqual(e["commands"][0]["cwd"], str(self.code).replace("\\", "/"))
@@ -3043,7 +3075,7 @@ class Cleanup(Base):
         self.add_pull(STORE, 2)  # open
         p = self.plan()
         self.assertTrue(p["code"]["merged"])
-        self.assertEqual(self.cmds(p["code"])[-1][:4], ["pr-pair.sh", "--project", str(self.code).replace("\\", "/"), "branch-check"])
+        self.assertEqual(self.cmds(p["code"])[-1][1:5], ["--project", str(self.code).replace("\\", "/"), "pr", "branch-check"])
         self.assertEqual(p["code"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertFalse(p["store"]["merged"])
         self.assertEqual(p["store"]["commands"], [])
@@ -3063,7 +3095,7 @@ class Cleanup(Base):
         self.assertFalse(p["code"]["branch_exists"])
         self.assertEqual(p["code"]["commands"], [])
         self.same_cmds(self.cmds(p["store"])[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
-        self.assertEqual(self.cmds(p["store"])[2], self.check_cmd(p["store"], self.tip(self.store)))
+        self.same_cmds([self.cmds(p["store"])[2]], [self.check_cmd(p["store"], self.tip(self.store))])
         self.assertEqual(p["store"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertEqual(p["keep"], [])
 
@@ -3096,7 +3128,7 @@ class Cleanup(Base):
         self.git(self.store, "remote", "remove", "origin")
         self.add_pull(CODE, 5, state="closed", merged=self.merged)
         p = self.plan()
-        self.assertEqual(self.cmds(p["code"])[-1][:4], ["pr-pair.sh", "--project", str(self.code).replace("\\", "/"), "branch-check"])
+        self.assertEqual(self.cmds(p["code"])[-1][1:5], ["--project", str(self.code).replace("\\", "/"), "pr", "branch-check"])
         self.assertEqual(p["store"]["commands"], [])
         self.assertEqual([(k["repo"], k["state"], k["branch"]) for k in p["keep"]], [("store", "SHARE_BY_HAND", BRANCH)])
 

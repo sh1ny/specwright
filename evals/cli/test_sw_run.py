@@ -158,6 +158,16 @@ class Limits(Base):
         self.assertEqual(proc.stdout, "")
         self.assertEqual(proc.stderr, "bounded: deadline_exceeded: gh api\n")
 
+    @unittest.skipUnless(sys.platform == "win32", "platform: Git Bash cuts a command-line argument at 8,186 characters")
+    def test_long_argument_through_bash_on_windows(self):
+        # C9: a caller that asks for bash keeps the stdin transport, so an argument past the cut arrives whole.
+        bash = bashexe.bash()
+        if not bash:
+            self.skipTest("no bash installed")
+        long = "x" * 20000
+        proc = self.sw("--", bash, "-c", 'printf %s "$1"', "name", long)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, long, ""))
+
     def test_exit_after_deadline_exits_124(self):
         script = self.script("late.py", "import time\ntime.sleep(2.5)\nprint('late')\n")
         proc = self.sw("--", sys.executable, script, env=self.env(SPECWRIGHT_NET_DEADLINE=1))

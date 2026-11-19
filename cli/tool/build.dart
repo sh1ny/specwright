@@ -12,9 +12,13 @@
 // `--expect-update-interface <n>` it first runs the built binary's
 // `sw update interface`: a different number, or a failed run, deletes the
 // build and stops before anything is placed. `mise run install-sw` runs this.
-// No bash is started: only the Dart SDK and the built binary.
+// It first regenerates cli/lib/src/review/references.g.dart from the review
+// skill's references (cli/tool/references.dart). No bash is started: only the
+// Dart SDK and the built binary.
 import 'dart:convert';
 import 'dart:io';
+
+import 'references.dart';
 
 Never _fail(String message, [int code = 1]) {
   stderr.writeln(message);
@@ -63,6 +67,8 @@ Future<void> main(List<String> args) async {
       (temporary
           ? '${buildDir.path}.install-$pid$ext'
           : '${buildDir.path}sw$ext');
+  // D9: the built-in review references come from the skill's files.
+  writeReferences(treeDir);
   final result = await Process.run(Platform.resolvedExecutable, [
     'compile',
     'exe',
