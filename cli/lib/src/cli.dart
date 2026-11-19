@@ -5,6 +5,7 @@ import 'package:args/args.dart';
 
 import 'commands/commit.dart';
 import 'commands/finish.dart';
+import 'commands/gate.dart';
 import 'commands/pr.dart';
 import 'commands/release.dart';
 import 'commands/review.dart';
@@ -35,6 +36,8 @@ const _usage =
     '                    check, bump, status, untagged, publish or notes\n'
     '  release --args-stdin  run a release subcommand for the shim; same stdin as vcs\n'
     '  pr snapshot|reply --args-stdin  read or answer a pull request; same stdin as vcs\n'
+    '  gate lock|show|unlock --store <store> [options]\n'
+    '                    take, show or release the store gate lock\n'
     '  update <sub> [options]  stage, swap, recover and finish an update;\n'
     '                    plan, note-config, pack-check, pack-verify, pack-docs,\n'
     '                    sw-install or interface\n'
@@ -117,6 +120,9 @@ Future<int> runCli(
       readStdin: readStdin,
       handlers: commitHandlers,
     );
+  }
+  if (args.isNotEmpty && args.first == 'gate') {
+    return runGateCommand(args.sublist(1), writeOut: outBytes ?? io.stdout.add);
   }
   if (args.isNotEmpty && args.first == 'as') {
     return runAsCommand(

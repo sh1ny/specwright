@@ -12,6 +12,8 @@ import hashlib
 import importlib.util
 import json
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -676,6 +678,35 @@ class TestStoreRollback(Base):
         self.assertEqual(self.store_state(), swapped_store)
         self.assertTrue(self.a.journal.exists())
         self.assertFalse(self.lock.exists())
+
+
+class TestSwGateLock(Base):
+    """The lock `sw gate lock` takes is the one a store update's swap respects (planning-stores "The gate lock keeps its
+    on-disk form")."""
+
+    def test_update_meets_sw_gate_lock(self):
+        sys.path.insert(0, str(HERE.parent / "cli"))
+        import swharness
+        sw = swharness.require_sw()
+        version = json.loads(swharness.run_sw("version", "--json").stdout)["version"]
+        stamped = self.tmp / "gate-code"  # what `--project` names: only the VERSION sw's entry check reads
+        (stamped / "openspec" / ".specwright").mkdir(parents=True)
+        (stamped / "openspec" / ".specwright" / "VERSION").write_text(version + "\n", encoding="utf-8")
+        self.pair("0.5.0")
+        dl = self.download("0.6.0", fx.schema_edit_comment)
+        self.ok(self.a, dl, "plan")
+        self.ok(self.a, dl, "stage")
+        done = subprocess.run([sw, "--project", str(stamped), "gate", "lock", "--store", str(self.store), "--branch", "add-x",
+                               "--code", str(self.b.code)], cwd=self.store, env=self.p.env, capture_output=True, text=True,
+                              encoding="utf-8", timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        owner_before = (self.lock / "owner").read_bytes()
+        a_before = self.installed(self.a)
+        code, doc, err = self.run_sub(self.a, dl, "swap")
+        self.assertEqual((code, doc["error"]), (1, "store_locked"), doc)
+        self.assertIn("add-x", doc["message"])  # the holder
+        self.assertEqual(self.installed(self.a), a_before, "nothing was installed")
+        self.assertEqual((self.lock / "owner").read_bytes(), owner_before, "the lock is unchanged")
 
 
 if __name__ == "__main__":

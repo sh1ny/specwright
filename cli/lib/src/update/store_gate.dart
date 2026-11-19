@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import '../commands/vcs.dart' show VcsContext, openSession, stateDocument;
-import '../settings/values.dart' show pyUtf8Decode;
+import '../gate/lock.dart';
 import '../vcs/args.dart' show VcsRequest;
 import '../vcs/stop.dart' show VcsStop;
 import 'file_ops.dart';
@@ -10,8 +10,11 @@ import 'repo.dart';
 import 'stop.dart';
 import 'text.dart';
 
-// The store gate lock and the "is the store free" test of `sw update` (design
-// D5 of the update's store roles), ported from `scripts/update.sh`.
+export '../gate/lock.dart' show GateOwner, gateRead, gateToken, gateWriteOwner;
+
+// The "is the store free" test of `sw update` (design D5 of the update's store
+// roles), ported from `scripts/update.sh`, and its use of the store gate lock.
+// The lock itself lives in `../gate/lock.dart`, shared with `sw gate`.
 
 /// `<store git common dir>/specwright-gate.lock`, the lock of
 /// `skills/specwright-branch`; null outside a repo.
@@ -20,42 +23,6 @@ Future<String?> gateLockPath(UpdateRepo repo) async {
   if (planning == null) return null;
   final dir = await repo.commonDir(planning.top);
   return dir == null ? null : '$dir/specwright-gate.lock';
-}
-
-/// The fields of a gate lock's `owner` file.
-class GateOwner {
-  const GateOwner({
-    this.change = '',
-    this.code = '',
-    this.token = '',
-    this.time = '',
-  });
-
-  final String change;
-  final String code;
-  final String token;
-  final String time;
-
-  /// `gate_holder`.
-  String get holder =>
-      '${change.isEmpty ? 'an unknown holder' : change}'
-      '${code.isEmpty ? '' : ' (from $code)'}'
-      '${time.isEmpty ? '' : ', taken $time'}';
-}
-
-/// `gate_read`: the fields of `<dir>/owner` (all empty when there is none).
-GateOwner gateRead(String dir) {
-  final file = File('$dir/owner');
-  if (!file.existsSync()) return const GateOwner();
-  var change = '', code = '', token = '', time = '';
-  for (var line in pyUtf8Decode(file.readAsBytesSync()).split('\n')) {
-    if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
-    if (line.startsWith('change: ')) change = line.substring(8);
-    if (line.startsWith('code: ')) code = line.substring(6);
-    if (line.startsWith('token: ')) token = line.substring(7);
-    if (line.startsWith('time: ')) time = line.substring(6);
-  }
-  return GateOwner(change: change, code: code, token: token, time: time);
 }
 
 /// `gate_stop_locked`: the stop when the gate lock is held by someone else.
@@ -109,24 +76,6 @@ GateState gateInspect(String dir, String token, String code) {
 /// stops naming the holder when it is already held.
 void gateAcquire(UpdateFileOps ops, String gate, String code) {
   if (!ops.mkdirExclusive(gate)) throw gateStopLocked(gate, code);
-}
-
-/// `gate_write_owner`: the owner file of a lock this update holds.
-void gateWriteOwner(
-  String gate,
-  String from,
-  String to,
-  String code,
-  String token,
-) {
-  final now = DateTime.now().toUtc().toIso8601String().replaceFirst(
-    RegExp(r'\.\d+Z$'),
-    'Z',
-  );
-  File('$gate/owner').writeAsStringSync(
-    'time: $now\nchange: specwright-update $from -> $to\ncode: $code\n'
-    'token: $token\n',
-  );
 }
 
 /// `store_main_name`: the store's main as a local branch name: the one the
