@@ -9,7 +9,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 **Outcome:** a team other than the maintainer can adopt Specwright without editing shipped files: SSH and GitHub Enterprise remotes, fork workflows, their own reviewer CLIs and round caps, their own branch and commit conventions, and agent defaults that fit each harness all work through settings, and the main specs describe `sw` commands instead of retired scripts. The gaps the M8 ports kept or found are fixed first.
 
 **Exit criteria:**
-- The defects kept or found by the M8 ports (#206, #209, #214, #215, #223, #224, #227, #231, #232) are fixed or closed with a reason, with evals on the three CI platforms. (agent)
+- The defects kept or found by the M8 ports (#206, #209, #214, #215, #223, #224, #227, #231, #232, #235) are fixed or closed with a reason, with evals on the three CI platforms. (agent)
 - The main specs name `sw` commands instead of retired scripts, apart from the name-map requirement and the history it records (#234). (agent)
 - A push, fetch and PR flow works with an SSH GitHub remote, a GitHub Enterprise host, a token-only environment and a configurable remote name, covered by evals on the three CI platforms (#167, #168). (agent)
 - Reviewer routes accept a configured custom CLI and an opt-in user codex config, the OMP route runs on current OMP, and the pre-ship and design-review round caps are settings (#169, #172, #222). (agent)
@@ -18,7 +18,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 - All M9 changes are archived on main and their releases are published. (agent)
 
 **Changes** (in order; each about one PR):
-1. `fix-sw-port-gaps` - fix the defects the M8 ports kept for parity or found: #206, #209, #214, #215, #223, #224 and #232, and the Windows eval flakes #227 and #231.
+1. `fix-sw-port-gaps` - fix the defects the M8 ports kept for parity or found: #206, #209, #214, #215, #223, #224, #232 and #235, and the Windows eval flakes #227 and #231.
 2. `spec-wording-sweep` - replace retired script names in the main specs with their `sw` commands, wording only (#234). It runs early so later M9 changes edit the new wording.
 3. `github-connection-options` - SSH remotes, GitHub Enterprise hosts and token-only environments (#167), and a configurable remote name for fork workflows (#168).
 4. `reviewer-settings` - custom reviewer routes and an opt-in user codex config (#169), round-cap settings (#172), and the OMP route's missing `find` tool (#222).
