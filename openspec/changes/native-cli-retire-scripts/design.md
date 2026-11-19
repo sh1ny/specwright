@@ -320,4 +320,4 @@ sequenceDiagram
 
 ## Open Questions
 
-- The exact field names in `sw gate show` output beyond those the planning-stores delta fixes (`held`, `owner`, `removed`) can be settled in apply without changing the specs.
+- Settled in apply (task 3.2): the `sw gate` field names beyond those the planning-stores delta fixes (`held`, `owner`, `removed`). `lock` prints `{ok, lock, token, owner}`; `show` prints `{ok, lock, held, owner}`, with `owner` only when held; `unlock` prints `{ok, lock, removed}`. The refusals `gate_locked`, `gate_not_owner` and `gate_update_held` print `{ok: false, error, message, owner}`, and `gate_update_held` adds `code`. `owner` is always `{time, change, code, token}`, with an empty string for a missing line; `lock` is the lock path with forward slashes.
