@@ -271,9 +271,8 @@ class _UndoStep {
             : ['--role', 'code'];
         if (branch != null) role.addAll(['--branch', branch]);
         final parsed = parseVcsArguments(['state', '--repo', repo, ...role]);
-        state = (await stateDocument(
-          await openSession(VcsContext(parsed, '', '')),
-        )).cast();
+        state = (await stateDocument(await openSession(VcsContext(parsed))))
+            .cast();
       }
       now = '${state['branch'] ?? ''}';
     }

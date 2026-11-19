@@ -34,7 +34,7 @@ class TestDownload(Base):
     def test_download_rewrites_version_and_edits_schema(self):
         dl = fx.make_download(self.tmp / "dl", "0.6.0", schema_edit=fx.schema_edit_comment)
         self.assertEqual((dl / "VERSION").read_text(), "0.6.0\n")
-        for d in ("skills", "agents", "schemas", "scripts"):
+        for d in ("skills", "agents", "schemas", "templates"):
             self.assertTrue((dl / d).is_dir(), d)
         self.assertIn("<!-- v0.6.0 -->", (dl / "skills" / "specwright-branch" / "SKILL.md").read_text(encoding="utf-8"))
         edited = (dl / "schemas" / "specwright" / "schema.yaml").read_bytes()

@@ -26,7 +26,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
@@ -140,14 +139,11 @@ class AsShCase(unittest.TestCase):
     def leaked(self, seen):
         return any("x-store-secret" in h for h in seen)
 
-    def as_sh(self, cwd, *args, env=None, stdin=None, shim=False):
-        """Run `sw as <args>` from `cwd`; the recorder is cleared first. `shim` runs the shipped as.sh instead (the evals of
-        the shim itself, which task 7.6 deletes with it)."""
+    def as_sh(self, cwd, *args, env=None, stdin=None):
+        """Run `sw as <args>` from `cwd`; the recorder is cleared first."""
         Recorder.seen = []
         e = self.env()
         e.update(env or {})
-        if shim:
-            return subprocess.run([bashexe.bash(), str(AS_SH), *args], cwd=cwd, capture_output=True, text=True, env=e, input=stdin, timeout=60)
         return swcall.run(["as", *args], cwd=cwd, env=e, input=stdin, timeout=60)
 
 
@@ -155,19 +151,19 @@ class AsShHeaderScrub(AsShCase):
     def test_control_plain_git_sends_the_store_header(self):
         seen = self.ls_remote(self.store, ["git", "ls-remote", "origin"])
         self.assertTrue(seen, "git made no request")
-        self.assertTrue(self.leaked(seen), "the fixture header must reach the server without as.sh")
+        self.assertTrue(self.leaked(seen), "the fixture header must reach the server without sw as")
 
     def test_scrubs_header_local_to_the_store(self):
         # planning_store.login unset, github.login = sh1ny: the store push is wrapped as sh1ny, from inside the store
         seen = self.ls_remote(self.store, swcall.argv(["as", "sh1ny", "git", "ls-remote", "origin"]))
-        self.assertTrue(seen, "git made no request through as.sh")
-        self.assertFalse(self.leaked(seen), f"as.sh started in the store must scrub its local header: {seen}")
+        self.assertTrue(seen, "git made no request through sw as")
+        self.assertFalse(self.leaked(seen), f"sw as started in the store must scrub its local header: {seen}")
 
     def test_git_dash_c_into_the_store_refused(self):
         # as.sh in the code repo cannot fence a `git -C <store>` command (it scrubs only the repository it starts in),
         # so it refuses it: no request, so the store's header is never sent (PR #82)
         seen = self.ls_remote(self.code, swcall.argv(["as", "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"]))
-        self.assertFalse(seen, f"as.sh must refuse a git command pointed at another repository: {seen}")
+        self.assertFalse(seen, f"sw as must refuse a git command pointed at another repository: {seen}")
 
 
 class AsShIdentity(AsShCase):
@@ -371,7 +367,7 @@ class AsShUrls(AsShCase):
             self.assertEqual(r.returncode, 3, f"{argv}: {r.stderr}")
             self.assertEqual(Recorder.seen, [], f"{argv}: no request may reach the server")
             self.assertNotIn(SECRET, r.stdout + r.stderr)
-            self.assertIn("inside", r.stderr, "the refusal says to run as.sh from inside the repository")
+            self.assertIn("inside", r.stderr, "the refusal says to run sw as from inside the repository")
         # options after the subcommand are the subcommand's own, not a repository selection
         r = self.as_sh(self.work, "sh1ny", "git", "log", "-C", "-1")
         self.assertNotEqual(r.returncode, 3, r.stderr)
@@ -489,7 +485,7 @@ class Bounded(AsShCase):
         r, took = self.timed("KintsugiBot", *self.marker_cmd())
         self.assertEqual(r.returncode, 3, r.stderr)
         self.assertIn("deadline_exceeded", r.stderr)
-        self.assertIn("as.sh:", r.stderr)
+        self.assertRegex(r.stderr, r"as\.sh:")
         self.assertLess(took, self.BOUND)
         self.assertFalse((self.tmp / "ran").exists(), "the fenced command must not run")
 

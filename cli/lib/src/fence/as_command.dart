@@ -1,26 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../pr/gh.dart';
-import '../vcs/codec.dart';
 import '../vcs/tool_runner.dart';
 import 'exec_inherit.dart';
 import 'fence.dart';
 
-const String asUsage = 'usage: sw as --args-file <path>';
-
-/// `sw as --args-file <path>`: the handoff of the `as.sh` shim and nothing
-/// else on [args] (anything else is a usage stop, exit 2, before any lookup).
-/// The file holds NUL-terminated records: the scripts directory, the bash, then
-/// every argument of `as.sh`. It is read whole and deleted first, so a failed
-/// parse leaves nothing behind and the fenced command keeps the caller's stdin
-/// (ADR 0029). A file that cannot be read or deleted is exit 3 with
-/// `as.sh: handoff: <reason>`; fewer than two records, or a last byte that is
-/// not NUL, is exit 3 with `as.sh: handoff: malformed`. Exactly the two header
-/// records is `as.sh` called with no argument: its usage line, exit 1. A record
-/// that is not valid UTF-8 is refused by name before any lookup: one `as.sh:`
-/// line with each invalid byte as `\xHH`, exit 2 (D4).
+/// `sw as <login> <command...>` or `sw as --resolve`: the identity fence. The
+/// arguments are the process's own, so each reaches the fenced command as one
+/// whole value. A call with no argument prints the usage line and exits 1, as
+/// `as.sh` did.
 ///
 /// [gh], [git] and [launch] are the seams the tests replace; by default they
 /// run the bounded gh lookups, the fence's plain git reads, and the command
@@ -36,34 +25,10 @@ Future<int> runAsCommand(
   List<String>? helperCommand,
 }) async {
   void err(String text) => writeErr(utf8.encode(text));
-  // `sw as <login> <command...>`, or the old `--args-file <path>` handoff
-  // (removed with the shims, task 7.3).
-  final direct = args.isNotEmpty && args.first != '--args-file';
-  if (!direct && args.length != 2) {
-    err('$asUsage\n');
-    return 2;
-  }
-  List<String>? records;
-  if (direct) {
-    records = ['', '', ...args];
-  } else {
-    try {
-      records = _readHandoff(args[1], err);
-    } on NotUtf8 catch (e) {
-      // D4: a name sw would act on is decoded strictly; refused before any lookup
-      err('as.sh: ${e.message}; rename it and run again\n');
-      return 2;
-    }
-    if (records == null) return 3;
-    if (records.length < 2) {
-      err('as.sh: handoff: malformed\n');
-      return 3;
-    }
-  }
   // D8: an inherited GH_REPO reaches neither the lookups nor the fenced command
   final env = {...(environment ?? Platform.environment)}..remove('GH_REPO');
   return runFence(
-    records.sublist(2),
+    args,
     environment: env,
     gh:
         gh ??
@@ -79,36 +44,4 @@ Future<int> runAsCommand(
     out: (text) => writeOut(utf8.encode(text)),
     err: err,
   );
-}
-
-/// The records of the handoff file at [path], which is deleted; null after the
-/// reason was written when it could not be read or deleted.
-List<String>? _readHandoff(String path, void Function(String text) err) {
-  final Uint8List bytes;
-  try {
-    final file = File(path);
-    bytes = file.readAsBytesSync();
-    file.deleteSync();
-  } on FileSystemException catch (e) {
-    err('as.sh: handoff: ${e.osError?.message ?? e.message}\n');
-    return null;
-  }
-  if (bytes.isNotEmpty && bytes.last != 0) {
-    err('as.sh: handoff: malformed\n');
-    return null;
-  }
-  final records = <String>[];
-  var start = 0;
-  for (var i = 0; i < bytes.length; i++) {
-    if (bytes[i] == 0) {
-      final what = switch (records.length) {
-        0 => 'scripts directory',
-        1 => 'bash path',
-        _ => 'argument ${records.length - 1}',
-      };
-      records.add(decodeStrict(Uint8List.sublistView(bytes, start, i), what));
-      start = i + 1;
-    }
-  }
-  return records;
 }

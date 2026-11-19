@@ -1,11 +1,10 @@
-"""finish.sh undo-archive-plan on a colocated jj repo (real jj): the printed steps work the working copy and commit
+"""`sw finish undo-archive-plan` on a colocated jj repo (real jj): the printed steps work the working copy and commit
 named paths with `jj commit`; they never run a Git write.
 
 Run: python -m unittest test_undo_jj   (from evals/finish)
 """
 import importlib.util
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -16,7 +15,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import jjenv  # noqa: E402
-import bashexe  # noqa: E402
 import vcs_test_support  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtures.py")
@@ -38,7 +36,7 @@ class JjBase(unittest.TestCase):
         self.addCleanup(self.scratch.close)
         self.repo = self.scratch.tracked_repo()
         self.work = self.repo.path
-        vcs_test_support.stamp_version(self.work)  # vcs.sh resolves sw from the project's VERSION (native-cli-vcs D9)
+        vcs_test_support.stamp_version(self.work)  # `sw` checks the project's VERSION (native-cli-vcs D9)
         self.env = {**self.scratch.env, "JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL}
         self.tmp = Path(tempfile.mkdtemp(prefix="swf-"))
         self.addCleanup(fx.rmtree, self.tmp)
@@ -183,29 +181,6 @@ class TestUndoPlanJj(JjBase):
         r = self.run_steps(steps)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
-
-
-class TestVcsScriptMissing(unittest.TestCase):
-    def test_undo_plan_vcs_script_missing(self):
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(fx.rmtree, tmp)
-        work = fx.make_repo(tmp)
-        lone = tmp / "skills" / "specwright-finish" / "scripts"
-        lone.mkdir(parents=True)
-        (lone / "finish.sh").write_bytes(fx.SCRIPT.read_bytes())
-        # the resolver and its bounded runner are there, vcs.sh is not: the run reaches sw, which reports the missing script
-        pr = tmp / "skills" / "specwright-pr" / "scripts"
-        pr.mkdir(parents=True)
-        for name in ("sw-path.sh", "bounded.py"):
-            (pr / name).write_bytes((fx.ROOT / "skills" / "specwright-pr" / "scripts" / name).read_bytes())
-        r = subprocess.run([bashexe.bash(), str(lone / "finish.sh"), "undo-archive-plan", "--change", "add-x", "--archived-name",
-                            f"{fx.DATE}-add-x", "--prefix", P, "--main", "main", "--branch", BRANCH],
-                           cwd=work, capture_output=True, text=True, encoding="utf-8",
-                           env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        doc = json.loads(r.stdout)
-        self.assertEqual(doc["error"], "vcs_script_missing")
-        self.assertIn("specwright-pr/scripts/vcs.sh", doc["message"].replace("\\", "/"))
 
 
 if __name__ == "__main__":

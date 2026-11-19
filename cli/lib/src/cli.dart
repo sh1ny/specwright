@@ -27,28 +27,35 @@ const _usage =
     '  version [--json]  print the sw version and interface version\n'
     '  run --bounded [--paged] [--secret] -- cmd [args...]\n'
     '                    run a command under a deadline and a byte bound\n'
-    '  vcs --args-stdin  run one VCS operation; stdin: scripts dir, bash,\n'
-    '                    subcommand and arguments, each ending in a NUL\n'
-    '  commit --args-stdin  run task-cover or fit-subject; same stdin as vcs\n'
-    '  finish --args-stdin  print the undo plan of an archive; same stdin as vcs\n'
-    '  review --args-stdin  select, run or record a design/pre-ship review; same stdin as vcs\n'
+    '  vcs <sub> [options] [-- paths]  run one VCS operation\n'
+    '  commit task-cover|fit-subject [arguments]\n'
+    '                    cover tasks by commits, or fit a commit subject\n'
+    '  finish [--dir <repo>] undo-archive-plan|undo-step [options]\n'
+    '                    print or run the undo steps of an archive\n'
+    '  review <sub> [options]  select, run or record a design/pre-ship review\n'
     '  release [--dir <repo>] <sub> [options]\n'
     '                    check, bump, status, untagged, publish or notes\n'
-    '  release --args-stdin  run a release subcommand for the shim; same stdin as vcs\n'
-    '  pr snapshot|reply --args-stdin  read or answer a pull request; same stdin as vcs\n'
+    '  pr <command> [arguments]  read or answer a pull request, run the pair workflow\n'
     '  gate lock|show|unlock --store <store> [options]\n'
     '                    take, show or release the store gate lock\n'
     '  update <sub> [options]  stage, swap, recover and finish an update;\n'
     '                    plan, note-config, pack-check, pack-verify, pack-docs,\n'
     '                    sw-install or interface\n'
-    '  as --args-file <path>  run the identity fence for the as.sh shim; the\n'
-    '                    file holds the same records, and is deleted when read\n';
+    '  as <login> <command> [args...] | as --resolve\n'
+    '                    run a command under a GitHub identity fence\n';
 
-/// Whether [args] use the old stdin or file handoff of the shell shims, which
-/// resolved the version-matched `sw` themselves; task 7.3 removes the handoff
-/// and this exemption with it.
-bool _isHandoff(List<String> args) =>
-    args.contains('--args-stdin') || args.contains('--args-file');
+/// The old handoff option of the shell shims (`--args-stdin`, `--args-file`)
+/// that [args] open a project command with, or null. It is an unknown option
+/// like any other, refused before any stdin or file is read.
+String? _oldHandoffOption(List<String> args) {
+  if (args.isEmpty || !projectCommands.contains(args.first)) return null;
+  // `sw pr <command> --args-stdin` put it after the command.
+  final at = args.first == 'pr' ? 2 : 1;
+  for (var i = 1; i <= at && i < args.length; i++) {
+    if (args[i] == '--args-stdin' || args[i] == '--args-file') return args[i];
+  }
+  return null;
+}
 
 /// Runs sw with [args], writing to [out] and [err]; returns the exit code.
 ///
@@ -60,7 +67,6 @@ Future<int> runCli(
   required StringSink err,
   void Function(List<int> bytes)? outBytes,
   void Function(List<int> bytes)? errBytes,
-  Future<List<int>> Function()? readStdin,
   Map<String, VcsHandler>? vcsHandlers,
   Map<String, CommitHandler>? commitHandlers,
   UndoPlanner? undoPlanner,
@@ -87,9 +93,13 @@ Future<int> runCli(
     return 2;
   }
   final args = choice.rest;
+  final old = _oldHandoffOption(args);
+  if (old != null) {
+    err.write('unknown option: $old\n$_usage');
+    return 2;
+  }
   if (args.isNotEmpty &&
       projectCommands.contains(args.first) &&
-      !_isHandoff(args) &&
       !(args.first == 'pr' && args.length > 1 && args[1] == 'reviewers')) {
     final mismatch = versionMismatch(choice.dir);
     if (mismatch != null) {
@@ -117,7 +127,6 @@ Future<int> runCli(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
       writeErr: errBytes ?? io.stderr.add,
-      readStdin: readStdin,
       handlers: commitHandlers,
     );
   }
@@ -136,14 +145,12 @@ Future<int> runCli(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
       writeErr: errBytes ?? io.stderr.add,
-      readStdin: readStdin,
     );
   }
   if (args.isNotEmpty && args.first == 'finish') {
     return runFinishCommand(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
-      readStdin: readStdin,
       planner: undoPlanner,
     );
   }
@@ -151,14 +158,12 @@ Future<int> runCli(
     return runReleaseCommand(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
-      readStdin: readStdin,
     );
   }
   if (args.isNotEmpty && args.first == 'review') {
     return runReviewCommand(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
-      readStdin: readStdin,
     );
   }
   if (args.isNotEmpty && args.first == 'update') {
@@ -171,7 +176,6 @@ Future<int> runCli(
     return runVcsCommand(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
-      readStdin: readStdin,
       handlers: vcsHandlers,
     );
   }

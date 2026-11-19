@@ -1,6 +1,7 @@
 """The undo plan prints steps (change native-cli-retire-scripts, group 4): `steps` and `after_rerun_steps` are lists of
 `{cwd, argv}` objects. Each test runs them one by one, each in its own cwd, and compares the refs, index, files and backups
-with what the old script left on the same fixture (the frozen oracle prints that script; evals/finish/oracle/finish.sh).
+with the repository as it was before the archive: the change is back, its files and index entries are those it had, and
+no archive of it remains (change native-cli-retire-scripts task 7.2; the frozen script is no longer run).
 
 Run: python -m unittest evals/finish/test_undo_steps.py
 """
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -67,23 +69,26 @@ def build_pair(work):
     fx.archive(work, ["add-x", "add-y"], commit_it=True)
 
 
+def restored_change(work, expected, name="add-x"):
+    """What the undo of `name`'s archive leaves of the change itself in `work`, with the same facts in `expected`, a repo built
+    the same way up to the archive: the change's files, its index entries, the archive folder's files and the tracked names."""
+    archived = f"{P}/changes/archive/{fx.DATE}-{name}"
+
+    def facts(repo):
+        files = fx.snapshot(repo)
+        return {"files": {k: v for k, v in files.items() if k.startswith(f"{P}/changes/{name}/")},
+                "archived": sorted(k for k in files if k.startswith(archived + "/")),
+                "index": fx.git(repo, "ls-files", "--stage", "--", f"{P}/changes/{name}"),
+                "tracked_archive": fx.git(repo, "ls-files", "--", archived)}
+    return facts(work), facts(expected)
+
+
 class StepsCase(tp.Base):
-    """self.work runs the printed steps; self.old runs the old script on the same fixture."""
+    """self.work runs the printed steps; self.expected is the same fixture built without the archive."""
 
     def setUp(self):
         super().setUp()
-        self.old = fx.make_repo(self.tmp / "old")
-
-    def old_run(self, work, **kw):
-        """Plan with the oracle and run its script (and its after-rerun script); returns its document."""
-        code, doc, raw = fx.run_oracle(work, *fx.plan_args("add-x", **kw))
-        self.assertEqual(code, 0, raw)
-        r = fx.run_bash(work, self.scripts, doc["script"], "undo")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        if doc.get("after_rerun"):
-            r = fx.run_bash(work, self.scripts, doc["after_rerun"], "after")
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        return doc
+        self.expected = fx.make_repo(self.tmp / "expected")
 
     def new_run(self, work, runner=None, **kw):
         """Plan with sw and run `steps`, then `after_rerun_steps`, each through [runner]; returns its document."""
@@ -97,18 +102,24 @@ class StepsCase(tp.Base):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return doc
 
-    def same_as_old(self, build, runner=None, **kw):
+    def restores(self, build, runner=None, **kw):
+        """Build the archived fixture in self.work and the unarchived one in self.expected, plan, run the printed steps; the
+        change is back as it was."""
         build(self.work)
-        build(self.old)
+        with mock.patch.object(fx, "archive", lambda *a, **k: None):
+            build(self.expected)
         doc = self.new_run(self.work, runner, **kw)
-        old = self.old_run(self.old, **kw)
-        self.assertEqual(outcome(self.work), outcome(self.old))
-        return doc, old
+        got, want = restored_change(self.work, self.expected)
+        self.assertEqual(got["files"], want["files"], "the change's files")
+        self.assertTrue(got["files"], "the change's files are back")
+        self.assertEqual(got["index"], want["index"], "the change's index entries")
+        self.assertEqual((got["archived"], got["tracked_archive"]), ([], ""), "no archive of the change remains")
+        return doc
 
 
 class TestUndoSteps(StepsCase):
     def test_committed_archive_plan_prints_steps(self):
-        doc, _ = self.same_as_old(build_single)
+        doc = self.restores(build_single)
         self.assertNotIn("script", doc)
         self.assertNotIn("after_rerun", doc)
         self.assertIsInstance(doc["steps"], list)
@@ -160,7 +171,7 @@ class TestUndoSteps(StepsCase):
             return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(path)],
                                   cwd=self.tmp, env=env, capture_output=True, text=True, encoding="utf-8")
 
-        self.same_as_old(build_single, runner)
+        self.restores(build_single, runner)
 
     def test_store_backed_plan_runs_from_outside(self):
         # the store has no installed version; the code checkout does. Both are away from the directory the steps start in.
@@ -171,7 +182,8 @@ class TestUndoSteps(StepsCase):
             return store, fx.make_repo(self.tmp / tag / "code")
 
         store, code = build("new")
-        old_store, old_code = build("old")
+        with mock.patch.object(fx, "archive", lambda *a, **k: None):
+            expected_store, _ = build("expected")
         outside = self.tmp / "outside"
         outside.mkdir()
         args = fx.plan_args("add-x", dir_=store) + ["--code", str(code)]
@@ -184,12 +196,9 @@ class TestUndoSteps(StepsCase):
                 self.assertEqual(Path(step["argv"][at + 1]).resolve(), code.resolve(), step)
         r = fx.run_steps(self.scripts, doc["steps"])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        ostatus, odoc, oraw = fx.run_oracle(old_store, *(fx.plan_args("add-x", dir_=old_store) + ["--code", str(old_code)]),
-                                            cwd=outside)
-        self.assertEqual(ostatus, 0, oraw)
-        r = fx.run_bash(old_store, self.scripts, odoc["script"], "undo")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(outcome(store), outcome(old_store))
+        got, want = restored_change(store, expected_store)
+        self.assertEqual(got, want)
+        self.assertTrue(got["files"], "the change's files are back")
 
     def test_write_blob_applies_filters(self):
         def build(work):
@@ -199,7 +208,7 @@ class TestUndoSteps(StepsCase):
             fx.edit(work, SPEC_A, "Baseline purpose", "Amended purpose")
             fx.commit(work, "docs: amend the spec")
 
-        doc, _ = self.same_as_old(build)
+        doc = self.restores(build)
         base = Path(doc["backup_dir"]) / "base" / SPEC_A
         self.assertIn(b"\r\n", base.read_bytes())
         self.assertTrue(any(s["argv"][3:6] == ["finish", "undo-step", "write-blob"] for s in doc["steps"]), doc["steps"])
@@ -211,15 +220,12 @@ class TestUndoSteps(StepsCase):
             fx.make_change(work, "add-x", "DEFERRED", {"a": "New thing", "b": "B thing"})
             fx.archive(work, "add-x", commit_it=True)
 
-        self.same_as_old(build)
+        self.restores(build)
         self.assertFalse((self.work / SPEC_B).exists())
         self.assertEqual(fx.read(self.work, f"{P}/specs/b/notes.md"), "a neighbour of the new spec\n")
 
     def test_failing_step_stops_later_steps(self):
-        def build(work):
-            build_single(work)
-
-        build(self.work)
+        build_single(self.work)
         code, doc, raw = fx.run_plan(self.work, "add-x")
         self.assertEqual(code, 0, raw)
         hook = self.work / ".git" / "hooks" / "pre-commit"
@@ -231,23 +237,18 @@ class TestUndoSteps(StepsCase):
         self.assertLess(len(r.ran), len(doc["steps"]), "a step ran after the failing one")
         self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the move ran after the failed commit")
         self.assertFalse((self.work / tp.cd("add-x")).exists())
-        # the recovery text is the old plan's, up to the backup path
-        build(self.old)
-        ocode, odoc, oraw = fx.run_oracle(self.old, *fx.plan_args("add-x"))
-        self.assertEqual(ocode, 0, oraw)
+        # the recovery text names the backup and what to do; the backup path is the one thing that varies
+        text = " ".join(doc["warnings"])
+        self.assertIn(doc["backup_dir"], text)
 
-        def plain(d):
-            return [w.replace(d["backup_dir"], "<backup>") for w in d["warnings"]]
 
-        self.assertEqual(plain(doc), plain(odoc))
-
-    def test_backup_steps_match_old_script_backups(self):
+    def test_backup_steps_keep_the_amended_spec_before_restoring(self):
         def build(work):
             build_pair(work)
             fx.edit(work, SPEC_A, "Baseline purpose", "Amended purpose")
             fx.commit(work, "docs: amend the spec")
 
-        doc, _ = self.same_as_old(build)
+        doc = self.restores(build)
         backup = f"{doc['backup_dir']}/amended/{SPEC_A}"
         steps = doc["steps"]
         copy = next(i for i, s in enumerate(steps) if s["argv"][3:6] == ["finish", "undo-step", "copy"]
@@ -266,7 +267,6 @@ class TestUndoSteps(StepsCase):
             fx.git(work, "commit", "-q", "-m", "docs: retire capability a")
 
         build(self.work)
-        build(self.old)
         out = fx.run_scripts(self.work, self.scripts, "add-x", rerun=False)
         self.assertEqual(out.plan[0], 0, out.plan[2])
         self.assertEqual(out.script.returncode, 0, out.script.stdout + out.script.stderr)
@@ -277,14 +277,6 @@ class TestUndoSteps(StepsCase):
         self.assertEqual(len(r.ran), 1, "a step ran after the refusal")
         self.assertFalse((self.work / tp.ad("add-y")).exists(), "an archive ran before the guard")
         self.assertEqual(fx.read(self.work, SPEC_A), mine)
-        # the old script refuses at the same file and leaves the same tree
-        code, odoc, raw = fx.run_oracle(self.old, *fx.plan_args("add-x"))
-        self.assertEqual(code, 0, raw)
-        self.assertEqual(fx.run_bash(self.old, self.scripts, odoc["script"], "undo").returncode, 0)
-        fx.write(self.old, SPEC_A, mine)
-        o = fx.run_bash(self.old, self.scripts, odoc["after_rerun"], "after")
-        self.assertNotEqual(o.returncode, 0)
-        self.assertEqual(outcome(self.work), outcome(self.old))
 
 
 class TestBranchCheck(tj.JjBase):

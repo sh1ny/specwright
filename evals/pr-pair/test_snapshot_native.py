@@ -2,10 +2,10 @@
 
 Every test runs the built `sw` (SPECWRIGHT_SW) as `sw pr snapshot <args>` through evals/swcall.py, against the fake `gh`.
 
-- A bad reviewer config is refused in the process itself: the handoff names a bash that does not exist, so a child started
-  for the check (a tool run goes through bash) could not even start and its error would reach stderr instead of the config's.
-- With failing `python` and `python3` first on PATH, and recording `as.sh`, `vcs.sh`, `pr-pair.sh`, `sw-path.sh` in the handoff's
-  scripts directory (`evals/vcs/sentinels.py`), a snapshot with a reviewer config is printed whole and nothing recorded a run.
+- A bad reviewer config is refused in the process itself: no child is started for the check, so the config's own error
+  reaches stderr.
+- With failing `python` and `python3` first on PATH (`evals/vcs/sentinels.py`), a snapshot with a reviewer config is printed
+  whole and nothing recorded a run.
 - `--full` reads the `not_found` document by parsing it, so a gh `--jq` that prints a space after `:` or `,` reads the same.
 
 Run: python -m unittest discover -s evals/pr-pair -t evals/pr-pair -p test_snapshot_native.py
@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 import snapfix
-from snapfix import REPLY, SCRIPTS, SNAPSHOT, T0, SnapCase, fixtures, rev
+from snapfix import REPLY, SNAPSHOT, T0, SnapCase, fixtures, rev
 import bashexe  # noqa: E402
 import fakeexe  # noqa: E402
 import swcall  # noqa: E402  (snapfix puts evals/ on sys.path through vcs_test_support)
@@ -38,8 +38,8 @@ class NativeSnapshotCase(SnapCase):
         snapfix.vcs_test_support.sw_home()  # the SPECWRIGHT_HOME that SnapCase.env names
 
     def sentinels(self):
-        """Recording script sentinels in a handoff scripts directory and failing interpreters in a directory for PATH."""
-        sent = sentinels.install(self.tmp / "sentinel-scripts", self.tmp / "sentinel-bin", self.tmp / "sentinel-log")
+        """Failing recording interpreters in a directory for PATH."""
+        sent = sentinels.install(self.tmp / "sentinel-bin", self.tmp / "sentinel-log")
         self.addCleanup(sent.clear)
         sent.probe(self, env=self.env())
         return sent
@@ -93,13 +93,6 @@ class TestNoInterpreter(NativeSnapshotCase):
         r = self.reported_snapshot(path_first=sent.bin, env=sent.env)
         self.assert_printed(r)
         self.assertEqual(sent.recorded(), [], "neither interpreter ran")
-
-    def test_retrofitted_snapshot_runs_no_script_or_python(self):
-        """With recording sentinels for the shipped scripts in the handoff's scripts directory as well, none recorded a run."""
-        sent = self.sentinels()
-        r = self.reported_snapshot(path_first=sent.bin, env=sent.env)
-        self.assert_printed(r)
-        self.assertEqual(sent.recorded(), [], "no sentinel recorded a run")
 
 
 class TestStoreEvaluator(NativeSnapshotCase):
@@ -168,10 +161,9 @@ class TestFullNotFound(NativeSnapshotCase):
 
 
 class TestProjectSelector(SnapCase):
-    """native-cli-internal-calls D6: one optional leading `--project <dir>` on the shims picks the project whose `sw` runs.
+    """native-cli-internal-calls D6: one leading `--project <dir>` picks the project whose version `sw` checks.
 
-    Run through the real shims. `self.tmp` holds the stamped version; `code` is another stamped project, `store` has none."""
-    via_shim = True  # snapfix.run_script starts the shipped shims (task 7.6 deletes this class)
+    `self.tmp` holds the stamped version; `code` is another stamped project, `store` has none."""
 
     def setUp(self):
         super().setUp()
@@ -184,7 +176,7 @@ class TestProjectSelector(SnapCase):
 
     def test_store_snapshot_selects_code_project(self):
         tid, _ = self.add_thread("rev", "please fix the loop")
-        r = self.run_script(SNAPSHOT, "--project", fixtures.posix(self.code), self.PR, "--repo", self.SLUG, cwd=self.store)
+        r = self.run_script(SNAPSHOT, self.PR, "--repo", self.SLUG, cwd=self.store, project=fixtures.posix(self.code))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         snap = json.loads(r.stdout)
         self.assertEqual([t["id"] for t in snap["threads"]], [tid])
@@ -195,9 +187,9 @@ class TestProjectSelector(SnapCase):
     def test_store_reply_selects_code_project(self):
         item = self.add_comment("rev", "a note")
         body = self.tmp / "body.md"
-        body.write_text("done\n", encoding="utf-8", newline="\n")
-        r = self.run_script(REPLY, "--project", fixtures.posix(self.code), self.PR, "comment", item["node_id"], fixtures.posix(body),
-                            "--repo", self.SLUG, cwd=self.store)
+        body.write_text("done" + chr(10), encoding="utf-8", newline=chr(10))
+        r = self.run_script(REPLY, self.PR, "comment", item["node_id"], fixtures.posix(body), "--repo", self.SLUG,
+                            cwd=self.store, project=fixtures.posix(self.code))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         comments = self.st()["repos"][self.SLUG]["comments"][str(self.PR)]
         self.assertEqual(len(comments), 2, "one reply was posted")
@@ -207,24 +199,24 @@ class TestProjectSelector(SnapCase):
             self.assertNotIn("--project", argv)
 
     def test_missing_selected_binary_has_no_fallback(self):
+        """A project at a version no binary serves is a `sw_mismatch`: the other binary is not used and no gh call runs."""
         other = self.tmp / "other"
         other.mkdir()
         (other / "openspec" / ".specwright").mkdir(parents=True)
-        (other / "openspec" / ".specwright" / "VERSION").write_text("999.0.0\n", encoding="utf-8")
-        r = self.run_script(SNAPSHOT, "--project", fixtures.posix(other), self.PR, "--repo", self.SLUG)  # cwd's project has one
+        (other / "openspec" / ".specwright" / "VERSION").write_text("999.0.0" + chr(10), encoding="utf-8")
+        r = self.run_script(SNAPSHOT, self.PR, "--repo", self.SLUG, project=fixtures.posix(other))  # cwd's project has one
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         doc = json.loads(r.stdout)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), doc)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), doc)
         self.assertEqual(self.gh_calls(), [], "no gh call ran, the other binary was not used")
 
     def test_malformed_project_prefix_is_usage(self):
-        for script, status in ((SNAPSHOT, 2), (REPLY, 4)):
+        for command in ("snapshot", "reply"):
             for prefix in (["--project"], ["--project", ""], ["--project", fixtures.posix(self.code), "--project", "x"]):
-                with self.subTest(script=script.name, prefix=prefix):
-                    r = self.run_script(script, *prefix, cwd=self.store)
-                    self.assertEqual((r.returncode, r.stdout), (status, ""), r.stderr)
-                    self.assertIn("usage", r.stderr)
-                    self.assertIn(script.name, r.stderr)
+                with self.subTest(command=command, prefix=prefix):
+                    r = swcall.run([*prefix, "pr", command], cwd=self.store, env=self.env())
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("usage", r.stderr.lower())
         self.assertEqual(self.gh_calls(), [])
 
 

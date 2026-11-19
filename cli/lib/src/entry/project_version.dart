@@ -138,6 +138,7 @@ ProjectChoice chooseProject(List<String> args, String cwd) {
       project = rest[1];
       rest = rest.sublist(2);
     }
+    if (project.isEmpty) throw ProjectUsage('--project needs a value');
     if (rest.isNotEmpty && isProject(rest.first)) {
       throw ProjectUsage('--project is given twice');
     }
@@ -152,7 +153,10 @@ ProjectChoice chooseProject(List<String> args, String cwd) {
       (command == 'release' || command == 'finish'
           ? _optionValue(tail, '--dir')
           : null);
-  return ProjectChoice(own ?? cwd, rest);
+  // A value that names no directory (a root-relative path on Windows from a
+  // caller that is not Git Bash, say) chooses nothing: the plan reports it.
+  final named = own != null && Directory(own).existsSync();
+  return ProjectChoice(named ? own : cwd, rest);
 }
 
 /// The last value of [name] among the options before a `--`.

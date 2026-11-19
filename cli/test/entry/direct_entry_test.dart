@@ -28,12 +28,12 @@ void main() {
     Map<String, VcsHandler>? vcsHandlers,
     Map<String, CommitHandler>? commitHandlers,
     List<int>? out,
+    StringBuffer? err,
   }) => runCli(
     args,
     out: StringBuffer(),
-    err: StringBuffer(),
+    err: err ?? StringBuffer(),
     outBytes: (out ?? <int>[]).addAll,
-    readStdin: () async => throw StateError('a direct call reads no stdin'),
     vcsHandlers: vcsHandlers,
     commitHandlers: commitHandlers,
   );
@@ -83,5 +83,57 @@ void main() {
     );
     expect(code, 0);
     expect(seen, ['m é.txt']);
+  });
+
+  group('the old handoff flags', () {
+    const calls = {
+      'vcs': ['vcs', '--args-stdin', 'state'],
+      'commit': ['commit', '--args-stdin'],
+      'finish': ['finish', '--args-stdin'],
+      'review': ['review', '--args-stdin'],
+      'release': ['release', '--args-stdin'],
+      'pr': ['pr', 'snapshot', '--args-stdin'],
+      'as': ['as', '--args-file', 'handoff.bin'],
+    };
+    for (final MapEntry(key: name, value: args) in calls.entries) {
+      test('sw $name stops with an unknown option, exit 2', () async {
+        final err = StringBuffer();
+        final out = <int>[];
+        // a project in another version: the option is refused first, with no
+        // other work, so no sw_mismatch document is printed either
+        File('${repo.path}/openspec/.specwright/VERSION')
+            .writeAsStringSync('9.9.9\n');
+        final code = await run(
+          ['--project', repo.path, ...args],
+          err: err,
+          out: out,
+        );
+        expect(code, 2);
+        expect(out, isEmpty);
+        expect(
+          err.toString(),
+          contains(
+            'unknown option: ${args[1] == 'snapshot' ? args[2] : args[1]}',
+          ),
+        );
+      });
+    }
+  });
+
+  test('an MSYS-form path is used as given, not converted', () async {
+    final out = <int>[];
+    final code = await run([
+      '--project',
+      repo.path,
+      'vcs',
+      'state',
+      '--repo',
+      '/c/sw-no-such-dir/p',
+      '--role',
+      'code',
+    ], out: out);
+    final document = jsonDecode(utf8.decode(out)) as Map<String, Object?>;
+    expect(code, 1);
+    expect(document['error'], 'not_repository');
   });
 }

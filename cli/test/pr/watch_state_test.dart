@@ -38,8 +38,6 @@ void main() {
 
   PrContext context({Map<String, String>? env, PrMakeTemp? makeTemp}) =>
       PrContext(
-        scriptsDir: 'scripts',
-        bash: 'bash',
         writeOut: (_) {},
         writeErr: (_) {},
         environment: env,
@@ -47,14 +45,14 @@ void main() {
       );
 
   group('the state directory', () {
-    test('is SPECWRIGHT_STATE_DIR, else HOME/.cache/specwright', () async {
-      final a = await stateBase(
+    test('is SPECWRIGHT_STATE_DIR, else HOME/.cache/specwright', () {
+      final a = stateBase(
         context(env: {'SPECWRIGHT_STATE_DIR': '${dir.path}/s', 'HOME': '/h'}),
       );
       expect(a, '${dir.path}/s');
-      final b = await stateBase(context(env: {'HOME': '${dir.path}/h'}));
+      final b = stateBase(context(env: {'HOME': '${dir.path}/h'}));
       expect(b, '${dir.path}/h/.cache/specwright');
-      final c = await stateBase(
+      final c = stateBase(
         context(env: {'SPECWRIGHT_STATE_DIR': '', 'HOME': '${dir.path}/h'}),
       );
       expect(
@@ -64,23 +62,18 @@ void main() {
       );
     });
 
-    test(
-      'a /tmp state base on Windows goes under TEMP, with no cygpath',
-      () async {
-        final base = await stateBase(
-          context(
-            env: {
-              'SPECWRIGHT_STATE_DIR': '/tmp/state',
-              'TEMP': dir.path,
-              'PATH': '',
-            },
-          ),
-        );
-        expect(base, '${dir.path.replaceAll(r'\', '/')}/state');
-        expect(Directory(base).parent.existsSync(), isTrue);
-      },
-      skip: Platform.isWindows ? false : 'a Windows path conversion',
-    );
+    test('a /tmp state base is used as given, not converted', () {
+      final base = stateBase(
+        context(
+          env: {
+            'SPECWRIGHT_STATE_DIR': '/tmp/state',
+            'TEMP': dir.path,
+            'PATH': '',
+          },
+        ),
+      );
+      expect(base, '/tmp/state');
+    });
 
     test(
       'the claim and head directories are lower case ASCII, and only ASCII',
@@ -344,8 +337,6 @@ void main() {
         Directory('$heads/$oid').createSync();
         final seen = await resolveFirstSeen(
           PrContext(
-            scriptsDir: 's',
-            bash: 'bash',
             writeOut: (_) {},
             writeErr: (_) {},
             makeTemp: ([t]) async => fake.path,

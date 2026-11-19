@@ -109,9 +109,9 @@ class SwBuildTests(unittest.TestCase):
 
     def test_release_verify_checks_interface(self):
         body = job(read("sw-build.yml"), "verify")
-        step = re.search(r"python cli/tool/verify_artifact\.py(?:(?!\n\s+- ).)*--interface-from skills/specwright-pr/scripts/sw-path\.sh",
+        step = re.search(r"python cli/tool/verify_artifact\.py(?:(?!\n\s+- ).)*--interface-from skills/specwright-pr/SKILL\.md",
                          body, re.S)
-        self.assertTrue(step, "the verify job passes --interface-from sw-path.sh to verify_artifact.py")
+        self.assertTrue(step, "the verify job passes --interface-from the specwright-pr SKILL.md to verify_artifact.py")
 
     def test_workflow_call_takes_a_required_ref(self):
         text = read("sw-build.yml")

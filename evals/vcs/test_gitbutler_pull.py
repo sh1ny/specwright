@@ -28,7 +28,7 @@ class TestGitButlerPull(GitButlerNetworkCase):
             self.assertTrue(result["ok"], result)
             self.assertTrue(result["pulled"], result)
             self.assertEqual(wrap.writes(), [["pull", "--json"]])
-            self.assertEqual(set(self.gh_tokens(scratch)), {"tok-code"}, "but pull ran through as.sh")
+            self.assertEqual(set(self.gh_tokens(scratch)), {"tok-code"}, "but pull ran through the fence")
             self.assertEqual(self.base(repo), merged, "the local target moved to the remote's main")
             self.assertEqual(self.applied(repo), [], "the merged branch is no longer applied")
 

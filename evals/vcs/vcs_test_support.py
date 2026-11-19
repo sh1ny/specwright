@@ -18,8 +18,6 @@ sys.path.append(str(ROOT / "evals"))
 import swharness  # noqa: E402
 import swcall  # noqa: E402
 
-SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
-VCS = SCRIPTS / "vcs.sh"
 STAMP = "openspec/.specwright/VERSION"
 
 _SW_HOMES = {}  # SPECWRIGHT_SW path -> (tempdir, home): one home per sw binary per test process
@@ -41,7 +39,7 @@ def make_sw_home(sw):
 
 
 def home_sw():
-    """The `sw` a shim runs from `sw_home()`: <home>/.specwright/bin/<tree VERSION>/sw[.exe], as `sw` prints its own path."""
+    """The `sw` in `sw_home()`: <home>/.specwright/bin/<tree VERSION>/sw[.exe], as `sw` prints its own path."""
     return sw_home() / ".specwright" / "bin" / tree_version() / ("sw.exe" if os.name == "nt" else "sw")
 
 
@@ -153,7 +151,7 @@ def sw_env(shim=None, env=None, scratch=None):
 
 def sw_run(args, cwd, env=None, shim=None, stamp=True, project=None, scratch=None):
     """Run `sw <args>` through evals/swcall.py with a native environment (see sw_env); returns the CompletedProcess.
-    `stamp` writes the excluded VERSION into the directories named by --code and --repo, as the shim's resolver read them;
+    `stamp` writes the excluded VERSION into the directories named by --code and --repo, which `sw` checks;
     `project` is the leading --project of a call started outside the checkout that carries the VERSION."""
     for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():
         if flag in ("--code", "--repo") and Path(value).is_dir() and not (Path(value) / STAMP).exists():
@@ -164,11 +162,11 @@ def sw_run(args, cwd, env=None, shim=None, stamp=True, project=None, scratch=Non
 def bash_run(args, cwd, env=None, shim=None, stamp=True):
     """Run `bash <args>` with a Git-Bash-native PATH; returns the CompletedProcess. `env` adds variables (its PATH is
     ignored); `shim` is a directory put first on PATH; `stamp` writes the excluded VERSION into the directories named by
-    --code and --repo. Only the evals of shim behaviour and the frozen scripts that task 7.6 deletes still use it."""
+    --code and --repo. For a test that needs a shell command of its own, not for running Specwright."""
     shell_env = bash_path_env(shim)
     shell_env.update({key: value for key, value in (env or {}).items() if key != "PATH"})
     shell_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
-    for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():  # the shim resolves sw from --code or --repo
+    for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():
         if flag in ("--code", "--repo") and Path(value).is_dir() and not (Path(value) / STAMP).exists():
             stamp_version(value)
     shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
@@ -188,7 +186,7 @@ class VcsTestCase(unittest.TestCase):
         self._stamp(self.repo)
 
     def _stamp(self, *repos):
-        """The shim resolves sw from the code repo's installed VERSION (design D9)."""
+        """`sw` checks the code repo's installed VERSION (design D9)."""
         for repo in repos:
             if repo is not None and Path(repo).is_dir() and not (Path(repo) / STAMP).exists():
                 stamp_version(repo)
@@ -223,21 +221,8 @@ class VcsTestCase(unittest.TestCase):
             args += ["--code", str(code)]
         shim = getattr(self, "shim", None)
         self._stamp(target, code)
-        if getattr(self, "via_shim", False):  # the evals of the vcs.sh shim itself (task 7.6 deletes them with it)
-            shell_env = bash_path_env(shim.path if shim else None)
-            scratch = getattr(self, "scratch", None)
-            shell_env.update(scratch.jj_env if scratch is not None else {})
-            shell_env.update({key: value for key, value in getattr(self, "env", {}).items() if key != "PATH"})
-            shell_env.update(env or {})
-            shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
-            shell_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
-            result = subprocess.run(
-                [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test",
-                 VCS.as_posix(), command, *args[2:], *map(str, options)],
-                cwd=cwd or target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
-        else:
-            result = sw_run([*args, *map(str, options)], cwd=cwd or target, env={**getattr(self, "env", {}), **(env or {})},
-                            shim=shim, stamp=False, project=project, scratch=getattr(self, "scratch", None))
+        result = sw_run([*args, *map(str, options)], cwd=cwd or target, env={**getattr(self, "env", {}), **(env or {})},
+                        shim=shim, stamp=False, project=project, scratch=getattr(self, "scratch", None))
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)

@@ -330,31 +330,5 @@ class TestUtf8Rows(Sw):
         self.assertEqual(doc["version"], "0.4.2")
 
 
-def msys(path):
-    """`C:\\x\\y` as Git Bash writes it, `/c/x/y`."""
-    text = str(Path(path).resolve()).replace("\\", "/")
-    return "/" + text[0].lower() + text[2:]
-
-
-@unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
-class TestMsysPaths(Sw):
-    """The handoff skips Git Bash's argument conversion, so `sw` converts a `/c/...` path option itself."""
-
-    def test_dir_and_proposal_in_msys_form(self):
-        self.repo()
-
-        def shim(*args):  # the shim converts the Git Bash path; direct entry reads a path as given (task 7.6 deletes this test)
-            r = subprocess.run([bashexe.bash(), str(tr.SCRIPT), *args], cwd=self.tmp, env=fx.sw_env(), capture_output=True,
-                               text=True, encoding="utf-8")
-            return r.returncode, doc_of(r.stdout), r.stdout + r.stderr
-
-        code, doc, raw = shim("--dir", msys(self.work), "check")
-        self.assertEqual((code, doc and doc.get("version")), (0, "0.4.2"), raw)
-        proposal = self.tmp / "proposal.md"
-        proposal.write_text("## Why\n\nx\n\n## Release Notes\n\nS.\n\n### Added\n\n- New flag (#1)\n", encoding="utf-8")
-        code, doc, raw = shim("--dir", self.work.as_posix(), "notes", "--proposal", msys(proposal))
-        self.assertEqual((code, doc and doc.get("summary")), (0, "S."), raw)
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -105,19 +105,8 @@ void main() {
       ]) {
         final out = <int>[];
         final code = await runVcsCommand(
-          ['--args-stdin'],
+          ['state', '--repo', repo.path, '--role', 'code'],
           writeOut: out.addAll,
-          readStdin: () async => [
-            for (final r in [
-              '/s',
-              '/b',
-              'state',
-              '--repo',
-              repo.path,
-              '--role',
-              'code',
-            ]) ...[...utf8.encode(r), 0],
-          ],
           handlers: {
             'state': (_) async => {'ok': true, 'x': value},
           },

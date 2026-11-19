@@ -3,11 +3,6 @@ name: evals
 on:
   pull_request:
   workflow_dispatch:
-    inputs:
-      capture_oracle:
-        description: 'Capture the frozen-oracle records (pr-pair only) and upload them as oracle-records-<OS>, instead of running the suites'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -29,7 +24,6 @@ jobs:
       - id: list
         run: |
           suites=$(python evals/run.py --list-suites)
-          if [ "${{ inputs.capture_oracle }}" = true ]; then suites='["pr-pair"]'; fi
           echo "suites=$suites" >> "$GITHUB_OUTPUT"
 
   suite:
@@ -164,19 +158,6 @@ jobs:
           git config --global user.email "ci@users.noreply.github.com"
           git config --global init.defaultBranch main
       - name: Run the suite
-        if: ${{ !inputs.capture_oracle }}
         env:
           SPECWRIGHT_PY38: ${{ steps.py38.outputs.python-path }}
         run: python evals/run.py --timeout ${{ matrix.run_timeout }} ${{ matrix.suite }}
-      - name: Capture the frozen-oracle records (dispatch input capture_oracle)
-        if: ${{ inputs.capture_oracle }}
-        env:
-          SPECWRIGHT_PY38: ${{ steps.py38.outputs.python-path }}
-        run: python evals/pr-pair/oracle/capture.py "$RUNNER_TEMP/oracle-records"
-      - name: Upload the records
-        if: ${{ always() && inputs.capture_oracle }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: oracle-records-${{ runner.os }}
-          path: ${{ runner.temp }}/oracle-records
-          if-no-files-found: error

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import '../fs/link.dart';
 import 'context.dart';
-import 'paths.dart';
 
 const int _limit = 72;
 
@@ -30,26 +29,10 @@ Future<int> runFitSubject(List<String> args, CommitContext ctx) async {
 /// work is on bytes: the CR, every byte from the first `\n` on and any invalid
 /// UTF-8 are kept. Prints the final subject and `\n`. Exit 0 fitted or already
 /// fitting, 1 no word fits, 2 anything else; the stderr texts are the
-/// script's. [windows] and [environment] are test seams for [nativePath].
-Future<int> fitSubject(
-  List<String> args,
-  CommitContext ctx, {
-  bool? windows,
-  Map<String, String>? environment,
-}) async {
+/// script's.
+Future<int> fitSubject(List<String> args, CommitContext ctx) async {
   final arg = args.isEmpty ? '' : args.first;
-  final String path;
-  try {
-    path = await nativePath(
-      arg,
-      ctx.bash,
-      windows: windows,
-      environment: environment,
-    );
-  } on BadPathException {
-    return _fail(ctx, 'fit-subject.sh: could not convert path: $arg', 2);
-  }
-  final file = arg.isEmpty ? null : File(path);
+  final file = arg.isEmpty ? null : File(arg);
   if (file == null || !file.existsSync()) {
     return _fail(ctx, "fit-subject.sh: no message file: '$arg'", 2);
   }
@@ -107,7 +90,7 @@ Future<int> fitSubject(
   }
 
   if (fitted.length != line.length) {
-    final tmpPath = '$path.fit.$pid';
+    final tmpPath = '$arg.fit.$pid';
     final tmp = File(tmpPath);
     try {
       final out = BytesBuilder(copy: false)
@@ -118,7 +101,7 @@ Future<int> fitSubject(
       // `File.rename` takes a decoded String, which loses a name's bytes that
       // are not UTF-8 (POSIX). The replacing rename of `fs/link.dart` takes
       // them exactly, as the script's own `mv -f` did.
-      replaceFile(tmpPath, path);
+      replaceFile(tmpPath, arg);
     } on Object {
       try {
         if (tmp.existsSync()) await tmp.delete();

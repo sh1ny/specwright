@@ -1,4 +1,4 @@
-"""The skills call review-run.sh in the right places and state the pre-ship review rules.
+"""The skills call <sw> review in the right places and state the pre-ship review rules.
 
 The script's decisions (routes, validation, records, gate, rounds) are tested in test_review_run.py;
 these checks make sure the skill text actually uses them, by position and key terms, not by exact
@@ -19,8 +19,8 @@ def read(path):
 
 
 def sub(name):
-    """Pattern for `review-run.sh <name>` however the path before it is written."""
-    return re.compile(r"review-run\.sh[`\"']?\s+" + name + r"\b")
+    """Pattern for `<sw> review <name>` however the path before it is written."""
+    return re.compile(r"<sw> review[`\"']?\s+" + name + r"\b")
 
 
 def sections(text):
@@ -108,8 +108,8 @@ class ReviewSkill(unittest.TestCase):
 
     def test_route_selection_via_select_before_run(self):
         sel, run = positions(sub("select"), self.text), positions(sub("run"), self.text)
-        self.assertTrue(sel, "the skill never runs `review-run.sh select`")
-        self.assertTrue(run, "the skill never runs `review-run.sh run`")
+        self.assertTrue(sel, "the skill never runs `<sw> review select`")
+        self.assertTrue(run, "the skill never runs `<sw> review run`")
         self.assertLess(sel[0], run[0], "`run` appears before `select`")
         self.assertRegex(self.text, r"--runtime", "select is not given the current harness (--runtime)")
         self.assertRegex(self.text, r"(?is)subagent.{0,400}specwright-reviewer",
@@ -125,7 +125,7 @@ class ReviewSkill(unittest.TestCase):
 
     def test_store_reading_calls_document_store(self):
         # these subcommands key the record by both heads, so each documented call needs its store-backed variant
-        call = re.compile(r"review-run\.sh (gate|waive|rounds|preflight|run --kind preship|record --kind preship)\b[^`]*`")
+        call = re.compile(r"<sw> review (gate|waive|rounds|preflight|run --kind preship|record --kind preship)\b[^`]*`")
         for path in (REVIEW, PR, FINISH):
             text = read(path)
             for m in call.finditer(text):
@@ -154,7 +154,7 @@ class ReviewSkill(unittest.TestCase):
     def test_subagent_preship_runs_preflight_before_dispatch(self):
         step = self.section("pre-ship review")
         pre = positions(sub("preflight"), step)
-        self.assertTrue(pre, "the subagent route never runs `review-run.sh preflight`")
+        self.assertTrue(pre, "the subagent route never runs `<sw> review preflight`")
         dispatch = step.find("dispatch `specwright-reviewer` in pre-ship mode")
         self.assertGreater(dispatch, -1)
         self.assertLess(pre[0], dispatch, "preflight runs after the dispatch")
@@ -184,7 +184,7 @@ class ReviewSkill(unittest.TestCase):
 
     def test_waive_only_after_user_answer(self):
         w = positions(sub("waive"), self.text)
-        self.assertTrue(w, "the skill never runs `review-run.sh waive`")
+        self.assertTrue(w, "the skill never runs `<sw> review waive`")
         around = self.text[max(0, w[0] - 600):w[0] + 600]
         self.assertRegex(around, r"(?i)only (after|when|on) the user", "waive is not limited to the user's answer")
         self.assertRegex(around, r"(?i)never waive", "the skill does not forbid waiving on its own")
@@ -204,7 +204,7 @@ class ReviewSkill(unittest.TestCase):
 
     def test_escalate_after_round_2(self):
         r = positions(sub("rounds"), self.text)
-        self.assertTrue(r, "the skill never runs `review-run.sh rounds`")
+        self.assertTrue(r, "the skill never runs `<sw> review rounds`")
         fix = self.text.find("address pre-ship review")
         self.assertLess(r[0], fix, "rounds is read after the fix commit, not before it")
         self.assertRegex(self.text, r"(?is)rounds.{0,400}\b2\b.{0,300}(ask|stop)",
@@ -251,7 +251,6 @@ class ReviewSkill(unittest.TestCase):
 
     # Guards (add-cheap-tier): reviews never move to the cheap tier. They pass while nothing mentions it.
     REVIEW_FILES = (REVIEW,
-                    ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh",
                     ROOT / "agents" / "claude" / "specwright-reviewer.md",
                     ROOT / "agents" / "omp" / "specwright-reviewer.md")
 
@@ -282,7 +281,7 @@ class DesignReviewCallers(unittest.TestCase):
 
     def check(self, path):
         text = re.sub(r"\s+", " ", read(path))
-        calls = re.findall(r"review-run\.sh (?:run|record) --kind design[^`]*", text)
+        calls = re.findall(r"<sw> review (?:run|record) --kind design[^`]*", text)
         self.assertTrue(calls, f"{path.name} has no design review call")
         for call in calls:
             if "--scratch" in call:  # only prints a scratch path; it writes no receipt
@@ -293,7 +292,7 @@ class DesignReviewCallers(unittest.TestCase):
         # the claude route reads only the working directories, so a store-backed design run passes --store
         for path in (SCHEMA, ROADMAP, REVIEW):
             text = re.sub(r"\s+", " ", read(path))
-            for m in re.finditer(r"review-run\.sh run --kind design[^`]*`", text):
+            for m in re.finditer(r"<sw> review run --kind design[^`]*`", text):
                 self.assertIn("--store <store toplevel>", text[m.start():m.end() + 160],
                               f"{path.name}: `{m.group(0)}` has no store-backed --store variant")
 
@@ -372,9 +371,9 @@ class Wiring(unittest.TestCase):
         review = read(REVIEW)
         step = sections(review)["pre-ship review"] if "pre-ship review" in sections(review) else review
         for sub_name in ("preflight", "run --kind preship", "record --kind preship", "gate", "waive"):
-            call = re.search(r"review-run\.sh[`\"']?\s+" + sub_name + r"\b[^`]*`", review)
-            self.assertTrue(call, f"the review skill never calls `review-run.sh {sub_name}`")
-            self.assertIn("--branch <prefix>/<change-name>", call.group(0), f"`review-run.sh {sub_name}` has no --branch")
+            call = re.search(r"<sw> review[`\"']?\s+" + sub_name + r"\b[^`]*`", review)
+            self.assertTrue(call, f"the review skill never calls `<sw> review {sub_name}`")
+            self.assertIn("--branch <prefix>/<change-name>", call.group(0), f"`<sw> review {sub_name}` has no --branch")
         self.assertRegex(step, r"(?is)GitButler.{0,300}--branch|--branch.{0,300}GitButler",
                          "the review skill does not say that GitButler needs --branch")
         for agent in (ROOT / "agents" / "claude" / "specwright-reviewer.md", ROOT / "agents" / "omp" / "specwright-reviewer.md"):
@@ -396,7 +395,7 @@ class Wiring(unittest.TestCase):
     def test_ship_gate_before_first_push(self):
         ship = self.ship()
         g = positions(GATE, ship)
-        self.assertTrue(g, "ship never runs `review-run.sh gate`")
+        self.assertTrue(g, "ship never runs `<sw> review gate`")
         a = re.search(r"^4a\. ", ship, re.M)
         self.assertTrue(a)
         self.assertLess(g[0], a.start(), "the gate runs after step 4a's push")
@@ -423,7 +422,7 @@ class Wiring(unittest.TestCase):
         local = sections(read(FINISH)).get("local", "")
         self.assertTrue(local, "specwright-finish has no '## local' section")
         g, m = positions(GATE, local), positions(re.compile(r"Write the merge message"), local)
-        self.assertTrue(g, "the local finish never runs `review-run.sh gate`")
+        self.assertTrue(g, "the local finish never runs `<sw> review gate`")
         self.assertTrue(m)
         self.assertLess(g[0], m[0], "the gate runs after the merge")
         self.assertRegex(local[:m[0]], r"(?i)missing.{0,200}pre-ship review", "a missing pass does not run the review first")

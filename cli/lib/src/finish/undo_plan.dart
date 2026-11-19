@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../commands/vcs.dart';
-import '../commit/paths.dart';
 import '../commit/task_cover.dart' show isPySpace, pyStrip, pySplitLines;
 import '../fs/walk.dart';
 import '../vcs/args.dart';
@@ -38,25 +37,14 @@ class UndoRequest {
   final String? code;
 }
 
-/// What a planner gets from the handoff: the scripts directory and the bash
-/// that ran the shim.
+/// What a planner runs with: the environment and the test seams.
 class FinishContext {
-  FinishContext({
-    required this.scriptsDir,
-    required this.bash,
-    this.environment,
-    this.windows,
-    this.stateReader,
-    this.sw,
-  });
+  FinishContext({this.environment, this.windows, this.stateReader, this.sw});
 
   /// The `sw` the printed steps start; null is the running binary. Tests only.
   final String? sw;
 
-  final String scriptsDir;
-  final String bash;
-
-  /// The environment `git` runs with and where `TEMP` is read for a `/tmp` path; null is the parent's. Tests
+  /// The environment `git` runs with; null is the parent's. Tests
   /// put stubs first on `PATH`.
   final Map<String, String>? environment;
 
@@ -113,46 +101,6 @@ Future<Map<String, Object?>> undoArchivePlan(
   }
 }
 
-/// The lexical normalisation of [path] (Python's `os.path.normpath`) with `/`
-/// separators: `.` and empty parts dropped, `..` folded into its parent, none
-/// kept at a root. [windows] (default: this OS) treats `\` as a separator and
-/// reads a drive (`C:`) or a UNC share (`//server/share`) as a root.
-String normalizeLexical(String path, {bool? windows}) {
-  final win = windows ?? Platform.isWindows;
-  var rest = win ? path.replaceAll(r'\', '/') : path;
-  var prefix = '';
-  if (win) {
-    final drive = RegExp(r'^(?:[A-Za-z]:|//[^/]+/[^/]+)').firstMatch(rest);
-    if (drive != null) {
-      prefix = drive.group(0)!;
-      rest = rest.substring(prefix.length);
-    }
-    if (rest.startsWith('/')) {
-      prefix += '/';
-      rest = rest.replaceFirst(RegExp(r'^/+'), '');
-    }
-  } else if (rest.startsWith('/')) {
-    final slashes = RegExp(r'^/+').firstMatch(rest)!.group(0)!.length;
-    prefix = slashes == 2 ? '//' : '/';
-    rest = rest.replaceFirst(RegExp(r'^/+'), '');
-  }
-  final parts = <String>[];
-  for (final part in rest.split('/')) {
-    if (part.isEmpty || part == '.') continue;
-    if (part == '..') {
-      if (parts.isNotEmpty && parts.last != '..') {
-        parts.removeLast();
-      } else if (!prefix.endsWith('/')) {
-        parts.add('..');
-      }
-    } else {
-      parts.add(part);
-    }
-  }
-  final out = prefix + parts.join('/');
-  return out.isEmpty ? '.' : out;
-}
-
 VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
 
 String _joinAll(List<String> parts) =>
@@ -198,14 +146,6 @@ class _Planner {
   final FinishContext ctx;
   final bool windows;
   final Map<String, String> env;
-
-  /// `<pr scripts>`: the lexical normalisation of
-  /// `<scripts dir>/../../specwright-pr/scripts` (D2).
-  late final String prScripts = normalizeLexical(
-    '${ctx.scriptsDir}/../../specwright-pr/scripts',
-    windows: windows,
-  );
-  late final String vcsSh = '$prScripts/vcs.sh';
 
   Future<ToolResult> git(String cwd, List<String> args) async {
     try {
@@ -254,16 +194,6 @@ class _Planner {
     String? code,
     String? branch,
   ) async {
-    // A direct call has no scripts directory (and the printed steps name no
-    // script): only the shim's handoff still carries one to check.
-    if (ctx.scriptsDir.isNotEmpty && !_isFile(vcsSh)) {
-      throw VcsStop(
-        'vcs_script_missing',
-        '$vcsSh is missing; finish.sh reads the branch through it',
-        code: 2,
-        extra: {'path': vcsSh},
-      );
-    }
     final role = code != null && code.isNotEmpty
         ? ['--role', 'store', '--code', codeFor(top, code)]
         : ['--role', 'code'];
@@ -274,9 +204,7 @@ class _Planner {
         return (await reader(top, code, branch)).cast();
       }
       final parsed = parseVcsArguments(['state', '--repo', top, ...role]);
-      final session = await openSession(
-        VcsContext(parsed, prScripts, ctx.bash),
-      );
+      final session = await openSession(VcsContext(parsed));
       return (await stateDocument(session)).cast();
     } on VcsStop catch (stop) {
       throw VcsStop(
@@ -300,26 +228,8 @@ class _Planner {
     final change = request.change!;
     final archived = request.archived!;
     final main = request.main!;
-    var d = request.dir;
-    var code = request.code;
-    try {
-      d = await nativePath(
-        d,
-        ctx.bash,
-        windows: ctx.windows,
-        environment: ctx.environment,
-      );
-      if (code != null) {
-        code = await nativePath(
-          code,
-          ctx.bash,
-          windows: ctx.windows,
-          environment: ctx.environment,
-        );
-      }
-    } on BadPathException catch (e) {
-      throw VcsStop('bad_path', e.toString(), code: 2, extra: {'path': e.path});
-    }
+    final d = request.dir;
+    final code = request.code;
     var prefix = request.prefix!.replaceAll(RegExp(r'^/+|/+$'), '');
     if (prefix == '.') prefix = '';
 

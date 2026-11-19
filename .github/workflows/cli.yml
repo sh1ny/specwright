@@ -7,7 +7,6 @@ on:
       - 'skills/specwright-review/references/**'
       - 'mise.toml'
       - 'VERSION'
-      - 'skills/specwright-pr/scripts/sw-path.sh'
       - '.github/workflows/cli.yml'
       - '.github/workflows/sw-build.yml'
   workflow_dispatch:

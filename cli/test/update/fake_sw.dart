@@ -1,16 +1,18 @@
 import 'dart:io';
 
+import 'package:specwright_cli/src/commands/version.dart' show interfaceVersion;
 import 'package:test/test.dart';
 
 /// Compiles `fixtures/fake_sw_main.dart` once (run from `cli/`) into [dir]
 /// and returns the path of the executable. [version] and [interface] are what
-/// it reports when no `fake_sw.txt` stands beside it; [name] tells two
+/// it reports when no `fake_sw.txt` stands beside it (the interface is the
+/// running sw's by default); [name] tells two
 /// compiled variants apart.
 Future<String> compileFakeSw(
   Directory dir, {
   String name = 'fake-sw',
   String version = '0.37.0',
-  int interface = 1,
+  int interface = interfaceVersion,
 }) async {
   final out = '${dir.path}/$name${Platform.isWindows ? '.exe' : ''}';
   final result = await Process.run(Platform.resolvedExecutable, [
@@ -28,7 +30,7 @@ Future<String> compileFakeSw(
 
 /// Puts a copy of the compiled fake sw at `<dir>/<name>` (a missing [dir] is
 /// made) and returns that path. [config] is the content of `fake_sw.txt`
-/// beside it; the default reports [version] at interface 1.
+/// beside it; the default reports [version] at the running sw's interface.
 String installFakeSw(
   String compiled,
   String dir,
@@ -40,7 +42,7 @@ String installFakeSw(
   final path = '$dir/$name';
   File(compiled).copySync(path);
   File('$dir/fake_sw.txt').writeAsStringSync(
-    config ?? 'print\n{"version":"$version","interface":1}\n',
+    config ?? 'print\n{"version":"$version","interface":$interfaceVersion}\n',
   );
   return path;
 }

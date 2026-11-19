@@ -20,7 +20,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402

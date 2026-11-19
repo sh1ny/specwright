@@ -30,11 +30,11 @@ VcsSession _session({
     remoteBranch: remoteBranch,
   );
   return VcsSession(
-    VcsContext(request, '/s', 'bash', sw: '/opt/sw'),
+    VcsContext(request, sw: '/opt/sw'),
     repo,
     code,
     ProbeInfo('git', 'main', repo, ''),
-    VcsScripts('/s', 'bash'),
+    VcsScripts(),
   );
 }
 
@@ -66,7 +66,7 @@ void main() {
   test('the command is the running sw when none is given', () async {
     final s = _session();
     final plain = VcsSession(
-      VcsContext(s.request, '/s', 'bash'),
+      VcsContext(s.request),
       s.repo,
       s.code,
       s.info,

@@ -1,6 +1,6 @@
 """Record GitHub's rendering of every closing-test PR body into fixtures/markdown.json (bound-pr-scripts D8).
 
-Each body goes through the real, read-only `POST /markdown` (mode gfm, context sh1ny/specwright) as KintsugiBot via as.sh, and is
+Each body goes through the real, read-only `POST /markdown` (mode gfm, context sh1ny/specwright) as KintsugiBot via `sw as`, and is
 stored under fake_gh.markdown_key(mode, text) with the mode, context and HTML. Bodies already recorded are kept; entries for
 bodies no test uses any more are dropped, so the file holds exactly one entry per body.
 
@@ -9,7 +9,6 @@ Run: python evals/pr-pair/record_markdown.py [--all]    (--all renders every bod
 import importlib.util
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -19,10 +18,9 @@ sys.path.insert(0, str(HERE))
 import closing_bodies  # noqa: E402
 
 sys.path.append(str(HERE.parents[1] / "evals"))
-import bashexe  # noqa: E402
+import swcall  # noqa: E402
 
 ROOT = HERE.parents[1]
-AS_SH = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
 LOGIN = "KintsugiBot"
 
 _spec = importlib.util.spec_from_file_location("fake_gh", ROOT / "evals" / "fakes" / "gh.py")
@@ -33,9 +31,7 @@ _spec.loader.exec_module(fake_gh)
 def render(text, tmp):
     req = Path(tmp) / "request.json"
     req.write_text(json.dumps({"text": text, "mode": closing_bodies.MODE, "context": closing_bodies.CONTEXT}), encoding="utf-8", newline="\n")
-    bash = bashexe.bash()
-    r = subprocess.run([bash, AS_SH.as_posix(), LOGIN, "gh", "api", "-X", "POST", "markdown", "--input", req.as_posix()],
-                       capture_output=True, timeout=120)
+    r = swcall.run(["as", LOGIN, "gh", "api", "-X", "POST", "markdown", "--input", req.as_posix()], timeout=120, text=False)
     if r.returncode != 0:
         raise SystemExit(f"render failed ({r.returncode}): {r.stderr.decode('utf-8', 'replace').strip()}")
     return r.stdout.decode("utf-8")

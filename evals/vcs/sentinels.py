@@ -1,11 +1,10 @@
-"""Recording sentinels for the paths where `sw` must start no shipped script and no Python interpreter.
+"""Recording interpreters for the paths where `sw` must start no Python.
 
-`install` writes recording `as.sh`, `vcs.sh`, `pr-pair.sh` and `sw-path.sh` into the scripts directory a test hands to `sw`
-(each appends its own name to a log file, prints `unexpected-script` and exits 92) and failing recording `python` and
-`python3` into a separate directory that the test puts first on PATH (each appends its name and exits 97). A probe runs every
-sentinel directly and checks that it records, so a test that later finds the log absent knows nothing was started, rather
-than that a sentinel cannot record. The pattern is the one of `evals/pr-pair/test_workflow_transport.py`, shared so that
-`evals/pr-pair/` reuses it:
+`install` writes failing recording `python` and `python3` into a directory that the test puts first on PATH (each appends its
+name to a log file, prints `unexpected-interpreter` and exits 97). A probe runs every sentinel directly and checks that it
+records, so a test that later finds the log absent knows nothing was started, rather than that a sentinel cannot record. No
+shipped script exists since 0.38.0, so there are no script sentinels. The pattern is shared so that `evals/pr-pair/` and
+`evals/update/` reuse it:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vcs"))
     import sentinels
@@ -21,27 +20,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import bashexe  # noqa: E402
 import fakeexe  # noqa: E402
 
-SCRIPT_NAMES = ("as.sh", "vcs.sh", "pr-pair.sh", "sw-path.sh")
 INTERPRETER_NAMES = ("python", "python3")
-SCRIPT_STATUS = 92
 INTERPRETER_STATUS = 97
 LOG_VARIABLE = "SW_SENTINEL_LOG"
 
-_SCRIPT = '#!/bin/sh\nprintf "%s\\n" {name} >> "{log}"\necho unexpected-script >&2\nexit {status}\n'
 _INTERPRETER = '#!/bin/sh\nprintf "%s\\n" {name} >> "{log}"\necho unexpected-interpreter >&2\nexit {status}\n'
 
 
-def _write(path, text):
-    with Path(path).open("w", encoding="utf-8", newline="\n") as stream:
-        stream.write(text)
-    Path(path).chmod(0o755)
-
-
 class Sentinels:
-    """The installed sentinels: `scripts` is the handoff scripts directory, `bin` the directory for PATH, `log` the record."""
+    """The installed sentinels: `bin` is the directory for PATH, `log` the record."""
 
-    def __init__(self, scripts, bin_dir, log):
-        self.scripts = Path(scripts)
+    def __init__(self, bin_dir, log):
         self.bin = Path(bin_dir)
         self.log = Path(log)
 
@@ -69,23 +58,18 @@ class Sentinels:
         self.clear()
         run_env = {**os.environ, **(env or {}), **self.env}
         wanted = []
-        for names, folder, status in ((SCRIPT_NAMES, self.scripts, SCRIPT_STATUS),
-                                      (INTERPRETER_NAMES, self.bin, INTERPRETER_STATUS)):
-            for name in names:
-                done = subprocess.run([bash, str(folder / name)], env=run_env, capture_output=True, timeout=30)
-                test.assertEqual(done.returncode, status, "%s: %r" % (name, done.stderr))
-                wanted.append(name)
-                test.assertEqual(self.recorded(), wanted, "the %s sentinel did not record its run" % name)
+        for name in INTERPRETER_NAMES:
+            done = subprocess.run([bash, str(self.bin / name)], env=run_env, capture_output=True, timeout=30)
+            test.assertEqual(done.returncode, INTERPRETER_STATUS, "%s: %r" % (name, done.stderr))
+            wanted.append(name)
+            test.assertEqual(self.recorded(), wanted, "the %s sentinel did not record its run" % name)
         self.clear()
 
 
-def install(scripts, bin_dir, log):
-    """Write the sentinels (both directories are created) and return the `Sentinels` that name them."""
-    scripts, bin_dir = Path(scripts), Path(bin_dir)
-    scripts.mkdir(parents=True, exist_ok=True)
+def install(bin_dir, log):
+    """Write the sentinels (the directory is created) and return the `Sentinels` that name them."""
+    bin_dir = Path(bin_dir)
     bin_dir.mkdir(parents=True, exist_ok=True)
-    for name in SCRIPT_NAMES:
-        _write(scripts / name, _SCRIPT.format(name=name, status=SCRIPT_STATUS, log="$" + LOG_VARIABLE))
     for name in INTERPRETER_NAMES:  # started by name from PATH, so each gets a `.cmd` wrapper on Windows (D9)
         fakeexe.write_fake(bin_dir / name, _INTERPRETER.format(name=name, status=INTERPRETER_STATUS, log="$" + LOG_VARIABLE))
-    return Sentinels(scripts, bin_dir, log)
+    return Sentinels(bin_dir, log)

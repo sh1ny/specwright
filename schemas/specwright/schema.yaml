@@ -454,10 +454,12 @@ artifacts:
       and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
 
+      `<sw>` is the project's `sw` binary, `<home>/.specwright/bin/<project VERSION>/sw`, checked with `<sw> version --json` as the Specwright skills define.
+
       FULL: the review MUST NOT be written in the context that authored
       proposal, specs or design. Choose the reviewer with the
       `specwright-review` skill's routes (its Routes and Design reviews
-      sections): `review-run.sh select --runtime <the harness you run in>`,
+      sections): `<sw> review select --runtime <the harness you run in>`,
       its output saved to a file (the select output below), walks
       `review.order` in openspec/specwright.yaml (default codex,
       claude, omp), skips your own harness and takes the first reviewer CLI
@@ -465,7 +467,7 @@ artifacts:
       `specwright-reviewer` agent. `review.cross_model: false` means the
       agent only.
       - CLI route: write the review request to a file and run
-        `review-run.sh run --kind design --route <route> --prompt-file <file>
+        `<sw> review run --kind design --route <route> --prompt-file <file>
         --out <this change's review.md> --change <name> --selection <select
         output>` (store-backed: `--store <store toplevel>`,
         so the Claude route can read the planning files). The script runs
@@ -473,11 +475,11 @@ artifacts:
         review.md only when the output validates. Never build or change a
         reviewer command line yourself.
       - Subagent route: first get a scratch result path with
-        `review-run.sh record --kind design --change <name> --scratch` (it prints
+        `<sw> review record --kind design --change <name> --scratch` (it prints
         `scratch`, a fresh file outside the change). The
         `specwright-reviewer` agent, given file paths, not your reasoning,
         writes its review to that file; then run
-        `review-run.sh record --kind design --change <name> --result
+        `<sw> review record --kind design --change <name> --result
         <scratch> --out <this change's review.md> --route subagent
         --selection <select output>`, which writes review.md only when the
         review validates. On exit 3 review.md is untouched and the report
@@ -565,7 +567,7 @@ artifacts:
       `Chosen by: user` decision goes to the user first, in any mode.
 
       Two more verdicts exist only on the user's word; reviewers never produce
-      them (`review-run.sh` refuses both):
+      them (`<sw> review` refuses both):
       - `VERDICT: DEFERRED`: only when the user declared a FULL-tier change a
         parking change that is never applied; its parts get their design
         review where they are built. Add `- **Deferred to:** <changes or
@@ -694,12 +696,12 @@ artifacts:
         carries neither. A final group is for integration checks only, not for
         the tests and docs an earlier group owed.
       - When `release.enabled` is true in openspec/specwright.yaml, the last
-        task group MUST include a task `release.sh bump --to <version>`
+        task group MUST include a task `<sw> release bump --to <version>`
         (the version from the proposal, per the pre-1.0 rule in
-        CONTRIBUTING.md), verified by `release.sh check`. That task also
+        CONTRIBUTING.md), verified by `<sw> release check`. That task also
         rewrites the summary of the proposal's `## Release Notes` section to
         describe the whole release, and is verified by
-        `release.sh notes --proposal <proposal.md>` too. With releases off, this rule adds no
+        `<sw> release notes --proposal <proposal.md>` too. With releases off, this rule adds no
         bump task.
 
       Reference specs for what needs to be built, design for how to build it.
@@ -735,9 +737,8 @@ apply:
     and commit per the configured granularity (`commit_granularity`: one
     commit per task, or per task group; the commit rules say how). A
     DRIFT or BLOCKED report stops the group (see drift rule).
-    Once per apply run, read the cheap tier: `bash <specwright-pr>/scripts/pr-pair.sh
-    tier --code <code toplevel>` (`<specwright-pr>` is the specwright-pr
-    skill's folder). It prints `{"ok": true, "cheap_tier": <bool>}` and
+    Once per apply run, read the cheap tier: `<sw> pr tier --code <code
+    toplevel>` (`<sw>` as in the skills). It prints `{"ok": true, "cheap_tier": <bool>}` and
     maybe a `note`; repeat a note once. A failed call, or output with no
     `cheap_tier` field, means the tier is off: say once that the setting
     could not be read. With the tier on and `TIER: LIGHT` in the change's
@@ -760,7 +761,7 @@ apply:
       to `green`. Rows that start `green` only need their test re-run.
     - A task that changes what the change ships updates the proposal's
       `## Release Notes` section in its own task commit; every commit that
-      edits the section runs `release.sh notes --proposal <proposal.md>`.
+      edits the section runs `<sw> release notes --proposal <proposal.md>`.
     - On an unexpected failure or regression, find the root cause before
       fixing. No symptom patches.
     - SPEC OR DESIGN DRIFT: if implementation shows a requirement, scenario or

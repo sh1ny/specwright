@@ -14,31 +14,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vcs'))
 import sentinels
 import fakeexe  # sentinels puts evals/ on sys.path
+import oracle_capture
 import test_workflow_parity as wp
-from test_bounded import pid_alive
+
+
+def pid_alive(pid):
+    """Whether a process still runs (a zombie an unreaping parent has not collected is stopped all the same)."""
+    if os.name == 'nt':
+        out = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'], capture_output=True, text=True).stdout
+        return f'"{pid}"' in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] != 'Z'
+    except (OSError, IndexError):
+        return not subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip().startswith('Z')
 
 
 class WorkflowTransport(wp.WorkflowParity):
     def native_document(self, args, cwd=None):
-        result = self.side('new', args, cwd or self.tmp)
+        result = self.side(args, cwd or self.tmp)
         self.assertTrue(result['stdout'], result)
         return result, json.loads(result['stdout'])
 
     def test_internal_scripts_are_not_launched(self):
         code, store = self.merged_pair()
-        # The shared sentinels: recording as.sh, vcs.sh, pr-pair.sh and sw-path.sh in the handoff scripts directory, and
-        # failing python/python3 first on PATH (the fake gh and Git shims follow).
-        shared = sentinels.install(self.tmp / 'sentinel-scripts', self.tmp / 'failing-python', self.tmp / 'launched-scripts')
-        scripts, sentinel_log = shared.scripts, shared.log
+        # The shared sentinels: failing python/python3 first on PATH (the fake gh and Git shims follow).
+        shared = sentinels.install(self.tmp / 'failing-python', self.tmp / 'launched-python')
+        sentinel_log = shared.log
         self.extra_env.update(shared.env)
         self.extra_env['PATH'] = os.pathsep.join([str(shared.bin), str(self.tmp / 'bin'), os.environ.get('PATH', '')])
         shared.probe(self, self.env('me'))
-        self.workflow_scripts = scripts
         self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[]))
         result, doc = self.native_document(['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x'])
         self.assertEqual(result['code'], 0, doc)
         self.assertEqual(doc['code']['commands'][-1]['cmd'], ['git', 'branch', '-d', 'feat/x'])
-        self.assertNotIn(b'unexpected-script', result['stderr'])
+        self.assertNotIn(b'unexpected-interpreter', result['stderr'])
         self.assertFalse(sentinel_log.exists())
 
         def restore_code_pr(st):
@@ -245,8 +258,7 @@ class WorkflowTransport(wp.WorkflowParity):
             ' printf "%s\\n" "$WF_SHA" > "$WF_FETCH_HEAD"; exit 0\nfi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8')
         shim.chmod(0o755)
         fakeexe.add_launcher(shim, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
-        sentinel = sentinels.install(self.tmp / 'fetch-scripts', self.tmp / 'fetch-bin', self.tmp / 'fetch-sentinel-log')
-        self.workflow_scripts = sentinel.scripts
+        sentinel = sentinels.install(self.tmp / 'fetch-bin', self.tmp / 'fetch-sentinel-log')
         self.extra_env.update(sentinel.env, WF_FETCH_LOG=fetch.as_posix(),
             WF_SHA=self.git(store, 'rev-parse', 'HEAD'), WF_FETCH_HEAD=str(Path(store) / '.git' / 'FETCH_HEAD'))
         sentinel.probe(self, self.env('me'))
@@ -277,7 +289,7 @@ class WorkflowTransport(wp.WorkflowParity):
                 "edits": [{"file": "fix.txt", "contains": ["done"]}],
                 "disposition": {"react": None, "resolve": False}, "revision": {"rev": "old"}}]}), encoding="utf-8")
         common = ['--code', code, '--store', store, '--code-repo', self.SLUG, '--change', 'deadline']
-        written = self.side('new', ['pass', 'write', *common, '--intent', intent], self.tmp)
+        written = self.side(['pass', 'write', *common, '--intent', intent], self.tmp)
         self.assertEqual(written['code'], 0, written)
         (Path(code) / 'fix.txt').write_text('done\n', encoding='utf-8')
         self.git(code, 'add', 'fix.txt')
@@ -308,7 +320,7 @@ class WorkflowTransport(wp.WorkflowParity):
         self.extra_env.update(WF_FENCE_START=started.as_posix(), WF_CHILD_PID=child_pid.as_posix(),
                               WF_FENCE_DIR=code, SPECWRIGHT_NET_DEADLINE='8')
         try:
-            result = self.side('new', ['pass', 'plan', *common, '--owner', json.loads(written['stdout'])['owner'],
+            result = self.side(['pass', 'plan', *common, '--owner', json.loads(written['stdout'])['owner'],
                                       '--snapshot', f'code={snapshot}'], self.tmp)
             doc = json.loads(result['stdout'])
             self.assertEqual(result['code'], 3, result)
@@ -356,7 +368,7 @@ class WorkflowTransport(wp.WorkflowParity):
         args = ['rounds', '--code', code, '--branch', 'feat/x']
         if store:
             args += ['--store', store]
-        result = self.side('new', args, self.tmp)
+        result = self.side(args, self.tmp)
         return result, json.loads(result['stdout'])
 
     @unittest.skipUnless(sys.platform.startswith('linux'), 'platform: a file name that is not UTF-8 needs a Linux file system')
@@ -419,9 +431,8 @@ class WorkflowTransport(wp.WorkflowParity):
         branch = 'feat/$x;é[quoted]'
         d = self.run_pair('discover', '--repo', self.SLUG, '--branch', branch, code=0)
         self.assertEqual(d['branch'], branch)
-        # The same call again with a failing recording `bash` first on PATH, as the native side only: the frozen oracle
-        # is itself bash scripts and needs a working bash, so it is not run against the recorder. The native side starts
-        # no shell, so the recorder never runs and the arguments reach gh unchanged.
+        # The same call again with a failing recording `bash` first on PATH: the native side starts no shell, so the recorder
+        # never runs and the arguments reach gh unchanged.
         recorder_dir = self.tmp / 'failing-bash'
         recorder_dir.mkdir()
         log = self.tmp / 'failing-bash-log'
@@ -437,7 +448,7 @@ class WorkflowTransport(wp.WorkflowParity):
         self.assertEqual(log.read_text(encoding='utf-8').splitlines(), ['bash'])  # bare-bash: not started (the recorder log)
         log.unlink()
         before = self.gh_state.read_bytes()
-        native =self.side('new', ['discover', '--repo', self.SLUG, '--branch', branch], None)
+        native =self.side(['discover', '--repo', self.SLUG, '--branch', branch], None)
         self.gh_state.write_bytes(before)
         self.assertEqual(native['code'], 0, native)
         self.assertEqual(json.loads(native['stdout'])['branch'], branch)
@@ -462,14 +473,15 @@ class WorkflowTransport(wp.WorkflowParity):
         self.extra_env.update(WF_GITBUTLER=metadata.as_posix(),
                               WF_FETCH_ARGS=fetch_args.as_posix(), WF_SHA='b'*40)
         args = ['rounds', '--code', code, '--branch', 'feat/x']
-        native = self.side('new', args, self.tmp)
+        native = self.side(args, self.tmp)
         self.assertTrue(fetch_args.exists(), native)
         native_fetch = fetch_args.read_bytes()
-        oracle = self.side('old', args, self.tmp)
-        oracle_fetch = fetch_args.read_bytes()
-        self.assertEqual(self.normal(native)[0], self.normal(oracle)[0])
-        self.assertEqual(native_fetch, oracle_fetch)
-        self.assertEqual(oracle_fetch.split(b'\0')[:-1],
+        # the record of the frozen run: the same document and the same fetch (the arguments it received were not recorded)
+        oracle = oracle_capture.recorded(self)[0]
+        paths, canon = oracle_capture.Paths(self), oracle_capture.canon
+        self.assertEqual(native['code'], oracle['exit'])
+        self.assertEqual(canon(paths.node(self.normal(native)[0])), canon(self.shape(oracle['stdout'], False)))
+        self.assertEqual(native_fetch.split(b'\0')[:-1],
                          [b'fetch', b'-q', b'--refmap=', b'origin', b'refs/heads/feat/x'])
 
 

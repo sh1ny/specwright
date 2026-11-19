@@ -1,4 +1,4 @@
-"""review-run.sh contracts through its native sw shim and executable reviewer fixtures.
+"""`sw review` contracts through executable reviewer fixtures.
 
 C8: black-box outcomes plus the captured pre-port record fixture are the oracle; a frozen Python implementation is not.
 Run: python -m unittest evals/review-routes/test_review_run.py
@@ -24,7 +24,6 @@ import fakeexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 from vcs_test_support import bash_path_env, stamp_version, sw_home  # noqa: E402
 import swcall  # noqa: E402
-SCRIPT = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
 CHANGE = "demo-change"
 

@@ -221,7 +221,7 @@ class TestPrFlow(FlowCase):
         self.vcs("push", "--branch", BRANCH, *login)
         self.assertEqual(self.origin_ref("refs/heads/" + BRANCH), tip)
         self.assertEqual(self.origin_ref("refs/heads/main"), base)
-        self.assertTrue(self.gh_api_tokens(), "the push went through as.sh")
+        self.assertTrue(self.gh_api_tokens(), "the push went through the fence")
         self.assertEqual(set(self.gh_api_tokens()), {"tok-code"})
 
         # the PR is merged on GitHub and its head branch deleted

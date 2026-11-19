@@ -90,6 +90,29 @@ void main() {
     });
   });
 
+  group('chooseProject', () {
+    test('an own argument that names no directory chooses nothing', () {
+      final missing = '${Directory.systemTemp.path}/sw-no-such-dir-x/y';
+      expect(
+        chooseProject([
+          'finish',
+          '--dir',
+          missing,
+          'undo-archive-plan',
+        ], 'cwd').dir,
+        'cwd',
+      );
+      expect(
+        chooseProject([
+          'finish',
+          '--dir',
+          Directory.systemTemp.path,
+        ], 'cwd').dir,
+        Directory.systemTemp.path,
+      );
+    });
+  });
+
   group('through runCli', () {
     Future<(int, String, String)> run(List<String> args) async {
       final out = <int>[];
@@ -100,7 +123,6 @@ void main() {
         out: text,
         err: err,
         outBytes: out.addAll,
-        readStdin: () async => <int>[],
       );
       return (code, text.toString() + utf8.decode(out), err.toString());
     }
@@ -131,16 +153,21 @@ void main() {
       expect((jsonDecode(out) as Map)['error'], 'sw_mismatch');
     });
 
-    test('the old handoff is not checked here', () async {
-      writeVersion('9.9.9\n');
-      final (_, out, _) = await run([
-        '--project',
-        project.path,
-        'vcs',
-        '--args-stdin',
-      ]);
-      expect(out, isNot(contains('sw_mismatch')));
-    });
+    test(
+      'the old handoff flag is no exemption: it is an unknown option',
+      () async {
+        writeVersion('9.9.9\n');
+        final (code, out, err) = await run([
+          '--project',
+          project.path,
+          'vcs',
+          '--args-stdin',
+        ]);
+        expect(code, 2);
+        expect(out, '');
+        expect(err, contains('unknown option: --args-stdin'));
+      },
+    );
 
     test('two leading --project options are a usage stop, exit 2', () async {
       final (code, out, err) = await run([
@@ -154,6 +181,20 @@ void main() {
       expect(code, 2);
       expect(out, isEmpty);
       expect(err, contains('--project'));
+    });
+
+    test('--project without a value or with an empty one is a usage stop, '
+        'exit 2', () async {
+      for (final args in [
+        ['--project'],
+        ['--project', '', 'vcs', 'state'],
+        ['--project=', 'vcs', 'state'],
+      ]) {
+        final (code, out, err) = await run(args);
+        expect(code, 2, reason: '$args');
+        expect(out, isEmpty);
+        expect(err, contains('--project needs a value'));
+      }
     });
 
     test('version and pr reviewers check no project version', () async {

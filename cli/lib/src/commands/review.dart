@@ -1,43 +1,18 @@
 import '../review/run.dart';
 import '../review/stop.dart';
-import '../vcs/args.dart';
 import '../vcs/document.dart' show documentBytes;
 import '../vcs/stop.dart';
-import 'vcs.dart' show readAllStdin;
 
-const String _argvUsage = 'usage: sw review --args-stdin';
-const String _handoffUsage =
-    'usage: sw review --args-stdin (stdin: scripts dir, bash path, subcommand and arguments, each record ending in a NUL byte)';
-
-/// `sw review --args-stdin`: reads the script directory, its bash path and the
-/// original `review-run.sh` arguments as NUL-terminated handoff records, then
-/// writes exactly one native JSON document and returns its historical status.
+/// `sw review <subcommand> [options]`: runs one review operation and writes
+/// exactly one native JSON document, returning its historical status.
 Future<int> runReviewCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
-  Future<List<int>> Function()? readStdin,
 }) async {
   Map<String, Object?> document;
   var code = 0;
   try {
-    final direct = args.isNotEmpty && args.first != '--args-stdin';
-    if (!direct && (args.length != 1 || args.single != '--args-stdin')) {
-      throw ReviewStop('usage', _argvUsage, code: 2);
-    }
-    var stdin = direct ? <int>[] : await (readStdin ?? readAllStdin)();
-    if (stdin.isNotEmpty &&
-        stdin.last == 0 &&
-        stdin.where((byte) => byte == 0).length == 2) {
-      stdin = [...stdin, 0];
-    }
-    final handoff = direct
-        ? Handoff('', '', args)
-        : parseHandoff(stdin, _handoffUsage);
-    document = await runReviewOperation(
-      scriptsDir: handoff.scriptsDir,
-      bash: handoff.bash,
-      argv: handoff.argv,
-    );
+    document = await runReviewOperation(argv: args);
   } on ReviewStop catch (stop) {
     document = stop.toJson();
     code = stop.code;

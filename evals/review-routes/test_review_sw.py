@@ -16,7 +16,7 @@ from swharness import require_sw  # noqa: E402
 
 
 class NativeReviewTests(Base):
-    def native(self, *args, scripts=None, expect=0, env=None):
+    def native(self, *args, expect=0, env=None):
         run_env = env or self.env()
         run_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
         result = swcall.run(["review", *map(str, args)], cwd=self.code, env=run_env, text=False)  # direct entry
@@ -24,59 +24,6 @@ class NativeReviewTests(Base):
         lines = result.stdout.decode("utf-8").splitlines()
         self.assertEqual(len(lines), 1, result.stdout)
         return json.loads(lines[0])
-
-    def msys_path(self, path, drive=False):
-        if os.name != "nt":
-            return str(path)
-        if drive:
-            return "/" + path.drive[0].lower() + path.as_posix()[2:]
-        return subprocess.check_output(["cygpath", "-u", str(path)], env=self.env(),
-                                       text=True, encoding="utf-8").strip()
-
-    def test_design_handoff_accepts_msys_paths(self):
-        self.install("claude")
-        review = "# Review\n\nVERDICT: APPROVE\nCHANGES_APPLIED: n/a\n"
-        self.stdout_file("claude", json.dumps({"type": "result", "result": review}))
-        self.set_settings("review:\n  routes:\n    claude:\n      tools: [Read]\n")
-        folder = self.tmp / "review 文 files"
-        folder.mkdir()
-        prompt = folder / "request.md"
-        prompt.write_text("Review this unique MSYS-path fixture.\n", encoding="utf-8")
-        output = folder / "review.md"
-        selection = folder / "selection.json"
-        skipped = [{"route": "codex", "reason": "not installed"}]
-        selection.write_text(json.dumps({"route": "claude", "skipped": skipped}), encoding="utf-8")
-        result = self.script("run", "--kind", "design", "--route", "claude", "--change", "demo-change",
-                             "--prompt-file", self.msys_path(prompt), "--out", self.msys_path(output),
-                             "--settings", self.msys_path(self.settings, drive=True),
-                             "--store", self.msys_path(self.store), "--selection", self.msys_path(selection))
-        self.assertEqual(output.read_text(encoding="utf-8"), review)
-        self.assertIn("unique MSYS-path fixture", self.runs("claude")[0]["stdin"])
-        self.assertEqual(result["receipt"]["tools"], ["Read"])
-        self.assertEqual(result["receipt"]["skipped"], skipped)
-
-    def test_record_handoff_accepts_msys_paths(self):
-        settings = self.msys_path(self.settings, drive=True)
-        store = self.msys_path(self.store)
-        preflight = self.script("preflight", "--kind", "preship", "--change", "demo-change",
-                                "--base", "main", "--settings", settings, "--store", store)
-        preflight_file = self.put("msys-preflight.json", json.dumps(preflight))
-        findings = self.put("msys-findings.json", json.dumps(VALID))
-        selection = self.put("msys-selection.json", json.dumps({"route": "subagent", "skipped": []}))
-        before = self.status()
-        result = self.script("record", "--kind", "preship", "--route", "subagent", "--change", "demo-change",
-                             "--result", self.msys_path(findings), "--preflight", self.msys_path(preflight_file),
-                             "--selection", self.msys_path(selection), "--settings", settings, "--store", store)
-        record = json.loads(Path(result["record"]).read_text(encoding="utf-8"))
-        self.assertEqual(record["heads"], preflight["heads"])
-        self.assertEqual(record["findings"], VALID)
-        gate = self.script("gate", "--change", "demo-change", "--settings", settings, "--store", store)
-        self.assertEqual(gate["status"], "blocked")
-        self.assertEqual([finding["id"] for finding in gate["open"]], ["F1"])
-        archive = self.script("archive-only", "--base", "main", "--head", "HEAD", "--change", "demo-change",
-                              "--dir", self.msys_path(self.code, drive=True))
-        self.assertFalse(archive["archive_only"])
-        self.assertEqual(self.status(), before)
 
     def fake_codex(self):
         """A compiled `codex` in the test's bin directory that reports a valid findings document."""
@@ -92,19 +39,6 @@ class NativeReviewTests(Base):
                                cwd=ROOT / "cli", capture_output=True, text=True, timeout=180)
         self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
 
-    def test_review_runs_without_skill_folder(self):
-        """The brief and the schema are built into sw: a scripts directory beside no `references` folder reviews as usual."""
-        self.fake_codex()
-        skill = self.tmp / "bare-skill"
-        (skill / "scripts").mkdir(parents=True)
-        output = self.tmp / "findings.json"
-        document = self.native("run", "--kind", "preship", "--route", "codex", "--change", "demo-change",
-                               "--base", "main", "--settings", self.settings, "--out", output,
-                               scripts=skill / "scripts")
-        self.assertEqual(json.loads(output.read_text(encoding="utf-8")), VALID)
-        self.assertTrue(Path(document["record"]).is_file())
-        self.assertFalse((skill / "references").exists())
-
     def test_preship_runs_without_python_or_bash(self):
         self.fake_codex()
         marker = self.tmp / "interpreter-started"
@@ -113,16 +47,12 @@ class NativeReviewTests(Base):
             script = self.bin / name
             script.write_text(f'#!/bin/sh\nprintf started >> "{marker.as_posix()}"\nexit 99\n', encoding="utf-8")
             script.chmod(0o755)
-        skill = self.tmp / "skill"
-        (skill / "scripts").mkdir(parents=True)
         output = self.tmp / "findings.json"
         document = self.native("run", "--kind", "preship", "--route", "codex", "--change", "demo-change",
-                               "--base", "main", "--settings", self.settings, "--out", output,
-                               scripts=skill / "scripts")
+                               "--base", "main", "--settings", self.settings, "--out", output)
         self.assertEqual(json.loads(output.read_text(encoding="utf-8")), VALID)
         self.assertTrue(Path(document["record"]).is_file())
         self.assertFalse(marker.exists())
-        self.assertFalse((skill / "scripts" / "review-run.sh").exists())
 
     def test_gate_passes_preport_record(self):
         fixture = json.loads((ROOT / "evals" / "review-routes" / "fixtures" / "preport-record.json").read_text(encoding="utf-8"))
@@ -184,10 +114,8 @@ class NativeReviewTests(Base):
         settings = self.code / "openspec" / "specwright.yaml"
         settings.parent.mkdir(exist_ok=True)
         settings.write_text("vcs: gitbutler\nfinish: pr\n", encoding="utf-8")
-        scripts = self.tmp / "empty-scripts"
-        scripts.mkdir()
         document = self.native("preflight", "--kind", "preship", "--change", "demo-change", "--base", "main",
-                               "--settings", self.settings, scripts=scripts, expect=2)
+                               "--settings", self.settings, expect=2)
         self.assertEqual(document["error"], "usage")
         self.assertIn("--branch", document["message"])
 
@@ -237,27 +165,6 @@ class NativeReviewTests(Base):
         self.assertEqual(self.calls("codex"), [], "a reviewer CLI started")
         swcall.stamp(self.code)
         self.script("select", "--runtime", "other", "--settings", self.settings)  # the control: the matching VERSION selects
-
-    def test_missing_sw_encodes_resolver_error(self):
-        skills = self.tmp / "error-skills"
-        scripts = skills / "specwright-review" / "scripts"
-        scripts.mkdir(parents=True)
-        shim = scripts / "review-run.sh"
-        shutil.copy2(ROOT / "skills/specwright-review/scripts/review-run.sh", shim)
-        resolver = skills / "specwright-pr/scripts/sw-path.sh"
-        resolver.parent.mkdir(parents=True)
-        resolver.write_text('#!/usr/bin/env bash\nprintf "%s" "$CONTROLLED_RESOLVER_ERROR" >&2\nexit 1\n',
-                            encoding="utf-8")
-        message = 'quoted "path" and \\backslash ' + "".join(chr(i) for i in range(1, 32)) + " λ"
-        env = bash_path_env(environment=self.env())
-        env.update({"VCS_TEST_SEARCH": env["PATH"], "CONTROLLED_RESOLVER_ERROR": message})
-        result = subprocess.run([bashexe.bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
-                                 "review-error", str(shim), "select", "--runtime", "other"],
-                                cwd=self.code, env=env, capture_output=True, text=True, encoding="utf-8")
-        self.assertEqual(result.returncode, 1, result.stderr)
-        document = json.loads(result.stdout)
-        self.assertEqual(document["error"], "sw_missing")
-        self.assertEqual(document["message"], message)
 
 
 if __name__ == "__main__":

@@ -36,7 +36,6 @@ import gh as fake_gh  # noqa: E402  the fake gh's state helpers
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: path-independent repo stages are built once and copied
-import bashexe  # noqa: E402
 import fakeexe  # noqa: E402  a fake `sw` must start gets a `.cmd` wrapper on Windows (D9)
 
 
@@ -449,13 +448,13 @@ def done_pair(dest, t):
 
 def gate_lock(store, when, change="other-change", checkout="C:/elsewhere/code", owner=None):
     """Another session's gate lock in the store's git common dir, taken at `when` (a datetime).
-    `owner`: the owner file's text, when it is not the gate's own three lines."""
+    `owner`: the owner file's text, when it is not the gate's own four lines (`sw gate lock` writes time, change, code and token)."""
     r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=store,
                        check=True, capture_output=True, text=True)
     lock = Path(r.stdout.strip()) / "specwright-gate.lock"
     lock.mkdir()
     (lock / "owner").write_text(owner if owner is not None else
-                                f"time: {when.isoformat(timespec='seconds')}\nchange: {change}\ncheckout: {checkout}\n",
+                                f"time: {when.isoformat(timespec='seconds')}\nchange: {change}\ncode: {checkout}\ntoken: 0123456789abcdef\n",
                                 encoding="utf-8", newline="\n")
 
 
@@ -1080,7 +1079,7 @@ def install_base(dest, kind):
 
 def specwright_source(dest):
     """<dest>/specwright-src stands in for the Specwright repository: its only release tag is v0.5.0, whose tree has no
-    scripts/update.sh, and main is one commit ahead (VERSION 0.6.0, with the update script). An install prompt that picks the
+    tools/updater.txt, and main is one commit ahead (VERSION 0.6.0, with that file). An install prompt that picks the
     latest release tag therefore finds one below its minimum release (0.6.0)."""
     src = dest / "specwright-src"
     init(src)
@@ -1093,9 +1092,9 @@ def specwright_source(dest):
     git(src, "commit", "-q", "-m", "chore: release 0.5.0")
     git(src, "tag", "-a", "v0.5.0", "-m", "v0.5.0")
     write(src, "VERSION", "0.6.0\n")
-    write(src, "scripts/update.sh", "#!/usr/bin/env bash\necho '{\"ok\": true, \"interface\": 1}'\n")
+    write(src, "tools/updater.txt", "the updater lives here from 0.6.0" + chr(10))
     git(src, "add", "-A")
-    git(src, "commit", "-q", "-m", "feat: update script")
+    git(src, "commit", "-q", "-m", "feat: updater")
 
 
 def references_base(dest, registered=True, ref_id="team-plans"):
@@ -1203,25 +1202,11 @@ exec "$REAL" "$@"
 '''
 
 
-BASH_SHIM = r'''#!/bin/sh
-# bash shim for the release evals: a `bash .../release.sh` run (and everything it starts) reads GIT_CONFIG_GLOBAL=@REWRITE@, which
-# reaches the local bare origin through a global url.<bare>.insteadOf. release.sh's own git calls (ls-remote, tag, push) and the fake
-# gh's `git ls-remote` are spawned by Python, which on Windows never finds the extensionless bin/git shim; the rewrite stays out of
-# every other command, so `git remote get-url origin` (read by pr-pair.sh and the agent) keeps printing the github.com URL.
-for a in "$@"; do
-  case "$a" in
-    release.sh|*/release.sh) GIT_CONFIG_GLOBAL="@REWRITE@"; export GIT_CONFIG_GLOBAL; break ;;
-  esac
-done
-exec "@BASH@" "$@"
-'''
-
-
 def release_shim(repo, gated):
-    """bin/git and bin/bash for the release evals (RELEASE_SHIM, BASH_SHIM): <repo>/ob.git is the reachable origin. `gated` holds
+    """bin/git for the release evals (RELEASE_SHIM): <repo>/ob.git is the reachable origin. `gated` holds
     git pull and fetch back until the fake gh logged the merge of PR #7; before it, fetch reads <repo>/ob-pre.git (origin before the
-    merge; only a gated fixture creates it). state/gitconfig-release is the rewrite config bin/bash hands
-    to release.sh: the fixture's proxy config plus url.<bare>.insteadOf."""
+    merge; only a gated fixture creates it). state/gitconfig-release is the rewrite config a test puts on a `sw release` command line:
+    the fixture's proxy config plus url.<bare>.insteadOf."""
     url, bare = f"https://github.com/{PR_SLUG}.git", posix(repo / "ob.git")
     rewrite = repo / "state" / "gitconfig-release"
     write(repo, "state/gitconfig-release", (repo / "gitconfig").read_text(encoding="utf-8") + f'[url "{bare}"]\n\tinsteadOf = {url}\n')
@@ -1229,9 +1214,7 @@ def release_shim(repo, gated):
         .replace("@BARE@", bare).replace("@PRE@", posix(repo / "ob-pre.git")).replace("@LOG@", posix(repo / "gh-log.jsonl")) \
         .replace("@URL@", url).replace("@GATED@", "1" if gated else "0")
     write(repo, "bin/git", shim)
-    write(repo, "bin/bash", BASH_SHIM.replace("@REWRITE@", posix(rewrite)).replace("@BASH@", msys(bashexe.bash() or "bash")))
-    for n in ("git", "bash"):
-        (repo / "bin" / n).chmod(0o755)
+    (repo / "bin" / "git").chmod(0o755)
 
 
 RELEASE_EXCLUDE = "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n"

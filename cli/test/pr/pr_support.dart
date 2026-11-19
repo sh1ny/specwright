@@ -32,8 +32,6 @@ class Fixture {
     Map<String, String>? environment,
   }) : tempDir = temp ?? Directory.systemTemp.createTempSync('sw-pr-test-') {
     ctx = PrContext(
-      scriptsDir: 'scripts',
-      bash: 'bash',
       writeOut: out.addAll,
       writeErr: err.addAll,
       environment: environment,

@@ -2,7 +2,7 @@
 
     python evals/pr-pair/oracle/check_records.py <dir> <dir> <dir>
 
-Each directory is one OS's capture (oracle/capture.py, uploaded by evals.yml as the artifact `oracle-records-<OS>`). The check
+Each directory is one OS's capture (the capture of task 6.5, which ran the frozen scripts and is deleted with them). The check
 reads files only and starts nothing. It fails, printing every problem, unless:
 
   1. each set is complete: it has outcomes.json with no failed or errored test, the three sets ran the same tests, and every

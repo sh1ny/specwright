@@ -229,8 +229,6 @@ Future<({String backend, String main, String login})> readVcsSettings(
   required String repo,
   required String role,
 }) async {
-  code = await ctx.native(code);
-  repo = await ctx.native(repo);
   final text = await _settingsText(ctx, code);
   final s = loadSettings(text);
   final v = vcsChoices(s);
@@ -258,7 +256,6 @@ Future<void> requireSettingsPinnedTo(
   String code,
   String branch,
 ) async {
-  code = await ctx.native(code);
   if (await _gitbutlerPins(ctx, code)) {
     await _settingsPinned(
       ctx,
@@ -275,7 +272,7 @@ Future<({String code, String store})> workflowVcsChoices(
   PrContext ctx,
   String code,
 ) async {
-  final settings = await _loadSettings(ctx, await ctx.native(code));
+  final settings = await _loadSettings(ctx, code);
   try {
     return vcsChoices(settings);
   } on SettingsStop catch (e) {
@@ -298,7 +295,7 @@ Future<int> runTier(PrContext ctx, List<String> argv) =>
       final a = parsePairArgs(argv, const {'--code': 'code'});
       needArgs(a, ['code']);
       // D4: a refused file or a wrong-shaped section is a note with the cheap tier off, never a stop.
-      final text = await _settingsText(ctx, await ctx.native(a['code']!));
+      final text = await _settingsText(ctx, a['code']!);
       try {
         return tierChoice(loadSettings(text));
       } on SettingsStop catch (e) {
@@ -307,90 +304,88 @@ Future<int> runTier(PrContext ctx, List<String> argv) =>
     });
 
 /// `cmd_context`.
-Future<int> runContext(
-  PrContext ctx,
-  List<String> argv,
-) => runPairCommand(ctx, () async {
-  final afterMerge = argv.contains('--after-merge');
-  final a = parsePairArgs(
-    [
-      for (final t in argv)
-        if (t != '--after-merge') t,
-    ],
-    const {
-      '--code': 'code',
-      '--store': 'store',
-      '--only': 'only',
-      '--branch': 'branch',
-    },
-  );
-  needArgs(a, ['code']);
-  // the shim hands these over stdin, so no MSYS conversion happened on the way
-  final code = await ctx.native(a['code']!);
-  final givenStore = a['store'];
-  final store = givenStore == null ? null : await ctx.native(givenStore);
-  final branch = a['branch'];
-  final only = a['only'];
-  if (only != null && only != 'repos') pairUsage('--only takes repos');
-  if (afterMerge && (branch == null || branch.isEmpty)) {
-    pairUsage('--after-merge needs --branch');
-  }
-  final hasBranch = branch != null && branch.isNotEmpty;
-  if (await _gitbutlerPins(ctx, code)) {
-    if (only != 'repos' && !hasBranch) {
-      pairUsage(
-        'with vcs: gitbutler, context for the merge settings needs --branch <branch>',
+Future<int> runContext(PrContext ctx, List<String> argv) =>
+    runPairCommand(ctx, () async {
+      final afterMerge = argv.contains('--after-merge');
+      final a = parsePairArgs(
+        [
+          for (final t in argv)
+            if (t != '--after-merge') t,
+        ],
+        const {
+          '--code': 'code',
+          '--store': 'store',
+          '--only': 'only',
+          '--branch': 'branch',
+        },
       );
-    }
-    if (hasBranch) {
-      await _settingsPinned(
-        ctx,
-        code,
-        await _pinRef(ctx, code, branch, afterMerge),
-        branch,
-        afterMerge,
-      );
-    }
-  }
-  final text = await _settingsText(ctx, code);
-  final problems = <SettingProblem>[];
-  final mains = {
-    code: await _detectMain(ctx, code),
-    if (store != null && store.isNotEmpty) store: await _detectMain(ctx, store),
-  };
-  final Contexts c;
-  try {
-    c = contexts(
-      loadSettings(text),
-      code,
-      store,
-      detectMain: (d) => mains[d] ?? 'main',
-      checkMerge: only != 'repos',
-      problems: problems,
-    );
-    _stopOnOversized(problems);
-  } on SettingsStop catch (e) {
-    throw _stopOf(e);
-  }
-  Future<Map<String, Object?>> withRepo(RepoContext rc, String dir) async {
-    String? repo;
-    try {
-      repo = (await identityOf(ctx, dir))['repo'] as String?;
-    } on PairStop {
-      repo = null;
-    }
-    final written = writeReviewerConfig(rc.reviewers, environment: ctx.env);
-    if (written.problem != null) problems.add(written.problem!);
-    return {...rc.toJson(), 'repo': repo, 'reviewer_config': written.path};
-  }
+      needArgs(a, ['code']);
+      final code = a['code']!;
+      final givenStore = a['store'];
+      final store = givenStore;
+      final branch = a['branch'];
+      final only = a['only'];
+      if (only != null && only != 'repos') pairUsage('--only takes repos');
+      if (afterMerge && (branch == null || branch.isEmpty)) {
+        pairUsage('--after-merge needs --branch');
+      }
+      final hasBranch = branch != null && branch.isNotEmpty;
+      if (await _gitbutlerPins(ctx, code)) {
+        if (only != 'repos' && !hasBranch) {
+          pairUsage(
+            'with vcs: gitbutler, context for the merge settings needs --branch <branch>',
+          );
+        }
+        if (hasBranch) {
+          await _settingsPinned(
+            ctx,
+            code,
+            await _pinRef(ctx, code, branch, afterMerge),
+            branch,
+            afterMerge,
+          );
+        }
+      }
+      final text = await _settingsText(ctx, code);
+      final problems = <SettingProblem>[];
+      final mains = {
+        code: await _detectMain(ctx, code),
+        if (store != null && store.isNotEmpty)
+          store: await _detectMain(ctx, store),
+      };
+      final Contexts c;
+      try {
+        c = contexts(
+          loadSettings(text),
+          code,
+          store,
+          detectMain: (d) => mains[d] ?? 'main',
+          checkMerge: only != 'repos',
+          problems: problems,
+        );
+        _stopOnOversized(problems);
+      } on SettingsStop catch (e) {
+        throw _stopOf(e);
+      }
+      Future<Map<String, Object?>> withRepo(RepoContext rc, String dir) async {
+        String? repo;
+        try {
+          repo = (await identityOf(ctx, dir))['repo'] as String?;
+        } on PairStop {
+          repo = null;
+        }
+        final written = writeReviewerConfig(rc.reviewers, environment: ctx.env);
+        if (written.problem != null) problems.add(written.problem!);
+        return {...rc.toJson(), 'repo': repo, 'reviewer_config': written.path};
+      }
 
-  final out = c.toJson();
-  out['code'] = await withRepo(c.code, code);
-  if (c.store != null) out['store'] = await withRepo(c.store!, store!);
-  final first = problems.isNotEmpty ? problems.first.text : null;
-  return {
-    'ok': true,
-    ...out,
-    if (first != null && first.isNotEmpty) 'settings_problem': first,
-  };
-});
+      final out = c.toJson();
+      out['code'] = await withRepo(c.code, code);
+      if (c.store != null) out['store'] = await withRepo(c.store!, store!);
+      final first = problems.isNotEmpty ? problems.first.text : null;
+      return {
+        'ok': true,
+        ...out,
+        if (first != null && first.isNotEmpty) 'settings_problem': first,
+      };
+    });

@@ -184,7 +184,6 @@ Future<({String? branch, String? problem})> jjStoreBranch(
   UpdateOptions options,
   String top,
 ) async {
-  final download = options.download ?? options.code;
   final request = VcsRequest(
     command: 'state',
     repo: top,
@@ -192,9 +191,7 @@ Future<({String? branch, String? problem})> jjStoreBranch(
     code: options.code,
   );
   try {
-    final session = await openSession(
-      VcsContext(request, '$download/skills/specwright-pr/scripts', 'bash'),
-    );
+    final session = await openSession(VcsContext(request));
     final doc = await stateDocument(session);
     final empty = doc['branch'] == null || doc['branch'] == '';
     final branch = doc['on_main'] == true && empty

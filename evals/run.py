@@ -57,7 +57,6 @@ POLL = 0.5  # seconds between checks while a file runs, so an interrupt is seen 
 
 # Files that run one at a time after the parallel batch: their tests assert deadlines of a few seconds, which CPU load could slip.
 SERIAL = {
-    "pr-pair/test_bounded.py",  # asserts the deadline and byte bound of bounded.py, a few seconds each (7.1 migrates it)
     "review-routes/test_review_run.py",  # its timeout tests assert reviewer deadlines of 2-5 s and a stop within seconds
     # The four below failed only under the parallel batch's load in the first full run (6.3) and pass alone.
     "pr-pair/test_as_sh.py",  # Bounded: a 12 s bound on a hung token lookup and a fenced command that must finish unbounded

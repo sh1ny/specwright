@@ -2,10 +2,9 @@
 
 Two checks over the shipped skills (skills/**), scripts (scripts/**, skills/*/scripts/**) and `sw`'s own launches in cli/lib:
 
-- every `--option` word given to `sw vcs`, `sw pr`, `sw finish` or `sw commit` (directly, or through the shim that forwards
-  to it) is a whole option name that command's source defines, so the one option rule (no abbreviations) cannot break a
-  caller;
-- no caller matches text on an `sw` document (a `grep`, `sed` or `awk` pipe in a shipped script, a regex or substring over
+- every `--option` word given to `sw vcs`, `sw pr`, `sw finish` or `sw commit` (as `<sw> <command>` in a skill) is a whole option
+  name that command's source defines, so the one option rule (no abbreviations) cannot break a caller;
+- no caller matches text on an `sw` document (a `grep`, `sed` or `awk` pipe in a shipped file, a regex or substring over
   a compact `"key":` in Dart). C13 (the `branchPattern` guard the undo plan printed) is gone: the guard is an `undo-step check` step now. C12 (`sw pr snapshot` reading `sw pr
   reviewers` documents by regex) closed in native-cli-internal-calls: snapshot parses them now. The one compact key line
   left in snapshot.dart is the wait document it prints, not one it reads.
@@ -40,12 +39,13 @@ SOURCES = {
     "commit": ["commands/commit.dart", "commit/task_cover.dart", "commit/fit_subject.dart"],
 }
 
-# how a caller names a command: the shim, `sw <command>`, or the skills' `[vcs]` shorthand
+# how a caller names a command: `sw <command>`, the skills' `<sw> [--project <code>] <command>`, or the `[vcs]` shorthand
+SW = r"(?:\bsw|<sw>)(?:\s+--project\s+\S+)?"
 INVOKERS = [
-    ("vcs", re.compile(r"\bvcs\.sh\b|\bsw vcs\b|\[vcs\]")),
-    ("finish", re.compile(r"\bfinish\.sh\b|\bsw finish\b")),
-    ("pr", re.compile(r"\bpr-pair\.sh\b|\bpr-snapshot\.sh\b|\bpr-reply\.sh\b|\bsw pr\b")),
-    ("commit", re.compile(r"\btask-cover\.sh\b|\bfit-subject\.sh\b|\bsw commit\b")),
+    ("vcs", re.compile(SW + r"\s+vcs\b|\[vcs\]")),
+    ("finish", re.compile(SW + r"\s+finish\b")),
+    ("pr", re.compile(SW + r"\s+pr\b")),
+    ("commit", re.compile(SW + r"\s+commit\b")),
 ]
 # the same words a pipe into a text tool would follow
 ANY_INVOKER = re.compile("|".join(p.pattern for _, p in INVOKERS))
@@ -57,8 +57,8 @@ DOCUMENT_KEY = re.compile(r'"[a-z_]+":')
 PRINTED = {("cli/lib/src/pr/snapshot.dart", '{"wake":"$wake"')}
 
 
-# options a shim reads itself before it hands the rest to `sw`: pr-pair.sh's leading `--project <code checkout>`
-SHIM_OPTIONS = {"pr": {"project": "skills/specwright-pr/scripts/pr-pair.sh"}}
+# options `sw` reads itself before the command: the leading `--project <code checkout>`
+GLOBAL_OPTIONS = {"project"}
 
 
 def defined_options():
@@ -74,7 +74,7 @@ def defined_options():
             names.update(a or b for a, b in LITERAL.findall(text))
             for body in NAME_LIST.findall(text):
                 names.update(re.findall(r"'([a-z][a-z0-9-]*)'", body))
-        names.update(SHIM_OPTIONS.get(family, {}))
+        names.update(GLOBAL_OPTIONS)
         found[family] = names
     return found
 
@@ -87,7 +87,7 @@ def tracked(*patterns):
 
 
 def shipped_caller_files():
-    return tracked("skills/**/*.md", "skills/**/*.sh", "skills/**/*.py", "scripts/**/*.sh", "scripts/**/*.py")
+    return tracked("skills/**/*.md")
 
 
 def segments(path, text):
@@ -210,17 +210,12 @@ class OptionCallers(unittest.TestCase):
         launches = [words for family, words in own_launches(text) if family == "pr"]
         self.assertEqual(launches, [["config", "material", "head"]])
 
-    def test_shim_options_are_the_shims_own(self):
-        for names in SHIM_OPTIONS.values():
-            for name, rel in names.items():
-                self.assertIn(f"= --{name}", (ROOT / rel).read_text(encoding="utf-8"), rel)
-
     def test_scan_refuses_an_abbreviation(self):
         defined = {"vcs": {"repo", "role"}, "pr": {"material", "head"}, "finish": set(), "commit": set()}
         path = ROOT / "skills" / "x" / "SKILL.md"
         bad = check_options(path, "run `sw pr reviewers --mat m.json --head x`\n", defined)
         self.assertEqual([(w, f) for _, w, f in bad], [("--mat", "pr")])
-        self.assertEqual(check_options(path, "run `bash vcs.sh state --repo r --role code`\n", defined), [])
+        self.assertEqual(check_options(path, "run `<sw> vcs state --repo r --role code`\n", defined), [])
 
     def test_no_script_matches_text_on_an_sw_document(self):
         bad = []

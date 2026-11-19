@@ -39,7 +39,7 @@ class Normalizing(unittest.TestCase):
 
     def test_stderr_prefix_and_comment_bodies(self):
         self.assertEqual(oracle_capture.fixed_prefix("line 7: boom"), "line 7:")
-        self.assertEqual(oracle_capture.fixed_prefix("pr-snapshot.sh: bad"), "pr-snapshot.sh: ")
+        self.assertEqual(oracle_capture.fixed_prefix("sw: bad"), "sw: ")
         state = {"repos": {"o/n": {"comments": {"7": [{"body": "hi"}]}, "pulls": [{"body": "not a comment"}]}}}
         self.assertEqual(oracle_capture.comment_bodies(state), {"/repos/o/n/comments/7/0": "hi"})
 

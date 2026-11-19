@@ -101,7 +101,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Specwright no longer needs bash or Python. Skills run the project's `sw` directly, and `sw` checks that its version matches the project's before it works on it. The shell scripts, their `sw-path.sh` resolver and `bounded.py` are gone, and the store gate lock is taken through `sw`.
+This release finishes the move to the native `sw` binary: Specwright's own work no longer needs bash or Python. Skills run the project's `sw` directly and check it with `sw version --json` (interface 2), and every project command checks that `sw` and the project are at the same version. The shell scripts, their `sw-path.sh` resolver and `bounded.py` are gone, the store gate lock is taken through `sw`, and the undo-archive plan lists `sw` steps instead of a bash script. Projects update with the install prompt, whose check now requires interface 2.
 
 ### Changed
 

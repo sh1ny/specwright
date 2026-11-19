@@ -1,9 +1,7 @@
 """sw vcs fences identity in its own process (native-cli-internal-calls D1, D2, D8).
 
-Every test runs the built `sw` (SPECWRIGHT_SW) through evals/swcall.py (direct argument entry) with a directory holding
-recording sentinels for `as.sh`, `vcs.sh`, `pr-pair.sh` and `sw-path.sh`;
-failing recording `python` and `python3` are first on PATH. A sentinel that recorded a run, or an interpreter that ran,
-fails the test before anything else is read. The fake `gh` and a `git` shim that answers `git remote get-url origin` with a
+Every test runs the built `sw` (SPECWRIGHT_SW) through evals/swcall.py (direct argument entry) with failing
+recording `python` and `python3` first on PATH. An interpreter that recorded a run fails the test before anything else is read. The fake `gh` and a `git` shim that answers `git remote get-url origin` with a
 github.com URL (every real fetch and push still goes to the local bare origin) stand in for GitHub.
 
 A store has no installed Specwright version: its calls name the code checkout with --code, or --project.
@@ -90,7 +88,7 @@ class Harness:
     def __init__(self, case):
         self.case = case
         root = case.root
-        self.sent = sentinels.install(root / "scripts", root / "pybin", root / "sentinels.log")
+        self.sent = sentinels.install(root / "pybin", root / "sentinels.log")
         self.tools = root / "tools"
         self.tools.mkdir()
         write_tool(self.tools / "git", GIT_SHIM)
@@ -140,7 +138,7 @@ class Harness:
         out = done.stdout.decode("utf-8", "surrogateescape")
         err = done.stderr.decode("utf-8", "surrogateescape")
         self.case.assertEqual(self.sent.recorded(), [],
-                              "a shipped script or a Python interpreter ran: %s %s" % (out, err))
+                              "a Python interpreter ran: %s %s" % (out, err))
         self.case.assertEqual(done.returncode, expected, out + err)
         try:
             doc = json.loads(out)
@@ -371,7 +369,7 @@ class FenceCase(gbnet.GitButlerNetworkCase):
                 doc, _ = self.h.run("push", "--branch", "feat/a", "--login", LOGIN, repo=world.repo, expected=3)
 
                 self.assertEqual(doc["error"], "fence_failed", doc)
-                self.assertTrue(doc["message"].startswith("as.sh:"), doc)
+                self.assertRegex(doc["message"], r"^as\.sh:", doc)
                 self.assertIn("***", doc["message"])
                 self.assertNotIn("tok@", doc["message"])
                 self.assertEqual(world.origin_refs(), before, "a push ran")
@@ -393,7 +391,7 @@ class FenceCase(gbnet.GitButlerNetworkCase):
         self.h.set_gh(user=None)
         doc, _ = self.h.run("fetch-main", repo=world.repo, expected=3)
         self.assertEqual(doc["error"], "fence_failed", doc)
-        self.assertTrue(doc["message"].startswith("as.sh: no active gh account for github.com"), doc)
+        self.assertRegex(doc["message"], r"^as\.sh: no active gh account for github\.com", doc)
         self.assertEqual([c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]], [], "a fetch ran")
 
     def store_world(self):
@@ -458,7 +456,7 @@ class FenceCase(gbnet.GitButlerNetworkCase):
             doc, _ = self.h.run("fetch-main", "--login", LOGIN, repo=world.repo, env=deadline, expected=3)
             self.assertEqual(doc["error"], "fence_failed", doc)
             self.assertIn("deadline_exceeded", doc["message"])
-            self.assertTrue(doc["message"].startswith("as.sh:"), doc)
+            self.assertRegex(doc["message"], r"^as\.sh:", doc)
             self.assertEqual([c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]], [], "a fetch ran")
 
     def test_non_github_remote_runs_unfenced(self):
@@ -495,7 +493,7 @@ class FenceCase(gbnet.GitButlerNetworkCase):
         self.assertIn(Path(swharness.require_sw()).name, command)
         self.assertIn(" --project ", command)
         self.assertIn(" vcs pull ", command)
-        self.assertNotIn("vcs.sh", command)
+        self.assertNotRegex(command, r"vcs\.sh")
         self.assertEqual(self.h.sent.recorded(), [])
 
 

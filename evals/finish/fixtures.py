@@ -1,11 +1,11 @@
-"""Scratch git repos for the finish.sh evals (skills/specwright-finish/scripts/finish.sh).
+"""Scratch git repos for the `sw finish` evals.
 
 make_repo builds a work tree on `main` with a baseline main spec `<P>/specs/a/spec.md`, `src/app.py` and
 `README.md`. make_change adds a change directory (`review.md` with DEFERRED or APPROVE, delta specs).
 archive() simulates `openspec archive`: it moves the change directory to `changes/archive/<date>-<name>/`,
 syncs each delta into its main spec (modify or create), optionally writes `specwright-change.yaml`, and
 leaves the result uncommitted or commits it as A. commit(), edit(), revert() and the git() helper build
-later history. run_plan() runs finish.sh; run_scripts() runs the printed `steps` and `after_rerun_steps`, each
+later history. run_plan() runs `sw finish`; run_scripts() runs the printed `steps` and `after_rerun_steps`, each
 `{cwd, argv}` step on its own (the `openspec archive <name> --yes` step runs the fake CLI below).
 
 This module is also the fake `openspec` CLI: `python fixtures.py archive <name> --yes` (FIXTURE_PREFIX
@@ -25,12 +25,9 @@ if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 sys.path.append(str(ROOT / "evals" / "vcs"))
-import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
+import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION `sw` checks (native-cli-vcs D9)
 import bashexe  # noqa: E402
 import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
-SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
-ORACLE = HERE / "oracle" / "finish.sh"  # the frozen copy of the old finish.sh (native-cli-finish D9); test-only
-ORACLE_FIN_DIR = ROOT / "skills" / "specwright-finish" / "scripts"  # so the oracle prints the real vcs.sh path
 DATE = "2026-10-19"
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 
@@ -196,7 +193,7 @@ def state(repo):
             "index": git(repo, "ls-files", "--stage"), "files": snapshot(repo)}
 
 
-# ---- running finish.sh and the printed scripts ------------------------------------------------------------------
+# ---- running `sw finish` and the printed steps ------------------------------------------------------------------
 def fake_bin(tmp):
     """A directory whose `openspec` is this module: only `archive <name> --yes` is implemented."""
     d = Path(tmp) / "bin"
@@ -211,17 +208,6 @@ def fake_bin(tmp):
 def run_finish(work, *args, cwd=None):
     """Run `sw finish <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout + stderr)."""
     r = swcall.run(["finish", *args], cwd=cwd or work, env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
-    try:
-        doc = json.loads(r.stdout)
-    except ValueError:
-        doc = None
-    return r.returncode, doc, r.stdout + r.stderr
-
-
-def run_oracle(work, *args, cwd=None):
-    """Run the frozen oracle copy of finish.sh the way run_finish runs finish.sh; returns (exit code, parsed JSON, raw output)."""
-    r = subprocess.run([bashexe.bash(), str(ORACLE), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8",
-                       env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), ORACLE_FIN_DIR=str(ORACLE_FIN_DIR)))
     try:
         doc = json.loads(r.stdout)
     except ValueError:

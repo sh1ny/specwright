@@ -29,7 +29,7 @@ class TestGitButlerPush(GitButlerNetworkCase):
             self.assertEqual(set(refs) - set(initial), {"refs/heads/feat/add-c"})
             self.assertEqual(refs["refs/heads/feat/add-c"], tips["feat/add-c"])
             self.assertEqual(refs["refs/heads/main"], initial["refs/heads/main"])
-            self.assertEqual(set(self.gh_tokens(scratch)), {"tok-code"}, "the push went through as.sh")
+            self.assertEqual(set(self.gh_tokens(scratch)), {"tok-code"}, "the push went through the fence")
             # one fenced Git push of the branch's own ref, never `but push` or `but pr`
             self.assertEqual([call["argv"] for call in self.pushes()],
                              [["push", "--no-follow-tags", "origin", "refs/heads/feat/add-c:refs/heads/feat/add-c"]])

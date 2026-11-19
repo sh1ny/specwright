@@ -1,10 +1,10 @@
-"""skills/specwright-pr/SKILL.md calls the pr-pair.sh subcommands in the right places.
+"""skills/specwright-pr/SKILL.md calls the <sw> pr subcommands in the right places.
 
 The script's decisions (identity, discovery, links, pair state, pass records, cleanup) are tested in
 test_pr_pair.py; these checks make sure the skill actually uses them, by position in the text and not
 by exact wording:
 
-- `pr-pair.sh identity` comes before any push command;
+- `<sw> pr identity` comes before any push command;
 - change PRs are found with `discover`, never with `gh pr list`;
 - `link` runs after both PRs exist (after `ensure-pr`, and after the pushes);
 - watch uses `pair-state`, feedback uses `pass` and `rounds`, cleanup uses `cleanup-plan`.
@@ -20,8 +20,8 @@ TEXT = SKILL.read_text(encoding="utf-8")
 
 
 def sub(name):
-    """Pattern for `pr-pair.sh <name>` however the path before it is written (bash scripts/..., a variable)."""
-    return re.compile(r"pr-pair\.sh[`\"']?\s+(?:--project\s+(?:\"[^\"]+\"|\S+)\s+)?" + name + r"\b")
+    """Pattern for `<sw> pr <name>` however the path before it is written (..., a variable)."""
+    return re.compile(r"<sw> pr[`\"']?\s+(?:--project\s+(?:\"[^\"]+\"|\S+)\s+)?" + name + r"\b")
 
 
 def sections(text):
@@ -68,17 +68,18 @@ class SkillText(unittest.TestCase):
         finish = SKILL.parents[1] / 'specwright-finish' / 'SKILL.md'
         for path, text in ((SKILL, TEXT), (finish, finish.read_text(encoding='utf-8'))):
             with self.subTest(skill=path.name, folder=path.parent.name):
-                self.assertRegex(text, r'as\.sh --project "<code toplevel>" <store login>')
-                self.assertRegex(text, r'pr-pair\.sh --project "<code toplevel>" discover --repo')
-                self.assertIn('cd "<store toplevel>" &&', text)
-                self.assertIn('does not change cwd or login', text)
-                self.assertIn('each shim resolves its own binary', text)
+                self.assertRegex(text, r'<sw> --project "<code toplevel>" as <store login>')
+                self.assertRegex(text, r'<sw> --project "<code toplevel>" pr discover --repo')
+                self.assertNotIn('cd "<store toplevel>" &&', text)
+                self.assertRegex(text, r'changes neither the working directory')
+                self.assertRegex(text, r'missing, empty or repeated leading `--project`')
+                self.assertNotIn('shim', text)
 
     def test_store_snapshot_and_reply_take_the_selector_and_no_gap_notes_remain(self):
         finish = SKILL.parents[1] / 'specwright-finish' / 'SKILL.md'
-        self.assertRegex(TEXT, r'pr-snapshot\.sh --project "<code toplevel>" <pr>')
-        self.assertRegex(TEXT, r'pr-snapshot\.sh --project "<code toplevel>" --full')
-        self.assertRegex(TEXT, r'pr-reply\.sh --project "<code toplevel>" <pr> comment')
+        self.assertRegex(TEXT, r'<sw> --project "<code toplevel>" pr snapshot <pr>')
+        self.assertRegex(TEXT, r'pr snapshot --full <node id> --repo')
+        self.assertRegex(TEXT, r'pr reply <pr> comment <id> <file>')
         for text in (TEXT, finish.read_text(encoding='utf-8')):
             for gone in ('S-1', 'C11'):
                 self.assertNotIn(gone, text)
@@ -89,14 +90,14 @@ class SkillText(unittest.TestCase):
 
     def test_identity_before_any_push(self):
         ident, pushes = positions(sub("identity")), positions(PUSH)
-        self.assertTrue(ident, "SKILL.md never runs `pr-pair.sh identity`")
+        self.assertTrue(ident, "SKILL.md never runs `<sw> pr identity`")
         self.assertTrue(pushes, "SKILL.md has no push command; the check below would be vacuous")
-        self.assertLess(ident[0], pushes[0], "the first `git push` comes before the first `pr-pair.sh identity`")
+        self.assertLess(ident[0], pushes[0], "the first `git push` comes before the first `<sw> pr identity`")
         ship = self.section("ship")
         s_ident, s_push = positions(sub("identity"), ship), positions(PUSH, ship)
-        self.assertTrue(s_ident, "the ship section never runs `pr-pair.sh identity`")
+        self.assertTrue(s_ident, "the ship section never runs `<sw> pr identity`")
         self.assertTrue(s_push, "the ship section has no push command")
-        self.assertLess(s_ident[0], s_push[0], "ship pushes before it runs `pr-pair.sh identity`")
+        self.assertLess(s_ident[0], s_push[0], "ship pushes before it runs `<sw> pr identity`")
 
     def test_ship_pushes_every_repo_before_any_pr(self):
         ship = self.section("ship")
@@ -112,7 +113,7 @@ class SkillText(unittest.TestCase):
         self.assertTrue(positions(PUSH, s4a), "step 4a has no push command")
         self.assertFalse(positions(PUSH, s4b), "step 4b pushes: every push belongs in 4a")
         self.assertFalse(positions(sub("ensure-pr"), s4a), "step 4a finds or opens a PR: that belongs in 4b")
-        self.assertTrue(positions(sub("ensure-pr"), s4b), "step 4b never runs `pr-pair.sh ensure-pr`")
+        self.assertTrue(positions(sub("ensure-pr"), s4b), "step 4b never runs `<sw> pr ensure-pr`")
         self.assertRegex(s4a, r"(?i)store first", "step 4a does not push the store first")
         self.assertRegex(s4a, r"(?is)validate", "step 4a does not validate before it pushes")
         self.assertLess(re.search(r"(?i)validate", s4a).start(), positions(PUSH, s4a)[0], "4a pushes before it validates")
@@ -124,7 +125,7 @@ class SkillText(unittest.TestCase):
         self.assertRegex(s4b, r"(?i)only (when|after|once) (every|all)[^.]*push", "step 4b does not wait for every push")
 
     def test_discover_replaces_gh_pr_list_for_change_prs(self):
-        self.assertTrue(positions(sub("discover")), "SKILL.md never runs `pr-pair.sh discover`")
+        self.assertTrue(positions(sub("discover")), "SKILL.md never runs `<sw> pr discover`")
         ship = self.section("ship")
         self.assertTrue(positions(sub("discover"), ship), "the ship section does not use `discover` to find a change's PR")
         for m in re.finditer(r"gh pr list", TEXT):
@@ -134,17 +135,17 @@ class SkillText(unittest.TestCase):
     def test_link_after_both_prs_exist(self):
         ship = self.section("ship")
         links, ensures, pushes = positions(sub("link"), ship), positions(sub("ensure-pr"), ship), positions(PUSH, ship)
-        self.assertTrue(links, "the ship section never runs `pr-pair.sh link`")
-        self.assertTrue(ensures, "the ship section never runs `pr-pair.sh ensure-pr`")
+        self.assertTrue(links, "the ship section never runs `<sw> pr link`")
+        self.assertTrue(ensures, "the ship section never runs `<sw> pr ensure-pr`")
         self.assertLess(max(ensures), links[0], "`link` runs before the last PR is found or created (`ensure-pr`)")
         self.assertTrue(pushes, "the ship section has no push command")
         self.assertLess(pushes[0], links[0], "`link` runs before the first push")
 
     def test_watch_uses_pair_state_and_cleanup_plan(self):
         watch = self.section("watch")
-        self.assertTrue(positions(sub("pair-state"), watch), "the watch section never runs `pr-pair.sh pair-state`")
+        self.assertTrue(positions(sub("pair-state"), watch), "the watch section never runs `<sw> pr pair-state`")
         plans = positions(sub("cleanup-plan"))
-        self.assertTrue(plans, "SKILL.md never runs `pr-pair.sh cleanup-plan`")
+        self.assertTrue(plans, "SKILL.md never runs `<sw> pr cleanup-plan`")
         homes = [t for t, (_, body) in SECTIONS.items() if positions(sub("cleanup-plan"), body)]
         self.assertTrue(set(homes) & {"watch"} or any("cleanup" in h for h in homes),
                         f"`cleanup-plan` is in {homes}, neither watch nor a cleanup section")
@@ -153,8 +154,8 @@ class SkillText(unittest.TestCase):
     def test_watch_waits_until_attention(self):
         watch = self.section("watch")
         step1 = watch[watch.index("1. Wait in the background"):watch.index("\n2. On wake")]
-        cmd = next((c for c in re.findall(r"`([^`]*pr-snapshot\.sh[^`]*)`", step1) if "--wait" in c), "")
-        self.assertTrue(cmd, "watch step 1 has no `pr-snapshot.sh ... --wait` command")
+        cmd = next((c for c in re.findall(r"`([^`]*<sw> pr snapshot[^`]*)`", step1) if "--wait" in c), "")
+        self.assertTrue(cmd, "watch step 1 has no `<sw> pr snapshot ... --wait` command")
         self.assertIn("--until attention", cmd, "the watch wait is not run with `--until attention`")
         self.assertIn("--reviewer-config", cmd, "the watch wait is not given `--reviewer-config`")
         self.assertIn("filtered", step1, "step 1 does not name the `filtered` field of the wake")
@@ -258,8 +259,8 @@ class SkillText(unittest.TestCase):
     def test_feedback_uses_pass_record_and_rounds(self):
         fb = self.section("feedback")
         for verb in ("write", "plan", "done"):
-            self.assertTrue(positions(sub("pass\\s+" + verb), fb), f"the feedback section never runs `pr-pair.sh pass {verb}`")
-        self.assertTrue(positions(sub("rounds"), fb), "the feedback section never runs `pr-pair.sh rounds`")
+            self.assertTrue(positions(sub("pass\\s+" + verb), fb), f"the feedback section never runs `<sw> pr pass {verb}`")
+        self.assertTrue(positions(sub("rounds"), fb), "the feedback section never runs `<sw> pr rounds`")
         w = positions(sub("pass\\s+write"), fb)[0]
         self.assertLess(positions(sub("pass\\s+plan"), fb)[0], positions(sub("pass\\s+done"), fb)[0],
                         "`pass done` comes before `pass plan`")
@@ -267,13 +268,13 @@ class SkillText(unittest.TestCase):
         # the `resume` bullet of step 2 runs the rows the plan reads from GitHub: reactions (#25) and the pair link (#30)
         resume = next((l for l in fb.splitlines() if l.lstrip().startswith("- `resume`")), "")
         self.assertTrue(resume, "feedback step 2 has no `resume` bullet")
-        self.assertRegex(resume, r"`todo` `?react`? rows?[^.;]*pr-reply\.sh[^.;]*react",
-                         "`resume` does not run `todo` react rows with `pr-reply.sh react`")
+        self.assertRegex(resume, r"`todo` `?react`? rows?[^.;]*<sw> pr reply[^.;]*react",
+                         "`resume` does not run `todo` react rows with `<sw> pr reply react`")
         self.assertRegex(resume, r"ship step 5[^.;]*`link` row", "`resume` does not run ship step 5 for a `todo` link row")
         for token in ("code.url", "store.url", "--peer-url"):
             self.assertIn(token, resume, f"`resume` does not pass the link row's {token}")
         self.assertLess(resume.index("react"), resume.rindex("plan again"), "`resume` does not plan again after the react and link rows")
-        self.assertNotRegex(TEXT, r"(?<!gh run )\brerun\b", "SKILL.md still mentions the removed `rerun` reaction state")  # `gh run rerun` is unrelated
+        self.assertNotRegex(TEXT, r"(?<!gh run )\brerun\b(?! the install prompt)", "SKILL.md still mentions the removed `rerun` reaction state")  # `gh run rerun` is unrelated
 
     def feedback_steps(self):
         fb = self.section("feedback")
@@ -297,7 +298,7 @@ class SkillText(unittest.TestCase):
         self.assertNotEqual(at, -1, "feedback step 1 never reads `clipped: true`")
         rule = step[max(0, at - 80):at + 600]
         self.assertRegex(rule, r"(?i)\bevery\b", "step 1 does not read every clipped item")
-        self.assertRegex(rule, r"pr-snapshot\.sh[^`]*--full", "step 1 does not read clipped items with `pr-snapshot.sh --full`")
+        self.assertRegex(rule, r"<sw> pr snapshot[^`]*--full", "step 1 does not read clipped items with `<sw> pr snapshot --full`")
         self.assertRegex(rule, r"(?is)before[^.;]*step 5", "step 1 does not put the full read before step 5 judges")
         self.assertRegex(rule, r"(?is)full body", "step 1 does not judge on the full body")
 
@@ -316,7 +317,7 @@ class SkillText(unittest.TestCase):
     def test_feedback_step_8_passes_rev(self):
         steps = self.feedback_steps()
         step = steps[8]
-        for line in (l for l in step.splitlines() if "pr-reply.sh" in l and re.search(r"pr-reply\.sh <pr> (thread|comment)", l)):
+        for line in (l for l in step.splitlines() if "<sw> pr reply" in l and re.search(r"<sw> pr reply <pr> (thread|comment)", l)):
             self.assertIn("--rev", line, f"step 8 does not pass `--rev` on: {line.strip()[:100]!r}")
         self.assertRegex(step, r"`--rev <[^>`]*rev[^>`]*>`", "step 8 never says what `--rev` takes")
         exit5 = re.search(r"(?i)exit 5[^.;]*", step)
@@ -327,7 +328,7 @@ class SkillText(unittest.TestCase):
         self.assertTrue(exit3, "step 8 never handles exit 3")
         self.assertRegex(exit3.group(0), r"(?i)stop", "exit 3 does not stop")
         self.assertRegex(exit3.group(0), r"(?i)report", "exit 3 does not report")
-        self.assertRegex(step, r"(?i)--rev.*every `pr-reply\.sh [a-z|]*resolve", "step 8 does not pass `--rev` to `resolve`")
+        self.assertRegex(step, r"(?i)--rev.*every `<sw> pr reply [a-z|]*resolve", "step 8 does not pass `--rev` to `resolve`")
         self.assertRegex(step, r"(?is)never[^.]*`--full`", "step 8 does not forbid taking `--rev` from `--full`")
         self.assertRegex(step, r"revision\.rev", "step 8 does not name the pass record's `revision.rev`")
         resume = next((l for l in self.section("feedback").splitlines() if l.lstrip().startswith("- `resume`")), "")
@@ -370,7 +371,7 @@ class SkillText(unittest.TestCase):
     def test_feedback_asks_before_adopting_a_foreign_record(self):
         fb = self.section("feedback")
         plan, adopt, done = (positions(sub("pass\\s+" + v), fb) for v in ("plan", "adopt", "done"))
-        self.assertTrue(adopt, "the feedback section never runs `pr-pair.sh pass adopt`")
+        self.assertTrue(adopt, "the feedback section never runs `<sw> pr pass adopt`")
         w = positions(sub("pass\\s+write"), fb)[0]
         for name, at in (("plan", plan[0]), ("done", done[0]), ("adopt", adopt[0])):
             self.assertIn("--owner", fb[at:fb.index("`", at)], f"`pass {name}` is not given `--owner`")
@@ -399,7 +400,7 @@ class SkillText(unittest.TestCase):
     def lookup_bullet(self):
         text = self.after_limit()
         calls = positions(sub("item-issues"), text)
-        self.assertTrue(calls, "After the limit never runs `pr-pair.sh item-issues`")
+        self.assertTrue(calls, "After the limit never runs `<sw> pr item-issues`")
         start = text.rfind("\n- ", 0, calls[0]) + 1
         end = text.find("\n- ", calls[0])
         return text[start:end if end != -1 else len(text)]
@@ -408,7 +409,7 @@ class SkillText(unittest.TestCase):
         text = self.after_limit()
         b = self.lookup_bullet()
         self.assertEqual(len(positions(sub("item-issues"), text)), 1, "the lookup is written once, not per item")
-        self.assertRegex(b, r"\[as\][^`]*pr-pair\.sh item-issues", "the lookup does not run under `[as]`")
+        self.assertRegex(b, r"<sw> as[^`]*<sw> pr item-issues", "the lookup does not run under `<sw> as`")
         self.assertRegex(b, r"--repo <owner>/<name>", "the lookup is not given the repository")
         self.assertRegex(b, r"--item", "the lookup is not given the items")
         self.assertRegex(b, r"(?i)once per repositor(y|ies)", "the text never says one lookup per repository")
@@ -442,15 +443,15 @@ class RunLogin(unittest.TestCase):
 
     def test_identity_paragraph_defines_the_run_login(self):
         p = self.ident()
-        self.assertRegex(p, r"as\.sh`?\s+--resolve", "the identity paragraph never resolves with `as.sh --resolve`")
+        self.assertRegex(p, r"<sw> as`?\s+--resolve", "the identity paragraph never resolves with `<sw> as --resolve`")
         self.assertRegex(p, r"(?i)\bonce\b", "the login is not resolved once")
         self.assertRegex(p, r"(?i)user-started", "only a user-started step may resolve: not said")
         self.assertRegex(p, r"(?i)hand(s|ed)? (it )?(off|on|over)|handed", "the run login is not handed off")
         self.assertRegex(p, r"(?i)never (re-?)?resolves?", "a handed-off step may resolve again")
-        self.assertRegex(p, r"bash scripts/as\.sh <run login>", "`[as]` is not defined as as.sh with the run login")
+        self.assertRegex(p, r"<sw> as <run login>", "`<sw> as` is not defined as <sw> as with the run login")
 
     def test_no_drop_it_or_ambient_fallback(self):
-        self.assertNotRegex(TEXT, r"(?i)drop it when", "SKILL.md still drops `[as]` when github.login is empty")
+        self.assertNotRegex(TEXT, r"(?i)drop it when", "SKILL.md still drops `<sw> as` when github.login is empty")
         self.assertNotRegex(TEXT, r"(?i)\bambient\b", "SKILL.md still falls back to the ambient account")
         self.assertNotRegex(TEXT, r"(?i)plain `gh", "SKILL.md still posts with plain `gh`")
 
@@ -467,7 +468,7 @@ class RunLogin(unittest.TestCase):
         for m in re.finditer(r"`([^`\n]+)`", TEXT):
             span = m.group(1)
             line = TEXT[TEXT.rfind("\n", 0, m.start()) + 1:TEXT.find("\n", m.end())]
-            if not call.search(span) or re.search(r"as\.sh|\[as\]", span):
+            if not call.search(span) or re.search(r"<sw> as|<sw> as", span):
                 continue
             if "gh pr list" in span and NEGATION.search(line):
                 continue
@@ -476,20 +477,21 @@ class RunLogin(unittest.TestCase):
             if "gh auth token" in span and re.search(r"(?i)never `gh auth switch`", line):
                 continue
             bad.append(span[:80])
-        self.assertFalse(bad, f"calls without `[as]`: {bad}")
+        self.assertFalse(bad, f"calls without `<sw> as`: {bad}")
 
     def test_pr_pair_github_reads_carry_as(self):
         # pass, rounds, pair-state and cleanup-plan read GitHub (and the remote they start in) as the fenced
         # login, and cleanup-plan names that login in the pulls it emits; only the local calls run bare
         local = {"identity", "context", "branch-check"}
         bad = []
-        pattern = re.compile(r'(\[as\] )?bash scripts/pr-pair\.sh (?:--project (?:"[^"]+"|\S+) )?([a-z][a-z-]*)')
+        # a call has options; a name in prose (`<sw> pr policy`, `<sw> pr reply`) is a mention
+        pattern = re.compile(r'<sw> (?:--project (?:"[^"]+"|\S+) )?pr ([a-z][a-z-]*)(?=[^`]*\s--)')
         for line in TEXT.splitlines():
             for m in pattern.finditer(line):
-                selected_fence = re.search(r'bash scripts/as\.sh --project "<code toplevel>" <store login> $', line[:m.start()])
-                if not (m.group(1) or selected_fence) and m.group(2) not in local:
+                fenced = re.search(r'<sw> (?:--project (?:"[^"]+"|\S+) )?as (?:<[^>]+>|\S+) $', line[:m.start()])
+                if not fenced and m.group(1) not in local:
                     bad.append(m.group(0))
-        self.assertFalse(bad, f"pr-pair.sh calls without `[as]`: {bad}")
+        self.assertFalse(bad, f"<sw> pr calls without `<sw> as`: {bad}")
 
     def watch_bullets(self):
         return SECTIONS["watch"][1].split("\n   - ")
@@ -506,7 +508,7 @@ class RunLogin(unittest.TestCase):
         self.assertRegex(ship_bullet, r"(?i)run login", "watch -> ship does not pass the run login")
         w1 = watch[watch.index("1. Wait in the background"):watch.index("\n2. On wake")]
         self.assertRegex(w1, r"(?i)run login", "the --wait watcher is not given the run login")
-        self.assertRegex(w1, r"\[as\][^`]*--wait", "the --wait command line does not run under `[as]`")
+        self.assertRegex(w1, r"<sw> as[^`]*--wait", "the --wait command line does not run under `<sw> as`")
         fb9 = re.search(r"^9\. .*$", SECTIONS["feedback"][1], re.M).group(0)
         self.assertRegex(fb9, r"(?i)run login", "feedback's ship hand-off does not pass the run login")
 
@@ -515,11 +517,11 @@ class RunLogin(unittest.TestCase):
         self.assertTrue(m, "no **Review requests** paragraph")
         p = m.group(0)
         self.assertRegex(p, r"request_as[^.]*review_request\.login[^.]*run login", "the poster chain does not end at the run login")
-        self.assertRegex(p, r"(?i)fenced|as\.sh", "the request is not posted fenced")
+        self.assertRegex(p, r"(?i)fenced|<sw> as", "the request is not posted fenced")
         self.assertRegex(p, r"exits? 3", "a poster without a credential does not stop on exit 3")
         self.assertRegex(p, r"(?i)never[^.]*(another|other|active) account", "the poster may fall back to another account")
         ship6 = re.search(r"^6\. .*$", SECTIONS["ship"][1], re.M).group(0)
-        self.assertRegex(ship6, r"as\.sh <poster>", "ship step 6 does not post through as.sh with the poster")
+        self.assertRegex(ship6, r"<sw> as <poster>", "ship step 6 does not post through <sw> as with the poster")
         self.assertNotRegex(ship6, r"(?i)plain|ambient", "ship step 6 still posts plain for the ambient account")
 
     def test_cleanup_pulls_are_fenced_and_stop(self):
@@ -560,7 +562,7 @@ class AgentMerge(unittest.TestCase):
     def remote_bullet(self):
         c = self.cleanup()
         at = c.find("delete-remote")
-        self.assertNotEqual(at, -1, "Cleanup after merge never runs `pr-pair.sh delete-remote`")
+        self.assertNotEqual(at, -1, "Cleanup after merge never runs `<sw> pr delete-remote`")
         start = c.rfind("\n- ", 0, at) + 1
         end = c.find("\n- ", at)
         return c[start:end if end != -1 else len(c)]
@@ -574,7 +576,7 @@ class AgentMerge(unittest.TestCase):
     def test_watch_merges_only_with_pr_merge_agent(self):
         w = self.watch()
         ctx = positions(sub("context"), w)
-        self.assertTrue(ctx, "watch never reads `pr-pair.sh context`")
+        self.assertTrue(ctx, "watch never reads `<sw> pr context`")
         self.assertLess(ctx[0], w.index("--wait"), "watch reads `context` after it starts waiting")
         start = w[:w.index("--wait")]
         for token in ("merge_method", "delete_branch", "bad_setting", "merge_note"):
@@ -587,7 +589,7 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(m, r"`finish` is `pr`", "the merge bullet does not require `finish: pr`")
         self.assertRegex(m, r"merge_ready", "the merge bullet does not read `merge_ready`")
         self.assertRegex(m, r"agent merge needs a required reviewer in pr\.reviewers", "a missing required reviewer is not reported")
-        self.assertLess(m.index("merge_ready"), m.index("pr-pair.sh merge"), "the merge runs before `merge_ready` is checked")
+        self.assertLess(m.index("merge_ready"), m.index("<sw> pr merge"), "the merge runs before `merge_ready` is checked")
         step = self.step3()
         self.assertLess(step.index("**Merge:**"), step.index("\n   - Otherwise"), "the user-mode fallback comes before the merge rule")
         other = step[step.index("\n   - Otherwise"):]
@@ -618,8 +620,8 @@ class AgentMerge(unittest.TestCase):
 
     def test_merge_command_and_outcomes(self):
         m = self.merge()
-        cmd = re.search(r"`\[as\] bash scripts/pr-pair\.sh merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`", m)
-        self.assertTrue(cmd, "the merge command is not `[as] bash scripts/pr-pair.sh merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`")
+        cmd = re.search(r"`<sw> as <run login> <sw> pr merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`", m)
+        self.assertTrue(cmd, "the merge command is not `<sw> as <run login> <sw> pr merge --repo <owner>/<name> --pr <n> --method <merge_method> --head <ready head>`")
         tail = m[cmd.end():]
         self.assertRegex(tail, r"(?is)`merged`[^;.]*Cleanup after merge", "`merged` does not lead to Cleanup after merge")
         self.assertRegex(tail, r"(?is)`reason`[^;.]*`head_changed`[^;.]*watch(es|ing)? again[^;.]*repo-local",
@@ -674,7 +676,7 @@ class AgentMerge(unittest.TestCase):
         self.assertRegex(b, r"`merge` is `agent`", "remote deletion is not tied to `merge: agent`")
         self.assertRegex(b, r"`delete_branch`", "remote deletion ignores `delete_branch`")
         self.assertRegex(b, r"(?is)\bwhoever merged", "remote deletion is limited to the agent's own merge")
-        self.assertRegex(b, r"\[as\] bash scripts/pr-pair\.sh delete-remote --repo <owner>/<name> --branch <branch> --head <merged head", "the delete-remote call is wrong or not fenced")
+        self.assertRegex(b, r"<sw> as <run login> <sw> pr delete-remote --repo <owner>/<name> --branch <branch> --head <merged head", "the delete-remote call is wrong or not fenced")
         self.assertRegex(b, r"(?is)`merge` is `user`[^.]*never delete", "user mode may delete a remote branch")
         for status in ("deleted", "gone", "moved", "based_on", "kept"):
             self.assertIn(f"`{status}`", b, f"delete-remote's `{status}` is not handled")
@@ -717,7 +719,7 @@ class AgentMerge(unittest.TestCase):
         p = self.policy_read()
         self.assertRegex(p, r"(?is)start-of-watch read[^.]*only|only[^.]*start-of-watch read", "`context` is not limited to the start-of-watch read")
         self.assertRegex(p, r"(?is)never decides an archive or a merge", "`context`'s merge may still decide the archive or the merge")
-        self.assertRegex(p, r"(?is)\[as\] bash scripts/pr-pair\.sh policy --repo <owner>/<name> --head <ready head> --snapshot code=<file>",
+        self.assertRegex(p, r"(?is)<sw> as <run login> <sw> pr policy --repo <owner>/<name> --head <ready head> --snapshot code=<file>",
                          "watch has no fenced `policy` call")
         self.assertRegex(p, r"(?is)default branch[^.]*never[^.]*work tree", "the policy is not read from the default branch")
         self.assertRegex(p, r"(?is)for every change or roadmap branch[^.]*whatever `context`'s `merge` says", "the read is skipped when `context` says `user`")
@@ -731,7 +733,7 @@ class AgentMerge(unittest.TestCase):
                          "`merge_ready` is not taken from `policy` for every expected PR")
         self.assertRegex(m, r"(?is)`reported\.main`[^.]*`ok`[^.]*every expected PR", "`reported.main` is not required ok for every expected PR")
         self.assertRegex(m, r"(?is)empty `drift`|no `drift`", "the no-drift condition is missing")
-        self.assertLess(m.index("`policy`"), m.index("pr-pair.sh merge"), "the merge runs before `policy` is read")
+        self.assertLess(m.index("`policy`"), m.index("<sw> pr merge"), "the merge runs before `policy` is read")
 
     def test_unknown_policy_merges_nothing(self):
         o = self.sub_bullet("**Policy outcome.**")
@@ -760,7 +762,7 @@ class AgentMerge(unittest.TestCase):
         # PR #174 review: a store archive head keeps --reviewer-config, so its request-driven reviewer is waiting;
         # pair-state must be told about the carry-over or the pair is never ready.
         w = SECTIONS["watch"][1]
-        self.assertRegex(w, r"(?is)pr-pair\.sh pair-state [^\n]*`--carry-over <side>` for a side whose archive head is under the carry-over",
+        self.assertRegex(w, r"(?is)<sw> pr pair-state [^\n]*`--carry-over <side>` for a side whose archive head is under the carry-over",
                          "watch does not pass --carry-over to pair-state for an archive head under the carry-over")
 
     def test_drift_with_main_user_still_reaches_the_question(self):
@@ -834,7 +836,7 @@ class AgentMerge(unittest.TestCase):
     def test_snapshot_commands_take_reviewer_config(self):
         self.assertNotRegex(TEXT, r"--reviewer\b(?!-)", "SKILL.md still names the removed `--reviewer` argument")
         self.assertNotIn("<reviewers>", TEXT, "SKILL.md still uses the `<reviewers>` placeholder")
-        calls = [m.group(1) for m in re.finditer(r"`([^`]*pr-snapshot\.sh <pr>[^`]*)`", TEXT) if "--full" not in m.group(1)]
+        calls = [m.group(1) for m in re.finditer(r"`([^`]*<sw> pr snapshot <pr>[^`]*)`", TEXT) if "--full" not in m.group(1)]
         self.assertGreaterEqual(len(calls), 2, "found too few snapshot commands")
         for c in calls:
             self.assertIn("--reviewer-config", c, f"a snapshot command lacks `--reviewer-config`: {c[:90]!r}")
@@ -912,7 +914,7 @@ class ClosingReferences(unittest.TestCase):
     def test_ship_runs_closing_check_after_ensure_pr(self):
         step = self.ship_43()
         checks, ensures = positions(sub("closing-check"), step), positions(sub("ensure-pr"), step)
-        self.assertTrue(checks, "ship step 4.3 never runs `pr-pair.sh closing-check`")
+        self.assertTrue(checks, "ship step 4.3 never runs `<sw> pr closing-check`")
         self.assertTrue(ensures)
         self.assertLess(ensures[0], checks[0], "`closing-check` runs before `ensure-pr`")
         self.assertRegex(step, r"\bnot_default_base\b")
@@ -949,21 +951,21 @@ class CleanupClosingReferences(unittest.TestCase):
     def closing_bullet(self):
         text = self.cleanup()
         at = text.find("closed-check")
-        self.assertNotEqual(at, -1, "Cleanup after merge never runs `pr-pair.sh closed-check`")
+        self.assertNotEqual(at, -1, "Cleanup after merge never runs `<sw> pr closed-check`")
         start = text.rfind("\n- ", 0, at) + 1
         end = text.find("\n- ", at)
         return text[start:end if end != -1 else len(text)]
 
     def test_cleanup_closes_open_intended_issues(self):
         text = self.cleanup()
-        self.assertTrue(positions(sub("closed-check"), text), "Cleanup after merge never runs `pr-pair.sh closed-check`")
+        self.assertTrue(positions(sub("closed-check"), text), "Cleanup after merge never runs `<sw> pr closed-check`")
         b = self.closing_bullet()
         self.assertRegex(b, r"--repos", "`closed-check` is not given the change's repositories as `--repos`")
         self.assertRegex(b, r"(?i)each merged PR", "the check does not run for each merged PR")
         close = re.search(r"gh issue close <n> --repo <owner>/<name> --comment", b)
         self.assertTrue(close, "an `open` issue is not closed with `gh issue close <n> --repo ... --comment`")
         self.assertRegex(b, r"<pr_url>", "the closing comment does not name the PR")
-        self.assertRegex(b[close.start() - 12:close.start()], r"\[as\]", "the close does not run under the repository's identity")
+        self.assertRegex(b[close.start() - 40:close.start()], r"<sw> as", "the close does not run under the repository's identity")
         self.assertRegex(b, r"(?i)each `open` issue", "only `open` issues are closed")
         self.assertRegex(b, r"(?i)Related", "the text never says a `Related:` issue is not closed")
         fin = FINISH.read_text(encoding="utf-8")
@@ -1052,19 +1054,6 @@ class BodyFiles(unittest.TestCase):
             self.assertRegex(text, self.REMOVE, f"{name} does not tell the agent to remove the file whatever the command's outcome")
         ship4b = passages["ship 4b (description and closing-line rewrite)"]
         self.assertGreaterEqual(len(re.findall(self.REMOVE, ship4b)), 2, "ship 4b removes only one of its description and closing-line rewrite files")
-
-    def test_every_mktemp_in_a_script_has_a_failure_path_cleanup(self):
-        scripts = sorted(SKILL.parents[1].glob("*/scripts/*.sh"))
-        self.assertTrue(scripts, "found no skills/*/scripts/*.sh")
-        seen = 0
-        for path in scripts:
-            text = path.read_text(encoding="utf-8")
-            if "mktemp" not in text:
-                continue
-            seen += 1
-            self.assertRegex(text, r"""trap\s+'[^']*rm -f[^']*'\s+\S*EXIT|rm -f "\$tmp\"""",
-                             f"{path.name} calls mktemp but has neither an EXIT trap nor an `rm -f \"$tmp\"` that removes the file")
-        self.assertTrue(seen, "no script calls mktemp; the check is vacuous")
 
 
 class FeedbackRerequest(unittest.TestCase):
@@ -1158,7 +1147,7 @@ class ArchiveHeadReview(unittest.TestCase):
 
     def test_watch_archive_head_no_request_no_reviewers(self):
         rule = self.archive_rule()
-        self.assertRegex(rule, r"review-run\.sh[`\"']?\s+archive-only", "watch does not run `review-run.sh archive-only`")
+        self.assertRegex(rule, r"<sw> review[`\"']?\s+archive-only", "watch does not run `<sw> review archive-only`")
         self.assertRegex(rule, r"(?is)archive_only: true.{0,400}no review request", "an archive-only head still gets a review request")
         self.assertRegex(rule, r"(?is)archive_only: true.{0,600}`--reviewer-config`", "the archive head is not watched with `--reviewer-config`")
         self.assertRegex(rule, r"(?is)archive_only: true.{0,900}carry-over", "the archive head is not said to be under the carry-over")
@@ -1224,8 +1213,8 @@ class ShipArchiveOnly(unittest.TestCase):
     def test_ship_skips_validate_for_archive_only_push(self):
         a = self.s4a()
         self.assertIn("ready head: <repo>=<sha>", a, "ship never reads the handed `ready head: <repo>=<sha>`")
-        run = re.search(r"review-run\.sh[`\"']?\s+archive-only", a)
-        self.assertTrue(run, "ship never runs `review-run.sh archive-only`")
+        run = re.search(r"<sw> review[`\"']?\s+archive-only", a)
+        self.assertTrue(run, "ship never runs `<sw> review archive-only`")
         self.assertRegex(a, r"(?is)archive-only.{0,300}planning repo", "archive-only is not run in the planning repo")
         self.assertLess(run.start(), positions(PUSH, a)[0], "archive-only runs after the push")
         self.assertRegex(a, r"(?is)`archive_only: true`.{0,40}skip `pr\.validate` for the planning repo and for a code repo[^.]*still (at|its)[^.]*ready head",
@@ -1283,7 +1272,7 @@ class DescriptionReviewSection(unittest.TestCase):
     def test_description_lists_waivers(self):
         block = self.review_block()
         self.assertRegex(block, r"(?is)waive.{0,200}reason", "waived findings are not listed with the user's reason")
-        self.assertRegex(block, r"review-run\.sh[`\"']?\s+gate", "the findings and waivers do not come from the record gate matched")
+        self.assertRegex(block, r"<sw> review[`\"']?\s+gate", "the findings and waivers do not come from the record gate matched")
 
     def test_description_ignores_untrailered_amendments(self):
         block = self.review_block()

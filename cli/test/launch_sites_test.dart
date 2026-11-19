@@ -1271,12 +1271,8 @@ const launchAllowlist = Allowlist(
     'process/transport.dart': 'Windows bash -c stdin transport (C9)',
   },
   scriptNames: {
-    'cli.dart': {'as.sh': ScriptSite(1, 'message: usage line of `sw as`')},
     'commands/finish.dart': {
-      'finish.sh': ScriptSite(2, 'message: usage and argument text'),
-    },
-    'fence/as_command.dart': {
-      'as.sh': ScriptSite(4, 'message: `as.sh:` refusal prefix'),
+      'finish.sh': ScriptSite(1, 'message: usage and argument text'),
     },
     'fence/exec_inherit.dart': {
       'as.sh': ScriptSite(
@@ -1287,10 +1283,7 @@ const launchAllowlist = Allowlist(
     'fence/fence.dart': {
       'as.sh': ScriptSite(24, 'message: `as.sh:` refusal text'),
     },
-    'finish/undo_plan.dart': {
-      'vcs.sh': ScriptSite(2, 'message text'),
-      'finish.sh': ScriptSite(1, 'message text'),
-    },
+    'finish/undo_plan.dart': {'vcs.sh': ScriptSite(1, 'message text')},
     'pr/queries.dart': {
       'pr-reply.sh': ScriptSite(2, 'comment text inside a jq program'),
       'reviewers.py': ScriptSite(4, 'comment text inside a jq program'),

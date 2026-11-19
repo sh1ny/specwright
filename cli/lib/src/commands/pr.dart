@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../pr/context.dart';
 import '../pr/identity.dart';
 import '../pr/policy.dart';
@@ -9,13 +7,9 @@ import '../pr/reply.dart';
 import '../pr/snapshot.dart';
 import '../pr/workflow.dart';
 import '../pr/pair.dart';
-import '../vcs/codec.dart' show NotUtf8;
-import '../vcs/document.dart' show documentBytes;
-import '../vcs/stop.dart' show VcsStop;
-import 'vcs.dart' show readAllStdin;
 
-/// The commands that take the shim's handoff on stdin.
-const List<String> _handoffCommands = [
+/// The commands `sw pr` runs besides `reviewers`.
+const List<String> _commands = [
   'snapshot',
   'reply',
   'identity',
@@ -37,26 +31,20 @@ const List<String> _handoffCommands = [
   'pass',
   'cleanup-plan',
   'branch-check',
-  'pair', // Internal invalid-call entry; the shim preserves its original records.
+  'pair', // Internal entry that prints the pair usage.
 ];
 
-final String _usage = 'usage: sw pr ${_handoffCommands.join('|')} --args-stdin';
+final String _usage =
+    'usage: sw pr reviewers|${_commands.join('|')} [arguments]';
 
-final String _handoffUsage =
-    'usage: sw pr ${_handoffCommands.join('|')} --args-stdin (stdin: scripts dir, bash path, then '
-    "the script's arguments, each record ending in a NUL byte)";
-
-/// `sw pr reviewers` (on argv: no shim calls it, `sw pr snapshot` runs it as a bounded child), and
-/// `sw pr snapshot|reply|identity|vcs|tier|context|policy --args-stdin`: the shims of `pr-snapshot.sh`, `pr-reply.sh` and
-/// `pr-pair.sh` hand over the scripts directory, their bash and every script argument as NUL-terminated records. [context] builds what the
-/// command runs against (default: real `gh` and tools). Returns the script's exit code; a call that is not one of the two
-/// forms, or a handoff that is not records, exits 2 with a usage line.
+/// `sw pr reviewers` (`sw pr snapshot` runs it as a bounded child) and `sw pr <command> [arguments]` for every other
+/// command. [context] builds what the command runs against (default: real `gh` and tools). Returns the command's exit
+/// code; a call that names no command exits 2 with a usage line.
 Future<int> runPrCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
   required void Function(List<int> bytes) writeErr,
-  Future<List<int>> Function()? readStdin,
-  PrContext Function(String scriptsDir, String bash)? context,
+  PrContext Function()? context,
 }) async {
   if (args.isNotEmpty && args[0] == 'reviewers') {
     return runReviewers(
@@ -65,59 +53,25 @@ Future<int> runPrCommand(
       writeErr: writeErr,
     );
   }
-  void usage(String text) => writeErr('$text\n'.codeUnits);
-  // `sw pr <command> [arguments]`, or the old `<command> --args-stdin` handoff
-  // (removed with the shims, task 7.3).
-  final oldForm = args.length == 2 && args[1] == '--args-stdin';
-  final direct =
-      !oldForm && args.isNotEmpty && _handoffCommands.contains(args[0]);
-  if (!direct && !(oldForm && _handoffCommands.contains(args[0]))) {
-    usage(_usage);
+  if (args.isEmpty || !_commands.contains(args[0])) {
+    writeErr('$_usage\n'.codeUnits);
     return 2;
   }
-  final ({String scriptsDir, String bash, List<String> args})? handoff;
-  try {
-    handoff = direct
-        ? (scriptsDir: '', bash: '', args: args.sublist(1))
-        : parsePrHandoff(await (readStdin ?? readAllStdin)());
-  } on NotUtf8 catch (e) {
-    // D4: a name the call would act on is refused before any work. The two text scripts say so on stderr, as
-    // `fit-subject.sh` does; every other command prints its document.
-    if (args[0] == 'snapshot' || args[0] == 'reply') {
-      writeErr(
-        utf8.encode(
-          'pr-${args[0]}.sh: ${e.message}; rename it and run again\n',
-        ),
-      );
-      return 2;
-    }
-    writeOut(documentBytes(VcsStop.notUtf8(e).object()));
-    return 1;
-  }
-  if (handoff == null) {
-    usage(_handoffUsage);
-    return 2;
-  }
+  final rest = args.sublist(1);
   final ctx =
-      context?.call(handoff.scriptsDir, handoff.bash) ??
-      PrContext(
-        scriptsDir: handoff.scriptsDir,
-        bash: handoff.bash,
-        writeOut: writeOut,
-        writeErr: writeErr,
-      );
+      context?.call() ?? PrContext(writeOut: writeOut, writeErr: writeErr);
   return switch (args[0]) {
     'pair' => runPairCommand(ctx, () async {
       pairUsage(
         'subcommand: identity | context | tier | vcs | discover | expected | ensure-pr | closing-check | closed-check | link | pair-state | rounds | pass | cleanup-plan | branch-check | merge | delete-remote | policy | item-issues',
       );
     }),
-    'snapshot' => runSnapshot(ctx, handoff.args),
-    'reply' => runReply(ctx, handoff.args),
-    'identity' => runIdentity(ctx, handoff.args),
-    'vcs' => runVcs(ctx, handoff.args),
-    'tier' => runTier(ctx, handoff.args),
-    'context' => runContext(ctx, handoff.args),
+    'snapshot' => runSnapshot(ctx, rest),
+    'reply' => runReply(ctx, rest),
+    'identity' => runIdentity(ctx, rest),
+    'vcs' => runVcs(ctx, rest),
+    'tier' => runTier(ctx, rest),
+    'context' => runContext(ctx, rest),
     'discover' ||
     'ensure-pr' ||
     'link' ||
@@ -131,7 +85,7 @@ Future<int> runPrCommand(
     'item-issues' ||
     'pass' ||
     'cleanup-plan' ||
-    'branch-check' => runWorkflow(ctx, args[0], handoff.args),
-    _ => runPolicy(ctx, handoff.args),
+    'branch-check' => runWorkflow(ctx, args[0], rest),
+    _ => runPolicy(ctx, rest),
   };
 }

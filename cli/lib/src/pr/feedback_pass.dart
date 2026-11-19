@@ -187,7 +187,7 @@ class FeedbackPass {
   Future<PassDocument> _vcs(List<String> argv) => workflow.vcs(argv);
 
   Future<PassDocument> _owner(String id, String checkout) async {
-    final native = await ctx.native(checkout);
+    final native = checkout;
     final absolute = Directory(native).absolute.path;
     return {
       'id': id,
@@ -293,8 +293,8 @@ class FeedbackPass {
     }
     final local = args['store'] == null || args['store']!.isEmpty;
     _checkHeader(intent, local);
-    final code = await ctx.native(args['code']!);
-    final store = local ? null : await ctx.native(args['store']!);
+    final code = args['code']!;
+    final store = local ? null : args['store']!;
     final path = records.locate(args['code_repo']!, args['change']!).path;
     if (_exists(path)) {
       throw PairStop(
@@ -734,10 +734,10 @@ class FeedbackPass {
         );
       }
     }
-    final code = await ctx.native(args['code']!);
+    final code = args['code']!;
     final store = args['store'] == null || args['store']!.isEmpty
         ? null
-        : await ctx.native(args['store']!);
+        : args['store']!;
     final contexts = await workflowContexts(ctx, code, store);
     final directories = {'code': code, 'store': store},
         marker = record['marker'];

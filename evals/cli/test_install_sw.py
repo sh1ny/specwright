@@ -1,12 +1,13 @@
-"""`mise run install-sw` places a tree-built sw where the resolver looks for it (native-cli-vcs D5, native-cli-update D7).
+"""`mise run install-sw` places a tree-built sw where the skills look for it (native-cli-vcs D5, native-cli-update D7).
 
 The task runs `dart run cli/tool/build.dart --install`: it builds a sw to a temporary path inside cli/build/, checks it
 and places it with `sw update sw-install --build`. No shell syntax or bash reaches the task. The tests run the task
-against a temporary SPECWRIGHT_HOME, so they do not touch the real one. A mismatched version or interface must leave
-every existing file as it was.
+against a temporary SPECWRIGHT_HOME, so they do not touch the real one. A mismatched version or interface, or a
+workflow interface other than the one the tree's skills require, must leave every existing file as it was.
 
 Run: python -m unittest evals/cli/test_install_sw.py   (needs mise on PATH, which pins dart)
 """
+import json
 import os
 import shutil
 import subprocess
@@ -18,10 +19,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-import bashexe  # noqa: E402
-
 ROOT = Path(HERE).resolve().parent.parent
-RESOLVER = ROOT / "skills" / "specwright-pr" / "scripts" / "sw-path.sh"
 EXE = "sw.exe" if os.name == "nt" else "sw"
 BUILD_DIR = ROOT / "cli" / "build"
 
@@ -64,16 +62,47 @@ class TestInstallSw(unittest.TestCase):
                          (ROOT / "cli/THIRD_PARTY_NOTICES.txt").read_bytes())
         printed = done.stdout.strip().splitlines()[-1]
         self.assertEqual(os.path.normcase(os.path.realpath(printed)), os.path.normcase(os.path.realpath(placed)))
-        bash = bashexe.bash()
-        if bash:
-            code = self.tmp / "code"
-            (code / "openspec" / ".specwright").mkdir(parents=True)
-            (code / "openspec" / ".specwright" / "VERSION").write_text(self.version + "\n", encoding="utf-8")
-            found = subprocess.run([bash, RESOLVER.as_posix(), "--code", code.as_posix()], env=self.env,
-                                   capture_output=True, text=True, encoding="utf-8", timeout=60)
-            self.assertEqual(found.returncode, 0, found.stdout + found.stderr)
-            self.assertEqual(os.path.normcase(os.path.realpath(found.stdout.strip())),
-                             os.path.normcase(os.path.realpath(placed)))
+        # The placed binary serves a project at the tree's VERSION: `sw vcs state` runs from it, nothing else resolves it.
+        code = self.tmp / "code"
+        (code / "openspec" / ".specwright").mkdir(parents=True)
+        (code / "openspec" / ".specwright" / "VERSION").write_text(self.version + "\n", encoding="utf-8")
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run([*git, "init", "-q", "-b", "main", code.as_posix()], check=True, env=self.env, timeout=60)
+        subprocess.run([*git, "-C", code.as_posix(), "add", "-A"], check=True, env=self.env, timeout=60)
+        subprocess.run([*git, "-C", code.as_posix(), "commit", "-q", "-m", "init"], check=True, env=self.env, timeout=60)
+        shown = subprocess.run([str(placed), "version", "--json"], env=self.env, capture_output=True, text=True,
+                               encoding="utf-8", timeout=60)
+        self.assertEqual(shown.returncode, 0, shown.stdout + shown.stderr)
+        self.assertEqual(json.loads(shown.stdout)["version"], self.version)
+        state = subprocess.run([str(placed), "vcs", "state", "--repo", code.as_posix(), "--role", "code"], env=self.env,
+                               capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(state.returncode, 0, state.stdout + state.stderr)
+        self.assertTrue(json.loads(state.stdout)["ok"], state.stdout)
+
+    def test_workflow_interface_differs_from_skill_pin(self):
+        # The skills in the tree require interface 1; the build reports its own: nothing is placed, both are named.
+        pin = self.tmp / "pin.md"
+        pin.write_text("# pr skill\n\ninterface 1\n", encoding="utf-8")
+        self.bin.mkdir(parents=True)
+        (self.bin / EXE).write_text("existing\n", encoding="utf-8")
+        before_home = snapshot(self.home)
+        before_build = sorted(p.name for p in BUILD_DIR.iterdir()) if BUILD_DIR.is_dir() else []
+        done = self.task("--interface-from", pin.as_posix())
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("interface 2", done.stderr)
+        self.assertIn("require interface 1", done.stderr)
+        self.assertIn("nothing was placed", done.stderr)
+        self.assertEqual(snapshot(self.home), before_home)
+        after_build = sorted(p.name for p in BUILD_DIR.iterdir()) if BUILD_DIR.is_dir() else []
+        self.assertEqual(after_build, before_build)
+
+    def test_skill_pin_without_interface_line_places_nothing(self):
+        pin = self.tmp / "pin.md"
+        pin.write_text("# pr skill\n", encoding="utf-8")
+        done = self.task("--interface-from", pin.as_posix())
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("interface <n>", done.stderr)
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), [])
 
     def test_expected_interface_build_placed(self):
         # The build's own interface (3) is the expected one: the task places it as it does without the check.

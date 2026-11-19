@@ -1,4 +1,5 @@
-"""Native feedback records and current-evidence planning against the frozen script."""
+"""Native feedback records and current-evidence planning, against the bytes and runs the frozen script left (change
+native-cli-retire-scripts task 7.2): no case starts a frozen script."""
 import json
 import os
 import shutil
@@ -15,42 +16,37 @@ import test_pr_pair as original
 import oracle_capture
 import test_parity as parity
 import fakeexe  # parity puts evals/ on sys.path
+import swcall  # parity puts evals/ on sys.path
+from types import SimpleNamespace
 
 
 def setUpModule():
     parity.setUpModule()
 
 
-def tearDownModule():
-    parity.tearDownModule()
-
-
 class NativePass:
-    def capture_frozen(self, args, result, record=True):
-        """The frozen run's record (D14): its calls are read here without consuming the log, which the case reads itself."""
-        if not oracle_capture.enabled():
-            return
-        calls = [json.loads(l)["argv"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()] if self.gh_log.exists() else []
-        kept = None
-        if record and args[:2] == ["pass", "write"] and result.returncode == 0:
-            kept = self.record_path().read_bytes()  # the frozen writer's record, as bytes
-        oracle_capture.record(self, "frozen", {"code": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
-                                               "calls": calls, "state": self.gh_state.read_bytes()}, owner_record=kept)
-
     def command(self, args, which="native", env=None, cwd=None):
         environment = {**self.env(), **(env or {})}
         args = list(map(str, args))
         if which == "native":
-            binary = os.environ["SPECWRIGHT_SW"]
-            payload = b"".join(str(x).encode("utf-8") + b"\0" for x in
-                               [parity.SCRIPTS, parity.bashexe.bash(), *args[1:]])
-            return subprocess.run([binary, "pr", args[0], "--args-stdin"], input=payload,
-                                  cwd=cwd or self.tmp, env=environment, capture_output=True, timeout=120)
-        environment["ORACLE_SW_DIR"] = parity.oracle_sw_dir()
-        result = subprocess.run([parity.bashexe.bash(), str(parity.ORACLE / "pr-pair.sh"), *args],
-                                cwd=cwd or self.tmp, env=environment, capture_output=True, timeout=120)
-        self.capture_frozen(args, result)
-        return result
+            return swcall.run(["pr", *args], cwd=cwd or self.tmp, env=environment, timeout=120, text=False)  # direct entry
+        return self.recorded_run()
+
+    def recorded_run(self, case=None):
+        """The next recorded run of the frozen side as a finished process. A `pass write` also leaves the record it wrote, as
+        the recorded bytes with the checkout of the machine that wrote it replaced by this one's, and its stdout names that
+        record's owner."""
+        doc, kept = oracle_capture.recorded(self, case)
+        out = doc["stdout"]
+        if kept is not None:
+            written = json.loads(kept.decode("utf-8"))["owner"]
+            text = kept.decode("utf-8").replace(written["checkout"], str(self.code).replace("\\", "/"))
+            self.record_path().parent.mkdir(parents=True, exist_ok=True)
+            self.record_path().write_bytes(text.encode("utf-8"))
+            if isinstance(out, dict):
+                out = dict(out, owner=written["id"])
+        stdout = (json.dumps(out) + "\n").encode("utf-8")
+        return SimpleNamespace(returncode=doc["exit"], stdout=stdout, stderr=b"")
 
     def pp(self, *args, env=None, expect=0, cwd=None, which="native"):
         result = self.command(args, which, env, cwd)
@@ -73,61 +69,10 @@ class WorkflowRecords(NativePass, original.PassBase):
     link_args = original.PassPlan.link_args
     markers = original.PassPlan.markers
 
-    def test_native_runtime_has_no_embedded_workflow(self):
-        text = original.SCRIPT.read_text(encoding='utf-8')
-        self.assertNotIn("<<'PYSRC'", text)
-        self.assertNotIn('def pass_write(', text)
-        self.assertNotIn('class _Bounded:', text)
-        for command in ('identity', 'context', 'vcs', 'tier', 'policy', 'discover',
-                        'expected', 'ensure-pr', 'link', 'pair-state', 'rounds',
-                        'closing-check', 'closed-check', 'merge', 'delete-remote',
-                        'item-issues', 'pass', 'cleanup-plan', 'branch-check'):
-            self.assertIn(command, text)
-
     def test_native_pass_write_uses_utf8_lf_without_python38(self):
         f = self.write_json('native-lf-intent.json', self.intent([]))
         result = self.pp('pass', 'write', *self.common(), '--intent', f)
         self.assertTrue(result['ok'])
-        data = self.record_path().read_bytes()
-        self.assertNotIn(b'\r', data)
-        self.assertEqual(json.loads(data.decode('utf-8'))['change'], original.CHANGE)
-
-    def python38(self):
-        py = original.find_py38()
-        if not py:
-            self.skipTest('no Python 3.8 interpreter (set SPECWRIGHT_PY38, or `uv python install 3.8`)')
-        return py
-
-    def test_no_python_3_8_available_to_the_test(self):
-        # Test the conditional check's reported outcome rather than returning
-        # successfully when this machine has no minimum-version interpreter.
-        case = unittest.FunctionTestCase(self.python38)
-        result = unittest.TestResult()
-        with mock.patch.object(original, 'find_py38', return_value=None):
-            case.run(result)
-        self.assertEqual(result.testsRun, 1)
-        self.assertEqual(len(result.skipped), 1)
-        self.assertIn('no Python 3.8 interpreter', result.skipped[0][1])
-        self.assertEqual(result.failures + result.errors, [])
-
-    def test_pass_write_on_python_3_8(self):
-        py = self.python38()
-        shims = self.tmp / 'py38bin'
-        shims.mkdir()
-        for name in ('python3', 'python'):
-            wrapper = shims / name
-            wrapper.write_text(f'#!/bin/sh\nexec "{original.fixtures.posix(py)}" "$@"\n', encoding='utf-8', newline='\n')
-            wrapper.chmod(0o755)
-        environment = {**self.env(), 'PATH': str(shims) + os.pathsep + self.env()['PATH']}
-        probe = subprocess.run([parity.bashexe.bash(), '-c', "python3 -c 'import sys; print(sys.version_info[:2])'"],
-                               capture_output=True, text=True, env=environment, timeout=30)
-        self.assertEqual(probe.stdout.strip(), '(3, 8)', probe.stdout + probe.stderr)
-        intent = self.write_json('py38-intent.json', self.intent([]))
-        result = subprocess.run([parity.bashexe.bash(), str(original.SCRIPT), 'pass', 'write',
-                                 *map(str, self.common()), '--intent', str(intent)],
-                                capture_output=True, text=True, env=environment, cwd=self.tmp, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue(json.loads(result.stdout)['ok'])
         data = self.record_path().read_bytes()
         self.assertNotIn(b'\r', data)
         self.assertEqual(json.loads(data.decode('utf-8'))['change'], original.CHANGE)
@@ -152,19 +97,9 @@ class WorkflowRecords(NativePass, original.PassBase):
                 raw[key] = value
         return raw
 
-    def raw_pp(self, args, environment, which='native', expect=0):
+    def raw_pp(self, args, environment, expect=0):
         args = list(map(str, args))
-        environment = dict(environment)
-        if which == 'native':
-            payload = b''.join(str(value).encode('utf-8') + b'\0' for value in
-                               [parity.SCRIPTS, parity.bashexe.bash(), *args[1:]])
-            result = subprocess.run([os.environ['SPECWRIGHT_SW'], 'pr', args[0], '--args-stdin'],
-                input=payload, env=environment, cwd=self.tmp, capture_output=True, timeout=120)
-        else:
-            environment[b'ORACLE_SW_DIR'] = os.fsencode(parity.oracle_sw_dir())
-            result = subprocess.run([parity.bashexe.bash(), str(parity.ORACLE / 'pr-pair.sh'), *args],
-                env=environment, cwd=self.tmp, capture_output=True, timeout=120)
-            self.capture_frozen(args, result, record=False)
+        result = swcall.run(['pr', *args], env=dict(environment), cwd=self.tmp, timeout=120, text=False)  # direct entry
         self.assertEqual(result.returncode, expect, (result.stdout, result.stderr))
         return json.loads(result.stdout.decode('utf-8', errors='surrogateescape'))
 
@@ -211,9 +146,9 @@ class WorkflowRecords(NativePass, original.PassBase):
         expected = root + b'/feedback/' + original.record_key(original.CODE, original.CHANGE).encode()
         self.assertTrue(os.path.isfile(expected))
         self.assertEqual(os.fsencode(written['path']), expected)
-        frozen = self.raw_pp(['pass', 'plan', *self.common()], environment, 'frozen')
-        self.assertTrue(frozen['record'])
-        self.assertEqual(os.fsencode(frozen['path']), expected)
+        planned = self.raw_pp(['pass', 'plan', *self.common()], environment)
+        self.assertTrue(planned['record'])
+        self.assertEqual(os.fsencode(planned['path']), expected)
 
     @unittest.skipIf(os.name == 'nt', 'platform: raw POSIX process environment is unavailable on Windows')
     def test_missing_home_refuses_without_choosing_a_directory(self):
@@ -258,34 +193,86 @@ class WorkflowRecords(NativePass, original.PassBase):
         return ["--snapshot", f"code={self.write_json('code-snap.json', snapshot or original.snap())}",
                 "--snapshot", f"store={self.write_json('store-snap.json', original.snap())}"]
 
-    def compare_plan(self, snapshot=None):
-        args = ["pass", "plan", *self.common(), "--owner", self.owner, *self.snapshots(snapshot)]
-        before = self.gh_state.read_bytes()
-        native = self.pp(*args)
-        native_calls = parity.calls_of(self.gh_log, lambda call: call["argv"])
-        self.gh_state.write_bytes(before)
-        frozen = self.pp(*args, which="frozen")
-        frozen_calls = parity.calls_of(self.gh_log, lambda call: call["argv"])
-        self.assertEqual(native, frozen)
-        self.assertEqual(native_calls, frozen_calls)
-        return native
+    def captured(self, method):
+        """The directory name the capture gave this class's test `method`."""
+        return f"{type(self).__module__.rsplit('.', 1)[-1]}.{type(self).__qualname__}.{method}"
 
-    def test_native_plan_resumes_an_existing_record(self):
-        intent = self.write_json("intent.json", self.intent([self.finding()]))
-        written = self.pp("pass", "write", *self.common(), "--intent", intent, which="frozen")
+    def compare_plan(self, snapshot=None, case=None):
+        """Native `pass plan` equals the next recorded frozen run (`case` names its records, else this test's): the exit status,
+        the document apart from the generated owner fields, the `gh` calls, the final fake-gh state and the comment bodies."""
+        args = ["pass", "plan", *self.common(), "--owner", self.owner, *self.snapshots(snapshot)]
+        result = self.command(args)
+        calls = parity.calls_of(self.gh_log, lambda call: call["argv"])
+        got = oracle_capture.document(self, {"code": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+                                             "calls": calls, "state": self.gh_state.read_bytes()})
+        want = oracle_capture.recorded(self, case)[0]
+        self.assertIsNone(oracle_capture.compare(self, got, want))
+        return json.loads(result.stdout)
+
+    def resumes_a_recorded_frozen_record(self, case=None):
+        written = json.loads(self.recorded_run(case).stdout)  # the frozen writer's run: it leaves its record as recorded bytes
+        self.assertTrue(written["ok"], written)
         self.owner = written["owner"]
-        result = self.compare_plan(original.snap(threads=[original.thread()]))
+        before = self.record_path().read_bytes()
+        result = self.compare_plan(original.snap(threads=[original.thread()]), case)
         self.assertEqual((result["status"], result["round"], result["new_pass_allowed"]), ("resume", 2, False))
         self.assertEqual(self.row(result, "fix_commit", "store")["action"], "finish_edits")
+        self.assertEqual(self.record_path().read_bytes(), before, "a plan does not change the record")
 
-    def test_script_plan_reads_a_native_record(self):
+    def test_native_plan_resumes_a_recorded_frozen_record(self):
+        self.resumes_a_recorded_frozen_record()
+
+    GENERATED = ("id", "at", "checkout", "host")
+
+    def normalized_record(self, raw):
+        """A record's parsed fields with the generated ones checked for form and for their relation to the run, then replaced."""
+        from datetime import datetime, timezone
+        record = json.loads(raw.decode("utf-8"))
+        owner = record["owner"]
+        self.assertRegex(owner["id"], r"^[0-9a-f]{32}$")
+        stamp = datetime.fromisoformat(owner["at"].replace("Z", "+00:00"))
+        self.assertLessEqual(stamp, datetime.now(timezone.utc))
+        self.assertEqual(owner["checkout"], str(self.code).replace("\\", "/"))
+        self.assertTrue(owner["host"].strip())
+        if "written_at" in record:
+            self.assertEqual(record["written_at"], owner["at"])
+            record["written_at"] = "<time>"
+        record["owner"] = {key: "<%s>" % key for key in self.GENERATED}
+        return record
+
+    def native_record_matches_the_fixture(self, case=None):
         self.write_record([self.finding()])
         raw = self.record_path().read_bytes()
         self.assertNotIn(b"\r", raw)
+        raw.decode("utf-8")
         self.assertEqual(json.loads(raw)["version"], 2)
-        self.compare_plan(original.snap(threads=[original.thread()]))
+        self.compare_plan(original.snap(threads=[original.thread()]), case)  # the frozen reader's recorded plan of this record
         self.assertEqual(self.record_path().read_bytes(), raw)
-        oracle_capture.fixture(self, raw)  # the record the frozen reader accepted
+        fixture = oracle_capture.recorded_fixture(self, case)  # the record the frozen reader accepted
+        self.assertEqual(self.normalized_record(raw), self.normalized_fixture(fixture))
+
+    def normalized_fixture(self, raw):
+        """The recorded fixture's fields, as normalized_record leaves a native record (its generated fields were the capturing
+        machine's: only their form is checked)."""
+        record = json.loads(raw.decode("utf-8"))
+        owner = record["owner"]
+        self.assertRegex(owner["id"], r"^[0-9a-f]{32}$")
+        self.assertTrue(owner["host"].strip())
+        if "written_at" in record:
+            self.assertEqual(record["written_at"], owner["at"])
+            record["written_at"] = "<time>"
+        record["owner"] = {key: "<%s>" % key for key in self.GENERATED}
+        return record
+
+    def test_native_record_matches_frozen_reader_fixture(self):
+        self.native_record_matches_the_fixture()
+
+    def test_records_both_ways_from_recorded_bytes(self):
+        # the native reader resumes from the frozen writer's recorded bytes, and the native writer's record is the fixture the
+        # frozen reader accepted: no frozen script starts
+        self.resumes_a_recorded_frozen_record(self.captured("test_native_plan_resumes_an_existing_record"))
+        self.setUp()
+        self.native_record_matches_the_fixture(self.captured("test_script_plan_reads_a_native_record"))
 
     def test_concurrent_writers_publish_one_record(self):
         intent = self.write_json("intent.json", self.intent([self.finding()]))
@@ -438,17 +425,6 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertEqual(refused["error"], "record_unreadable")
         self.assertEqual(legacy.read_bytes(), b"{cut off")
 
-    def test_frozen_script_refuses_a_native_lock_file(self):
-        self.write_record([self.finding()])
-        raw = self.record_path().read_bytes()
-        lock = Path(str(self.record_path()) + ".lock")
-        lock.write_bytes(b"native holder")
-        for operation, extra in [("adopt", ["--from", self.owner]), ("done", self.snapshots())]:
-            doc = self.pp("pass", operation, *self.common(), "--owner", self.owner, *extra, which="frozen", expect=1)
-            self.assertEqual(doc["error"], "record_busy")
-            self.assertEqual(lock.read_bytes(), b"native holder")
-            self.assertEqual(self.record_path().read_bytes(), raw)
-
     def test_interrupted_record_is_refused_by_each_pass_operation(self):
         self.record_path().parent.mkdir(parents=True, exist_ok=True)
         intent = self.write_json("intent.json", self.intent([self.finding()]))
@@ -521,7 +497,6 @@ class WorkflowRecords(NativePass, original.PassBase):
 
 
 # Exercise existing behavioural assertions through the native command boundary.
-# The frozen script remains the independent read/write oracle above.
 for _name in [
     "test_pass_plan_trailer_commit_with_part_of_the_edits_is_not_done",
     "test_pass_plan_recorded_head_dropped_from_the_branch_stops",

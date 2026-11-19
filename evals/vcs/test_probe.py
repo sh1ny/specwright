@@ -109,9 +109,9 @@ class TestProbe(VcsTestCase):
     def test_git_backend_ignores_in_repo_scripts(self):
         """fix-m5-gaps D7 (#150): the workspace check belongs to the GitButler backend; Git keeps in-repo installs."""
         self.set_settings(self.repo, "vcs: git\n")
-        scripts = self.repo / ".claude" / "skills" / "specwright-pr" / "scripts"
-        scripts.mkdir(parents=True)
-        (scripts / "placeholder.txt").write_text("an installed copy\n", encoding="utf-8")
+        installed = self.repo / ".claude" / "skills" / "specwright-pr" / "references"
+        installed.mkdir(parents=True)
+        (installed / "placeholder.txt").write_text("an installed copy\n", encoding="utf-8")
         for extra in (".agents/skills/specwright-branch", ".claude/agents/specwright-reviewer.md",
                       ".omp/agents/specwright-implementer.md"):
             path = self.repo / extra

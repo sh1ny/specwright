@@ -50,7 +50,7 @@ void main() {
     return f.existsSync() ? f.readAsLinesSync() : <String>[];
   }
 
-  VcsScripts scripts() => VcsScripts(posix(scriptsDir.path), bash!);
+  VcsScripts scripts() => VcsScripts();
   String code() => posix(repo.path);
 
   Future<VcsStop> stopOf(Future<Object?> Function() body) async {
@@ -158,8 +158,6 @@ void main() {
     var result = TextResult(0, '', '');
 
     VcsScripts fenced() => VcsScripts(
-      posix(scriptsDir.path),
-      bash!,
       fence: (repo, argv) async {
         calls.add((repo, argv));
         return result;
@@ -264,9 +262,14 @@ void main() {
       String? where,
     }) async {
       final target = where ?? posix(repo.path);
-      final records = [
-        posix(scriptsDir.path),
-        bash!,
+      // the project check comes first: the repository is a stamped project
+      File('${repo.path}/openspec/.specwright/VERSION')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('0.0.0-dev\n');
+      final args = [
+        '--project',
+        posix(repo.path),
+        'vcs',
         command,
         '--repo',
         target,
@@ -276,13 +279,10 @@ void main() {
       ];
       final out = <int>[];
       final code = await runCli(
-        ['vcs', '--args-stdin'],
+        args,
         out: StringBuffer(),
         err: StringBuffer(),
         outBytes: out.addAll,
-        readStdin: () async => [
-          for (final r in records) ...[...utf8.encode(r), 0],
-        ],
       );
       return (code, jsonDecode(utf8.decode(out)) as Map<String, Object?>);
     }

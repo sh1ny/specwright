@@ -184,11 +184,6 @@ class _Out {
   final Map<String, Object?> doc;
 }
 
-/// The `finish.sh` of this checkout: `cli/` is the working directory of
-/// `dart test`.
-String _finishScripts() =>
-    '${_posix(Directory.current.parent.path)}/skills/specwright-finish/scripts';
-
 /// A stub tool first on `PATH`: it logs its arguments (and
 /// `$GIT_TERMINAL_PROMPT`) to `$STUB_LOG`, then exits `$STUB_EXIT`.
 const String _stubTool = r'''#!/bin/sh
@@ -206,25 +201,12 @@ void main() {
   setUp(() => tmp = Directory.systemTemp.createTempSync('claude-ncf-g3-'));
   tearDown(() => tmp.deleteSync(recursive: true));
 
-  FinishContext context({
-    String? scriptsDir,
-    Map<String, String>? environment,
-    bool? windows,
-    String? bash,
-  }) => FinishContext(
-    scriptsDir: scriptsDir ?? _finishScripts(),
-    bash: bash ?? findBash()!,
-    environment: environment,
-    windows: windows,
-  );
+  FinishContext context({Map<String, String>? environment, bool? windows}) =>
+      FinishContext(environment: environment, windows: windows);
 
   FinishContext readerCtx(
     Future<Map<String, Object?>> Function(String, String?, String?) reader,
-  ) => FinishContext(
-    scriptsDir: _finishScripts(),
-    bash: bash!,
-    stateReader: reader,
-  );
+  ) => FinishContext(stateReader: reader);
 
   Future<_Out> plan(UndoRequest request, [FinishContext? ctx]) async {
     try {
@@ -374,41 +356,6 @@ void main() {
       });
     }, skip: skip);
 
-    test('a missing vcs.sh is vcs_script_missing, exit 2', () async {
-      final repo = makeRepo();
-      final scripts = '${_posix(tmp.path)}/q/./r/../fin/scripts';
-      final want = '${_posix(tmp.path)}/q/specwright-pr/scripts/vcs.sh';
-      final r = await plan(request(repo), context(scriptsDir: scripts));
-      expect(r.code, 2);
-      expect(r.doc, {
-        'ok': false,
-        'error': 'vcs_script_missing',
-        'message': '$want is missing; finish.sh reads the branch through it',
-        'path': want,
-      });
-    }, skip: skip);
-
-    test('not_a_repo comes before vcs_script_missing', () async {
-      final scripts = '${_posix(tmp.path)}/a/b/c';
-      final r = await plan(request(tmp.path), context(scriptsDir: scripts));
-      expect(r.doc['error'], 'not_a_repo');
-    }, skip: skip);
-
-    test(
-      'vcs_script_missing comes before the state read and bad_ref',
-      () async {
-        final repo = makeRepo();
-        final scripts = '${_posix(tmp.path)}/a/b/c';
-        final r = await plan(
-          request(repo, main: 'nope', code: '${tmp.path}/not/there'),
-          context(scriptsDir: scripts),
-        );
-        expect(r.code, 2);
-        expect(r.doc['error'], 'vcs_script_missing');
-      },
-      skip: skip,
-    );
-
     test('a stop from the state read keeps its error and message', () async {
       final repo = makeRepo();
       final r = await plan(
@@ -506,124 +453,33 @@ void main() {
       shimExe(stub.path);
     });
 
-    // A bash path that holds no Git root: a root-relative MSYS path has
-    // nowhere to go.
-    const rootless = r'C:\tools\bash.exe';
-
-    test('a --dir with no Git root is bad_path, exit 2', () async {
+    test('an MSYS-form --dir is used as given, not converted', () async {
       final r = await plan(
-        request('/no/such/dir'),
-        context(environment: env(), windows: true, bash: rootless),
+        request('/c/sw-none/dir'),
+        context(environment: env()),
       );
-      expect(r.code, 2);
-      expect(r.doc, {
-        'ok': false,
-        'error': 'bad_path',
-        'message': 'could not convert path: /no/such/dir',
-        'path': '/no/such/dir',
-      });
-      expect(log.existsSync(), isFalse, reason: 'no git call');
+      expect(r.code, 1);
+      expect(r.doc['error'], 'not_a_repo');
+      expect(r.doc['message'], '/c/sw-none/dir is not inside a git work tree');
     }, skip: skip);
 
-    test('a --code with no Git root is bad_path, exit 2', () async {
+    test('an MSYS-form --code is no bad_path stop', () async {
       final r = await plan(
-        // A drive-form --dir is not converted, so only --code is refused
-        // (tmp.path is itself a /-path off Windows).
-        request('C:/no/such/dir', code: '/no/such/code'),
-        context(environment: env(), windows: true, bash: rootless),
+        request('C:/no/such/dir', code: '/c/sw-none/code'),
+        context(environment: env()),
       );
-      expect(r.code, 2);
-      expect(r.doc, {
-        'ok': false,
-        'error': 'bad_path',
-        'message': 'could not convert path: /no/such/code',
-        'path': '/no/such/code',
-      });
-      expect(log.existsSync(), isFalse, reason: 'no git call');
+      expect(r.doc['error'], isNot('bad_path'));
     }, skip: skip);
 
-    test('a usage stop comes before any conversion', () async {
+    test('a usage stop comes before any git call', () async {
       final r = await plan(
         request('/no/such/dir', main: null),
-        context(environment: env(), windows: true, bash: rootless),
+        context(environment: env()),
       );
       expect(r.code, 2);
       expect(r.doc['error'], 'usage');
       expect(log.existsSync(), isFalse);
     }, skip: skip);
-
-    test(
-      'a /tmp --dir goes under TEMP and a drive-form path is kept',
-      () async {
-        final temp = Directory('${tmp.path}/temp')..createSync();
-        final r = await plan(
-          request('/tmp/no/such/dir'),
-          context(
-            environment: {...env(), 'TEMP': temp.path},
-            windows: true,
-            bash: rootless,
-          ),
-        );
-        expect(r.doc['error'], 'not_a_repo');
-        expect(
-          r.doc['message'],
-          '${_posix(temp.path)}/no/such/dir is not inside a git work tree',
-        );
-        final kept = await plan(
-          request('C:/no/such/dir', code: 'rel'),
-          context(environment: env(), windows: true, bash: rootless),
-        );
-        expect(kept.doc['error'], isNot('bad_path'));
-      },
-      skip: skip,
-    );
-
-    test('off Windows a /-path is used as it is', () async {
-      final repo = makeRepo();
-      final r = await plan(
-        request(_posix(repo), main: 'nope'),
-        context(environment: env(), windows: false),
-      );
-      expect(r.doc['error'], isNot('bad_path'));
-    }, skip: skip);
-  });
-
-  group('normalizeLexical (task 3.2, D2)', () {
-    test('folds . and .. and doubled separators', () {
-      expect(normalizeLexical('/a/b/./c/../d//e', windows: false), '/a/b/d/e');
-      expect(normalizeLexical('C:/x/y/z/../../w', windows: true), 'C:/x/w');
-    });
-
-    test('.. at the root goes nowhere, a relative .. is kept', () {
-      expect(normalizeLexical('/../a', windows: false), '/a');
-      expect(normalizeLexical('../a/../../b', windows: false), '../../b');
-      expect(normalizeLexical('', windows: false), '.');
-    });
-
-    test('POSIX keeps exactly two leading slashes, not three', () {
-      expect(normalizeLexical('//a/b', windows: false), '//a/b');
-      expect(normalizeLexical('///a/b', windows: false), '/a/b');
-    });
-
-    test('Windows drives, UNC shares and backslashes', () {
-      expect(normalizeLexical(r'C:\x\..\y', windows: true), 'C:/y');
-      expect(normalizeLexical('C:/../y', windows: true), 'C:/y');
-      expect(
-        normalizeLexical('//srv/share/a/../b', windows: true),
-        '//srv/share/b',
-      );
-      expect(normalizeLexical('/x/./y', windows: true), '/x/y');
-    });
-
-    test('the pr scripts path of a finish scripts directory', () {
-      expect(
-        normalizeLexical(
-          'C:/p/skills/specwright-finish/scripts/../../specwright-pr/scripts/vcs.sh',
-          windows: true,
-        ),
-        'C:/p/skills/specwright-pr/scripts/vcs.sh',
-      );
-    });
   });
 
   group('doc comments (task 3.2)', () {
@@ -814,8 +670,6 @@ void main() {
         planner: (request, ctx) => undoArchivePlan(
           request,
           FinishContext(
-            scriptsDir: '',
-            bash: ctx.bash,
             stateReader: (top, code, branch) async => throw StateError('boom'),
           ),
         ),

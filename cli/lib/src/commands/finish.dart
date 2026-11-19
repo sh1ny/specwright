@@ -3,16 +3,8 @@ import 'dart:io' as io;
 import '../finish/undo_plan.dart';
 import '../finish/undo_step.dart';
 import '../options.dart';
-import '../vcs/args.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
-import 'vcs.dart' show readAllStdin;
-
-const String _argvUsage = 'usage: sw finish --args-stdin';
-
-const String finishHandoffUsage =
-    'usage: sw finish --args-stdin (stdin: scripts dir, bash path, then '
-    "finish.sh's arguments, each record ending in a NUL byte)";
 
 /// `finish.sh`'s usage text for a missing or unknown subcommand.
 const String finishUsage =
@@ -52,16 +44,14 @@ Map<String, String> _parseOptions(List<String> argv) {
   };
 }
 
-/// `sw finish --args-stdin`: nothing else on [args]. Reads the handoff from
-/// [readStdin] (default: the process stdin): the scripts dir, the bash, then
-/// `finish.sh`'s own arguments. A leading `--dir <d>` is read first, then the
-/// subcommand `undo-archive-plan` and its options, and [planner] (default
+/// `sw finish [--dir <d>] undo-archive-plan <options>`, or `sw finish undo-step`.
+/// A leading `--dir <d>` is read first, then the subcommand
+/// `undo-archive-plan` and its options, and [planner] (default
 /// [undoArchivePlan]) builds the document. Returns the exit code: 0, a stop's
 /// (1 or 2), or 1 for an unexpected failure (`internal_error`).
 Future<int> runFinishCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
-  Future<List<int>> Function()? readStdin,
   UndoPlanner? planner,
 }) async {
   if (args.isNotEmpty && args.first == 'undo-step') {
@@ -70,20 +60,7 @@ Future<int> runFinishCommand(
   Map<String, Object?> document;
   var code = 0;
   try {
-    final direct = args.isNotEmpty && args.first != '--args-stdin';
-    if (!direct && (args.length != 1 || args.first != '--args-stdin')) {
-      throw _usage(_argvUsage);
-    }
-    var stdin = direct ? <int>[] : await (readStdin ?? readAllStdin)();
-    // `finish.sh` with no argument prints its usage text: give the handoff
-    // parser an empty argument record so that it gets there.
-    if (stdin.isNotEmpty && stdin.last == 0 && _records(stdin) == 2) {
-      stdin = [...stdin, 0];
-    }
-    final handoff = direct
-        ? Handoff('', '', args)
-        : parseHandoff(stdin, finishHandoffUsage);
-    var rest = handoff.argv;
+    var rest = args;
     String? dir;
     if (rest.isNotEmpty && rest.first == '--dir') {
       if (rest.length < 2) throw _usage('--dir needs a value');
@@ -104,10 +81,7 @@ Future<int> runFinishCommand(
       type: options['type'],
       code: options['code'],
     );
-    document = await (planner ?? undoArchivePlan)(
-      request,
-      FinishContext(scriptsDir: handoff.scriptsDir, bash: handoff.bash),
-    );
+    document = await (planner ?? undoArchivePlan)(request, FinishContext());
   } on VcsStop catch (stop) {
     document = stop.object();
     code = stop.code;
@@ -125,5 +99,3 @@ Future<int> runFinishCommand(
   writeOut(documentBytes(document));
   return code;
 }
-
-int _records(List<int> bytes) => bytes.where((b) => b == 0).length;

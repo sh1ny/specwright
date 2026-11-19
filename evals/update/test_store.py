@@ -203,7 +203,6 @@ class TestOwner(Base):
     def test_other_project_minor_refused_names_matching_tag(self):
         self.pair("0.5.0")
         dl = self.download("0.6.0", fx.schema_edit_comment)
-        self.with_bounded(dl)
         fx.give_origin(dl, fx.make_tag_origin(self.tmp / "releases", ["v0.5.0", "v0.5.3", "v0.6.0"]))
         b_before, store_before = fx.snapshot(self.b.code), fx.snapshot(self.store)
         for sub in ("plan", "stage"):
@@ -218,19 +217,10 @@ class TestOwner(Base):
                 self.assertEqual(fx.snapshot(self.b.code), b_before)
                 self.assertEqual(fx.snapshot(self.store), store_before)
 
-    @staticmethod
-    def with_bounded(dl):
-        """The tag lookup loads <download>/skills/specwright-pr/scripts/bounded.py; the mini download has no specwright-pr."""
-        bounded = dl / "skills" / "specwright-pr" / "scripts" / "bounded.py"
-        bounded.parent.mkdir(parents=True, exist_ok=True)
-        bounded.write_bytes((fx.ROOT / "skills" / "specwright-pr" / "scripts" / "bounded.py").read_bytes())
-
     def tag_lookup(self, url, env_extra):
-        """plan as B (the other project) against a download whose origin is `url`; returns (exit code, doc, seconds).
-        The mini download carries no specwright-pr, so bounded.py is copied in, as the full download has it."""
+        """plan as B (the other project) against a download whose origin is `url`; returns (exit code, doc, seconds)."""
         self.pair("0.5.0")
         dl = self.download("0.6.0", fx.schema_edit_comment)
-        self.with_bounded(dl)
         fx.give_origin(dl, url)
         self.b_before, self.store_before = fx.snapshot(self.b.code), fx.snapshot(self.store)
         t0 = time.monotonic()

@@ -899,7 +899,7 @@ class ReleaseHelpers(unittest.TestCase):
 @unittest.skipUnless(bashexe.bash(), "needs bash")
 class ReleaseEvals(unittest.TestCase):
     """The five release fixtures and graders: simulated runs (git and the fake gh through the fixture's shims, and the real
-    release.sh publish) grade green, and the wrong runs grade red."""
+    `sw release publish`) grade green, and the wrong runs grade red."""
 
     def fixture(self, name):
         tmp = tempfile.TemporaryDirectory()
@@ -914,7 +914,7 @@ class ReleaseEvals(unittest.TestCase):
 
     @staticmethod
     def rewrite(repo):
-        """What the fixture's bin/bash shim gave a `release.sh` run: the git config that reaches the local bare origin.
+        """What the fixture's old bash shim gave a release run: the git config that reaches the local bare origin.
         A native `sw release` is not a bash run, so the command line carries it."""
         return f"GIT_CONFIG_GLOBAL={fixtures.posix(Path(repo) / 'state' / 'gitconfig-release')} "
 
@@ -1164,9 +1164,9 @@ class ReleaseEvals(unittest.TestCase):
         r = subprocess.run([bashexe.bash(), "-c", "source eval.env && git fetch -q --no-tags origin main"], cwd=repo, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), main, "a fetch before the merge must see main without the squash")
-        check = subprocess.run([bashexe.bash(), str(Path(__file__).resolve().parents[2] / "skills" / "specwright-release" / "scripts" / "release.sh"), "check", "--main", "origin/main"],
+        check = subprocess.run([vcs_test_support.swharness.require_sw(), "release", "--dir", ".", "check", "--main", "origin/main"],
                                cwd=repo, capture_output=True, text=True,
-                               env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))  # the shim runs `sw` from the stamped fixture
+                               env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))  # `sw` checks the stamped fixture
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.agent_run(repo, publish=False)
         self.assertEqual(grade.git(repo, "rev-parse", "origin/main"), grade.git(repo / "ob.git", "rev-parse", "main"),
@@ -1355,8 +1355,8 @@ class InstallLatestTagPredatesScript(unittest.TestCase):
         repo = self.fixture()
         src = repo / "specwright-src"
         self.assertEqual(grade.git(src, "tag", "--list").split(), ["v0.5.0"])
-        self.assertIsNone(grade.git(src, "cat-file", "-e", "v0.5.0:scripts/update.sh"))
-        self.assertIsNotNone(grade.git(src, "cat-file", "-e", "main:scripts/update.sh"))
+        self.assertIsNone(grade.git(src, "cat-file", "-e", "v0.5.0:tools/updater.txt"))
+        self.assertIsNotNone(grade.git(src, "cat-file", "-e", "main:tools/updater.txt"))
         self.assertEqual(grade.git(src, "show", "v0.5.0:VERSION").strip(), "0.5.0")
 
     def test_stop_that_writes_nothing_passes_every_check(self):

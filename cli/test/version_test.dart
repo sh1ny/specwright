@@ -4,10 +4,10 @@ import 'package:test/test.dart';
 
 void main() {
   group('versionReport', () {
-    test('has the version and interface 1', () {
+    test('has the version and the interface', () {
       expect(versionReport(version: '1.2.3'), {
         'version': '1.2.3',
-        'interface': 1,
+        'interface': interfaceVersion,
       });
     });
 
@@ -27,14 +27,14 @@ void main() {
     test('version --json prints one JSON object and exits 0', () async {
       final (code, out, err) = await run(['version', '--json']);
       expect(code, 0);
-      expect(out, '{"version":"0.0.0-dev","interface":1}\n');
+      expect(out, '{"version":"0.0.0-dev","interface":$interfaceVersion}\n');
       expect(err, isEmpty);
     });
 
     test('plain version prints the same JSON', () async {
       final (code, out, _) = await run(['version']);
       expect(code, 0);
-      expect(out, '{"version":"0.0.0-dev","interface":1}\n');
+      expect(out, '{"version":"0.0.0-dev","interface":$interfaceVersion}\n');
     });
 
     for (final args in [

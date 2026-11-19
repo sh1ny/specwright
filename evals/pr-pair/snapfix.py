@@ -1,16 +1,14 @@
-"""Shared fixture for tests of pr-snapshot.sh and pr-reply.sh against the fake gh (evals/fakes/gh.py).
+"""Shared fixture for tests of `sw pr snapshot` and `sw pr reply` against the fake gh (evals/fakes/gh.py).
 
 SnapCase gives each test a temp dir with the fake gh on PATH, a state file, an empty SPECWRIGHT_STATE_DIR, and helpers that
-add threads, comments, reviews and edits at a fake-clock time and advance the clock. The scripts run through `bash`.
+add threads, comments, reviews and edits at a fake-clock time and advance the clock. They run through `sw` (evals/swcall.py).
 
 The fake hands the shipped --jq filters to an external evaluator: gojq when it is on PATH (what gh itself embeds), else jq.
 JQ_NAME says which one; `banner()` prints it, so a test run shows what evaluated the filters. A test needing neither is skipped.
 """
-import atexit
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,12 +16,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
-SNAPSHOT, REPLY = SCRIPTS / "pr-snapshot.sh", SCRIPTS / "pr-reply.sh"
-SW_COMMANDS = {SNAPSHOT: "snapshot", REPLY: "reply"}
+SNAPSHOT, REPLY = "snapshot", "reply"  # `run_script` starts `sw pr <name>`
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
-import bashexe  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
@@ -31,32 +26,6 @@ import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 
 sys.path.insert(0, str(ROOT / "evals" / "fakes"))
 import gh as fake_gh  # noqa: E402
-
-ORACLE = HERE / "oracle"
-_ORACLE_DIR = None
-
-
-def oracle_sw_dir():
-    """ORACLE_SW_DIR for the frozen scripts, made once per process: a temp directory with the tree's bounded.py, as.sh and
-    sw-path.sh and the oracle's reviewers.py (never the tree's, which native-cli-pr-pair D8 deleted)."""
-    global _ORACLE_DIR
-    if _ORACLE_DIR is None:
-        _ORACLE_DIR = Path(tempfile.mkdtemp(prefix="oracle-sw-"))
-        for name in ("bounded.py", "as.sh", "sw-path.sh"):
-            shutil.copyfile(SCRIPTS / name, _ORACLE_DIR / name)
-        shutil.copyfile(ORACLE / "reviewers.py", _ORACLE_DIR / "reviewers.py")
-    return fixtures.posix(_ORACLE_DIR)
-
-
-def forget_oracle_sw_dir():
-    """Delete the directory oracle_sw_dir made (the process exit does the same)."""
-    global _ORACLE_DIR
-    if _ORACLE_DIR is not None:
-        shutil.rmtree(_ORACLE_DIR, ignore_errors=True)
-        _ORACLE_DIR = None
-
-
-atexit.register(forget_oracle_sw_dir)
 
 JQ = shutil.which("gojq") or shutil.which("jq")
 JQ_NAME = Path(JQ).stem if JQ else None
@@ -86,7 +55,7 @@ class SnapCase(unittest.TestCase):
         self.addCleanup(fixtures.rmtree, self.tmp)
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
-        vcs_test_support.stamp_version(self.tmp)  # the shims run `sw` from the project that holds the version stamp
+        vcs_test_support.stamp_version(self.tmp)  # `sw` checks the version stamp of the project it runs in
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
         self.state_dir = self.tmp / "state"
         self.extra_env = {}
@@ -160,14 +129,14 @@ class SnapCase(unittest.TestCase):
             {"ref": ref, "after": oid, "timestamp": timestamp}))
 
     def write_config(self, *reviewers, name="reviewers.json", where=None, fmt=2):
-        """Write a reviewer config as pr-pair.sh does (format 2, canonical JSON, logins sorted) and return its path for bash."""
+        """Write a reviewer config as `sw pr` does (format 2, canonical JSON, logins sorted) and return its path."""
         doc = {"format": fmt, "reviewers": sorted(reviewers, key=lambda r: r["login"])}
         path = Path(where or self.tmp) / name
         path.write_text(json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False), encoding="utf-8", newline="\n")
         return fixtures.posix(path)
 
     def cfg(self, *reviewers):
-        """The arguments that hand `reviewers` to pr-snapshot.sh."""
+        """The arguments that hand `reviewers` to `sw pr snapshot`."""
         return ["--reviewer-config", self.write_config(*reviewers)]
 
     def gh_calls(self):
@@ -175,7 +144,7 @@ class SnapCase(unittest.TestCase):
             return []
         return [json.loads(l)["argv"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()]
 
-    # ---- running the scripts -----------------------------------------------------------------------------
+    # ---- running sw -----------------------------------------------------------------------------
     def env(self, login="me", **extra):
         """Environment with the fake gh first on PATH; GH_TOKEN picks the viewer (login None = the state's default user)."""
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
@@ -188,18 +157,17 @@ class SnapCase(unittest.TestCase):
         e.update(extra)
         return e
 
-    def run_script(self, script, *args, login="me", env=None, cwd=None, stdin=None):
-        if script in SW_COMMANDS and not getattr(self, "via_shim", False):  # the shipped shims are retired: the same call is `sw pr snapshot|reply` (direct entry)
-            return swcall.run(["pr", SW_COMMANDS[script], *args], cwd=cwd or self.tmp, env=self.env(login, **(env or {})), input=stdin)
-        return subprocess.run([bashexe.bash(), str(script), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
-                              env=self.env(login, **(env or {})), cwd=cwd or self.tmp, input=stdin)
+    def run_script(self, script, *args, login="me", env=None, cwd=None, stdin=None, project=None):
+        """`sw pr <script> <args>` (script is SNAPSHOT or REPLY); `project` is the leading `--project` of a call started outside
+        the checkout that carries the VERSION."""
+        return swcall.run(["pr", script, *args], project=project, cwd=cwd or self.tmp, env=self.env(login, **(env or {})), input=stdin)
 
     def snapshot_run(self, *args, login="me", env=None):
-        """pr-snapshot.sh for the fixture PR; the CompletedProcess."""
+        """`sw pr snapshot` for the fixture PR; the CompletedProcess."""
         return self.run_script(SNAPSHOT, self.PR, "--repo", self.SLUG, *args, login=login, env=env)
 
     def snapshot(self, *args, login="me", env=None):
-        """pr-snapshot.sh for the fixture PR, one JSON line parsed; the exit code must be 0."""
+        """`sw pr snapshot` for the fixture PR, one JSON line parsed; the exit code must be 0."""
         r = self.snapshot_run(*args, login=login, env=env)
         self.assertEqual(r.returncode, 0, f"pr-snapshot {args}: {r.stderr}")
         lines = r.stdout.strip().split("\n")
@@ -207,7 +175,7 @@ class SnapCase(unittest.TestCase):
         return json.loads(lines[0])
 
     def reply(self, *args, login="me", env=None, body=None, repo=True):
-        """pr-reply.sh <PR> <args...> --repo SLUG (no --repo when `repo` is false). With `body`, it is written to a file and
+        """`sw pr reply` <PR> <args...> --repo SLUG (no --repo when `repo` is false). With `body`, it is written to a file and
         its path is appended to args wherever the literal "BODY" appears. Returns the CompletedProcess (the caller checks
         the exit code)."""
         args = list(args)

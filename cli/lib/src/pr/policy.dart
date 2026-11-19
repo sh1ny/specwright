@@ -326,7 +326,7 @@ Future<Map<String, Object?>> _readSnapshots(PrContext ctx, PairArgs a) async {
       pairUsage('--snapshot is code=<file> or store=<file>');
     }
     try {
-      out[name] = readJsonFile(await ctx.native(path));
+      out[name] = readJsonFile(path);
     } on FormatException catch (e) {
       throw PairStop('snapshot_unreadable', e.message, code: 2);
     }

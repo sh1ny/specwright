@@ -1,15 +1,14 @@
-"""skills/specwright-commit/scripts/fit-subject.sh fits a task commit subject to 72 characters in place.
+"""`sw commit fit-subject` fits a task commit subject to 72 characters in place.
 
-The script reads the message file the agent wrote, keeps the `<type>(<scope>): task X.Y ` prefix plus
+The command reads the message file the agent wrote, keeps the `<type>(<scope>): task X.Y ` prefix plus
 the longest run of whole words of the task text that fits, rewrites line 1 and keeps every other line
 byte for byte. Exit 1 (file untouched) when not even the first word fits; exit 2 on a missing file or
-a line 1 with no task prefix. Each test runs it through `bash`, as the skill does.
+a line 1 with no task prefix. Each test runs the built `sw` directly, as the skill does.
 
 Run: python -m unittest discover evals/git-workflow -p "test_fit_subject.py"
 """
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,12 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
-import bashexe  # noqa: E402
-import fakeexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
 import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
-SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "fit-subject.sh"
 LIMIT = 72
 # Task 1.1 of the add-greeting fixture (fixtures.py), the subject #21 saw miscounted.
 GREETING = "feat(add-greeting): task 1.1 Add `greet(name)` with tests test_greet_named and test_greet_empty; verify `python -m unittest -q` passes"
@@ -32,8 +28,7 @@ _MODULE = {}
 
 
 def setUpModule():
-    """Put SPECWRIGHT_HOME into os.environ so every run's environment carries it (design D8). The script is a shim, so it
-    needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
+    """Put SPECWRIGHT_HOME into os.environ so every run's environment carries it (design D8). The command needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
     _MODULE["env"] = os.environ.get("SPECWRIGHT_HOME")
     os.environ["SPECWRIGHT_HOME"] = str(vcs_test_support.sw_home())
 
@@ -200,20 +195,12 @@ class FitSubject(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
 class FitSubjectWindowsPaths(unittest.TestCase):
-    """Path arguments in Git Bash and UNC forms reach the file the shell would name (design D9)."""
+    """A root-relative Windows path argument is taken as given (design D9)."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         vcs_test_support.stamp_version(self.tmp)
-
-    def cygpath(self, flag, path):
-        r = subprocess.run(["cygpath", flag, str(path)], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return r.stdout.strip()
-
-    def run_shim(self, arg, **kw):
-        return vcs_test_support.bash_run([SCRIPT.as_posix(), arg], cwd=self.tmp, stamp=False, **kw)
 
     def scratch_in(self, base, name):
         """base/name as a new directory (a native path); it and base, if base was new, go when the test ends."""
@@ -233,64 +220,22 @@ class FitSubjectWindowsPaths(unittest.TestCase):
 
     DATA = (GREETING + "\n\nBody.\n").encode("utf-8")
 
-    def recording_cygpath(self):
-        """A stub dir with a `cygpath` that logs its arguments and runs the real one (the shim's own conversions
-        need it). Returns (dir, log): no logged call may name the path argument, because sw converts by its own rules."""
-        stub = self.tmp / "stub"
-        stub.mkdir(exist_ok=True)
-        log = self.tmp / "cygpath.log"
-        fakeexe.write_fake(
-            stub / "cygpath",
-            '#!/bin/sh\nprintf \'%%s\\n\' "$*" >> "%s"\nexec "%s" "$@"\n'
-            % (log.as_posix(), Path(shutil.which("cygpath")).as_posix()))
-        return stub, log
-
-    def test_git_bash_paths_on_windows(self):
-        name = "swfit-%d" % os.getpid()
-        temp = os.environ.get("TEMP") or os.environ["TMP"]
-        in_tmp = self.scratch_in(temp, name)  # what the shim's /tmp/<name> names: the TEMP directory
-        stub, log = self.recording_cygpath()
-        for where, arg in ((self.tmp, None), (in_tmp, "/tmp/%s/m.txt" % name)):
-            with self.subTest(where=str(where)):
-                msg = where / "m.txt"
-                msg.write_bytes(self.DATA)
-                arg = arg or self.cygpath("-u", msg)  # /c/Users/...
-                self.assertTrue(arg.startswith("/"), arg)
-                r = self.run_shim(arg, shim=stub)
-                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-                self.assert_fitted_file(msg)
-                self.assertNotIn(arg, log.read_text(encoding="utf-8") if log.exists() else "", "cygpath ran for the path")
-
-    def test_unc_path_on_windows(self):
-        msg = self.tmp / "m.txt"
-        msg.write_bytes(self.DATA)
-        unc = "//localhost/%s$/%s" % (msg.drive[:1], msg.as_posix().split(":/", 1)[1])
-        if not os.path.isfile(unc):
-            self.skipTest("the administrative share %s is not reachable" % unc)
-        self.assertEqual(self.cygpath("-m", unc), unc, "cygpath -m does not keep the UNC form")
-        r = self.run_shim(unc)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("could not convert path", r.stderr)
-        self.assert_fitted_file(msg)
-
-    def test_failed_path_conversion_changes_nothing(self):
-        # The shim hands over its own bash, whose install root is always found. So the handoff the shim
-        # writes is made here with a bash path that holds no Git root: /etc/m.txt has nowhere to go.
+    def test_unconverted_path_on_windows_is_taken_as_given(self):
+        """task-commits "Path conversion fails on Windows": `/etc/<name>/m.txt` from a caller that is not Git Bash is a
+        root-relative Windows path. sw fits \\etc\\m.txt on the current drive; no conversion or bad_path stop occurs."""
         name = "swfit-%d" % os.getpid()
         on_drive = self.scratch_in(self.tmp.drive + "\\etc", name)  # \etc\<name> on the current drive
-        in_root = self.tmp / "gitroot" / "etc"
+        in_root = self.tmp / "gitroot" / "etc" / name
         in_root.mkdir(parents=True)
         for d in (on_drive, in_root):
             (d / "m.txt").write_bytes(self.DATA)
-        arg = "/etc/m.txt"
-        records = [str(SCRIPT.parent), r"C:\tools\bash.exe", "fit-subject", arg]
-        r = subprocess.run([os.environ["SPECWRIGHT_SW"], "commit", "--args-stdin"],
-                           input=b"".join(x.encode("utf-8") + b"\0" for x in records),
-                           capture_output=True, cwd=self.tmp)
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn(b"fit-subject.sh: could not convert path: " + arg.encode(), r.stderr)
-        self.assertEqual((on_drive / "m.txt").read_bytes(), self.DATA)
-        self.assertEqual((in_root / "m.txt").read_bytes(), self.DATA)
+        arg = "/etc/%s/m.txt" % name
+        r = swcall.run(["commit", "fit-subject", arg], cwd=self.tmp, text=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(b"could not convert path", r.stderr)
+        self.assertNotIn(b"bad_path", r.stdout + r.stderr)
+        self.assert_fitted_file(on_drive / "m.txt")
+        self.assertEqual((in_root / "m.txt").read_bytes(), self.DATA, "the Git root's file is not touched")
 
 
 if __name__ == "__main__":

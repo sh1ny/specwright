@@ -351,19 +351,12 @@ else:
 
 
 class TestNoScripts(SwUpdateCase):
-    """sw-install and an owner's swap on a jj store start no shipped script and no Python. The download's script directories
-    hold recording sentinels (update.sh, vcs.sh, as.sh, sw-path.sh); failing python and python3 are first on PATH."""
+    """sw-install and an owner's swap on a jj store start no script and no Python: failing recording python and python3 are
+    first on PATH."""
 
-    def plant(self, dl):
-        scripts = dl / "skills" / "specwright-pr" / "scripts"
-        scripts.mkdir(parents=True, exist_ok=True)
-        self.sent = sentinels.install(scripts, self.tmp / "pybin", self.tmp / "sentinels.log")
-        update = fakeexe.write_script(dl / "scripts" / "update.sh", sentinels._SCRIPT.format(
-            name="update.sh", status=sentinels.SCRIPT_STATUS, log="$" + sentinels.LOG_VARIABLE))
+    def plant(self):
+        self.sent = sentinels.install(self.tmp / "pybin", self.tmp / "sentinels.log")
         self.sent.probe(self)
-        done = subprocess.run([bashexe.bash(), str(update)], env={**os.environ, **self.sent.env}, capture_output=True, timeout=30)
-        self.assertEqual((done.returncode, self.sent.recorded()), (sentinels.SCRIPT_STATUS, ["update.sh"]))
-        self.sent.clear()
 
     def env(self, base=None, **extra):
         env = dict(base) if base is not None else swharness.fixture_env()
@@ -376,7 +369,7 @@ class TestNoScripts(SwUpdateCase):
         report = json.loads(subprocess.run([self.sw, "version", "--json"], capture_output=True, text=True, timeout=60).stdout)
         tag = "v0.40.0"
         dl = fx.make_mini_download(self.tmp / "dl-install", "0.40.0", 1, provision=False)
-        self.plant(dl)
+        self.plant()
         release = self.tmp / "rel" / "releases" / "download" / tag
         release.mkdir(parents=True)
         asset = "sw-" + target + (".exe" if target.startswith("windows") else "")
@@ -400,22 +393,22 @@ class TestNoScripts(SwUpdateCase):
         self.assertEqual((doc["ok"], doc["action"]), (True, "installed"), doc)
         runs = asset_log.read_text(encoding="utf-8").splitlines()
         self.assertTrue(runs and set(runs) == {"version --json"}, runs)
-        self.assertEqual(self.sent.recorded(), [], "a shipped script or interpreter was started")
+        self.assertEqual(self.sent.recorded(), [], "an interpreter was started")
 
-        # an owner's swap on a jj store, from a download holding the same sentinels
+        # an owner's swap on a jj store, with the same sentinels first on PATH
         jjenv.require_jj()
         base = jjstore.JjStoreBase("run")
         base.tmp = self.tmp / "jj"
         base.tmp.mkdir()
         base.pair()
         base.store_jj()
-        self.plant(base.dl)
+        self.plant()
         env = self.env(base.p.env, SPECWRIGHT_HOME=self.home)
         for sub in ("plan", "stage", "swap"):
             code, swap, out, err = self.sw_update(env, base.a, base.dl, sub)
             self.assertEqual(code, 0, f"{sub}: {out}{err}")
         self.assertTrue(swap["store_written"], swap)
-        self.assertEqual(self.sent.recorded(), [], "a shipped script or interpreter was started")
+        self.assertEqual(self.sent.recorded(), [], "an interpreter was started")
 
 
 if __name__ == "__main__":

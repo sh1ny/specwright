@@ -6,9 +6,6 @@ import 'package:specwright_cli/src/commit/context.dart';
 import 'package:specwright_cli/src/commit/fit_subject.dart';
 import 'package:test/test.dart';
 
-/// The bash a Windows shim hands over; its Git root is `C:\Program Files\Git`.
-const String _gitBash = r'C:\Program Files\Git\usr\bin\bash.exe';
-
 class _Run {
   _Run(this.code, this.out, this.err);
 
@@ -29,29 +26,13 @@ void main() {
   });
   tearDown(() => dir.deleteSync(recursive: true));
 
-  Future<_Run> run(
-    List<String> args, {
-    bool? windows,
-    Map<String, String>? environment,
-    bool entry = false,
-    String bash = _gitBash,
-  }) async {
+  Future<_Run> run(List<String> args, {bool entry = false}) async {
     final out = BytesBuilder();
     final err = BytesBuilder();
-    final ctx = CommitContext(
-      scriptsDir: dir.path,
-      bash: bash,
-      writeOut: out.add,
-      writeErr: err.add,
-    );
+    final ctx = CommitContext(writeOut: out.add, writeErr: err.add);
     final code = entry
         ? await runFitSubject(args, ctx)
-        : await fitSubject(
-            args,
-            ctx,
-            windows: windows,
-            environment: environment,
-          );
+        : await fitSubject(args, ctx);
     return _Run(code, out.toBytes(), err.toBytes());
   }
 
@@ -340,44 +321,19 @@ void main() {
       expect(names(), ['m.txt', 'm.txt.fit.$pid']);
     });
 
-    test(
-      'a path that does not convert gives exit 2 and touches nothing',
-      () async {
-        final content = bytesOf('$fitted ffffffffff\nbody\n');
-        File(msg).writeAsBytesSync(content);
-        final before = names();
-        // a bash path that holds no Git root: /etc/m.txt has nowhere to go
-        final r = await run(
-          ['/etc/m.txt'],
-          windows: true,
-          bash: r'C:\tools\bash.exe',
-        );
-        expect(r.code, 2);
-        expect(r.out, isEmpty);
-        expect(
-          r.errText,
-          'fit-subject.sh: could not convert path: /etc/m.txt\n',
-        );
-        expect(file(), content);
-        expect(names(), before);
-      },
-    );
-
-    test('/tmp/m.txt on Windows is fitted under TEMP', () async {
-      File(msg).writeAsBytesSync(bytesOf('$fitted ffffffffff\nbody\n'));
-      final r = await run(
-        ['/tmp/m.txt'],
-        windows: true,
-        environment: {'TEMP': dir.path},
-      );
-      expect(r.code, 0, reason: r.errText);
-      expect(file(), bytesOf('$fitted\nbody\n'));
-    });
-
-    test('/tmp/m.txt on Windows with no TEMP or TMP gives exit 2', () async {
-      final r = await run(['/tmp/m.txt'], windows: true, environment: {});
+    test('an MSYS-form path is used as given, not converted', () async {
+      final content = bytesOf('$fitted ffffffffff\nbody\n');
+      File(msg).writeAsBytesSync(content);
+      final before = names();
+      final r = await run(['/c/sw-none/m.txt']);
       expect(r.code, 2);
-      expect(r.errText, 'fit-subject.sh: could not convert path: /tmp/m.txt\n');
+      expect(r.out, isEmpty);
+      expect(
+        r.errText,
+        "fit-subject.sh: no message file: '/c/sw-none/m.txt'\n",
+      );
+      expect(file(), content);
+      expect(names(), before);
     });
   });
 }

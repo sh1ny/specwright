@@ -8,10 +8,6 @@ import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
-List<int> _records(List<String> records) => [
-  for (final r in records) ...[...utf8.encode(r), 0],
-];
-
 const _usageText =
     'usage: finish.sh [--dir <planning toplevel>] undo-archive-plan '
     '--change <name> --archived-name <archived> --prefix <P> --main <main> '
@@ -20,34 +16,25 @@ const _usageText =
 void main() {
   late List<int> out;
   late UndoRequest? seenRequest;
-  late FinishContext? seenContext;
   late UndoPlanner planner;
 
   setUp(() {
     out = [];
     seenRequest = null;
-    seenContext = null;
     planner = (request, ctx) async {
       seenRequest = request;
-      seenContext = ctx;
       return {'ok': true, 'planned': request.change};
     };
   });
 
-  Future<int> run(List<String> argv, List<int> stdin) => runFinishCommand(
-    argv,
-    writeOut: out.addAll,
-    readStdin: () async => stdin,
-    planner: planner,
-  );
+  Future<int> run(List<String> argv) =>
+      runFinishCommand(argv, writeOut: out.addAll, planner: planner);
 
   Map<String, Object?> doc() =>
       jsonDecode(utf8.decode(out)) as Map<String, Object?>;
 
   Future<void> expectUsage(List<String> finishArgv, String message) async {
-    final code = await run([
-      '--args-stdin',
-    ], _records(['/s', '/b', ...finishArgv]));
+    final code = await run(finishArgv);
     expect(code, 2, reason: '$finishArgv');
     expect(doc(), {'ok': false, 'error': 'usage', 'message': message});
     expect(seenRequest, isNull);
@@ -56,42 +43,35 @@ void main() {
   /// A usage stop from the option rule: the stop type and exit status, not the parser's wording.
   Future<void> expectUsageStop(List<String> finishArgv) async {
     out.clear();
-    final code = await run([
-      '--args-stdin',
-    ], _records(['/s', '/b', ...finishArgv]));
+    final code = await run(finishArgv);
     expect(code, 2, reason: '$finishArgv');
     expect(doc()['error'], 'usage', reason: '$finishArgv');
     expect(seenRequest, isNull);
   }
 
-  group('sw finish --args-stdin', () {
+  group('sw finish', () {
     test(
       'a leading --dir is parsed and undo-archive-plan dispatches',
       () async {
-        final code = await run(
-          ['--args-stdin'],
-          _records([
-            '/scripts',
-            '/bin/bash',
-            '--dir',
-            '/plan',
-            'undo-archive-plan',
-            '--change',
-            'x',
-            '--archived-name',
-            '2026-01-01-x',
-            '--prefix',
-            'openspec',
-            '--main',
-            'main',
-            '--branch',
-            'feat/x',
-            '--type',
-            'feat',
-            '--code',
-            '/code',
-          ]),
-        );
+        final code = await run([
+          '--dir',
+          '/plan',
+          'undo-archive-plan',
+          '--change',
+          'x',
+          '--archived-name',
+          '2026-01-01-x',
+          '--prefix',
+          'openspec',
+          '--main',
+          'main',
+          '--branch',
+          'feat/x',
+          '--type',
+          'feat',
+          '--code',
+          '/code',
+        ]);
         expect(code, 0);
         expect(doc(), {'ok': true, 'planned': 'x'});
         final r = seenRequest!;
@@ -103,55 +83,32 @@ void main() {
         expect(r.branch, 'feat/x');
         expect(r.type, 'feat');
         expect(r.code, '/code');
-        expect(seenContext!.scriptsDir, '/scripts');
-        expect(seenContext!.bash, '/bin/bash');
       },
     );
 
     test('without --dir the directory is the current one', () async {
-      await run([
-        '--args-stdin',
-      ], _records(['/s', '/b', 'undo-archive-plan', '--change', 'x']));
+      await run(['undo-archive-plan', '--change', 'x']);
       expect(seenRequest!.dir, Directory.current.path);
       expect(seenRequest!.branch, isNull);
     });
 
     test('an empty --dir is the current directory too', () async {
-      await run([
-        '--args-stdin',
-      ], _records(['/s', '/b', '--dir', '', 'undo-archive-plan']));
+      await run(['--dir', '', 'undo-archive-plan']);
       expect(seenRequest!.dir, Directory.current.path);
     });
 
+    test('an MSYS-form --dir is used as given, not converted', () async {
+      await run(['--dir', '/c/sw-none/p', 'undo-archive-plan']);
+      expect(seenRequest!.dir, '/c/sw-none/p');
+    });
+
     test('the last value of a repeated option wins', () async {
-      await run(
-        ['--args-stdin'],
-        _records([
-          '/s',
-          '/b',
-          'undo-archive-plan',
-          '--change',
-          'a',
-          '--change',
-          'b',
-        ]),
-      );
+      await run(['undo-archive-plan', '--change', 'a', '--change', 'b']);
       expect(seenRequest!.change, 'b');
     });
 
     test('an option value may start with dashes or be empty', () async {
-      await run(
-        ['--args-stdin'],
-        _records([
-          '/s',
-          '/b',
-          'undo-archive-plan',
-          '--change',
-          '--x',
-          '--type',
-          '',
-        ]),
-      );
+      await run(['undo-archive-plan', '--change', '--x', '--type', '']);
       expect(seenRequest!.change, '--x');
       expect(seenRequest!.type, '');
     });
@@ -162,9 +119,7 @@ void main() {
         'nothing',
         extra: {'commits': <String>[]},
       );
-      final code = await run([
-        '--args-stdin',
-      ], _records(['/s', '/b', 'undo-archive-plan']));
+      final code = await run(['undo-archive-plan']);
       expect(code, 1);
       expect(doc(), {
         'ok': false,
@@ -176,9 +131,7 @@ void main() {
 
     test('an unexpected failure is one internal_error document', () async {
       planner = (request, ctx) async => throw StateError('boom');
-      final code = await run([
-        '--args-stdin',
-      ], _records(['/s', '/b', 'undo-archive-plan']));
+      final code = await run(['undo-archive-plan']);
       expect(code, 1);
       expect(doc()['ok'], false);
       expect(doc()['error'], 'internal_error');
@@ -189,7 +142,7 @@ void main() {
       planner = (request, ctx) async => {
         'v': 'a${String.fromCharCode(0x2028)}b',
       };
-      await run(['--args-stdin'], _records(['/s', '/b', 'undo-archive-plan']));
+      await run(['undo-archive-plan']);
       expect(doc()['v'], 'a${String.fromCharCode(0x2028)}b');
     });
 
@@ -206,7 +159,7 @@ void main() {
     });
 
     test('no arguments at all give the usage text', () async {
-      final code = await run(['--args-stdin'], _records(['/s', '/b']));
+      final code = await run([]);
       expect(code, 2);
       expect(doc(), {'ok': false, 'error': 'usage', 'message': _usageText});
     });
@@ -239,64 +192,17 @@ void main() {
       await expectUsageStop(['undo-archive-plan', '--change', 'x', '--', 'a']);
     });
 
-    for (final argv in [
-      <String>[],
-      ['--args-stdin', 'extra'],
-    ]) {
-      test('sw argv $argv is a usage stop with exit 2', () async {
-        final code = await run(
-          argv,
-          _records(['/s', '/b', 'undo-archive-plan']),
-        );
-        expect(code, 2);
-        expect(doc()['error'], 'usage');
-        expect(doc()['message'], contains('sw finish'));
-        expect(seenRequest, isNull);
-      });
-    }
-
-    test(
-      r'an argument that is not UTF-8 is a not_utf8 document, exit 1',
-      () async {
-        final code = await run(
-          ['--args-stdin'],
-          [
-            ..._records(['/s', '/b', 'undo-archive-plan', '--change']),
-            0x61,
-            0xff,
-            0,
-          ],
-        );
-        expect(code, 1);
-        expect(doc()['ok'], false);
-        expect(doc()['error'], 'not_utf8');
-        expect(doc()['message'], contains(r'a\xFF'));
-        expect(seenRequest, isNull);
-      },
-    );
-
     test(
       'a launch the launcher refuses is a not_utf8 document, exit 1',
       () async {
         planner = (request, ctx) async =>
             throw const Unrepresentable('git', 'command line');
-        final code = await run([
-          '--args-stdin',
-        ], _records(['/s', '/b', 'undo-archive-plan', '--change', 'x']));
+        final code = await run(['undo-archive-plan', '--change', 'x']);
         expect(code, 1);
         expect(doc()['error'], 'not_utf8');
         expect(doc()['message'], contains('cannot start git'));
       },
     );
-
-    test('a handoff that does not end in a NUL is a usage stop', () async {
-      final code = await run([
-        '--args-stdin',
-      ], utf8.encode('/s\u0000/b\u0000x'));
-      expect(code, 2);
-      expect(doc()['error'], 'usage');
-      expect(doc()['message'], contains('sw finish'));
-    });
   });
 
   group('sw finish undo-step', () {
@@ -306,30 +212,47 @@ void main() {
         'check',
         'absent',
         '${Directory.systemTemp.path}/claude-ncrs-no-such-path',
-      ], []);
+      ]);
       expect(code, 0);
       expect(out, isEmpty);
       expect(seenRequest, isNull);
     });
 
     test('an unknown kind is a usage stop', () async {
-      final code = await run(['undo-step', 'frobnicate'], []);
+      final code = await run(['undo-step', 'frobnicate']);
       expect(code, 2);
       expect(doc()['error'], 'usage');
     });
   });
 
   group('runCli', () {
+    late Directory project;
+    setUp(() {
+      // a project of a test build's version (no SW_VERSION defined)
+      project = Directory.systemTemp.createTempSync('sw-finish-cmd-');
+      Directory('${project.path}/.git').createSync();
+      Directory('${project.path}/openspec/.specwright')
+          .createSync(recursive: true);
+      File('${project.path}/openspec/.specwright/VERSION')
+          .writeAsStringSync('0.0.0-dev\n');
+    });
+    tearDown(() => project.deleteSync(recursive: true));
+
     test('routes finish before the argument parser', () async {
       final bytes = <int>[];
       final code = await runCli(
-        ['finish', '--args-stdin'],
+        [
+          '--project',
+          project.path,
+          'finish',
+          'undo-archive-plan',
+          '--change',
+          'q',
+        ],
         out: StringBuffer(),
         err: StringBuffer(),
         outBytes: bytes.addAll,
         errBytes: (_) {},
-        readStdin: () async =>
-            _records(['/s', '/b', 'undo-archive-plan', '--change', 'q']),
         undoPlanner: planner,
       );
       expect(code, 0);
@@ -340,10 +263,11 @@ void main() {
       final e = StringBuffer();
       final code = await runCli([], out: StringBuffer(), err: e);
       expect(code, 2);
-      expect(e.toString(), contains('finish --args-stdin'));
+      expect(e.toString(), contains('finish [--dir <repo>]'));
+      expect(e.toString(), isNot(contains('--args-')));
     });
 
-    test('sw version --json still reports interface 1', () async {
+    test('sw version --json reports interface 2', () async {
       final o = StringBuffer();
       final code = await runCli(
         ['version', '--json'],
@@ -351,7 +275,7 @@ void main() {
         err: StringBuffer(),
       );
       expect(code, 0);
-      expect(o.toString(), '{"version":"0.0.0-dev","interface":1}\n');
+      expect(o.toString(), '{"version":"0.0.0-dev","interface":2}\n');
     });
   });
 }

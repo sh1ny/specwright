@@ -1,8 +1,8 @@
-"""finish.sh against its frozen oracle on a GitButler repo (real `but`), native-cli-finish D9.
+"""`sw finish undo-archive-plan` on a GitButler repo (real `but`): outcome checks (native-cli-retire-scripts task 7.2).
 
-The oracle (evals/finish/oracle/finish.sh) is the last finish.sh before the port to `sw`; both plan the same committed and
-uncommitted archives and must print the same stdout bytes with the same exit code. The printed script still calls vcs.sh by its
-absolute path and names no `sw` binary. This module runs in the `vcs` suite job, the only one that installs `but`.
+The plan of a committed and of an uncommitted archive is run with its printed `steps` and the repository, branch and files
+are checked afterwards; the frozen finish.sh is no longer run. The printed steps call `sw vcs`, not a shell script, and name no bash.
+This module runs in the `vcs` suite job, the only one that installs `but`.
 """
 import importlib.util
 import json
@@ -13,6 +13,7 @@ import jjenv
 from butenv import Scratch, require_but
 from test_gitbutler_flows import BRANCH, CHANGE, GitButlerFlowCase
 from vcs_test_support import stamp_version, sw_home
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("finish_fixtures", ROOT / "evals" / "finish" / "fixtures.py")
@@ -25,27 +26,6 @@ ARCHIVE_DIR = "%s/changes/archive/%s" % (P, ARCHIVED)
 CHANGE_DIR = "%s/changes/%s" % (P, CHANGE)
 
 
-def compact_guard(doc):
-    """The oracle's document with its printed branch guard in sw's form: the one listed difference (C13).
-
-    The guard reads the `vcs.sh state` document by text, and sw prints that document compact, so sw's guard matches
-    `"branch":"<name>"` where the oracle's matched `"branch": "<name>"`."""
-    if isinstance(doc.get("script"), str):
-        doc = dict(doc, script=doc["script"].replace("'\"branch\": \"", "'\"branch\":\""))
-    return doc
-
-
-def without_undo(doc):
-    """The document without the undo itself: the oracle prints a `script`, sw prints `steps`. test_gitbutler_undo_steps_commit_
-    paths_to_branch checks the outcome; task 7.2 of native-cli-retire-scripts migrates this file. The warnings name the
-    commit command the plan now prints, `sw vcs commit`, where the oracle named `vcs.sh commit`."""
-    out = {k: v for k, v in doc.items() if k not in ("script", "steps") and not k.startswith("after_rerun")}
-    if isinstance(out.get("warnings"), list):
-        out["warnings"] = [w.replace("`vcs.sh commit`", "`sw vcs commit`") if isinstance(w, str) else w
-                           for w in out["warnings"]]
-    return out
-
-
 class TestGitButlerParity(GitButlerFlowCase):
     def commit_paths(self, scratch, wrap, subject, *paths):
         result = self.commit(scratch, wrap, subject + "\n", *paths)
@@ -53,29 +33,21 @@ class TestGitButlerParity(GitButlerFlowCase):
         return result["commit"]
 
     def planned(self, scratch, wrap, repo):
-        """finish.sh and the oracle plan the same archive the same way; returns (new, old) as (exit code, stdout bytes, stderr bytes)."""
+        """sw's plan of the archive: (exit code, parsed document, raw output)."""
         args = fx.plan_args(CHANGE, archived=ARCHIVED, branch=BRANCH)
-        results = []
-        for script, extra in ((fx.SCRIPT, {}), (fx.ORACLE, {"ORACLE_FIN_DIR": str(fx.ORACLE_FIN_DIR)})):
-            env = self.fenced_env(scratch, wrap)
-            env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
-                        "SPECWRIGHT_HOME": str(sw_home()), **extra})
-            stamp_version(repo.path)
-            env["VCS_TEST_SEARCH"] = env["PATH"]
-            done = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "parity",
-                                   script.as_posix(), *args], cwd=str(repo.path), env=env, capture_output=True)
-            results.append((done.returncode, done.stdout, done.stderr))
-        return results
+        env = self.step_env(scratch, wrap, repo)
+        done = swcall.run(["finish", *args], cwd=str(repo.path), env=env)
+        try:
+            doc = json.loads(done.stdout)
+        except ValueError:
+            doc = None
+        return done.returncode, doc, done.stdout + done.stderr
 
-    def assertParity(self, pair):
-        new, old = pair
-        self.assertEqual(old[0], 0, old[1] + old[2])
-        # sw writes compact JSON, the oracle spaced: documents are equal by value, not by bytes (non-UTF-8 name bytes survive)
-        self.assertEqual(without_undo(json.loads(new[1].decode("utf-8", "surrogateescape"))),
-                         without_undo(json.loads(old[1].decode("utf-8", "surrogateescape"))),
-                         "stdout documents differ between finish.sh and the oracle")
-        self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
-        return json.loads(old[1].decode("utf-8"))
+    def planned_doc(self, scratch, wrap, repo):
+        code, doc, raw = self.planned(scratch, wrap, repo)
+        self.assertEqual(code, 0, raw)
+        self.assertNotIn("script", doc)
+        return doc
 
     def archived(self, scratch, committed):
         """feat/b beside the change branch; the change branch holds the planning commit and the archive, committed or not."""
@@ -112,12 +84,7 @@ class TestGitButlerParity(GitButlerFlowCase):
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, True)
             env = self.step_env(scratch, wrap, repo)
-            plan = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "plan",
-                                   fx.SCRIPT.as_posix(), *fx.plan_args(CHANGE, archived=ARCHIVED, branch=BRANCH)],
-                                  cwd=str(repo.path), env=env, capture_output=True, text=True, encoding="utf-8")
-            self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
-            doc = json.loads(plan.stdout)
-            self.assertNotIn("script", doc)
+            doc = self.planned_doc(scratch, wrap, repo)
             other_tip = repo.git_run("rev-parse", "refs/heads/feat/b").stdout.strip()
             before = repo.git_run("rev-parse", "refs/heads/" + BRANCH).stdout.strip()
             for step in doc["steps"]:
@@ -135,29 +102,37 @@ class TestGitButlerParity(GitButlerFlowCase):
             self.assertTrue((repo.path / CHANGE_DIR / "review.md").is_file())
             self.assertFalse((repo.path / ARCHIVE_DIR).exists())
 
-    def test_committed_archive_output_equals_oracle(self):
+    def run_all(self, doc, env):
+        for key in ("steps", "after_rerun_steps"):
+            for step in doc[key]:
+                done = self.run_step(step, env)
+                self.assertEqual(done.returncode, 0, "%s%s%s" % (step["argv"], done.stdout, done.stderr))
+
+    def test_printed_steps_restore_a_committed_archive(self):
         require_but()
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, True)
-            doc = self.assertParity(self.planned(scratch, wrap, repo))
+            doc = self.planned_doc(scratch, wrap, repo)
             self.assertEqual(doc["mode"], "committed")
+            self.run_all(doc, self.step_env(scratch, wrap, repo))
+            self.assertTrue((repo.path / CHANGE_DIR / "review.md").is_file())
+            self.assertFalse((repo.path / ARCHIVE_DIR).exists())
 
-    def test_uncommitted_archive_output_equals_oracle(self):
+    def test_printed_steps_restore_an_uncommitted_archive(self):
         require_but()
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, False)
-            doc = self.assertParity(self.planned(scratch, wrap, repo))
+            doc = self.planned_doc(scratch, wrap, repo)
             self.assertEqual(doc["mode"], "uncommitted")
+            self.run_all(doc, self.step_env(scratch, wrap, repo))
+            self.assertTrue((repo.path / CHANGE_DIR / "review.md").is_file())
+            self.assertFalse((repo.path / ARCHIVE_DIR).exists())
 
-    def test_script_calls_vcs_sh_by_path(self):
-        # task 7.2 of native-cli-retire-scripts renames this: the plan calls `sw vcs`, not vcs.sh, and names no bash
+    def test_steps_call_sw_vcs_and_name_no_bash(self):
         require_but()
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, True)
-            new, old = self.planned(scratch, wrap, repo)
-            self.assertParity((new, old))
-            doc = json.loads(new[1].decode("utf-8"))
-            self.assertNotIn("script", doc)
+            doc = self.planned_doc(scratch, wrap, repo)
             commits = [s["argv"] for s in doc["steps"] if s["argv"][3:5] == ["vcs", "commit"]]
             self.assertEqual(len(commits), 1, doc["steps"])
             self.assertEqual(Path(commits[0][2]).resolve(), repo.path.resolve())
@@ -167,5 +142,5 @@ class TestGitButlerParity(GitButlerFlowCase):
                                 for s in doc["steps"]), "the branch guard is an undo-step check")
             for step in doc["steps"]:
                 for word in step["argv"]:
-                    self.assertNotIn("vcs.sh", word)
+                    self.assertFalse(word.endswith(".sh"), word)
                     self.assertNotEqual(Path(word).stem, "bash")

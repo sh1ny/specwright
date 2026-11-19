@@ -1,4 +1,4 @@
-"""The skills call release.sh in the right places and state the release rules.
+"""The skills call `<sw> release` in the right places and state the release rules.
 
 The script's decisions (check, bump, status, untagged, publish) are tested in test_release.py; these checks
 make sure the skill text uses them, by position and key terms and not by exact wording, in the style of
@@ -53,7 +53,7 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertTrue(text, "skills/specwright-release/SKILL.md is missing")
         self.assertRegex(text, r"release\.enabled")
         for sub in ("check", "bump --to", "untagged", "publish --version"):
-            self.assertIn(f"release.sh {sub}", text.replace("scripts/release.sh", "release.sh"), f"no `release.sh {sub}`")
+            self.assertIn(f"<sw> release {sub}", text, f"no `<sw> release {sub}`")
         self.assertRegex(text, r"(?i)oldest first")
         self.assertRegex(text, r"(?i)first failure")
         for token in ("--force", "--tags"):
@@ -83,10 +83,10 @@ class TestReleaseSkill(unittest.TestCase):
 
     def test_publish_is_fenced_and_fetches_main_only(self):
         # A user-started publish resolves its run login instead of running unfenced, and step 1 fetches main alone:
-        # `--tags` would fail on a divergent local tag before release.sh can report tag_mismatch.
+        # `--tags` would fail on a divergent local tag before `sw release` can report tag_mismatch.
         text = read(SKILLS / "specwright-release" / "SKILL.md")
         publish = paragraph(text, r"\*\*Run login\.\*\*", "the publish run-login rule")
-        self.assertIn("as.sh --resolve", publish)
+        self.assertIn("<sw> as --resolve", publish)
         self.assertIn("github.login", publish)
         self.assertNotIn("with no run login, plain", text)
         self.assertNotRegex(text, r"git fetch[^`\n]*--tags")
@@ -98,9 +98,9 @@ class TestReleaseSkill(unittest.TestCase):
         self.assertTrue(text, "skills/specwright-release/SKILL.md is missing")
         notes = sections(text).get("release notes", "")
         self.assertTrue(notes, "no `## Release notes` section")
-        self.assertIn("release.sh notes --proposal <proposal.md>", notes)
+        self.assertIn("<sw> release notes --proposal <proposal.md>", notes)
         self.assertNotIn("openspec/changes/<change>/proposal.md", notes)
-        check = paragraph(notes, r"^.*release\.sh notes --proposal", "the notes check")
+        check = paragraph(notes, r"^.*<sw> release notes --proposal", "the notes check")
         self.assertRegex(check, r"(?i)planning repo", "the notes check does not say the proposal is in the planning repo")
         self.assertRegex(check, r"(?i)store", "the notes check does not name the store")
 
@@ -125,7 +125,7 @@ class TestFinishText(unittest.TestCase):
 
     def test_offers_untagged_oldest_first(self):
         s = self.step
-        self.assertRegex(s, r"release\.sh untagged")
+        self.assertRegex(s, r"<sw> release untagged")
         self.assertRegex(s, r"specwright-release[^.]*\*\*publish\*\*|\*\*publish\*\*[^.]*specwright-release")
         self.assertRegex(s, r"(?i)oldest first")
         self.assertRegex(s, r"`release\.auto`")
@@ -158,7 +158,7 @@ class TestFinishText(unittest.TestCase):
         s = self.step
         local = re.search(r"[^.]*untagged --local[^.]*\.", s)
         self.assertTrue(local, "the Release step has no `untagged --local` sentence for finish: local")
-        self.assertNotIn("as.sh", local.group(0))
+        self.assertNotIn("<sw> as", local.group(0))
         self.assertNotIn("[as]", local.group(0))
         self.assertRegex(s, r"(?is)`finish: local`.{0,120}untagged --local")
         self.assertRegex(s, r"(?i)no login")
@@ -168,7 +168,7 @@ class TestFinishText(unittest.TestCase):
     def test_local_merge_checks_version_before_merge(self):
         local = sections(self.text)["local"]
         check = line_with(local, r"^- \*\*Version check\*\*", "finish: the **Version check** bullet of ## local")
-        self.assertIn("release.sh check --main <main>", check)
+        self.assertIn("<sw> release check --main <main>", check)
         self.assertRegex(check, r"release\.enabled")
         self.assertRegex(check, r"(?i)before the merge|before `git merge")
         self.assertRegex(check, r"(?is)refus[^.]*stops?[^.]*merge|stops?[^.]*before `git merge`")
@@ -191,7 +191,7 @@ class TestWatchText(unittest.TestCase):
     def test_watch_checks_version_before_ready_and_merge(self):
         watch = sections(read(SKILLS / "specwright-pr" / "SKILL.md"))["watch"]
         step = line_with(watch, r"^   - \*\*Version check\*\*", "watch: the **Version check** bullet in step 3")
-        self.assertIn("release.sh check --main", step)
+        self.assertIn("<sw> release check --main", step)
         self.assertRegex(step, r"release\.enabled")
         self.assertIn("--no-tags", step)
         self.assertRegex(step, r"(?i)before (it )?report")
@@ -217,7 +217,7 @@ class TestWatchText(unittest.TestCase):
     def test_offer_without_auto(self):
         s = self.step
         self.assertRegex(s, r"release\.enabled")
-        self.assertRegex(s, r"release\.sh untagged")
+        self.assertRegex(s, r"<sw> release untagged")
         self.assertRegex(s, r"(?i)offer[^.]*specwright-release[^.]*publish|publish[^.]*offer")
         self.assertRegex(s, r"(?is)without `release\.auto`[^.]*no tag[^.]*until the user (accepts|says yes)|no tag[^.]*until the user (accepts|says yes)")
 
@@ -242,7 +242,7 @@ class TestShipText(unittest.TestCase):
 
     def test_ship_checks_version_against_fetched_main_before_push(self):
         ship = self.ship
-        step = line_with(ship, r"^   1\. .*release\.sh check --main", "ship: the version check item")
+        step = line_with(ship, r"^   1\. .*<sw> release check --main", "ship: the version check item")
         self.assertRegex(step, r"release\.enabled")
         fetch = step.index("--no-tags")
         self.assertLess(fetch, step.index("check --main"), "the check comes before the fetch")
@@ -314,9 +314,9 @@ class TestSchemaText(unittest.TestCase):
         self.assertTrue(m, "the tasks instruction does not mention `release.enabled`")
         rule = m.group(0)
         rule = re.sub(r"\s+", " ", rule)
-        self.assertIn("release.sh bump --to <version>", rule)
+        self.assertIn("<sw> release bump --to <version>", rule)
         self.assertRegex(rule, r"(?i)last task group")
-        self.assertRegex(rule, r"release\.sh check")
+        self.assertRegex(rule, r"<sw> release check")
         self.assertRegex(rule, r"(?is)(false|off|not enabled|disabled)[^.]*(no|not|without)[^.]*(bump )?task|no bump task")
 
     def _instruction(self, artifact):
@@ -330,7 +330,7 @@ class TestSchemaText(unittest.TestCase):
         rule = rule[rule.index("release.enabled"):]
         self.assertRegex(rule, r"(?i)summary")
         self.assertRegex(rule, r"(?i)whole release")
-        self.assertIn("release.sh notes --proposal", rule)
+        self.assertIn("<sw> release notes --proposal", rule)
         apply = re.sub(r"\s+", " ", read(ROOT / "schemas" / "specwright" / "schema.yaml").split("\napply:")[1])
         self.assertIn("## Release Notes", apply)
         self.assertRegex(apply, r"(?i)own commit|same commit|task commit")

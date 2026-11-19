@@ -4,7 +4,7 @@ make_download   a download tree: the repo's real schemas/specwright/ and templat
                 against the real schema) plus the chosen fixture packs of evals/packs/fixtures/packs/
 make_project    a code checkout directory with openspec/config.yaml (merged by merge.merge_config) and the record
                 openspec/.specwright/packs.json that the swap writes
-run_script      `bash scripts/update.sh --download D --code P <args>` (the shim, over a provisioned sw) -> (exit code, parsed JSON, stdout, stderr)
+run_script      `sw update --download D --code P <args>` (direct, over a provisioned sw) -> (exit code, parsed JSON, stdout, stderr)
 """
 import atexit
 import importlib.util
@@ -20,10 +20,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals"))
 sys.path.insert(0, str(HERE))
-import bashexe  # noqa: E402
+import swcall  # noqa: E402
 import merge  # noqa: E402
 
-SCRIPT = ROOT / "scripts" / "update.sh"
 FIXTURE_PACKS = HERE / "fixtures" / "packs"
 OPENSPEC = shutil.which("openspec")
 
@@ -32,8 +31,7 @@ _SW_HOME = None
 
 
 def sw_env():
-    """An environment whose SPECWRIGHT_HOME holds a sw of this repo's VERSION (scripts/update.sh is a shim that hands over to
-    it). Built once per process through the update suite's provision_sw, in a scratch home that is removed at exit, so the
+    """An environment whose SPECWRIGHT_HOME holds a sw of this repo's VERSION (`sw update` runs from it). Built once per process through the update suite's provision_sw, in a scratch home that is removed at exit, so the
     real home is never touched."""
     global _SW_HOME
     if _SW_HOME is None:
@@ -89,7 +87,7 @@ def make_project(tmp, dl, enabled, previous=(), existing=None, documents=None, n
 
 
 def run_script(dl, proj, *args, timeout=300):
-    argv = [bashexe.bash(), posix(SCRIPT), "--download", posix(dl), "--code", posix(proj), *args]
+    argv = swcall.argv(["update", "--download", posix(dl), "--code", posix(proj), *args])
     r = subprocess.run(argv, cwd=str(proj), capture_output=True, text=True, encoding="utf-8", timeout=timeout, env=sw_env())
     try:
         doc = json.loads(r.stdout)

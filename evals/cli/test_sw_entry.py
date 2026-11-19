@@ -63,6 +63,54 @@ class BadArgumentTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
 
 
+class OldHandoffTests(unittest.TestCase):
+    OLD_CALLS = (
+        (["vcs", "--args-stdin", "state"], "--args-stdin"),
+        (["commit", "--args-stdin"], "--args-stdin"),
+        (["finish", "--args-stdin"], "--args-stdin"),
+        (["review", "--args-stdin"], "--args-stdin"),
+        (["release", "--args-stdin"], "--args-stdin"),
+        (["pr", "snapshot", "--args-stdin"], "--args-stdin"),
+        (["as", "--args-file", "{handoff}"], "--args-file"),
+    )
+
+    def test_old_handoff_flag_is_unknown_option(self):
+        """native-cli "The old handoff flag": `sw vcs --args-stdin state` and `sw as --args-file <path>` stop with a usage
+        error naming the unknown option, exit 2. stdout stays empty, the handoff file is neither read nor deleted, and a
+        project in another version still gets the usage error, not a version stop (no other work is done)."""
+        with tempfile.TemporaryDirectory(prefix="swhandoff-") as tmp:
+            stamp_project(tmp, "99.0.0")
+            handoff = Path(tmp) / "handoff"
+            handoff.write_bytes(b"/scripts\0bash\0sh1ny\0git\0status\0")
+            for args, flag in self.OLD_CALLS:
+                with self.subTest(args=args):
+                    argv = [a.format(handoff=handoff) for a in args]
+                    proc = subprocess.run([swharness.require_sw(), "--project", tmp, *argv], cwd=tmp, capture_output=True,
+                                          input=b"/scripts\0bash\0state\0", timeout=60)
+                    self.assertEqual(proc.returncode, 2, proc)
+                    self.assertEqual(proc.stdout, b"", proc)
+                    self.assertIn(("unknown option: %s" % flag).encode(), proc.stderr)
+                    self.assertTrue(handoff.exists(), "the handoff file was read and deleted")
+
+
+class MsysPathTests(unittest.TestCase):
+    @unittest.skipUnless(WINDOWS, "platform: Windows MSYS path forms")
+    def test_msys_path_from_powershell_is_not_converted(self):
+        """native-cli "An MSYS path given from PowerShell": a caller that is not Git Bash passes `--repo /c/Users/u/p`. sw
+        uses the value as given, a root-relative Windows path, and stops with the command's existing error for a directory
+        that does not exist, though the drive-form directory the MSYS form names is there."""
+        with tempfile.TemporaryDirectory(prefix="swmsys-") as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            stamp_project(repo)
+            drive, rest = os.path.splitdrive(str(repo))
+            msys = "/" + drive[0].lower() + rest.replace("\\", "/")
+            self.assertTrue(repo.is_dir())
+            code, out, err = _run(["--project", str(repo), "vcs", "state", "--repo", msys, "--role", "code"], cwd=tmp)
+            document = json.loads(out)
+            self.assertEqual((code, document["error"]), (1, "not_repository"), (out, err))
+
+
 def stamp_project(root, version=None):
     """Make `root` a project of sw's own version: its openspec/.specwright/VERSION (the version check)."""
     if version is None:

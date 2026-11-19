@@ -1,6 +1,6 @@
-"""Script tests for skills/specwright-finish/scripts/finish.sh (undo-archive-plan).
+"""Tests of `sw finish undo-archive-plan`.
 
-Every test builds a real git repo with fixtures.py, runs the real script, runs the printed `steps`
+Every test builds a real git repo with fixtures.py, runs the real `sw`, runs the printed `steps`
 (and `after_rerun_steps`), and asserts on the resulting tree, index and refs. One JSON document on
 stdout per call; exit 0 = done, 1 = stop (the JSON has "error" and "message"), 2 = usage.
 
@@ -113,15 +113,6 @@ MINE = "# mine" + NL * 2 + "A new spec of my own." + NL
 NETWORK_RX = re.compile(r"(?<![\w-])(fetch|pull|push|ls-remote)(?![\w-])|(?<![\w./-])gh(?![\w-])")
 
 
-def network_lines(path):
-    """(line number, text) of every non-comment line of the script that names a git network command or gh."""
-    found = []
-    for n, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
-        if not line.lstrip().startswith("#") and NETWORK_RX.search(line):
-            found.append((n, line.strip()))
-    return found
-
-
 DART_FINISH = fx.ROOT / "cli" / "lib" / "src" / "finish"
 
 
@@ -156,17 +147,6 @@ class TestNoNetwork(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIs(__import__("json").loads(r.stdout)["ok"], True)
         self.assertFalse(log.exists(), "gh was called: " + (log.read_text() if log.exists() else ""))
-
-    def test_finish_sh_has_no_network_command(self):
-        hits = network_lines(fx.SCRIPT)
-        self.assertEqual(hits, [], "finish.sh runs a network command: " + "; ".join(f"line {n}: {t}" for n, t in hits))
-
-    def test_network_scan_names_an_injected_line(self):
-        copy = self.scripts / "finish_copy.sh"
-        lines = fx.SCRIPT.read_text(encoding="utf-8").splitlines()
-        lines.insert(40, "git(top, 'fetch', 'origin')")
-        copy.write_text(NL.join(lines) + NL, encoding="utf-8", newline=NL)
-        self.assertEqual(network_lines(copy), [(41, "git(top, 'fetch', 'origin')")])
 
     def test_sw_finish_source_has_no_network_command(self):
         self.assertTrue(list(DART_FINISH.rglob("*.dart")), "no Dart source under cli/lib/src/finish")
