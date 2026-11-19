@@ -1,0 +1,28 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_nan_and_infinity_material",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 14,
+  "prefixes": [
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "OverflowError: "
+  ]
+ },
+ "stdout": ""
+}

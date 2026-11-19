@@ -6,10 +6,9 @@ const String buildVersion = String.fromEnvironment(
 );
 
 /// Changes whenever a command's arguments, JSON output or exit codes change
-/// incompatibly. It must change together with `SW_INTERFACE` in
-/// skills/specwright-pr/scripts/sw-path.sh, pinned by
-/// evals/cli/test_sw_interface_pin.py.
-const int interfaceVersion = 1;
+/// incompatibly. It must change together with the `interface <n>` line of
+/// skills/specwright-pr/SKILL.md, pinned by evals/cli/test_sw_interface_pin.py.
+const int interfaceVersion = 2;
 
 Map<String, Object> versionReport({String version = buildVersion}) => {
   'version': version,

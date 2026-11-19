@@ -1,0 +1,100 @@
+{
+ "calls": [
+  [
+   "api",
+   "graphql",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "pr=7",
+   "-f",
+   "query=\n    query($owner:String!,$name:String!,$pr:Int!){ viewer{login}\n      repository(owner:$owner,name:$name){ pullRequest(number:$pr){\n        reviews(states:PENDING, first:10){ nodes{ author{login} } } } } }",
+   "--jq",
+   ".data.viewer.login as $me | [.data.repository.pullRequest.reviews.nodes[] | select(.author.login == $me)] | length"
+  ]
+ ],
+ "case": "test_parity.ReplyParity.test_pending_review_exits_2",
+ "comment_bodies": {
+  "/repos/o/n/pulls/0/threads/0/comments/0": "please fix"
+ },
+ "exit": 2,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "next_id": 1003,
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "reviews": [
+       {
+        "author": "me",
+        "body": "draft",
+        "databaseId": 1003,
+        "id": "PRR_1003",
+        "lastEditedAt": null,
+        "state": "PENDING",
+        "submittedAt": "2026-10-10T10:00:00Z",
+        "url": "https://github.com/o/n/pull/7#pullrequestreview-1003"
+       }
+      ],
+      "state": "open",
+      "threads": [
+       {
+        "comments": [
+         {
+          "author": "rev",
+          "body": "please fix",
+          "createdAt": "2026-10-10T10:00:00Z",
+          "databaseId": 1002,
+          "id": "PRRC_1002",
+          "lastEditedAt": null,
+          "url": "https://github.com/o/n/pull/7#discussion_r1002"
+         }
+        ],
+        "id": "PRRT_1001",
+        "isOutdated": false,
+        "isResolved": false,
+        "line": 1,
+        "originalLine": 1,
+        "path": "a.py"
+       }
+      ],
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 1,
+  "prefixes": [
+   "pr-reply: "
+  ]
+ },
+ "stdout": ""
+}

@@ -1,11 +1,11 @@
-"""Black-box tests for `update.sh sw-install` and the `sw` field of `plan` (native-cli-distribution, design D1, D3, D7, D8).
+"""Black-box tests for `sw update sw-install` and the `sw` field of `plan` (native-cli-distribution, design D1, D3, D7, D8).
 
 A fixture release lives in a directory served through `--release-url file://...` (laid out as
 <base>/releases/download/<tag>/<asset>): the binary named by SPECWRIGHT_SW under the host's asset name plus a SHA256SUMS
 file. Stalls, oversized answers and redirects come from a local http.server thread (127.0.0.1, port 0). The 120 s
-deadline and the 64 MiB bound are made short with SPECWRIGHT_NET_DEADLINE and SPECWRIGHT_NET_MAX_BYTES, which bounded.py
-already lets a test lower (the sw download reads the same variables, so no new option exists for them).
-Test-only variables read by update.sh (never needed in production):
+deadline and the 64 MiB bound are made short with SPECWRIGHT_NET_DEADLINE and SPECWRIGHT_NET_MAX_BYTES, which the sw
+download reads (no new option exists for them).
+Test-only variables read by `sw update` (never needed in production):
   SPECWRIGHT_TEST_HOST     `<system>/<machine>` in place of platform.system()/machine(), e.g. `Windows/ARM64`
   SPECWRIGHT_TEST_RENAME   `die` (exit between the checks and the rename), `fail` (the rename is blocked) or `race`
                            (another run places the final file, then the rename is blocked)
@@ -40,7 +40,6 @@ _spec.loader.exec_module(fx)
 
 WINDOWS = os.name == "nt"
 EXE = "sw.exe" if WINDOWS else "sw"
-SWPATH_REL = Path("skills") / "specwright-pr" / "scripts" / "sw-path.sh"
 TARGETS = ("linux-x64", "linux-arm64", "windows-x64", "macos-arm64", "macos-x64")
 NOTICE = "THIRD_PARTY_NOTICES.txt"
 NOTICE_BYTES = b"Fixture third-party notice\n"
@@ -49,8 +48,6 @@ NOTICE_BYTES = b"Fixture third-party notice\n"
 def has_notice(tag):
     return tuple(map(int, tag.lstrip("v").split("."))) >= (0, 30, 0)
 
-
-STOP = "sw missing or mismatched: rerun the install prompt"
 
 
 def asset_of(target):
@@ -108,19 +105,11 @@ class Base(unittest.TestCase):
         self.servers = []
 
     def make_download(self, dest, version=None):
-        """The part of a download sw-install reads: update.sh, the resolver and bounded.py, VERSION."""
+        """The part of a download sw-install reads: VERSION."""
         dest = Path(dest)
-        shutil.copytree(ROOT / "scripts", dest / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copytree(ROOT / "skills" / "specwright-pr" / "scripts", dest / SWPATH_REL.parent,
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        (dest / "VERSION").write_text((version or self.version) + "\n", encoding="utf-8", newline="")
+        dest.mkdir(parents=True)
+        (dest / "VERSION").write_text((version or self.version) + chr(10), encoding="utf-8", newline="")
         return dest
-
-    def edit_swpath(self, old, new, dl=None):
-        p = (dl or self.dl) / SWPATH_REL
-        data = p.read_bytes()
-        assert old.encode() in data
-        p.write_bytes(data.replace(old.encode(), new.encode(), 1))
 
     # --- the fixture release ---
 
@@ -276,6 +265,8 @@ void main(List<String> args) {
         (self.dl / "VERSION").write_text(version + "\n")
 
     def env(self, **extra):
+        # the fixture reports the running sw's interface unless a test says otherwise
+        extra.setdefault("SW_NOTICE_INTERFACE", str(self.interface))
         return super().env(SW_NOTICE_VERSION=self.version, **extra)
 
     def test_download_installs_notice_before_binary_execution(self):
@@ -602,7 +593,7 @@ class TestPlan(Base):
         self.assert_nothing_placed()
 
     def test_plan_without_sw_field_means_no_sw(self):
-        # an older tag's download runs its own update.sh, which has no sw field; the only plan of this script without the
+        # an older tag's download has no sw field in its plan; the only plan of `sw update` without the
         # field is one for a ref that is not a release tag. The step then installs nothing.
         doc = self.plan(None)
         self.assertNotIn("sw", doc)
@@ -756,10 +747,6 @@ class TestRecovery(Base):
         self.assertEqual(doc["sw_note"], "no sw serves 0.0.1, which no 0.0.1 skill needs", doc)
         self.assertEqual(doc["message"], "rolled back to 0.0.1", doc)
         self.assertFalse(self.old_bin.exists(), "the rollback creates nothing under bin/")
-        r = subprocess.run([bashexe.bash(), str(self.dl / SWPATH_REL), "--code", str(self.co.code)], env=self.env(),
-                           capture_output=True, text=True, timeout=120)
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stderr.splitlines()[0], STOP, "no sw serves the rolled-back version")
 
 
 if __name__ == "__main__":

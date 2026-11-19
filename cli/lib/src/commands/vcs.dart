@@ -1,5 +1,3 @@
-import 'dart:io' as io;
-
 import '../vcs/args.dart';
 import '../vcs/document.dart';
 import '../vcs/git_backend.dart';
@@ -10,14 +8,14 @@ import '../vcs/probe.dart';
 import '../vcs/scripts.dart';
 import '../vcs/stop.dart';
 
-/// What a subcommand handler gets: the parsed request and the two values the
-/// shim handed over (design D2).
+/// What a subcommand handler gets: the parsed request.
 class VcsContext {
-  VcsContext(this.request, this.scriptsDir, this.bash);
+  VcsContext(this.request, {this.sw});
+
+  /// The `sw` that `plan` prints; null is the running binary. Tests only.
+  final String? sw;
 
   final VcsRequest request;
-  final String scriptsDir;
-  final String bash;
 }
 
 /// Runs one subcommand. It returns the document to print (exit 0) or throws a
@@ -26,8 +24,7 @@ typedef VcsHandler = Future<Map<String, Object?>> Function(VcsContext ctx);
 
 /// What every subcommand after the probe works with: `vcs.sh`'s `main` up to
 /// its dispatch. [repo] and [code] are the resolved directories, [info] the
-/// probe's answer (with `--main` applied) and [scripts] the scripts directory
-/// and bash from the stdin header.
+/// probe's answer (with `--main` applied) and [scripts] the fence it runs.
 class VcsSession {
   VcsSession(this.ctx, this.repo, this.code, this.info, this.scripts);
 
@@ -46,7 +43,7 @@ Future<VcsSession> openSession(VcsContext ctx) async {
   final request = ctx.request;
   final repo = await resolvePath(request.repo);
   final code = await resolvePath(request.code);
-  final scripts = VcsScripts(ctx.scriptsDir, ctx.bash);
+  final scripts = VcsScripts();
   final info = await probe(scripts, repo, code, request.role);
   final main = request.main;
   if (main != null && main.isNotEmpty) info.main = main;
@@ -97,36 +94,24 @@ final Map<String, VcsHandler> vcsHandlers = {
       command: command == 'plan' ? probed(planDocument) : _operation(command),
 };
 
-const String _argvUsage = 'usage: sw vcs --args-stdin';
-
-/// `sw vcs --args-stdin`: nothing else on [args]. Reads the handoff from
-/// [readStdin], runs the handler and writes one document to [writeOut].
+/// `sw vcs <subcommand> [options] [-- paths]`. Runs the handler and writes one
+/// document to [writeOut].
 /// Returns the exit code: 0, or the stop's (1, 2 or 3), or 1 for an
 /// unexpected failure (`internal_error`, never a stack trace).
 Future<int> runVcsCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
-  Future<List<int>> Function()? readStdin,
   Map<String, VcsHandler>? handlers,
 }) async {
   Map<String, Object?> document;
   var code = 0;
   try {
-    if (args.length != 1 || args.first != '--args-stdin') {
-      throw VcsStop('usage', _argvUsage, code: 2);
-    }
-    final handoff = parseHandoff(
-      await (readStdin ?? readAllStdin)(),
-      handoffUsage,
-    );
-    final request = parseVcsArguments(handoff.argv);
+    final request = parseVcsArguments(args);
     final handler = (handlers ?? vcsHandlers)[request.command];
     if (handler == null) {
       throw StateError('${request.command} is not ported yet');
     }
-    document = await handler(
-      VcsContext(request, handoff.scriptsDir, handoff.bash),
-    );
+    document = await handler(VcsContext(request));
   } on VcsStop catch (stop) {
     document = stop.object();
     code = stop.code;
@@ -156,16 +141,3 @@ Map<String, Object?> _internalError(Object e) => {
     _ => e.toString(),
   },
 };
-
-/// Reads the handoff with `readByteSync`, never as a stream: at a pipe's EOF
-/// the stream closes fd 0, and Dart 3.13's process spawn can then hand a
-/// child's stdin pipe the number 0 and close it in the child
-/// (dart-lang/sdk#64744), so a tool's `read` fails with EBADF. The handoff is
-/// a few hundred bytes.
-Future<List<int>> readAllStdin() async {
-  final bytes = <int>[];
-  for (var b = io.stdin.readByteSync(); b != -1; b = io.stdin.readByteSync()) {
-    bytes.add(b);
-  }
-  return bytes;
-}

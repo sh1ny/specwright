@@ -1,0 +1,132 @@
+{
+ "calls": [
+  [
+   "api",
+   "graphql",
+   "-f",
+   "query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { defaultBranchRef { name } pullRequest(number: $number) { state url body baseRefName mergedAt } } }",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "number=7"
+  ],
+  [
+   "api",
+   "-X",
+   "POST",
+   "markdown",
+   "--input",
+   "<temp>/<name>"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { state timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { createdAt } } } } } }",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "number=21"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { state timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { createdAt } } } } } }",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "number=24"
+  ]
+ ],
+ "case": "test_workflow_parity.WorkflowParity.test_closed_checks_merged_open_reopened_outside",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "issues": {
+     "21": {
+      "state": "CLOSED",
+      "timeline": [
+       "CLOSED"
+      ]
+     },
+     "24": {
+      "state": "OPEN",
+      "timeline": [
+       "CLOSED",
+       "REOPENED"
+      ]
+     }
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "Fixes #21\nFixes #24\n",
+      "closing_refs": [
+       {
+        "number": 21,
+        "repo": "o/n"
+       }
+      ],
+      "closing_refs_has_next": false,
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": "2026-10-08T10:00:00Z",
+      "number": 7,
+      "state": "closed",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "base": "main",
+  "closed": [
+   "o/n#21"
+  ],
+  "default_branch": "main",
+  "intended": [
+   "o/n#21",
+   "o/n#24"
+  ],
+  "ok": true,
+  "open": [],
+  "outside": [],
+  "pr_url": "https://github.com/o/n/pull/7",
+  "reopened": [
+   "o/n#24"
+  ],
+  "status": "merged"
+ }
+}

@@ -1,0 +1,100 @@
+{
+ "calls": [
+  [
+   "api",
+   "-X",
+   "PUT",
+   "repos/o/n/pulls/7/merge",
+   "-f",
+   "merge_method=merge",
+   "-f",
+   "sha=0000000000000000000000000000000000000009"
+  ],
+  [
+   "api",
+   "repos/o/n/pulls/7"
+  ]
+ ],
+ "case": "test_workflow_parity.WorkflowParity.test_every_workflow_command_has_differential_coverage",
+ "comment_bodies": {},
+ "exit": 3,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "fail": [
+   {
+    "match": "api",
+    "stderr": "matrix read unavailable"
+   }
+  ],
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "48dc6c5e7c2085bc55223ce3b2de92fab992226a"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merged_at": "2026-10-08T10:00:00Z",
+      "number": 7,
+      "state": "closed",
+      "title": "t7"
+     }
+    ]
+   },
+   "o/plans": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/plans"
+       },
+       "sha": "48dc6c5e7c2085bc55223ce3b2de92fab992226a"
+      },
+      "html_url": "https://github.com/o/plans/pull/7",
+      "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merged_at": "2026-10-08T10:00:00Z",
+      "number": 7,
+      "state": "closed",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "lookup_failed",
+  "message": "GitHub state unknown: matrix read unavailable",
+  "ok": false,
+  "status": "unknown",
+  "unknown": true
+ }
+}

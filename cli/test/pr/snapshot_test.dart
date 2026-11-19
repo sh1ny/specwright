@@ -625,12 +625,7 @@ void main() {
     });
 
     test('the default pause waits in process, with no sleep started', () async {
-      final real = PrContext(
-        scriptsDir: 's',
-        bash: 'bash',
-        writeOut: (_) {},
-        writeErr: (_) {},
-      );
+      final real = PrContext(writeOut: (_) {}, writeErr: (_) {});
       final clock = Stopwatch()..start();
       await real.sleep(1);
       expect(clock.elapsedMilliseconds, greaterThanOrEqualTo(900));

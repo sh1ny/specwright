@@ -1,17 +1,15 @@
 """The pr-pair settings interface chooses code and planning-store VCS independently."""
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
-import bashexe  # noqa: E402
+import swcall  # noqa: E402
 import vcs_test_support  # noqa: E402
 from vcs_test_support import VcsTestCase  # noqa: E402
 
@@ -22,19 +20,14 @@ class TestVcsSettings(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.code = Path(self.temp.name) / "code"
         (self.code / "openspec").mkdir(parents=True)
-        vcs_test_support.stamp_version(self.code)  # the shim runs the sw of the project's installed version
+        vcs_test_support.stamp_version(self.code)  # sw checks the project's installed version
 
     def set_settings(self, text):
         (self.code / "openspec" / "specwright.yaml").write_text(text, encoding="utf-8")
 
     def vcs(self, expected=0):
-        bash = bashexe.bash()
-        self.assertIsNotNone(bash, "Git Bash is required to run pr-pair.sh on Windows")
-        result = subprocess.run(
-            [bash, SCRIPT.as_posix(), "vcs", "--code", self.code.as_posix()],
-            capture_output=True, text=True, env={**os.environ, "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())},
-            cwd=self.code,
-        )
+        result = swcall.run(["pr", "vcs", "--code", self.code.as_posix()], cwd=self.code,
+                            env={**os.environ, "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())})
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(result.stdout)
 

@@ -4,3 +4,4 @@
 *VERSION text eol=lf
 schemas/** text eol=lf
 cli/THIRD_PARTY_NOTICES.txt text eol=lf
+evals/pr-pair/oracle/records/** -text

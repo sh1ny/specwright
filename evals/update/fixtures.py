@@ -1,7 +1,7 @@
-"""Scratch layouts for the update.sh evals (scripts/update.sh).
+"""Scratch layouts for the `sw update` evals.
 
 Builders:
-  make_download      a download tree for one version, made from this repo's skills/, agents/, schemas/ and scripts/
+  make_download      a download tree for one version, made from this repo's skills/, agents/, schemas/ and templates/
                      with VERSION rewritten and an optional edit of the schema
   make_checkout      a scratch code checkout (git, openspec/config.yaml, openspec/.specwright/VERSION, the chosen
                      skills and agents directories) with one version installed from a download
@@ -10,11 +10,11 @@ Builders:
 Change helpers (a change in flight lives in the working tree, on a local branch or on a remote-tracking ref):
   add_change_worktree, add_change_branch, add_change_remote, archive_change
 Versioned binaries: provision_sw(home, version) puts a sw that reports `version` at <home>/.specwright/bin/<version>/,
-which is where the update.sh shim looks (design D8 of native-cli-update); make_download and make_mini_download call it.
-Run helpers: run_update (runs `bash <download>/scripts/update.sh`, which hands over to the download's sw; optionally
+which is where the project's sw is found (design D8 of native-cli-update); make_download and make_mini_download call it.
+Run helpers: run_update (runs the download's `sw update`; optionally
 counts and kills at the N-th file operation through SPECWRIGHT_UPDATE_COUNT and SPECWRIGHT_UPDATE_KILL_AT), tree, snapshot.
 
-Paths handed to update.sh are posix(): forward slashes, which Git Bash and Python both read.
+Paths handed to `sw update` are posix(): forward slashes, which Git Bash and Python both read.
 """
 import json
 import os
@@ -29,6 +29,7 @@ if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 import bashexe  # noqa: E402
+import swcall  # noqa: E402
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 STORE_ID = "team-plans"
 PREFIXES = ("feat", "bugfix", "refactor", "docs", "chore")
@@ -154,7 +155,7 @@ def sw_home_for(download):
 
 def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skills=(), add_skills=None, provision=True,
                   home=None):
-    """A download tree at `dest` (a path that does not exist yet): this repo's skills/, agents/, schemas/, scripts/
+    """A download tree at `dest` (a path that does not exist yet): this repo's skills/, agents/, schemas/
     and templates/, with VERSION = version.
 
     schema_edit: callable(schema_dir) applied to the copied schemas/specwright (see schema_edit_comment).
@@ -165,7 +166,7 @@ def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skill
     Returns the path."""
     dest = Path(dest)
     dest.mkdir(parents=True)
-    for d in ("skills", "agents", "schemas", "scripts", "templates"):
+    for d in ("skills", "agents", "schemas", "templates"):
         if (ROOT / d).is_dir():
             shutil.copytree(ROOT / d, dest / d, ignore=shutil.ignore_patterns("__pycache__"))
         else:
@@ -187,11 +188,9 @@ def make_download(dest, version, schema_edit=None, stamp_skills=True, drop_skill
 
 
 def make_mini_download(dest, version, skills=1, schema_edit=None, provision=True, home=None):
-    """make_download with only the first `skills` specwright-* directories (and specwright-pr, which holds the sw-path.sh
-    the shim runs) and one claude agent file: the same flow with a handful of file operations, for the evals that run
-    update.sh many times (the interruption matrix)."""
+    """make_download with only the first `skills` specwright-* directories (and specwright-pr, kept whole) and one claude agent file: the same flow with a handful of file operations, for the evals that run
+    `sw update` many times (the interruption matrix)."""
     names = sorted(p.name for p in (ROOT / "skills").glob("specwright-*") if p.is_dir() and p.name != "specwright-pr")
-    # specwright-pr stays whole: the shim finds sw-path.sh in it
     dl = make_download(dest, version, drop_skills=names[skills:], schema_edit=schema_edit, provision=provision, home=home)
     agents = sorted((dl / "agents" / "claude").glob("*.md"))
     for p in agents[1:]:
@@ -210,7 +209,7 @@ class Checkout:
         self.version, self.download = version, download
 
     def args(self):
-        """The update.sh options that describe this checkout (everything before the subcommand)."""
+        """The `sw update` options that describe this checkout (everything before the subcommand)."""
         out = ["--code", posix(self.code), "--root", posix(self.root)]
         for s in self.skills:
             out += ["--skills", posix(s)]
@@ -333,7 +332,7 @@ def make_store_pair(tmp, version="0.5.0", store_id=STORE_ID, download=None):
 
 
 def owner_id(co):
-    """The owner id update.sh derives for a checkout without an `origin` remote: path:<code toplevel>."""
+    """The owner id `sw update` derives for a checkout without an `origin` remote: path:<code toplevel>."""
     return "path:" + posix(co.code)
 
 
@@ -441,21 +440,17 @@ def archive_change(repo, name, date="2026-10-01", planning="openspec"):
 # --- running ----------------------------------------------------------------------------------------------------
 
 def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=None, kill_at=None, sw=None, timeout=300):
-    """Run `bash <download>/scripts/update.sh <args>`; returns (exit code, parsed JSON or None, stdout, stderr).
+    """Run `sw update <args> [--download <download>]` directly (evals/swcall.py); returns (exit code, parsed JSON or None,
+    stdout, stderr).
 
-    The shim hands over to the sw at $SPECWRIGHT_HOME/.specwright/bin/<download version>/ (default home:
-    sw_home_for(download), which make_download filled). count_file: SPECWRIGHT_UPDATE_COUNT, the log of every file
-    operation sw makes (`<n> <op> <args>`, numbering continues across runs that share the file); kill_at:
-    SPECWRIGHT_UPDATE_KILL_AT, sw ends with exit 137 before operation n, as if killed between two operations.
-    shim_dir goes first on PATH (a tool a test puts in front of the real one; sw's own file operations pass no tool).
-    sw: run `<sw> update <args>` directly instead of through the shim (what the prompt does with its checked temporary
-    copy of sw, for sw-install, which places the sw the shim would need)."""
-    script = Path(download) / "scripts" / "update.sh"
+    The sw is the one at $SPECWRIGHT_HOME/.specwright/bin/<tree version>/ (default home: sw_home_for(download), which
+    make_download filled). count_file: SPECWRIGHT_UPDATE_COUNT, the log of every file operation sw makes (`<n> <op> <args>`,
+    numbering continues across runs that share the file); kill_at: SPECWRIGHT_UPDATE_KILL_AT, sw ends with exit 137 before
+    operation n, as if killed between two operations. shim_dir goes first on PATH (a tool a test puts in front of the real
+    one; sw's own file operations pass no tool). sw: run `<sw> update <args>` with that binary instead (what the prompt does
+    with its checked temporary copy of sw, for sw-install)."""
     env = dict(env or os.environ)
     env.setdefault("OPENSPEC_TELEMETRY", "0")
-    # Git Bash rewrites an argument that looks like a POSIX path (`/tmp/gdd.md`) when the shim execs the native sw; a pack-doc
-    # path must reach sw as given
-    env.setdefault("MSYS2_ARG_CONV_EXCL", "*")
     env.setdefault("SPECWRIGHT_HOME", str(sw_home_for(download)))
     if shim_dir:
         env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
@@ -463,11 +458,9 @@ def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=Non
         env["SPECWRIGHT_UPDATE_COUNT"] = posix(count_file)
     if kill_at is not None:
         env["SPECWRIGHT_UPDATE_KILL_AT"] = str(kill_at)
-    argv = [str(sw), "update", *map(str, args)] if sw else [bashexe.bash(), posix(script), *map(str, args)]
-    if sw:
-        args = list(args)
-        if "--download" not in map(str, args):
-            argv += ["--download", posix(download)]
+    argv = [str(sw), "update", *map(str, args)] if sw else swcall.argv(["update", *args])  # `update` checks no project version
+    if "--download" not in map(str, args):
+        argv += ["--download", posix(download)]
     r = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
     doc = None
     out = r.stdout.strip()

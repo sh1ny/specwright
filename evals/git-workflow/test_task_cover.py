@@ -1,7 +1,7 @@
-"""skills/specwright-commit/scripts/task-cover.sh reports which tasks of tasks.md commits cover.
+"""`sw commit task-cover` reports which tasks of tasks.md commits cover.
 
 Each test builds a scratch git repo with a tasks.md and commits whose subjects and `Specwright-Task`
-trailers are the evidence; the script reads them read-only and prints one JSON document. Exit 0
+trailers are the evidence; the command reads them read-only and prints one JSON document. Exit 0
 answered, 1 range_too_large, 2 usage or tasks_too_large, 3 git failure.
 
 Run: python -m unittest discover evals/git-workflow -p "test_task_cover.py"
@@ -18,10 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
-import bashexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
-SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "task-cover.sh"
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 CHANGE = "add-greeting"
 
 TASKS = """# Tasks
@@ -43,9 +42,9 @@ _MODULE = {}
 
 
 def setUpModule():
-    """Give every run of the script an sw home and a stamped project (design D8): SPECWRIGHT_HOME goes into os.environ,
-    so every environment built from it carries it, and the module runs from a stamped temporary project. The script is
-    a shim, so it needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
+    """Give every run an sw home and a stamped project (design D8): SPECWRIGHT_HOME goes into os.environ,
+    so every environment built from it carries it, and the module runs from a stamped temporary project. The command is
+    `sw`, so it needs the built sw: the module skips locally without one; CI requires it (SPECWRIGHT_REQUIRE_SW=1)."""
     home = str(vcs_test_support.sw_home())
     _MODULE["cwd"] = os.getcwd()
     _MODULE["env"] = os.environ.get("SPECWRIGHT_HOME")
@@ -104,10 +103,9 @@ class TaskCover(unittest.TestCase):
         tasks = tasks or self.tasks_file()
         e = dict(os.environ, **(env or {}))
         extra = ["--rev", rev] if rev else []
-        return subprocess.run(
-            [bashexe.bash(), str(SCRIPT), "--repo", str(repo or self.repo), "--range", (base or self.base) + "..HEAD",
-             "--tasks", str(tasks), "--change", change, *extra],
-            capture_output=True, env=e)
+        return swcall.run(
+            ["commit", "task-cover", "--repo", repo or self.repo, "--range", (base or self.base) + "..HEAD",
+             "--tasks", tasks, "--change", change, *extra], env=e, text=False)  # runs from the stamped module project
 
     def user_commit(self, subject, task_trailers=(), user_trailers=()):
         """Like commit(), with Specwright-Task and Specwright-User-Task trailers in one block."""
@@ -582,8 +580,8 @@ class TaskCover(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
     def test_bad_range_exits_3(self):
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "--repo", str(self.repo), "--range", "nope..HEAD",
-                            "--tasks", str(self.tasks_file()), "--change", CHANGE], capture_output=True)
+        r = swcall.run(["commit", "task-cover", "--repo", self.repo, "--range", "nope..HEAD",
+                        "--tasks", self.tasks_file(), "--change", CHANGE], text=False)
         self.assertEqual(r.returncode, 3)
 
 

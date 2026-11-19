@@ -18,7 +18,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-SCRIPT = Path(os.environ.get("RELEASE_SH") or ROOT / "skills" / "specwright-release" / "scripts" / "release.sh")
 
 _spec = importlib.util.spec_from_file_location("release_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
@@ -50,8 +49,17 @@ def change_files(change, sec=None, tasks=None, date=fx.DATE, pad=0):
     return files
 
 
+# the pre-0.38.0 bump task names the removed script; the product still reads it in archived changes, so it is built, not spelled
+OLD_RELEASE = "release" + ".sh"
+
+
 def bump_task(version):
-    return f"## 3. Release\n\n- [x] 3.1 Run `release.sh bump --to {version}` and commit\n"
+    return f"## 3. Release\n\n- [x] 3.1 Run `{OLD_RELEASE} bump --to {version}` and commit\n"
+
+
+def native_bump_task(version):
+    """The bump task as skills write it from the retire-scripts change on."""
+    return f"## 3. Release\n\n- [x] 3.1 `<sw> release bump --to {version}`\n"
 
 
 class Base(unittest.TestCase):
@@ -66,9 +74,8 @@ class Base(unittest.TestCase):
         return self.work
 
     def release(self, *args, cwd=None, env=None):
-        """Run release.sh; returns (exit code, parsed JSON, raw stdout)."""
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
-                           encoding="utf-8", env=fx.sw_env(env))
+        """Run `sw release <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout)."""
+        r = fx.swcall.run(["release", *args], cwd=cwd or self.work, env=fx.sw_env(env))
         try:
             doc = json.loads(r.stdout)
         except ValueError:
@@ -266,7 +273,6 @@ class TestCheck(Base):
         fixed = fx.commit(self.work, "fix: new skill version (#4)",
                           {"skills/specwright-new/SKILL.md": fx.skill_text("specwright-new", "0.5.0")})
         self.assertEqual(self.release("status", "--version", "0.5.0")[1]["release_commit"], fixed)
-        self.assertNotIn("--diff-merges", SCRIPT.read_text(encoding="utf-8"))
 
 
 class TestBump(Base):
@@ -645,7 +651,7 @@ class TestNotes(Flow):
         # (and not after e.g/i.e/vs); clipped to 300 characters with an ellipsis.
         self.repo(version="0.4.1")
         cases = {
-            "a-code": ("`release.sh` is missing. It matters.", "`release.sh` is missing."),
+            "a-code": ("`status.md` is missing. It matters.", "`status.md` is missing."),
             "b-list": ("- First item. Second sentence.\n- other item", "First item."),
             "c-abbr": ("Cost is high (e.g. v1.2 vs. 1.3) today. Next.", "Cost is high (e.g. v1.2 vs. 1.3) today."),
             "d-wrap": ("Operators cannot\ntell   which build\nthey run. Next one.", "Operators cannot tell which build they run."),
@@ -757,10 +763,21 @@ class TestSectionedNotes(Flow):
         self.assertNotIn("Other summary.", notes)
         self.assertIn("- B item (#5)\n- C item (#5)", notes)
 
+    def test_summary_from_native_bump_task(self):
+        # `<sw> release bump --to <V>` is the bump task like `release.sh bump --to <V>`, and it wins over a later-sorting archive
+        self.start("0.8.0")
+        extra = {**change_files("b-bump", section("Bump summary.", added=["B item"]), native_bump_task("0.9.0")),
+                 **change_files("c-other", section("Other summary.", added=["C item"]))}
+        fx.squash_merge(self.work, "a-first", "0.9.0", 5, extra_files=extra)
+        notes = self.status("0.9.0")["notes"]
+        self.assertTrue(notes.startswith("Bump summary.\n\nAdded:\n"), notes)
+        self.assertNotIn("Other summary.", notes)
+        self.assertIn("- B item (#5)\n- C item (#5)", notes)
+
     def test_summary_from_last_section_without_bump_task(self):
         # an unticked bump task and one for another version do not count; the last valid section wins
         self.start("0.8.0")
-        self.merge("add-a", "0.8.5", 1, section("Summary a.", added=["A"]), "- [ ] 3.1 `release.sh bump --to 0.9.0`\n")
+        self.merge("add-a", "0.8.5", 1, section("Summary a.", added=["A"]), f"- [ ] 3.1 `{OLD_RELEASE} bump --to 0.9.0`\n")
         self.merge("add-b", "0.9.0", 2, section("Summary b.", added=["B"]), bump_task("0.8.5"))
         self.assertTrue(self.status("0.9.0")["notes"].startswith("Summary b.\n"))
 
@@ -1774,8 +1791,7 @@ class TestBoundedNetwork(PubFlow):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
         t0 = time.time()
         try:
-            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e),
-                               capture_output=True, text=True, encoding="utf-8", timeout=self.LIMIT)
+            r = fx.swcall.run(["release", "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e), timeout=self.LIMIT)
         except subprocess.TimeoutExpired:
             self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
         try:
@@ -1800,8 +1816,7 @@ class TestBoundedNetwork(PubFlow):
 
     def test_untagged_within_deadline_names_no_limit(self):
         self.save()
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "untagged"], cwd=self.work, capture_output=True, text=True, encoding="utf-8",
-                           env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
+        r = fx.swcall.run(["release", "untagged"], cwd=self.work, env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         doc = json.loads(r.stdout)
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])

@@ -1,0 +1,73 @@
+{
+ "calls": [
+  [
+   "api",
+   "repos/o/n"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=main"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=0000000000000000000000000000000000000009"
+  ]
+ ],
+ "case": "test_parity.PairParity.test_policy_stops",
+ "comment_bodies": {},
+ "exit": 2,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "contents": {
+     "0000000000000000000000000000000000000009": {
+      "README.md": "x",
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required }\n"
+     },
+     "main": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: bogus\n"
+     }
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "bad_setting",
+  "message": "pr.merge_method: bogus must be merge, squash or rebase",
+  "ok": false
+ }
+}

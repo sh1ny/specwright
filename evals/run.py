@@ -2,10 +2,11 @@
 
 A suite is a subdirectory of the evals directory that holds test_*.py files (`fakes` holds none, so it is not one). Each file runs
 as `python -m unittest discover -s <root>/<suite> -t <root>/<suite> -p <file>`, so sibling imports resolve as they do for
-`python -m unittest discover evals/<suite>`. Files start through bounded.spawn (skills/specwright-pr/scripts/bounded.py), so each
-file's tree lives in a job object (Windows) or session (POSIX); a file past --timeout is stopped with bounded.kill. On POSIX a
-session a file's own bounded.spawn starts is not part of that one: each spawn records its pid in the file's
-SPECWRIGHT_TEST_SPAWN_DIR (<workdir>/spawns/<n>/), and the runner kills every recorded group after bounded.kill.
+`python -m unittest discover evals/<suite>`. Files start through runner_proc.spawn (evals/runner_proc.py, the runner's own process
+helper), so each file's tree lives in a job object (Windows) or session (POSIX); a file past --timeout is stopped with
+runner_proc.kill. On POSIX a session a file's own `sw run --bounded` starts is not part of that one: each such start records its
+pid in the file's SPECWRIGHT_TEST_SPAWN_DIR (<workdir>/spawns/<n>/), and the runner kills every recorded group after
+runner_proc.kill.
 
 Usage:  python evals/run.py [--jobs N] [--timeout S] [--root DIR] [suite ...]
         python evals/run.py --ids [--root DIR] [suite ...]
@@ -56,7 +57,6 @@ POLL = 0.5  # seconds between checks while a file runs, so an interrupt is seen 
 
 # Files that run one at a time after the parallel batch: their tests assert deadlines of a few seconds, which CPU load could slip.
 SERIAL = {
-    "pr-pair/test_bounded.py",  # asserts the deadline and byte bound of bounded.py, a few seconds each
     "review-routes/test_review_run.py",  # its timeout tests assert reviewer deadlines of 2-5 s and a stop within seconds
     # The four below failed only under the parallel batch's load in the first full run (6.3) and pass alone.
     "pr-pair/test_as_sh.py",  # Bounded: a 12 s bound on a hung token lookup and a fenced command that must finish unbounded
@@ -66,8 +66,8 @@ SERIAL = {
 }
 
 
-def load_bounded():
-    spec = importlib.util.spec_from_file_location("bounded", str(REPO / "skills" / "specwright-pr" / "scripts" / "bounded.py"))
+def load_proc():
+    spec = importlib.util.spec_from_file_location("runner_proc", str(HERE / "runner_proc.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -214,20 +214,20 @@ def tests_skipped(path):
 
 
 class Run:
-    """The state of one run: the bounded module, the log directory, the Popens that are running and whether the run is
+    """The state of one run: the process helper module, the log directory, the Popens that are running and whether the run is
     stopping (an interrupt or an error: no file starts after it, and every running tree is stopped)."""
 
-    def __init__(self, root, timeout, bounded, workdir):
-        self.root, self.timeout, self.bounded, self.workdir = root, timeout, bounded, workdir
+    def __init__(self, root, timeout, proc, workdir):
+        self.root, self.timeout, self.proc, self.workdir = root, timeout, proc, workdir
         self.lock = threading.Lock()
         self.running = set()
         self.stopping = False
         self.counter = itertools.count(1)
 
     def stop(self, p):
-        """bounded.kill(p), then (POSIX) a killpg of every pid the file's nested bounded.spawn calls recorded: those sessions
-        are not in p's group. Windows job objects nest, so bounded.kill reaches them."""
-        self.bounded.kill(p)
+        """proc.kill(p), then (POSIX) a killpg of every pid the file's nested `sw run --bounded` calls recorded: those sessions
+        are not in p's group. Windows job objects nest, so proc.kill reaches them."""
+        self.proc.kill(p)
         d = getattr(p, "spawn_dir", None)
         if d is None or os.name == "nt":
             return
@@ -262,7 +262,7 @@ class Run:
                 spawn_dir = self.workdir / "spawns" / str(next(self.counter))
                 spawn_dir.mkdir(parents=True, exist_ok=True)
                 env = {**os.environ, "SPECWRIGHT_TEST_SPAWN_DIR": str(spawn_dir)}
-                p = self.bounded.spawn(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=str(REPO), env=env)
+                p = self.proc.spawn(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=str(REPO), env=env)
                 p.spawn_dir = spawn_dir
                 with self.lock:
                     self.running.add(p)
@@ -292,8 +292,8 @@ class Run:
                 if p is not None:
                     with self.lock:
                         self.running.discard(p)
-                    self.stop(p)  # a leftover of the file, and every session its nested bounded.spawn calls started, dies here
-                    self.bounded.close_job(p)
+                    self.stop(p)  # a leftover of the file, and every session its nested `sw run --bounded` calls started, dies here
+                    self.proc.close_job(p)
         res["end"] = time.monotonic()
         res["tests"] = tests_run(log)
         res["skipped"] = tests_skipped(log)
@@ -307,7 +307,7 @@ class Run:
             try:
                 self.stop(p)
             finally:
-                self.bounded.close_job(p)
+                self.proc.close_job(p)
 
 
 def passed(r):
@@ -469,7 +469,7 @@ def main(argv):
     parallel = [x for x in files if "%s/%s" % x not in SERIAL]
     serial = [x for x in files if "%s/%s" % x in SERIAL]
     workdir = Path(tempfile.mkdtemp(prefix="evals-run-"))
-    run = Run(root, a.timeout, load_bounded(), workdir)
+    run = Run(root, a.timeout, load_proc(), workdir)
     results, keep = [], False
     try:
         pool, pending = ThreadPoolExecutor(max_workers=a.jobs), set()

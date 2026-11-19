@@ -20,6 +20,7 @@ if str(ROOT / "evals") not in sys.path:
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 if str(ROOT / "evals" / "vcs") not in sys.path:
     sys.path.append(str(ROOT / "evals" / "vcs"))
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402  sw_home (SPECWRIGHT_HOME holding the built sw) and stamp_version
 
 DEFAULT_VERSION_FILES = {

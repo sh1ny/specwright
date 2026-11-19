@@ -1,6 +1,6 @@
-"""A planning store whose backend is jj passes update.sh's branch check (store-check, the swap's store gate): sw reads the branch in
-process through its VCS interfaces (no vcs.sh, no download sw call), because a colocated jj store has a detached Git HEAD. A Git
-store keeps the Git rule. The update.sh shim hands over to the sw of the download's own VERSION.
+"""A planning store whose backend is jj passes `sw update`'s branch check (store-check, the swap's store gate): sw reads the branch in
+process through its VCS interfaces (no script, no download sw call), because a colocated jj store has a detached Git HEAD. A Git
+store keeps the Git rule.
 
 Run: python -m unittest test_update_jj_store   (from evals/update)
 """
@@ -107,20 +107,6 @@ class TestJjStore(JjStoreBase):
         self.assertEqual(code, 0, doc)
         self.assertTrue(doc["store_written"], doc)
 
-    def test_no_sw_for_download_version_refuses(self):
-        """The shim hands over to the sw of the download's version only: with none placed it stops sw_missing, before any
-        subcommand runs, so nothing is staged, taken or written."""
-        self.pair(home=False)
-        self.store_jj()
-        before = self.installed()
-        code, doc, out, err = fx.run_update(self.dl, [*self.a.args(), "plan"], env=self.p.env)
-        self.assertEqual((code, doc["error"]), (1, "sw_missing"), out + err)
-        self.assertIn(support.tree_version(), doc["message"])
-        self.assertIn("rerun the install prompt", doc["message"])
-        self.assertEqual(self.installed(), before)
-        self.assertFalse(self.a.journal.exists())
-        self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
-
     def test_git_store_detached_still_refused(self):
         self.pair()
         fx.write(self.a.code, "openspec/specwright.yaml", "planning_store:\n  vcs: git\n")
@@ -134,11 +120,9 @@ class TestJjStore(JjStoreBase):
         self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
 
     def test_jj_store_swap_needs_no_vcs_script(self):
-        """The branch of a jj store is read in process: a download that ships no vcs.sh swaps as before."""
+        """The branch of a jj store is read in process: a download that ships no script swaps as before."""
         self.pair()
         self.store_jj()
-        (self.dl / "skills" / "specwright-pr" / "scripts" / "vcs.sh").unlink()
-        self.assertFalse((self.dl / "skills" / "specwright-pr" / "scripts" / "vcs.sh").exists())
         self.plan_stage()
         code, doc = self.run_sub("swap")
         self.assertEqual(code, 0, doc)
@@ -159,12 +143,9 @@ class TestJjStoreInProcess(JjStoreBase):
 
     def test_busy_jj_store_read_in_process(self):
         """The branch of a jj store is read inside sw (its own VCS interfaces): the owner's swap on a busy jj store stops
-        store_busy naming the change bookmark, and neither vcs.sh nor as.sh of the download ran (recording sentinels)."""
+        store_busy naming the change bookmark, and the download holds no script to run."""
         self.pair()
         self.store_jj()
-        scripts = self.dl / "skills" / "specwright-pr" / "scripts"
-        for name in ("vcs.sh", "as.sh"):
-            (scripts / name).write_text(f'#!/bin/sh\necho ran > "$(dirname "$0")/ran-{name}"\n', encoding="utf-8", newline="\n")
         jj = jjenv.require_jj()
         r = subprocess.run([jj, "bookmark", "create", "feat/busy", "-r", "@-"], cwd=self.store, env=self.p.env,
                            capture_output=True, text=True)
@@ -177,7 +158,6 @@ class TestJjStoreInProcess(JjStoreBase):
         self.assertEqual((code, doc.get("error")), (1, "store_busy"), doc)
         self.assertIn("feat/busy", doc["message"])
         self.assertEqual(self.installed(), before)
-        self.assertEqual(sorted(p.name for p in scripts.glob("ran-*")), [], "a download script ran")
         self.assertFalse((self.store / ".git" / "specwright-gate.lock").exists())
 
 

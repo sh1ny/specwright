@@ -535,7 +535,7 @@ Future<Map<String, String>> fencedEnvironment(
   return out;
 }
 
-/// `as.sh`'s whole run after the handoff: [argv] is its argument list. Returns
+/// `as.sh`'s whole run: [argv] is its argument list. Returns
 /// the exit status (3 for any refusal or limit, 2 for input the launcher cannot
 /// represent, the command's own otherwise);
 /// messages go to [err] and `--resolve`'s login to [out].

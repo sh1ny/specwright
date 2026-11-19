@@ -1,0 +1,55 @@
+{
+ "calls": [],
+ "case": "test_parity.PairParity.test_identity_answers_and_stops",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "not-github",
+  "fetch_url": "https://gitlab.com/o/n",
+  "message": "origin of <tmp>/c is not a GitHub repository: fetch https://gitlab.com/o/n, push https://gitlab.com/o/n",
+  "ok": false,
+  "push_urls": [
+   "https://gitlab.com/o/n"
+  ]
+ }
+}

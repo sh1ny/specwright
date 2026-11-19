@@ -4,14 +4,9 @@ import 'dart:io';
 import 'package:specwright_cli/src/cli.dart';
 import 'package:specwright_cli/src/commands/vcs.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
-import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
-
-List<int> _records(List<String> records) => [
-  for (final r in records) ...[...utf8.encode(r), 0],
-];
 
 VcsStop _stopOf(void Function() body) {
   try {
@@ -32,87 +27,6 @@ void main() {
   tearDown(() {
     repo.deleteSync(recursive: true);
     other.deleteSync(recursive: true);
-  });
-
-  group('parseHandoff', () {
-    test('reads the scripts dir, the bash and the operation', () {
-      final h = parseHandoff(
-        _records(['/s', '/bin/bash', 'state', '--repo', '/r']),
-        handoffUsage,
-      );
-      expect(h.scriptsDir, '/s');
-      expect(h.bash, '/bin/bash');
-      expect(h.argv, ['state', '--repo', '/r']);
-    });
-
-    test('keeps empty records', () {
-      final h = parseHandoff(
-        _records(['/s', '/b', 'commit', '']),
-        handoffUsage,
-      );
-      expect(h.argv, ['commit', '']);
-    });
-
-    test(r'a record that is not UTF-8 is NotUtf8 naming it with \xHH', () {
-      expect(
-        () => parseHandoff([
-          ..._records(['/s', '/b', 'commit', '']),
-          0x61,
-          0xff,
-          0,
-        ], handoffUsage),
-        throwsA(
-          isA<NotUtf8>()
-              .having((e) => e.what, 'what', 'argument 3')
-              .having((e) => e.shown, 'shown', r'a\xFF'),
-        ),
-      );
-    });
-
-    test('the scripts directory and the bash path are named as such', () {
-      for (final (index, what) in [
-        (0, 'scripts directory'),
-        (1, 'bash path'),
-      ]) {
-        final records = [
-          for (var i = 0; i < 4; i++)
-            if (i == index) [0x61, 0xff, 0] else [...utf8.encode('x$i'), 0],
-        ].expand((r) => r).toList();
-        expect(
-          () => parseHandoff(records, handoffUsage),
-          throwsA(isA<NotUtf8>().having((e) => e.what, 'what', what)),
-        );
-      }
-    });
-
-    test('fewer than three records is a usage stop with exit 2', () {
-      for (final input in [
-        <int>[],
-        _records(['/s']),
-        _records(['/s', '/b']),
-      ]) {
-        final stop = _stopOf(() => parseHandoff(input, handoffUsage));
-        expect(stop.error, 'usage');
-        expect(stop.message, handoffUsage);
-        expect(stop.code, 2);
-      }
-    });
-
-    test('a stop carries the usage text the caller passed', () {
-      final stop = _stopOf(() => parseHandoff(<int>[], 'usage: sw commit'));
-      expect(stop.message, 'usage: sw commit');
-    });
-
-    test('an unterminated last record is a usage stop with exit 2', () {
-      final stop = _stopOf(
-        () => parseHandoff([
-          ..._records(['/s', '/b']),
-          ...utf8.encode('state'),
-        ], handoffUsage),
-      );
-      expect(stop.error, 'usage');
-      expect(stop.code, 2);
-    });
   });
 
   group('parseVcsArguments', () {
@@ -384,9 +298,15 @@ void main() {
   });
 
   group('sw vcs through runCli', () {
+    setUp(() {
+      // the project check comes first: the repository is a stamped project
+      File('${repo.path}/openspec/.specwright/VERSION')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('0.0.0-dev\n');
+    });
+
     Future<(int, List<int>, String)> run(
-      List<String> args,
-      List<int> stdin, {
+      List<String> args, {
       Map<String, VcsHandler>? handlers,
     }) async {
       final out = <int>[];
@@ -396,50 +316,44 @@ void main() {
         out: StringBuffer(),
         err: err,
         outBytes: out.addAll,
-        readStdin: () async => stdin,
         vcsHandlers: handlers,
       );
       return (code, out, err.toString());
     }
 
+    List<String> state(String sub, [List<String> extra = const []]) => [
+      'vcs',
+      sub,
+      '--repo',
+      repo.path,
+      '--role',
+      'code',
+      ...extra,
+    ];
+
     Map<String, Object?> doc(List<int> bytes) =>
         jsonDecode(utf8.decode(bytes)) as Map<String, Object?>;
 
-    test(
-      'a valid call reaches the handler with the request and header',
-      () async {
-        VcsContext? seen;
-        final (code, out, _) = await run(
-          ['vcs', '--args-stdin'],
-          _records([
-            '/scripts',
-            '/bin/bash',
-            'state',
-            '--repo',
-            repo.path,
-            '--role',
-            'code',
-          ]),
-          handlers: {
-            'state': (ctx) async {
-              seen = ctx;
-              return {'ok': true, 'backend': 'git'};
-            },
+    test('a valid call reaches the handler with the request', () async {
+      VcsContext? seen;
+      final (code, out, _) = await run(
+        state('state'),
+        handlers: {
+          'state': (ctx) async {
+            seen = ctx;
+            return {'ok': true, 'backend': 'git'};
           },
-        );
-        expect(code, 0);
-        expect(utf8.decode(out), '{"ok":true,"backend":"git"}\n');
-        expect(seen!.scriptsDir, '/scripts');
-        expect(seen!.bash, '/bin/bash');
-        expect(seen!.request.command, 'state');
-        expect(seen!.request.code, repo.path);
-      },
-    );
+        },
+      );
+      expect(code, 0);
+      expect(utf8.decode(out), '{"ok":true,"backend":"git"}\n');
+      expect(seen!.request.command, 'state');
+      expect(seen!.request.code, repo.path);
+    });
 
     test('a handler VcsStop prints its document with its exit code', () async {
       final (code, out, _) = await run(
-        ['vcs', '--args-stdin'],
-        _records(['/s', '/b', 'push', '--repo', repo.path, '--role', 'code']),
+        state('push'),
         handlers: {
           'push': (_) async => throw VcsStop('fence', 'refused', code: 3),
         },
@@ -449,18 +363,7 @@ void main() {
     });
 
     test('an unknown subcommand is a usage document with exit 2', () async {
-      final (code, out, err) = await run(
-        ['vcs', '--args-stdin'],
-        _records([
-          '/s',
-          '/b',
-          'frobnicate',
-          '--repo',
-          repo.path,
-          '--role',
-          'code',
-        ]),
-      );
+      final (code, out, err) = await run(state('frobnicate'));
       expect(code, 2);
       expect(doc(out), {
         'ok': false,
@@ -474,16 +377,7 @@ void main() {
       'an uncaught exception is internal_error with exit 1, no trace',
       () async {
         final (code, out, err) = await run(
-          ['vcs', '--args-stdin'],
-          _records([
-            '/s',
-            '/b',
-            'state',
-            '--repo',
-            repo.path,
-            '--role',
-            'code',
-          ]),
+          state('state'),
           handlers: {'state': (_) async => throw StateError('boom')},
         );
         expect(code, 1);
@@ -500,8 +394,7 @@ void main() {
 
     test('a document that cannot be encoded becomes internal_error', () async {
       final (code, out, _) = await run(
-        ['vcs', '--args-stdin'],
-        _records(['/s', '/b', 'state', '--repo', repo.path, '--role', 'code']),
+        state('state'),
         handlers: {
           'state': (_) async => {'ok': true, 'x': '\ud800'},
         },
@@ -511,53 +404,43 @@ void main() {
     });
 
     test('a known command with no handler yet is internal_error', () async {
-      final (code, out, _) = await run(
-        ['vcs', '--args-stdin'],
-        _records(['/s', '/b', 'probe', '--repo', repo.path, '--role', 'code']),
-        handlers: const {},
-      );
+      final (code, out, _) = await run(state('probe'), handlers: const {});
       expect(code, 1);
       expect(doc(out)['error'], 'internal_error');
       expect(doc(out)['message'], contains('not ported yet'));
     });
 
-    test('too few records is a usage document with exit 2', () async {
-      final (code, out, _) = await run([
-        'vcs',
-        '--args-stdin',
-      ], _records(['/s', '/b']));
-      expect(code, 2);
-      expect(doc(out)['error'], 'usage');
-    });
-
     test('anything else on argv is a usage document with exit 2', () async {
-      final valid = _records([
-        '/s',
-        '/b',
-        'state',
-        '--repo',
-        repo.path,
-        '--role',
-        'code',
-      ]);
       for (final args in [
-        ['vcs'],
-        ['vcs', 'state'],
-        ['vcs', '--args-stdin', 'state'],
-        ['vcs', '--args-stdin', '--repo', repo.path],
-        ['vcs', '--bogus'],
+        ['--project', repo.path, 'vcs'],
+        ['--project', repo.path, 'vcs', 'state'],
+        ['--project', repo.path, 'vcs', '--bogus'],
       ]) {
-        final (code, out, _) = await run(args, valid);
+        final (code, out, _) = await run(args);
         expect(code, 2, reason: '$args');
         expect(doc(out)['error'], 'usage', reason: '$args');
       }
     });
 
-    test('the top-level usage names vcs', () async {
+    test('the old handoff flag is an unknown option, exit 2', () async {
+      for (final args in [
+        ['vcs', '--args-stdin', 'state'],
+        ['vcs', '--args-stdin', '--repo', repo.path],
+        ['--project', repo.path, 'vcs', '--args-stdin'],
+      ]) {
+        final (code, out, err) = await run(args);
+        expect(code, 2, reason: '$args');
+        expect(out, isEmpty, reason: '$args');
+        expect(err, contains('unknown option: --args-stdin'), reason: '$args');
+      }
+    });
+
+    test('the top-level usage names vcs and no handoff', () async {
       final err = StringBuffer();
       final code = await runCli([], out: StringBuffer(), err: err);
       expect(code, 2);
       expect(err.toString(), contains('vcs'));
+      expect(err.toString(), isNot(contains('--args-')));
     });
   });
 }

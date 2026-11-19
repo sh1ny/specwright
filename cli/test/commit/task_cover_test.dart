@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:specwright_cli/src/commit/context.dart';
-import 'package:specwright_cli/src/commit/paths.dart';
 import 'package:specwright_cli/src/commit/task_cover.dart';
 import 'package:specwright_cli/src/vcs/document.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
@@ -185,12 +184,7 @@ void main() {
       dir = root.createTempSync('t-');
       tasksPath = '${dir.path}${Platform.pathSeparator}tasks.md';
       out = <int>[];
-      ctx = CommitContext(
-        scriptsDir: '',
-        bash: bash ?? 'bash',
-        writeOut: out.addAll,
-        writeErr: (_) {},
-      );
+      ctx = CommitContext(writeOut: out.addAll, writeErr: (_) {});
     });
 
     String text() => utf8.decode(out, allowMalformed: true);
@@ -201,15 +195,8 @@ void main() {
     Future<int> run(
       List<String> args, {
       GitTool? git,
-      PathConverter? convert,
       Map<String, String> environment = const {},
-    }) => taskCover(
-      args,
-      ctx,
-      git: git,
-      convert: convert,
-      environment: environment,
-    );
+    }) => taskCover(args, ctx, git: git, environment: environment);
 
     GitTool stub(
       Uint8List Function(List<String> argv, List<List<String>> calls) answer, {
@@ -280,60 +267,19 @@ void main() {
       expect(text(), plain);
     });
 
-    test('bad_path: a failed conversion names the path, exit 2', () async {
-      File(tasksPath).writeAsStringSync('- [x] 1.1 a\n');
+    test('an MSYS-form path is used as given, not converted', () async {
       final calls = <List<String>>[];
       final git = stub((a, c) => bytes(''), calls: calls);
-      Future<String> convert(String p) async {
-        if (p == '/tmp/t.md') throw BadPathException(p);
-        return p;
-      }
-
-      final code = await run(
-        [...baseArgs().sublist(0, 4), '--tasks', '/tmp/t.md', '--change', 'c'],
-        git: git,
-        convert: convert,
-      );
+      final code = await run([
+        ...baseArgs().sublist(0, 4),
+        '--tasks',
+        '/c/sw-none/t.md',
+        '--change',
+        'c',
+      ], git: git);
       expect(code, 2);
-      expect(
-        text(),
-        line({
-          'ok': false,
-          'error': 'bad_path',
-          'message': 'could not convert path: /tmp/t.md',
-        }),
-      );
-      expect(calls, isEmpty);
-      // the repo is converted too
-      out.clear();
-      expect(
-        await run(
-          ['--repo', '/tmp/t.md', ...baseArgs().sublist(2)],
-          git: git,
-          convert: convert,
-        ),
-        2,
-      );
-      expect(json()['error'], 'bad_path');
-      expect(calls, isEmpty);
-    });
-
-    test('a converted path is the one used', () async {
-      File(tasksPath).writeAsStringSync('- [x] 1.1 a\n');
-      final calls = <List<String>>[];
-      final git = stub(
-        (a, c) => bytes(sub(a) == 'rev-list' ? '0\n' : ''),
-        calls: calls,
-      );
-      expect(
-        await run(
-          baseArgs().map((a) => a == tasksPath ? '/virtual/t.md' : a).toList(),
-          git: git,
-          convert: (p) async => p == '/virtual/t.md' ? tasksPath : p,
-        ),
-        0,
-      );
-      expect(json()['ok'], true);
+      expect(json()['error'], isNot('bad_path'));
+      expect(text(), contains('/c/sw-none/t.md'));
     });
 
     test('no_tasks and tasks_too_large', () async {

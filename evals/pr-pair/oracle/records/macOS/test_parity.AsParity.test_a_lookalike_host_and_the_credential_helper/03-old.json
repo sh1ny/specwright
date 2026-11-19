@@ -1,0 +1,69 @@
+{
+ "calls": [
+  [
+   [
+    "auth",
+    "token",
+    "--help"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "auth",
+    "token",
+    "--hostname",
+    "github.com",
+    "--user",
+    "sh1ny"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "api",
+    "--hostname",
+    "github.com",
+    "user",
+    "--jq",
+    ".login"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": "tok-s",
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ]
+ ],
+ "case": "test_parity.AsParity.test_a_lookalike_host_and_the_credential_helper",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "requests": [],
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "sh1ny"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": "protocol=https\nhost=github.com.:443\nusername=x-access-token\npassword=tok-s\n"
+}

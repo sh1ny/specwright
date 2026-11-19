@@ -1,0 +1,68 @@
+{
+ "calls": [],
+ "case": "test_workflow_parity.WorkflowParity.test_rounds_refuses_oversized_feedback_trailers",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   },
+   "o/plans": {
+    "pulls": []
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "after_limit": "ask",
+  "code": {
+   "max_trailer": 99999999999999999999999999,
+   "subject_count": 0
+  },
+  "limit_reached": true,
+  "max_fix_rounds": 2,
+  "ok": true,
+  "remote_unreadable": [
+   "code"
+  ],
+  "rounds": 99999999999999999999999999,
+  "store": {
+   "max_trailer": 0,
+   "subject_count": 0
+  },
+  "unpushed": {}
+ }
+}

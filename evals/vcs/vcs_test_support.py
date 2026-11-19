@@ -14,10 +14,10 @@ import jjenv
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT / "evals" / "cli"))
+sys.path.append(str(ROOT / "evals"))
 import swharness  # noqa: E402
+import swcall  # noqa: E402
 
-SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
-VCS = SCRIPTS / "vcs.sh"
 STAMP = "openspec/.specwright/VERSION"
 
 _SW_HOMES = {}  # SPECWRIGHT_SW path -> (tempdir, home): one home per sw binary per test process
@@ -36,6 +36,11 @@ def make_sw_home(sw):
     shutil.copy2(sw, target)
     target.chmod(0o755)
     return home
+
+
+def home_sw():
+    """The `sw` in `sw_home()`: <home>/.specwright/bin/<tree VERSION>/sw[.exe], as `sw` prints its own path."""
+    return sw_home() / ".specwright" / "bin" / tree_version() / ("sw.exe" if os.name == "nt" else "sw")
 
 
 def forget_sw_homes():
@@ -121,14 +126,47 @@ def bash_path_env(git_shim=None, extra_path=(), exclude_tools=(), environment=No
     return env
 
 
+def native_path(path):
+    """A PATH that bash_path_env built on Windows holds POSIX-form entries joined by `:`; a Windows `sw` reads its own form.
+    Anything else (a native PATH, a POSIX host) comes back unchanged."""
+    if os.name != "nt" or ";" in path or not path.startswith("/") or not shutil.which("cygpath"):
+        return path
+    done = subprocess.run([shutil.which("cygpath"), "-w", "-p", path], capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 and done.stdout.strip() else path
+
+
+def sw_env(shim=None, env=None, scratch=None):
+    """The environment of a direct `sw` call: the process environment, the Git shim's variables when there is one, the
+    fixture's jj configuration, then `env`; the PATH is made native (see native_path). SPECWRIGHT_HOME names the test home."""
+    run_env = dict(os.environ)
+    if shim is not None:
+        run_env.update(shim.env)
+    if scratch is not None:
+        run_env.update(scratch.jj_env)
+    run_env.update(env or {})
+    run_env["PATH"] = native_path(run_env.get("PATH", ""))
+    run_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
+    return run_env
+
+
+def sw_run(args, cwd, env=None, shim=None, stamp=True, project=None, scratch=None):
+    """Run `sw <args>` through evals/swcall.py with a native environment (see sw_env); returns the CompletedProcess.
+    `stamp` writes the excluded VERSION into the directories named by --code and --repo, which `sw` checks;
+    `project` is the leading --project of a call started outside the checkout that carries the VERSION."""
+    for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():
+        if flag in ("--code", "--repo") and Path(value).is_dir() and not (Path(value) / STAMP).exists():
+            stamp_version(value)
+    return swcall.run(args, project=project, cwd=cwd, env=sw_env(shim, env, scratch))
+
+
 def bash_run(args, cwd, env=None, shim=None, stamp=True):
-    """Run `bash <args>` with a Git-Bash-native PATH (the way VcsTestCase.invoke does); returns the CompletedProcess.
-    `env` adds variables (its PATH is ignored); `shim` is a directory put first on PATH; `stamp` writes the
-    excluded VERSION into the directories named by --code and --repo."""
+    """Run `bash <args>` with a Git-Bash-native PATH; returns the CompletedProcess. `env` adds variables (its PATH is
+    ignored); `shim` is a directory put first on PATH; `stamp` writes the excluded VERSION into the directories named by
+    --code and --repo. For a test that needs a shell command of its own, not for running Specwright."""
     shell_env = bash_path_env(shim)
     shell_env.update({key: value for key, value in (env or {}).items() if key != "PATH"})
     shell_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
-    for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():  # the shim resolves sw from --code or --repo
+    for flag, value in zip(map(str, args), map(str, args[1:])) if stamp else ():
         if flag in ("--code", "--repo") and Path(value).is_dir() and not (Path(value) / STAMP).exists():
             stamp_version(value)
     shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
@@ -139,8 +177,6 @@ def bash_run(args, cwd, env=None, shim=None, stamp=True):
 
 class VcsTestCase(unittest.TestCase):
     def setUp(self):
-        if not VCS.is_file():
-            self.fail("missing component: skills/specwright-pr/scripts/vcs.sh")
         self.temp = tempfile.TemporaryDirectory(prefix="swv-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -150,7 +186,7 @@ class VcsTestCase(unittest.TestCase):
         self._stamp(self.repo)
 
     def _stamp(self, *repos):
-        """The shim resolves sw from the code repo's installed VERSION (design D9)."""
+        """`sw` checks the code repo's installed VERSION (design D9)."""
         for repo in repos:
             if repo is not None and Path(repo).is_dir() and not (Path(repo) / STAMP).exists():
                 stamp_version(repo)
@@ -177,31 +213,21 @@ class VcsTestCase(unittest.TestCase):
                                      **(env or {})}, capture_output=True, text=True)
         return result
 
-    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, scripts=None, cwd=None):
-        """Run one subcommand; `scripts` names another directory holding vcs.sh and its siblings (default: the tree's); `cwd` is the directory it runs in (default: `repo`)."""
+    def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, cwd=None, project=None):
+        """Run one `sw vcs` subcommand; `cwd` is the directory it runs in (default: `repo`); `project` is the leading `--project`."""
         target = Path(repo or self.repo)
-        scripts = Path(scripts) if scripts is not None else SCRIPTS
-        args = ["--repo", str(target), "--role", role]
+        args = ["vcs", command, "--repo", str(target), "--role", role]
         if code is not None:
             args += ["--code", str(code)]
         shim = getattr(self, "shim", None)
-        shell_env = bash_path_env(shim.path if shim else None)
-        scratch = getattr(self, "scratch", None)
-        shell_env.update(scratch.jj_env if scratch is not None else {})  # the jj that vcs.sh runs reads the fixture's config
-        shell_env.update({key: value for key, value in getattr(self, "env", {}).items() if key != "PATH"})
-        shell_env.update(env or {})
-        shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
-        shell_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
         self._stamp(target, code)
-        result = subprocess.run(
-            [jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "vcs-test",
-             (scripts / "vcs.sh").as_posix(), command, *args, *map(str, options)],
-            cwd=cwd or target, env=shell_env, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
+        result = sw_run([*args, *map(str, options)], cwd=cwd or target, env={**getattr(self, "env", {}), **(env or {})},
+                        shim=shim, stamp=False, project=project, scratch=getattr(self, "scratch", None))
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
             obj = json.loads(result.stdout)
         except ValueError as e:
-            self.fail("vcs.sh did not emit one JSON document: %r (%s)" % (result.stdout, e))
+            self.fail("sw vcs did not emit one JSON document: %r (%s)" % (result.stdout, e))
         return obj, result
 
     def set_settings(self, repo, text):

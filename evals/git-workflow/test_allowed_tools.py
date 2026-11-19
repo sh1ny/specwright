@@ -1,14 +1,15 @@
-"""Script invocations the cutover skills prescribe are preapproved under Claude Code's permission rules.
+"""The `sw` invocations the skills prescribe are preapproved under Claude Code's permission rules.
 
 A skill's `allowed-tools` field lists the tools it may use without a prompt. This module reads each skill's grants
-and the `bash ...` command lines its text prescribes, then evaluates them with the documented `Bash(...)` rule
+and the `<sw> ...` command lines its text prescribes, with `<sw>` expanded to a concrete version-pinned path
+(`<home>/.specwright/bin/<VERSION>/sw`), then evaluates them with the documented `Bash(...)` rule
 matching (https://code.claude.com/docs/en/permissions): the `*` stands for any text, a trailing ` *` also matches the
 bare command and requires the space, and a rule must match every subcommand of a compound command on its own
 (separators `&&`, `||`, `;`, `|`, `|&`, `&` and newlines). It proves the grants cover the invocations, which a regex over
-the frontmatter cannot: a skill that grants only `Bash(git *)` fails here when its text runs `bash .../vcs.sh`.
+the frontmatter cannot: a skill that grants only `Bash(git *)` fails here when its text runs `<sw> vcs`.
 
 A skill with no `allowed-tools` field does not restrict tools: it inherits the session's permissions, so its
-script calls are decided by the user's normal permission mode and not by the skill. It is not a restrictive allowlist,
+`sw` calls are decided by the user's normal permission mode and not by the skill. It is not a restrictive allowlist,
 and nothing here treats its absence as a grant or as a failure.
 
 This does not prove a live agent runs the commands; the live evals do that.
@@ -22,19 +23,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "skills"
 CUTOVER = ("branch", "commit", "finish", "pr", "roadmap", "review", "release", "debug")
-# skills whose text runs vcs.sh (debug reads the backend and the changed paths with `state`)
+# skills whose text runs `<sw> vcs` (debug reads the backend and the changed paths with `state`)
 RUNS_VCS = CUTOVER
 GRANTED = ("branch", "commit", "finish")  # carry an explicit allowed-tools field today
 SEPARATORS = re.compile(r"&&|\|\||\|&|[;|&\n]")
-PLACEHOLDERS = {
-    "${CLAUDE_SKILL_DIR}": "/skills/self",
-    "<specwright-pr>": "/skills/specwright-pr",
-    "<specwright-finish>": "/skills/specwright-finish",
-    "<specwright-release>": "/skills/specwright-release",
-    "<specwright-review>": "/skills/specwright-review",
-    "<skill dir>": "/skills/self",
-}
-AS = "bash /skills/specwright-pr/scripts/as.sh eval-bot "
+SW = "/home/eval/.specwright/bin/1.2.3/sw"
+# The skills name `sw.exe` on Windows: every grant must cover that spelling too.
+SW_EXE = "C:/Users/eval/.specwright/bin/1.2.3/sw.exe"
+GRANT = "*/.specwright/bin/*/sw *"
+GRANT_EXE = "*/.specwright/bin/*/sw.exe *"
 
 
 def skill_text(name):
@@ -62,17 +59,18 @@ def allowed(rules, command):
     return bool(subs) and all(any(rule_matches(r, s) for r in rules) for s in subs)
 
 
-def prescribed_script_commands(name):
-    """Each `bash ...` command line the skill's text prescribes in an inline code span, `[as]` expanded as the skill
-    defines it and `<specwright-...>` folders replaced by a concrete path."""
+def prescribed_script_commands(name, sw=SW):
+    """Each `<sw> ...` command line the skill's text prescribes in an inline code span or a code block, with `<sw>`
+    expanded to a concrete version-pinned path."""
+    text = skill_text(name)
+    blocks = re.findall(r"```\n(.*?)```", text, re.S)
+    spans = re.findall(r"`([^`\n]+)`", text) + [line for block in blocks for line in block.splitlines()]
     out = []
-    for span in re.findall(r"`([^`\n]+)`", skill_text(name)):
-        for ph, path in PLACEHOLDERS.items():
-            span = span.replace(ph, path)
-        span = span.replace("[as] ", AS)
+    for span in spans:
+        span = span.strip().replace("<sw>", sw)
         for sub in SEPARATORS.split(span):
             sub = sub.strip()
-            if re.match(r"bash \S+\.sh\b", sub) or sub.startswith(AS):
+            if sub.startswith(sw + " "):
                 out.append(sub)
     return out
 
@@ -86,13 +84,22 @@ class RuleMatching(unittest.TestCase):
         self.assertFalse(rule_matches("ls *", "lsof"))
         self.assertTrue(rule_matches("ls*", "lsof"))
 
-    def test_git_grant_does_not_cover_a_bash_script(self):
-        self.assertFalse(allowed(["git *", "openspec *"], "bash /skills/specwright-pr/scripts/vcs.sh state --repo ."))
-        self.assertTrue(allowed(["git *", "openspec *", "bash *"], "bash /skills/specwright-pr/scripts/vcs.sh state --repo ."))
+    def test_git_grant_does_not_cover_sw(self):
+        self.assertFalse(allowed(["git *", "openspec *"], SW + " vcs state --repo ."))
+        self.assertTrue(allowed(["git *", "openspec *", GRANT], SW + " vcs state --repo ."))
+
+    def test_sw_grant_covers_only_a_version_pinned_sw(self):
+        self.assertTrue(allowed([GRANT], "/home/u/.specwright/bin/0.38.0-rc.1+b2/sw version --json"))
+        self.assertTrue(allowed([GRANT], "C:/Users/u/.specwright/bin/0.38.0/sw version --json"))
+        self.assertFalse(allowed([GRANT], "C:/Users/u/.specwright/bin/0.38.0/sw.exe version --json"))
+        self.assertTrue(allowed([GRANT_EXE], "C:/Users/u/.specwright/bin/0.38.0/sw.exe version --json"))
+        self.assertFalse(allowed([GRANT_EXE], "C:/Users/u/bin/sw.exe version --json"))
+        self.assertFalse(allowed([GRANT], "sw vcs state"))
+        self.assertFalse(allowed([GRANT], "/usr/local/bin/sw vcs state"))
 
     def test_compound_command_needs_every_subcommand_matched(self):
-        self.assertFalse(allowed(["bash *"], "bash /x/vcs.sh state && rm -r /tmp/x"))
-        self.assertTrue(allowed(["bash *", "rm *"], "bash /x/vcs.sh state && rm -r /tmp/x"))
+        self.assertFalse(allowed([GRANT], SW + " vcs state && rm -r /tmp/x"))
+        self.assertTrue(allowed([GRANT, "rm *"], SW + " vcs state && rm -r /tmp/x"))
 
     def test_middle_wildcard(self):
         self.assertTrue(rule_matches("git * main", "git push origin main"))
@@ -104,13 +111,16 @@ class SkillScriptPermissions(unittest.TestCase):
         for name in GRANTED:
             rules = grants(name)
             self.assertIsNotNone(rules, f"specwright-{name} lost its allowed-tools field")
-            for cmd in prescribed_script_commands(name):
-                self.assertTrue(allowed(rules, cmd), f"specwright-{name} grants {rules} but prescribes: {cmd}")
+            for sw in (SW, SW_EXE):
+                cmds = prescribed_script_commands(name, sw)
+                self.assertTrue(cmds, f"specwright-{name} prescribes no `<sw>` call")
+                for cmd in cmds:
+                    self.assertTrue(allowed(rules, cmd), f"specwright-{name} grants {rules} but prescribes: {cmd}")
 
     def test_every_vcs_call_is_covered_where_the_skill_has_a_grant(self):
         for name in RUNS_VCS:
-            calls = [c for c in prescribed_script_commands(name) if "scripts/vcs.sh" in c]
-            self.assertTrue(calls, f"specwright-{name} prescribes no vcs.sh call")
+            calls = [c for c in prescribed_script_commands(name) if c.startswith(SW + " vcs ")]
+            self.assertTrue(calls, f"specwright-{name} prescribes no `<sw> vcs` call")
             rules = grants(name)
             if rules is None:
                 continue  # no allowed-tools field: the skill does not restrict tools
@@ -122,7 +132,9 @@ class SkillScriptPermissions(unittest.TestCase):
             rules = grants(name)
             self.assertIn("git *", rules, name)
             self.assertIn("openspec *", rules, name)
-            self.assertIn("bash *", rules, name)
+            self.assertIn(GRANT, rules, name)
+            self.assertIn(GRANT_EXE, rules, name)
+            self.assertNotIn("bash *", rules, name)
 
     def test_skills_without_a_grant_field_stay_unrestricted(self):
         for name in CUTOVER:

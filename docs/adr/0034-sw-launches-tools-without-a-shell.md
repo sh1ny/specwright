@@ -1,6 +1,6 @@
 # 0034. sw launches tools without a shell
 
-- Status: accepted
+- Status: accepted; its MSYS-paths clause is replaced by 0040
 - Date: 2026-11-11
 - Adds to: 0027 (one native binary)
 - Supersedes: none

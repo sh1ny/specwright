@@ -1,0 +1,29 @@
+{
+ "calls": [],
+ "case": "test_workflow_records.WorkflowRecords.test_native_plan_resumes_an_existing_record",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "heads": {
+   "code": "a1611e02cc4256f9ad6072185aec53dd7ecf3fac",
+   "store": "1293d5a8829e52f5252af50f53d90b97b3639746"
+  },
+  "marker": null,
+  "ok": true,
+  "owner": "<owner>",
+  "path": "<tmp>/state/feedback/acme.code.add-greeting-92c7463be12bfdbe425b9f0cbbc5ea0b.json",
+  "round": 2
+ }
+}

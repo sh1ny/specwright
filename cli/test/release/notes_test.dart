@@ -511,6 +511,29 @@ void main() {
       expect(got['2026-10-10-add-a']!.bump, isFalse);
     });
 
+    test('the native bump form counts beside release.sh', () async {
+      commit({
+        '$base-add-a/proposal.md': proposal('A.'),
+        '$base-add-a/tasks.md': '- [x] 3.1 `<sw> release bump --to 0.4.2`\n',
+        '$base-add-b/proposal.md': proposal('B.'),
+        '$base-add-b/tasks.md': '- [x] 3.1 Run `sw release bump --to 0.4.2`\n',
+        '$base-add-c/proposal.md': proposal('C.'),
+        '$base-add-c/tasks.md': '- [x] 3.1 `<sw> release bump --to 0.4.20`\n',
+        '$base-add-d/proposal.md': proposal('D.'),
+        '$base-add-d/tasks.md': '- [x] 3.1 `<sw> release check`\n',
+      });
+      final got = await readSections(rg, 'HEAD', 'openspec', [
+        for (final n in ['a', 'b', 'c', 'd'])
+          (dir: '2026-10-10-add-$n', pr: null),
+      ], '0.4.2');
+      expect(
+        [
+          for (final n in ['a', 'b', 'c', 'd']) got['2026-10-10-add-$n']!.bump,
+        ],
+        [true, true, false, false],
+      );
+    });
+
     test('whyLines reads the first Why sentence of each proposal', () async {
       commit({
         '$base-add-a/proposal.md': proposal('Operators cannot tell. More.'),

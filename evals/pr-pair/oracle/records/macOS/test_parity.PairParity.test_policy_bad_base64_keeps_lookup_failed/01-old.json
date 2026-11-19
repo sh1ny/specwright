@@ -1,0 +1,71 @@
+{
+ "calls": [
+  [
+   "api",
+   "repos/o/n"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=main"
+  ]
+ ],
+ "case": "test_parity.PairParity.test_policy_bad_base64_keeps_lookup_failed",
+ "comment_bodies": {},
+ "exit": 3,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "contents": {
+     "0000000000000000000000000000000000000009": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required }\n"
+     },
+     "main": {
+      "openspec/specwright.yaml": {
+       "content": "!!! not base64 !!!\n"
+      }
+     }
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "lookup_failed",
+  "message": "merge policy unknown: unreadable openspec/specwright.yaml at main: Only base64 data is allowed",
+  "ok": false,
+  "unknown": true
+ }
+}

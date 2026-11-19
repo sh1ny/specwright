@@ -1,0 +1,23 @@
+{
+ "calls": [],
+ "case": "test_workflow_records.WorkflowRecords.test_corrupt_snapshot_shape_is_never_evidence_of_an_answer",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "internal_error",
+  "message": "AttributeError: 'str' object has no attribute 'get'",
+  "ok": false
+ }
+}

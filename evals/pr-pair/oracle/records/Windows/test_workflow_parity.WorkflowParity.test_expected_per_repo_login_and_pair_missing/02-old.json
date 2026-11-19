@@ -1,0 +1,122 @@
+{
+ "calls": [
+  [
+   "api",
+   "--paginate",
+   "repos/o/n/pulls?state=all&head=o:feat/x&per_page=100"
+  ],
+  [
+   "auth",
+   "token",
+   "--hostname",
+   "github.com",
+   "--user",
+   "other"
+  ],
+  [
+   "api",
+   "--hostname",
+   "github.com",
+   "user",
+   "--jq",
+   ".login"
+  ],
+  [
+   "api",
+   "--paginate",
+   "repos/o/plans/pulls?state=all&head=o:feat/x&per_page=100"
+  ]
+ ],
+ "case": "test_workflow_parity.WorkflowParity.test_expected_per_repo_login_and_pair_missing",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   },
+   "o/plans": {
+    "pulls": []
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "action": "ship",
+  "archive": false,
+  "blocking": {},
+  "closed": [],
+  "merged": [],
+  "missing": [
+   "store"
+  ],
+  "ok": true,
+  "open": [
+   "code"
+  ],
+  "prs": {
+   "code": {
+    "base": "main",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "merge_commit_sha": null,
+    "merged_at": null,
+    "number": 7,
+    "state": "OPEN",
+    "title": "t7",
+    "url": "https://github.com/o/n/pull/7"
+   },
+   "store": null
+  },
+  "ready": {},
+  "refresh": [],
+  "rerequest": false,
+  "set": [
+   "store",
+   "code"
+  ],
+  "share_store_by_hand": false,
+  "ship": {
+   "note": "Both PR URLs.",
+   "report": "both"
+  },
+  "states": {
+   "code": "OPEN",
+   "store": null
+  },
+  "stop_waits": false,
+  "waiting_on": [],
+  "waits": []
+ }
+}

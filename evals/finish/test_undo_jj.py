@@ -1,11 +1,10 @@
-"""finish.sh undo-archive-plan on a colocated jj repo (real jj): the emitted script works the working copy and commits
-named paths with `jj commit`; it never runs a Git write.
+"""`sw finish undo-archive-plan` on a colocated jj repo (real jj): the printed steps work the working copy and commit
+named paths with `jj commit`; they never run a Git write.
 
 Run: python -m unittest test_undo_jj   (from evals/finish)
 """
 import importlib.util
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -16,7 +15,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import jjenv  # noqa: E402
-import bashexe  # noqa: E402
 import vcs_test_support  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtures.py")
@@ -38,7 +36,7 @@ class JjBase(unittest.TestCase):
         self.addCleanup(self.scratch.close)
         self.repo = self.scratch.tracked_repo()
         self.work = self.repo.path
-        vcs_test_support.stamp_version(self.work)  # vcs.sh resolves sw from the project's VERSION (native-cli-vcs D9)
+        vcs_test_support.stamp_version(self.work)  # `sw` checks the project's VERSION (native-cli-vcs D9)
         self.env = {**self.scratch.env, "JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL}
         self.tmp = Path(tempfile.mkdtemp(prefix="swf-"))
         self.addCleanup(fx.rmtree, self.tmp)
@@ -66,7 +64,7 @@ class JjBase(unittest.TestCase):
                               text=True).stdout.strip()
 
     def finish(self, *args):
-        r = vcs_test_support.bash_run([fx.SCRIPT.as_posix(), *args], self.work, self.env)
+        r = vcs_test_support.sw_run(["finish", *args], self.work, self.env, stamp=False)
         try:
             doc = json.loads(r.stdout)
         except ValueError:
@@ -78,10 +76,8 @@ class JjBase(unittest.TestCase):
                 "--main", "main", "--branch", BRANCH]
         return self.finish(*args)
 
-    def run_script(self, text, name="undo"):
-        path = self.tmp / f"{name}.sh"
-        path.write_text(text, encoding="utf-8", newline="\n")
-        return vcs_test_support.bash_run([path.as_posix()], self.work, self.env)
+    def run_steps(self, steps):
+        return fx.run_steps(self.tmp, steps, env=self.env, tools={"jj": self.jj})
 
     def snapshot(self):
         files = {k: v for k, v in fx.snapshot(self.work).items() if not k.startswith(".jj/")}
@@ -96,14 +92,14 @@ class TestUndoPlanJj(JjBase):
         self.assertEqual(code, 0, raw)
         self.assertTrue(doc["ok"], raw)
         self.assertEqual((doc["mode"], doc["archive_commit"], doc["branch"]), ("committed", a, BRANCH))
-        script = doc["script"]
+        script = fx.flat(doc["steps"])
         for forbidden in GIT_WRITES:
             self.assertNotIn(forbidden, script)
         self.assertIn("jj restore --from", script)
         self.assertIn("jj commit", script)
         self.assertNotIn("jj new", script)  # the archive is on the current branch
         self.assertTrue(any("jj restore" in w and "working tree" in w for w in doc["warnings"]), doc["warnings"])
-        r = self.run_script(script)
+        r = self.run_steps(doc["steps"])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", BRANCH, "-T", "commit_id"),
@@ -129,12 +125,12 @@ class TestUndoPlanJj(JjBase):
         code, doc, raw = self.plan()
         self.assertEqual(code, 0, raw)
         self.assertEqual((doc["mode"], doc["archive_commit"]), ("committed", a))
-        script = doc["script"]
+        script = fx.flat(doc["steps"])
         for forbidden in GIT_WRITES:
             self.assertNotIn(forbidden, script)
         self.assertIn(f"jj new {BRANCH}", script)
         self.assertLess(script.index("jj new"), script.index("jj restore --from"))
-        r = self.run_script(script)
+        r = self.run_steps(doc["steps"])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", BRANCH, "-T", "commit_id"),
@@ -150,7 +146,7 @@ class TestUndoPlanJj(JjBase):
         code, doc, raw = self.plan()
         self.assertEqual(code, 0, raw)
         before = self.snapshot()
-        r = self.run_script(doc["script"])
+        r = self.run_steps(doc["steps"])
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.snapshot(), before)
         self.assertFalse(Path(doc["backup_dir"]).exists())
@@ -167,31 +163,24 @@ class TestUndoPlanJj(JjBase):
         self.assertEqual(doc["error"], "dirty_tree", raw)
         self.assertIn("README.md", doc["message"])
         self.assertIn("working copy", doc["message"])
-        self.assertNotIn("script", doc)
+        self.assertNotIn("steps", doc)
         self.assertEqual(self.snapshot(), before)
 
-
-class TestVcsScriptMissing(unittest.TestCase):
-    def test_undo_plan_vcs_script_missing(self):
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(fx.rmtree, tmp)
-        work = fx.make_repo(tmp)
-        lone = tmp / "skills" / "specwright-finish" / "scripts"
-        lone.mkdir(parents=True)
-        (lone / "finish.sh").write_bytes(fx.SCRIPT.read_bytes())
-        # the resolver and its bounded runner are there, vcs.sh is not: the run reaches sw, which reports the missing script
-        pr = tmp / "skills" / "specwright-pr" / "scripts"
-        pr.mkdir(parents=True)
-        for name in ("sw-path.sh", "bounded.py"):
-            (pr / name).write_bytes((fx.ROOT / "skills" / "specwright-pr" / "scripts" / name).read_bytes())
-        r = subprocess.run([bashexe.bash(), str(lone / "finish.sh"), "undo-archive-plan", "--change", "add-x", "--archived-name",
-                            f"{fx.DATE}-add-x", "--prefix", P, "--main", "main", "--branch", BRANCH],
-                           cwd=work, capture_output=True, text=True, encoding="utf-8",
-                           env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        doc = json.loads(r.stdout)
-        self.assertEqual(doc["error"], "vcs_script_missing")
-        self.assertIn("specwright-pr/scripts/vcs.sh", doc["message"].replace("\\", "/"))
+    def test_jj_plan_prints_jj_steps(self):
+        # the steps work with jj and sw only, each in the repository's top; a git write would break a colocated repo
+        self.archived_branch()
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        steps = doc["steps"]
+        for step in steps:
+            self.assertEqual(set(step), {"cwd", "argv"}, step)
+            self.assertEqual(Path(step["cwd"]).resolve(), self.work.resolve(), step)
+            self.assertIn(Path(step["argv"][0]).stem, ("jj", "sw"), step)
+        self.assertTrue(any(s["argv"][:2] == ["jj", "commit"] for s in steps), steps)
+        self.assertTrue(any(s["argv"][:2] == ["jj", "restore"] for s in steps), steps)
+        r = self.run_steps(steps)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
 
 
 if __name__ == "__main__":

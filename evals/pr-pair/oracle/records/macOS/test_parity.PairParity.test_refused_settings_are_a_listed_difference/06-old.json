@@ -1,0 +1,85 @@
+{
+ "calls": [],
+ "case": "test_parity.PairParity.test_refused_settings_are_a_listed_difference",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "after_limit": "ask",
+  "code": {
+   "dir": "<tmp>/listed5",
+   "login": "",
+   "main": "main",
+   "merge_ready": true,
+   "merge_reason": null,
+   "repo": "o/n",
+   "request_as": "",
+   "requests_disabled": false,
+   "review_request": {
+    "after_fixes": false,
+    "body": "",
+    "login": ""
+   },
+   "reviewer_config": "<tmp>/state-old/reviewers/e9c7fc9827915c1c5a67cad602529814960c9f89c233c613cf4f08bbebd44395.json",
+   "reviewers": {
+    "guard": {
+     "report": {},
+     "request": "",
+     "role": "required",
+     "timeout": 1200
+    }
+   },
+   "validate": ""
+  },
+  "delete_branch": true,
+  "finish": "",
+  "max_fix_rounds": 2,
+  "merge": "user",
+  "merge_method": "merge",
+  "ok": true,
+  "poll_interval": 300,
+  "react": false,
+  "settings_problem": "line 4: a block sequence (`- item`) is not read; write it as `[a, b]`",
+  "settle": 300,
+  "store": null
+ }
+}

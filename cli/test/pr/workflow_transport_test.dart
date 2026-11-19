@@ -30,8 +30,6 @@ Workflow slurpWorkflow(
   String stderr = '',
 }) => Workflow(
   PrContext(
-    scriptsDir: '.',
-    bash: 'bash',
     writeOut: (_) {},
     writeErr: (_) {},
     environment: {},

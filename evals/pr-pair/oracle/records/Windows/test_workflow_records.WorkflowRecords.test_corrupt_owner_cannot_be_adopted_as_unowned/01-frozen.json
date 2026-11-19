@@ -1,0 +1,23 @@
+{
+ "calls": [],
+ "case": "test_workflow_records.WorkflowRecords.test_corrupt_owner_cannot_be_adopted_as_unowned",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "internal_error",
+  "message": "AttributeError: 'list' object has no attribute 'get'",
+  "ok": false
+ }
+}

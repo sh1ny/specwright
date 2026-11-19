@@ -1,16 +1,13 @@
-"""finish.sh is a shim (ADR 0028, design D7): it finds the project's sw with sw-path.sh and runs
-`sw finish --args-stdin`, handing it this directory, this bash and the whole command line as NUL-terminated records.
+"""`sw finish undo-archive-plan` entered directly (ADR 0028, design D7; the finish.sh shim is gone since 0.38.0).
 
-The tests run the real shim against the tree's sw through the test home (native-cli-finish D9). Where a test needs
-another resolver outcome it runs a copy of the two skills' scripts directories, laid out the way the shim expects them.
+The tests run the tree's sw through the test home (native-cli-finish D9): arguments reach it as given, a non-UTF-8
+argument is refused before any command, and the plan finds the project from `--code`, then `--dir`.
 
 Run: python -m unittest evals/finish/test_finish_shim.py
 """
 import importlib.util
 import json
 import os
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,9 +18,8 @@ ROOT = HERE.parents[1]
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
-import fakeexe  # noqa: E402  (jjenv puts evals/ on sys.path)
-import vcs_test_support  # noqa: E402
-from vcs_test_support import STAMP, bash_run, sw_home, stamp_version, tree_version  # noqa: E402
+from vcs_test_support import STAMP, sw_env, sw_run  # noqa: E402
+import swcall  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
@@ -31,10 +27,6 @@ _spec.loader.exec_module(fx)
 
 P = "openspec"
 BRANCH = "bugfix/add-x"
-STOP = "sw missing or mismatched: rerun the install prompt"
-NO_PYTHON = '{"ok":false,"error":"no_python","message":"finish.sh needs python 3.8+"}\n'
-FINISH_SCRIPTS = ROOT / "skills" / "specwright-finish" / "scripts"
-PR_SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
 
 
 class ShimCase(unittest.TestCase):
@@ -52,18 +44,9 @@ class ShimCase(unittest.TestCase):
         fx.make_change(work, name, "DEFERRED", {"a": "New thing"}, prefix=prefix)
         return fx.archive(work, name, prefix=prefix, commit_it=True)
 
-    def copy_scripts(self):
-        """Copies of both scripts directories under <tmp>/skills/<skill>/scripts; returns the finish.sh copy."""
-        dest = self.tmp / "skills"
-        for skill in ("specwright-finish", "specwright-pr"):
-            shutil.copytree(ROOT / "skills" / skill / "scripts", dest / skill / "scripts",
-                            ignore=shutil.ignore_patterns("__pycache__"))
-        return dest / "specwright-finish" / "scripts" / "finish.sh"
-
-    def run_shim(self, *args, cwd=None, env=None, script=None, home=None, shim_dir=None):
-        shim_env = {"SPECWRIGHT_HOME": str(home or sw_home()), **self.shim.env, **(env or {})}
-        return bash_run([(script or fx.SCRIPT).as_posix(), *map(str, args)], cwd=cwd or self.work, env=shim_env,
-                        shim=shim_dir or self.shim.path, stamp=False)
+    def run_sw(self, *args, cwd=None, env=None):
+        """`sw finish <args>` entered directly (evals/swcall.py)."""
+        return sw_run(["finish", *args], cwd=cwd or self.work, env=env, shim=self.shim, stamp=False)
 
     def plan(self, change="add-x", *, prefix=P, dir_=None, code=None, archived=None, main="main"):
         args = (["--dir", str(dir_)] if dir_ else []) + ["undo-archive-plan", "--change", change, "--archived-name",
@@ -75,12 +58,10 @@ class ShimCase(unittest.TestCase):
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
-    def stop_document(self, result):
+    def mismatch_document(self, result):
+        """The native refusal of a project without a matching VERSION: `sw_mismatch`, exit 1, no git command."""
         doc = self.document(result, 1)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), doc)
-        self.assertTrue(doc["message"].startswith(STOP), doc)
-        self.assertIn(STOP, result.stderr)
-        self.assertNotIn("script", doc)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), doc)
         self.assertEqual(self.shim.calls(), [], "a git command ran")
         return doc
 
@@ -91,20 +72,48 @@ class ShimCase(unittest.TestCase):
 class TestPlanRunsSw(ShimCase):
     def test_plan_runs_sw(self):
         self.archived(self.work)
-        doc = self.document(self.run_shim(*self.plan()))
+        doc = self.document(self.run_sw(*self.plan()))
         self.assertIs(doc["ok"], True, doc)
         self.assertEqual(doc["mode"], "committed")
-        self.assertTrue(doc["script"].startswith("set -euo pipefail"), doc["script"][:60])
+        self.assertTrue(doc["steps"], doc)
+        self.assertNotIn("script", doc)
 
     def test_prefix_with_space_and_non_ascii_change(self):
         prefix, name = "my plans/openspec", "add-éx"
         work = fx.make_repo(self.tmp / "space", prefix=prefix)
         self.archived(work, name, prefix=prefix)
-        doc = self.document(self.run_shim(*self.plan(name, prefix=prefix), cwd=work))
+        doc = self.document(self.run_sw(*self.plan(name, prefix=prefix), cwd=work))
         self.assertIs(doc["ok"], True, doc)
         self.assertEqual([m["name"] for m in doc["members"]], [name])
-        self.assertIn(f"undo archive of {name}", doc["script"])
-        self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", doc["script"])
+        steps = fx.flat(doc["steps"])
+        self.assertIn(f"undo archive of {name}", steps)
+        self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", steps)
+
+    def test_arguments_reach_sw_unchanged(self):
+        """The helper starts sw with the list as given: spaces, non-ASCII text and an empty value arrive as they are."""
+        prefix, name = "my plans/openspec", "add-éx"
+        work = fx.make_repo(self.tmp / "space", prefix=prefix)
+        self.archived(work, name, prefix=prefix)
+        args = self.plan(name, prefix=prefix)
+        self.assertEqual(swcall.argv(["finish", *args])[2:], args, "the helper adds nothing to the list")
+        doc = self.document(self.run_sw(*args, cwd=work))
+        steps = fx.flat(doc["steps"])
+        self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", steps)
+        self.assertIn(f"undo archive of {name}", steps)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: the runtime refuses a non-UTF-8 argument only on POSIX, and the name needs a Linux file system")
+    def test_non_utf8_argument_is_refused(self):
+        """A --change holding the byte 0xFF is refused before any command: non-zero exit, no output, no git; the valid call runs."""
+        self.archived(self.work)
+        self.no_git_calls()
+        bad = [b"a\xffb" if arg == "add-x" else arg for arg in self.plan()]
+        result = swcall.run(["finish", *bad], cwd=self.work, env=sw_env(shim=self.shim), text=False)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, b"")
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+        control = self.document(self.run_sw(*self.plan()))  # the control: the valid change reaches git
+        self.assertIs(control["ok"], True, control)
+        self.assertTrue(self.shim.calls(), "the control never reached git")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_non_utf8_committed_name_is_not_utf8(self):
@@ -116,7 +125,7 @@ class TestPlanRunsSw(ShimCase):
             stream.write(b"notes\n")
         fx.archive(self.work, "add-x", commit_it=True)
 
-        result = self.run_shim(*self.plan())
+        result = self.run_sw(*self.plan())
 
         doc = self.document(result, 1)
         self.assertEqual((doc["ok"], doc["error"]), (False, "not_utf8"), doc)
@@ -124,40 +133,15 @@ class TestPlanRunsSw(ShimCase):
         self.assertNotIn("script", doc)
 
     @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
-    def test_git_bash_dir_on_windows(self):
+    def test_unconverted_path_on_windows_is_refused(self):
+        """change-finish "Path conversion fails on Windows": `--dir /etc/x` from a caller that is not Git Bash is taken as
+        given, a root-relative Windows path. The plan stops with its error for a directory that is no repository: no
+        bad_path, no script, no Git write."""
         self.archived(self.work)
-        bash_form = subprocess.run(["cygpath", "-u", str(self.work)], capture_output=True, text=True).stdout.strip()
-        self.assertTrue(bash_form.startswith("/"), bash_form)
-        drive = self.run_shim(*self.plan(dir_=Path(self.work).as_posix()), cwd=self.tmp)
-        # a cygpath that logs its arguments and runs the real one: the shim's own conversions need it,
-        # but sw converts the --dir path by its own rules and never runs it for that path
-        stub = self.tmp / "stub"
-        gitlog.install(stub, real_git=jjenv.real_git(), log_path=self.shim.log_path)
-        log = self.tmp / "cygpath.log"
-        fakeexe.write_fake(
-            stub / "cygpath",
-            '#!/bin/sh\nprintf \'%%s\\n\' "$*" >> "%s"\nexec "%s" "$@"\n'
-            % (log.as_posix(), Path(shutil.which("cygpath")).as_posix()))
-        bash = self.run_shim(*self.plan(dir_=bash_form), cwd=self.tmp, shim_dir=stub)
-        self.assertEqual(bash.returncode, 0, bash.stdout + bash.stderr)
-        self.assertNotIn("not_a_repo", bash.stdout)
-        self.assertEqual(json.loads(bash.stdout), json.loads(drive.stdout))
-        self.assertNotIn(bash_form, log.read_text(encoding="utf-8") if log.exists() else "", "cygpath ran for --dir")
-
-    @unittest.skipUnless(os.name == "nt", "platform: Git Bash path forms are Windows-only")
-    def test_failed_dir_conversion_is_bad_path(self):
-        self.archived(self.work)
-        # The shim hands over its own bash, whose install root is always found. So the handoff the shim
-        # writes is made here with a bash path that holds no Git root: /etc/x has nowhere to go.
-        bash_form = "/etc/x"
-        records = [str(FINISH_SCRIPTS), r"C:\tools\bash.exe", *self.plan(dir_=bash_form)]
-        result = subprocess.run([os.environ["SPECWRIGHT_SW"], "finish", "--args-stdin"],
-                                input=b"".join(x.encode("utf-8") + b"\0" for x in records),
-                                capture_output=True, cwd=self.tmp, env={**os.environ, **self.shim.env})
-        result.stdout, result.stderr = result.stdout.decode("utf-8"), result.stderr.decode("utf-8")
-        doc = self.document(result, 2)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "bad_path"), doc)
-        self.assertIn(bash_form, doc["message"])
+        result = self.run_sw(*self.plan(dir_="/etc/x"), cwd=self.work)
+        doc = self.document(result, 1)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "not_a_repo"), doc)
+        self.assertNotIn("bad_path", result.stdout + result.stderr)
         self.assertNotIn("script", doc)
         self.assertEqual(self.shim.calls(), [], "a git command ran")
 
@@ -175,64 +159,15 @@ class TestProjectWalk(ShimCase):
         store, code = self.store_and_code()
         self.assertFalse((store / STAMP).exists())
         self.assertTrue((code / STAMP).is_file())
-        doc = self.document(self.run_shim(*self.plan(dir_=store, code=code), cwd=store))
+        doc = self.document(self.run_sw(*self.plan(dir_=store, code=code), cwd=store))
         self.assertIs(doc["ok"], True, doc)
         self.assertEqual(doc["head"], fx.git(store, "rev-parse", "HEAD"))
 
-    def test_store_without_code_is_sw_missing(self):
+    def test_store_without_code_is_sw_mismatch(self):
         store, _ = self.store_and_code()
         self.no_git_calls()
-        doc = self.stop_document(self.run_shim(*self.plan(dir_=store), cwd=store))
+        doc = self.mismatch_document(self.run_sw(*self.plan(dir_=store), cwd=store))
         self.assertIn("no installed version found", doc["message"])
-
-    def test_relative_code_from_planning_repo(self):
-        # <base>/p/work is the planning repo, <base>/p/code the right checkout, <base>/elsewhere/code the wrong one
-        base = self.tmp / "layout"
-        store = fx.make_repo(base / "p")
-        (store / STAMP).unlink()
-        self.archived(store)
-        code = base / "p" / "code"
-        shutil.copytree(fx.make_repo(base / "q"), code)
-        wrong = base / "elsewhere" / "code"
-        shutil.copytree(code, wrong)
-        (wrong / STAMP).write_text("0.0.1\n", encoding="utf-8")  # no sw installed for it
-        fx.write(wrong, f"{P}/specwright.yaml", "vcs: jj\n")  # settings the probe would fail on
-        caller = base / "elsewhere" / "sub"
-        caller.mkdir(parents=True)
-        self.assertEqual((caller / ".." / "code").resolve(), wrong.resolve())
-        doc = self.document(self.run_shim(*self.plan(dir_=store, code="../code"), cwd=caller))
-        self.assertIs(doc["ok"], True, doc)
-        self.assertEqual(doc["head"], fx.git(store, "rev-parse", "HEAD"))
-
-
-class TestResolverStops(ShimCase):
-    def test_binary_missing_is_sw_missing(self):
-        self.archived(self.work)
-        home = self.tmp / "empty-home"
-        home.mkdir()
-        self.no_git_calls()
-        doc = self.stop_document(self.run_shim(*self.plan(), home=home))
-        self.assertIn(".specwright/bin/%s/sw" % tree_version(), doc["message"].replace("\\", "/"))
-
-    def test_stub_resolver_failure_is_sw_missing(self):
-        self.archived(self.work)
-        script = self.copy_scripts()
-        (script.parent.parent.parent / "specwright-pr" / "scripts" / "sw-path.sh").write_text(
-            '#!/usr/bin/env bash\necho "sw missing or mismatched: rerun the install prompt" >&2\necho "stub detail" >&2\nexit 1\n',
-            encoding="utf-8", newline="\n")
-        self.no_git_calls()
-        result = self.run_shim(*self.plan(), script=script)
-        doc = self.stop_document(result)
-        self.assertIn("stub detail", doc["message"])
-        self.assertIn("stub detail", result.stderr)
-
-    def test_no_python(self):
-        empty = self.tmp / "no-tools"
-        empty.mkdir()
-        done = subprocess.run([jjenv.find_bash(), fx.SCRIPT.as_posix(), *self.plan()], env={**os.environ, "PATH": str(empty)},
-                              cwd=self.work, capture_output=True, text=True, encoding="utf-8")
-        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
-        self.assertEqual(done.stdout, NO_PYTHON)
 
 
 if __name__ == "__main__":

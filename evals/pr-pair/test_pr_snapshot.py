@@ -13,6 +13,7 @@ from pathlib import Path
 import snapfix
 from snapfix import SnapCase, T0, rev
 import bashexe  # noqa: E402
+import swcall  # noqa: E402  (snapfix puts evals/ on sys.path through vcs_test_support)
 
 
 def setUpModule():
@@ -461,8 +462,8 @@ class WatchOwnership(SnapCase):
 
     def start(self, slug, pr, timeout=3):
         env = self.env()
-        p = subprocess.Popen([bashexe.bash(), str(snapfix.SNAPSHOT), str(pr), "--repo", slug, "--wait", "--interval", "1",
-                              "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        p = subprocess.Popen(swcall.argv(["pr", "snapshot", pr, "--repo", slug, "--wait", "--interval", "1",
+                                              "--timeout", timeout]), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                              encoding="utf-8", env=env, cwd=self.tmp)
         self.procs.append(p)
         return p
@@ -608,7 +609,7 @@ class WatchElapsed(SnapCase):
         out, err = self.tmp / "w.out", self.tmp / "w.err"
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:
-            p = subprocess.Popen([bashexe.bash(), str(snapfix.SNAPSHOT), str(self.PR), "--repo", self.SLUG, "--wait", *map(str, args)],
+            p = subprocess.Popen(swcall.argv(["pr", "snapshot", self.PR, "--repo", self.SLUG, "--wait", *args]),
                                  stdout=fo, stderr=fe, env=e, cwd=self.tmp)
             try:
                 if then:

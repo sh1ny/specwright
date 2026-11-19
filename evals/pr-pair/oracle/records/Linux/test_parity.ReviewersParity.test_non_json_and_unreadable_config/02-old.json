@@ -1,0 +1,15 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_non_json_and_unreadable_config",
+ "comment_bodies": {},
+ "exit": 2,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 1,
+  "prefixes": [
+   "reviewers.py: "
+  ]
+ },
+ "stdout": ""
+}

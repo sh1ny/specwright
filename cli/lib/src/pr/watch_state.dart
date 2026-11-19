@@ -13,15 +13,26 @@ import 'text.dart';
 // the claim names, the nonce format and the order of claims. `pr-pair.sh` and a watcher of the old script read and
 // write the same files.
 
-/// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`. On Windows a `/`-path (Git Bash's form of `HOME`) converts by
-/// the fixed rules of `nativePath`, so it names the directory the old script used (D7).
-Future<String> stateBase(PrContext ctx) async {
+/// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`, as the environment gives it. On Windows a shell that sets no
+/// `HOME` (PowerShell, cmd) falls back to the user profile: `USERPROFILE`, else `HOMEDRIVE` and `HOMEPATH`.
+String stateBase(PrContext ctx) {
   final env = ctx.env;
   var base = env['SPECWRIGHT_STATE_DIR'];
   if (base == null || base.isEmpty) {
-    base = '${env['HOME'] ?? ''}/.cache/specwright';
+    base = '${_home(env)}/.cache/specwright';
   }
-  return ctx.native(base);
+  return base;
+}
+
+String _home(Map<String, String> env) {
+  final home = env['HOME'];
+  if ((home != null && home.isNotEmpty) || !io.Platform.isWindows) {
+    return home ?? '';
+  }
+  final profile = env['USERPROFILE'];
+  if (profile != null && profile.isNotEmpty) return profile;
+  final drive = env['HOMEDRIVE'], path = env['HOMEPATH'];
+  return drive != null && path != null ? '$drive$path' : '';
 }
 
 /// `<base>/watch/v2/<owner>/<name>/<pr>`, lower case: ASCII folding only, as `tr 'A-Z' 'a-z'`.

@@ -1,0 +1,154 @@
+{
+ "calls": [
+  [
+   "api",
+   "repos/o/n"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=main"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=0000000000000000000000000000000000000009"
+  ]
+ ],
+ "case": "test_parity.PairParity.test_policy_drift_and_main_values",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "contents": {
+     "0000000000000000000000000000000000000009": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: rebase\n  delete_branch: true\n"
+     },
+     "main": {
+      "README.md": "x",
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required }\n"
+     }
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "default_branch": "main",
+  "delete_branch": true,
+  "drift": [
+   {
+    "head": "rebase",
+    "key": "pr.merge_method",
+    "main": "squash"
+   },
+   {
+    "head": {},
+    "key": "pr.reviewers",
+    "main": {
+     "rev": {
+      "report": {},
+      "request": "",
+      "role": "required",
+      "timeout": 1200
+     }
+    }
+   }
+  ],
+  "head": {
+   "pr.delete_branch": true,
+   "pr.merge": "agent",
+   "pr.merge_method": "rebase",
+   "pr.reviewers": {},
+   "pr.settle": 300
+  },
+  "invalid": [],
+  "main": {
+   "pr.delete_branch": true,
+   "pr.merge": "agent",
+   "pr.merge_method": "squash",
+   "pr.reviewers": {
+    "rev": {
+     "report": {},
+     "request": "",
+     "role": "required",
+     "timeout": 1200
+    }
+   },
+   "pr.settle": 300
+  },
+  "merge": "agent",
+  "merge_method": "squash",
+  "merge_ready": {
+   "code": true
+  },
+  "merge_reason": {
+   "code": null
+  },
+  "ok": true,
+  "repo": "o/n",
+  "reported": {
+   "head": {
+    "code": {
+     "head_mismatch": false,
+     "missing": [],
+     "ok": false,
+     "reviewed_head": "0000000000000000000000000000000000000009",
+     "rules_mismatch": true,
+     "snapshot_head": "0000000000000000000000000000000000000009"
+    }
+   },
+   "main": {
+    "code": {
+     "head_mismatch": false,
+     "missing": [],
+     "ok": true,
+     "reviewed_head": "0000000000000000000000000000000000000009",
+     "rules_mismatch": false,
+     "snapshot_head": "0000000000000000000000000000000000000009"
+    }
+   }
+  },
+  "reviewer_config": {
+   "head": {
+    "code": "<tmp>/state-old/reviewers/89bef1f757a398e6ebc63c7d4613e80b4325416fb60dc7ea8bc8d577680d5e16.json"
+   },
+   "main": {
+    "code": "<tmp>/state-old/reviewers/fb443b47ebd721814b707b629998359443a4cefd459bc6d14728ccb81df41aef.json"
+   }
+  },
+  "settle": 300
+ }
+}

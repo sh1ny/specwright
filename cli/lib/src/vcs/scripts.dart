@@ -26,24 +26,12 @@ Future<TextResult> runText(String cwd, List<String> command) async {
 /// [fencedText] result out. A test replaces it ([VcsScripts.fence]).
 typedef FencedRun = Future<TextResult> Function(String repo, List<String> argv);
 
-/// Where `sw vcs` was started from (design D2, S2): the directory of the
-/// `vcs.sh` that started it, which printed commands name, and the bash that ran
-/// that shim. No script in it is run.
+/// What the `sw vcs` operations run through: the in-process identity fence.
 class VcsScripts {
-  VcsScripts(this.dir, this.bash, {this.fence});
-
-  final String dir;
-  final String bash;
+  VcsScripts({this.fence});
 
   /// Replaces the in-process fence in a test; null runs [fencedText].
   final FencedRun? fence;
-
-  String path(String name) {
-    final base = dir.length > 1 && dir.endsWith('/')
-        ? dir.substring(0, dir.length - 1)
-        : dir;
-    return '$base/$name';
-  }
 
   /// `as.sh <argv...>` in [repo], run in this process.
   Future<TextResult> fenced(String repo, List<String> argv) {
@@ -75,7 +63,7 @@ Future<VcsSettings> readSettings(
 }) async {
   try {
     final read = await readVcsSettings(
-      _settingsContext(scripts),
+      _settingsContext(),
       code: code,
       repo: repo,
       role: role,
@@ -95,7 +83,7 @@ Future<void> requirePinnedSettings(
   String branch,
 ) async {
   try {
-    await requireSettingsPinnedTo(_settingsContext(scripts), code, branch);
+    await requireSettingsPinnedTo(_settingsContext(), code, branch);
   } on SettingsStop catch (e) {
     throw VcsStop(e.error, e.message, code: _cap(e.code));
   } on PairStop catch (e) {
@@ -112,12 +100,7 @@ Future<void> requirePinnedSettings(
 }
 
 /// A `PrContext` for the in-process settings module: only its `git` runs.
-PrContext _settingsContext(VcsScripts scripts) => PrContext(
-  scriptsDir: scripts.dir,
-  bash: scripts.bash,
-  writeOut: (_) {},
-  writeErr: (_) {},
-);
+PrContext _settingsContext() => PrContext(writeOut: (_) {}, writeErr: (_) {});
 
 /// The login a network command runs as (`fence_login`, `network_git`): [login]
 /// when it is not empty; for a GitHub remote without one, the account the

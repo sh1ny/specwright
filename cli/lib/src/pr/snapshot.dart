@@ -250,7 +250,7 @@ class _Snapshot {
     // The reviewer config is checked here, in this process, before any gh call: a bad one prints its one line and exits 2
     // (design D3). Only the evaluator child takes the file by name, so only it needs a UTF-8 named copy.
     if (rcfgSet) {
-      final path = await ctx.native(rcfg);
+      final path = rcfg;
       final checked = reviewerLogins(path);
       final error = checked.error;
       if (error != null) stop(error, 2);
@@ -444,7 +444,7 @@ class _Snapshot {
     } else {
       // decided once per head per process, so the cutoff and timeout start stay fixed
       if (seenSrc.isEmpty) {
-        final base = await stateBase(ctx);
+        final base = stateBase(ctx);
         final seen = await resolveFirstSeen(
           ctx,
           dir: headsDirectory(base, owner, name, pr),
@@ -628,7 +628,7 @@ class _Snapshot {
     ({String wake, String snapshot, Map<String, Object?> doc, int filtered})
   >
   watch() async {
-    final dir = claimDirectory(await stateBase(ctx), owner, name, pr);
+    final dir = claimDirectory(stateBase(ctx), owner, name, pr);
     claim = WatchClaim.claim(dir);
     if (claim == null) {
       ctx.err(

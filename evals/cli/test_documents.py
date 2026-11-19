@@ -15,21 +15,17 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, ".."))
-import bashexe  # noqa: E402
+import swcall  # noqa: E402
 import swharness  # noqa: E402
-
-SCRIPTS = os.path.join(HERE, "..", "..", "skills", "specwright-pr", "scripts")
 
 
 class TestDocuments(unittest.TestCase):
     def test_document_is_compact_with_one_lf(self):
-        sw = swharness.require_sw()
         with tempfile.TemporaryDirectory(prefix="sw-doc-") as repo:
             subprocess.run(["git", "init", "-q", repo], check=True, capture_output=True, timeout=60)
-            # the shim's records: its directory, its bash, then the command line, each ended by a NUL
-            records = [SCRIPTS, bashexe.bash(), "probe", "--repo", repo, "--role", "code"]
-            done = subprocess.run([sw, "vcs", "--args-stdin"], env=swharness.fixture_env(), capture_output=True, timeout=60,
-                                  input="".join(r + chr(0) for r in records).encode("utf-8"))
+            swcall.stamp(repo)
+            done = swcall.run(["vcs", "probe", "--repo", repo, "--role", "code"], project=repo, env=swharness.fixture_env(),
+                              timeout=60, text=False)
         self.assertEqual(done.returncode, 0, done.stderr)
         out = done.stdout
         self.assertTrue(out.endswith(b"}\n"))

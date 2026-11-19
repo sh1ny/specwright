@@ -1,12 +1,12 @@
-"""Scratch git repos for the finish.sh evals (skills/specwright-finish/scripts/finish.sh).
+"""Scratch git repos for the `sw finish` evals.
 
 make_repo builds a work tree on `main` with a baseline main spec `<P>/specs/a/spec.md`, `src/app.py` and
 `README.md`. make_change adds a change directory (`review.md` with DEFERRED or APPROVE, delta specs).
 archive() simulates `openspec archive`: it moves the change directory to `changes/archive/<date>-<name>/`,
 syncs each delta into its main spec (modify or create), optionally writes `specwright-change.yaml`, and
 leaves the result uncommitted or commits it as A. commit(), edit(), revert() and the git() helper build
-later history. run_plan() runs finish.sh; run_scripts() runs the printed `script` and `after_rerun` with
-bash (a fake `openspec archive <name> --yes` is on PATH for the after-rerun script).
+later history. run_plan() runs `sw finish`; run_scripts() runs the printed `steps` and `after_rerun_steps`, each
+`{cwd, argv}` step on its own (the `openspec archive <name> --yes` step runs the fake CLI below).
 
 This module is also the fake `openspec` CLI: `python fixtures.py archive <name> --yes` (FIXTURE_PREFIX
 names the openspec root, default `openspec`).
@@ -25,11 +25,9 @@ if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 sys.path.append(str(ROOT / "evals" / "vcs"))
-import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
+import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION `sw` checks (native-cli-vcs D9)
 import bashexe  # noqa: E402
-SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
-ORACLE = HERE / "oracle" / "finish.sh"  # the frozen copy of the old finish.sh (native-cli-finish D9); test-only
-ORACLE_FIN_DIR = ROOT / "skills" / "specwright-finish" / "scripts"  # so the oracle prints the real vcs.sh path
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 DATE = "2026-10-19"
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 
@@ -195,7 +193,7 @@ def state(repo):
             "index": git(repo, "ls-files", "--stage"), "files": snapshot(repo)}
 
 
-# ---- running finish.sh and the printed scripts ------------------------------------------------------------------
+# ---- running `sw finish` and the printed steps ------------------------------------------------------------------
 def fake_bin(tmp):
     """A directory whose `openspec` is this module: only `archive <name> --yes` is implemented."""
     d = Path(tmp) / "bin"
@@ -208,20 +206,8 @@ def fake_bin(tmp):
 
 
 def run_finish(work, *args, cwd=None):
-    """Run finish.sh; returns (exit code, parsed JSON, raw stdout + stderr)."""
-    r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8",
-                       env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
-    try:
-        doc = json.loads(r.stdout)
-    except ValueError:
-        doc = None
-    return r.returncode, doc, r.stdout + r.stderr
-
-
-def run_oracle(work, *args, cwd=None):
-    """Run the frozen oracle copy of finish.sh the way run_finish runs finish.sh; returns (exit code, parsed JSON, raw output)."""
-    r = subprocess.run([bashexe.bash(), str(ORACLE), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8",
-                       env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), ORACLE_FIN_DIR=str(ORACLE_FIN_DIR)))
+    """Run `sw finish <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout + stderr)."""
+    r = swcall.run(["finish", *args], cwd=cwd or work, env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
     try:
         doc = json.loads(r.stdout)
     except ValueError:
@@ -251,17 +237,41 @@ def run_bash(work, tmp, text, name, prefix="openspec"):
     return subprocess.run([bashexe.bash(), str(path)], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
 
 
+def flat(steps):
+    """The printed steps as one text, each argv joined by spaces, one step per line: what a test searches for a command."""
+    return "\n".join(" ".join(step["argv"]) for step in steps or [])
+
+
+def run_steps(tmp, steps, prefix="openspec", env=None, tools=None):
+    """Run printed `{cwd, argv}` steps in order, each in its own cwd, and stop at the first one that fails. Returns the
+    last step's result with the output of every step run joined (`openspec` is the fake CLI of this module).
+    `env` adds variables; `tools` maps a command name to the executable that runs in its place."""
+    env = dict(os.environ, FIXTURE_PREFIX=prefix, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), **(env or {}))
+    out = SimpleNamespace(returncode=0, stdout="", stderr="", ran=[])
+    for step in steps:
+        argv = list(step["argv"])
+        argv[0] = (tools or {}).get(argv[0], argv[0])
+        if argv[0] == "openspec":
+            argv = [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), *argv[1:]]
+        r = subprocess.run(argv, cwd=step["cwd"], capture_output=True, text=True, encoding="utf-8", env=env)
+        out.returncode, out.stdout, out.stderr = r.returncode, out.stdout + r.stdout, out.stderr + r.stderr
+        out.ran.append(step)
+        if r.returncode != 0:
+            break
+    return out
+
+
 def run_scripts(work, tmp, change, prefix="openspec", between=None, rerun=True, **plan_kw):
-    """run_plan, then `script`, then (optionally `between(result)` and, unless rerun is False) `after_rerun` when the plan
-    printed one."""
+    """run_plan, then the plan's `steps`, then (optionally `between(result)` and, unless rerun is False) its
+    `after_rerun_steps` when it printed any."""
     out = SimpleNamespace(plan=run_plan(work, change, prefix=prefix, **plan_kw), script=None, after=None)
     doc = out.plan[1]
-    if doc and doc.get("ok") and doc.get("script"):
-        out.script = run_bash(work, tmp, doc["script"], "undo", prefix)
+    if doc and doc.get("ok") and doc.get("steps"):
+        out.script = run_steps(tmp, doc["steps"], prefix)
         if between:
             between(out)
-        if rerun and doc.get("after_rerun") and out.script.returncode == 0:
-            out.after = run_bash(work, tmp, doc["after_rerun"], "after_rerun", prefix)
+        if rerun and doc.get("after_rerun_steps") and out.script.returncode == 0:
+            out.after = run_steps(tmp, doc["after_rerun_steps"], prefix)
     return out
 
 

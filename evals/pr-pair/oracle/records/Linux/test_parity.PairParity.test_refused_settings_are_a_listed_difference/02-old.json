@@ -1,0 +1,77 @@
+{
+ "calls": [],
+ "case": "test_parity.PairParity.test_refused_settings_are_a_listed_difference",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "after_limit": "ask",
+  "code": {
+   "dir": "<tmp>/listed1",
+   "login": "",
+   "main": "main",
+   "merge_ready": false,
+   "merge_reason": "no_required_reviewer",
+   "repo": "o/n",
+   "request_as": "",
+   "requests_disabled": false,
+   "review_request": {
+    "after_fixes": false,
+    "body": "",
+    "login": ""
+   },
+   "reviewer_config": "<tmp>/state-old/reviewers/89bef1f757a398e6ebc63c7d4613e80b4325416fb60dc7ea8bc8d577680d5e16.json",
+   "reviewers": {},
+   "validate": ""
+  },
+  "delete_branch": true,
+  "finish": "",
+  "max_fix_rounds": 2,
+  "merge": "user",
+  "merge_method": "merge",
+  "ok": true,
+  "poll_interval": 300,
+  "react": false,
+  "settle": 300,
+  "store": null
+ }
+}

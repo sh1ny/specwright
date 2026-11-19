@@ -1,14 +1,9 @@
 import 'dart:convert';
 
 import 'package:specwright_cli/src/commands/pr.dart';
-import 'package:specwright_cli/src/pr/context.dart';
 import 'package:test/test.dart';
 
 import 'pr_support.dart';
-
-List<int> records(List<String> parts) => [
-  for (final p in parts) ...[...utf8.encode(p), 0],
-];
 
 void main() {
   const commands =
@@ -17,114 +12,58 @@ void main() {
   setUp(() => f = Fixture());
   tearDown(() => f.dispose());
 
-  Future<int> run(List<String> args, List<int> stdin) => runPrCommand(
+  Future<int> run(List<String> args) => runPrCommand(
     args,
     writeOut: f.out.addAll,
     writeErr: f.err.addAll,
-    readStdin: () async => stdin,
-    context: (scripts, bash) => f.ctx,
+    context: () => f.ctx,
   );
 
-  test('only the handoff commands with --args-stdin are commands', () async {
+  test('only the listed commands are commands', () async {
     for (final args in [
       <String>[],
-      ['snapshot'],
-      ['reply'],
-      ['watch', '--args-stdin'],
-      ['snapshot', 'x'],
+      ['watch'],
+      ['watch', 'x'],
     ]) {
       f.err.clear();
-      expect(await run(args, records(['s', 'b'])), 2, reason: '$args');
-      expect(f.stderr, 'usage: sw pr $commands --args-stdin\n');
+      expect(await run(args), 2, reason: '$args');
+      expect(f.stderr, 'usage: sw pr reviewers|$commands [arguments]\n');
     }
   });
 
-  test('a handoff that is not NUL-terminated records exits 2', () async {
-    expect(await run(['reply', '--args-stdin'], utf8.encode('s\u0000b')), 2);
-    expect(f.stderr, startsWith('usage: sw pr $commands --args-stdin (stdin:'));
-    f.err.clear();
-    expect(await run(['reply', '--args-stdin'], records(['only one'])), 2);
-  });
-
-  test('reply gets the script arguments, and its own exit code', () async {
-    expect(await run(['reply', '--args-stdin'], records(['s', 'b', '7'])), 1);
+  test('reply gets the arguments, and its own exit code', () async {
+    expect(await run(['reply', '7']), 1);
     expect(f.stderr, 'pr-reply.sh: line 50: 2: thread|comment|resolve\n');
   });
 
-  test('snapshot with no argument is a handoff too', () async {
+  test('snapshot with no argument reads the current branch', () async {
     f.onGh = (args) => answer('', exit: 3, stderr: 'no repo\n');
-    expect(await run(['snapshot', '--args-stdin'], records(['s', 'b'])), 3);
+    expect(await run(['snapshot']), 3);
     expect(f.stderr, 'no repo\n');
     expect(f.ghCalls.first.take(2), ['repo', 'view']);
   });
 
-  test('the settings and policy commands take the handoff too', () async {
-    for (final (name, message) in [
-      ('identity', 'identity <dir>'),
-      ('vcs', 'missing --code'),
-      ('tier', 'missing --code'),
-      ('context', 'missing --code'),
-      ('policy', 'missing --repo'),
-    ]) {
-      f.out.clear();
-      expect(await run([name, '--args-stdin'], records(['s', 'b'])), 2);
-      expect(jsonDecode(f.stdout), {
-        'ok': false,
-        'error': 'usage',
-        'message': message,
-      }, reason: name);
-    }
-  });
-
   test(
-    r'an argument that is not UTF-8 is a not_utf8 document, exit 1',
+    'the settings and policy commands take their arguments directly',
     () async {
-      final bad = [
-        ...records(['s', 'b', '--code']),
-        0x61,
-        0xff,
-        0,
-      ];
-      expect(await run(['rounds', '--args-stdin'], bad), 1);
-      final doc = jsonDecode(f.stdout) as Map<String, Object?>;
-      expect([doc['ok'], doc['error']], [false, 'not_utf8']);
-      expect(doc['message'], contains(r'a\xFF'));
-      expect(doc['message'], contains('rename'));
-      expect(f.ghCalls, isEmpty, reason: 'no credential lookup ran');
-    },
-  );
-
-  test(
-    r'snapshot and reply refuse a name that is not UTF-8 on stderr, exit 2',
-    () async {
-      for (final name in ['snapshot', 'reply']) {
-        f.err.clear();
-        final bad = [
-          ...records(['s', 'b']),
-          0x61,
-          0xff,
-          0,
-        ];
-        expect(await run([name, '--args-stdin'], bad), 2, reason: name);
-        expect(
-          f.stderr,
-          startsWith('pr-$name.sh: argument 1 is not valid UTF-8: a\\xFF'),
-        );
+      for (final (name, message) in [
+        ('identity', 'identity <dir>'),
+        ('vcs', 'missing --code'),
+        ('tier', 'missing --code'),
+        ('context', 'missing --code'),
+        ('policy', 'missing --repo'),
+      ]) {
+        f.out.clear();
+        expect(await run([name]), 2);
+        expect(jsonDecode(f.stdout), {
+          'ok': false,
+          'error': 'usage',
+          'message': message,
+        }, reason: name);
       }
     },
   );
 
-  test('parsePrHandoff splits the records', () {
-    final h = parsePrHandoff(records(['d', 'b', 'a', '']))!;
-    expect(
-      [h.scriptsDir, h.bash, h.args],
-      [
-        'd',
-        'b',
-        ['a', ''],
-      ],
-    );
-  });
   test(
     'internal pair dispatch keeps original public usage for invalid calls',
     () async {
@@ -133,10 +72,7 @@ void main() {
         ['bogus', 'a b', '', r'$x *', 'é'],
       ]) {
         f.out.clear();
-        expect(
-          await run(['pair', '--args-stdin'], records(['s', 'b', ...args])),
-          2,
-        );
+        expect(await run(['pair', ...args]), 2);
         final doc = jsonDecode(f.stdout) as Map;
         expect(doc['ok'], false);
         expect(doc['error'], 'usage');

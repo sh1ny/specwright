@@ -2,11 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
-import '../commit/paths.dart';
 import '../native/libc.dart' as libc;
-import '../vcs/codec.dart';
+import '../vcs/codec.dart' show decodeReplacing;
 import '../vcs/scripts.dart' show TextResult, runText;
 import 'gh.dart';
 import 'text.dart';
@@ -46,25 +44,9 @@ typedef PrMakeTemp = Future<String?> Function([String? template]);
 /// A pause of [seconds] whole seconds (`sleep`).
 typedef PrSleep = Future<void> Function(int seconds);
 
-/// What the shim handed `sw pr snapshot` or `sw pr reply` on stdin: the scripts directory, the bash that runs the shim
-/// and every argument of the script. Unlike [parseHandoff], no argument at all is a handoff too (`pr-snapshot.sh` with
-/// no arguments reads the current branch's PR). Null when the bytes are not NUL-terminated records or hold fewer than
-/// two.
-({String scriptsDir, String bash, List<String> args})? parsePrHandoff(
-  List<int> stdin,
-) {
-  if (stdin.isNotEmpty && stdin.last != 0) return null;
-  final records = decodeHandoffRecords(Uint8List.fromList(stdin));
-  if (records.length < 2) return null;
-  return (scriptsDir: records[0], bash: records[1], args: records.sublist(2));
-}
-
-/// Everything one `sw pr` command runs against: the scripts directory and bash of the handoff, the output streams and
-/// the four kinds of external call. The seams are what the tests replace; by default a call runs for real.
+/// Everything one `sw pr` command runs against: the output streams and the four kinds of external call. The seams are what the tests replace; by default a call runs for real.
 class PrContext {
   PrContext({
-    required this.scriptsDir,
-    required this.bash,
     required this.writeOut,
     required this.writeErr,
     this.environment,
@@ -78,8 +60,6 @@ class PrContext {
     String? cwd,
   }) : cwd = cwd ?? Directory.current.path;
 
-  final String scriptsDir;
-  final String bash;
   final void Function(List<int> bytes) writeOut;
   final void Function(List<int> bytes) writeErr;
 
@@ -197,15 +177,6 @@ class PrContext {
       }
     }
     return null;
-  }
-
-  /// A path argument in the form `sw` can open: on Windows a `/` path converts by the fixed rules of `nativePath` (D7).
-  Future<String> native(String path) async {
-    try {
-      return await nativePath(path, bash, environment: environment);
-    } on BadPathException {
-      return path;
-    }
   }
 
   /// What gh's stderr shows the caller: the limit line when a limit ended the call, else gh's own bytes.

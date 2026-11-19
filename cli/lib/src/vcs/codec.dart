@@ -1,27 +1,3 @@
-import 'dart:typed_data';
-
-/// The NUL-terminated records of a handoff, each decoded strictly (D4): the
-/// scripts directory, the bash path, then the arguments of the call. A record
-/// that is not UTF-8 throws [NotUtf8] naming `scripts directory`, `bash path`
-/// or `argument N`. Bytes after the last NUL are ignored: the callers check
-/// that the input ends in one.
-List<String> decodeHandoffRecords(Uint8List bytes) {
-  final records = <String>[];
-  var start = 0;
-  for (var i = 0; i < bytes.length; i++) {
-    if (bytes[i] == 0) {
-      final what = switch (records.length) {
-        0 => 'scripts directory',
-        1 => 'bash path',
-        _ => 'argument ${records.length - 1}',
-      };
-      records.add(decodeStrict(Uint8List.sublistView(bytes, start, i), what));
-      start = i + 1;
-    }
-  }
-  return records;
-}
-
 /// Display text from a tool: [decodeReplacing], then `\r\n` and a lone `\r`
 /// become `\n` (Python's universal newlines).
 String decodeText(List<int> bytes) =>

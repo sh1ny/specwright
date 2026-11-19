@@ -1,0 +1,61 @@
+{
+ "calls": [
+  [
+   "api",
+   "--paginate",
+   "repos/o/n/pulls?state=all&head=o:feat/$x;é[quoted]&per_page=100"
+  ]
+ ],
+ "case": "test_workflow_transport.WorkflowTransport.test_command_arguments_remain_exact",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "base": null,
+  "branch": "feat/$x;é[quoted]",
+  "newest": null,
+  "ok": true,
+  "other_base": [],
+  "prs": [],
+  "repo": "o/n"
+ }
+}

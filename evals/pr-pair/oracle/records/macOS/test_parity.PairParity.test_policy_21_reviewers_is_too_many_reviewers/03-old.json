@@ -1,0 +1,213 @@
+{
+ "calls": [],
+ "case": "test_parity.PairParity.test_policy_21_reviewers_is_too_many_reviewers",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "contents": {
+     "0000000000000000000000000000000000000009": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  reviewers:\n    bot-0: { role: advisory }\n    bot-1: { role: advisory }\n    bot-2: { role: advisory }\n    bot-3: { role: advisory }\n    bot-4: { role: advisory }\n    bot-5: { role: advisory }\n    bot-6: { role: advisory }\n    bot-7: { role: advisory }\n    bot-8: { role: advisory }\n    bot-9: { role: advisory }\n    bot-10: { role: advisory }\n    bot-11: { role: advisory }\n    bot-12: { role: advisory }\n    bot-13: { role: advisory }\n    bot-14: { role: advisory }\n    bot-15: { role: advisory }\n    bot-16: { role: advisory }\n    bot-17: { role: advisory }\n    bot-18: { role: advisory }\n    bot-19: { role: advisory }\n    bot-20: { role: advisory }\n"
+     },
+     "main": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required }\n"
+     }
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "after_limit": "ask",
+  "code": {
+   "dir": "<tmp>/many",
+   "login": "",
+   "main": "main",
+   "merge_ready": false,
+   "merge_reason": "no_required_reviewer",
+   "repo": "o/n",
+   "request_as": "",
+   "requests_disabled": false,
+   "review_request": {
+    "after_fixes": false,
+    "body": "",
+    "login": ""
+   },
+   "reviewer_config": "<tmp>/state-old/reviewers/d81cd240ea6177dae8082457abc26f7c43a6391e63f26f479a877aed1428c1d5.json",
+   "reviewers": {
+    "bot-0": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-1": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-10": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-11": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-12": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-13": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-14": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-15": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-16": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-17": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-18": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-19": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-2": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-20": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-3": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-4": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-5": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-6": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-7": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-8": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    },
+    "bot-9": {
+     "report": {},
+     "request": "",
+     "role": "advisory",
+     "timeout": 1200
+    }
+   },
+   "validate": ""
+  },
+  "delete_branch": true,
+  "finish": "",
+  "max_fix_rounds": 2,
+  "merge": "agent",
+  "merge_method": "merge",
+  "ok": true,
+  "poll_interval": 300,
+  "react": false,
+  "settings_problem": "pr.reviewers: 21 reviewers is too_many_reviewers (at most 20)",
+  "settle": 300,
+  "store": null
+ }
+}

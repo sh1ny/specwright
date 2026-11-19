@@ -1,6 +1,6 @@
 // Compiles cli/bin/sw.dart with SW_VERSION set. Run from anywhere:
 //   dart run cli/tool/build.dart [--version <v>] [--output <file>]
-//       [--install [--expect-update-interface <n>]]
+//       [--install [--expect-update-interface <n>] [--interface-from <file>]]
 // Without options it reads the repository VERSION file and writes
 // cli/build/sw (sw.exe on Windows). `--version` and `--output` build another
 // version to another file, for the eval fixtures.
@@ -11,10 +11,18 @@
 // <home>/.specwright/bin/<VERSION>/ and prints the placed path. With
 // `--expect-update-interface <n>` it first runs the built binary's
 // `sw update interface`: a different number, or a failed run, deletes the
-// build and stops before anything is placed. `mise run install-sw` runs this.
-// No bash is started: only the Dart SDK and the built binary.
+// build and stops before anything is placed. It also runs the built binary's
+// `version --json` and compares its workflow `interface` with the
+// `interface <n>` line of the tree's skills/specwright-pr/SKILL.md (or of
+// `--interface-from <file>`); a different number deletes the build and stops
+// before anything is placed. `mise run install-sw` runs this.
+// It first regenerates cli/lib/src/review/references.g.dart from the review
+// skill's references (cli/tool/references.dart). No bash is started: only the
+// Dart SDK and the built binary.
 import 'dart:convert';
 import 'dart:io';
+
+import 'references.dart';
 
 Never _fail(String message, [int code = 1]) {
   stderr.writeln(message);
@@ -22,7 +30,7 @@ Never _fail(String message, [int code = 1]) {
 }
 
 Future<void> main(List<String> args) async {
-  String? version, output, expect;
+  String? version, output, expect, interfaceFrom;
   var install = false;
   for (var i = 0; i < args.length; i++) {
     final arg = args[i];
@@ -38,6 +46,8 @@ Future<void> main(List<String> args) async {
         output = value();
       case '--expect-update-interface':
         expect = value();
+      case '--interface-from':
+        interfaceFrom = value();
       case '--install':
         install = true;
       default:
@@ -46,6 +56,9 @@ Future<void> main(List<String> args) async {
   }
   if (expect != null && !install) {
     _fail('--expect-update-interface goes with --install', 2);
+  }
+  if (interfaceFrom != null && !install) {
+    _fail('--interface-from goes with --install', 2);
   }
 
   final cliDir = File.fromUri(Platform.script).parent.parent;
@@ -63,6 +76,8 @@ Future<void> main(List<String> args) async {
       (temporary
           ? '${buildDir.path}.install-$pid$ext'
           : '${buildDir.path}sw$ext');
+  // D9: the built-in review references come from the skill's files.
+  writeReferences(treeDir);
   final result = await Process.run(Platform.resolvedExecutable, [
     'compile',
     'exe',
@@ -85,6 +100,34 @@ Future<void> main(List<String> args) async {
   }
 
   try {
+    final pinFile = File(
+      interfaceFrom ??
+          treeDir.uri.resolve('skills/specwright-pr/SKILL.md').toFilePath(),
+    );
+    final pin = _pinnedInterface(pinFile);
+    if (pin == null) {
+      discard();
+      _fail(
+        'no "interface <n>" line in ${pinFile.path}, so the workflow '
+        'interface of the build cannot be checked; nothing was placed',
+      );
+    }
+    final reported = await Process.run(out, ['version', '--json']);
+    Object? workflow;
+    try {
+      workflow = (jsonDecode(
+        reported.stdout as String,
+      ) as Map<String, Object?>)['interface'];
+    } on Object {
+      workflow = null;
+    }
+    if ('$workflow' != pin) {
+      discard();
+      _fail(
+        'the build reports workflow interface $workflow, but the skills in '
+        '${pinFile.path} require interface $pin; nothing was placed',
+      );
+    }
     if (expect != null) {
       final probe = await Process.run(out, ['update', 'interface']);
       Object? found;
@@ -132,4 +175,14 @@ Future<void> main(List<String> args) async {
   } finally {
     if (temporary) discard();
   }
+}
+
+/// The number on the `interface <n>` line of the pr skill, or null.
+String? _pinnedInterface(File file) {
+  if (!file.existsSync()) return null;
+  final match = RegExp(
+    r'^interface (\d+)\s*$',
+    multiLine: true,
+  ).firstMatch(file.readAsStringSync());
+  return match?.group(1);
 }

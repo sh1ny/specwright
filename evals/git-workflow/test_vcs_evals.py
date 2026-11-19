@@ -4,7 +4,7 @@ The five evals (`eval-branch-git-jj-note`, `eval-branch-jj-dirty-no-stash`, `eva
 `eval-debug-jj-dirty-no-stash`, `eval-debug-jj-clean`) are live-agent evals: an agent runs the skill in the
 fixture, then grade.py inspects the resulting repository, the Git trace, the stub-`jj` call log and the report. This
 module proves the parts that run offline: each fixture builds the state its scenario names (checked by running the
-real `vcs.sh` against it), and each grader passes the outcome the spec asks for and fails the outcomes it forbids.
+real `sw vcs` against it), and each grader passes the outcome the spec asks for and fails the outcomes it forbids.
 It does not prove any live agent behaves that way; those runs stay red until they pass.
 
 Fixtures that need the real jj skip as `jj not installed` unless SPECWRIGHT_REQUIRE_JJ=1 (evals/vcs/jjenv.py).
@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
 import grade  # noqa: E402
 import jjenv  # noqa: E402
-from vcs_test_support import VCS, bash_run  # noqa: E402
+from vcs_test_support import sw_run  # noqa: E402
 
 NAMES = ("eval-branch-git-jj-note", "eval-branch-jj-dirty-no-stash", "eval-branch-store-probe-fails",
          "eval-debug-jj-dirty-no-stash", "eval-debug-jj-clean")
@@ -66,7 +66,8 @@ class Fx(unittest.TestCase):
                 f.write(f"10:00:00.000000 git.c:460 trace: built-in: git {' '.join(c)}\n")
 
     def vcs(self, repo, *args, role="code", code=None):
-        r = bash_run([VCS, *args, "--repo", repo, "--role", role, *(["--code", code] if code else [])], self.repo, shim=self.repo / "bin")
+        r = sw_run(["vcs", *args, "--repo", repo, "--role", role, *(["--code", code] if code else [])], self.repo,
+                   env={"PATH": str(self.repo / "bin") + os.pathsep + os.environ.get("PATH", "")})
         return r.returncode, json.loads(r.stdout or "{}")
 
     def jj(self, *args):

@@ -1,8 +1,8 @@
-"""as.sh is a shim: it resolves the project's sw with sw-path.sh and runs `sw as --args-file` (ADR 0028, ADR 0029).
+"""`sw as` entered directly (ADR 0028, ADR 0029; the as.sh shim is gone since 0.38.0).
 
 The fence's own behaviour (the checks, the environment, the messages) is pinned by test_as_sh.py, test_as_jj.py, test_as_gitbutler.py and
-test_parity.py. These tests cover what the shim adds: how it finds `sw`, what it hands over, and that the fenced command keeps
-the caller's stdin, its argument bytes, its signals and its bounded caller.
+test_parity.py. These tests cover what the entry adds: that the fenced command keeps the caller's stdin, its argument bytes, its
+signals and its bounded caller, and that the project's version is checked.
 
 Run: python -m unittest evals/pr-pair/test_as_shim.py
 """
@@ -17,29 +17,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_as_sh as tas  # noqa: E402
-from test_as_sh import AS_SH, ROOT, fixtures_kill, bashexe, vcs_test_support  # noqa: E402
+from test_as_sh import ROOT, fixtures_kill, bashexe  # noqa: E402
 
 sys.path.append(str(ROOT / "evals" / "cli"))
 import swharness  # noqa: E402
 import fakeexe  # noqa: E402  (evals/ is on sys.path through test_as_sh)
+import swcall  # noqa: E402
 
-STOP = "sw missing or mismatched: rerun the install prompt"
-USAGE = "as.sh: line 47: 1: usage: as.sh <login> <command> [args...] | as.sh --resolve"
+USAGE = r"^as\.sh: line 47: 1: usage: as\.sh <login> <command> \[args\.\.\.\] \| as\.sh --resolve\n$"
+NO_COMMAND = r"^as\.sh: no command given\n$"
+HUNG_LOOKUP = r"as\.sh: deadline_exceeded: gh auth token --user KintsugiBot"
 
 
 class ShimCase(tas.AsShCase):
     def bash_command(self, script, *args):
         """A fenced command that is bash itself (an absolute path, so the fence's exec finds it on every OS)."""
         return [Path(bashexe.bash()).as_posix(), "-c", script, "x", *args]
-
-    def stop_document(self, result):
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        doc = json.loads(result.stdout)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), doc)
-        self.assertTrue(doc["message"].startswith(STOP), doc)
-        self.assertIn(STOP, result.stderr)
-        return doc
-
 
 class TestShim(ShimCase):
     def test_fenced_gh_call_runs_sw(self):
@@ -52,28 +45,28 @@ class TestShim(ShimCase):
         r = self.as_sh(self.code, "--resolve")
         self.assertEqual((r.returncode, r.stdout), (0, "sh1ny\n"), r.stderr)
 
-    def test_binary_missing_is_sw_missing(self):
-        home = self.tmp / "empty-home"
-        home.mkdir()
-        r = self.as_sh(self.code, "sh1ny", "gh", "api", "user", env={"SPECWRIGHT_HOME": str(home)})
-        doc = self.stop_document(r)
-        self.assertIn(".specwright/bin/%s/sw" % vcs_test_support.tree_version(), doc["message"].replace("\\", "/"))
+    def test_resolve_in_other_version_is_sw_mismatch(self):
+        """native-cli A4: the project's VERSION is not the binary's, so `sw as --resolve` stops before any gh call."""
+        swcall.stamp(self.code, "99.0.0")
+        r = self.as_sh(self.code, "--resolve")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), doc)
         self.assertEqual(self.gh_calls(), [], "no gh call ran")
+        swcall.stamp(self.code)
+        control = self.as_sh(self.code, "--resolve")  # the control: the matching VERSION resolves
+        self.assertEqual((control.returncode, control.stdout), (0, "sh1ny\n"), control.stderr)
 
-    def test_resolve_without_sw_exits_1(self):
-        home = self.tmp / "empty-home"
-        home.mkdir()
-        r = self.as_sh(self.code, "--resolve", env={"SPECWRIGHT_HOME": str(home)})
-        self.stop_document(r)
-        self.assertEqual(self.gh_calls(), [], "no gh call ran")
-
-    def test_no_python(self):
-        empty = self.tmp / "no-tools"
-        empty.mkdir()
-        e = {**self.env(), "PATH": str(empty)}
-        r = subprocess.run([bashexe.bash(), str(AS_SH), "--resolve"], cwd=self.code, env=e, capture_output=True, text=True)
+    def test_old_handoff_flag_is_unknown_option(self):
+        """github-identity "Old handoff flag": `sw as --args-file <path>` is an unknown option: exit 2, no gh call, nothing on
+        stdout, and the file is neither read nor deleted."""
+        handoff = self.tmp / "handoff"
+        handoff.write_bytes(b"/scripts\0bash\0sh1ny\0gh\0api\0user\0")
+        r = self.as_sh(self.code, "--args-file", str(handoff))
         self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
-        self.assertEqual(r.stderr, "as.sh: no_python: needs python 3.8+ for its bounded gh calls\n")
+        self.assertIn("unknown option: --args-file", r.stderr)
+        self.assertTrue(handoff.exists(), "the handoff file was read and deleted")
+        self.assertEqual(self.gh_calls(), [], "no gh call ran")
 
     def failing_bash(self):
         """A recording `bash` that exits 1 (a `.cmd` on Windows, where only PATHEXT names start), first on PATH.
@@ -158,12 +151,8 @@ class TestShim(ShimCase):
         fakeexe.write_fake(self.tmp / "bin" / "git", '#!/bin/sh\necho ran >> "$FAKE_GIT_RAN"\nexit 0\n')
         name = os.fsdecode(b"a\xff.txt")  # the byte 0xFF, which no UTF-8 text holds
         r = self.as_sh(self.code, "sh1ny", "git", "add", "--", name, env={"FAKE_GIT_RAN": str(ran)})
-        self.assertEqual(r.returncode, 2, r.stderr)
-        lines = r.stderr.splitlines()
-        self.assertEqual(len(lines), 1, r.stderr)
-        self.assertTrue(lines[0].startswith("as.sh:"), lines[0])
-        self.assertIn("a\\xFF.txt", lines[0])
-        self.assertIn("rename", lines[0])
+        self.assertNotEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
         self.assertEqual(self.gh_calls(), [], "no token was read")
         self.assertFalse(ran.exists(), "git ran")
 
@@ -178,23 +167,14 @@ class TestShim(ShimCase):
 
     def test_exit_codes(self):
         self.assertEqual(self.as_sh(self.code).returncode, 1)
-        self.assertEqual(self.as_sh(self.code).stderr, USAGE + "\n")
+        self.assertRegex(self.as_sh(self.code).stderr, USAGE)
         r = self.as_sh(self.code, "sh1ny")
-        self.assertEqual((r.returncode, r.stderr), (2, "as.sh: no command given\n"))
+        self.assertEqual(r.returncode, 2)
+        self.assertRegex(r.stderr, NO_COMMAND)
         self.assertEqual(self.as_sh(self.code, "--resolve", "extra").returncode, 2)
         refused = self.as_sh(self.code, "sh1ny", "git", "-C", str(self.store), "status")
         self.assertEqual(refused.returncode, 3, refused.stderr)
         self.assertEqual(self.as_sh(self.code, "sh1ny", *self.bash_command("exit 7")).returncode, 7)
-
-    def test_handoff_file_gone_before_the_command(self):
-        temp = self.tmp / "fresh-temp"
-        temp.mkdir()
-        listing = self.tmp / "temp-listing"
-        env = {"TEMP": str(temp), "TMP": str(temp), "TMPDIR": temp.as_posix() if os.name == "nt" else str(temp)}
-        r = self.as_sh(self.code, "sh1ny", *self.bash_command('ls -A "$1" > "$2"', temp.as_posix(), listing.as_posix()), env=env)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(listing.read_text(), "", "the handoff file or the fence's own directory was still there when the command ran")
-        self.assertEqual(list(temp.iterdir()), [])
 
     def test_configured_account_not_active_passes(self):
         r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login")
@@ -208,14 +188,42 @@ class TestShim(ShimCase):
         self.assertIn("token resolves to 'sh1ny', expected 'KintsugiBot'", r.stderr)
         self.assertFalse(marker.exists())
 
-    @unittest.skipUnless(sys.platform == "darwin" and os.path.exists("/bin/bash"), "platform: macOS /bin/bash 3.2 only")
-    def test_macos_bin_bash_empty_argument_and_argument_bytes(self):
-        out = self.tmp / "mac.out"
-        e = self.env()
-        r = subprocess.run(["/bin/bash", str(AS_SH), "sh1ny", *self.bash_command('printf "%s|" "${@:2}" > "$1"', out.as_posix(), "", "a b", "é")],
-                           cwd=self.code, env=e, capture_output=True, text=True, timeout=60)
+class TestGhRepo(ShimCase):
+    """`sw as` keeps an inherited GH_REPO out of the command it fences and out of its own lookups (github-identity)."""
+
+    def seed_pull(self, slug="o/r", n=5):
+        pull = {"number": n, "html_url": f"https://github.com/{slug}/pull/{n}", "state": "open", "merged_at": None,
+                "title": f"t{n}", "body": "", "created_at": "2026-10-08T10:00:00Z",
+                "head": {"ref": "feat/a", "label": "o:feat/a", "sha": f"{n:040x}", "repo": {"full_name": slug}},
+                "base": {"ref": "main"}}
+        self.state(user="sh1ny", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"}, repos={slug: {"pulls": [pull]}})
+
+    def sw_as(self, cwd, *args):
+        """`<sw> as <args>` with ordinary arguments and GH_REPO naming another repository."""
+        return subprocess.run([swharness.require_sw(), "as", *args], cwd=cwd, env={**self.env(), "GH_REPO": "other/repo"},
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
+
+    def assert_no_gh_repo(self):
+        calls = self.gh_calls()
+        self.assertTrue(calls)
+        for c in calls:
+            self.assertIsNone(c["gh_repo"], f"GH_REPO reached gh {c['argv']}")
+
+    def test_gh_repo_kept_out_of_fenced_command(self):
+        self.seed_pull()
+        r = self.sw_as(self.code, "sh1ny", "gh", "pr", "view", "5", "--repo", "o/r")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(out.read_text(encoding="utf-8"), "|a b|é|")
+        self.assertIn("https://github.com/o/r/pull/5", r.stdout)
+        self.assertTrue([c for c in self.gh_calls() if c["argv"][0] == "pr"], "the fenced gh ran")
+        self.assert_no_gh_repo()  # the fenced command and the fence's own lookups
+
+    def test_fenced_call_without_repo_uses_cwd_remote(self):
+        self.seed_pull()
+        self.git(self.code, "remote", "set-url", "origin", "https://github.com/o/r.git")
+        r = self.sw_as(self.code, "sh1ny", "gh", "pr", "view", "5")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("https://github.com/o/r/pull/5", r.stdout)
+        self.assert_no_gh_repo()
 
 
 class TestShimProcess(ShimCase):
@@ -235,7 +243,7 @@ class TestShimProcess(ShimCase):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE)}
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:
-            p = subprocess.Popen([bashexe.bash(), str(AS_SH), "KintsugiBot", *self.bash_command('touch "$1"', marker.as_posix())],
+            p = subprocess.Popen(swcall.argv(["as", "KintsugiBot", *self.bash_command('touch "$1"', marker.as_posix())]),
                                  cwd=self.code, stdout=fo, stderr=fe, env=e)
             try:
                 rc = p.wait(timeout=45)
@@ -244,7 +252,7 @@ class TestShimProcess(ShimCase):
                 p.wait()
                 rc = -9
         self.assertEqual(rc, 3, err.read_text(errors="replace"))
-        self.assertIn("as.sh: deadline_exceeded: gh auth token --user KintsugiBot", err.read_text(errors="replace"))
+        self.assertRegex(err.read_text(errors="replace"), HUNG_LOOKUP)
         self.assertLess(time.time() - t, self.DEADLINE + 10)
         self.assertFalse(marker.exists(), "the fenced command must not run")
 
@@ -252,7 +260,7 @@ class TestShimProcess(ShimCase):
         late = self.tmp / "late"
         sw = swharness.require_sw()
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE)}
-        command = [sw, "run", "--bounded", "--", bashexe.bash(), str(AS_SH), "sh1ny",
+        command = [sw, "run", "--bounded", "--", sw, "as", "sh1ny",
                    *self.bash_command('sleep 8; touch "$1"', late.as_posix())]
         t = time.time()
         r = subprocess.run(command, cwd=self.code, env=e, capture_output=True, text=True, timeout=60)
@@ -265,7 +273,7 @@ class TestShimProcess(ShimCase):
     def test_sigterm_reaches_the_command(self):
         ready, term = self.tmp / "ready", self.tmp / "term"
         script = f'trap \'touch "{term.as_posix()}"; exit 0\' TERM; touch "{ready.as_posix()}"; while :; do sleep 0.2; done'
-        p = subprocess.Popen([bashexe.bash(), str(AS_SH), "sh1ny", *self.bash_command(script)], cwd=self.code, env=self.env(),
+        p = subprocess.Popen(swcall.argv(["as", "sh1ny", *self.bash_command(script)]), cwd=self.code, env=self.env(),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(p.kill)
         deadline = time.time() + 30

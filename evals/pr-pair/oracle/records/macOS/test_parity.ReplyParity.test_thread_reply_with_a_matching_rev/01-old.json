@@ -1,0 +1,142 @@
+{
+ "calls": [
+  [
+   "api",
+   "graphql",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "pr=7",
+   "-f",
+   "query=\n    query($owner:String!,$name:String!,$pr:Int!){ viewer{login}\n      repository(owner:$owner,name:$name){ pullRequest(number:$pr){\n        reviews(states:PENDING, first:10){ nodes{ author{login} } } } } }",
+   "--jq",
+   ".data.viewer.login as $me | [.data.repository.pullRequest.reviews.nodes[] | select(.author.login == $me)] | length"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "id=PRRT_1001",
+   "-f",
+   "query=\n    query($id:ID!){ node(id:$id){ __typename\n      ... on PullRequestReviewThread { comments(first:100){ totalCount nodes{ databaseId createdAt lastEditedAt } } }\n      ... on IssueComment { createdAt lastEditedAt }\n      ... on PullRequestReview { submittedAt lastEditedAt } } }",
+   "--jq",
+   ".data.node | if . == null then error(\"item not found\")\n      elif .__typename == \"PullRequestReviewThread\" and .comments.totalCount > (.comments.nodes | length) then\n        \"long:\" + (.comments.totalCount | tostring)\n      elif .__typename == \"PullRequestReviewThread\" then\n        ((.comments.nodes[-1].databaseId // 0 | tostring) + \"@\" + ([ .comments.nodes[] | .lastEditedAt // .createdAt // \"\" ] | max // \"\"))\n      elif .__typename == \"PullRequestReview\" then (.lastEditedAt // .submittedAt)\n      else (.lastEditedAt // .createdAt) end"
+  ],
+  [
+   "api",
+   "--method",
+   "POST",
+   "repos/o/n/pulls/7/comments/1002/replies",
+   "-F",
+   "body=@<temp>/<name>",
+   "--jq",
+   ".html_url"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "pr=7",
+   "-f",
+   "query=\n    query($owner:String!,$name:String!,$pr:Int!){ viewer{login}\n      repository(owner:$owner,name:$name){ pullRequest(number:$pr){\n        reviews(states:PENDING, first:10){ nodes{ author{login} } } } } }",
+   "--jq",
+   ".data.viewer.login as $me | [.data.repository.pullRequest.reviews.nodes[] | select(.author.login == $me)] | length"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "threadId=PRRT_1001",
+   "-f",
+   "query=\n    mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id isResolved } } }",
+   "--jq",
+   "\"resolved: \" + (.data.resolveReviewThread.thread.isResolved | tostring)"
+  ]
+ ],
+ "case": "test_parity.ReplyParity.test_thread_reply_with_a_matching_rev",
+ "comment_bodies": {
+  "/repos/o/n/pulls/0/threads/0/comments/0": "please fix",
+  "/repos/o/n/pulls/0/threads/0/comments/1": "done\n\n<!-- specwright:handled PRRT_1001 resolve rev=1002@2026-10-10T10:00:00Z -->\n"
+ },
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "next_id": 1003,
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "threads": [
+       {
+        "comments": [
+         {
+          "author": "rev",
+          "body": "please fix",
+          "createdAt": "2026-10-10T10:00:00Z",
+          "databaseId": 1002,
+          "id": "PRRC_1002",
+          "lastEditedAt": null,
+          "url": "https://github.com/o/n/pull/7#discussion_r1002"
+         },
+         {
+          "author": "me",
+          "body": "done\n\n<!-- specwright:handled PRRT_1001 resolve rev=1002@2026-10-10T10:00:00Z -->\n",
+          "createdAt": "2026-10-10T10:00:00Z",
+          "databaseId": 1003,
+          "id": "PRRC_1003",
+          "lastEditedAt": null,
+          "url": "https://github.com/o/n/pull/7#discussion_r1003"
+         }
+        ],
+        "id": "PRRT_1001",
+        "isOutdated": false,
+        "isResolved": true,
+        "line": 1,
+        "originalLine": 1,
+        "path": "a.py",
+        "resolvedAt": "2026-10-10T10:00:00Z",
+        "resolvedBy": "me"
+       }
+      ],
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": "https://github.com/o/n/pull/7#discussion_r1003\nresolved: true\n"
+}

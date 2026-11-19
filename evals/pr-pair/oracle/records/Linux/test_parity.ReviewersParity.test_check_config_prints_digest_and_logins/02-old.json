@@ -1,0 +1,38 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_check_config_prints_digest_and_logins",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "digest": "15e93618a1d3e757b5fa6231b1b8546d3e520fc83a00d4086fe655aca33cfe84",
+  "logins": [
+   "bot-0",
+   "bot-1",
+   "bot-2",
+   "bot-3",
+   "bot-4",
+   "bot-5",
+   "bot-6",
+   "bot-7",
+   "bot-8",
+   "bot-9",
+   "bot-10",
+   "bot-11",
+   "bot-12",
+   "bot-13",
+   "bot-14",
+   "bot-15",
+   "bot-16",
+   "bot-17",
+   "bot-18",
+   "bot-19"
+  ],
+  "ok": true
+ }
+}

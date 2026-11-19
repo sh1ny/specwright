@@ -2,12 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../commands/vcs.dart';
-import '../commit/paths.dart';
 import '../commit/task_cover.dart' show isPySpace, pyStrip, pySplitLines;
 import '../fs/walk.dart';
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
-import '../vcs/document.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'script_text.dart';
@@ -39,21 +37,14 @@ class UndoRequest {
   final String? code;
 }
 
-/// What a planner gets from the handoff: the scripts directory and the bash
-/// that ran the shim.
+/// What a planner runs with: the environment and the test seams.
 class FinishContext {
-  FinishContext({
-    required this.scriptsDir,
-    required this.bash,
-    this.environment,
-    this.windows,
-    this.stateReader,
-  });
+  FinishContext({this.environment, this.windows, this.stateReader, this.sw});
 
-  final String scriptsDir;
-  final String bash;
+  /// The `sw` the printed steps start; null is the running binary. Tests only.
+  final String? sw;
 
-  /// The environment `git` runs with and where `TEMP` is read for a `/tmp` path; null is the parent's. Tests
+  /// The environment `git` runs with; null is the parent's. Tests
   /// put stubs first on `PATH`.
   final Map<String, String>? environment;
 
@@ -95,9 +86,9 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// C8: GitButler parity of the undo plan is checked only on Linux, because `but`
 /// has no standalone build for macOS and Windows (#154).
 ///
-/// C3: the printed `script` and `after_rerun` call `bash <specwright-pr>/scripts/vcs.sh`
-/// by path, never an `sw` binary. C1: ids and date prefixes match ASCII digits
-/// only.
+/// C3: the printed `steps` and `after_rerun_steps` are `{cwd, argv}` objects (D7):
+/// Specwright's own work starts with the running `sw` and `--project`, never a
+/// script or `bash`. C1: ids and date prefixes match ASCII digits only.
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -108,46 +99,6 @@ Future<Map<String, Object?>> undoArchivePlan(
     // a name from a tool listing (`ls-files -z`, `status -z`) that is not UTF-8
     throw VcsStop.notUtf8(e);
   }
-}
-
-/// The lexical normalisation of [path] (Python's `os.path.normpath`) with `/`
-/// separators: `.` and empty parts dropped, `..` folded into its parent, none
-/// kept at a root. [windows] (default: this OS) treats `\` as a separator and
-/// reads a drive (`C:`) or a UNC share (`//server/share`) as a root.
-String normalizeLexical(String path, {bool? windows}) {
-  final win = windows ?? Platform.isWindows;
-  var rest = win ? path.replaceAll(r'\', '/') : path;
-  var prefix = '';
-  if (win) {
-    final drive = RegExp(r'^(?:[A-Za-z]:|//[^/]+/[^/]+)').firstMatch(rest);
-    if (drive != null) {
-      prefix = drive.group(0)!;
-      rest = rest.substring(prefix.length);
-    }
-    if (rest.startsWith('/')) {
-      prefix += '/';
-      rest = rest.replaceFirst(RegExp(r'^/+'), '');
-    }
-  } else if (rest.startsWith('/')) {
-    final slashes = RegExp(r'^/+').firstMatch(rest)!.group(0)!.length;
-    prefix = slashes == 2 ? '//' : '/';
-    rest = rest.replaceFirst(RegExp(r'^/+'), '');
-  }
-  final parts = <String>[];
-  for (final part in rest.split('/')) {
-    if (part.isEmpty || part == '.') continue;
-    if (part == '..') {
-      if (parts.isNotEmpty && parts.last != '..') {
-        parts.removeLast();
-      } else if (!prefix.endsWith('/')) {
-        parts.add('..');
-      }
-    } else {
-      parts.add(part);
-    }
-  }
-  final out = prefix + parts.join('/');
-  return out.isEmpty ? '.' : out;
 }
 
 VcsStop _usage(String message) => VcsStop('usage', message, code: 2);
@@ -196,14 +147,6 @@ class _Planner {
   final bool windows;
   final Map<String, String> env;
 
-  /// `<pr scripts>`: the lexical normalisation of
-  /// `<scripts dir>/../../specwright-pr/scripts` (D2).
-  late final String prScripts = normalizeLexical(
-    '${ctx.scriptsDir}/../../specwright-pr/scripts',
-    windows: windows,
-  );
-  late final String vcsSh = '$prScripts/vcs.sh';
-
   Future<ToolResult> git(String cwd, List<String> args) async {
     try {
       return await runTool(cwd, ['git', ...args], environment: env);
@@ -251,14 +194,6 @@ class _Planner {
     String? code,
     String? branch,
   ) async {
-    if (!_isFile(vcsSh)) {
-      throw VcsStop(
-        'vcs_script_missing',
-        '$vcsSh is missing; finish.sh reads the branch through it',
-        code: 2,
-        extra: {'path': vcsSh},
-      );
-    }
     final role = code != null && code.isNotEmpty
         ? ['--role', 'store', '--code', codeFor(top, code)]
         : ['--role', 'code'];
@@ -269,9 +204,7 @@ class _Planner {
         return (await reader(top, code, branch)).cast();
       }
       final parsed = parseVcsArguments(['state', '--repo', top, ...role]);
-      final session = await openSession(
-        VcsContext(parsed, prScripts, ctx.bash),
-      );
+      final session = await openSession(VcsContext(parsed));
       return (await stateDocument(session)).cast();
     } on VcsStop catch (stop) {
       throw VcsStop(
@@ -295,26 +228,8 @@ class _Planner {
     final change = request.change!;
     final archived = request.archived!;
     final main = request.main!;
-    var d = request.dir;
-    var code = request.code;
-    try {
-      d = await nativePath(
-        d,
-        ctx.bash,
-        windows: ctx.windows,
-        environment: ctx.environment,
-      );
-      if (code != null) {
-        code = await nativePath(
-          code,
-          ctx.bash,
-          windows: ctx.windows,
-          environment: ctx.environment,
-        );
-      }
-    } on BadPathException catch (e) {
-      throw VcsStop('bad_path', e.toString(), code: 2, extra: {'path': e.path});
-    }
+    final d = request.dir;
+    final code = request.code;
     var prefix = request.prefix!.replaceAll(RegExp(r'^/+|/+$'), '');
     if (prefix == '.') prefix = '';
 
@@ -866,10 +781,27 @@ class _Planner {
         'again without the deferred change.',
       );
     }
-    warnings.add('Do not edit files while the script runs.');
+    warnings.add('Do not edit files while the steps run.');
 
-    // ---- the guard --------------------------------------------------------
-    final sq = shellQuote;
+    // ---- the steps --------------------------------------------------------
+    // Each step runs in `top`, where the old script `cd`-ed, so the plan runs
+    // from any directory. A step that runs Specwright's own work starts with
+    // the running `sw` and carries `--project`, so the version check passes
+    // from anywhere (D4, D7).
+    final sw = (ctx.sw ?? Platform.resolvedExecutable);
+    final project = code != null && code.isNotEmpty ? codeFor(top, code) : top;
+    Map<String, Object?> mk(List<String> argv) => {'cwd': top, 'argv': argv};
+    List<String> swArgv(List<String> rest) => [
+      sw,
+      '--project',
+      project,
+      ...rest,
+    ];
+    List<String> undoArgv(List<String> rest) =>
+        swArgv(['finish', 'undo-step', ...rest]);
+    final steps = <Map<String, Object?>>[];
+    void step(List<String> argv) => steps.add(mk(argv));
+    void undo(List<String> rest) => step(undoArgv(rest));
     final touchedAll = [
       for (final m in members) m.dir,
       for (final m in members) _joinAll([prefix, 'changes', m.name]),
@@ -877,80 +809,62 @@ class _Planner {
       ...mainNew,
     ];
     final committed = mode == 'committed';
-    final List<String> lines;
-    var rev = '';
-    var fsets = '';
-    // Deliberate gap C13: the printed jj and GitButler guards read the
-    // `vcs.sh state` document by text, matching the compact `"branch":"<name>"`
-    // that `sw vcs` prints, until native-cli-internal-calls replaces that
-    // boundary. Keep this pattern in step with the document form.
-    final branchPattern = sq('"branch":${documentText(planBranch)}');
+    String rev = '';
+    List<String> fileset = [];
     if (gb) {
       // the guard reads: the branch is applied at the planned tip and the
       // touched paths have no uncommitted change
-      final stateCmd =
-          'bash ${sq(vcsSh)} state --repo ${sq(top)} --role code --branch ${sq(branch)}';
-      lines = [
-        'set -euo pipefail',
-        'cd ${sq(top)}',
-        'case "\$($stateCmd)" in *$branchPattern*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
-        'test "\$(git rev-parse ${sq(headref)})" = ${sq(t)}',
-        // HEAD is the workspace commit: a touched path that differs from the
-        // tip there is another applied branch's, and restoring the file would
-        // undo that branch's committed change
-        'git diff --quiet ${sq(t)} HEAD -- ${touchedAll.map(sq).join(' ')}'
-            ' || { echo "another applied branch changes a path the undo restores" >&2; exit 1; }',
-      ];
-      if (committed) {
-        lines.add(
-          'test -z "\$(git --no-optional-locks status --porcelain '
-          '--untracked-files=all -- ${touchedAll.map(sq).join(' ')})"',
-        );
-      }
-      lines.add('test ! -e ${sq(backupDir)}');
+      undo(['check', 'branch', planBranch, '--backend', 'gitbutler']);
+      undo(['check', 'tip', headref, t]);
+      // HEAD is the workspace commit: a touched path that differs from the
+      // tip there is another applied branch's, and restoring the file would
+      // undo that branch's committed change
+      undo([
+        'check',
+        'unchanged',
+        t,
+        '--message',
+        'another applied branch changes a path the undo restores',
+        '--',
+        ...touchedAll,
+      ]);
+      if (committed) undo(['check', 'clean', '--', ...touchedAll]);
+      undo(['check', 'absent', backupDir]);
     } else if (jj) {
       // a revset symbol or string
       rev = RegExp(r'^[A-Za-z0-9._/]+(-[A-Za-z0-9._/]+)*$').hasMatch(branch)
           ? branch
           : jjString(branch);
-      fsets = touchedAll.map((f) => sq('root:${jjString(f)}')).join(' ');
-      final stateRole = code != null && code.isNotEmpty
-          ? '--role store --code ${sq(code)}'
-          : '--role code';
-      final stateCmd = 'bash ${sq(vcsSh)} state --repo ${sq(top)} $stateRole';
-      lines = ['set -euo pipefail', 'cd ${sq(top)}'];
+      fileset = [for (final f in touchedAll) 'root:${jjString(f)}'];
       if (committed && branch != cb) {
-        lines.addAll([
-          'test -z "\$(jj diff -r @ --name-only)"',
-          'test "\$(git rev-parse ${sq('refs/heads/$branch')})" = ${sq(t)}',
-          'jj new ${sq(rev)}',
-        ]);
+        undo(['check', 'clean', '--jj']);
+        undo(['check', 'tip', 'refs/heads/$branch', t]);
+        step(['jj', 'new', rev]);
       }
-      lines.addAll([
-        'case "\$($stateCmd)" in *$branchPattern*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
-        'test "\$(git rev-parse ${sq(headref)})" = ${sq(t)}',
+      undo([
+        'check',
+        'branch',
+        planBranch,
+        '--backend',
+        'jj',
+        if (code != null && code.isNotEmpty) ...['--code', code],
       ]);
-      if (committed) lines.add('test -z "\$(jj diff -r @ --name-only $fsets)"');
-      lines.add('test ! -e ${sq(backupDir)}');
+      undo(['check', 'tip', headref, t]);
+      if (committed) undo(['check', 'clean', '--jj', '--', ...fileset]);
+      undo(['check', 'absent', backupDir]);
     } else {
-      lines = ['set -euo pipefail', 'cd ${sq(top)}'];
-    }
-    final guard = [
-      'test "\$(git branch --show-current)" = ${sq(planBranch)}',
-      'test "\$(git rev-parse ${sq(headref)})" = ${sq(t)}',
-      'git diff --cached --quiet',
-      'test ! -e ${sq(backupDir)}',
-    ];
-    if (!jj && !gb) {
       if (committed && branch != cb) {
-        lines.addAll([
-          'test -z "\$(git status --porcelain)"',
-          'test "\$(git rev-parse ${sq('refs/heads/$branch')})" = ${sq(t)}',
-          'git checkout -q ${sq(branch)} --',
-        ]);
+        undo(['check', 'clean']);
+        undo(['check', 'tip', 'refs/heads/$branch', t]);
+        step(['git', 'checkout', '-q', branch, '--']);
       }
-      lines.addAll(guard);
+      undo(['check', 'branch', planBranch]);
+      undo(['check', 'tip', headref, t]);
+      undo(['check', 'index']);
+      undo(['check', 'absent', backupDir]);
     }
+    // the fileset as the plan's recovery text quotes it
+    final fsets = fileset.map(shellQuote).join(' ');
 
     // ---- the backups ------------------------------------------------------
     final dirs = sortedByCodePoint({
@@ -958,89 +872,87 @@ class _Planner {
       if (committed)
         for (final f in backupFiles) '$backupDir/base/${_dirname(f)}',
     });
-    if (backupFiles.isNotEmpty) {
-      lines.add('mkdir -p -- ${dirs.map(sq).join(' ')}');
-    }
+    if (backupFiles.isNotEmpty) undo(['mkdir', ...dirs]);
     for (final f in backupFiles) {
-      if (committed) {
-        lines.add(
-          'git cat-file --filters ${sq('$a:$f')} > ${sq('$backupDir/base/$f')}',
-        );
-      }
-      lines.add('cp -- ${sq(f)} ${sq('$backupDir/amended/$f')}');
+      if (committed) undo(['write-blob', a!, f, '$backupDir/base/$f']);
+      undo(['copy', f, '$backupDir/amended/$f']);
     }
-    if (backupFiles.isEmpty) lines.add('mkdir -p -- ${sq(backupDir)}');
+    if (backupFiles.isEmpty) undo(['mkdir', backupDir]);
 
     if (committed && !jj && !gb) {
       for (final m in members) {
-        lines.add('git rm -r -q --cached -- ${sq(m.dir)}');
-        lines.add(
-          'git read-tree --prefix=${sq('${_joinAll([prefix, 'changes', m.name])}/')} '
-          '${sq('$t:${m.dir}')}',
-        );
+        final changeDir = _joinAll([prefix, 'changes', m.name]);
+        step(['git', 'rm', '-r', '-q', '--cached', '--', m.dir]);
+        step(['git', 'read-tree', '--prefix=$changeDir/', '$t:${m.dir}']);
         if (markerDirs[m.name]!) {
-          lines.add(
-            'git rm -q --cached -- '
-            '${sq(_joinAll([prefix, 'changes', m.name, 'specwright-change.yaml']))}',
-          );
+          step([
+            'git',
+            'rm',
+            '-q',
+            '--cached',
+            '--',
+            '$changeDir/specwright-change.yaml',
+          ]);
         }
       }
       if (mainMod.isNotEmpty) {
-        lines.add(
-          'git restore --source=${sq('$a^')} --staged -- '
-          '${mainMod.map(sq).join(' ')}',
-        );
+        step(['git', 'restore', '--source=$a^', '--staged', '--', ...mainMod]);
       }
       if (mainNew.isNotEmpty) {
-        lines.add('git rm -q --cached -- ${mainNew.map(sq).join(' ')}');
+        step(['git', 'rm', '-q', '--cached', '--', ...mainNew]);
       }
       final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
-      lines.add('git commit -q -m ${sq(subject)}');
+      step(['git', 'commit', '-q', '-m', subject]);
     }
     for (final m in members) {
-      lines.add(
-        'mv -- ${sq(m.dir)} ${sq(_joinAll([prefix, 'changes', m.name]))}',
-      );
+      final changeDir = _joinAll([prefix, 'changes', m.name]);
+      undo(['move', m.dir, changeDir]);
       if (markerDirs[m.name]!) {
-        lines.add(
-          'rm -f -- '
-          '${sq(_joinAll([prefix, 'changes', m.name, 'specwright-change.yaml']))}',
-        );
+        undo(['remove', '$changeDir/specwright-change.yaml']);
       }
     }
-    final src = committed ? '--source=${sq('$a^')}' : '--source=${sq(t)}';
     if (mainMod.isNotEmpty && jj) {
-      lines.add(
-        'jj restore --from ${sq(committed ? '$a-' : t)} '
-        '${mainMod.map((f) => sq('root:${jjString(f)}')).join(' ')}',
-      );
+      step([
+        'jj',
+        'restore',
+        '--from',
+        committed ? '$a-' : t,
+        for (final f in mainMod) 'root:${jjString(f)}',
+      ]);
     } else if (mainMod.isNotEmpty && gb) {
       // a file write from a Git read: `git restore` would be a Git write to
       // the shared work tree
       final baseRev = committed ? '$a^' : t;
       for (final f in mainMod) {
-        lines.add('git cat-file --filters ${sq('$baseRev:$f')} > ${sq(f)}');
+        undo(['write-blob', baseRev, f, f]);
       }
     } else if (mainMod.isNotEmpty) {
-      lines.add('git restore $src --worktree -- ${mainMod.map(sq).join(' ')}');
+      step([
+        'git',
+        'restore',
+        committed ? '--source=$a^' : '--source=$t',
+        '--worktree',
+        '--',
+        ...mainMod,
+      ]);
     }
     if (mainNew.isNotEmpty) {
-      lines.add('rm -f -- ${mainNew.map(sq).join(' ')}');
+      undo(['remove', ...mainNew]);
       for (final dn in sortedByCodePoint({
         for (final f in mainNew) _dirname(f),
       })) {
-        lines.add('rmdir ${sq(dn)} 2>/dev/null || true');
+        undo(['rmdir-if-empty', dn]);
       }
     }
     if (jj && committed) {
       final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
-      lines.add('jj commit -m ${sq(subject)} $fsets');
-      lines.add('jj bookmark set ${sq(rev)} -r @-');
+      step(['jj', 'commit', '-m', subject, ...fileset]);
+      step(['jj', 'bookmark', 'set', rev, '-r', '@-']);
     }
     if (gb && committed) {
       final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
       final msgfile = '$backupDir/commit-message.txt';
-      lines.add("printf '%s\\n' ${sq(subject)} > ${sq(msgfile)}");
+      undo(['write-text', msgfile, subject]);
       // a directory ends in `/` so the commit covers the files that left it
       final cpaths = [
         for (final d in [
@@ -1051,20 +963,29 @@ class _Planner {
         ...mainMod,
         ...mainNew,
       ];
-      lines.add(
-        'bash ${sq(vcsSh)} commit --repo ${sq(top)} --role code --branch '
-        '${sq(branch)} --message-file ${sq(msgfile)} -- '
-        '${cpaths.map(sq).join(' ')}',
+      step(
+        swArgv([
+          'vcs',
+          'commit',
+          '--repo',
+          top,
+          '--role',
+          'code',
+          '--branch',
+          branch,
+          '--message-file',
+          msgfile,
+          '--',
+          ...cpaths,
+        ]),
       );
     }
-    lines.add("echo ${sq('Undo done. Saved copies are in $backupDir')}");
-    final script = '${lines.join('\n')}\n';
 
     if (committed && jj) {
       warnings.add(
-        'If the script fails after it began changing the working copy and '
+        'If a step fails after the steps began changing the working copy and '
         'before it commits, run `jj restore $fsets` and plan again. Unlike '
-        'the Git script, the working tree is NOT untouched until the commit '
+        'the Git steps, the working tree is NOT untouched until the commit '
         'on jj: the moves and restores happen in @ first.',
       );
       final dirtyPaths = (vs['dirty_paths']! as List).cast<String>();
@@ -1083,8 +1004,8 @@ class _Planner {
       }
     } else if (committed && gb) {
       warnings.add(
-        'The script moves and rewrites files in the shared GitButler work '
-        'tree first and commits them last, with `vcs.sh commit` (`but commit '
+        'The steps move and rewrite files in the shared GitButler work '
+        'tree first and commits them last, with `sw vcs commit` (`but commit '
         '-b $branch`), naming only the touched paths; no Git write runs. If '
         'it fails before the commit, those files are uncommitted changes: '
         'move the archived directories back by hand, write each main spec '
@@ -1093,8 +1014,8 @@ class _Planner {
       );
     } else if (committed) {
       warnings.add(
-        'If the script fails after it began changing the index and before it '
-        'commits, run `git restore --staged -- ${touchedAll.join(' ')}` and '
+        'If a step fails after the steps began changing the index and before they '
+        'commit, run `git restore --staged -- ${touchedAll.join(' ')}` and '
         'plan again; the working tree is untouched until the commit.',
       );
     }
@@ -1106,7 +1027,6 @@ class _Planner {
     }
 
     // ---- after_rerun ------------------------------------------------------
-    String? after;
     // every bulk member but the deferred ones and those waiting on the user,
     // the named one included
     final rerun = [
@@ -1152,36 +1072,44 @@ class _Planner {
           if (syncedByRerun.contains(f)) f,
       ];
     }
+    final afterSteps = <Map<String, Object?>>[];
     if (rerun.isNotEmpty) {
       names = rerun.map((m) => m.name).join(', ');
-      final al = ['set -euo pipefail', 'cd ${sq(top)}'];
       // stop before any archive when the user made a new spec of the same name
       for (final f in redelete) {
-        al.add(
-          'test ! -e ${sq(f)} || { echo '
-          '${sq('$f exists; the after-rerun script would delete it. Move it away, then run again.')}'
-          ' >&2; exit 1; }',
+        afterSteps.add(
+          mk(
+            undoArgv([
+              'check',
+              'absent',
+              f,
+              '--message',
+              '$f exists; after_rerun_steps would delete it. Move it '
+                  'away, then run again.',
+            ]),
+          ),
         );
       }
       for (final m in rerun) {
-        al.add('openspec archive ${sq(m.name)} --yes');
+        afterSteps.add(mk(['openspec', 'archive', m.name, '--yes']));
       }
       for (final f in merge) {
-        al.add(
-          'git merge-file -L rerun -L archived -L amended ${sq(f)} '
-          '${sq('$backupDir/base/$f')} ${sq('$backupDir/amended/$f')}',
+        afterSteps.add(
+          mk(
+            undoArgv([
+              'merge-back',
+              f,
+              '$backupDir/base/$f',
+              '$backupDir/amended/$f',
+            ]),
+          ),
         );
       }
       for (final f in redelete) {
-        al.add('rm -f -- ${sq(f)}');
+        afterSteps.add(mk(undoArgv(['remove', f])));
       }
-      final done = merge.isNotEmpty
-          ? 'Amendments merged.'
-          : 'Archived again by after_rerun.';
-      al.add('echo ${sq('$done Now start finish for: $names')}');
-      after = '${al.join('\n')}\n';
       warnings.add(
-        'Run after_rerun after script: it archives $names again'
+        'Run after_rerun_steps after steps: they archive $names again'
         '${merge.isNotEmpty ? ' and merges the saved amendments into ${merge.join(', ')}. '
                   'On a conflict it stops with markers in the file; both copies stay in $backupDir.' : '.'}',
       );
@@ -1190,8 +1118,8 @@ class _Planner {
       if (redelete.contains(f)) {
         warnings.add(
           '$f was deleted on $branch after the archive; the undo leaves it '
-          'deleted, and after_rerun deletes it again after it archives '
-          '$names.',
+          'deleted; after_rerun_steps archive $names again, and a later step '
+          'deletes it again.',
         );
       } else {
         warnings.add(
@@ -1227,8 +1155,8 @@ class _Planner {
       'amended': amended,
       'carried_edits': carried,
       'backup_dir': backupDir,
-      'script': script,
-      'after_rerun': after,
+      'steps': steps,
+      'after_rerun_steps': afterSteps,
       'warnings': warnings,
     };
   }

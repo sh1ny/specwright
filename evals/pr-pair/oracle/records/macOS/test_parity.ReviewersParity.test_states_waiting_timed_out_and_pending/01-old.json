@@ -1,0 +1,55 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_states_waiting_timed_out_and_pending",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "attn": "QVRUTnxyZXYtYm90OnJlcG9ydGVkLGFkdi1ib3Q6d2FpdGluZw==",
+  "checks": {
+   "advisory_pending": 0,
+   "ci_pending": 0,
+   "failing": [],
+   "pending": 0,
+   "total": 0
+  },
+  "comments": [],
+  "head_cutoff": "2026-01-01T00:10:00Z",
+  "head_oid": "1a2b3c4deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "now": "2026-01-01T00:18:20Z",
+  "number": 7,
+  "reviewer_config": "999bf99e4963e8882e42c184516e5c8b87c95b3a570a69c98f16ac036b66a071",
+  "reviewers": [
+   {
+    "by": "output",
+    "evidence": [
+     {
+      "at": "2026-01-01T00:11:00Z",
+      "excerpt": "old head",
+      "kind": "review",
+      "state": "COMMENTED"
+     }
+    ],
+    "login": "rev-bot",
+    "role": "required",
+    "state": "reported",
+    "timeout": 30
+   },
+   {
+    "by": null,
+    "evidence": [],
+    "login": "adv-bot",
+    "role": "advisory",
+    "state": "waiting",
+    "timeout": 1200
+   }
+  ],
+  "sig": "U0lHfHJldi1ib3Q6cmVwb3J0ZWQsYWR2LWJvdDp3YWl0aW5n",
+  "viewer": "me"
+ }
+}

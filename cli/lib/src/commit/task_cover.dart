@@ -9,15 +9,10 @@ import '../vcs/document.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'context.dart';
-import 'paths.dart';
 
 /// Runs one `git` command line (the tool name first) and returns what it
 /// produced. The default is `runTool('.', argv)`; tests substitute it.
 typedef GitTool = Future<ToolResult> Function(List<String> argv);
-
-/// Converts a path argument to a native path (design D9). The default is
-/// [nativePath] with the handoff's bash; it throws [BadPathException].
-typedef PathConverter = Future<String> Function(String path);
 
 const String _usage =
     'task-cover.sh --repo <dir> --range <a>..<b> --tasks <tasks.md> '
@@ -36,14 +31,12 @@ const int _maxField = 64 * 1024;
 /// Constraint C2: sw commit runs git with no deadline and no byte bound, as
 /// task-cover.sh did. Adding bounds is a behaviour change for its own change.
 ///
-/// [git], [convert] and [environment] are the seams the tests use; they
-/// default to `runTool` through the handoff's bash, [nativePath] and the
-/// process environment.
+/// [git] and [environment] are the seams the tests use; they default to
+/// `runTool` and the process environment.
 Future<int> taskCover(
   List<String> args,
   CommitContext ctx, {
   GitTool? git,
-  PathConverter? convert,
   Map<String, String>? environment,
 }) async {
   Map<String, Object?> doc;
@@ -52,7 +45,6 @@ Future<int> taskCover(
     doc = await _cover(
       args,
       git: git ?? (argv) => runTool('.', argv),
-      convert: convert ?? (path) => nativePath(path, ctx.bash),
       environment: environment ?? Platform.environment,
     );
   } on VcsStop catch (stop) {
@@ -99,19 +91,12 @@ typedef GitCall = Future<Uint8List?> Function(
 Future<Map<String, Object?>> _cover(
   List<String> args, {
   required GitTool git,
-  required PathConverter convert,
   required Map<String, String> environment,
 }) async {
   final maxCommits = _maxCommits(environment['TASK_COVER_MAX_COMMITS']);
   final want = _parseArgs(args);
-  final String repo;
-  final String tasksPath;
-  try {
-    tasksPath = await convert(want['--tasks']!);
-    repo = await convert(want['--repo']!);
-  } on BadPathException catch (e) {
-    throw VcsStop('bad_path', e.toString(), code: 2);
-  }
+  final tasksPath = want['--tasks']!;
+  final repo = want['--repo']!;
   final rng = want['--range']!;
   final change = want['--change']!;
   final rev = want['--rev'];

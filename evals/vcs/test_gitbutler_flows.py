@@ -1,23 +1,21 @@
-"""Whole GitButler flows make no Git write beyond the change branch's push, and the PR pair routes the code repo through vcs.sh.
+"""Whole GitButler flows make no Git write beyond the change branch's push, and the PR pair routes the code repo through sw vcs.
 
 Real `but` workspaces with `feat/b` applied beside the change branch `feat/add-c` throughout. A logging `git` shim sits first on
-the PATH of every bash script Specwright runs here (vcs.sh, review-run.sh, pr-pair.sh and the commands cleanup-plan emits), so the
-log holds every `git` call those scripts make through bash. pr-pair.sh's own Python calls Git by name, so the shim sees them where
-the platform lets a script named `git` run (Linux, not Windows); the assertions hold either way.
+the PATH of every `sw` call here (vcs, review, pr and the commands cleanup-plan prints), so the log holds every `git` call `sw`
+makes. The shim sees them where the platform lets a program named `git` run through it; the assertions hold either way.
 """
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-import jjenv
 from butenv import Scratch, require_but
 from gbnet import LOGIN, GitButlerNetworkCase
-from vcs_test_support import stamp_version, sw_home
+import swharness
+from vcs_test_support import native_path, stamp_version, sw_home, sw_run
 
-ROOT = Path(__file__).resolve().parents[2]
-PR_PAIR = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
-REVIEW = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
+PR_PAIR = "pr"  # the `sw` subcommands the old scripts became
+REVIEW = "review"
 CHANGE = "add-c"
 BRANCH = "feat/add-c"
 CODE, STORE = "o/r", "o/plans"
@@ -48,22 +46,24 @@ class GitButlerFlowCase(GitButlerNetworkCase):
         wrap.set_assignments({"feat/b": ["src/b.py"]})
 
     def run_argv(self, scratch, wrap, argv, cwd, expected=0):
-        """Run `bash <script> <args>` (argv[0] is "bash") with the Git shim, the logging `but` and the fake gh on PATH; one JSON line out."""
-        self.assertEqual(argv[0], "bash", argv)
+        """Run `sw <args>` (argv[0] is "sw"), or a printed `<sw> ...` command as printed (any other argv[0]), with the Git
+        shim, the logging `but` and the fake gh on PATH; one JSON line out."""
         env = self.fenced_env(scratch, wrap)
         env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
                     "SPECWRIGHT_HOME": str(sw_home())})
         stamp_version(self.repo_path)
-        env["VCS_TEST_SEARCH"] = env["PATH"]
-        done = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "flow",
-                               *map(str, argv[1:])], cwd=str(cwd), env=env, capture_output=True, text=True, encoding="utf-8")
+        if argv[0] == "sw":
+            done = sw_run([str(a) for a in argv[1:]], cwd=str(cwd), env=env, stamp=False)
+        else:
+            env["PATH"] = native_path(env["PATH"])
+            done = subprocess.run([str(a) for a in argv], cwd=str(cwd), env=env, capture_output=True, text=True, encoding="utf-8")
         lines = done.stdout.strip().splitlines()
         self.assertEqual(done.returncode, expected, "%s\nstdout: %s\nstderr: %s" % (argv, done.stdout, done.stderr))
         self.assertEqual(len(lines), 1, "want one JSON line from %s, got %r / %r" % (argv, done.stdout, done.stderr))
         return json.loads(lines[0])
 
-    def script(self, scratch, wrap, script, *args, cwd=None, expected=0):
-        return self.run_argv(scratch, wrap, ["bash", Path(script).as_posix(), *args], cwd or self.repo_path, expected)  # bare-bash: not started
+    def script(self, scratch, wrap, subcommand, *args, cwd=None, expected=0):
+        return self.run_argv(scratch, wrap, ["sw", subcommand, *args], cwd or self.repo_path, expected)
 
     def message(self, text):
         path = self.root / "message.txt"
@@ -229,17 +229,20 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             self.assertEqual(plan["keep"], [])
             self.assertTrue(code["merged"] and code["branch_exists"], code)
             argvs = [c["cmd"] for c in code["commands"]] + [code["delete"]]
-            self.assertFalse([argv for argv in argvs if "git" in argv or argv[0] == "git" or "as.sh" in argv[1].lower()],
+            self.assertFalse([argv for argv in argvs if "git" in argv or argv[0] == "git" or "as" in argv[3:4]],
                              "a Git command in the GitButler code repo's plan: %s" % argvs)
             subs = []
             for argv in argvs:
-                if argv[0] == "pr-pair.sh":
-                    self.assertEqual(argv[:4], ["pr-pair.sh", "--project", repo.path.as_posix(), "branch-check"])
-                    subs.append(argv[3])
+                # D4: every printed command is the running sw, then `--project <code>`
+                self.assertEqual(Path(argv[0]).resolve(), Path(swharness.require_sw()).resolve(), argv)
+                self.assertEqual(argv[1], "--project", argv)
+                self.assertEqual(Path(argv[2]).resolve(), repo.path.resolve(), argv)
+                self.assertNotIn("bash", [Path(a).stem for a in argv], argv)
+                if argv[3] == "pr":
+                    subs.append(argv[4])
                 else:
-                    self.assertEqual(argv[0], "bash")
-                    self.assertTrue(argv[1].lower().endswith("vcs.sh"), argv)
-                    subs.append(argv[2])
+                    self.assertEqual(argv[3], "vcs", argv)
+                    subs.append(argv[4])
             self.assertEqual(subs, ["switch", "pull", "branch-check", "delete-branch"], argvs)
 
             def option(argv, name):
@@ -260,8 +263,7 @@ class TestGitButlerCleanupPlan(GitButlerFlowCase):
             self.shim.log_path.unlink(missing_ok=True)
             results = []
             for argv in argvs:
-                run = ["bash", PR_PAIR.as_posix(), *argv[1:]] if argv[0] == "pr-pair.sh" else argv  # bare-bash: not started
-                results.append(self.run_argv(scratch, wrap, run, repo.path))
+                results.append(self.run_argv(scratch, wrap, argv, repo.path))
             switched, pulled, checked, deleted = results
             self.assertFalse(switched["switched"])
             self.assertEqual((pulled["pulled"], pulled["reason"], pulled["applied_branches"]), (False, "pull_skipped", ["feat/b"]))

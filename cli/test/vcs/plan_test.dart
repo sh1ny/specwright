@@ -30,11 +30,11 @@ VcsSession _session({
     remoteBranch: remoteBranch,
   );
   return VcsSession(
-    VcsContext(request, '/s', 'bash'),
+    VcsContext(request, sw: '/opt/sw'),
     repo,
     code,
     ProbeInfo('git', 'main', repo, ''),
-    VcsScripts('/s', 'bash'),
+    VcsScripts(),
   );
 }
 
@@ -57,9 +57,25 @@ void main() {
       'ok': true,
       'backend': 'git',
       'commands': [
-        'bash /s/vcs.sh switch --repo /r --role code --code /r --branch feat/x',
+        '/opt/sw --project /r vcs switch --repo /r --role code --code /r '
+            '--branch feat/x',
       ],
     });
+  });
+
+  test('the command is the running sw when none is given', () async {
+    final s = _session();
+    final plain = VcsSession(
+      VcsContext(s.request),
+      s.repo,
+      s.code,
+      s.info,
+      s.scripts,
+    );
+    final commands = (await planDocument(plain))['commands'] as List;
+    expect(commands.single, isNot(contains('vcs.sh')));
+    expect(commands.single, isNot(startsWith('bash')));
+    expect(commands.single, contains(' --project /r vcs switch '));
   });
 
   test('delete-branch carries the options and quotes odd values', () async {
@@ -73,9 +89,9 @@ void main() {
       mergedCommit: 'abcdef1',
     );
     expect(await _commands(s), [
-      "bash /s/vcs.sh delete-branch --repo '/my repo' --role code --code "
-          "'/my repo' --branch feat/x --force --remote-branch --login bot "
-          '--merged-commit abcdef1',
+      "/opt/sw --project '/my repo' vcs delete-branch --repo '/my repo' "
+          "--role code --code '/my repo' --branch feat/x --force "
+          '--remote-branch --login bot --merged-commit abcdef1',
     ]);
   });
 

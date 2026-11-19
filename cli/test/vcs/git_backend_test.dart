@@ -84,13 +84,12 @@ void main() {
       remoteBranch: remoteBranch,
       paths: paths,
     );
-    final scriptsPath = posix(scriptsDir.path);
     return VcsSession(
-      VcsContext(request, scriptsPath, bash!),
+      VcsContext(request),
       repo,
       repo,
       ProbeInfo('git', 'main', repo, infoLogin, jjPresent: jjPresent),
-      VcsScripts(scriptsPath, bash, fence: fakeFence(scriptsDir)),
+      VcsScripts(fence: fakeFence(scriptsDir)),
     );
   }
 

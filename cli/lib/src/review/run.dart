@@ -5,7 +5,6 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
-import '../commit/paths.dart';
 import '../pr/context.dart';
 import '../pr/pair.dart' show PairStop;
 import '../pr/settings_commands.dart' show readVcsSettings;
@@ -19,23 +18,13 @@ import '../process/resolve.dart';
 import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
 import 'records.dart';
+import 'references.g.dart';
 import 'routes.dart';
 import 'settings.dart';
 import 'snapshot.dart';
 import 'stop.dart';
 
 const List<String> _acceptedRoutes = ['codex', 'claude', 'omp'];
-const Set<String> _pathOptions = {
-  '--settings',
-  '--out',
-  '--prompt-file',
-  '--store',
-  '--selection',
-  '--result',
-  '--preflight',
-  '--dir',
-  '--prefix',
-};
 const List<String> _runtimes = ['claude', 'codex', 'omp', 'other'];
 const int _maxAnswer = 2 * 1024 * 1024;
 const int _maxEventLine = 16 * 1024 * 1024;
@@ -117,19 +106,12 @@ class ReviewConfig {
   }
 }
 
-/// Runs one operation handed over by `review-run.sh`; every external command
-/// uses the shared native launcher and process-tree implementation.
-Future<Map<String, Object?>> runReviewOperation({
-  required String scriptsDir,
-  required String bash,
-  required List<String> argv,
-}) => _ReviewOperations(scriptsDir, bash).dispatch(argv);
+/// Runs one review operation; every external command uses the shared native
+/// launcher and process-tree implementation.
+Future<Map<String, Object?>> runReviewOperation({required List<String> argv}) =>
+    _ReviewOperations().dispatch(argv);
 
 class _ReviewOperations {
-  _ReviewOperations(this.scriptsDir, this.bash);
-
-  final String scriptsDir;
-  final String bash;
   final _NativeGit git = _NativeGit();
 
   Future<Map<String, Object?>> dispatch(List<String> argv) async {
@@ -167,18 +149,7 @@ class _ReviewOperations {
         if (i + 1 >= argv.length) {
           throw ReviewStop('usage', '$token needs a value', code: 2);
         }
-        var value = argv[++i];
-        // The NUL handoff bypasses MSYS argv conversion. Normalize only
-        // filesystem options, never branch names, waiver reasons or tool args.
-        if (Platform.isWindows &&
-            value.startsWith('/') &&
-            _pathOptions.contains(token)) {
-          try {
-            value = await nativePath(value, bash);
-          } on BadPathException catch (error) {
-            throw ReviewStop('bad_path', error.toString(), code: 2);
-          }
-        }
+        final value = argv[++i];
         parsed[token.substring(2).replaceAll('-', '_')] = value;
       } else if (token.startsWith('--')) {
         throw ReviewStop('usage', 'unknown option $token', code: 2);
@@ -437,7 +408,6 @@ class _ReviewOperations {
           store: storeRef,
           limit: cfg.maxDiffKb * 1024,
           prefix: _nonEmpty(args.values['prefix']) ?? 'openspec',
-          refsDir: _referencesDir,
           view: view,
         );
         promptPath = p.join(work.path, 'prompt.md');
@@ -467,7 +437,6 @@ class _ReviewOperations {
         change: change,
         outPath: args.values['out']!,
         workDir: work,
-        refsDir: _referencesDir,
         routeConfig: routeConfig,
         model: cfg.model(route),
         thinking: cfg.level(route),
@@ -493,9 +462,6 @@ class _ReviewOperations {
       }
     }
   }
-
-  String get _referencesDir =>
-      p.normalize(p.join(p.dirname(p.absolute(scriptsDir)), 'references'));
 
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
@@ -934,8 +900,6 @@ class _ReviewOperations {
     try {
       final vcs = await readVcsSettings(
         PrContext(
-          scriptsDir: scriptsDir,
-          bash: bash,
           writeOut: (_) {},
           writeErr: (_) {},
           cwd: Directory.current.path,
@@ -1150,7 +1114,6 @@ class _ReviewOperations {
     required (String?, String?, String?) store,
     required int limit,
     required String prefix,
-    required String refsDir,
     String? view,
   }) async {
     final (parts, _) = await _collectDiffs(code, store, limit);
@@ -1158,9 +1121,7 @@ class _ReviewOperations {
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final brief = File(p.join(refsDir, 'brief.md'))
-        .readAsStringSync(encoding: utf8)
-        .trimRight();
+    final brief = reviewBrief.trimRight();
     final root = store.$1 ?? code.$1;
     final lines = <String>[
       brief,
@@ -1504,7 +1465,6 @@ Future<Map<String, Object?>> runReviewer({
   required String change,
   required String outPath,
   required Directory workDir,
-  required String refsDir,
   required RouteConfig routeConfig,
   required String? model,
   required String? thinking,
@@ -1524,12 +1484,8 @@ Future<Map<String, Object?>> runReviewer({
       ? p.join(workDir.path, 'schema.json')
       : null;
   if (schemaPath != null) {
-    File(schemaPath).writeAsStringSync(
-      File(p.join(refsDir, 'findings.schema.json'))
-          .readAsStringSync(encoding: utf8),
-      encoding: utf8,
-      flush: true,
-    );
+    File(schemaPath)
+        .writeAsStringSync(findingsSchema, encoding: utf8, flush: true);
   }
   final command = buildReviewCommand(
     route: route,

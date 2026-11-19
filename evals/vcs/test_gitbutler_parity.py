@@ -1,13 +1,11 @@
-"""finish.sh against its frozen oracle on a GitButler repo (real `but`), native-cli-finish D9.
+"""`sw finish undo-archive-plan` on a GitButler repo (real `but`): outcome checks (native-cli-retire-scripts task 7.2).
 
-The oracle (evals/finish/oracle/finish.sh) is the last finish.sh before the port to `sw`; both plan the same committed and
-uncommitted archives and must print the same stdout bytes with the same exit code. The printed script still calls vcs.sh by its
-absolute path and names no `sw` binary. This module runs in the `vcs` suite job, the only one that installs `but`.
+The plan of a committed and of an uncommitted archive is run with its printed `steps` and the repository, branch and files
+are checked afterwards; the frozen finish.sh is no longer run. The printed steps call `sw vcs`, not a shell script, and name no bash.
+This module runs in the `vcs` suite job, the only one that installs `but`.
 """
 import importlib.util
 import json
-import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -15,6 +13,7 @@ import jjenv
 from butenv import Scratch, require_but
 from test_gitbutler_flows import BRANCH, CHANGE, GitButlerFlowCase
 from vcs_test_support import stamp_version, sw_home
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("finish_fixtures", ROOT / "evals" / "finish" / "fixtures.py")
@@ -25,17 +24,6 @@ P = "openspec"
 ARCHIVED = "%s-%s" % (fx.DATE, CHANGE)
 ARCHIVE_DIR = "%s/changes/archive/%s" % (P, ARCHIVED)
 CHANGE_DIR = "%s/changes/%s" % (P, CHANGE)
-VCS_SH = (ROOT / "skills" / "specwright-pr" / "scripts" / "vcs.sh").resolve().as_posix()
-
-
-def compact_guard(doc):
-    """The oracle's document with its printed branch guard in sw's form: the one listed difference (C13).
-
-    The guard reads the `vcs.sh state` document by text, and sw prints that document compact, so sw's guard matches
-    `"branch":"<name>"` where the oracle's matched `"branch": "<name>"`."""
-    if isinstance(doc.get("script"), str):
-        doc = dict(doc, script=doc["script"].replace("'\"branch\": \"", "'\"branch\":\""))
-    return doc
 
 
 class TestGitButlerParity(GitButlerFlowCase):
@@ -45,29 +33,21 @@ class TestGitButlerParity(GitButlerFlowCase):
         return result["commit"]
 
     def planned(self, scratch, wrap, repo):
-        """finish.sh and the oracle plan the same archive the same way; returns (new, old) as (exit code, stdout bytes, stderr bytes)."""
+        """sw's plan of the archive: (exit code, parsed document, raw output)."""
         args = fx.plan_args(CHANGE, archived=ARCHIVED, branch=BRANCH)
-        results = []
-        for script, extra in ((fx.SCRIPT, {}), (fx.ORACLE, {"ORACLE_FIN_DIR": str(fx.ORACLE_FIN_DIR)})):
-            env = self.fenced_env(scratch, wrap)
-            env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
-                        "SPECWRIGHT_HOME": str(sw_home()), **extra})
-            stamp_version(repo.path)
-            env["VCS_TEST_SEARCH"] = env["PATH"]
-            done = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "parity",
-                                   script.as_posix(), *args], cwd=str(repo.path), env=env, capture_output=True)
-            results.append((done.returncode, done.stdout, done.stderr))
-        return results
+        env = self.step_env(scratch, wrap, repo)
+        done = swcall.run(["finish", *args], cwd=str(repo.path), env=env)
+        try:
+            doc = json.loads(done.stdout)
+        except ValueError:
+            doc = None
+        return done.returncode, doc, done.stdout + done.stderr
 
-    def assertParity(self, pair):
-        new, old = pair
-        self.assertEqual(old[0], 0, old[1] + old[2])
-        # sw writes compact JSON, the oracle spaced: documents are equal by value, not by bytes (non-UTF-8 name bytes survive)
-        self.assertEqual(json.loads(new[1].decode("utf-8", "surrogateescape")),
-                         compact_guard(json.loads(old[1].decode("utf-8", "surrogateescape"))),
-                         "stdout documents differ between finish.sh and the oracle")
-        self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
-        return json.loads(old[1].decode("utf-8"))
+    def planned_doc(self, scratch, wrap, repo):
+        code, doc, raw = self.planned(scratch, wrap, repo)
+        self.assertEqual(code, 0, raw)
+        self.assertNotIn("script", doc)
+        return doc
 
     def archived(self, scratch, committed):
         """feat/b beside the change branch; the change branch holds the planning commit and the archive, committed or not."""
@@ -86,28 +66,81 @@ class TestGitButlerParity(GitButlerFlowCase):
                               "%s/specs/a/spec.md" % P, "%s/specs/b/spec.md" % P)
         return wrap, repo
 
-    def test_committed_archive_output_equals_oracle(self):
+    def step_env(self, scratch, wrap, repo):
+        env = self.fenced_env(scratch, wrap)
+        env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
+                    "SPECWRIGHT_HOME": str(sw_home())})
+        stamp_version(repo.path)
+        env["VCS_TEST_SEARCH"] = env["PATH"]
+        return env
+
+    def run_step(self, step, env):
+        """One printed `{cwd, argv}` step in its own cwd, through bash so the fixture's PATH finds git and but."""
+        return subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$@"', "step", *step["argv"]],
+                              cwd=step["cwd"], env=env, capture_output=True, text=True, encoding="utf-8")
+
+    def test_gitbutler_undo_steps_commit_paths_to_branch(self):
         require_but()
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, True)
-            doc = self.assertParity(self.planned(scratch, wrap, repo))
-            self.assertEqual(doc["mode"], "committed")
+            env = self.step_env(scratch, wrap, repo)
+            doc = self.planned_doc(scratch, wrap, repo)
+            other_tip = repo.git_run("rev-parse", "refs/heads/feat/b").stdout.strip()
+            before = repo.git_run("rev-parse", "refs/heads/" + BRANCH).stdout.strip()
+            for step in doc["steps"]:
+                done = self.run_step(step, env)
+                self.assertEqual(done.returncode, 0, "%s%s%s" % (step["argv"], done.stdout, done.stderr))
+            tip = repo.git_run("rev-parse", "refs/heads/" + BRANCH).stdout.strip()
+            self.assertNotEqual(tip, before, "no commit reached the change branch")
+            self.assertEqual(repo.git_run("log", "-1", "--format=%s", tip).stdout.strip(), "feat(add-c): undo archive of add-c")
+            touched = set(repo.git_run("diff-tree", "-r", "--no-commit-id", "--name-only", tip).stdout.split())
+            self.assertIn("%s/review.md" % CHANGE_DIR, touched)
+            self.assertTrue(any(t.startswith(ARCHIVE_DIR + "/") for t in touched), touched)
+            for path in touched:
+                self.assertTrue(path.startswith((CHANGE_DIR + "/", ARCHIVE_DIR + "/", P + "/specs/")), path)
+            self.assertEqual(repo.git_run("rev-parse", "refs/heads/feat/b").stdout.strip(), other_tip, "feat/b moved")
+            self.assertTrue((repo.path / CHANGE_DIR / "review.md").is_file())
+            self.assertFalse((repo.path / ARCHIVE_DIR).exists())
 
-    def test_uncommitted_archive_output_equals_oracle(self):
+    def run_all(self, doc, env):
+        for key in ("steps", "after_rerun_steps"):
+            for step in doc[key]:
+                done = self.run_step(step, env)
+                self.assertEqual(done.returncode, 0, "%s%s%s" % (step["argv"], done.stdout, done.stderr))
+
+    def test_printed_steps_restore_a_committed_archive(self):
+        require_but()
+        with Scratch() as scratch:
+            wrap, repo = self.archived(scratch, True)
+            doc = self.planned_doc(scratch, wrap, repo)
+            self.assertEqual(doc["mode"], "committed")
+            self.run_all(doc, self.step_env(scratch, wrap, repo))
+            self.assertTrue((repo.path / CHANGE_DIR / "review.md").is_file())
+            self.assertFalse((repo.path / ARCHIVE_DIR).exists())
+
+    def test_printed_steps_restore_an_uncommitted_archive(self):
         require_but()
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, False)
-            doc = self.assertParity(self.planned(scratch, wrap, repo))
+            doc = self.planned_doc(scratch, wrap, repo)
             self.assertEqual(doc["mode"], "uncommitted")
+            self.run_all(doc, self.step_env(scratch, wrap, repo))
+            self.assertTrue((repo.path / CHANGE_DIR / "review.md").is_file())
+            self.assertFalse((repo.path / ARCHIVE_DIR).exists())
 
-    def test_script_calls_vcs_sh_by_path(self):
+    def test_steps_call_sw_vcs_and_name_no_bash(self):
         require_but()
         with Scratch() as scratch:
             wrap, repo = self.archived(scratch, True)
-            pair = self.planned(scratch, wrap, repo)
-            script = self.assertParity(pair)["script"]
-            for verb in ("state", "commit"):
-                self.assertRegex(script, r"bash '?%s'? %s\b" % (re.escape(VCS_SH), verb), script)
-            self.assertNotIn("vcs.sh", script.replace(VCS_SH, ""), "vcs.sh is named by another path")
-            self.assertIsNone(re.search(r"(^|[\s;&|'\"/\\])sw(\.exe)?['\"]?\s", script), "the script runs an sw binary")
-            self.assertNotIn(os.sep + "sw ", script)
+            doc = self.planned_doc(scratch, wrap, repo)
+            commits = [s["argv"] for s in doc["steps"] if s["argv"][3:5] == ["vcs", "commit"]]
+            self.assertEqual(len(commits), 1, doc["steps"])
+            self.assertEqual(Path(commits[0][2]).resolve(), repo.path.resolve())
+            self.assertEqual(commits[0][1], "--project")
+            self.assertIn("--", commits[0])
+            self.assertTrue(any(s["argv"][3:6] == ["finish", "undo-step", "check"] and s["argv"][6] == "branch"
+                                for s in doc["steps"]), "the branch guard is an undo-step check")
+            for step in doc["steps"]:
+                for word in step["argv"]:
+                    self.assertFalse(word.endswith(".sh"), word)
+                    self.assertNotEqual(Path(word).stem, "bash")

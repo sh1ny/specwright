@@ -225,7 +225,7 @@ class _Reply {
   }
 
   Future<bool> readable(String path) async {
-    final file = File(await ctx.native(path));
+    final file = File(path);
     try {
       if (file.statSync().type != FileSystemEntityType.file) return false;
       if (file.lengthSync() == 0) return false;
@@ -313,7 +313,7 @@ class _Reply {
     tmp = path;
     try {
       final bytes = BytesBuilder(copy: false)
-        ..add(File(await ctx.native(bodyFile)).readAsBytesSync())
+        ..add(File(bodyFile).readAsBytesSync())
         ..add(
           utf8.encode(
             '\n\n<!-- specwright:$mkind $marker${rev.isEmpty ? '' : ' rev=$rev'} -->\n',

@@ -2413,7 +2413,7 @@ def check_store_branch(name, code, store, rep):
         owner = lock / "owner" if lock else None
         text = owner.read_text(encoding="utf-8") if owner and owner.is_file() else None
         R.append(("The gate lock and its owner file are still there, unchanged",
-                  text is not None and "change: other-change" in text and "checkout: C:/elsewhere/code" in text, f"owner={text!r}"))
+                  text is not None and "change: other-change" in text and "code: C:/elsewhere/code" in text, f"owner={text!r}"))
         if name == "eval-store-branch-locked":
             hit = re.search(r"lock|busy|another session", rep)
             R.append(("The report says the gate is locked or busy and names the owning change other-change",

@@ -1,24 +1,24 @@
-"""Workflow entries against the immutable test-only Python oracle."""
+"""Workflow entries of `sw pr` against the recorded runs of the frozen workflow (change native-cli-retire-scripts task 7.2):
+no frozen script is started."""
 import copy
 import json
 import os
 import shutil
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_parity as parity
 import vcs_test_support
+import swcall  # vcs_test_support puts evals/ on sys.path
 import fakeexe
+import oracle_capture
 
 
 def setUpModule():
     parity.setUpModule()
-
-
-def tearDownModule():
-    parity.tearDownModule()
 
 
 class WorkflowParity(parity.PairParity):
@@ -35,37 +35,21 @@ class WorkflowParity(parity.PairParity):
     # remain linked to the persisted owner and validated creation interval.
     # All other workflow fields/calls/effects compare without normalization.
     def git(self, directory, *args):
-        return subprocess.run(['git', *args], cwd=directory, env=self.git_env,
+        return subprocess.run(['git', *args], cwd=directory, env={**self.git_env, **parity.PINNED_IDENTITY},
                               capture_output=True, check=True).stdout.decode().strip()
 
     @staticmethod
     def command_binding(argv):
-        # The random input filename is a bound generated value. The fake's
-        # persisted comment body is still compared byte-for-byte by run_pair.
-        out = parity.temp_names(argv)
-        if '--input' in out:
-            i = out.index('--input') + 1
-            out[i] = '<generated-json-input>'
-        return out
+        # The random input filename stays as it is: the record holds it as `<temp>/<name>`. The fake's persisted comment body
+        # is still compared byte-for-byte by run_pair.
+        return parity.temp_names(argv)
 
-    def side(self, which, args, cwd):
-        if which == 'old':
-            # The frozen workflow calls VCS through its script directory.
-            # Supply the existing native VCS shim beside its frozen helpers.
-            helper = Path(parity.oracle_sw_dir()) / 'vcs.sh'
-            if not helper.exists():
-                shutil.copy2(parity.SCRIPTS / 'vcs.sh', helper)
-            result = super().side(which, args, cwd)
-            result['calls'] = [self.command_binding(c) for c in result['calls']]
-            return result
-        args = args(which) if callable(args) else args
+    def side(self, args, cwd):
+        """sw's run of `pr <args>`, direct entry (evals/swcall.py), with the calls bound by command_binding."""
+        args = args('new') if callable(args) else args
         e = self.env('me', SPECWRIGHT_HOME=str(self.home),
                      GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
-        binary = os.environ['SPECWRIGHT_SW']
-        payload = b''.join(str(x).encode('utf-8') + b'\0' for x in
-                           [parity.fixtures.posix(getattr(self, 'workflow_scripts', parity.SCRIPTS)), parity.bashexe.bash(), *args[1:]])
-        r = subprocess.run([str(binary), 'pr', args[0], '--args-stdin'], input=payload,
-                           cwd=cwd or self.tmp, env=e, capture_output=True, timeout=120)
+        r = swcall.run(['pr', *args], cwd=cwd or self.tmp, env=e, timeout=120, text=False)
         raw_calls = parity.calls_of(self.gh_log, lambda c: c)
         result = {'code': r.returncode, 'stdout': r.stdout, 'stderr': r.stderr,
                 'calls': [self.command_binding(c['argv']) for c in raw_calls],
@@ -75,17 +59,15 @@ class WorkflowParity(parity.PairParity):
         return result
 
     def assert_native_refuses(self, *args, code, error, old_code=0):
-        """An asserted difference (native-cli-library-foundations D8): the frozen workflow holds an integer of any size and
-        goes on (exit `old_code`), the native one cannot hold it and refuses with `error` (exit `code`) after the same
-        gh reads. Returns the native document; the fake gh state is put back between the two runs."""
+        """An asserted difference (native-cli-library-foundations D8): the frozen workflow held an integer of any size and
+        went on (recorded exit `old_code`), the native one cannot hold it and refuses with `error` (exit `code`) after the same
+        gh reads. Returns the native document; the fake gh state is put back afterwards."""
         before = self.gh_state.read_bytes()
         parity.calls_of(self.gh_log, lambda c: c)
-        sides = []
-        for which in ('new', 'old'):
-            sides.append(self.side(which, args, None))
-            self.gh_state.write_bytes(before)
-        new, old = sides
-        self.assertEqual(old['code'], old_code, (old['stdout'], old['stderr']))
+        new = self.side(args, None)
+        self.gh_state.write_bytes(before)
+        old = oracle_capture.recorded(self)[0]
+        self.assertEqual(old['exit'], old_code, old['stdout'])
         self.assertEqual(new['code'], code, (new['stdout'], new['stderr']))
         document = json.loads(new['stdout'])
         self.assertEqual(document['error'], error, document)
@@ -167,49 +149,74 @@ class WorkflowParity(parity.PairParity):
         self.mutate(seed)
         return code, store
 
+    @staticmethod
+    def printed_form(command, code):
+        """A frozen printed command as the native plan prints it: `<sw> --project <code> ...` (the sw bound by bind_sw)."""
+        # a frozen printed command ran a helper by its file name (`<name>` + the shell suffix), alone or under `bash`
+        verb = {'pr-pair': 'pr', 'as': 'as', 'vcs': 'vcs'}
+        shell = 1 if command[0] == 'bash' else 0
+        stem, suffix = Path(command[shell]).name.rpartition('.')[0::2]
+        if suffix == 'sh' and stem in verb:
+            return ['<sw>', '--project', code, verb[stem], *command[shell + 1:]]
+        if command[1:2] == ['--project']:  # the frozen shim hands `vcs plan` to sw: already the native form
+            return ['<sw>', *command[1:]]
+        return command
+
+    def bind_sw(self, command, code):
+        """Check that a printed command starts with the running sw and the code project, and replace both by their
+        stand-ins (the project may print in a resolved form of the same directory)."""
+        if command[0] in ('git', 'jj'):
+            return command
+        # the running sw: SPECWRIGHT_SW itself, or under the shim its version-matched copy `<home>/.specwright/bin/<v>/sw`
+        running = Path(command[0]).resolve()
+        self.assertTrue(running == Path(os.environ['SPECWRIGHT_SW']).resolve() or running.parts[-4:-2] == ('.specwright', 'bin'), command)
+        self.assertEqual(command[1], '--project', command)
+        self.assertEqual(Path(command[2]).resolve(), Path(code).resolve(), command)
+        command[0], command[2] = '<sw>', code
+        return command
+
+    def run_printed(self, printed):
+        """Run a printed `{cmd, cwd}` as printed, with the test home; the CompletedProcess."""
+        return subprocess.run(printed['cmd'], cwd=printed['cwd'], capture_output=True, timeout=120,
+                              env=self.env('me', SPECWRIGHT_HOME=str(self.home), GIT_CONFIG_GLOBAL=os.devnull,
+                                           GIT_CONFIG_NOSYSTEM='1'))
+
     def cleanup_contract(self, code, store):
         args = ['cleanup-plan', '--code', code, '--store', store, '--branch', 'feat/x']
         before = self.gh_state.read_bytes()
-        native = self.side('new', args, self.tmp)
+        native = self.side(args, self.tmp)
         self.gh_state.write_bytes(before)
-        oracle = self.side('old', args, self.tmp)
-        self.gh_state.write_bytes(before)
+        oracle = oracle_capture.recorded(self)[0]
         self.assertEqual(native['code'], 0, native)
-        self.assertEqual(oracle['code'], 0, oracle)
-        got, expected = self.normal(native)[0], self.normal(oracle)[0]
-        # This is the explicit producer/consumer contract change in D4/C4,
-        # not normalization of a workflow decision or mutation guard.
+        self.assertEqual(oracle['exit'], 0, oracle)
+        paths, canon = oracle_capture.Paths(self), oracle_capture.canon
+        plan, expected = self.normal(native)[0], self.shape(oracle['stdout'], False)
+        got, here = paths.node(plan), paths.text(str(code))
+        # This is the explicit producer/consumer contract change in D4: the frozen plan printed scripts, the native one
+        # prints the running sw and `--project <code>`. Each recorded frozen command is translated to that form, not normalized
+        # away: the sw path is checked on its own, then the decisions, arguments and cwd must match exactly.
+        bound = copy.deepcopy(plan)
         for side in ['code', 'store']:
             for entry in expected[side]['commands']:
-                command = entry['cmd']
-                if command[0] == 'bash' and command[1].endswith(('/as.sh', '/vcs.sh')):
-                    name = Path(command[1]).name
-                    self.assertEqual(command[1], parity.fixtures.posix(Path(parity.oracle_sw_dir()) / name))
-                    native_command = got[side]['commands'][expected[side]['commands'].index(entry)]['cmd']
-                    self.assertEqual(native_command[1], parity.fixtures.posix(parity.SCRIPTS / name))
-                    command[1] = native_command[1]
-                if command[0] == 'pr-pair.sh':
-                    command[1:1] = ['--project', code]
-                elif command[0] == 'bash' and command[1].endswith('/as.sh'):
-                    command[2:2] = ['--project', code]
                 self.assertEqual(entry['cwd'], got[side]['dir'])
-        for side in ['code', 'store']:
-            delete = expected[side].get('delete', [])
-            if delete[:1] == ['bash']:  # bare-bash: not started
-                self.assertEqual(delete[1], parity.fixtures.posix(Path(parity.oracle_sw_dir()) / 'vcs.sh'))
-                self.assertEqual(got[side]['delete'][1], parity.fixtures.posix(parity.SCRIPTS / 'vcs.sh'))
-                delete[1] = got[side]['delete'][1]
-        self.assertEqual(got, expected)
-        self.assertEqual(native['calls'], oracle['calls'])
-        return got
+            expected[side]['commands'] = [dict(c, cmd=self.printed_form(c['cmd'], here)) for c in expected[side]['commands']]
+            if 'delete' in expected[side]:
+                expected[side]['delete'] = self.printed_form(expected[side]['delete'], here)
+            for c in bound[side]['commands']:
+                self.bind_sw(c['cmd'], code)
+            if 'delete' in bound[side]:
+                self.bind_sw(bound[side]['delete'], code)
+        self.assertEqual(canon(paths.node(bound)), canon(expected))
+        self.assertEqual(canon(paths.node(native['calls'])), canon(oracle['calls']))
+        return plan
 
     def test_cleanup_plan_preserves_commands_and_project_selection(self):
         code, store = self.merged_pair()
         plan = self.cleanup_contract(code, store)
         for side, login in [('code', 'me'), ('store', 'other')]:
             pull = plan[side]['commands'][1]['cmd']
-            self.assertEqual(pull[2:5], ['--project', code, login])
-            self.assertEqual(plan[side]['commands'][2]['cmd'][1:3], ['--project', code])
+            self.assertEqual(pull[1:6], ['--project', code, 'as', login, 'git'])
+            self.assertEqual(plan[side]['commands'][2]['cmd'][1:4], ['--project', code, 'pr'])
             self.assertEqual(plan[side]['delete'], ['git', 'branch', '-D', 'feat/x'])
         self.mutate(lambda st: st['repos']['o/plans']['pulls'][0].update(state='open', merged_at=None))
         self.assertEqual(len(self.cleanup_contract(code, store)['keep']), 1)
@@ -262,8 +269,8 @@ class WorkflowParity(parity.PairParity):
             with self.subTest(backend=backend):
                 self.select_backend(code, store, backend)
                 plan = self.cleanup_contract(code, store)
-                self.assertEqual(plan['code']['commands'][0]['cmd'][2], 'switch')
-                self.assertEqual(plan['code']['delete'][2], 'delete-branch')
+                self.assertEqual(plan['code']['commands'][0]['cmd'][3:5], ['vcs', 'switch'])
+                self.assertEqual(plan['code']['delete'][3:5], ['vcs', 'delete-branch'])
                 if backend == 'gitbutler':
                     self.assertIn('--merged-commit', plan['code']['delete'])
 
@@ -290,27 +297,20 @@ class WorkflowParity(parity.PairParity):
         for role in ['code', 'store']:
             entry = plan[role]
             for printed in entry['commands'][:2]:
-                self.assertIn(printed['cmd'][0], ['git', 'bash'])
-                # Resolve the asserted interpreter through the same Git Bash
-                # selector as every other eval. bin/bash.exe resets PATH and
-                # hides the fake git that records this consumer's effects.
-                command = ([parity.bashexe.bash(), *printed['cmd'][1:]]
-                           if printed['cmd'][0] == 'bash' else printed['cmd'])
-                result = subprocess.run(command, cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
+                # the printed commands run as printed: `git checkout`, then `<sw> --project <code> as <login> git pull`
+                result = subprocess.run(printed['cmd'], cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
                 self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
             printed = entry['commands'][2]
-            self.assertEqual(printed['cmd'][:3], ['pr-pair.sh', '--project', code])
-            # Until group8 switches the shim, consume its exact selector and
-            # send its unchanged remainder to the native entry from this cwd.
-            result = self.side('new', printed['cmd'][3:], printed['cwd'])
-            self.assertTrue(json.loads(result['stdout'])['delete'], result)
+            self.assertEqual(printed['cmd'][1:4], ['--project', code, 'pr'])
+            result = self.run_printed(printed)
+            self.assertTrue(json.loads(result.stdout)['delete'], result)
             if role == 'code':
                 self.git(code, 'checkout', 'feat/x')
                 self.git(code, 'commit', '--allow-empty', '-m', 'new work after merged PR')
                 self.git(code, 'checkout', 'main')
                 before = self.git(code, 'show-ref')
-                result = self.side('new', printed['cmd'][3:], printed['cwd'])
-                self.assertFalse(json.loads(result['stdout'])['delete'], result)
+                result = self.run_printed(printed)
+                self.assertFalse(json.loads(result.stdout)['delete'], result)
                 self.assertEqual(self.git(code, 'show-ref'), before)
             else:
                 self.git(store, *entry['delete'][1:])
@@ -573,12 +573,15 @@ import test_workflow_records as records
 import test_pr_pair as original
 
 
-class WorkflowPassMatrix(records.NativePass, original.PassBase):
-    """All four operations compare native/frozen calls and record effects.
 
-    Generated owner ids and creation times are bound through each writer's
-    returned owner and persisted record. Only these independently generated
-    values differ: ownership checks and preserved written_at are asserted.
+
+class WorkflowPassMatrix(records.NativePass, original.PassBase):
+    """All four operations: native calls and record effects, and the recorded frozen run of the same case.
+
+    The native run is checked on its own for what a record holds (owner id, write time, checkout, heads, version, the lock
+    file left alone, the record kept or deleted); stdout, the `gh` calls, the final fake-gh state and the comment bodies are
+    compared with the frozen run's record. Generated owner ids and creation times are bound through each writer's returned
+    owner and persisted record.
     """
     snapshots = records.WorkflowRecords.snapshots
 
@@ -588,42 +591,51 @@ class WorkflowPassMatrix(records.NativePass, original.PassBase):
     def clean_doc(self, doc):
         result = {key: value for key, value in doc.items() if key != 'message'}
         if 'path' in result:
-            # Native mixed/forward separators and Python OS separators must
-            # name and open the same record; bind only after consuming it.
+            # Native mixed/forward separators must name and open the same record
             path = Path(result['path'])
             self.assertEqual(path.resolve(), self.record_path().resolve())
             self.assertEqual(path.read_bytes(), self.record_path().read_bytes())
             result['path'] = str(path.resolve())
         return result
 
+    def run_native(self, *args, expect=0):
+        """sw's run: its parsed one-line document, and the side `oracle_capture.document` reads."""
+        result = self.command(args)
+        self.assertEqual(result.returncode, expect, f"{args}\n{result.stdout!r}\n{result.stderr!r}")
+        side = {'code': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr, 'calls': self.calls(),
+                'state': self.gh_state.read_bytes()}
+        lines = result.stdout.decode('utf-8').strip().splitlines()
+        self.assertEqual(len(lines), 1, result)
+        return json.loads(lines[0]), side
+
+    def agrees_with_record(self, side, owner_record=None):
+        """The native run equals the next recorded frozen run: exit status, `gh` calls, stderr lines, stdout (its free text
+        `message` apart), the final fake-gh state and the comment bodies."""
+        got = oracle_capture.document(self, side, owner_record)
+        want = oracle_capture.recorded(self)[0]
+        for doc in (got, want):
+            if isinstance(doc['stdout'], dict):
+                doc['stdout'].pop('message', None)
+        self.assertIsNone(oracle_capture.compare(self, got, want))
+
     def test_all_four_pass_operations_preserve_records_and_refusals(self):
         from datetime import datetime, timezone
         self.settings('github:\n  login: KintsugiBot\npr:\n  react: false\n')
         intent = self.write_json('matrix-intent.json', self.intent([]))
-        outputs, persisted, calls = [], [], []
-        for which in ['native', 'frozen']:
-            self.record_path().unlink(missing_ok=True)
-            started = datetime.now(timezone.utc).replace(microsecond=0)
-            written = self.pp('pass', 'write', *self.common(), '--intent', intent, which=which)
-            record = json.loads(self.record_path().read_bytes())
-            self.assertRegex(written['owner'], r'^[0-9a-f]{32}$')
-            self.assertEqual(record['owner']['id'], written['owner'])
-            self.assertEqual(record['written_at'], record['owner']['at'])
-            self.assertGreaterEqual(datetime.fromisoformat(record['written_at'].replace('Z', '+00:00')), started)
-            self.assertLessEqual(datetime.fromisoformat(record['written_at'].replace('Z', '+00:00')), datetime.now(timezone.utc))
-            self.assertEqual(record['heads'], written['heads'])
-            self.assertEqual(record['version'], 2)
-            self.assertEqual(record['owner']['checkout'], str(self.code).replace('\\', '/'))
-            outputs.append({**written, 'owner': '<generated-owner>'})
-            persisted.append(record)
-            calls.append(self.calls())
-        self.assertEqual(outputs[0], outputs[1])
-        self.assertEqual(calls[0], calls[1])
-        for record in persisted:
-            record['owner']['id'] = '<generated-owner>'
-            record['owner']['at'] = record['written_at'] = '<creation-time>'
-        self.assertEqual(persisted[0], persisted[1])
-        # A concrete existing record is shared verbatim by both consumers.
+        self.record_path().unlink(missing_ok=True)
+        started = datetime.now(timezone.utc).replace(microsecond=0)
+        written, side = self.run_native('pass', 'write', *self.common(), '--intent', intent)
+        record = json.loads(self.record_path().read_bytes())
+        self.assertRegex(written['owner'], r'^[0-9a-f]{32}$')
+        self.assertEqual(record['owner']['id'], written['owner'])
+        self.assertEqual(record['written_at'], record['owner']['at'])
+        self.assertGreaterEqual(datetime.fromisoformat(record['written_at'].replace('Z', '+00:00')), started)
+        self.assertLessEqual(datetime.fromisoformat(record['written_at'].replace('Z', '+00:00')), datetime.now(timezone.utc))
+        self.assertEqual(record['heads'], written['heads'])
+        self.assertEqual(record['version'], 2)
+        self.assertEqual(record['owner']['checkout'], str(self.code).replace('\\', '/'))
+        self.agrees_with_record(side, self.record_path().read_bytes())  # the owner printed is the one in the record it wrote
+        # A concrete existing record is shared verbatim by the consumers.
         baseline = json.loads(self.record_path().read_bytes())
         baseline['owner']['id'] = 'matrix-owner'
         baseline_bytes = json.dumps(baseline).encode()
@@ -632,44 +644,74 @@ class WorkflowPassMatrix(records.NativePass, original.PassBase):
             ('adopt', ['--owner', 'adopted', '--from', 'matrix-owner']),
             ('done', ['--owner', 'matrix-owner', *self.snapshots()]),
         ]:
-            responses, effects, observed = [], [], []
-            for which in ['native', 'frozen']:
-                self.record_path().write_bytes(baseline_bytes)
-                result = self.pp('pass', operation, *self.common(), *extra, which=which)
-                responses.append(self.clean_doc(result)); observed.append(self.calls())
-                if operation == 'done':
-                    self.assertTrue(result['deleted'])
-                    self.assertFalse(self.record_path().exists())
-                    effects.append(None)
+            self.record_path().write_bytes(baseline_bytes)
+            result, side = self.run_native('pass', operation, *self.common(), *extra)
+            self.clean_doc(result)
+            if operation == 'done':
+                self.assertTrue(result['deleted'])
+                self.assertFalse(self.record_path().exists())
+            else:
+                raw = self.record_path().read_bytes()
+                if operation == 'plan':
+                    self.assertEqual(raw, baseline_bytes)
+                    self.assertTrue(result['owned'])
+                    self.assertTrue(result['delete_record'])
                 else:
-                    raw = self.record_path().read_bytes()
-                    if operation == 'plan':
-                        self.assertEqual(raw, baseline_bytes)
-                        self.assertTrue(result['owned'])
-                        self.assertTrue(result['delete_record'])
-                        effects.append(raw)
-                    else:
-                        record = json.loads(raw)
-                        self.assertEqual(record['owner']['id'], 'adopted')
-                        self.assertEqual(record['written_at'], baseline['written_at'])
-                        self.assertEqual(record['heads'], baseline['heads'])
-                        record['owner']['at'] = '<adoption-time>'
-                        effects.append(record)
-                self.assertFalse(Path(str(self.record_path())+'.lock').exists())
-            self.assertEqual(responses[0], responses[1]); self.assertEqual(effects[0], effects[1]); self.assertEqual(observed[0], observed[1])
+                    adopted = json.loads(raw)
+                    self.assertEqual(adopted['owner']['id'], 'adopted')
+                    self.assertEqual(adopted['written_at'], baseline['written_at'])
+                    self.assertEqual(adopted['heads'], baseline['heads'])
+            self.assertFalse(Path(str(self.record_path())+'.lock').exists())
+            self.agrees_with_record(side)
         for operation, extra, expected in [
             ('write', ['--intent', intent], 'record_exists'),
             ('plan', ['--owner', 'foreign', *self.snapshots()], 'record_unreadable'),
             ('adopt', ['--owner', 'new', '--from', 'foreign'], 'not_owner'),
             ('done', ['--owner', 'foreign', *self.snapshots()], 'not_owner'),
         ]:
-            responses, observed = [], []
             protected = b'{partial-record' if operation == 'plan' else baseline_bytes
-            for which in ['native', 'frozen']:
-                self.record_path().write_bytes(protected)
-                doc = self.pp('pass', operation, *self.common(), *extra, which=which, expect=1)
-                self.assertEqual(doc['error'], expected)
-                responses.append(self.clean_doc(doc)); observed.append(self.calls())
-                self.assertEqual(self.record_path().read_bytes(), protected)
-                self.assertFalse(Path(str(self.record_path())+'.lock').exists())
-            self.assertEqual(responses[0], responses[1]); self.assertEqual(observed[0], observed[1])
+            self.record_path().write_bytes(protected)
+            doc, side = self.run_native('pass', operation, *self.common(), *extra, expect=1)
+            self.assertEqual(doc['error'], expected)
+            self.clean_doc(doc)
+            self.assertEqual(self.record_path().read_bytes(), protected)
+            self.assertFalse(Path(str(self.record_path())+'.lock').exists())
+            self.agrees_with_record(side)
+
+
+RETIRED = {
+    'test_parity.PairParity.test_git_bash_paths_read_the_same_repo':
+        'sw no longer converts a Git Bash path (task 7.3); the absence is checked by evals/cli/test_no_shell.py (task 7.7)',
+    'test_parity.WatcherTakeover.test_shim_watcher_takes_over_oracle_watcher':
+        'a watcher of one frozen script taking over from another: no frozen script is started',
+    'test_workflow_records.WorkflowRecords.test_frozen_script_refuses_a_native_lock_file':
+        'a frozen script reading a native lock: no frozen script is started',
+    'test_workflow_records.WorkflowRecords.test_native_runtime_has_no_embedded_workflow':
+        'it read the script text, which this change deletes',
+    'test_workflow_records.WorkflowRecords.test_no_python_3_8_available_to_the_test':
+        'the script ran under Python 3.8; sw runs no Python',
+    'test_workflow_records.WorkflowRecords.test_pass_write_on_python_3_8':
+        'the script ran under Python 3.8; sw runs no Python',
+}
+
+
+class RecordedRuns(unittest.TestCase):
+    def test_sw_pr_matches_recorded_oracle_runs(self):
+        """Every case the capture of task 6.5 ran is read back by a migrated test of the same name (or the new name
+        oracle_capture.CAPTURED_AS gives it), or is retired here with its reason; the cases themselves compare `sw pr`, `sw as`
+        and `sw pr reviewers` with the records of the running OS (test_parity.py, test_workflow_parity.py,
+        test_workflow_records.py, test_workflow_transport.py)."""
+        import importlib
+        outcomes = json.loads((oracle_capture.records_dir() / 'outcomes.json').read_text(encoding='utf-8'))
+        self.assertTrue(outcomes)
+        for case, outcome in sorted(outcomes.items()):
+            with self.subTest(case):
+                self.assertIn(outcome['status'], ('ok', 'skipped'))
+                module, klass, method = case.split('.', 2)
+                if case in RETIRED:
+                    self.assertTrue(RETIRED[case])
+                    continue
+                holder = getattr(importlib.import_module(module), klass, None)
+                renamed = [new for new, old in oracle_capture.CAPTURED_AS.items() if old == method]
+                self.assertTrue(any(holder is not None and getattr(holder, name, None) is not None for name in [method, *renamed]),
+                                f'{case} was captured and no test reads it')

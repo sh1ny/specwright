@@ -1,0 +1,40 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_nan_and_infinity_material",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "attn": "QVRUTnxyZXYtYm90OndhaXRpbmc=",
+  "checks": {
+   "advisory_pending": 0,
+   "ci_pending": 0,
+   "failing": [],
+   "pending": 0,
+   "total": 0
+  },
+  "comments": [],
+  "head_cutoff": "2026-01-01T00:10:00Z",
+  "head_oid": "1a2b3c4deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "now": "2026-01-01T00:12:00Z",
+  "number": 7,
+  "reviewer_config": "dca713c95e1a64abaae367f521d247f5bcc1011a5bca9369e7996bb0a19adbca",
+  "reviewers": [
+   {
+    "by": null,
+    "evidence": [],
+    "login": "rev-bot",
+    "role": "required",
+    "state": "waiting",
+    "timeout": 1200
+   }
+  ],
+  "sig": "U0lHfHJldi1ib3Q6d2FpdGluZw==",
+  "viewer": "me"
+ }
+}

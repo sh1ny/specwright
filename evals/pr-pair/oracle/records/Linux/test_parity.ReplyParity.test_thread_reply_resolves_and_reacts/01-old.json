@@ -1,0 +1,164 @@
+{
+ "calls": [
+  [
+   "api",
+   "graphql",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "pr=7",
+   "-f",
+   "query=\n    query($owner:String!,$name:String!,$pr:Int!){ viewer{login}\n      repository(owner:$owner,name:$name){ pullRequest(number:$pr){\n        reviews(states:PENDING, first:10){ nodes{ author{login} } } } } }",
+   "--jq",
+   ".data.viewer.login as $me | [.data.repository.pullRequest.reviews.nodes[] | select(.author.login == $me)] | length"
+  ],
+  [
+   "api",
+   "--method",
+   "POST",
+   "repos/o/n/pulls/7/comments/1002/replies",
+   "-F",
+   "body=@<temp>/<name>",
+   "--jq",
+   ".html_url"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "owner=o",
+   "-f",
+   "name=n",
+   "-F",
+   "pr=7",
+   "-f",
+   "query=\n    query($owner:String!,$name:String!,$pr:Int!){ viewer{login}\n      repository(owner:$owner,name:$name){ pullRequest(number:$pr){\n        reviews(states:PENDING, first:10){ nodes{ author{login} } } } } }",
+   "--jq",
+   ".data.viewer.login as $me | [.data.repository.pullRequest.reviews.nodes[] | select(.author.login == $me)] | length"
+  ],
+  [
+   "api",
+   "graphql",
+   "-f",
+   "threadId=PRRT_1001",
+   "-f",
+   "query=\n    mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id isResolved } } }",
+   "--jq",
+   "\"resolved: \" + (.data.resolveReviewThread.thread.isResolved | tostring)"
+  ],
+  [
+   "api",
+   "--method",
+   "POST",
+   "repos/o/n/pulls/comments/1002/reactions",
+   "-f",
+   "content=+1",
+   "--jq",
+   "\"reacted: \" + .content"
+  ]
+ ],
+ "case": "test_parity.ReplyParity.test_thread_reply_resolves_and_reacts",
+ "comment_bodies": {
+  "/repos/o/n/pulls/0/threads/0/comments/0": "please fix",
+  "/repos/o/n/pulls/0/threads/0/comments/1": "done\n\n<!-- specwright:handled PRRT_1001 resolve -->\n"
+ },
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "next_id": 1003,
+  "nodes": {
+   "PRRC_1002": {
+    "reactions": [
+     {
+      "content": "THUMBS_UP",
+      "createdAt": "2026-10-10T10:00:00Z",
+      "login": "me"
+     }
+    ],
+    "repo": "o/n"
+   }
+  },
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "threads": [
+       {
+        "comments": [
+         {
+          "author": "rev",
+          "body": "please fix",
+          "createdAt": "2026-10-10T10:00:00Z",
+          "databaseId": 1002,
+          "id": "PRRC_1002",
+          "lastEditedAt": null,
+          "url": "https://github.com/o/n/pull/7#discussion_r1002"
+         },
+         {
+          "author": "me",
+          "body": "done\n\n<!-- specwright:handled PRRT_1001 resolve -->\n",
+          "createdAt": "2026-10-10T10:00:00Z",
+          "databaseId": 1003,
+          "id": "PRRC_1003",
+          "lastEditedAt": null,
+          "url": "https://github.com/o/n/pull/7#discussion_r1003"
+         }
+        ],
+        "id": "PRRT_1001",
+        "isOutdated": false,
+        "isResolved": true,
+        "line": 1,
+        "originalLine": 1,
+        "path": "a.py",
+        "resolvedAt": "2026-10-10T10:00:00Z",
+        "resolvedBy": "me"
+       }
+      ],
+      "title": "t7"
+     }
+    ],
+    "review_comment_reactions": {
+     "1002": [
+      {
+       "content": "+1",
+       "user": {
+        "login": "me"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": "https://github.com/o/n/pull/7#discussion_r1003\nresolved: true\nreacted: +1\n"
+}

@@ -210,13 +210,7 @@ Future<Map<String, Object?>> checkDocument(
   // verification) reads the working tree, as on Git.
   if (branch == null && main != null) {
     final vcs = await readVcsSettings(
-      PrContext(
-        scriptsDir: '',
-        bash: '',
-        writeOut: (_) {},
-        writeErr: (_) {},
-        cwd: git.root,
-      ),
+      PrContext(writeOut: (_) {}, writeErr: (_) {}, cwd: git.root),
       code: git.root,
       repo: git.root,
       role: 'code',

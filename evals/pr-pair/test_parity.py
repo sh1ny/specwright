@@ -1,14 +1,13 @@
-"""Differential eval (native-cli-pr-io D12, native-cli-pr-pair D8): the frozen oracle copies of as.sh, pr-snapshot.sh, pr-reply.sh and
-pr-pair.sh (identity, vcs, tier, context, policy)
-(evals/pr-pair/oracle/) and the tree's three scripts run the same cases against the same fake-gh state, and must print the same
-stdout bytes and stderr bytes, exit with the same code, leave the same fake-gh state and make the same gh calls.
+"""Differential eval (native-cli-pr-io D12, native-cli-pr-pair D8, native-cli-retire-scripts D14): `sw pr snapshot`, `sw pr reply`,
+`sw pr` (identity, vcs, tier, context, policy), `sw pr reviewers` and `sw as` run the same cases they ran against the frozen
+scripts, on the same fake-gh state, and must give the same document, exit status, stderr prefixes, gh calls and fake-gh state.
 
-Before the port the tree's scripts are the oracle's twins, so this passes; after it, it proves the `sw` behind the shims.
-The oracle is test-only and ships nowhere; ORACLE_SW_DIR points its helpers at a temp directory that holds
-the tree's bounded.py, as.sh and sw-path.sh and the oracle's own reviewers.py, so the frozen pr-snapshot.sh keeps the old
-evaluator after reviewers.py leaves the tree (native-cli-pr-pair D8). native-cli-retire-scripts deletes it with the shims.
+The frozen side is no longer run. Task 6.5 ran it once on each OS and kept one record per run under evals/pr-pair/oracle/records/;
+each case here makes its runs in the order the capture saw them and compares each with the record of the running OS, both
+normalized by evals/pr-pair/oracle_capture.py (machine paths become placeholders, the free text of stderr is cut to its fixed
+prefix, an OS-dependent value is compared as oracle/check_records.py allows).
 
-Each script runs from a stamped directory with SPECWRIGHT_HOME set, so the shims find the CI-built `sw`.
+Each run starts from a stamped directory with SPECWRIGHT_HOME set, so the CI-built `sw` runs.
 
 Run: python -m unittest evals/pr-pair/test_parity.py
 """
@@ -16,27 +15,22 @@ import hashlib
 import json
 import os
 import re
-import shutil
-import stat
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
-ORACLE = HERE / "oracle"
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.append(str(ROOT / "evals"))
+import oracle_capture  # noqa: E402
 import snapfix  # noqa: E402
 from snapfix import SnapCase, T0, fake_gh, fixtures, rev  # noqa: E402
-import bashexe  # noqa: E402
-import fakeexe  # noqa: E402
+import swcall  # noqa: E402  every call of sw goes through the one helper
 import test_as_sh as tas  # noqa: E402  module attributes only: its test classes are not collected here
 import vcs_test_support  # noqa: E402
 sys.path.insert(0, str(ROOT / "evals" / "cli"))
@@ -44,23 +38,17 @@ import swharness  # noqa: E402
 import test_reviewers as tr  # noqa: E402  helpers only: its test classes are not collected here
 
 SECRET = tas.SECRET
-
-
-oracle_sw_dir = snapfix.oracle_sw_dir  # shared with test_pr_shims.py
+SNAPSHOT = ("pr", "snapshot")
+REPLY = ("pr", "reply")
 
 
 def setUpModule():
     snapfix.banner()
 
 
-def tearDownModule():
-    snapfix.forget_oracle_sw_dir()
-
-
-def run_script(script, args, env, cwd, stdin=None):
-    """(exit code, stdout bytes, stderr bytes) of `bash <script> <args>`."""
-    r = subprocess.run([bashexe.bash(), str(script), *map(str, args)], cwd=cwd, env=env, input=stdin,
-                       capture_output=True, timeout=120)
+def run_sw(args, env, cwd, stdin=None):
+    """(exit code, stdout bytes, stderr bytes) of `sw <args>`."""
+    r = swcall.run([*map(str, args)], cwd=cwd, env=env, input=stdin, timeout=120, text=False)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -109,76 +97,62 @@ def masked(node, digest, mask="DIGEST"):
     return mask if node == digest else node
 
 
-def said(stderr):
-    """stderr with bash's `<script path>: line N:` prefix cut to the script's name: the path and the line differ by design."""
-    return re.sub(rb"(?m)^.*?([a-z-]+\.sh): line \d+: ", rb"\1: line N: ", stderr)
+PINNED_IDENTITY = oracle_capture.PINNED_IDENTITY  # fixture commits repeat their ids in every run and on every OS (D14)
 
-
-def fixed_prefix(text):
-    """The stable leading part of a free-text line: `line N:`, `merge policy unknown:`, else the text up to and including its
-    first `: `, else None (nothing to compare)."""
-    for pat in (r"line \d+:", r"merge policy unknown:"):
-        m = re.match(pat, text)
-        if m:
-            return m.group()
-    i = text.find(": ")
-    return text[:i + 2] if i >= 0 else None
+said, fixed_prefix = oracle_capture.said, oracle_capture.fixed_prefix  # shared with the capture of the frozen side
 
 
 class ParityAsserts:
+    def assertMatches(self, new, old, **extra):
+        """`new`, a run of sw, equals `old`, the recorded run of the frozen side, once both are normalized the way a record is:
+        the exit status, the stdout document, the number of stderr lines and each line's fixed prefix, the gh calls and the
+        fake-gh state. `extra` is what a record holds beyond that (the requests that reached a server)."""
+        got = oracle_capture.document(self, new, **extra)
+        problem = oracle_capture.compare(self, got, old)
+        if problem:
+            self.fail(f"the run differs from the frozen side's record at {problem}")
+
     def assertParity(self, pair, code=None, prefix=None):
-        """With `prefix`, stderr is free text after that fixed prefix (design D11): each side prints the same number of lines,
-        all starting with it; line endings are Python's text-mode ones on one side and are not compared."""
+        """(sw's run, the record of the frozen run) agree; `code` is the exit status the case names. With `prefix`, every stderr
+        line of the record starts with it."""
         new, old = pair
-        self.assertEqual(parsed(new["stdout"]), parsed(old["stdout"]), "stdout documents differ between the script and the oracle")
-        if prefix is None:
-            self.assertEqual(said(new["stderr"]), said(old["stderr"]), "stderr bytes differ between the script and the oracle")
-        else:
-            lines = [side["stderr"].decode("utf-8", "replace").splitlines() for side in (new, old)]
-            self.assertEqual(len(lines[0]), len(lines[1]), lines)
-            for line in lines[0] + lines[1]:
-                self.assertTrue(line.startswith(prefix), line)
-        self.assertEqual(new["code"], old["code"], "exit codes differ between the script and the oracle")
-        self.assertEqual(new["calls"], old["calls"], "the gh calls differ between the script and the oracle")
-        self.assertEqual(new["state"], old["state"], "the fake gh state differs after the run")
+        self.assertMatches(new, old, **{key: new[key] for key in ("requests",) if key in new})
+        if prefix is not None:
+            for fixed in old["stderr"]["prefixes"]:
+                self.assertTrue(fixed.startswith(prefix), old["stderr"])
         if code is not None:  # the case really ran what it names, not a broken fixture
-            self.assertEqual(old["code"], code, old["stdout"] + old["stderr"])
+            self.assertEqual(old["exit"], code, old)
 
 
 class PrParity(SnapCase, ParityAsserts):
-    """pr-snapshot.sh and pr-reply.sh against their oracle copies."""
+    """`sw pr snapshot` and `sw pr reply` against the records of the frozen scripts."""
 
     def setUp(self):
         super().setUp()
         self.home = vcs_test_support.sw_home()
-        vcs_test_support.stamp_version(self.tmp)  # the shim's project is its current directory
+        vcs_test_support.stamp_version(self.tmp)  # the project is the current directory
 
-    def one(self, script, args, which, login, env, stdin=None):
-        extra = {"SPECWRIGHT_HOME": str(self.home), "SPECWRIGHT_STATE_DIR": str(self.tmp / f"state-{which}"), **(env or {})}
-        if which == "old":
-            extra["ORACLE_SW_DIR"] = oracle_sw_dir()
-        e = self.env(login, **extra)
-        code, out, err = run_script((ORACLE if which == "old" else SCRIPTS) / script, args, e, self.tmp, stdin)
+    def one(self, command, args, login, env, stdin=None):
+        extra = {"SPECWRIGHT_HOME": str(self.home), "SPECWRIGHT_STATE_DIR": str(self.tmp / "state-new"), **(env or {})}
+        code, out, err = run_sw([*command, *args], self.env(login, **extra), self.tmp, stdin)
         return {"code": code, "stdout": out, "stderr": err,
                 "calls": calls_of(self.gh_log, lambda c: temp_names(c["argv"])), "state": self.gh_state.read_bytes()}
 
-    def pair(self, script, *args, login="me", env=None, old_args=None):
-        """(the tree's script, the oracle) on the same fake-gh state: the state is put back before the second run.
-        `old_args` are the oracle's arguments when they differ from the script's (a format 1 reviewer config)."""
+    def pair(self, command, *args, login="me", env=None):
+        """(sw's run, the next recorded run of the frozen side): the fake-gh state is put back after the run."""
         before = self.gh_state.read_bytes()
         calls_of(self.gh_log, lambda c: c)
-        new = self.one(script, args, "new", login, env)
+        new = self.one(command, args, login, env)
         self.gh_state.write_bytes(before)
-        old = self.one(script, args if old_args is None else old_args, "old", login, env)
-        self.gh_state.write_bytes(before)
-        return new, old
+        return new, oracle_capture.recorded(self)[0]
 
     def snapshot_pair(self, *args, **kw):
-        return self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, *args, **kw)
+        return self.pair(SNAPSHOT, self.PR, "--repo", self.SLUG, *args, **kw)
 
     def config_pair(self, *reviewers, name="reviewers.json"):
-        """The same reviewer rules as a format 2 file for the script and a format 1 file for the oracle (design D8): returns
-        (script's path, oracle's path), same file name in two directories."""
+        """The same reviewer rules as a format 2 file for sw and a format 1 file (the frozen evaluator's): returns (sw's path,
+        the frozen side's path), same file name in two directories. The frozen file is not run: its bytes give the digest the
+        record holds."""
         paths = []
         for fmt in (2, 1):
             d = self.tmp / f"cfg-format{fmt}"
@@ -187,17 +161,19 @@ class PrParity(SnapCase, ParityAsserts):
         return tuple(paths)
 
     def reviewer_snapshot_pair(self, new_cfg, old_cfg):
-        """A snapshot of both sides over their own config. Each side's `reviewer_config` must be the SHA-256 of its own bytes;
-        the digests differ by design (format 2 vs 1), so they are masked, and everything else is compared exactly."""
-        new, old = self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, "--reviewer-config", new_cfg,
-                             old_args=(self.PR, "--repo", self.SLUG, "--reviewer-config", old_cfg))
-        if new["code"] == 0 and old["code"] == 0:
-            for side, path in ((new, new_cfg), (old, old_cfg)):
-                digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-                doc = json.loads(side["stdout"])
-                self.assertEqual(doc["reviewer_config"], digest)
-                side["stdout"] = json.dumps(masked(doc, digest)).encode()
-            self.assertNotEqual(hashlib.sha256(Path(new_cfg).read_bytes()).digest(), hashlib.sha256(Path(old_cfg).read_bytes()).digest())
+        """A snapshot over sw's config and the record of the frozen side's over its own. Each side's `reviewer_config` is the
+        SHA-256 of its own bytes; the digests differ by design (format 2 vs 1), so they are masked, and everything else is
+        compared exactly."""
+        new, old = self.pair(SNAPSHOT, self.PR, "--repo", self.SLUG, "--reviewer-config", new_cfg)
+        if new["code"] == 0 and old["exit"] == 0:
+            digest = hashlib.sha256(Path(new_cfg).read_bytes()).hexdigest()
+            doc = json.loads(new["stdout"])
+            self.assertEqual(doc["reviewer_config"], digest)
+            new["stdout"] = json.dumps(masked(doc, digest)).encode()
+            frozen = hashlib.sha256(Path(old_cfg).read_bytes()).hexdigest()
+            self.assertEqual(old["stdout"]["reviewer_config"], frozen, "the record's digest is that of the frozen format-1 file")
+            old["stdout"] = masked(old["stdout"], frozen)
+            self.assertNotEqual(digest, frozen)
         return new, old
 
     def body(self, text="done"):
@@ -206,7 +182,7 @@ class PrParity(SnapCase, ParityAsserts):
         return fixtures.posix(f)
 
     def reply_pair(self, *args, repo=True, **kw):
-        return self.pair("pr-reply.sh", self.PR, *args, *(["--repo", self.SLUG] if repo else []), **kw)
+        return self.pair(REPLY, self.PR, *args, *(["--repo", self.SLUG] if repo else []), **kw)
 
     def rev_of(self, c):
         return f"{c['databaseId']}@{c['lastEditedAt'] or c['createdAt']}"
@@ -250,25 +226,25 @@ class SnapshotParity(PrParity):
         self.mutate(many)
         new, old = self.snapshot_pair()
         self.assertParity((new, old), 0)
-        self.assertFalse(json.loads(old["stdout"])["complete"], "the list must really be cut off")
+        self.assertFalse(old["stdout"]["complete"], "the list must really be cut off")
 
     def test_snapshot_logs_and_a_pr_url(self):
         self.rich()
         url = f"https://github.com/{self.SLUG}/pull/{self.PR}"
-        self.assertParity(self.pair("pr-snapshot.sh", url, "--logs"), 0)
+        self.assertParity(self.pair(SNAPSHOT, url, "--logs"), 0)
 
     def test_snapshot_refusals_exit_2_alike(self):
         for args in (["--reviewer", "a:b:3"], ["--bogus"], ["--until", "quiet"], ["--interval", "0"]):
             with self.subTest(args=args):
                 # sw's option rule words the parser's own refusals (an unknown option) its own way: the stop and the exit
                 # status are compared, and every stderr line starts with the script's prefix
-                self.assertParity(self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, *args), 2, prefix="pr-snapshot: ")
+                self.assertParity(self.pair(SNAPSHOT, self.PR, "--repo", self.SLUG, *args), 2, prefix="pr-snapshot: ")
 
     def test_snapshot_full_without_a_node_id_is_a_usage_stop_in_sw(self):
         """An asserted difference (native-cli-library-foundations): the script died on `${2:?}` with exit 1; sw's one option rule
         stops an option with no value as a usage error, exit 2, before any gh call."""
-        new, old = self.pair("pr-snapshot.sh", self.PR, "--repo", self.SLUG, "--full")
-        self.assertEqual(old["code"], 1, old)
+        new, old = self.pair(SNAPSHOT, self.PR, "--repo", self.SLUG, "--full")
+        self.assertEqual(old["exit"], 1, old)
         self.assertEqual(new["code"], 2, new)
         self.assertEqual(new["stdout"], b"")
         self.assertEqual(new["calls"], [])
@@ -277,7 +253,7 @@ class SnapshotParity(PrParity):
         self.mutate(lambda st: st.update({"fail": [{"match": "graphql", "exit": 1, "stderr": "boom"}]}))
         new, old = self.snapshot_pair()
         self.assertParity((new, old))
-        self.assertNotEqual(old["code"], 0)
+        self.assertNotEqual(old["exit"], 0)
 
     def test_full_for_each_kind(self):
         tid, c = self.add_thread("rev", "thread body <!-- c --> and more")
@@ -285,18 +261,18 @@ class SnapshotParity(PrParity):
         rv = self.add_review("rev", "review body", state="COMMENTED")
         for kind, node in (("thread_comment", c["id"]), ("comment", ic["node_id"]), ("review", rv["id"])):
             with self.subTest(kind=kind):
-                new, old = self.pair("pr-snapshot.sh", "--full", node, "--repo", self.SLUG)
+                new, old = self.pair(SNAPSHOT, "--full", node, "--repo", self.SLUG)
                 self.assertParity((new, old), 0)
-                self.assertEqual(json.loads(old["stdout"])["kind"], kind)
+                self.assertEqual(old["stdout"]["kind"], kind)
 
     def test_full_not_found(self):
-        new, old = self.pair("pr-snapshot.sh", "--full", "MDNot_Found_1=", "--repo", self.SLUG)
+        new, old = self.pair(SNAPSHOT, "--full", "MDNot_Found_1=", "--repo", self.SLUG)
         self.assertParity((new, old), 1)
-        self.assertIn("not_found", old["stdout"].decode("utf-8"))
+        self.assertIn("not_found", json.dumps(old["stdout"]))
 
     def test_full_unreadable_exits_3(self):
         self.mutate(lambda st: st.update({"fail": [{"match": "node\\(id", "exit": 1, "stderr": "boom"}]}))
-        self.assertParity(self.pair("pr-snapshot.sh", "--full", "MDNode1=", "--repo", self.SLUG), 3)
+        self.assertParity(self.pair(SNAPSHOT, "--full", "MDNode1=", "--repo", self.SLUG), 3)
 
     def test_reviewer_config_snapshot(self):
         self.add_activity("a" * 40, T0)
@@ -306,7 +282,7 @@ class SnapshotParity(PrParity):
         new_cfg, old_cfg = self.config_pair(rev("genrev"), rev("slowbot", timeout=60), rev("silent", role="advisory", timeout=20))
         new, old = self.reviewer_snapshot_pair(new_cfg, old_cfg)
         self.assertParity((new, old), 0)
-        self.assertEqual(len(json.loads(old["stdout"])["reviewers"]), 3, "the evaluator really ran")
+        self.assertEqual(len(old["stdout"]["reviewers"]), 3, "the evaluator really ran")
 
     def test_bad_reviewer_config_exits_2_before_gh(self):
         bad = self.tmp / "bad.json"
@@ -319,15 +295,12 @@ class SnapshotParity(PrParity):
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs Linux")
     def test_config_name_with_a_non_utf8_byte_is_refused(self):
-        # Strict handoff (D4): the script refuses a --reviewer-config path that is not UTF-8 by name, before any gh call;
-        # the oracle opened it by its bytes.
+        # Direct entry (task 6.4): the runtime refuses an argument that is not UTF-8 before `main` (exit non-zero, empty stdout)
+        # and nothing is run, so no gh call is made.
         good, _ = self.config_pair(rev("genrev"), name=os.fsdecode(b"reviewers-\xff.json"))
-        new = self.one("pr-snapshot.sh", (self.PR, "--repo", self.SLUG, "--reviewer-config", good), "new", "me", None)
-        self.assertEqual(new["code"], 2, new)
+        new = self.one(SNAPSHOT, (self.PR, "--repo", self.SLUG, "--reviewer-config", good), "me", None)
+        self.assertNotEqual(new["code"], 0, new)
         self.assertEqual(new["stdout"], b"")
-        self.assertTrue(new["stderr"].startswith(b"pr-snapshot.sh: "), new["stderr"])
-        self.assertIn(b"not valid UTF-8", new["stderr"])
-        self.assertIn(b"reviewers-\\xFF.json", new["stderr"])
         self.assertEqual(new["calls"], [], "no gh call before the refusal")
 
 
@@ -395,57 +368,8 @@ class ReplyParity(PrParity):
         self.assertParity(self.reply_pair("thread", tid, c["databaseId"], self.body(), "--resolve"), 1)
 
 
-class WatcherTakeover(PrParity):
-    """C6: the claim directory is shared, so a newer watcher of one implementation ends an older one of the other."""
-
-    def setUp(self):
-        super().setUp()
-        sleep = self.tmp / "bin" / "sleep"
-        sleep.write_text(f'#!/bin/sh\nexec "{fixtures.posix(sys.executable)}" -c "import time; time.sleep(0.3)"\n',
-                         encoding="utf-8", newline="\n")
-        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
-        fakeexe.add_launcher(sleep)  # for the oracle script only: sw sleeps in its own process and never starts it (D8)
-        self.procs = []
-        self.addCleanup(self._reap)
-
-    def _reap(self):
-        for p in self.procs:
-            if p.poll() is None:
-                p.kill()
-            p.communicate()
-
-    def start(self, which, timeout):
-        script = (ORACLE if which == "old" else SCRIPTS) / "pr-snapshot.sh"
-        env = self.env(SPECWRIGHT_HOME=str(self.home), SPECWRIGHT_STATE_DIR=str(self.state_dir),
-                       **({"ORACLE_SW_DIR": oracle_sw_dir()} if which == "old" else {}))
-        p = subprocess.Popen([bashexe.bash(), str(script), str(self.PR), "--repo", self.SLUG, "--wait", "--interval", "1",
-                              "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                             encoding="utf-8", env=env, cwd=self.tmp)
-        self.procs.append(p)
-        return p
-
-    def until(self, cond, what):
-        end = time.time() + 60
-        while time.time() < end:
-            if cond():
-                return
-            time.sleep(0.05)
-        self.fail(f"timed out waiting for {what}")
-
-    def test_shim_watcher_takes_over_oracle_watcher(self):
-        a = self.start("old", 60)
-        self.until(lambda: self.gh_log.exists() and self.gh_log.stat().st_size > 0, "the oracle watcher's first snapshot")
-        b = self.start("new", 3)
-        out_a, err_a = a.communicate(timeout=90)
-        self.assertEqual(a.returncode, 4, err_a)
-        self.assertIn("took over", err_a)
-        out_b, err_b = b.communicate(timeout=90)
-        self.assertEqual(b.returncode, 0, err_b)
-        self.assertEqual(json.loads(out_b.strip().splitlines()[-1])["wake"], "timeout")
-
-
 class AsParity(tas.AsShCase, ParityAsserts):
-    """as.sh against its oracle copy, in a repo whose origin is github.com."""
+    """`sw as` against the records of the frozen script, in a repo whose origin is github.com."""
 
     def setUp(self):
         super().setUp()
@@ -455,27 +379,26 @@ class AsParity(tas.AsShCase, ParityAsserts):
         self.git(self.work, "config", "http.proxy", self.base.rstrip("/"))
         vcs_test_support.stamp_version(self.work)
 
-    def pair(self, *args, cwd=None, env=None, stdin=None, mask=None):
-        """(as.sh, oracle) in `cwd` (the work repo): a dict per run. `mask` is a text replaced by *** in stdout and stderr."""
-        out = []
+    def pair(self, *args, cwd=None, env=None, stdin=None, mask=None, dump_env=False):
+        """(sw's run in `cwd`, the next recorded run of the frozen side). `mask` is a text replaced by *** in stdout and stderr.
+        `dump_env`: stdout is an environment dump; a record keeps the fence's own variables only (oracle_capture.env_lines)."""
+        e = self.env()
+        e.update({"SPECWRIGHT_HOME": str(self.home), **(env or {})})
+        tas.Recorder.seen = []
+        calls_of(self.tmp / "gh-log.jsonl", lambda c: c)
         before = (self.tmp / "gh-state.json").read_bytes()
-        for which in ("new", "old"):
-            e = self.env()
-            e.update({"SPECWRIGHT_HOME": str(self.home), **(env or {})})
-            if which == "old":
-                e["ORACLE_SW_DIR"] = oracle_sw_dir()
-            Recorder = tas.Recorder
-            Recorder.seen = []
-            calls_of(self.tmp / "gh-log.jsonl", lambda c: c)
-            code, so, se = run_script((ORACLE if which == "old" else SCRIPTS) / "as.sh", args, e, cwd or self.work, stdin)
-            if mask:
-                so, se = so.replace(mask.encode(), b"***"), se.replace(mask.encode(), b"***")
-            out.append({"code": code, "stdout": so, "stderr": se, "state": (self.tmp / "gh-state.json").read_bytes(),
-                        "calls": calls_of(self.tmp / "gh-log.jsonl", lambda c: (temp_names(c["argv"]), c["env"])),
-                        "requests": list(Recorder.seen)})
-        self.assertEqual(out[0]["requests"], out[1]["requests"], "the requests that reached the server differ")
-        self.assertEqual(before, out[0]["state"])
-        return out[0], out[1]
+        code, so, se = run_sw(["as", *args], e, cwd or self.work, stdin)
+        if mask:
+            so, se = so.replace(mask.encode(), b"***"), se.replace(mask.encode(), b"***")
+        new = {"code": code, "stdout": so, "stderr": se, "state": (self.tmp / "gh-state.json").read_bytes(),
+               "calls": calls_of(self.tmp / "gh-log.jsonl", lambda c: (temp_names(c["argv"]), c["env"])),
+               "requests": list(tas.Recorder.seen)}
+        if dump_env:
+            new["dump"] = so
+            new["stdout"] = oracle_capture.env_lines(so)
+        old = oracle_capture.recorded(self)[0]
+        self.assertEqual(before, new["state"])
+        return new, old
 
     def test_resolve(self):
         self.assertParity(self.pair("--resolve"), 0)
@@ -536,7 +459,7 @@ class AsParity(tas.AsShCase, ParityAsserts):
                     self.git(work, *step)
                 new, old = self.pair("sh1ny", *command, cwd=work, mask=SECRET)
                 self.assertParity((new, old), 3)
-                self.assertIn(b"refusing", old["stderr"])
+                self.assertIn(b"refusing", new["stderr"])
 
     def test_a_lookalike_host_and_the_credential_helper(self):
         self.git(self.work, "remote", "set-url", "origin", f"https://u:{SECRET}@github.com.example.org/o/r.git")
@@ -551,38 +474,35 @@ class AsParity(tas.AsShCase, ParityAsserts):
                "GIT_CONFIG_VALUE_0": "y"}
         self.git(self.work, "config", f"http.{self.base}.extraheader", "X-A: 1")
         self.git(self.work, "config", f"http.https://example.com/.extraheader", "X-B: 2")
-        new, old = self.pair("sh1ny", "env", env=env, mask="tok-s")
-        # the oracle alone is told where its helpers are, through this variable
-        old = dict(old, stdout=b"".join(l for l in old["stdout"].splitlines(True) if not l.startswith(b"ORACLE_SW_DIR=")))
-        # the order of an environment dump follows how each program built the block, not what it holds: compare the sets
-        # (a Windows environment has one variable for NO_PROXY and no_proxy, which the fixture sets both: the two programs keep a different spelling)
-        # (on Windows the command is started by sw, not by the shim's bash, and a Git for Windows program started by a non-MSYS parent
-        # sets `PWD` itself, in the MSYS form: sw leaves `PWD` out, as the script did, and does not compare the one the program makes)
-        skipped = (b"no_proxy", b"pwd") if os.name == "nt" else (b"no_proxy",)
-        dump = lambda out: sorted(l for l in out.splitlines() if l.split(b"=", 1)[0].lower() not in skipped)
+        new, old = self.pair("sh1ny", "env", env=env, mask="tok-s", dump_env=True)
+        # the record keeps only the variables the fence sets or keeps (`AS_SH_*`, `GH_*`, `GIT_*`), sorted: the order of a dump
+        # follows how each program built the block, and the machine's own variables are not the fence's
         self.maxDiff = None
-        self.assertEqual(set(dump(new["stdout"])) ^ set(dump(old["stdout"])), set())
-        self.assertParity((dict(new, stdout=b""), dict(old, stdout=b"")), 0)
-        self.assertNotIn(b"tok-s", new["stdout"] + new["stderr"])
-        names = {l.split(b"=", 1)[0] for l in old["stdout"].splitlines()}
-        for v in (b"GIT_CONFIG_COUNT", b"AS_SH_ORIG_SET", b"AS_SH_ORIG_GH_HOST", b"GIT_SSH_COMMAND"):
+        self.assertParity((new, old), 0)
+        self.assertNotIn(b"tok-s", new["dump"] + new["stderr"])
+        names = {l.split("=", 1)[0] for l in old["stdout"].splitlines()}
+        for v in ("GIT_CONFIG_COUNT", "AS_SH_ORIG_SET", "AS_SH_ORIG_GH_HOST", "GIT_SSH_COMMAND"):
             self.assertIn(v, names)
-        self.assertNotIn(b"GH_HOST", names)
+        self.assertNotIn("GH_HOST", names)
 
     def test_nested_fence_keeps_the_outer_originals(self):
         env = {"GH_HOST": "corp.example"}
-        new, old = self.pair("sh1ny", "bash", str(SCRIPTS / "as.sh"), "sh1ny", "bash", "-c",
+        # the inner fence is a second `sw as` the outer one runs
+        new, old = self.pair("sh1ny", swharness.require_sw(), "as", "sh1ny", "bash", "-c",
                              'printf "%s|%s|%s" "$AS_SH_ORIG_GH_HOST" "${GH_HOST-unset}" "$AS_SH_ORIG_SET"', env=env)
-        self.assertEqual(parsed(new["stdout"]), parsed(old["stdout"]))
-        self.assertEqual(new["code"], old["code"])
+        got = oracle_capture.document(self, new)
+        self.assertEqual(got["stdout"], old["stdout"])
+        self.assertEqual(new["code"], old["exit"])
 
     def test_the_command_exit_status_and_stdout_pass_through(self):
         self.assertParity(self.pair("sh1ny", "bash", "-c", 'printf %s "$1"; exit 7', "x", 'a "b" $c'), 7)
         # native-cli-launcher D3: the fence finds the command itself, so the name is bash's `exec` text no more
-        pair = self.pair("sh1ny", "no-such-tool")
-        self.assertEqual((pair[0]["code"], pair[1]["code"]), (127, 127))
-        self.assertEqual((pair[0]["stdout"], pair[0]["calls"]), (pair[1]["stdout"], pair[1]["calls"]))
-        self.assertEqual(pair[0]["stderr"].decode("utf-8").strip(), "as.sh: no-such-tool: command not found")
+        new, old = self.pair("sh1ny", "no-such-tool")
+        self.assertEqual((new["code"], old["exit"]), (127, 127))
+        got = oracle_capture.document(self, new)
+        self.assertEqual((got["stdout"], got["calls"]), (old["stdout"], old["calls"]))
+        self.assertEqual(got["stderr"], old["stderr"])
+        self.assertTrue(new["stderr"].decode("utf-8").strip().endswith("no-such-tool: command not found"), new["stderr"])
 
 
 CONFIG_PATH = re.compile(r"[/\\]reviewers[/\\]([0-9a-f]{64})\.json$")
@@ -601,7 +521,7 @@ class PairParity(PrParity):
 
     def setUp(self):
         super().setUp()
-        self.git_env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        self.git_env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", **PINNED_IDENTITY}
 
     # ---- fixtures ----------------------------------------------------------------------------------------
     def repo(self, name, origin="https://github.com/o/n.git", settings=None, push=()):
@@ -643,24 +563,18 @@ class PairParity(PrParity):
         return fixtures.posix(f)
 
     # ---- running ----------------------------------------------------------------------------------------
-    def side(self, which, args, cwd):
-        extra = {"SPECWRIGHT_HOME": str(self.home), "SPECWRIGHT_STATE_DIR": str(self.tmp / f"state-{which}"),
-                 "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-        if which == "old":
-            extra["ORACLE_SW_DIR"] = oracle_sw_dir()
-        e = self.env("me", **extra)
-        code, out, err = run_script((ORACLE if which == "old" else SCRIPTS) / "pr-pair.sh", args(which) if callable(args) else args,
-                                    e, cwd or self.tmp)
+    def side(self, args, cwd):
+        """sw's run of `pr <args>` (`args` may be a function of the side, "new", when a snapshot file belongs to it)."""
+        e = self.env("me", SPECWRIGHT_HOME=str(self.home), SPECWRIGHT_STATE_DIR=str(self.tmp / "state-new"),
+                     GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        code, out, err = run_sw(["pr", *(args("new") if callable(args) else args)], e, cwd or self.tmp)
         return {"code": code, "stdout": out, "stderr": err, "calls": calls_of(self.gh_log, lambda c: temp_names(c["argv"])),
                 "state": self.gh_state.read_bytes()}
 
-    def normal(self, side):
-        """(the side's JSON document, its `message` or None). In the document a reviewer-config path is replaced by the file's
-        rules and a `settings_problem` by its fixed prefix (`line N:`, else the text up to its first `: `)."""
-        lines = side["stdout"].decode("utf-8").strip().splitlines()
-        self.assertEqual(len(lines), 1, side)
-        doc = json.loads(lines[0])
-
+    def shape(self, doc, files):
+        """`doc` with `message` left out, a `settings_problem` cut to its fixed prefix (`line N:`, else the text up to its first
+        `: `) and a reviewer-config path replaced by a stand-in for the file's rules. With `files`, the path is sw's own and is read:
+        its name is the SHA-256 of its bytes and it holds a `format` and the rules; a record has the path alone."""
         def walk(node):
             if isinstance(node, dict):
                 return {k: (fixed_prefix(v) or v if k == "settings_problem" and isinstance(v, str) else walk(v))
@@ -670,46 +584,55 @@ class PairParity(PrParity):
             if isinstance(node, str):
                 m = CONFIG_PATH.search(node)
                 if m:
-                    raw = Path(node).read_bytes()
-                    self.assertEqual(hashlib.sha256(raw).hexdigest(), m.group(1), "the name is the digest of the bytes")
-                    rules = json.loads(raw.decode("utf-8"))
-                    rules.pop("format")
-                    return {"config": rules}
+                    if files:
+                        raw = Path(node).read_bytes()
+                        self.assertEqual(hashlib.sha256(raw).hexdigest(), m.group(1), "the name is the digest of the bytes")
+                        rules = json.loads(raw.decode("utf-8"))
+                        self.assertEqual(rules.pop("format"), 2)
+                        self.assertIsInstance(rules["reviewers"], list)
+                    return {"config": "<rules>"}
             return node
-        return walk(doc), doc.get("message")
+        return walk(doc)
+
+    def normal(self, side):
+        """(sw's JSON document, normalized the way `shape` says, its `message` or None)."""
+        lines = side["stdout"].decode("utf-8").strip().splitlines()
+        self.assertEqual(len(lines), 1, side)
+        doc = json.loads(lines[0])
+        return self.shape(doc, True), doc.get("message")
 
     def run_pair(self, *args, cwd=None, code=None):
-        """(the tree's script, the oracle) in `cwd`; asserts they agree and returns the new side's normalized document.
-        `args` may be a function of the side ("new" | "old") when a snapshot file differs between them. Free text is compared
-        by its fixed prefix (spec: pr-script-runtime): `message`, every stderr line, and `settings_problem` (see normal)."""
+        """sw's run in `cwd` equals the next recorded run of the frozen side; returns sw's normalized document. `args` may be a
+        function of the side when a snapshot file belongs to it. Free text is compared by its fixed prefix (spec:
+        pr-script-runtime): `message`, every stderr line, and `settings_problem` (see shape)."""
         before = self.gh_state.read_bytes()
         calls_of(self.gh_log, lambda c: c)
-        sides = []
-        for which in ("new", "old"):
-            sides.append(self.side(which, args[0] if len(args) == 1 and callable(args[0]) else args, cwd))
-            self.gh_state.write_bytes(before)
-        new, old = sides
-        self.assertEqual(new["code"], old["code"], f"exit codes differ\n{new}\n{old}")
-        (new_doc, new_msg), (old_doc, old_msg) = self.normal(new), self.normal(old)
+        new = self.side(args[0] if len(args) == 1 and callable(args[0]) else args, cwd)
+        self.gh_state.write_bytes(before)
+        old = oracle_capture.recorded(self)[0]
+        self.assertEqual(new["code"], old["exit"], f"exit codes differ\n{new}\n{old}")
+        paths, canon = oracle_capture.Paths(self), oracle_capture.canon
+        new_doc, new_msg = self.normal(new)
+        old_doc, old_msg = self.shape(old["stdout"], False), old["stdout"].get("message")
         self.last_message = new_msg
-        self.assertEqual(new_doc, old_doc, "JSON differs between the script and the oracle")
+        self.assertEqual(canon(paths.node(new_doc)), canon(old_doc), "JSON differs between sw and the record")
         self.assertEqual(new_msg is None, old_msg is None, f"`message` is on one side only\n{new_msg!r}\n{old_msg!r}")
         if old_msg is not None and fixed_prefix(old_msg):
-            self.assertTrue(new_msg.startswith(fixed_prefix(old_msg)), f"message prefix differs: {new_msg!r} vs {old_msg!r}")
-        self.assertEqual(new["calls"], old["calls"], "the gh calls differ")
-        self.assertEqual(new["state"], old["state"], "the fake gh state differs")
-        err_new, err_old = (side["stderr"].decode("utf-8", "replace").splitlines() for side in (new, old))
-        self.assertEqual(len(err_new), len(err_old), f"stderr lines differ\n{err_new}\n{err_old}")
-        for n, o in zip(err_new, err_old):
-            self.assertTrue(n.startswith(fixed_prefix(o) or ""), f"stderr prefix differs: {n!r} vs {o!r}")
+            self.assertTrue(canon(paths.text(new_msg)).startswith(canon(fixed_prefix(old_msg))), f"message prefix differs: {new_msg!r} vs {old_msg!r}")
+        got = oracle_capture.document(self, new)
+        for key in ("calls", "state"):
+            self.assertEqual(canon(got[key]), canon(old[key]), f"the {key} differ")
+        self.assertEqual(got["stderr"]["lines"], old["stderr"]["lines"], f"stderr lines differ\n{new['stderr']}\n{old['stderr']}")
+        for line, fixed in zip(said(new["stderr"]).decode("utf-8", "replace").splitlines(), old["stderr"]["prefixes"]):
+            self.assertTrue(canon(paths.text(line)).startswith(canon(fixed)), f"stderr prefix differs: {line!r} vs {fixed!r}")
         if code is not None:
-            self.assertEqual(old["code"], code, old["stdout"] + old["stderr"])
+            self.assertEqual(old["exit"], code, old)
         return new_doc
 
     def new_side(self, args, cwd=None):
-        """The shim's answer alone, for a case whose outcome differs from the oracle's by design: (exit code, its document, the
+        """sw's answer alone, for a case whose outcome differs from the frozen side's by design: (exit code, its document, the
         raw side)."""
-        side = self.side("new", args, cwd)
+        side = self.side(args, cwd)
         lines = side["stdout"].decode("utf-8").strip().splitlines()
         return side["code"], (json.loads(lines[0]) if len(lines) == 1 else None), side
 
@@ -726,24 +649,6 @@ class PairParity(PrParity):
         for d, code in cases:
             with self.subTest(d=d):
                 self.run_pair("identity", d, code=code)
-
-    @unittest.skipUnless(sys.platform == "win32", "platform: a Git Bash path form exists only on Windows")
-    def test_git_bash_paths_read_the_same_repo(self):
-        """A shim hands its arguments over stdin, so no MSYS conversion happens on the way: sw converts them itself."""
-        def msys(path):
-            return subprocess.run([bashexe.bash(), "-c", 'cygpath -u "$1"', "_", path], capture_output=True, text=True, check=True).stdout.strip()
-        code = self.repo("code", settings="vcs: jj\nfinish: pr\ngithub:\n  login: me\n")
-        store = self.repo("store", "https://github.com/o/plans.git", settings="planning_store:\n  login: bob\n")
-        m_code, m_store = msys(code), msys(store)
-        self.assertTrue(m_code.startswith("/"), m_code)
-        self.run_pair("identity", m_code, code=0)
-        self.assertEqual(self.run_pair("vcs", "--code", m_code, code=0)["code"], "jj")
-        self.run_pair("tier", "--code", m_code, code=0)
-        self.run_pair("context", "--code", m_code, "--store", m_store, code=0)
-        self.contents("main", self.AGENT)
-        self.contents(self.HEAD, self.AGENT)
-        self.run_pair(lambda which: ["policy", "--repo", self.SLUG, "--head", self.HEAD,
-                                     "--snapshot", "code=" + msys(self.reviewed(which, "rev"))], code=0)
 
     def test_identity_usage_exits_2(self):
         self.run_pair("identity", code=2)
@@ -767,15 +672,14 @@ class PairParity(PrParity):
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a directory name that is not UTF-8 needs Linux")
     def test_checkout_under_a_non_utf8_directory_is_not_utf8(self):
-        # Strict handoff (D4): the script refuses a path that is not UTF-8 by name; the oracle kept the bytes.
+        # Direct entry (task 6.4): the runtime refuses an argument that is not UTF-8 before `main` (exit non-zero, empty stdout)
+        # and nothing is run, so no gh call is made.
         code = self.repo(os.fsdecode(b"co-\xff"), settings="vcs: jj\nfinish: pr\ngithub:\n  login: me\n")
         for sub in ("vcs", "tier"):
             with self.subTest(sub=sub):
-                new = self.side("new", (sub, "--code", code), None)
-                self.assertEqual(new["code"], 1, new)
-                doc = json.loads(new["stdout"])
-                self.assertEqual((doc["ok"], doc["error"]), (False, "not_utf8"), doc)
-                self.assertIn("co-\\xFF", doc["message"])
+                new = self.side((sub, "--code", code), None)
+                self.assertNotEqual(new["code"], 0, new)
+                self.assertEqual(new["stdout"], b"")
                 self.assertEqual(new["calls"], [], "no gh call before the refusal")
 
     def test_vcs_and_tier_usage_exit_2(self):
@@ -798,8 +702,8 @@ class PairParity(PrParity):
         D5's `bad_setting`, exit 2 in the shim: test_refused_settings_are_a_listed_difference); an absent section is no stop."""
         for i, text in enumerate(("pr: oops\n", "pr: 5\n", "pr: true\n", "pr: [a]\n", "github: oops\n", "github:\n  review_request: oops\n")):
             code = self.repo(f"bad{i}", settings=text)
-            self.assertEqual(self.side("old", ["context", "--code", code], None)["code"], 1, text)
-            new = self.side("new", ["context", "--code", code], None)
+            self.assertEqual(oracle_capture.recorded(self)[0]["exit"], 1, text)
+            new = self.side(["context", "--code", code], None)
             self.assertEqual(new["code"], 2, text)
             self.assertEqual(json.loads(new["stdout"])["error"], "bad_setting", text)
         for i, text in enumerate(("planning_store: oops\n", "pr:\ngithub:\n")):
@@ -915,9 +819,9 @@ class PairParity(PrParity):
         status, doc, raw = self.new_side(["context", "--code", code])
         self.assertEqual((status, doc["ok"], doc["error"]), (2, False, "bad_setting"), raw)
         self.assertIn("line 7", doc["message"])
-        old = self.side("old", ["context", "--code", code], None)
-        self.assertEqual(old["code"], 0)
-        self.assertRegex(old["stdout"].decode("utf-8"), r'"settings_problem": ?"line 7:')
+        old = oracle_capture.recorded(self)[0]
+        self.assertEqual(old["exit"], 0)
+        self.assertTrue(old["stdout"]["settings_problem"].startswith("line 7:"), old["stdout"])
 
     def test_refused_settings_are_a_listed_difference(self):
         """Settings the one reader refuses, or reads as YAML where the oracle skipped or misread them, are listed differences
@@ -937,9 +841,9 @@ class PairParity(PrParity):
         for i, (sub, text, old_code, new_code, error) in enumerate(listed):
             with self.subTest(sub=sub, settings=text):
                 code = self.repo(f"listed{i}", settings=text)
-                old = self.side("old", [sub, "--code", code], None)
+                old = oracle_capture.recorded(self)[0]
                 status, doc, raw = self.new_side([sub, "--code", code])
-                self.assertEqual((old["code"], status), (old_code, new_code), (old["stdout"], raw))
+                self.assertEqual((old["exit"], status), (old_code, new_code), (old["stdout"], raw))
                 if error:
                     self.assertEqual(doc["error"], error, raw)
         status, doc, raw = self.new_side(["tier", "--code", self.repo("listed-tier", settings="cheap_tier:\n  enabled: yes\n")])
@@ -952,9 +856,9 @@ class PairParity(PrParity):
             with self.subTest(i=i, main=main, head=head):
                 self.contents("main", main)
                 self.contents(self.HEAD, head)
-                old = self.side("old", self.policy_args()("old"), None)
+                old = oracle_capture.recorded(self)[0]
                 status, doc, raw = self.new_side(self.policy_args()("new"))
-                self.assertEqual((old["code"], status), (old_code, new_code), (old["stdout"], raw))
+                self.assertEqual((old["exit"], status), (old_code, new_code), (old["stdout"], raw))
 
     def test_policy_bad_base64_keeps_lookup_failed(self):
         self.contents(self.HEAD, self.AGENT)
@@ -1071,19 +975,19 @@ class ReviewersParity(unittest.TestCase):
     def config_for(self, fmt, *reviewers):
         return {"format": fmt, "reviewers": list(reviewers)}
 
-    def run_side(self, which, args):
-        cmd = [self.sw, "pr", "reviewers", *args] if which == "new" else [sys.executable, "-I", "-X", "utf8", str(ORACLE / "reviewers.py"), *args]
-        r = subprocess.run(cmd, capture_output=True, cwd=self.tmp, timeout=60, env=swharness.fixture_env())
-        return {"code": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "doc": parsed(r.stdout)}
+    def run_side(self, args):
+        r = subprocess.run([self.sw, "pr", "reviewers", *args], capture_output=True, cwd=self.tmp, timeout=60, env=swharness.fixture_env())
+        doc = parsed(r.stdout)
+        return {"code": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "doc": doc.decode("utf-8", "replace") if isinstance(doc, bytes) else doc}
 
     def pair(self, cfg=None, material=None, head=None, code=None, extra=(), raw_config=None, check=False, crash=False,
              refused=False):
-        """Run both sides. `cfg` is a function of the format (1 for the oracle, 2 for sw) giving the config document, or
-        `raw_config` a text both read as is. `check` runs --check-config instead of an evaluation. `refused` is the NaN
-        difference: sw refuses the material (exit 1, no stdout, one `reviewers.py: <material>: ` line) where the oracle's
+        """Run sw and read the record of the frozen run. `cfg` is a function of the format (1 for the frozen evaluator's file,
+        2 for sw's) giving the config document, or `raw_config` a text both files hold as is; the frozen file is written but not
+        run, its digest is the one the record holds. `check` runs --check-config instead of an evaluation. `refused` is the NaN
+        difference: sw refuses the material (exit 1, no stdout, one `reviewers.py: <material>: ` line) where the frozen
         json.loads reads it (exit 0, or 1 when it then crashes: `crash`)."""
-        out = []
-        digests = []
+        digests = {}
         for which, fmt in (("new", 2), ("old", 1)):
             d = self.tmp / which
             args = []
@@ -1101,34 +1005,37 @@ class ReviewersParity(unittest.TestCase):
                     args += ["--material", str(self.write("mat.json", material, d) if not isinstance(material, Path) else material)]
                 args += ["--head", head or tr.HEAD]
             args += list(extra)
-            res = self.run_side(which, args)
             if cfg_path is not None and cfg_path.exists():
-                digest = hashlib.sha256(cfg_path.read_bytes()).hexdigest().encode()
-                res["doc"] = masked(res["doc"], digest.decode())
-                digests.append(digest)
-            out.append(res)
-        new, old = out
+                digests[which] = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
+            if which == "new":
+                new = self.run_side(args)
+        if "new" in digests:
+            new["doc"] = masked(new["doc"], digests["new"])
+        old = oracle_capture.recorded(self)[0]
+        if "old" in digests:
+            old["stdout"] = masked(old["stdout"], digests["old"])
         if refused:
-            self.assertEqual(old["code"], 1 if crash else 0, old)
+            self.assertEqual(old["exit"], 1 if crash else 0, old)
             self.assertEqual(new["code"], 1, new)
             self.assertEqual(new["stdout"], b"")
             lines = new["stderr"].decode("utf-8", "replace").splitlines()
             self.assertEqual(len(lines), 1, lines)
             self.assertTrue(lines[0].startswith(self.PREFIX + str(self.tmp / "new" / "mat.json") + ": "), lines)
             return new
-        self.assertEqual(new["code"], old["code"], f"exit codes differ\n{new}\n{old}")
-        self.assertEqual(new["doc"], old["doc"], "stdout documents differ between sw and the oracle")
-        lines = [s["stderr"].decode("utf-8", "replace").splitlines() for s in out]
-        if crash:  # the oracle dies on an uncaught exception (a Python defect, exit 1 all the same); sw states it in one line
-            self.assertIn("Traceback", old["stderr"].decode("utf-8", "replace"))
-            self.assertEqual(len(lines[0]), 1, lines[0])
-            self.assertTrue(lines[0][0].startswith(self.PREFIX), lines[0])
+        self.assertEqual(new["code"], old["exit"], f"exit codes differ\n{new}\n{old}")
+        self.assertEqual(oracle_capture.canon(oracle_capture.Paths(self).node(new["doc"])), oracle_capture.canon(old["stdout"]),
+                         "stdout documents differ between sw and the record")
+        lines = new["stderr"].decode("utf-8", "replace").splitlines()
+        if crash:  # the frozen evaluator dies on an uncaught exception (a Python defect, exit 1 all the same); sw states it in one line
+            self.assertGreater(old["stderr"]["lines"], 1, old["stderr"])
+            self.assertEqual(len(lines), 1, lines)
+            self.assertTrue(lines[0].startswith(self.PREFIX), lines[0])
         else:
-            self.assertEqual(len(lines[0]), len(lines[1]), lines)
-            for line in lines[0] + lines[1]:
+            self.assertEqual(len(lines), old["stderr"]["lines"], lines)
+            for line in lines + old["stderr"]["prefixes"]:
                 self.assertTrue(line.startswith(self.PREFIX), line)
         if code is not None:
-            self.assertEqual(old["code"], code, old["stdout"] + old["stderr"])
+            self.assertEqual(old["exit"], code, old)
         if code == 0 and not check and cfg is not None:
             self.assertIn("DIGEST", json.dumps(new["doc"]), "the digest was masked")
         return new
@@ -1155,14 +1062,12 @@ class ReviewersParity(unittest.TestCase):
     def test_abbreviated_option_is_a_usage_stop_in_sw(self):
         """The oracle reads `--mat` as `--material`; sw has no abbreviations: exit 2, one usage line, no document (the
         material is readable, so reading it would have exited 0)."""
-        res = {}
-        for which in ("new", "old"):
-            mat = self.write("mat.json", tr.material({}), self.tmp / which)
-            res[which] = self.run_side(which, ["--mat", str(mat), "--head", tr.HEAD])
-        self.assertEqual(res["old"]["code"], 0, res["old"])
-        self.assertEqual(res["new"]["code"], 2, res["new"])
-        self.assertEqual(res["new"]["stdout"], b"")
-        lines = res["new"]["stderr"].decode("utf-8", "replace").splitlines()
+        mat = self.write("mat.json", tr.material({}), self.tmp / "new")
+        new, old = self.run_side(["--mat", str(mat), "--head", tr.HEAD]), oracle_capture.recorded(self)[0]
+        self.assertEqual(old["exit"], 0, old)
+        self.assertEqual(new["code"], 2, new)
+        self.assertEqual(new["stdout"], b"")
+        lines = new["stderr"].decode("utf-8", "replace").splitlines()
         self.assertEqual(len(lines), 1, lines)
         self.assertTrue(lines[0].startswith(self.PREFIX + "usage"), lines)
 
@@ -1248,13 +1153,12 @@ class ReviewersParity(unittest.TestCase):
     def test_usage_stops_exit_2(self):
         for extra in ([], ["--head", tr.HEAD], ["--material", "m.json"]):
             with self.subTest(extra=extra):
-                new, old = (self.run_side(w, extra) for w in ("new", "old"))
-                self.assertEqual((new["code"], new["doc"]), (old["code"], old["doc"]))
-                self.assertEqual(new["code"], 2)
-                for s in (new, old):
-                    self.assertTrue(s["stderr"].decode().startswith(self.PREFIX), s)
-        new, old = (self.run_side(w, ["--check-config", "x.json", "--head", tr.HEAD]) for w in ("new", "old"))
-        self.assertEqual((new["code"], old["code"]), (2, 2))
+                new, old = self.run_side(extra), oracle_capture.recorded(self)[0]
+                self.assertEqual((new["code"], old["exit"]), (2, 2))
+                self.assertEqual(oracle_capture.canon(new["doc"]), oracle_capture.canon(old["stdout"]))
+                self.assertTrue(new["stderr"].decode().startswith(self.PREFIX), new)
+        new, old = self.run_side(["--check-config", "x.json", "--head", tr.HEAD]), oracle_capture.recorded(self)[0]
+        self.assertEqual((new["code"], old["exit"]), (2, 2))
 
 
 if __name__ == "__main__":

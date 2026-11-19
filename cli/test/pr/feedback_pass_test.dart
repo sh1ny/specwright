@@ -40,13 +40,7 @@ class UnexpectedReplacement extends FeedbackRecordStore {
 void main() {
   FeedbackPass configured(Map<String, String> environment) => FeedbackPass(
     Workflow(
-      PrContext(
-        scriptsDir: '.',
-        bash: 'bash',
-        writeOut: (_) {},
-        writeErr: (_) {},
-        environment: environment,
-      ),
+      PrContext(writeOut: (_) {}, writeErr: (_) {}, environment: environment),
     ),
   );
   test('explicit feedback state directory does not need a home', () {
@@ -68,7 +62,7 @@ import ${jsonEncode(cli.resolve('lib/src/pr/feedback_pass.dart').toString())};
 import ${jsonEncode(cli.resolve('lib/src/pr/pair.dart').toString())};
 import ${jsonEncode(cli.resolve('lib/src/pr/workflow.dart').toString())};
 FeedbackPass configured(Map<String,String> env) => FeedbackPass(Workflow(PrContext(
-  scriptsDir: '.', bash: 'bash', writeOut: (_) {}, writeErr: (_) {}, environment: env)));
+  writeOut: (_) {}, writeErr: (_) {}, environment: env)));
 String directory(Map<String,String> env) => configured(env).records.directory;
 Future<void> main() async {
   final result = <String,Object?>{
@@ -141,8 +135,6 @@ Future<void> main() async {
       final tmp = Directory.systemTemp.createTempSync('sw-feedback-pass-');
       addTearDown(() => tmp.deleteSync(recursive: true));
       final ctx = PrContext(
-        scriptsDir: tmp.path,
-        bash: 'bash',
         writeOut: (_) {},
         writeErr: (_) {},
         environment: {'SPECWRIGHT_STATE_DIR': tmp.path},
@@ -181,12 +173,7 @@ Future<void> main() async {
         'version': 2,
         'owner': {'id': 'old', 'at': '2026-01-01T00:00:00Z'},
       });
-      final ctx = PrContext(
-        scriptsDir: tmp.path,
-        bash: 'bash',
-        writeOut: (_) {},
-        writeErr: (_) {},
-      );
+      final ctx = PrContext(writeOut: (_) {}, writeErr: (_) {});
       final pass = FeedbackPass(Workflow(ctx), records: records);
       final call = pass.run([
         'adopt',
@@ -228,8 +215,6 @@ Future<void> main() async {
     final tmp = Directory.systemTemp.createTempSync('sw-feedback-pass-');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final ctx = PrContext(
-      scriptsDir: tmp.path,
-      bash: 'bash',
       writeOut: (_) {},
       writeErr: (_) {},
       environment: {'SPECWRIGHT_STATE_DIR': tmp.path},

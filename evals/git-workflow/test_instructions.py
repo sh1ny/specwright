@@ -131,8 +131,8 @@ class AgentDelegation(unittest.TestCase):
         self.assertNotRegex(review, r"(?i)read its current flags", "the agent still builds the reviewer command line")
         for name, block in (("design review", review), ("roadmap init step 5", mode_step("init", 5))):
             self.assertRegex(block, r"specwright-review", f"{name}: does not use the specwright-review routes")
-            self.assertRegex(block, r"(?s)review-run\.sh\s+select|review-run\.sh select", f"{name}: no route selection")
-            self.assertRegex(block, r"(?s)run\s+--kind\s+design", f"{name}: a CLI route is not run through review-run.sh")
+            self.assertRegex(block, r"<sw> review select", f"{name}: no route selection")
+            self.assertRegex(block, r"(?s)run\s+--kind\s+design", f"{name}: a CLI route is not run through `<sw> review`")
             self.assertRegex(block, r"(?s)record\s+--kind\s+design", f"{name}: a subagent review is not validated")
         self.assertRegex(review, r"(?i)never try the next route", "an invalid review falls through to another route")
         self.assertRegex(review, r"review\.cross_model: false", "cross_model false no longer means the agent only")
@@ -173,14 +173,14 @@ def commit_step2():
     return text, s
 
 
-FIT = r"fit-subject\.sh`?\s+<msgfile>"
+FIT = r"<sw> commit fit-subject`?\s+<msgfile>"
 
 
 class TaskCommits(unittest.TestCase):
     def test_commit_skill_reuses_fitted_message_for_store_pair(self):
         text, s2 = commit_step2()
         fit = re.search(FIT, s2)
-        self.assertTrue(fit, "step 2 never runs `fit-subject.sh <msgfile>`")
+        self.assertTrue(fit, "step 2 never runs `<sw> commit fit-subject <msgfile>`")
         self.assertRegex(s2, r"(?is)full message.{0,80}\btemp file|temp file.{0,80}full message",
                          "step 2 does not write the full message to the temp file first")
         self.assertTrue(find_block(s2, r"store", r"\bsame (message )?file\b|\bsame <msgfile>"),
@@ -189,37 +189,39 @@ class TaskCommits(unittest.TestCase):
     def test_commit_skill_stops_on_unfittable_subject(self):
         _, s2 = commit_step2()
         block = find_block(s2, r"\bexit 1\b", r"fit-subject|the script|it exits")
-        self.assertTrue(block, "step 2 does not say what to do when fit-subject.sh exits 1")
+        self.assertTrue(block, "step 2 does not say what to do when `fit-subject` exits 1")
         self.assertRegex(block, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "exit 1 does not stop the commit")
         self.assertRegex(block, r"(?is)\breport\b.{0,80}\btask\b.{0,40}\bsubject\b.{0,40}\blimit\b|\b72\b",
                          "exit 1 does not report the task, the subject and the limit")
 
-    def test_commit_stops_on_sw_missing(self):
+    def test_commit_stops_on_sw_mismatch(self):
         text, s2 = commit_step2()
-        block = find_block(s2, r"\bsw_missing\b", r"fit-subject")
-        self.assertTrue(block, "step 2 does not say what to do with a sw_missing document from fit-subject.sh")
-        self.assertRegex(block, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "sw_missing does not stop the commit")
-        self.assertIn("rerun the install prompt", block, "sw_missing does not report the install message")
-        self.assertRegex(block, r"(?is)\bnot\b.{0,80}\b(does not fit|72)", "sw_missing may be read as the subject that does not fit")
-        reads = find_block(text, r"\bsw_missing\b", r"task-cover")
-        self.assertTrue(reads, "the coverage read does not say what to do with a sw_missing document from task-cover.sh")
-        self.assertRegex(reads, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "sw_missing from task-cover.sh does not stop")
+        block = find_block(s2, r"\bsw_mismatch\b", r"fit-subject")
+        self.assertTrue(block, "step 2 does not say what to do with a sw_mismatch document from `<sw> commit fit-subject`")
+        self.assertRegex(block, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "sw_mismatch does not stop the commit")
+        self.assertIn("rerun the install prompt", block, "sw_mismatch does not report the install message")
+        self.assertRegex(block, r"(?is)\bnot\b.{0,80}\b(does not fit|72)", "sw_mismatch may be read as the subject that does not fit")
+        self.assertRegex(block, r"(?is)binary is missing|missing binary", "a missing binary does not stop the commit")
+        reads = find_block(text, r"\bsw_mismatch\b", r"task-cover")
+        self.assertTrue(reads, "the coverage read does not say what to do with a sw_mismatch document from `<sw> commit task-cover`")
+        self.assertRegex(reads, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit", "sw_mismatch from task-cover does not stop")
 
     def test_store_backed_task_cover_reads_pass_code(self):
         for path in (COMMIT, ROOT / "skills" / "specwright-finish" / "SKILL.md", ROOT / "skills" / "specwright-pr" / "SKILL.md"):
             with self.subTest(skill=path.parent.name):
-                block = find_block(read(path), r"task-cover\.sh", r"--code [\"`]?<code toplevel>")
-                self.assertTrue(block, "%s has no store-backed task-cover.sh read passing --code <code toplevel>" % path.parent.name)
+                block = find_block(read(path), r"<sw> commit task-cover", r"--code [\"`]?<code toplevel>")
+                self.assertTrue(block, "%s has no store-backed `<sw> commit task-cover` read passing --code <code toplevel>" % path.parent.name)
 
 
-class FinishSwMissing(unittest.TestCase):
-    def test_finish_stops_on_sw_missing(self):
+class FinishSwMismatch(unittest.TestCase):
+    def test_finish_stops_on_sw_mismatch(self):
         text = read(ROOT / "skills" / "specwright-finish" / "SKILL.md")
-        block = find_block(text, r"undo-archive-plan", r"\bsw_missing\b")
-        self.assertTrue(block, "step 0 does not say what to do with a sw_missing document from finish.sh")
+        block = find_block(text, r"undo-archive-plan", r"\bsw_mismatch\b")
+        self.assertTrue(block, "step 0 does not say what to do with a sw_mismatch document from `<sw> finish`")
         self.assertRegex(block, r"(?is)\bno commit\b|\bnever commit|do not commit|make no commit|\bstop\b",
-                         "sw_missing does not stop finish")
-        self.assertIn("rerun the install prompt", block, "sw_missing does not report the install message")
+                         "sw_mismatch does not stop finish")
+        self.assertIn("rerun the install prompt", block, "sw_mismatch does not report the install message")
+        self.assertRegex(block, r"(?is)show no undo steps|no undo steps", "a stopped finish still shows undo steps")
         self.assertRegex(block, r"(?is)\bnot\b.{0,80}\bundo plan\b", "sw_missing may be shown as an undo plan")
         self.assertRegex(block, r"(?is)\bno (restore|merge)\b|\bmake no\b|\brun no\b|\bno commit\b",
                          "sw_missing does not rule out a commit, merge or restore")
@@ -260,21 +262,34 @@ class PlanningStores(unittest.TestCase):
         s = store_part(committing_project_files())
         self.assertTrue(s, "Committing project files has no store-backed part")
         lock = re.search(r"specwright-gate\.lock", s)
-        take = re.search(r'mkdir "\$L"', s)
-        owner = re.search(r'> "\$L/owner"', s)
+        take = re.search(r'<sw> --project "<code toplevel>" gate lock --store "<store toplevel>" --branch <branch>', s)
+        owner = re.search(r"`token`", s)
         clean = re.search(r"(?i)clean\b.{0,40}\bmain|on (its|the store's) main.{0,60}clean", s)
         busy = re.search(r"(?i)\bbusy\b", s)
-        release = re.search(r'rm -r "\$L"', s)
-        for name, m in (("the lock path", lock), ("mkdir of the lock", take), ("the owner file", owner),
+        release = re.search(r'<sw> --project "<code toplevel>" gate unlock --store "<store toplevel>" --token <token>', s)
+        for name, m in (("the lock path", lock), ("the `gate lock` call", take), ("the owner token", owner),
                         ("the clean-on-main check", clean), ("the busy check", busy),
-                        ("the release", release)):
+                        ("the release through `gate unlock`", release)):
             self.assertTrue(m, f"store-backed Committing project files lacks {name}")
         self.assertLess(take.start(), clean.start(), "the store is checked before the lock is taken")
-        held = find_block(s, r"(?i)mkdir.{0,40}fails|lock (exists|is held)", r"(?i)\bstop", r"(?i)owner")
+        held = find_block(s, r"gate_locked", r"(?i)\bstop", r"(?i)owner")
         self.assertTrue(held, "a held lock does not stop and show its owner")
-        self.assertRegex(held, r"(?i)only the lock (you|it) took|never remove.{0,60}(another|other)|not yours",
+        self.assertRegex(s, r"(?i)only the lock (you|it) took|never remove.{0,60}(another|other)|not yours",
                          "the release is not limited to the lock this run took")
         self.assertNotRegex(s, r"specwright-branch`?\s+(store\S*\s+)?steps?\s+\d", "the gate cites specwright-branch step numbers")
+        self.assertNotRegex(s, r"\bmkdir\b|rm -r|\$L\b|printf", "the gate still runs shell for the lock")
+
+    def test_stale_lock_kept_without_confirmation(self):
+        # a stale lock is shown and removed only on the user's confirmation; without it nothing is removed or branched
+        for label, step in (("specwright-branch store step 1", mode_block(branch_store_section(), 1)),
+                            ("specwright-roadmap store step 1", mode_block(store_part(committing_project_files()), 1))):
+            with self.subTest(label):
+                self.assertRegex(step, r"gate show", f"{label}: the stale lock is not read with `gate show`")
+                self.assertRegex(step, r"(?is)never removed automatically", f"{label}: a stale lock may be removed automatically")
+                self.assertRegex(step, r"(?is)ask the user to confirm.{0,200}Only on that confirmation.{0,200}gate unlock --stale",
+                                 f"{label}: the stale removal does not wait for the user's confirmation")
+                self.assertRegex(step, r"(?is)does not confirm.{0,40}(remove nothing|no .{0,12}unlock).{0,120}create no branch.{0,80}leave the lock",
+                                 f"{label}: without a confirmation the lock is not kept")
 
     def test_roadmap_store_checks_code_repo_before_any_branch(self):
         s = store_part(committing_project_files())
@@ -334,8 +349,8 @@ class BranchGateStoreVersion(unittest.TestCase):
         s = self.step2()
         self.assertRegex(s, r"openspec/\.specwright/VERSION", "store step 2 does not read the project's VERSION")
         self.assertRegex(s, r"openspec/\.specwright/STORE", "store step 2 does not read the store's STORE record")
-        self.assertRegex(s, r"(?is)\bone (shell )?call\b.{0,200}\bVERSION|\bVERSION\b.{0,300}\bone (shell )?call\b",
-                         "VERSION and STORE are not read in one shell call")
+        self.assertRegex(s, r"(?is)\bVERSION\b.{0,200}\bSTORE\b.{0,80}file tool", "VERSION and STORE are not read with the file tool")
+        self.assertNotRegex(s, r"\bsed -n\b|\btest -f\b", "VERSION and STORE are read with shell tools")
         self.assertRegex(s, r"major\.minor", "store step 2 does not compare major.minor")
         self.assertRegex(s, r"(?is)mismatch.{0,200}(both versions|name\w* both).{0,80}owner|(both versions).{0,80}owner",
                          "a mismatch does not name both versions and the owner")
@@ -354,6 +369,7 @@ class BranchGateStoreVersion(unittest.TestCase):
         self.assertRegex(s, r"(?is)missing `?VERSION`?|no `?VERSION`?", "a missing VERSION does not stop")
         self.assertRegex(s, r"(?is)(missing|no) `?VERSION`?.{0,300}run the (install|update) in this project",
                          "a missing VERSION does not say to run the install or update in this project")
+        self.assertRegex(s, r"(?is)missing `?VERSION`?.{0,300}before any lock is taken", "a missing VERSION may still take the lock")
 
     def test_gate_names_update_lock_without_removal(self):
         for label, step in (("specwright-branch store step 1", mode_block(branch_store_section(), 1)),
@@ -627,9 +643,9 @@ class PrScriptRuntime(unittest.TestCase):
         self.assertTrue(core, "Step 1 does not check git and curl")
         self.assertRegex(core, r"STOP", "a missing core requirement does not stop the install")
         self.assertRegex(s1, r"(?s)gh --version.{0,80}2\.48", "Step 1 does not check gh 2.48+")
-        dep = find_block(read(PR_SKILL), r"Scripts live in")
-        self.assertRegex(dep or "", r"(?i)\bbash\b.{0,60}\bgit\b.{0,60}gh`? 2\.48.{0,60}Python 3\.8",
-                         "specwright-pr does not state bash, git, gh 2.48+ and Python 3.8+")
+        dep = find_block(read(PR_SKILL), r"needs git and `gh` 2\.48\+")
+        self.assertTrue(dep, "specwright-pr does not state that it needs git and gh 2.48+")
+        self.assertNotRegex(dep, r"(?i)\bbash\b|\bpython\b|\bPOSIX\b", "specwright-pr still lists bash, Python or a POSIX userland")
 
     def test_install_reports_pr_workflow_not_ready(self):
         s1 = step(read(README), "Step 1")
@@ -659,9 +675,38 @@ class PrScriptRuntime(unittest.TestCase):
         # no step of the prompt checks for or runs bash or Python
         p = prompt()
         for command in re.findall(r"`([^`\n]+)`", p):
-            self.assertNotRegex(command, r"(?i)^(bash|sh|python3?|py)\b|\bupdate\.sh\b|\bsw-path\b|\binstall-sw\.sh\b",
+            self.assertNotRegex(command, r"(?i)^(bash|sh|python3?|py)\b|\bupdate\.sh\b|\binstall-sw\.sh\b",
                                 f"the prompt runs a script or an interpreter: `{command}`")
+        # Step 8 names the retired resolver only as the file an older tag's interface is read from, never as a command
+        for mention in re.findall(r"[^.]*\bsw-path\b[^.]*\.", p):
+            self.assertRegex(mention, r"SW_INTERFACE=", f"the prompt names the resolver for another reason: {mention}")
         self.assertNotRegex(p, r"(?i)\bbash\b|\bpython\b|version_info", "the prompt still mentions bash or Python")
+
+
+    def test_install_reports_git_missing(self):
+        s1 = step(read(README), "Step 1")
+        core = install_bullet(s1, r"git --version")
+        self.assertTrue(core, "Step 1 does not check git")
+        self.assertRegex(core, r"STOP", "a missing git does not stop the install")
+        self.assertRegex(core, r"(?is)naming the tool", "a missing git is not named")
+        self.assertRegex(core, r"(?is)write no file|before any", "a missing git does not stop before any write")
+
+    def test_install_needs_no_python(self):
+        p = prompt()
+        self.assertNotRegex(p, r"(?i)\bpython\b|version_info|\bpy -3\b", "the install prompt still mentions Python")
+        self.assertRegex(prerequisites(), r"(?i)install needs no bash and no Python")
+
+    def test_docs_list_no_bash_or_python_prerequisite(self):
+        # the prerequisites, install Step 1 and the PR skill name neither bash, a POSIX userland nor Python
+        s1 = step(read(README), "Step 1") or ""
+        for name, text in (("README prerequisites", re.sub(r"(?i)(the install|they|it) needs? no `?bash`? and no `?Python`?|"
+                                                            r"need no `?bash`? and no `?Python`?|"
+                                                            r"no `?bash`? and no Python", "", prerequisites())),
+                           ("install Step 1", re.sub(r"(?i)no bash and no Python", "", s1)),
+                           ("specwright-pr", find_block(read(PR_SKILL), r"needs git and `gh` 2\.48\+") or "")):
+            with self.subTest(name):
+                self.assertNotRegex(text, r"(?i)\bbash\b|\bpython\b|\bPOSIX\b|Git Bash", f"{name} lists bash, a POSIX userland or Python")
+        self.assertRegex(prerequisites(), r"(?i)no `bash` and no Python|no bash and no Python")
 
 
 FINISH = ROOT / "skills" / "specwright-finish" / "SKILL.md"
@@ -1052,7 +1097,7 @@ class FinishAgentMerge(unittest.TestCase):
         self.assertRegex(tail, r"delete_branch", "`delete-remote` ignores `delete_branch`")
         self.assertRegex(b, r"delete-remote[^`]*--head <head_sha>|--head <head_sha>[^`]*delete-remote",
                          "`delete-remote` is not given the merged head")
-        self.assertRegex(b[d - 100:], r"\[as\] bash scripts/pr-pair\.sh delete-remote", "`delete-remote` is not run fenced")
+        self.assertRegex(b[d - 100:], r"<sw> as <run login> <sw> pr delete-remote", "`delete-remote` is not run fenced")
         for status in ("deleted", "gone", "moved", "based_on", "kept"):
             self.assertRegex(b[d:], r"`%s`" % status, "`delete-remote` status `%s` is not handled" % status)
         self.assertRegex(b[d:], r"(?i)exit 3", "`delete-remote` exit 3 is not handled")
@@ -1094,7 +1139,7 @@ class FencedGitHubCalls(unittest.TestCase):
         for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
             self.assertRegex(b, r"git remote get-url", f"{name}: the host is not read from the fetch URL")
             self.assertRegex(b, r"(?i)fetch URL", f"{name}: does not decide by the fetch URL")
-            self.assertRegex(b, r"(?is)not (decided )?by `?pr-pair\.sh identity`?", f"{name}: may still be decided by `identity`")
+            self.assertRegex(b, r"(?is)not (decided )?by `?<sw> pr identity`?", f"{name}: may still be decided by `identity`")
 
     def test_trailing_dot_host_counts_as_github(self):
         """fix-m2-gaps (#83, review S3): the fetch-URL rule treats `github.com.` as github.com, so that remote is fenced too."""
@@ -1143,10 +1188,10 @@ class FencedGitHubCalls(unittest.TestCase):
 
     def test_finish_post_merge_check_fenced_with_repo(self):
         b = self.pull_bullet()
-        self.assertNotRegex(b, r"(?<!\] )gh pr view <branch>", "finish still runs plain `gh pr view <branch>`")
-        view = re.search(r"\[as\] gh pr view <branch>[^`]*", b)
-        disc = re.search(r"\[as\] bash scripts/pr-pair\.sh[^`]*discover[^`]*", b)
-        self.assertTrue(view or disc, "the post-merge check is neither a fenced `gh pr view` nor `[as] ... discover`")
+        self.assertNotRegex(b, r"(?<!<run login> )gh pr view <branch>", "finish still runs plain `gh pr view <branch>`")
+        view = re.search(r"<sw> as <run login> gh pr view <branch>[^`]*", b)
+        disc = re.search(r"<sw> as <run login> <sw> pr[^`]*discover[^`]*", b)
+        self.assertTrue(view or disc, "the post-merge check is neither a fenced `gh pr view` nor a fenced `discover`")
         if view:
             self.assertIn("--repo <owner>/<name>", view.group(0), "the fenced `gh pr view` does not name the repository")
 
@@ -1773,7 +1818,7 @@ class InstallUpdateLifecycle(unittest.TestCase):
         for sub in ("plan", "stage", "swap"):
             self.assertRegex(s4, rf"sw update.{{0,300}}`{sub}`|`{sub}`.{{0,300}}sw update", f"Step 4 does not run sw update {sub}")
         self.assertRegex(flat(s4), r"(?i)placed for the downloaded version.{0,120}never an `sw` found on `PATH`", "Step 4 may run an sw that is not the download's")
-        self.assertNotIn("update.sh", s4, "Step 4 still runs update.sh")
+        self.assertNotRegex(s4, r"update\.sh", "Step 4 still runs the update script")
         self.assertRegex(s4, r"(?is)refus.{0,300}STOP", "Step 4 does not stop on a refusal")
         self.assertRegex(s4, r"(?is)refus.{0,300}(unchanged|nothing (was )?changed)", "a refusal does not say the installation is unchanged")
         self.assertRegex(s4, r"`swapped`", "Step 4 does not record the swapped flag")
@@ -2017,22 +2062,24 @@ class DesignReviewDispositions(unittest.TestCase):
         self.assertNotRegex(flat, r"(?is)oldest line", "finish still takes the oldest add line")
 
     def test_finish_step0_runs_undo_plan_and_runs_nothing(self):
-        # The undo of a deferred archive is printed by finish.sh, never prose and never run by finish (#106).
+        # The undo of a deferred archive is printed by `<sw> finish`, never prose and never run by finish (#106).
         text = read(FINISH)
         fm, _ = frontmatter(text)
-        self.assertRegex(fm, r"(?m)^allowed-tools:.*Bash\(bash \*\)", "finish may not run bash scripts")
+        self.assertRegex(fm, r"(?m)^allowed-tools:.*Bash\(\*/\.specwright/bin/\*/sw \*\)", "finish may not run sw")
         flat = re.sub(r"\s+", " ", text)
         s0 = flat[flat.index("0. **"):flat.index("1. **Branch")]
         self.assertIn("`VERDICT: DEFERRED`", s0, "step 0 does not check VERDICT: DEFERRED")
         self.assertRegex(s0, r"(?is)every one", "step 0 does not check every change of a bulk archive")
         self.assertIn("no commit, no merge, no push", s0, "step 0 does not stop before commit, merge and push")
         self.assertRegex(s0, r"(?is)run no restore yourself", "step 0 does not forbid restoring itself")
-        self.assertIn("bash <specwright-finish>/scripts/finish.sh undo-archive-plan --change <change-name> --archived-name <archived-name> --prefix <P> --main <main> --branch <branch>", s0, "step 0 does not run the undo plan")
+        self.assertIn("<sw> finish undo-archive-plan --change <change-name> --archived-name <archived-name> --prefix <P> --main <main> --branch <branch>", s0, "step 0 does not run the undo plan")
         self.assertRegex(s0, r"(?is)--dir <store toplevel>", "step 0 does not point the plan at the store")
-        for f in ("`script`", "`after_rerun`", "`warnings`"):
+        for f in ("`steps`", "`cwd`", "`argv`", "`after_rerun_steps`", "`warnings`"):
             self.assertIn(f, s0, f"step 0 does not show {f}")
-        self.assertIn("bash <file>", s0, "step 0 does not say how the user runs a script")
-        self.assertRegex(s0, r"(?is)run neither script yourself", "step 0 may run the printed scripts")
+        self.assertRegex(s0, r"(?is)one by one.{0,80}stopping at the first one that exits non-zero",
+                         "step 0 does not say how the user runs the steps")
+        self.assertNotRegex(s0, r"`script`|`after_rerun`|bash <file>", "step 0 still shows a script")
+        self.assertRegex(s0, r"(?is)run none of the steps yourself", "step 0 may run the printed steps")
         self.assertRegex(s0, r"(?is)exit 1.{0,40}`message`.{0,20}stop", "step 0 does not show a refusal and stop")
         self.assertRegex(s0, r"(?is)never restoring only the deferred change", "step 0 allows restoring only the deferred change's files")
         for gone in ("git revert", "git restore -- <file>", "three groups"):
@@ -2147,8 +2194,7 @@ class TestCheapTier(unittest.TestCase):
 
     def test_delegation_light_tier_on_uses_light_implementer(self):
         d = apply_delegation()
-        self.assertRegex(d, r"pr-pair\.sh tier --code <code toplevel>", "apply does not run `pr-pair.sh tier`")
-        self.assertRegex(d, r"<specwright-pr>/scripts/pr-pair\.sh", "the call is not made through the specwright-pr folder")
+        self.assertRegex(d, r"<sw> pr tier --code <code\s+toplevel>", "apply does not run `<sw> pr tier`")
         self.assertRegex(d, r"(?i)once per apply run", "the tier is not read once per apply run")
         self.assertRegex(d, r"(?i)tier on.{0,80}`TIER: LIGHT`.{0,160}every group to `specwright-implementer-light`",
                          "a LIGHT change's groups do not all go to the light implementer when the tier is on")
@@ -2284,11 +2330,11 @@ class GroupCommits(unittest.TestCase):
 
     def test_commit_uses_task_cover_in_reconcile_and_end_check(self):
         for name, sec in (("Reconcile", commit_sec(r"Reconcile \(")), ("step 3", commit_sec(r"3\. When every task"))):
-            self.assertIn("task-cover.sh", sec, f"{name} does not use task-cover.sh")
-            self.assertRegex(sec, r"--repo.{0,80}--range.{0,80}--tasks.{0,80}--change", f"{name} does not give the task-cover.sh arguments")
-            self.assertRegex(sec, r"(?i)(fails?|exit(s)? (non-zero|1|2|3)|no coverage data).{0,200}(no commit|stop)", f"{name}: a task-cover.sh failure does not stop")
+            self.assertIn("<sw> commit task-cover", sec, f"{name} does not use `<sw> commit task-cover`")
+            self.assertRegex(sec, r"--repo.{0,80}--range.{0,80}--tasks.{0,80}--change", f"{name} does not give the task-cover arguments")
+            self.assertRegex(sec, r"(?i)(fails?|exit(s)? (non-zero|1|2|3)|no coverage data).{0,200}(no commit|stop)", f"{name}: a task-cover failure does not stop")
         self.assertRegex(commit_sec(r"3\. When every task"), r"(?i)each repo|both repos|every repo",
-                         "the end check does not run task-cover.sh against each repo when store-backed")
+                         "the end check does not run task-cover against each repo when store-backed")
 
     def test_commit_reports_task_work_commits(self):
         s3 = commit_sec(r"3\. When every task")
@@ -2462,30 +2508,30 @@ class GitButlerSkillText(unittest.TestCase):
         self.assertRegex(r, r"(?is)GitButler.{0,3000}`but skill install --path", "the README GitButler section does not name the offer")
 
     def test_gitbutler_validate_read_from_pinned_context(self):
-        """fix-m5-gaps D8 (#151): on GitButler the settings are read only through `pr-pair.sh context --branch`, right before use."""
+        """fix-m5-gaps D8 (#151): on GitButler the settings are read only through `<sw> pr context --branch`, right before use."""
         pr = flat(read(PR_SKILL))
         self.assertRegex(pr, r"(?is)Before any push, run `pr\.validate`.{0,500}On GitButler.{0,200}read `validate` from "
-                             r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>` right before each run, "
+                             r"`<sw> pr context --code <code toplevel> --branch <branch>` right before each run, "
                              r"never from the settings file and never from an earlier read.{0,300}`settings_not_pinned`.{0,200}"
                              r"stops before the command runs",
                          "the push rule does not read validate from the pinned context right before each run on GitButler")
         self.assertRegex(pr, r"(?is)Settings per repo:.{0,1200}On GitButler the call \(repo-local too\) is "
-                             r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`"
+                             r"`<sw> pr context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`"
                              r".{0,60}stops ship", "ship does not pass --branch <branch> to context on GitButler")
         watch = flat(section(read(PR_SKILL), "watch"))
         self.assertRegex(watch, r"(?is)Before the first wait, read the merge settings.{0,900}On GitButler the call is "
-                                r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`",
+                                r"`<sw> pr context --code <code toplevel> --branch <branch>`.{0,120}`settings_not_pinned`",
                          "watch does not pass --branch <branch> to context on GitButler")
         cleanup = flat(section(read(PR_SKILL), "Cleanup after merge"))
-        self.assertRegex(cleanup, r"(?is)`\[vcs\] delete-branch --branch <branch> --force --merged-commit.{0,400}after that pull and "
-                                  r"delete, read `merge` and `delete_branch` from `bash scripts/pr-pair\.sh context --code <code toplevel> "
+        self.assertRegex(cleanup, r"(?is)`<sw> vcs delete-branch --branch <branch> --force --merged-commit.{0,400}after that pull and "
+                                  r"delete, read `merge` and `delete_branch` from `<sw> pr context --code <code toplevel> "
                                   r"--after-merge --branch <branch>`.{0,500}`settings_not_pinned`.{0,60}`but pull`",
                          "cleanup does not read the merge settings with --after-merge --branch after its pull and delete")
         finish = flat(read(FINISH))
-        self.assertRegex(finish, r"(?is)read `merge` from `bash scripts/pr-pair\.sh context` \(on GitButler: "
-                                 r"`bash scripts/pr-pair\.sh context --code <code toplevel> --branch <branch>`",
+        self.assertRegex(finish, r"(?is)read `merge` from `<sw> pr context` \(on GitButler: "
+                                 r"`<sw> pr context --code <code toplevel> --branch <branch>`",
                          "finish does not pass --branch <branch> to context on GitButler")
-        self.assertRegex(finish, r"(?is)on GitButler from `bash scripts/pr-pair\.sh context --code <code toplevel> --after-merge "
+        self.assertRegex(finish, r"(?is)on GitButler from `<sw> pr context --code <code toplevel> --after-merge "
                                  r"--branch <branch>` run after the pull and the delete",
                          "finish cleanup does not use --after-merge --branch <branch> after its pull and delete")
 

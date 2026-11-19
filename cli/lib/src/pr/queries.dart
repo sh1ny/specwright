@@ -1,10 +1,10 @@
-// Generated from the frozen oracle scripts, then kept by hand: the GraphQL and jq text of pr-snapshot.sh and
-// pr-reply.sh, byte for byte (test/pr/queries_test.dart compares it with evals/pr-pair/oracle/).
+// The GraphQL and jq text of `sw pr snapshot` and `sw pr reply`. It was taken from the retired scripts byte for byte and is
+// kept by hand; the recorded runs of evals/pr-pair/oracle/records pin what it asks for.
 
 /// `gh repo view --json owner,name --jq`: the repository's `owner/name`.
 const String repoViewJq = r'''.owner.login + "/" + .name''';
 
-/// `pr-reply.sh`: the REST reply's `--jq`.
+/// `sw pr reply`: the REST reply's `--jq`.
 const String htmlUrlJq = '.html_url';
 
 /// `pr-snapshot.sh`: the PR number of the current branch (`--jq`).

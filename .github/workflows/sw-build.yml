@@ -157,4 +157,4 @@ jobs:
             exit 1
           fi
       - name: Verify the checksum and that sw version --json matches VERSION
-        run: python cli/tool/verify_artifact.py --binary "$RUNNER_TEMP/artifact/$SW_FILE" --sha256 "$RUNNER_TEMP/artifact/$SW_FILE.sha256" --version-file VERSION --interface-from skills/specwright-pr/scripts/sw-path.sh
+        run: python cli/tool/verify_artifact.py --binary "$RUNNER_TEMP/artifact/$SW_FILE" --sha256 "$RUNNER_TEMP/artifact/$SW_FILE.sha256" --version-file VERSION --interface-from skills/specwright-pr/SKILL.md

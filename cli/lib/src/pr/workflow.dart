@@ -37,9 +37,7 @@ class Workflow {
   Future<Map<String, Object?>> vcs(List<String> argv) async {
     try {
       final request = parseVcsArguments(argv);
-      return await vcsHandlers[request.command]!(
-        VcsContext(request, ctx.scriptsDir, ctx.bash),
-      );
+      return await vcsHandlers[request.command]!(VcsContext(request));
     } on VcsStop catch (e) {
       throw PairStop(e.error, e.message, code: e.code == 3 ? 3 : 1);
     }
@@ -805,7 +803,7 @@ class Workflow {
       '--login': 'login',
     });
     needArgs(a, ['dir', 'branch', 'main']);
-    final d = await ctx.native(a['dir']!), b = a['branch']!, head = a['head'];
+    final d = a['dir']!, b = a['branch']!, head = a['head'];
     var main = a['main']!, backend = 'git';
     if (a['code']?.isNotEmpty == true) {
       final role = a['role']?.isNotEmpty == true ? a['role']! : 'code';
@@ -910,9 +908,10 @@ class Workflow {
     );
   }
 
-  /// C4: cleanup prints script commands until retirement. Only as.sh and
-  /// pr-pair.sh gain the binary-project prefix; all arguments and cwd retain
-  /// their targets. The C11 VCS store-network limitation remains deliberate.
+  /// D4: every printed command that runs Specwright's own work starts with the
+  /// running `sw` and `--project <code>`; `git` commands stay as they were. All
+  /// arguments and cwd retain their targets. The C11 VCS store-network
+  /// limitation remains deliberate.
   Future<Map<String, Object?>> cleanupPlan(List<String> argv) async {
     final a = parsePairArgs(argv, {
       '--code': 'code',
@@ -922,9 +921,10 @@ class Workflow {
     needArgs(a, ['code', 'store', 'branch']);
     String printedPath(String value) =>
         Platform.isWindows ? value.replaceAll(r'\', '/') : value;
-    final code = printedPath(await ctx.native(a['code']!)),
-        store = printedPath(await ctx.native(a['store']!)),
+    final code = printedPath(a['code']!),
+        store = printedPath(a['store']!),
         branch = a['branch']!;
+    final sw = printedPath(Platform.resolvedExecutable);
     final e = await expected(code, store, branch),
         contexts = await workflowContexts(ctx, code, store);
     final choices = await workflowVcsChoices(ctx, code);
@@ -960,8 +960,6 @@ class Workflow {
               branch,
               ...extra,
             ]),
-            ctx.scriptsDir,
-            ctx.bash,
           ),
         );
         return planArguments(session)
@@ -1004,9 +1002,10 @@ class Workflow {
         ent['merged'] = true;
         if (exists) {
           final check = [
-            'pr-pair.sh',
+            sw,
             '--project',
             code,
+            'pr',
             'branch-check',
             '--dir',
             cwd,
@@ -1051,10 +1050,10 @@ class Workflow {
             commands.addAll([
               command(['git', 'checkout', main]),
               command([
-                'bash',
-                '${ctx.scriptsDir}/as.sh',
+                sw,
                 '--project',
                 code,
+                'as',
                 login,
                 'git',
                 'pull',
@@ -1341,11 +1340,7 @@ class Workflow {
       },
     });
     needArgs(a, ['code', 'store', 'branch']);
-    final e = await expected(
-      await ctx.native(a['code']!),
-      await ctx.native(a['store']!),
-      a['branch']!,
-    );
+    final e = await expected(a['code']!, a['store']!, a['branch']!);
     if (command == 'expected') return e;
     final carry = a.lists['carry'] ?? <String>[];
     if (carry.any((k) => !['code', 'store'].contains(k))) {
@@ -1508,8 +1503,8 @@ class Workflow {
       '--branch': 'branch',
     });
     needArgs(a, ['code', 'branch']);
-    final code = await ctx.native(a['code']!);
-    final store = a['store'] == null ? null : await ctx.native(a['store']!);
+    final code = a['code']!;
+    final store = a['store'];
     final c = await workflowContexts(ctx, code, store);
     final per = <String, Object?>{};
     final trailers = <String, Map<String, int>>{};

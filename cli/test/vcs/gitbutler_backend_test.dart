@@ -9,7 +9,6 @@ import 'package:specwright_cli/src/vcs/scripts.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
-import 'bash_support.dart';
 import '../support/exe_shim.dart';
 import 'fake_fence.dart';
 
@@ -39,7 +38,6 @@ const _settings = 'openspec/specwright.yaml';
 
 void main() {
   useExeShim();
-  final bash = findBash();
   late Directory tmp;
   late Directory scriptsDir;
   late Directory butDir;
@@ -179,13 +177,12 @@ void main() {
       force: force,
       paths: paths,
     );
-    final scriptsPath = posix(scriptsDir.path);
     return VcsSession(
-      VcsContext(request, scriptsPath, bash!),
+      VcsContext(request),
       repo,
       repo,
       ProbeInfo('gitbutler', 'main', repo, ''),
-      VcsScripts(scriptsPath, bash, fence: fakeFence(scriptsDir)),
+      VcsScripts(fence: fakeFence(scriptsDir)),
     );
   }
 

@@ -158,6 +158,16 @@ class Limits(Base):
         self.assertEqual(proc.stdout, "")
         self.assertEqual(proc.stderr, "bounded: deadline_exceeded: gh api\n")
 
+    @unittest.skipUnless(sys.platform == "win32", "platform: Git Bash cuts a command-line argument at 8,186 characters")
+    def test_long_argument_through_bash_on_windows(self):
+        # C9: a caller that asks for bash keeps the stdin transport, so an argument past the cut arrives whole.
+        bash = bashexe.bash()
+        if not bash:
+            self.skipTest("no bash installed")
+        long = "x" * 20000
+        proc = self.sw("--", bash, "-c", 'printf %s "$1"', "name", long)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, long, ""))
+
     def test_exit_after_deadline_exits_124(self):
         script = self.script("late.py", "import time\ntime.sleep(2.5)\nprint('late')\n")
         proc = self.sw("--", sys.executable, script, env=self.env(SPECWRIGHT_NET_DEADLINE=1))
@@ -253,6 +263,25 @@ class ExitJudgement(Base):
         proc = self.sw("--", sys.executable, parent, child, str(holder_pid), env=self.env(SPECWRIGHT_NET_DEADLINE=3))
         self.assertEqual((proc.returncode, proc.stdout), (0, "parent-out\n"))
         self.assertTrue(wait_gone(self.recorded_pid(holder_pid), 5), "the pipe-holding child survived sw")
+
+
+class OutsideRunner(Base):
+    """Outside the eval runner (SPECWRIGHT_TEST_SPAWN_DIR unset) `sw run --bounded` writes no spawn record."""
+
+    def test_bounded_records_nothing_outside_the_runner(self):
+        spawns = self.tmp / "spawns"
+        spawns.mkdir()
+        mine = self.script("mine.py", "import sys\nopen(sys.argv[1], 'w').write('ran')\n")
+        env = self.env()
+        env.pop(swharness.SPAWN_DIR, None)  # the runner that started this file set it; this case runs as if there were none
+        proc = self.sw("--", sys.executable, mine, str(self.pidf), env=env)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "", ""))
+        self.assertEqual(os.listdir(str(spawns)), [], "a spawn record was written with no spawn directory set")
+        if os.name != "nt":
+            # control: with the directory set, the same call records its group, so the empty listing above means something
+            proc = self.sw("--", sys.executable, mine, str(self.pidf), env=self.env(**{swharness.SPAWN_DIR: spawns}))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(len(os.listdir(str(spawns))), 1)
 
 
 class Secret(Base):

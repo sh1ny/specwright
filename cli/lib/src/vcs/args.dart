@@ -1,39 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../options.dart';
-import 'codec.dart';
 import 'stop.dart';
-
-/// What `sw vcs --args-stdin` read from stdin (design D2): the scripts
-/// directory, the bash running the shim, and the operation (`<sub>` and every
-/// argument) in `vcs.sh`'s own argument form.
-class Handoff {
-  Handoff(this.scriptsDir, this.bash, this.argv);
-
-  final String scriptsDir;
-  final String bash;
-  final List<String> argv;
-}
-
-const String handoffUsage =
-    'usage: sw vcs --args-stdin (stdin: scripts dir, bash path, subcommand and '
-    'arguments, each record ending in a NUL byte)';
-
-/// Splits the stdin of `sw <command> --args-stdin` into NUL-terminated
-/// records, each decoded strictly ([decodeHandoffRecords]). Fewer than three records, or a last
-/// record with no NUL, is a usage stop (exit 2) whose message is [usage], so
-/// each command names itself (`sw vcs` passes [handoffUsage]).
-Handoff parseHandoff(List<int> stdin, String usage) {
-  if (stdin.isNotEmpty && stdin.last != 0) {
-    throw VcsStop('usage', usage, code: 2);
-  }
-  final records = decodeHandoffRecords(Uint8List.fromList(stdin));
-  if (records.length < 3) {
-    throw VcsStop('usage', usage, code: 2);
-  }
-  return Handoff(records[0], records[1], records.sublist(2));
-}
 
 /// The subcommand, options and paths of one `sw vcs` call, parsed as
 /// `vcs.sh`'s `context()` did. Option values are kept as given, an empty one

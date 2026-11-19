@@ -1,0 +1,64 @@
+{
+ "calls": [],
+ "case": "test_workflow_parity.WorkflowParity.test_branch_check_preserves_moved_commit_guard",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   },
+   "o/plans": {
+    "pulls": []
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "delete": false,
+  "lacking": [
+   {
+    "sha": "817b99578cb71d3a1cc2da20008c1e879e4bda87",
+    "subject": "new work after merge"
+   },
+   {
+    "sha": "d25dc3702f9b758ec65b8073305009ab6f91d251",
+    "subject": "PR work"
+   }
+  ],
+  "ok": true,
+  "reason": "head_unknown"
+ }
+}

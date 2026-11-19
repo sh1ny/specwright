@@ -75,8 +75,8 @@ class VerifyArtifactTests(unittest.TestCase):
 
     def test_interface_mismatch_fails_naming_both(self):
         binary = self.make_binary("1.2.3")  # reports interface 1
-        pin = self.dir / "sw-path.sh"
-        pin.write_text("#!/bin/sh\nSW_INTERFACE=7\n", encoding="utf-8", newline="\n")
+        pin = self.dir / "SKILL.md"
+        pin.write_text("# skill\n\ninterface 7\n", encoding="utf-8", newline="\n")
         result = self.verify(binary, self.write_sha(binary), "--interface-from", str(pin))
         self.assertNotEqual(result.returncode, 0)
         output = result.stdout + result.stderr
@@ -87,8 +87,8 @@ class VerifyArtifactTests(unittest.TestCase):
 
     def test_matching_interface_passes(self):
         binary = self.make_binary("1.2.3")
-        pin = self.dir / "sw-path.sh"
-        pin.write_text("#!/bin/sh\nSW_INTERFACE=1\n", encoding="utf-8", newline="\n")
+        pin = self.dir / "SKILL.md"
+        pin.write_text("# skill\n\ninterface 1\n", encoding="utf-8", newline="\n")
         result = self.verify(binary, self.write_sha(binary), "--interface-from", str(pin))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

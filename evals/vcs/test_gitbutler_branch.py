@@ -6,9 +6,7 @@ from pathlib import Path
 from butenv import Scratch, require_but
 from butwrap import ButWrap
 from test_gitbutler_probe import GitButlerCase
-from vcs_test_support import ROOT, bash_run
-
-PR_PAIR = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
+from vcs_test_support import sw_run
 
 
 DEFAULT_SETTINGS = "vcs: gitbutler\nfinish: pr\n"
@@ -37,8 +35,8 @@ class GitButlerWorkspaceCase(GitButlerCase):
         return repo
 
     def pr_pair(self, repo_path, *args, env=None, shim=None, expected=0):
-        """`pr-pair.sh <args>` run in the repo with the fixture environment; returns its one JSON line."""
-        result = bash_run([PR_PAIR.as_posix(), *map(str, args)], cwd=repo_path, env=env, shim=shim)
+        """`sw pr <args>` run in the repo with the fixture environment; returns its one JSON line."""
+        result = sw_run(["pr", *args], cwd=repo_path, env=env, shim=shim)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(result.stdout)
 

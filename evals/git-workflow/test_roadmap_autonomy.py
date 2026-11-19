@@ -307,17 +307,17 @@ class Escalation(unittest.TestCase):
 
     def test_owner_override_still_recorded(self):
         # PR #188 review: the no-write rule is autonomous-only; the owner's USER_OVERRIDE after an
-        # escalation in important or all mode has no review-run.sh writer and is still recorded.
+        # escalation in important or all mode has no `sw review` writer and is still recorded.
         s5 = init_step(5)
         self.assertNotRegex(s5, r"(?s)Never write into `openspec/architecture-review\.md` yourself",
                             "an unconditional no-write rule blocks the owner's USER_OVERRIDE")
         self.assertRegex(s5, r"(?is)`VERDICT: USER_OVERRIDE`.{0,120}(owner|user) chooses.{0,160}`important` or `all`.{0,80}recorded")
 
     def test_owner_override_names_its_writer(self):
-        # PR #188 review round 2: review-run.sh rejects USER_OVERRIDE, so the skill must name
+        # PR #188 review round 2: `sw review` rejects USER_OVERRIDE, so the skill must name
         # the orchestrator as the one writer of that line, as openspec/architecture.md does.
         s5 = init_step(5)
-        self.assertRegex(s5, r"(?is)`review-run\.sh` (never writes|rejects) it.{0,80}you write that one `VERDICT: USER_OVERRIDE` line into `openspec/architecture-review\.md` yourself")
+        self.assertRegex(s5, r"(?is)`<sw> review` (never writes|rejects) it.{0,80}you write that one `VERDICT: USER_OVERRIDE` line into `openspec/architecture-review\.md` yourself")
 
     def test_close_adr_review_keeps_summary_exemption(self):
         # PR #188 review: close's ADR re-review states the summary exemption, not only init step 5.

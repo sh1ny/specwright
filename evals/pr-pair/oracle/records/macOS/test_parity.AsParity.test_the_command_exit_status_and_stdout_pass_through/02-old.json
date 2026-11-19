@@ -1,0 +1,71 @@
+{
+ "calls": [
+  [
+   [
+    "auth",
+    "token",
+    "--help"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "auth",
+    "token",
+    "--hostname",
+    "github.com",
+    "--user",
+    "sh1ny"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "api",
+    "--hostname",
+    "github.com",
+    "user",
+    "--jq",
+    ".login"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": "tok-s",
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ]
+ ],
+ "case": "test_parity.AsParity.test_the_command_exit_status_and_stdout_pass_through",
+ "comment_bodies": {},
+ "exit": 127,
+ "label": "old",
+ "requests": [],
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "sh1ny"
+ },
+ "stderr": {
+  "lines": 1,
+  "prefixes": [
+   "as.sh: "
+  ]
+ },
+ "stdout": ""
+}

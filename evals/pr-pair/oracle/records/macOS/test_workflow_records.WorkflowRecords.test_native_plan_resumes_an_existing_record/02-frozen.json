@@ -1,0 +1,144 @@
+{
+ "calls": [],
+ "case": "test_workflow_records.WorkflowRecords.test_native_plan_resumes_an_existing_record",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "branch": "feat/add-greeting",
+  "delete_record": false,
+  "needs_user": false,
+  "new_pass_allowed": false,
+  "ok": true,
+  "owned": true,
+  "owner": {
+   "at": "<time>",
+   "checkout": "<tmp>/code",
+   "host": "<host>",
+   "id": "<owner>"
+  },
+  "path": "<tmp>/state/feedback/acme.code.add-greeting-92c7463be12bfdbe425b9f0cbbc5ea0b.json",
+  "record": true,
+  "round": 2,
+  "rows": [
+   {
+    "action": "finish_edits",
+    "committable": false,
+    "files": [
+     "openspec/changes/archive/2026-10-07-add-greeting/specs/greeting/spec.md",
+     "openspec/specs/greeting/spec.md"
+    ],
+    "pending_edits": [
+     {
+      "file": "openspec/changes/archive/2026-10-07-add-greeting/specs/greeting/spec.md",
+      "finding": "F1",
+      "reason": "not_made"
+     },
+     {
+      "file": "openspec/specs/greeting/spec.md",
+      "finding": "F1",
+      "reason": "not_made"
+     }
+    ],
+    "repo": "store",
+    "sha": null,
+    "state": "todo",
+    "step": "fix_commit",
+    "trailer": "Feedback-Round: 2"
+   },
+   {
+    "after": [
+     "fix_commit:store"
+    ],
+    "blocked": true,
+    "branch": "feat/add-greeting",
+    "repo": "store",
+    "state": "todo",
+    "step": "push"
+   },
+   {
+    "after": [
+     "push:store"
+    ],
+    "blocked": true,
+    "pr": {
+     "number": 3,
+     "repo": "acme/plans"
+    },
+    "repo": "store",
+    "requests": [
+     {
+      "body": "@codex review",
+      "done": false,
+      "poster": "KintsugiBot"
+     }
+    ],
+    "state": "todo",
+    "step": "rerequest"
+   },
+   {
+    "after": [
+     "fix_commit:store",
+     "push:store"
+    ],
+    "blocked": true,
+    "finding": "F1",
+    "item": "T1",
+    "kind": "thread",
+    "link_commit": {
+     "repo": "acme/plans",
+     "sha": null
+    },
+    "link_commits": [
+     {
+      "repo": "acme/plans",
+      "sha": null
+     }
+    ],
+    "pr": {
+     "number": 5,
+     "repo": "acme/code"
+    },
+    "react": "+1",
+    "resolve": true,
+    "root_id": 11,
+    "state": "todo",
+    "step": "reply"
+   },
+   {
+    "after": [
+     "reply:F1"
+    ],
+    "finding": "F1",
+    "state": "todo",
+    "step": "resolve"
+   },
+   {
+    "comment": 11,
+    "finding": "F1",
+    "idempotent": true,
+    "pr": {
+     "number": 5,
+     "repo": "acme/code"
+    },
+    "react": "+1",
+    "state": "todo",
+    "step": "react"
+   }
+  ],
+  "share_by_hand": [],
+  "status": "resume",
+  "stops": []
+ }
+}

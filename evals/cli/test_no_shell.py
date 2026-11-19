@@ -28,6 +28,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(EVALS))
 import bashexe  # noqa: E402
 import fakeexe  # noqa: E402
+import swcall  # noqa: E402
 import swharness  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("finish_fixtures", EVALS / "finish" / "fixtures.py")
@@ -37,7 +38,6 @@ _spec.loader.exec_module(fx)
 SHELLS = ("bash", "sh")  # bare-bash: not started (recorder names)
 UTILITIES = ("mktemp", "ln", "sleep", "date", "getconf", "pwd", "cygpath")
 LOG = "SW_NO_SHELL_LOG"
-SCRIPTS = (ROOT / "skills" / "specwright-pr" / "scripts").resolve().as_posix()
 SLUG = "o/code"
 BRANCH = "feat/x"
 
@@ -92,6 +92,8 @@ class NoShell(unittest.TestCase):
         self.log = self.root / "recorders.log"
         self.real_bash = bashexe.bash()
         self.assertTrue(self.real_bash, "the fixtures need bash")
+        self.project = self.root / "project"  # the project every call names: its VERSION is sw's own
+        swcall.stamp(self.project)
         self.build_finish_repo()
         self.gh_dir = self.root / "gh-bin"
         self.gh_dir.mkdir()
@@ -151,42 +153,34 @@ class NoShell(unittest.TestCase):
         env["PATH"] = os.pathsep.join(parts)
         return env
 
-    def sw_handoff(self, command, bash, records, cwd, env):
-        payload = b"".join(str(x).encode("utf-8") + b"\0" for x in [SCRIPTS, bash, *records])
-        done = subprocess.run([self.sw, *command, "--args-stdin"], input=payload, cwd=str(cwd), env=env,
-                              capture_output=True, timeout=180)
+    def sw_call(self, command, records, cwd, env):
+        """`sw --project <project> <command> <records>` as a direct call."""
+        done = swcall.run([*command, *records], project=self.project, cwd=str(cwd), env=env, timeout=180, text=False)
         return done.returncode, done.stdout.decode("utf-8", "replace"), done.stderr.decode("utf-8", "replace")
 
-    def ported_commands(self, front, bash, tag):
+    def ported_commands(self, front, tag):
         """Run every ported command once on a fresh code repo; returns {name: (exit code, stdout, stderr)}. `front` is
-        first on PATH and `bash` is the shell the handoff names."""
+        first on PATH."""
         self.build_code_repo(tag)
         env = self.env(front)
         code = self.code.resolve().as_posix()
         out = {}
         vcs = ["--repo", code, "--role", "code"]
-        out["vcs state"] = self.sw_handoff(["vcs"], bash, ["state", *vcs], self.code, env)
-        out["vcs fetch-main"] = self.sw_handoff(["vcs"], bash, ["fetch-main", *vcs, "--no-tags"], self.code, env)
-        out["commit task-cover"] = self.sw_handoff(
-            ["commit"], bash, ["task-cover", "--repo", code, "--range", "main..HEAD", "--tasks",
+        out["vcs state"] = self.sw_call(["vcs"], ["state", *vcs], self.code, env)
+        out["vcs fetch-main"] = self.sw_call(["vcs"], ["fetch-main", *vcs, "--no-tags"], self.code, env)
+        out["commit task-cover"] = self.sw_call(
+            ["commit"], ["task-cover", "--repo", code, "--range", "main..HEAD", "--tasks",
                                (self.code / "tasks.md").resolve().as_posix(), "--change", "x"], self.code, env)
-        out["commit fit-subject"] = self.sw_handoff(
-            ["commit"], bash, ["fit-subject", self.long_message.resolve().as_posix()], self.code, env)
-        out["finish undo-archive-plan"] = self.sw_handoff(
-            ["finish"], bash, fx.plan_args("add-x", dir_=self.work.resolve().as_posix()), self.work, env)
-        out["pr discover"] = self.sw_handoff(
-            ["pr", "discover"], bash, ["discover", "--repo", SLUG, "--branch", BRANCH], self.code, env)
-        if os.name == "nt":
-            # an MSYS path argument: sw converts it itself (no cygpath)
-            drive = self.long_message.resolve().as_posix()
-            msys = "/" + drive[0].lower() + drive[2:]
-            out["commit fit-subject (MSYS path)"] = self.sw_handoff(
-                ["commit"], bash, ["fit-subject", msys], self.code, env)
+        out["commit fit-subject"] = self.sw_call(
+            ["commit"], ["fit-subject", self.long_message.resolve().as_posix()], self.code, env)
+        out["finish undo-archive-plan"] = self.sw_call(
+            ["finish"], fx.plan_args("add-x", dir_=self.work.resolve().as_posix()), self.work, env)
+        out["pr discover"] = self.sw_call(["pr", "discover"], ["--repo", SLUG, "--branch", BRANCH], self.code, env)
         # the two writing commands run last, on the same branch
-        out["vcs commit"] = self.sw_handoff(
-            ["vcs"], bash, ["commit", *vcs, "--branch", BRANCH, "--message-file", self.message.resolve().as_posix(),
+        out["vcs commit"] = self.sw_call(
+            ["vcs"], ["commit", *vcs, "--branch", BRANCH, "--message-file", self.message.resolve().as_posix(),
                             "--", "new.txt"], self.code, env)
-        out["vcs push"] = self.sw_handoff(["vcs"], bash, ["push", *vcs, "--branch", BRANCH], self.code, env)
+        out["vcs push"] = self.sw_call(["vcs"], ["push", *vcs, "--branch", BRANCH], self.code, env)
         return out
 
     def probe(self, directory, names):
@@ -200,11 +194,11 @@ class NoShell(unittest.TestCase):
                              "the %s recorder did not record its run" % name)
         self.log.unlink()
 
-    def assert_same_as_plain(self, front, bash):
+    def assert_same_as_plain(self, front):
         """The ported commands with recorders first give what they give without them, and no recorder ran."""
-        plain = self.ported_commands(None, self.real_bash, "plain")
+        plain = self.ported_commands(None, "plain")
         self.assertFalse(self.log.exists())
-        got = self.ported_commands(front, bash, "recorded")
+        got = self.ported_commands(front, "recorded")
         recorded = self.log.read_text(encoding="utf-8").split() if self.log.exists() else []
         self.assertEqual(recorded, [], "recorders ran: %r" % recorded)
         self.assertEqual(set(got), set(plain))
@@ -226,12 +220,31 @@ class NoShell(unittest.TestCase):
     def test_ported_commands_with_failing_shells_first(self):
         shells = write_recorders(self.root / "failing-shells", SHELLS)
         self.probe(shells, SHELLS)
-        self.assert_same_as_plain(shells, recorder_command(shells, "bash"))
+        self.assert_same_as_plain(shells)
 
     def test_failing_utilities_first_on_path(self):
         utilities = write_recorders(self.root / "failing-utilities", UTILITIES)
         self.probe(utilities, UTILITIES)
-        self.assert_same_as_plain(utilities, self.real_bash)
+        self.assert_same_as_plain(utilities)
+
+    @unittest.skipUnless(os.name == "nt", "platform: only Windows has a Git Bash that converts MSYS paths")
+    def test_git_bash_path_converted_by_git_bash(self):
+        """Git Bash hands `sw` a `/c/...` path as `C:/...` itself, and `sw` runs no `cygpath` to read it."""
+        utilities = write_recorders(self.root / "failing-utilities", UTILITIES)
+        self.probe(utilities, UTILITIES)
+        self.build_code_repo("git-bash")
+        posix = self.code.resolve().as_posix()  # C:/Users/...
+        msys = "/" + posix[0].lower() + posix[2:]  # /c/Users/...
+        self.assertTrue(msys.startswith("/") and ":" not in msys, msys)
+        env = self.env(utilities)
+        env.update({"SW_UNDER_TEST": Path(self.sw).resolve().as_posix(), "SW_PROJECT": self.project.resolve().as_posix()})
+        script = '"$SW_UNDER_TEST" --project "$SW_PROJECT" vcs state --repo \'%s\' --role code' % msys
+        done = subprocess.run([self.real_bash, "-c", script], cwd=str(self.code), env=env, capture_output=True, text=True,
+                              encoding="utf-8", timeout=180)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(json.loads(done.stdout)["ok"], done.stdout)
+        recorded = self.log.read_text(encoding="utf-8").split() if self.log.exists() else []
+        self.assertEqual(recorded, [], "recorders ran: %r" % recorded)
 
 
 if __name__ == "__main__":

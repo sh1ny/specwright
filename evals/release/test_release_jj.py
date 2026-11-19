@@ -14,7 +14,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-SCRIPT = Path(os.environ.get("RELEASE_SH") or ROOT / "skills" / "specwright-release" / "scripts" / "release.sh")
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
@@ -70,7 +69,7 @@ class JjRelease(unittest.TestCase):
 
     def release(self, *args):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=self.env())
+        r = fx.swcall.run(["release", *args], cwd=self.work, env=self.env())
         try:
             doc = json.loads(r.stdout)
         except ValueError:

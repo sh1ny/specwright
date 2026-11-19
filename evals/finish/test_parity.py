@@ -1,28 +1,24 @@
-"""Differential eval (native-cli-finish D9): the frozen oracle copy of the old finish.sh and finish.sh plan the same fixture
-repos and must print the same stdout document and exit with the same code. The documents are compared as parsed JSON: sw
-writes compact JSON, the oracle spaced JSON (native-cli-library-foundations D3). The one listed difference is
-`test_user_task_ids_are_ascii_digits`: the oracle reads Python's `\\d`, sw reads `[0-9]`.
+"""Outcome evals for `sw finish undo-archive-plan` (change native-cli-retire-scripts, task 7.2). They once compared the plan with
+the frozen finish.sh (native-cli-finish D9); the frozen script is no longer run. Each case plans on a fixture repo, checks the
+printed document, and where the plan carries `steps` runs them with `sw` and checks that refs, index and files are the ones
+the repository had before the archive (`TestOutcomeGit.test_printed_steps_restore_refs_index_files`).
 
-The oracle (evals/finish/oracle/finish.sh) is test-only and ships nowhere; ORACLE_FIN_DIR makes it print the real vcs.sh path.
-The GitButler cases are in evals/vcs/test_gitbutler_parity.py. M8 deletes the oracle together with the shim.
+The one difference the old oracle showed is kept as an assertion of sw's side: a task id in other Unicode digits is not a task
+(`test_user_task_ids_are_ascii_digits`). The GitButler cases are in evals/vcs/test_gitbutler_parity.py.
 
 Run: python -m unittest evals/finish/test_parity.py
 """
 import importlib.util
-import json
 import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.append(str(ROOT / "evals"))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
-import bashexe  # noqa: E402
-import jjenv  # noqa: E402
-import vcs_test_support  # noqa: E402
 
 
 def _load(name, filename):
@@ -35,110 +31,82 @@ def _load(name, filename):
 fx = _load("finish_fixtures", "fixtures.py")
 tp = _load("finish_test_undo_plan", "test_undo_plan.py")  # module attributes only: its test classes are not collected here
 tj = _load("finish_test_undo_jj", "test_undo_jj.py")
+ts = _load("finish_test_undo_steps", "test_undo_steps.py")
+fx = ts.fx  # the module the fixtures of ts.build_* call, so a patch of `archive` reaches them
 
 P = "openspec"
 BRANCH = tp.BRANCH
 JJ_BRANCH = tj.BRANCH
 
 
-def git_pair(work, args, cwd=None):
-    """(finish.sh, oracle) as (exit code, stdout bytes, stderr bytes) on a Git repo, run the same way."""
-    out = []
-    for script, extra in ((fx.SCRIPT, {}), (fx.ORACLE, {"ORACLE_FIN_DIR": str(fx.ORACLE_FIN_DIR)})):
-        r = subprocess.run([bashexe.bash(), str(script), *args], cwd=cwd or work, capture_output=True,
-                           env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), **extra))
-        out.append((r.returncode, r.stdout, r.stderr))
-    return out
+def plan(work, change="add-x", **kw):
+    """(exit code, document, raw output) of `sw finish undo-archive-plan` on `work`."""
+    return fx.run_plan(work, change, **kw)
 
 
-def jj_pair(work, env, args):
-    """The same on a jj repo, through the Git-Bash PATH the jj evals use."""
-    out = []
-    for script, extra in ((fx.SCRIPT, {}), (fx.ORACLE, {"ORACLE_FIN_DIR": str(fx.ORACLE_FIN_DIR)})):
-        shell_env = vcs_test_support.bash_path_env(None)
-        shell_env.update({k: v for k, v in env.items() if k != "PATH"})
-        shell_env.update(extra)
-        shell_env.setdefault("SPECWRIGHT_HOME", str(vcs_test_support.sw_home()))
-        shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
-        r = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"', "parity",
-                            script.as_posix(), *args], cwd=work, env=shell_env, capture_output=True)
-        out.append((r.returncode, r.stdout, r.stderr))
-    return out
+class PlanAsserts:
+    def assertPlans(self, result, code=0):
+        status, doc, raw = result
+        self.assertEqual(status, code, raw)
+        self.assertIsInstance(doc, dict, raw)
+        return doc
 
 
-def parsed(stdout):
-    """The JSON document finish prints: compact on the sw side, spaced on the oracle's, equal by value."""
-    return json.loads(stdout.decode("utf-8", "surrogateescape"))
+class TestOutcomeGit(tp.Base, PlanAsserts):
+    def refs(self, repo):
+        return sorted(fx.git(repo, "for-each-ref", "--format=%(refname)").split())
+
+    def restores(self, build):
+        """Build the archived fixture in self.work and the same fixture without the archive in a second repo, plan, run the
+        printed steps and the after-rerun steps with sw: refs, index and the change's files are the unarchived repo's."""
+        expected = fx.make_repo(self.tmp / "expected")
+        build(self.work)
+        with mock.patch.object(fx, "archive", lambda *a, **k: None):
+            build(expected)
+        doc = self.assertPlans(plan(self.work))
+        self.assertTrue(doc["steps"], doc)
+        for steps in (doc["steps"], doc["after_rerun_steps"]):
+            if steps:
+                r = fx.run_steps(self.scripts, steps)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got, want = ts.restored_change(self.work, expected)
+        self.assertEqual(got["files"], want["files"], "the change's files")
+        self.assertTrue(got["files"], "the change's files are back")
+        self.assertEqual(got["index"], want["index"], "the change's index entries")
+        self.assertEqual((got["archived"], got["tracked_archive"]), ([], ""), "no archive of the change remains")
+        self.assertEqual(self.refs(self.work), self.refs(expected), "the refs")
+        return doc
+
+    def test_printed_steps_restore_refs_index_files(self):
+        def uncommitted(work):
+            fx.git(work, "checkout", "-q", "-b", BRANCH)
+            fx.make_change(work, "add-x", "DEFERRED", {"a": "New thing", "b": "B thing"})
+            for rel in ("notes/z.md", "notes/deep/b/leaf.md", "assets/img/one.txt"):
+                fx.write(work, f"{tp.cd('add-x')}/{rel}", f"{rel}\n")
+            fx.commit(work, "docs(add-x): add notes")
+            fx.archive(work, "add-x")
+
+        def committed(work):
+            ts.build_single(work)
+
+        def amended(work):
+            ts.build_single(work, deltas={"a": "New thing"})
+            # the unarchived fixture (archive patched out) holds the design where the change was
+            held = tp.ad("add-x") if (Path(work) / tp.ad("add-x")).is_dir() else tp.cd("add-x")
+            fx.edit(work, f"{held}/design.md", "Original design.", "Amended design.")
+            fx.edit(work, tp.SPEC_A, "Baseline purpose", "Amended purpose")
+            fx.commit(work, "docs(add-x): amend")
+
+        for name, build in (("uncommitted archive", uncommitted), ("committed archive", committed), ("amended archive", amended),
+                            ("bulk archive", ts.build_pair)):
+            with self.subTest(name):
+                self.setUp()
+                self.restores(build)
 
 
-def sorted_carried(doc):
-    """The document with `carried_edits` as a sorted list: the oracle lists them in `os.walk` order, sw sorts them by the
-    UTF-8 bytes of each whole path (native-cli-launcher D6), so the two compare as the same set in a fixed order."""
-    if isinstance(doc, dict) and isinstance(doc.get("carried_edits"), list):
-        doc = dict(doc, carried_edits=sorted(doc["carried_edits"], key=lambda p: p.encode("utf-8", "surrogateescape")))
-    return doc
-
-
-def compact_guard(doc):
-    """The oracle's document with its printed jj branch guard in sw's form: the one listed difference (C13).
-
-    The guard reads the `vcs.sh state` document by text, and sw prints that document compact, so sw's guard matches
-    `"branch":"<name>"` where the oracle's matched `"branch": "<name>"`."""
-    if isinstance(doc, dict) and isinstance(doc.get("script"), str):
-        doc = dict(doc, script=doc["script"].replace("'\"branch\": \"", "'\"branch\":\""))
-    return doc
-
-
-class ParityAsserts:
-    def assertParity(self, pair, code=None):
-        new, old = pair
-        self.assertEqual(sorted_carried(parsed(new[1])), sorted_carried(compact_guard(parsed(old[1]))),
-                         "stdout documents differ between finish.sh and the oracle")
-        self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
-        if code is not None:  # the case really planned (or refused) what it names, not a broken fixture
-            self.assertEqual(old[0], code, old[1] + old[2])
-        self.assertTrue(old[1].strip(), "the oracle printed nothing: " + old[2].decode("utf-8", "replace"))
-
-
-class TestParityGit(tp.Base, ParityAsserts):
+class TestPlanGit(tp.Base, PlanAsserts):
     def plan(self, change="add-x", **kw):
-        return git_pair(self.work, fx.plan_args(change, **kw))
-
-    def test_uncommitted_single_archive_with_nested_folders(self):
-        self.single({"a": "New thing", "b": "B thing"})
-        for rel in ("notes/z.md", "notes/deep/b/leaf.md", "notes/deep/a/leaf.md", "notes/deep/a/aa.md", "assets/img/one.txt",
-                    "assets/two.txt"):
-            fx.write(self.work, f"{tp.cd('add-x')}/{rel}", f"{rel}\n")
-        fx.commit(self.work, "docs(add-x): add notes")
-        fx.archive(self.work, "add-x")
-        self.assertParity(self.plan(), 0)
-
-    def test_committed_single_archive(self):
-        self.single({"a": "New thing", "b": "B thing"})
-        fx.archive(self.work, "add-x", commit_it=True)
-        self.assertParity(self.plan(), 0)
-
-    def test_committed_single_archive_with_amendment(self):
-        self.single({"a": "New thing"})
-        fx.archive(self.work, "add-x", commit_it=True)
-        fx.edit(self.work, f"{tp.ad('add-x')}/design.md", "Original design.", "Amended design.")
-        fx.edit(self.work, tp.SPEC_A, "Baseline purpose", "Amended purpose")
-        fx.commit(self.work, "docs(add-x): amend")
-        self.assertParity(self.plan(), 0)
-
-    def test_bulk_archive_with_deferred_member_and_amendments(self):
-        self.pair()
-        fx.archive(self.work, ["add-x", "add-y"], commit_it=True, marker=True)
-        fx.edit(self.work, tp.SPEC_A, "Baseline purpose", "Amended purpose")
-        fx.commit(self.work, "docs: amend the spec")
-        self.assertParity(self.plan(), 0)
-        self.assertParity(self.plan("add-y"), 0)
-
-    def test_uncommitted_bulk_archive_with_amendment(self):
-        self.pair()
-        fx.archive(self.work, ["add-x", "add-y"])
-        fx.edit(self.work, tp.SPEC_A, "Baseline purpose", "My own purpose")
-        self.assertParity(self.plan(), 0)
+        return plan(self.work, change, **kw)
 
     def test_member_waiting_on_a_user_task(self):
         for commit_it in (True, False):
@@ -152,53 +120,42 @@ class TestParityGit(tp.Base, ParityAsserts):
                 fx.commit(self.work, "docs(add-y): add planning artifacts",
                           {f"{P}/changes/add-y/tasks.md": "# Tasks\n\n- [x] 1.1 do it\n- [x] 1.2 [user] Play the level\n"})
                 fx.archive(self.work, ["add-x", "add-y"], commit_it=commit_it)
-                pair = self.plan()
-                self.assertParity(pair, 0)
-                self.assertEqual([m["waiting_on_user"] for m in parsed(pair[1][1])["members"]], [["1.2"], []])
+                doc = self.assertPlans(self.plan())
+                self.assertEqual([m["waiting_on_user"] for m in doc["members"]], [["1.2"], []])
 
     def test_user_task_ids_are_ascii_digits(self):
-        """The asserted difference: a task id written in other Unicode digits (Python's `\\d` matches them) is not a task for
-        sw, which reads ASCII digits only, so only the ASCII id is waited on."""
+        """sw reads ASCII digits only: a task id written in other Unicode digits is not a task."""
         self.on_branch()
         fx.make_change(self.work, "add-x", "APPROVE", {"a": "X thing"}, commit_it=False)
         fx.commit(self.work, "docs(add-x): add planning artifacts",
-                  {f"{P}/changes/add-x/tasks.md": "# Tasks\n\n- [x] 1.1 do it\n- [ ] \u0661.\u0661 [user] Play the level\n"
+                  {f"{P}/changes/add-x/tasks.md": "# Tasks\n\n- [x] 1.1 do it\n- [ ] ١.١ [user] Play the level\n"
                                                    "- [ ] 1.2 [user] Play the level\n"})
         fx.archive(self.work, "add-x", commit_it=True)
-        new, old = self.plan()
-        self.assertEqual(new[0], 0, new[2])
-        self.assertEqual(old[0], 0, old[2])
-        self.assertEqual([m["waiting_on_user"] for m in parsed(new[1])["members"]], [["1.2"]])
-        self.assertEqual([m["waiting_on_user"] for m in parsed(old[1])["members"]], [["\u0661.\u0661", "1.2"]])
+        doc = self.assertPlans(self.plan())
+        self.assertEqual([m["waiting_on_user"] for m in doc["members"]], [["1.2"]])
 
     def test_resume_from_another_branch(self):
         self.single({"a": "New thing"})
         fx.archive(self.work, "add-x", commit_it=True)
         self.git("checkout", "-q", "main")
-        self.assertParity(self.plan(branch=BRANCH), 0)
+        self.assertPlans(self.plan(branch=BRANCH))
 
     def test_refusal_target_exists(self):
         self.single({"a": "New thing"})
         fx.archive(self.work, "add-x", commit_it=True)
         fx.write(self.work, f"{tp.cd('add-x')}/notes.md", "recreated\n")
-        pair = self.plan()
-        self.assertParity(pair, 1)
-        self.assertIn(b'"target_exists"', pair[1][1])
+        self.assertEqual(self.assertPlans(self.plan(), 1)["error"], "target_exists")
 
     def test_refusal_no_archive(self):
         self.single({"a": "New thing"})
-        pair = self.plan()
-        self.assertParity(pair, 1)
-        self.assertIn(b'"no_archive"', pair[1][1])
+        self.assertEqual(self.assertPlans(self.plan(), 1)["error"], "no_archive")
 
     def test_refusal_dirty_tree(self):
         self.single({"a": "New thing"})
         fx.archive(self.work, "add-x", commit_it=True)
         self.git("checkout", "-q", "main")
         fx.edit(self.work, "README.md", "demo", "demo edited")
-        pair = self.plan(branch=BRANCH)
-        self.assertParity(pair, 1)
-        self.assertIn(b'"dirty_tree"', pair[1][1])
+        self.assertEqual(self.assertPlans(self.plan(branch=BRANCH), 1)["error"], "dirty_tree")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
     def test_uncommitted_archive_with_invalid_utf8_file_name(self):
@@ -207,20 +164,16 @@ class TestParityGit(tp.Base, ParityAsserts):
         bad = os.path.join(os.fsencode(str(self.work)), os.fsencode(tp.ad("add-x")), b"bad-\xff-name.md")
         with open(bad, "wb") as f:
             f.write(b"not utf-8 named\n")
-        # The asserted difference (native-cli-launcher D6): the oracle plans an archive holding a name with invalid
-        # UTF-8 bytes, sw stops with `not_utf8` naming the file with its bytes as \xHH and prints no script.
-        new, old = self.plan()
-        self.assertEqual(old[0], 0, old[1] + old[2])
-        self.assertEqual(new[0], 1, new[1] + new[2])
-        doc = parsed(new[1])
+        # sw stops with `not_utf8` naming the file with its bytes as \xHH and prints no undo
+        doc = self.assertPlans(self.plan(), 1)
         self.assertEqual(doc["error"], "not_utf8", doc)
         self.assertIn("bad-\\xFF-name.md", doc["message"])
-        self.assertNotIn("script", doc)
+        self.assertNotIn("steps", doc)
 
 
-class TestParityJj(tj.JjBase, ParityAsserts):
+class TestPlanJj(tj.JjBase, PlanAsserts):
     def plan(self, change="add-x", **kw):
-        return jj_pair(self.work, self.env, fx.plan_args(change, **kw))
+        return plan(self.work, change, **kw)
 
     def two_changes(self, tasks=None):
         """add-x (DEFERRED) and add-y (APPROVE), each committed with jj."""
@@ -230,68 +183,32 @@ class TestParityJj(tj.JjBase, ParityAsserts):
                 fx.write(self.work, f"{P}/changes/{name}/tasks.md", tasks[name])
             self.jjc("commit", "-m", f"docs({name}): add planning artifacts")
 
-    def test_uncommitted_single_archive_with_nested_folders(self):
-        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing", "b": "B thing"}, commit_it=False)
-        for rel in ("notes/z.md", "notes/deep/b/leaf.md", "notes/deep/a/leaf.md", "assets/img/one.txt", "assets/two.txt"):
-            fx.write(self.work, f"{P}/changes/add-x/{rel}", f"{rel}\n")
-        self.jjc("commit", "-m", "docs(add-x): add planning artifacts")
-        fx.archive(self.work, "add-x", commit_it=False)
-        self.jjc("bookmark", "create", JJ_BRANCH, "-r", "@-")
-        self.assertParity(self.plan(branch=JJ_BRANCH), 0)
-
-    def test_committed_single_archive(self):
-        self.archived_branch()
-        self.assertParity(self.plan(branch=JJ_BRANCH), 0)
-
-    def test_bulk_archive_with_deferred_member_and_amendments(self):
-        self.two_changes()
-        fx.archive(self.work, ["add-x", "add-y"], commit_it=False)
-        self.jjc("commit", "-m", "chore(add-x, add-y): archive change")
-        self.jjc("bookmark", "create", JJ_BRANCH, "-r", "@-")
-        fx.edit(self.work, tp.SPEC_A, "Baseline purpose", "Amended purpose")
-        self.jjc("commit", "-m", "docs: amend the spec")
-        self.jjc("bookmark", "set", JJ_BRANCH, "-r", "@-")
-        self.assertParity(self.plan(branch=JJ_BRANCH), 0)
-
     def test_member_waiting_on_a_user_task(self):
         self.two_changes({"add-x": "# Tasks\n\n- [x] 1.1 do it\n- [ ] 1.2 [user] Play the level\n",
-                            "add-y": "# Tasks\n\n- [x] 1.1 do it\n- [x] 1.2 [user] Play the level\n"})
+                          "add-y": "# Tasks\n\n- [x] 1.1 do it\n- [x] 1.2 [user] Play the level\n"})
         fx.archive(self.work, ["add-x", "add-y"], commit_it=False)
         self.jjc("commit", "-m", "chore(add-x, add-y): archive change")
         self.jjc("bookmark", "create", JJ_BRANCH, "-r", "@-")
-        pair = self.plan(branch=JJ_BRANCH)
-        self.assertParity(pair, 0)
-        self.assertEqual([m["waiting_on_user"] for m in parsed(pair[1][1])["members"]], [["1.2"], []])
-
-    def test_resume_from_another_branch(self):
-        self.archived_branch()
-        self.jjc("new", "main")
-        self.jjc("bookmark", "create", "feat/other", "-r", "@-")
-        self.assertParity(self.plan(branch=JJ_BRANCH), 0)
+        doc = self.assertPlans(self.plan(branch=JJ_BRANCH))
+        self.assertEqual([m["waiting_on_user"] for m in doc["members"]], [["1.2"], []])
 
     def test_refusal_target_exists(self):
         self.archived_branch()
         fx.write(self.work, f"{P}/changes/add-x/notes.md", "recreated\n")
-        pair = self.plan(branch=JJ_BRANCH)
-        self.assertParity(pair, 1)
-        self.assertIn(b'"target_exists"', pair[1][1])
+        self.assertEqual(self.assertPlans(self.plan(branch=JJ_BRANCH), 1)["error"], "target_exists")
 
     def test_refusal_no_archive(self):
         fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing"}, commit_it=False)
         self.jjc("commit", "-m", "docs(add-x): add planning artifacts")
         self.jjc("bookmark", "create", JJ_BRANCH, "-r", "@-")
-        pair = self.plan(branch=JJ_BRANCH)
-        self.assertParity(pair, 1)
-        self.assertIn(b'"no_archive"', pair[1][1])
+        self.assertEqual(self.assertPlans(self.plan(branch=JJ_BRANCH), 1)["error"], "no_archive")
 
     def test_refusal_dirty_tree(self):
         self.archived_branch()
         self.jjc("new", "main")
         self.jjc("bookmark", "create", "feat/other", "-r", "@-")
         fx.write(self.work, "README.md", "dirty\n")
-        pair = self.plan(branch=JJ_BRANCH)
-        self.assertParity(pair, 1)
-        self.assertIn(b'"dirty_tree"', pair[1][1])
+        self.assertEqual(self.assertPlans(self.plan(branch=JJ_BRANCH), 1)["error"], "dirty_tree")
 
 
 if __name__ == "__main__":

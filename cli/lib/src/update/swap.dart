@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'inflight.dart' show inflightEntries;
 import 'journal.dart';
@@ -539,14 +538,6 @@ Never _refuse(UpdateRun r, Journal j, UpdateDie stop) {
   throw stop;
 }
 
-String _token() {
-  final rng = Random.secure();
-  String word(int v) => v.toRadixString(16).padLeft(8, '0');
-  return word((rng.nextInt(1 << 15) << 15) | rng.nextInt(1 << 15)) +
-      word((rng.nextInt(1 << 15) << 15) | rng.nextInt(1 << 15)) +
-      word(pid);
-}
-
 /// `swap_store_prepare`: the store half of the swap up to the first rename;
 /// every stop releases the gate lock.
 Future<void> _swapStorePrepare(UpdateRun r, Journal j, Gate g) async {
@@ -557,7 +548,7 @@ Future<void> _swapStorePrepare(UpdateRun r, Journal j, Gate g) async {
       "the store's git directory could not be found when the update was staged",
     );
   }
-  final token = _token();
+  final token = gateToken();
   j.set('token', token); // the token reaches the journal first
   r.flush(j);
   g.path = gate;

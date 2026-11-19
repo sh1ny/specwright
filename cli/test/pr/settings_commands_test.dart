@@ -67,8 +67,6 @@ void main() {
       Directory(code()).createSync(recursive: true);
       final out = <int>[];
       final ctx = PrContext(
-        scriptsDir: 'scripts',
-        bash: 'bash',
         writeOut: out.addAll,
         writeErr: (_) {},
         environment: env(),

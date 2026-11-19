@@ -1,4 +1,4 @@
-"""pack-check (`sw update pack-check`, through scripts/update.sh): the structural checks and the crude gate-wording check on a pack.
+"""pack-check (`sw update pack-check`, run directly): the structural checks and the crude gate-wording check on a pack.
 
 Every test builds a scratch "download" (the fixture packs it needs under packs/, plus the fixture schema under
 schemas/specwright/) and runs the real script against it with --download. The fixtures live in evals/packs/fixtures/:
@@ -21,10 +21,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals"))
 sys.path.insert(0, str(HERE))
-import bashexe  # noqa: E402
+import swcall  # noqa: E402
 import packenv  # noqa: E402
 
-SCRIPT = ROOT / "scripts" / "update.sh"
 FIXTURES = HERE / "fixtures"
 VALID = ("valid-web", "valid-ui-base", "valid-domain", "strict-wording")
 OPENSPEC_CONTEXT_LIMIT = 50 * 1024
@@ -67,7 +66,7 @@ class PackCheck(unittest.TestCase):
         return dl
 
     def check(self, dl, *args):
-        argv = [bashexe.bash(), posix(SCRIPT), "--download", posix(dl), "pack-check", *args]
+        argv = swcall.argv(["update", "--download", posix(dl), "pack-check", *args])
         r = subprocess.run(argv, cwd=self.tmp, capture_output=True, text=True, encoding="utf-8", timeout=120, env=packenv.sw_env())
         try:
             doc = json.loads(r.stdout)

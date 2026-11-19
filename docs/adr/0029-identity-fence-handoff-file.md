@@ -1,6 +1,6 @@
 # 0029. The identity fence hands its arguments over in a private file
 
-- Status: accepted
+- Status: superseded by 0040
 - Date: 2026-11-07
 - Adds to: 0028 (ported scripts are shims that hand `sw` their records on stdin)
 

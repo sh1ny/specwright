@@ -1,0 +1,23 @@
+{
+ "calls": [],
+ "case": "test_workflow_records.WorkflowRecords.test_directory_record_is_occupied_and_unreadable",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "record_unreadable",
+  "message": "<tmp>/state/feedback/acme.code.add-greeting-92c7463be12bfdbe425b9f0cbbc5ea0b.json: [Errno 21] Is a directory: '<tmp>/state/feedback/acme.code.add-greeting-92c7463be12bfdbe425b9f0cbbc5ea0b.json'",
+  "ok": false
+ }
+}

@@ -3,8 +3,6 @@ import 'dart:io';
 
 import 'package:specwright_cli/src/pr/context.dart';
 
-import '../vcs/bash_support.dart';
-
 /// A fresh temp directory for one test, removed by [dispose].
 class Scratch {
   Scratch() : dir = Directory.systemTemp.createTempSync('sw-pair-test-');
@@ -79,8 +77,6 @@ class Ran {
 class PairRun {
   PairRun({Map<String, String>? env, PrGh? gh}) {
     ctx = PrContext(
-      scriptsDir: 'scripts',
-      bash: findBash() ?? 'bash',
       writeOut: out.addAll,
       writeErr: err.addAll,
       environment: env,

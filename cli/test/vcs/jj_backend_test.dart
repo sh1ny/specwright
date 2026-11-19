@@ -106,13 +106,12 @@ void main() {
       force: force,
       paths: paths,
     );
-    final scriptsPath = posix(scriptsDir.path);
     return VcsSession(
-      VcsContext(request, scriptsPath, bash!),
+      VcsContext(request),
       repo,
       repo,
       ProbeInfo('jj', 'main', repo, infoLogin),
-      VcsScripts(scriptsPath, bash, fence: fakeFence(scriptsDir)),
+      VcsScripts(fence: fakeFence(scriptsDir)),
     );
   }
 
@@ -196,13 +195,11 @@ void main() {
     VcsSession bare() => VcsSession(
       VcsContext(
         VcsRequest(command: 'commit', repo: '.', role: 'code', code: '.'),
-        '.',
-        'bash',
       ),
       '.',
       '.',
       ProbeInfo('jj', 'main', '.', ''),
-      VcsScripts('.', 'bash'),
+      VcsScripts(),
     );
 
     Future<VcsStop?> check(

@@ -1,0 +1,20 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_check_config_prints_digest_and_logins",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "digest": "f81db1752d07345fbc5698d06178860255b4d2ddda58883762f42b2ae1caef3a",
+  "logins": [
+   "b-bot",
+   "a-bot"
+  ],
+  "ok": true
+ }
+}

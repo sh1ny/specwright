@@ -2,7 +2,7 @@
 
 These checks assert where a rule sits and its key terms, not exact wording, in the style of
 evals/git-workflow/test_instructions.py. They prove the rule is in the instructions, not that a live
-agent follows it; `task-cover.sh` behaviour is tested in evals/git-workflow/test_task_cover.py.
+agent follows it; `sw commit task-cover` behaviour is tested in evals/git-workflow/test_task_cover.py.
 
 Run: python -m unittest evals/git-workflow/test_user_tasks.py
 """
@@ -238,8 +238,7 @@ class ArchiveAndMergeWaitForUser(unittest.TestCase):
 
     def test_finish_checks_archived_user_tasks(self):
         s0 = flat(section(read(FINISH), r"Steps").split(" 1. **Branch:**")[0])
-        self.assertRegex(s0, r"task-cover\.sh", "finish step 0 does not run task-cover.sh")
-        self.assertRegex(s0, r"<specwright-commit>/scripts/task-cover\.sh", "finish step 0 does not give the specwright-commit script path")
+        self.assertRegex(s0, r"<sw> commit task-cover", "finish step 0 does not run `<sw> commit task-cover`")
         self.assertRegex(s0, r"changes/archive/<archived-name>/tasks\.md", "finish step 0 does not read the archived tasks.md")
         self.assertRegex(s0, r"(?i)non-empty `waiting_on_user`[^.]{0,120}stop|stop[^.]{0,200}non-empty `waiting_on_user`", "finish step 0 does not stop on a non-empty `waiting_on_user`")
         self.assertRegex(s0, r"(?i)exit 1[-– ]*(to )?3", "finish step 0 does not stop on a script failure (exit 1-3)")
@@ -249,7 +248,7 @@ class ArchiveAndMergeWaitForUser(unittest.TestCase):
         a = pr_bullet("Archive before merge")
         m = pr_bullet("Merge:")
         u = pr_bullet("User tasks")
-        self.assertRegex(u, r"task-cover\.sh --rev <ready head>", "watch does not run task-cover.sh at the ready head")
+        self.assertRegex(u, r"<sw> commit task-cover --rev <ready head>", "watch does not run task-cover at the ready head")
         self.assertRegex(u, r"(?i)never the working tree", "watch may read the working tree")
         self.assertRegex(u, r"changes/archive/<archived-name>/tasks\.md", "watch does not fall back to the archived tasks.md")
         self.assertRegex(u, r"ready, waiting on the user: <ids>", "watch does not report `ready, waiting on the user: <ids>`")
@@ -271,7 +270,7 @@ class ArchiveAndMergeWaitForUser(unittest.TestCase):
     def test_watch_unknown_user_check_blocks_merge(self):
         u = pr_bullet("User tasks")
         # pre-ship round 3: exit 1 (range_too_large) carries no waiting_on_user either
-        self.assertRegex(u, r"(?i)any nonzero exit|exit 1, 2 or 3", "watch does not treat every task-cover.sh failure as unknown")
+        self.assertRegex(u, r"(?i)any nonzero exit|exit 1, 2 or 3", "watch does not treat every task-cover failure as unknown")
         self.assertRegex(u, r"(?i)unknown[^.]{0,160}no archive commit", "an unknown check does not block the archive")
         self.assertRegex(u, r"(?i)user-task check as unknown", "watch does not report the user-task check as unknown")
         self.assertRegex(u, r"(?i)unknown[^.]{0,120}send no merge request|send no merge request[^.]{0,60}unknown", "an unknown check does not block the merge request")
