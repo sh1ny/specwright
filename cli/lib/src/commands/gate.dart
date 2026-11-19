@@ -1,3 +1,5 @@
+import 'dart:io' show Directory;
+
 import 'package:args/args.dart';
 
 import '../gate/lock.dart';
@@ -68,7 +70,10 @@ Future<int> runGateCommand(
       );
     }
   }
-  final git = await runUpdateGit(store, ['rev-parse', '--git-common-dir']);
+  // git runs with the store as its working directory and `-C`: a relative
+  // path would be applied twice, so it is made absolute first.
+  final storeDir = Directory(store).absolute.path;
+  final git = await runUpdateGit(storeDir, ['rev-parse', '--git-common-dir']);
   final common = pyStrip(git.text);
   if (!git.ok || common.isEmpty) {
     writeOut(
@@ -85,7 +90,7 @@ Future<int> runGateCommand(
       common.startsWith(r'\') ||
       RegExp(r'^[A-Za-z]:').hasMatch(common);
   final lock =
-      '${resolvePosix(absolute ? common : '$store/$common')}'
+      '${resolvePosix(absolute ? common : '$storeDir/$common')}'
       '/specwright-gate.lock';
   final (Map<String, Object?> document, int status) = switch (sub) {
     'lock' => gateLock(lock, branch!, code!),

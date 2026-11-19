@@ -62,6 +62,29 @@ void main() {
       );
     });
 
+    test(
+      'on Windows with no HOME, the user profile holds the state directory',
+      () {
+        final profile = '${dir.path}/profile';
+        expect(
+          stateBase(context(env: {'USERPROFILE': profile})),
+          '$profile/.cache/specwright',
+        );
+        expect(
+          stateBase(context(env: {'HOMEDRIVE': 'D:', 'HOMEPATH': r'\Users\u'})),
+          r'D:\Users\u/.cache/specwright',
+        );
+        expect(
+          stateBase(
+            context(env: {'HOME': '${dir.path}/h', 'USERPROFILE': profile}),
+          ),
+          '${dir.path}/h/.cache/specwright',
+          reason: 'a set HOME still wins',
+        );
+      },
+      skip: Platform.isWindows ? false : 'the profile fallback is Windows only',
+    );
+
     test('a /tmp state base is used as given, not converted', () {
       final base = stateBase(
         context(
