@@ -1015,7 +1015,7 @@ class _Planner {
     } else if (committed) {
       warnings.add(
         'If a step fails after the steps began changing the index and before they '
-        'commits, run `git restore --staged -- ${touchedAll.join(' ')}` and '
+        'commit, run `git restore --staged -- ${touchedAll.join(' ')}` and '
         'plan again; the working tree is untouched until the commit.',
       );
     }
@@ -1118,8 +1118,8 @@ class _Planner {
       if (redelete.contains(f)) {
         warnings.add(
           '$f was deleted on $branch after the archive; the undo leaves it '
-          'deleted, and after_rerun_steps delete it again after they archive '
-          '$names.',
+          'deleted; after_rerun_steps archive $names again, and a later step '
+          'deletes it again.',
         );
       } else {
         warnings.add(

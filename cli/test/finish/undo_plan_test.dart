@@ -571,82 +571,86 @@ void main() {
           ),
         );
 
-    test('a committed single archive, exactly as finish.sh prints it', () async {
-      final repo = branchRepo();
-      final a = archive(repo, ['add-x'], commitIt: true)!;
-      final top = topOf(repo);
-      final backup = backupOf(repo);
-      final doc = await ok(repo);
-      expect(doc.keys.toList(), [
-        'ok',
-        'mode',
-        'archive_commit',
-        'branch',
-        'head',
-        'members',
-        'main_specs',
-        'amended',
-        'carried_edits',
-        'backup_dir',
-        'steps',
-        'after_rerun_steps',
-        'warnings',
-      ]);
-      expect(doc['mode'], 'committed');
-      expect(doc['archive_commit'], a);
-      expect(doc['branch'], 'feat/x');
-      expect(doc['head'], a);
-      expect(doc['members'], [
-        {
-          'name': 'add-x',
-          'archived_name': '$_date-add-x',
-          'deferred': true,
-          'waiting_on_user': <String>[],
-        },
-      ]);
-      expect(doc['main_specs'], {
-        'modified': [specA],
-        'created': <String>[],
-      });
-      expect(doc['amended'], <String>[]);
-      expect(doc['carried_edits'], <String>[]);
-      expect(doc['backup_dir'], backup);
-      expect(doc['after_rerun_steps'], <Object?>[]);
-      expect(doc.containsKey('script'), isFalse);
-      expect(doc.containsKey('after_rerun'), isFalse);
-      for (final s in doc['steps']! as List) {
-        expect((s as Map)['cwd'], top);
-      }
-      List<String> u(List<String> rest) => undoStep(top, rest);
-      expect(argvsOf(doc['steps']), [
-        u(['check', 'branch', 'feat/x']),
-        u(['check', 'tip', 'HEAD', a]),
-        u(['check', 'index']),
-        u(['check', 'absent', backup]),
-        u([
-          'mkdir',
-          '$backup/amended/openspec/specs/a',
-          '$backup/base/openspec/specs/a',
-        ]),
-        u(['write-blob', a, specA, '$backup/base/$specA']),
-        u(['copy', specA, '$backup/amended/$specA']),
-        ['git', 'rm', '-r', '-q', '--cached', '--', ad],
-        ['git', 'read-tree', '--prefix=openspec/changes/add-x/', '$a:$ad'],
-        ['git', 'restore', '--source=$a^', '--staged', '--', specA],
-        ['git', 'commit', '-q', '-m', 'feat(add-x): undo archive of add-x'],
-        u(['move', ad, 'openspec/changes/add-x']),
-        ['git', 'restore', '--source=$a^', '--worktree', '--', specA],
-      ]);
-      expect(doc['warnings'], [
-        'Do not edit files while the steps run.',
-        'If a step fails after the steps began changing the index and before they '
-            'commits, run `git restore --staged -- $ad openspec/changes/add-x '
-            '$specA` and plan again; the working tree is untouched until the '
-            'commit.',
-        'Base and amended copies of the synced main specs are saved in '
-            '$backup; no step reads or deletes them.',
-      ]);
-    }, skip: skip);
+    test(
+      'a committed single archive, exactly as finish.sh prints it',
+      () async {
+        final repo = branchRepo();
+        final a = archive(repo, ['add-x'], commitIt: true)!;
+        final top = topOf(repo);
+        final backup = backupOf(repo);
+        final doc = await ok(repo);
+        expect(doc.keys.toList(), [
+          'ok',
+          'mode',
+          'archive_commit',
+          'branch',
+          'head',
+          'members',
+          'main_specs',
+          'amended',
+          'carried_edits',
+          'backup_dir',
+          'steps',
+          'after_rerun_steps',
+          'warnings',
+        ]);
+        expect(doc['mode'], 'committed');
+        expect(doc['archive_commit'], a);
+        expect(doc['branch'], 'feat/x');
+        expect(doc['head'], a);
+        expect(doc['members'], [
+          {
+            'name': 'add-x',
+            'archived_name': '$_date-add-x',
+            'deferred': true,
+            'waiting_on_user': <String>[],
+          },
+        ]);
+        expect(doc['main_specs'], {
+          'modified': [specA],
+          'created': <String>[],
+        });
+        expect(doc['amended'], <String>[]);
+        expect(doc['carried_edits'], <String>[]);
+        expect(doc['backup_dir'], backup);
+        expect(doc['after_rerun_steps'], <Object?>[]);
+        expect(doc.containsKey('script'), isFalse);
+        expect(doc.containsKey('after_rerun'), isFalse);
+        for (final s in doc['steps']! as List) {
+          expect((s as Map)['cwd'], top);
+        }
+        List<String> u(List<String> rest) => undoStep(top, rest);
+        expect(argvsOf(doc['steps']), [
+          u(['check', 'branch', 'feat/x']),
+          u(['check', 'tip', 'HEAD', a]),
+          u(['check', 'index']),
+          u(['check', 'absent', backup]),
+          u([
+            'mkdir',
+            '$backup/amended/openspec/specs/a',
+            '$backup/base/openspec/specs/a',
+          ]),
+          u(['write-blob', a, specA, '$backup/base/$specA']),
+          u(['copy', specA, '$backup/amended/$specA']),
+          ['git', 'rm', '-r', '-q', '--cached', '--', ad],
+          ['git', 'read-tree', '--prefix=openspec/changes/add-x/', '$a:$ad'],
+          ['git', 'restore', '--source=$a^', '--staged', '--', specA],
+          ['git', 'commit', '-q', '-m', 'feat(add-x): undo archive of add-x'],
+          u(['move', ad, 'openspec/changes/add-x']),
+          ['git', 'restore', '--source=$a^', '--worktree', '--', specA],
+        ]);
+        expect(doc['warnings'], [
+          'Do not edit files while the steps run.',
+          'If a step fails after the steps began changing the index and before they '
+              'commit, run `git restore --staged -- $ad openspec/changes/add-x '
+              '$specA` and plan again; the working tree is untouched until the '
+              'commit.',
+          'Base and amended copies of the synced main specs are saved in '
+              '$backup; no step reads or deletes them.',
+        ]);
+      },
+      skip: skip,
+    );
 
     test('an unexpected planner failure is internal_error', () async {
       final repo = branchRepo();
@@ -916,8 +920,8 @@ void main() {
         warnings,
         contains(
           'openspec/specs/c/spec.md was deleted on feat/x after the archive; '
-          'the undo leaves it deleted, and after_rerun_steps delete it again after '
-          'they archive add-y.',
+          'the undo leaves it deleted; after_rerun_steps archive add-y again, and a later '
+          'step deletes it again.',
         ),
       );
     }, skip: skip);
