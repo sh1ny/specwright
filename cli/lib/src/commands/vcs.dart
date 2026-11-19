@@ -99,8 +99,10 @@ final Map<String, VcsHandler> vcsHandlers = {
 
 const String _argvUsage = 'usage: sw vcs --args-stdin';
 
-/// `sw vcs --args-stdin`: nothing else on [args]. Reads the handoff from
-/// [readStdin], runs the handler and writes one document to [writeOut].
+/// `sw vcs <subcommand> [options] [-- paths]`, or the old `sw vcs --args-stdin`
+/// (nothing else on [args]; removed with the shims, task 7.3), which reads the
+/// handoff from [readStdin]. Runs the handler and writes one document to
+/// [writeOut].
 /// Returns the exit code: 0, or the stop's (1, 2 or 3), or 1 for an
 /// unexpected failure (`internal_error`, never a stack trace).
 Future<int> runVcsCommand(
@@ -112,13 +114,13 @@ Future<int> runVcsCommand(
   Map<String, Object?> document;
   var code = 0;
   try {
-    if (args.length != 1 || args.first != '--args-stdin') {
+    final direct = args.isNotEmpty && args.first != '--args-stdin';
+    if (!direct && (args.length != 1 || args.first != '--args-stdin')) {
       throw VcsStop('usage', _argvUsage, code: 2);
     }
-    final handoff = parseHandoff(
-      await (readStdin ?? readAllStdin)(),
-      handoffUsage,
-    );
+    final handoff = direct
+        ? Handoff('', '', args)
+        : parseHandoff(await (readStdin ?? readAllStdin)(), handoffUsage);
     final request = parseVcsArguments(handoff.argv);
     final handler = (handlers ?? vcsHandlers)[request.command];
     if (handler == null) {

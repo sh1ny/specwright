@@ -241,9 +241,7 @@ void main() {
 
     for (final argv in [
       <String>[],
-      ['undo-archive-plan'],
       ['--args-stdin', 'extra'],
-      ['--other'],
     ]) {
       test('sw argv $argv is a usage stop with exit 2', () async {
         final code = await run(

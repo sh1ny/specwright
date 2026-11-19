@@ -36,22 +36,29 @@ Future<int> runAsCommand(
   List<String>? helperCommand,
 }) async {
   void err(String text) => writeErr(utf8.encode(text));
-  if (args.length != 2 || args.first != '--args-file') {
+  // `sw as <login> <command...>`, or the old `--args-file <path>` handoff
+  // (removed with the shims, task 7.3).
+  final direct = args.isNotEmpty && args.first != '--args-file';
+  if (!direct && args.length != 2) {
     err('$asUsage\n');
     return 2;
   }
-  final List<String>? records;
-  try {
-    records = _readHandoff(args[1], err);
-  } on NotUtf8 catch (e) {
-    // D4: a name sw would act on is decoded strictly; refused before any lookup
-    err('as.sh: ${e.message}; rename it and run again\n');
-    return 2;
-  }
-  if (records == null) return 3;
-  if (records.length < 2) {
-    err('as.sh: handoff: malformed\n');
-    return 3;
+  List<String>? records;
+  if (direct) {
+    records = ['', '', ...args];
+  } else {
+    try {
+      records = _readHandoff(args[1], err);
+    } on NotUtf8 catch (e) {
+      // D4: a name sw would act on is decoded strictly; refused before any lookup
+      err('as.sh: ${e.message}; rename it and run again\n');
+      return 2;
+    }
+    if (records == null) return 3;
+    if (records.length < 2) {
+      err('as.sh: handoff: malformed\n');
+      return 3;
+    }
   }
   final env = environment ?? Map<String, String>.of(Platform.environment);
   return runFence(

@@ -28,10 +28,8 @@ void main() {
   test('only the handoff commands with --args-stdin are commands', () async {
     for (final args in [
       <String>[],
-      ['snapshot'],
-      ['reply'],
       ['watch', '--args-stdin'],
-      ['snapshot', 'x'],
+      ['watch', 'x'],
     ]) {
       f.err.clear();
       expect(await run(args, records(['s', 'b'])), 2, reason: '$args');

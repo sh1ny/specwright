@@ -87,7 +87,6 @@ void main() {
 
     for (final argv in [
       <String>[],
-      ['task-cover'],
       ['--args-stdin', 'extra'],
       ['--other'],
     ]) {

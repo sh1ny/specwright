@@ -540,12 +540,16 @@ void main() {
         '--role',
         'code',
       ]);
+      // the project check comes first, so the direct forms name a stamped one
+      File('${repo.path}/openspec/.specwright/VERSION')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('0.0.0-dev\n');
       for (final args in [
-        ['vcs'],
-        ['vcs', 'state'],
+        ['--project', repo.path, 'vcs'],
+        ['--project', repo.path, 'vcs', 'state'],
         ['vcs', '--args-stdin', 'state'],
         ['vcs', '--args-stdin', '--repo', repo.path],
-        ['vcs', '--bogus'],
+        ['--project', repo.path, 'vcs', '--bogus'],
       ]) {
         final (code, out, _) = await run(args, valid);
         expect(code, 2, reason: '$args');

@@ -66,10 +66,8 @@ void main() {
   test('anything but --args-file <path> is a usage stop, exit 2', () async {
     for (final args in [
       <String>[],
-      ['--resolve'],
       ['--args-file'],
       ['--args-file', 'a', 'b'],
-      ['sh1ny', 'git'],
     ]) {
       err.clear();
       expect(await run(args), 2, reason: '$args');

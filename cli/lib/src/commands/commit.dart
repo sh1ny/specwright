@@ -38,13 +38,16 @@ Future<int> runCommitCommand(
   Map<String, CommitHandler>? handlers,
 }) async {
   try {
-    if (args.length != 1 || args.first != '--args-stdin') {
+    final direct = args.isNotEmpty && args.first != '--args-stdin';
+    if (!direct && (args.length != 1 || args.first != '--args-stdin')) {
       throw VcsStop('usage', _argvUsage, code: 2);
     }
-    final input = await (readStdin ?? readAllStdin)();
+    final input = direct ? <int>[] : await (readStdin ?? readAllStdin)();
     final Handoff handoff;
     try {
-      handoff = parseHandoff(input, commitHandoffUsage);
+      handoff = direct
+          ? Handoff('', '', args)
+          : parseHandoff(input, commitHandoffUsage);
     } on NotUtf8 catch (e) {
       // D4: refused before any file is read. `fit-subject.sh` has no document: its line is on stderr, exit 2. A scripts
       // directory or bash path that is not UTF-8 keeps the document, which asks for a UTF-8 install path.

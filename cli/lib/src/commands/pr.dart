@@ -66,15 +66,20 @@ Future<int> runPrCommand(
     );
   }
   void usage(String text) => writeErr('$text\n'.codeUnits);
-  if (args.length != 2 ||
-      args[1] != '--args-stdin' ||
-      !_handoffCommands.contains(args[0])) {
+  // `sw pr <command> [arguments]`, or the old `<command> --args-stdin` handoff
+  // (removed with the shims, task 7.3).
+  final oldForm = args.length == 2 && args[1] == '--args-stdin';
+  final direct =
+      !oldForm && args.isNotEmpty && _handoffCommands.contains(args[0]);
+  if (!direct && !(oldForm && _handoffCommands.contains(args[0]))) {
     usage(_usage);
     return 2;
   }
   final ({String scriptsDir, String bash, List<String> args})? handoff;
   try {
-    handoff = parsePrHandoff(await (readStdin ?? readAllStdin)());
+    handoff = direct
+        ? (scriptsDir: '', bash: '', args: args.sublist(1))
+        : parsePrHandoff(await (readStdin ?? readAllStdin)());
   } on NotUtf8 catch (e) {
     // D4: a name the call would act on is refused before any work. The two text scripts say so on stderr, as
     // `fit-subject.sh` does; every other command prints its document.

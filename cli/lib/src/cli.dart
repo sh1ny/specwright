@@ -12,13 +12,16 @@ import 'commands/run.dart';
 import 'commands/update.dart';
 import 'commands/vcs.dart';
 import 'commands/version.dart';
+import 'entry/project_version.dart';
+import 'entry/raw_arguments.dart';
 import 'fence/as_command.dart';
 import 'finish/undo_plan.dart';
 import 'process/exec_helper.dart';
 import 'process/platform_tree.dart';
+import 'vcs/document.dart' show documentBytes;
 
 const _usage =
-    'usage: sw <command>\n'
+    'usage: sw [--project <code checkout>] <command>\n'
     'commands:\n'
     '  version [--json]  print the sw version and interface version\n'
     '  run --bounded [--paged] [--secret] -- cmd [args...]\n'
@@ -38,12 +41,18 @@ const _usage =
     '  as --args-file <path>  run the identity fence for the as.sh shim; the\n'
     '                    file holds the same records, and is deleted when read\n';
 
+/// Whether [args] use the old stdin or file handoff of the shell shims, which
+/// resolved the version-matched `sw` themselves; task 7.3 removes the handoff
+/// and this exemption with it.
+bool _isHandoff(List<String> args) =>
+    args.contains('--args-stdin') || args.contains('--args-file');
+
 /// Runs sw with [args], writing to [out] and [err]; returns the exit code.
 ///
 /// `run` passes the command's own bytes through [outBytes] and [errBytes]
 /// (default: the process stdout and stderr), because they need not be text.
 Future<int> runCli(
-  List<String> args, {
+  List<String> rawArgs, {
   required StringSink out,
   required StringSink err,
   void Function(List<int> bytes)? outBytes,
@@ -53,6 +62,38 @@ Future<int> runCli(
   Map<String, CommitHandler>? commitHandlers,
   UndoPlanner? undoPlanner,
 }) async {
+  void writeDocument(Map<String, Object?> document) =>
+      (outBytes ?? io.stdout.add)(documentBytes(document));
+  // Before any other work: an argument that is not well-formed Unicode as it
+  // reached the process stops here (native-cli "Arguments sw cannot
+  // represent are refused").
+  final bad = firstUnrepresentableArgument(rawArgs);
+  if (bad != null) {
+    writeDocument({
+      'ok': false,
+      'error': 'bad_argument',
+      'message': 'argument $bad is not well-formed Unicode',
+    });
+    return 2;
+  }
+  final ProjectChoice choice;
+  try {
+    choice = chooseProject(rawArgs, io.Directory.current.path);
+  } on ProjectUsage catch (e) {
+    err.write('${e.message}\n$_usage');
+    return 2;
+  }
+  final args = choice.rest;
+  if (args.isNotEmpty &&
+      projectCommands.contains(args.first) &&
+      !_isHandoff(args) &&
+      !(args.first == 'pr' && args.length > 1 && args[1] == 'reviewers')) {
+    final mismatch = versionMismatch(choice.dir);
+    if (mismatch != null) {
+      writeDocument(mismatch);
+      return 1;
+    }
+  }
   if (args.isNotEmpty && args.first == '__exec') {
     return runExecHelper(
       args.sublist(1),

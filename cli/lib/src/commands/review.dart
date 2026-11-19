@@ -20,16 +20,19 @@ Future<int> runReviewCommand(
   Map<String, Object?> document;
   var code = 0;
   try {
-    if (args.length != 1 || args.single != '--args-stdin') {
+    final direct = args.isNotEmpty && args.first != '--args-stdin';
+    if (!direct && (args.length != 1 || args.single != '--args-stdin')) {
       throw ReviewStop('usage', _argvUsage, code: 2);
     }
-    var stdin = await (readStdin ?? readAllStdin)();
+    var stdin = direct ? <int>[] : await (readStdin ?? readAllStdin)();
     if (stdin.isNotEmpty &&
         stdin.last == 0 &&
         stdin.where((byte) => byte == 0).length == 2) {
       stdin = [...stdin, 0];
     }
-    final handoff = parseHandoff(stdin, _handoffUsage);
+    final handoff = direct
+        ? Handoff('', '', args)
+        : parseHandoff(stdin, _handoffUsage);
     document = await runReviewOperation(
       scriptsDir: handoff.scriptsDir,
       bash: handoff.bash,

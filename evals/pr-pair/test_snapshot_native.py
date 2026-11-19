@@ -108,6 +108,40 @@ class TestNoInterpreter(NativeSnapshotCase):
         self.assertEqual(sent.recorded(), [], "no sentinel recorded a run")
 
 
+class TestStoreEvaluator(NativeSnapshotCase):
+    """A store-started snapshot runs from the planning store, which holds no VERSION; the evaluator child it starts runs
+    in that directory too and checks no project version (native-cli "Commands that check no project version")."""
+
+    def direct_run(self, *args, env=None):
+        """`<sw> --project <code> pr snapshot ...` with ordinary arguments, the store as the working directory."""
+        code, store = self.tmp / "code", self.tmp / "store"
+        for d in (code, store):
+            d.mkdir(exist_ok=True)
+        snapfix.vcs_test_support.stamp_version(code)
+        return subprocess.run([self.sw, "--project", fixtures.posix(code), "pr", "snapshot", str(self.PR), "--repo", self.SLUG,
+                               *map(str, args)], capture_output=True, env=self.env(**(env or {})), cwd=store, timeout=120)
+
+    def test_store_snapshot_evaluator_has_no_version_check(self):
+        self.add_activity("a" * 40, T0)
+        self.advance(30)
+        self.add_comment("genrev", "looks good to me")
+        r = self.direct_run(*self.cfg(rev("genrev"), rev("silent", role="advisory", timeout=3600)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(b"sw_mismatch", r.stdout + r.stderr)
+        snap = json.loads(self.text(r.stdout))
+        self.assertEqual({x["login"]: x["state"] for x in snap["reviewers"]}, {"genrev": "reported", "silent": "waiting"})
+
+    def test_store_snapshot_still_kills_a_backtracking_evaluator(self):
+        self.add_activity("a" * 40, T0)
+        self.advance(30)
+        self.add_comment("genrev", "a" * 64 + "b")
+        r = self.direct_run(*self.cfg(rev("genrev", ignore="(a+)+$")), env={"SPECWRIGHT_NET_DEADLINE": "10"})
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(r.stdout.strip(), b"")
+        self.assertIn("bounded: deadline_exceeded: reviewers.py python3", self.text(r.stderr).splitlines())
+        self.assertNotIn(b"sw_mismatch", r.stderr)
+
+
 class TestFullNotFound(NativeSnapshotCase):
     """`--full` returns 1 for a `not_found` document however the jq program spaced it or ordered its members."""
 

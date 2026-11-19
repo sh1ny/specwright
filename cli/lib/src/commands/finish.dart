@@ -66,19 +66,22 @@ Future<int> runFinishCommand(
   Map<String, Object?> document;
   var code = 0;
   try {
-    if (args.length != 1 || args.first != '--args-stdin') {
+    final direct = args.isNotEmpty && args.first != '--args-stdin';
+    if (!direct && (args.length != 1 || args.first != '--args-stdin')) {
       throw _usage(_argvUsage);
     }
-    var stdin = await (readStdin ?? readAllStdin)();
+    var stdin = direct ? <int>[] : await (readStdin ?? readAllStdin)();
     // `finish.sh` with no argument prints its usage text: give the handoff
     // parser an empty argument record so that it gets there.
     if (stdin.isNotEmpty && stdin.last == 0 && _records(stdin) == 2) {
       stdin = [...stdin, 0];
     }
-    final handoff = parseHandoff(stdin, finishHandoffUsage);
+    final handoff = direct
+        ? Handoff('', '', args)
+        : parseHandoff(stdin, finishHandoffUsage);
     var rest = handoff.argv;
     String? dir;
-    if (rest.first == '--dir') {
+    if (rest.isNotEmpty && rest.first == '--dir') {
       if (rest.length < 2) throw _usage('--dir needs a value');
       dir = rest[1];
       rest = rest.sublist(2);
