@@ -1,6 +1,7 @@
 import 'dart:io' as io;
 
 import '../finish/undo_plan.dart';
+import '../finish/undo_step.dart';
 import '../options.dart';
 import '../vcs/args.dart';
 import '../vcs/document.dart';
@@ -63,6 +64,9 @@ Future<int> runFinishCommand(
   Future<List<int>> Function()? readStdin,
   UndoPlanner? planner,
 }) async {
+  if (args.isNotEmpty && args.first == 'undo-step') {
+    return runUndoStep(args.sublist(1), writeOut: writeOut);
+  }
   Map<String, Object?> document;
   var code = 0;
   try {

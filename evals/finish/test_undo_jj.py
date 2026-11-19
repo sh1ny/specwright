@@ -1,5 +1,5 @@
-"""finish.sh undo-archive-plan on a colocated jj repo (real jj): the emitted script works the working copy and commits
-named paths with `jj commit`; it never runs a Git write.
+"""finish.sh undo-archive-plan on a colocated jj repo (real jj): the printed steps work the working copy and commit
+named paths with `jj commit`; they never run a Git write.
 
 Run: python -m unittest test_undo_jj   (from evals/finish)
 """
@@ -78,10 +78,8 @@ class JjBase(unittest.TestCase):
                 "--main", "main", "--branch", BRANCH]
         return self.finish(*args)
 
-    def run_script(self, text, name="undo"):
-        path = self.tmp / f"{name}.sh"
-        path.write_text(text, encoding="utf-8", newline="\n")
-        return vcs_test_support.bash_run([path.as_posix()], self.work, self.env)
+    def run_steps(self, steps):
+        return fx.run_steps(self.tmp, steps, env=self.env, tools={"jj": self.jj})
 
     def snapshot(self):
         files = {k: v for k, v in fx.snapshot(self.work).items() if not k.startswith(".jj/")}
@@ -96,14 +94,14 @@ class TestUndoPlanJj(JjBase):
         self.assertEqual(code, 0, raw)
         self.assertTrue(doc["ok"], raw)
         self.assertEqual((doc["mode"], doc["archive_commit"], doc["branch"]), ("committed", a, BRANCH))
-        script = doc["script"]
+        script = fx.flat(doc["steps"])
         for forbidden in GIT_WRITES:
             self.assertNotIn(forbidden, script)
         self.assertIn("jj restore --from", script)
         self.assertIn("jj commit", script)
         self.assertNotIn("jj new", script)  # the archive is on the current branch
         self.assertTrue(any("jj restore" in w and "working tree" in w for w in doc["warnings"]), doc["warnings"])
-        r = self.run_script(script)
+        r = self.run_steps(doc["steps"])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", BRANCH, "-T", "commit_id"),
@@ -129,12 +127,12 @@ class TestUndoPlanJj(JjBase):
         code, doc, raw = self.plan()
         self.assertEqual(code, 0, raw)
         self.assertEqual((doc["mode"], doc["archive_commit"]), ("committed", a))
-        script = doc["script"]
+        script = fx.flat(doc["steps"])
         for forbidden in GIT_WRITES:
             self.assertNotIn(forbidden, script)
         self.assertIn(f"jj new {BRANCH}", script)
         self.assertLess(script.index("jj new"), script.index("jj restore --from"))
-        r = self.run_script(script)
+        r = self.run_steps(doc["steps"])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", BRANCH, "-T", "commit_id"),
@@ -150,7 +148,7 @@ class TestUndoPlanJj(JjBase):
         code, doc, raw = self.plan()
         self.assertEqual(code, 0, raw)
         before = self.snapshot()
-        r = self.run_script(doc["script"])
+        r = self.run_steps(doc["steps"])
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.snapshot(), before)
         self.assertFalse(Path(doc["backup_dir"]).exists())
@@ -167,8 +165,24 @@ class TestUndoPlanJj(JjBase):
         self.assertEqual(doc["error"], "dirty_tree", raw)
         self.assertIn("README.md", doc["message"])
         self.assertIn("working copy", doc["message"])
-        self.assertNotIn("script", doc)
+        self.assertNotIn("steps", doc)
         self.assertEqual(self.snapshot(), before)
+
+    def test_jj_plan_prints_jj_steps(self):
+        # the steps work with jj and sw only, each in the repository's top; a git write would break a colocated repo
+        self.archived_branch()
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        steps = doc["steps"]
+        for step in steps:
+            self.assertEqual(set(step), {"cwd", "argv"}, step)
+            self.assertEqual(Path(step["cwd"]).resolve(), self.work.resolve(), step)
+            self.assertIn(Path(step["argv"][0]).stem, ("jj", "sw"), step)
+        self.assertTrue(any(s["argv"][:2] == ["jj", "commit"] for s in steps), steps)
+        self.assertTrue(any(s["argv"][:2] == ["jj", "restore"] for s in steps), steps)
+        r = self.run_steps(steps)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
 
 
 class TestVcsScriptMissing(unittest.TestCase):

@@ -1085,6 +1085,7 @@ const launchAllowlist = Allowlist(
       'runGh': Call(1, _tool),
     },
     'finish/undo_plan.dart': {'runTool': Call(1, _tool)},
+    'finish/undo_step.dart': {'runTool': Call(1, _tool)},
     'pr/context.dart': {
       'runText': Call(1, _tool),
       'runGh': Call(1, _tool),
@@ -1177,7 +1178,11 @@ const launchAllowlist = Allowlist(
   },
   // `place.dart` reads the running file's path to refuse replacing it (D7); it
   // never starts it.
-  selfReferences: {'update/place.dart': SelfReference(1, '??')},
+  selfReferences: {
+    'update/place.dart': SelfReference(1, '??'),
+    // the printed steps name the running `sw`; nothing here starts it
+    'finish/undo_plan.dart': SelfReference(1, '??'),
+  },
   scriptNames: {
     'cli.dart': {'as.sh': ScriptSite(1, 'message: usage line of `sw as`')},
     'commands/finish.dart': {
@@ -1196,7 +1201,7 @@ const launchAllowlist = Allowlist(
       'as.sh': ScriptSite(24, 'message: `as.sh:` refusal text'),
     },
     'finish/undo_plan.dart': {
-      'vcs.sh': ScriptSite(3, 'printed command and message text'),
+      'vcs.sh': ScriptSite(2, 'message text'),
       'finish.sh': ScriptSite(1, 'message text'),
     },
     'pr/queries.dart': {

@@ -325,5 +325,6 @@ class TestGitButlerFinishGuards(GitButlerRangeCase):
             self.assertEqual(missing["error"], "usage")
             self.assertIn("--branch", missing["message"])
             self.assertTrue(plan["ok"], plan)
-            self.assertIn("git rev-parse refs/heads/%s)\" = %s" % (BRANCH, tip), plan["script"])
-            self.assertNotIn("git rev-parse HEAD", plan["script"], "no guard reads the workspace commit")
+            steps = [s["argv"][3:] for s in plan["steps"]]
+            self.assertIn(["finish", "undo-step", "check", "tip", "refs/heads/%s" % BRANCH, tip], steps)
+            self.assertNotIn(["finish", "undo-step", "check", "tip", "HEAD", tip], steps, "no guard reads the workspace commit")

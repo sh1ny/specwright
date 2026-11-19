@@ -1,7 +1,7 @@
 """Script tests for skills/specwright-finish/scripts/finish.sh (undo-archive-plan).
 
-Every test builds a real git repo with fixtures.py, runs the real script, applies the printed `script`
-(and `after_rerun`) with bash, and asserts on the resulting tree, index and refs. One JSON document on
+Every test builds a real git repo with fixtures.py, runs the real script, runs the printed `steps`
+(and `after_rerun_steps`), and asserts on the resulting tree, index and refs. One JSON document on
 stdout per call; exit 0 = done, 1 = stop (the JSON has "error" and "message"), 2 = usage.
 
 Run: python -m unittest discover evals/finish
@@ -79,7 +79,7 @@ class Base(unittest.TestCase):
         self.assertEqual(code, 1, raw)
         self.assertIs(doc["ok"], False, raw)
         self.assertEqual(doc["error"], error, raw)
-        self.assertNotIn("script", doc, raw)
+        self.assertNotIn("steps", doc, raw)
         for n in needles:
             self.assertIn(n, doc["message"], raw)
 
@@ -266,7 +266,7 @@ class TestUndoPlan(Base):
         self.assertEqual(code, 0, raw)
         fx.commit(self.work, "feat: later", {"src/app.py": "print('v2')\n"})
         before = fx.state(self.work)
-        r = fx.run_bash(self.work, self.scripts, doc["script"], "undo")
+        r = fx.run_steps(self.scripts, doc["steps"])
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(fx.state(self.work), before)
         self.assertFalse(Path(doc["backup_dir"]).exists())
@@ -282,7 +282,7 @@ class TestUndoPlan(Base):
         fx.commit(self.work, "feat: later", {"src/app.py": "print('v2')\n"})
         self.git("checkout", "-q", "main")
         before = fx.state(self.work)
-        r = fx.run_bash(self.work, self.scripts, doc["script"], "undo")
+        r = fx.run_steps(self.scripts, doc["steps"])
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.git("branch", "--show-current"), "main")
         self.assertEqual(fx.state(self.work), before)
@@ -308,7 +308,7 @@ class TestUndoPlan(Base):
         Path(doc["backup_dir"]).mkdir(parents=True)
         self.assertStops(fx.run_plan(self.work, "add-x"), "backup_exists")
         before = fx.state(self.work)
-        r = fx.run_bash(self.work, self.scripts, doc["script"], "undo")
+        r = fx.run_steps(self.scripts, doc["steps"])
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(fx.state(self.work), before)
 
@@ -375,8 +375,7 @@ class TestUndoPlan(Base):
         out = self.run_all()
         doc = self.ok(out)
         self.assertEqual(doc["amended"], [SPEC_A])
-        self.assertTrue(doc["script"].startswith("set -euo pipefail\n"))
-        self.assertTrue(doc["after_rerun"].startswith("set -euo pipefail\n"))
+        self.assertTrue(doc["steps"] and doc["after_rerun_steps"])
         self.assertIsNotNone(out.after)
         self.assertEqual(out.after.returncode, 0, out.after.stdout + out.after.stderr)
         text = fx.read(self.work, SPEC_A)
@@ -501,7 +500,7 @@ class TestUndoPlan(Base):
         out = self.run_all()
         doc = self.ok(out)
         self.assertEqual(doc["amended"], [SPEC_A])
-        self.assertIsNone(doc["after_rerun"])
+        self.assertEqual(doc["after_rerun_steps"], [])
         self.assertIn("Amended purpose", (Path(doc["backup_dir"]) / "amended" / SPEC_A).read_text(encoding="utf-8"))
 
     def test_store_prefix_and_type_option(self):
@@ -533,7 +532,7 @@ class TestUndoPlan(Base):
         doc = self.ok(out)
         self.assertEqual(doc["amended"], [])
         self.assertEqual(doc["carried_edits"], [])
-        self.assertNotIn("merge-file", doc["after_rerun"])
+        self.assertNotIn("merge-back", fx.flat(doc["after_rerun_steps"]))
         self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
 
     def test_crlf_checkout_saves_base_in_checkout_form(self):
@@ -673,10 +672,10 @@ class TestUndoPlan(Base):
     # ---- PR #108 review round 4 ------------------------------------------------------------------------------
     def assert_rerun_archive_only(self, out):
         doc = self.ok(out)
-        self.assertIsNotNone(doc["after_rerun"], doc["warnings"])
-        self.assertNotIn("merge-file", doc["after_rerun"])
-        self.assertIn("openspec archive add-y --yes", doc["after_rerun"])
-        self.assertNotIn("add-x", doc["after_rerun"])
+        self.assertTrue(doc["after_rerun_steps"], doc["warnings"])
+        self.assertNotIn("merge-back", fx.flat(doc["after_rerun_steps"]))
+        self.assertIn("openspec archive add-y --yes", fx.flat(doc["after_rerun_steps"]))
+        self.assertNotIn("add-x", fx.flat(doc["after_rerun_steps"]))
         self.assertEqual(out.after.returncode, 0, out.after.stdout + out.after.stderr)
         self.assertTrue((self.work / cd("add-x") / "review.md").is_file())
         self.assertTrue((self.work / ad("add-y") / "review.md").is_file())
@@ -721,8 +720,8 @@ class TestUndoPlan(Base):
                 self.assertEqual(code, 0, raw)
                 self.assertEqual({m["name"]: m["waiting_on_user"] for m in doc["members"]},
                                  {"add-x": ["1.2"], "add-y": []}, raw)
-                self.assertIn("openspec archive add-y --yes", doc["after_rerun"])
-                self.assertNotIn("openspec archive add-x", doc["after_rerun"])
+                self.assertIn("openspec archive add-y --yes", fx.flat(doc["after_rerun_steps"]))
+                self.assertNotIn("openspec archive add-x", fx.flat(doc["after_rerun_steps"]))
 
     def test_committed_bulk_rerun_reads_working_tree_untick(self):
         # PR #187: the undo carries the working-tree tasks.md back, so an uncommitted untick decides the rerun
@@ -737,8 +736,8 @@ class TestUndoPlan(Base):
         self.assertEqual(code, 0, raw)
         self.assertEqual({m["name"]: m["waiting_on_user"] for m in doc["members"]},
                          {"add-x": ["1.2"], "add-y": []}, raw)
-        self.assertIn("openspec archive add-y --yes", doc["after_rerun"])
-        self.assertNotIn("openspec archive add-x", doc["after_rerun"])
+        self.assertIn("openspec archive add-y --yes", fx.flat(doc["after_rerun_steps"]))
+        self.assertNotIn("openspec archive add-x", fx.flat(doc["after_rerun_steps"]))
 
     # ---- fix-m4-gaps D8: the after-rerun script deletes again what the user deleted -------------------------
     def retire_a(self):
@@ -764,7 +763,7 @@ class TestUndoPlan(Base):
         out = self.run_all(rerun=False)
         self.ok(out)
         fx.write(self.work, SPEC_A, MINE)
-        r = fx.run_bash(self.work, self.scripts, out.plan[1]["after_rerun"], "after_rerun")
+        r = fx.run_steps(self.scripts, out.plan[1]["after_rerun_steps"])
         self.assertNotEqual(r.returncode, 0)
         self.assertIn(SPEC_A, r.stderr)
         self.assertFalse((self.work / ad("add-y")).exists(), "an archive ran before the guard")
@@ -777,7 +776,7 @@ class TestUndoPlan(Base):
         fx.git(self.work, "commit", "-q", "-m", "docs: retire capability b")
         out = self.run_all()
         doc = self.ok(out)
-        self.assertNotIn(SPEC_B, doc["after_rerun"])
+        self.assertNotIn(SPEC_B, fx.flat(doc["after_rerun_steps"]))
         self.assertTrue(any(SPEC_B in w and "leaves it deleted" in w for w in doc["warnings"]), doc["warnings"])
         self.assertEqual(out.after.returncode, 0, out.after.stdout + out.after.stderr)
         self.assertFalse((self.work / SPEC_B).exists())

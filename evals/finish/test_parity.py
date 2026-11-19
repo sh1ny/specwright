@@ -89,10 +89,18 @@ def compact_guard(doc):
     return doc
 
 
+def without_undo(doc):
+    """The document without the undo itself: the oracle prints a `script`, sw prints `steps`. Their outcomes are compared by
+    test_undo_steps.py; task 7.2 of native-cli-retire-scripts migrates this file."""
+    if isinstance(doc, dict):
+        doc = {k: v for k, v in doc.items() if k not in ("script", "steps") and not k.startswith("after_rerun")}
+    return doc
+
+
 class ParityAsserts:
     def assertParity(self, pair, code=None):
         new, old = pair
-        self.assertEqual(sorted_carried(parsed(new[1])), sorted_carried(compact_guard(parsed(old[1]))),
+        self.assertEqual(without_undo(sorted_carried(parsed(new[1]))), without_undo(sorted_carried(parsed(old[1]))),
                          "stdout documents differ between finish.sh and the oracle")
         self.assertEqual(new[0], old[0], "exit codes differ between finish.sh and the oracle")
         if code is not None:  # the case really planned (or refused) what it names, not a broken fixture

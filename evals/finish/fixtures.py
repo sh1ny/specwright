@@ -5,8 +5,8 @@ make_repo builds a work tree on `main` with a baseline main spec `<P>/specs/a/sp
 archive() simulates `openspec archive`: it moves the change directory to `changes/archive/<date>-<name>/`,
 syncs each delta into its main spec (modify or create), optionally writes `specwright-change.yaml`, and
 leaves the result uncommitted or commits it as A. commit(), edit(), revert() and the git() helper build
-later history. run_plan() runs finish.sh; run_scripts() runs the printed `script` and `after_rerun` with
-bash (a fake `openspec archive <name> --yes` is on PATH for the after-rerun script).
+later history. run_plan() runs finish.sh; run_scripts() runs the printed `steps` and `after_rerun_steps`, each
+`{cwd, argv}` step on its own (the `openspec archive <name> --yes` step runs the fake CLI below).
 
 This module is also the fake `openspec` CLI: `python fixtures.py archive <name> --yes` (FIXTURE_PREFIX
 names the openspec root, default `openspec`).
@@ -251,17 +251,41 @@ def run_bash(work, tmp, text, name, prefix="openspec"):
     return subprocess.run([bashexe.bash(), str(path)], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
 
 
+def flat(steps):
+    """The printed steps as one text, each argv joined by spaces, one step per line: what a test searches for a command."""
+    return "\n".join(" ".join(step["argv"]) for step in steps or [])
+
+
+def run_steps(tmp, steps, prefix="openspec", env=None, tools=None):
+    """Run printed `{cwd, argv}` steps in order, each in its own cwd, and stop at the first one that fails. Returns the
+    last step's result with the output of every step run joined (`openspec` is the fake CLI of this module).
+    `env` adds variables; `tools` maps a command name to the executable that runs in its place."""
+    env = dict(os.environ, FIXTURE_PREFIX=prefix, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), **(env or {}))
+    out = SimpleNamespace(returncode=0, stdout="", stderr="", ran=[])
+    for step in steps:
+        argv = list(step["argv"])
+        argv[0] = (tools or {}).get(argv[0], argv[0])
+        if argv[0] == "openspec":
+            argv = [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), *argv[1:]]
+        r = subprocess.run(argv, cwd=step["cwd"], capture_output=True, text=True, encoding="utf-8", env=env)
+        out.returncode, out.stdout, out.stderr = r.returncode, out.stdout + r.stdout, out.stderr + r.stderr
+        out.ran.append(step)
+        if r.returncode != 0:
+            break
+    return out
+
+
 def run_scripts(work, tmp, change, prefix="openspec", between=None, rerun=True, **plan_kw):
-    """run_plan, then `script`, then (optionally `between(result)` and, unless rerun is False) `after_rerun` when the plan
-    printed one."""
+    """run_plan, then the plan's `steps`, then (optionally `between(result)` and, unless rerun is False) its
+    `after_rerun_steps` when it printed any."""
     out = SimpleNamespace(plan=run_plan(work, change, prefix=prefix, **plan_kw), script=None, after=None)
     doc = out.plan[1]
-    if doc and doc.get("ok") and doc.get("script"):
-        out.script = run_bash(work, tmp, doc["script"], "undo", prefix)
+    if doc and doc.get("ok") and doc.get("steps"):
+        out.script = run_steps(tmp, doc["steps"], prefix)
         if between:
             between(out)
-        if rerun and doc.get("after_rerun") and out.script.returncode == 0:
-            out.after = run_bash(work, tmp, doc["after_rerun"], "after_rerun", prefix)
+        if rerun and doc.get("after_rerun_steps") and out.script.returncode == 0:
+            out.after = run_steps(tmp, doc["after_rerun_steps"], prefix)
     return out
 
 

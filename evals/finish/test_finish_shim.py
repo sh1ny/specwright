@@ -94,7 +94,8 @@ class TestPlanRunsSw(ShimCase):
         doc = self.document(self.run_shim(*self.plan()))
         self.assertIs(doc["ok"], True, doc)
         self.assertEqual(doc["mode"], "committed")
-        self.assertTrue(doc["script"].startswith("set -euo pipefail"), doc["script"][:60])
+        self.assertTrue(doc["steps"], doc)
+        self.assertNotIn("script", doc)
 
     def test_prefix_with_space_and_non_ascii_change(self):
         prefix, name = "my plans/openspec", "add-éx"
@@ -103,8 +104,9 @@ class TestPlanRunsSw(ShimCase):
         doc = self.document(self.run_shim(*self.plan(name, prefix=prefix), cwd=work))
         self.assertIs(doc["ok"], True, doc)
         self.assertEqual([m["name"] for m in doc["members"]], [name])
-        self.assertIn(f"undo archive of {name}", doc["script"])
-        self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", doc["script"])
+        steps = fx.flat(doc["steps"])
+        self.assertIn(f"undo archive of {name}", steps)
+        self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", steps)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_non_utf8_committed_name_is_not_utf8(self):

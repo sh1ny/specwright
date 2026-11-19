@@ -299,6 +299,26 @@ void main() {
     });
   });
 
+  group('sw finish undo-step', () {
+    test('runs a primitive, not the planner', () async {
+      final code = await run([
+        'undo-step',
+        'check',
+        'absent',
+        '${Directory.systemTemp.path}/claude-ncrs-no-such-path',
+      ], []);
+      expect(code, 0);
+      expect(out, isEmpty);
+      expect(seenRequest, isNull);
+    });
+
+    test('an unknown kind is a usage stop', () async {
+      final code = await run(['undo-step', 'frobnicate'], []);
+      expect(code, 2);
+      expect(doc()['error'], 'usage');
+    });
+  });
+
   group('runCli', () {
     test('routes finish before the argument parser', () async {
       final bytes = <int>[];

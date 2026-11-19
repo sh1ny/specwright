@@ -6,8 +6,7 @@ Two checks over the shipped skills (skills/**), scripts (scripts/**, skills/*/sc
   to it) is a whole option name that command's source defines, so the one option rule (no abbreviations) cannot break a
   caller;
 - no caller matches text on an `sw` document (a `grep`, `sed` or `awk` pipe in a shipped script, a regex or substring over
-  a compact `"key":` in Dart), but for the one documented, temporary exception C13 (the `branchPattern` guard printed by
-  cli/lib/src/finish/undo_plan.dart), which native-cli-retire-scripts removes. C12 (`sw pr snapshot` reading `sw pr
+  a compact `"key":` in Dart). C13 (the `branchPattern` guard the undo plan printed) is gone: the guard is an `undo-step check` step now. C12 (`sw pr snapshot` reading `sw pr
   reviewers` documents by regex) closed in native-cli-internal-calls: snapshot parses them now. The one compact key line
   left in snapshot.dart is the wait document it prints, not one it reads.
 
@@ -56,8 +55,6 @@ TEXT_PIPE = re.compile(r"\|\s*(?:grep|egrep|fgrep|sed|awk|cut)\b|\b(?:grep|egrep
 DOCUMENT_KEY = re.compile(r'"[a-z_]+":')
 # Lines that build a document sw prints: data written, not text matched.
 PRINTED = {("cli/lib/src/pr/snapshot.dart", '{"wake":"$wake"')}
-C13_MARK = "branchPattern"
-C13_FILE = "cli/lib/src/finish/undo_plan.dart"
 
 
 # options a shim reads itself before it hands the rest to `sw`: pr-pair.sh's leading `--project <code checkout>`
@@ -176,7 +173,7 @@ def check_text_matching_scripts(path, text):
 
 
 def dart_document_matches():
-    """(relative path, line number, line) of every Dart line that matches a compact `"key":` of a document, less C13 and
+    """(relative path, line number, line) of every Dart line that matches a compact `"key":` of a document, less
     the printed documents."""
     bad = []
     for path in sorted(LIB.rglob("*.dart")):
@@ -185,7 +182,7 @@ def dart_document_matches():
             stripped = line.lstrip()
             if stripped.startswith(("//", "#")) or not DOCUMENT_KEY.search(line):
                 continue
-            if any(rel == file and mark in line for file, mark in PRINTED) or (rel == C13_FILE and C13_MARK in line):
+            if any(rel == file and mark in line for file, mark in PRINTED):
                 continue
             bad.append((rel, n, stripped))
     return bad
@@ -231,11 +228,10 @@ class OptionCallers(unittest.TestCase):
 
     def test_dart_consumers_match_documents_only_for_c12_and_c13(self):
         bad = dart_document_matches()
-        self.assertEqual(bad, [], "Dart text matching on a compact sw document outside C13")
+        self.assertEqual(bad, [], "Dart text matching on a compact sw document outside the printed documents")
 
     def test_the_documented_exceptions_still_exist(self):
-        """C13 and the printed documents are listed only while the code is there: a removed one must leave this list."""
-        self.assertIn(C13_MARK, (ROOT / C13_FILE).read_text(encoding="utf-8"))
+        """The printed documents are listed only while the code is there: a removed one must leave this list."""
         for rel, mark in PRINTED:
             self.assertIn(mark, (ROOT / rel).read_text(encoding="utf-8"), rel)
 
