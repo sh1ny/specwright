@@ -457,7 +457,7 @@ When the installed ref is `main`, `sw update sw-install` SHALL place no binary a
 - **THEN** that file's bytes, mode and timestamps are unchanged
 
 ### Requirement: Placing sw is atomic and keeps other versions
-The install SHALL write the binary into its version directory under a temporary name and rename it to `sw[.exe]` only after the checks pass, so the final path never holds a partial or unchecked file. It SHALL never change another version's directory. A file already at the final path SHALL be kept only when it has the release's SHA-256 and passes the resolver's check. Any other file there SHALL be replaced by that rename.
+The install SHALL write the binary into its version directory under a temporary name and rename it to `sw[.exe]` only after the checks pass, so the final path never holds a partial or unchecked file. It SHALL never change another version's directory. A file already at the final path SHALL be kept only when it has the release's SHA-256 and its `sw version --json` reports the release's version. Any other file there SHALL be replaced by that rename.
 
 #### Scenario: Rerun with the binary already placed
 - **WHEN** the install of `v0.24.0` runs again and `<home>/.specwright/bin/0.24.0/sw` already matches the release's hash
@@ -481,7 +481,7 @@ The install SHALL write the binary into its version directory under a temporary 
 
 #### Scenario: Rename blocked by a running binary
 - **WHEN** on Windows the rename to the final path fails because another process is running that file
-- **THEN** the install checks the final file again: when it has the release's SHA-256 and passes the resolver's check, the install succeeds and reports it kept; otherwise it stops with `sw_in_use` naming the path, and nothing else changes
+- **THEN** the install checks the final file again: when it has the release's SHA-256 and its `sw version --json` reports the release's version, the install succeeds and reports it kept; otherwise it stops with `sw_in_use` naming the path, and nothing else changes
 
 #### Scenario: A temporary file left by a killed run
 - **WHEN** the version directory holds a temporary file last modified more than one hour ago
@@ -499,34 +499,54 @@ A rollback or a discarded update SHALL leave every file under `<home>/.specwrigh
 - **THEN** `VERSION` reads `0.23.0`, and the report says no `sw` serves 0.23.0, which no 0.23.0 skill needs
 
 ### Requirement: An install whose VCS steps need a missing sw says so
-After the install, the Step 8 report SHALL run the resolver for the project. When it finds no matching `sw`, the report SHALL say that every branch, commit and finish step stops with `sw_missing` until one is placed, and SHALL name a tagged install and the contributor bootstrap in `CONTRIBUTING.md`. Otherwise it SHALL add no such warning.
+Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exists and its `version --json` exits 0 in 10 s with that version and the installed skills' interface (`specwright-pr`'s `interface` line, or an older tag's `SW_INTERFACE=`). On a failure it SHALL warn that branch, commit and finish steps stop until a matching `sw` is placed, that another version's `sw` stops with `sw_mismatch`, and name a tagged install and the `CONTRIBUTING.md` bootstrap; otherwise no warning.
+
+#### Scenario: A binary of the right version and an old interface
+- **WHEN** the installed skills require interface 2 and the pinned binary reports the project's version but interface 1
+- **THEN** the Step 8 report gives the same warning as for a missing binary and does not report the install ready
+
+#### Scenario: An older supported tag
+- **WHEN** the new install prompt selects `v0.37.0`, whose installed skills pin interface 1 in `sw-path.sh`, its `sw-install` returns `installed`, and at Step 8 the pinned binary exits 0 reporting `0.37.0` and interface 1
+- **THEN** the Step 8 report gives no missing-binary warning
 
 #### Scenario: main install with no binary
 - **WHEN** a `main` install built `sw`, and the version directory was emptied before Step 8
-- **THEN** the Step 8 report says VCS steps stop with `sw_missing`, and names a tagged install and the `CONTRIBUTING.md` bootstrap
+- **THEN** the Step 8 report says VCS steps stop until a matching `sw` is placed, and names a tagged install and the `CONTRIBUTING.md` bootstrap
+
+#### Scenario: Binary of another version at the path
+- **WHEN** the file at `<home>/.specwright/bin/<project VERSION>/sw[.exe]` reports another version in `sw version --json`
+- **THEN** the Step 8 report holds the missing-`sw` warning and says that VCS steps stop with `sw_mismatch`
 
 #### Scenario: main install with a matching binary already placed
-- **WHEN** the user installs `main` and the resolver accepts the built `sw`
-- **THEN** the Step 8 report holds no `sw_missing` warning
+- **WHEN** the user installs `main` and the built `sw` at the project's version path passes the final check: it reports that version and the interface the installed skills require
+- **THEN** the Step 8 report holds no missing-`sw` warning
 
 #### Scenario: Older tag whose scripts need no sw
 - **WHEN** the user asks for `v0.23.0`, whose `vcs.sh` runs no `sw`
-- **THEN** the prompt stops under the minimum-release rule before Step 8, so no `sw_missing` warning is reported
+- **THEN** the prompt stops under the minimum-release rule before Step 8, so no missing-`sw` warning is reported
 
 #### Scenario: Tagged install with sw placed
-- **WHEN** a release tag's `sw-install` returns `installed`, `replaced` or `kept`
-- **THEN** the Step 8 report holds no `sw_missing` warning
+- **WHEN** a release tag's `sw-install` returns `installed`, `replaced` or `kept`, and the final check of the placed binary passes
+- **THEN** the Step 8 report holds no missing-`sw` warning
+
+#### Scenario: Tagged install whose binary then fails the final check
+- **WHEN** a release tag's `sw-install` returns `installed`, and before Step 8 the placed file is removed
+- **THEN** the Step 8 report holds the missing-`sw` warning
 
 ### Requirement: Contributors place a tree-built sw with one task
-`mise run install-sw` in a Specwright checkout SHALL build `sw` from the tree and run the built binary to place it at `<home>/.specwright/bin/<tree VERSION>/sw[.exe]` (`<home>` as the resolver finds it), with no bash. It SHALL place it only after the built binary reports the tree's `VERSION` and the skills' interface, SHALL place the notice before the binary, and SHALL replace an existing file there only by a rename. It SHALL print the placed path.
+`mise run install-sw` in a Specwright checkout SHALL build `sw` from the tree and place it at `<home>/.specwright/bin/<tree VERSION>/sw[.exe]` (`<home>`: `SPECWRIGHT_HOME`, else the user's home), with no bash, only after the built binary reports the tree's `VERSION` and a workflow interface equal to the tree's skill pin (`skills/specwright-pr/SKILL.md`'s `interface` line), never its own constant. It SHALL place the notice first, replace a file only by rename, and print the placed path.
 
 #### Scenario: Build placed
-- **WHEN** `mise run install-sw` runs in a checkout whose `VERSION` reads `0.37.0`
-- **THEN** `<home>/.specwright/bin/0.37.0/sw[.exe]` exists with `THIRD_PARTY_NOTICES.txt` beside it, `sw-path.sh --code <a project at 0.37.0>` prints it, and the task prints that path
+- **WHEN** `mise run install-sw` runs in a checkout whose `VERSION` reads `0.38.0`
+- **THEN** `<home>/.specwright/bin/0.38.0/sw[.exe]` exists with `THIRD_PARTY_NOTICES.txt` beside it, `sw vcs state --repo <p> --role code` run with it in a project at 0.38.0 passes the version check, and the task prints that path
 
 #### Scenario: Build fails the check
 - **WHEN** the built binary reports another version or interface than the tree's
-- **THEN** the task exits non-zero, names the mismatch, and leaves any existing file under `<home>/.specwright/bin/0.37.0/` unchanged
+- **THEN** the task exits non-zero, names the mismatch, and leaves any existing file under `<home>/.specwright/bin/0.38.0/` unchanged
+
+#### Scenario: Update interface passes, workflow interface differs from the skill pin
+- **WHEN** the built binary reports `0.38.0`, update interface 3 and workflow interface 1, while the tree's `specwright-pr` skill pins interface 2, and `<home>/.specwright/bin/0.38.0/` already holds `sw[.exe]` and `THIRD_PARTY_NOTICES.txt`
+- **THEN** the task exits non-zero naming both interfaces, and both existing files are unchanged
 
 #### Scenario: No bash on PATH
 - **WHEN** on Windows `mise run install-sw` runs with no `bash` on `PATH`
@@ -572,17 +592,6 @@ After the install, the Step 8 report SHALL run the resolver for the project. Whe
 #### Scenario: No settings file
 - **WHEN** the code checkout has no `openspec/specwright.yaml` (a fresh install)
 - **THEN** `plan` reads no `main_branch`, `vcs` or `planning_store` setting, detects the main branch, and continues
-
-### Requirement: update.sh hands over to the download's sw
-Until scripts are retired, `scripts/update.sh` SHALL be a shim that resolves `sw` for the download's `VERSION` at `<home>/.specwright/bin/<version>/` and hands every argument to `sw update` unchanged. When no matching `sw` is found it SHALL print `sw_missing` JSON and exit 1. It SHALL never run another implementation, another version or an `sw` from `PATH`.
-
-#### Scenario: Shim with the download's sw placed
-- **WHEN** `bash <download>/scripts/update.sh plan --code <project>` runs, and the download's `VERSION` is 0.37.0 with `<home>/.specwright/bin/0.37.0/sw` placed
-- **THEN** it prints the document that `sw update plan --code <project> --download <download>` prints, with the same exit status
-
-#### Scenario: Shim with no matching sw
-- **WHEN** the shim runs and `<home>/.specwright/bin/0.37.0/` holds no `sw`, or one that reports another version
-- **THEN** it prints `{"ok":false,"error":"sw_missing",...}`, exits 1, and no file is written
 
 ### Requirement: sw update recovers journals that older update scripts left
 `sw update recover`, and the recovery `plan` runs first, SHALL read and recover a pending journal of format 1 or format 2 written by an older `update.sh`, with the same outcomes as for its own journal. A journal of an unknown format, or one that does not parse as a whole, SHALL be refused as `journal_unreadable`, and nothing SHALL be touched.

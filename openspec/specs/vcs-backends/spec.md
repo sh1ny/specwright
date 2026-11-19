@@ -295,7 +295,7 @@ On a jj repo, `finish.sh`'s undo plan SHALL emit a script that:
 - **THEN** finish.sh exits with its wrong-branch error and emits no script
 
 ### Requirement: A jj store passes the update's branch check
-The install and update SHALL accept a store whose backend is `jj` and whose Git HEAD is detached, and SHALL read its branch with the jj rule through the download's `sw vcs state` at the download's own `VERSION`, resolved by the download's `sw-path.sh`, never the project's installed `sw`. They SHALL still refuse a store on no branch, SHALL refuse with `vcs_script_missing` when the download lacks that script, and with `sw_missing` when no `sw` for the download's version is installed.
+The install and update SHALL accept a store whose backend is `jj` and whose Git HEAD is detached, and SHALL read its branch with the jj rule inside the running `sw update`, which is the download's own binary, never the project's installed `sw` and never a script. They SHALL still refuse a store on no branch.
 
 #### Scenario: jj store on main
 - **WHEN** `planning_store.vcs` is `jj`, main points at the store's `@-`, and the update runs
@@ -306,16 +306,16 @@ The install and update SHALL accept a store whose backend is `jj` and whose Git 
 - **THEN** the update refuses the store as it does today
 
 #### Scenario: Script missing from the download
-- **WHEN** `planning_store.vcs` is `jj` and the downloaded copy has no backend script
-- **THEN** the update refuses the store with `vcs_script_missing`, and swaps nothing
+- **WHEN** `planning_store.vcs` is `jj` and the download holds no shipped script
+- **THEN** the update reads the store's branch in process, reports no `vcs_script_missing`, and goes on with the store checks
 
 #### Scenario: Download's version, not the project's
-- **WHEN** the project's `VERSION` reads `0.24.0`, the download's reads `0.25.0`, `sw` 0.24.0 and 0.25.0 are both installed, and the update reads a jj store's branch
-- **THEN** the branch is read by `sw` 0.25.0
+- **WHEN** the project's `VERSION` reads `0.24.0`, the download's `sw` 0.25.0 runs the update, `sw` 0.24.0 is also installed, and the update reads a jj store's branch
+- **THEN** the branch is read by the running `sw` 0.25.0, and no other `sw` process started
 
 #### Scenario: No sw for the download's version
-- **WHEN** `planning_store.vcs` is `jj` and no `sw` for the download's version is installed (a `main` download with no `mise run install-sw`)
-- **THEN** the update refuses the store with `sw_missing` naming that version, and swaps nothing
+- **WHEN** `planning_store.vcs` is `jj`, the download's `sw` runs the update, and no `sw` for the project's installed version is in `<home>/.specwright/bin/`
+- **THEN** the update reads the store's branch with the running `sw`, and does not refuse with `sw_missing` or `sw_mismatch`
 
 ### Requirement: Paired repos each use their own backend
 In a store-backed change, every write in the code repo SHALL use the code repo's backend and every write in the store the store's backend. Branch mirroring, paired commits, the gate lock and rollback SHALL keep their current order and checks on each backend.
@@ -543,15 +543,19 @@ With `vcs: gitbutler`, Specwright SHALL use GitButler's own agent skill as the t
 - **THEN** no `but skill install` runs and no global skill directory changes
 
 ### Requirement: On GitButler Specwright runs from wherever it was installed
-With `vcs: gitbutler`, `vcs.sh` SHALL run the same way whether its scripts directory and the Specwright skill and agent copies are inside the code work tree or outside it. Neither location SHALL be refused or reported as an error.
+With `vcs: gitbutler`, `sw vcs` SHALL run the same way whether the Specwright skill and agent copies are inside the code work tree or outside it, and whatever directory it is started from. Neither location SHALL be refused or reported as an error.
 
 #### Scenario: Skills installed in the repo
-- **WHEN** `vcs` is `gitbutler`, GitButler manages the repo with main as its target, and `vcs.sh probe` runs from `<repo>/.claude/skills/specwright-pr/scripts/`
+- **WHEN** `vcs` is `gitbutler`, GitButler manages the repo with main as its target, and `<sw> vcs probe --repo <repo> --role code` runs from `<repo>/.claude/skills/specwright-pr/`
 - **THEN** it exits 0 with `ok: true` and `backend: gitbutler`
 
 #### Scenario: Skills installed at user level beside an in-repo copy
-- **WHEN** `vcs` is `gitbutler`, GitButler manages the repo with main as its target, `vcs.sh probe` runs from a directory outside the repo, and the work tree also holds `.claude/skills/specwright-pr/`
+- **WHEN** `vcs` is `gitbutler`, GitButler manages the repo with main as its target, `<sw> vcs probe --repo <repo> --role code` runs from a directory outside the repo, and the work tree also holds `.claude/skills/specwright-pr/`
 - **THEN** it exits 0 with `ok: true` and `backend: gitbutler`
+
+#### Scenario: Started outside the repo without naming it
+- **WHEN** `vcs` is `gitbutler` and `<sw> vcs probe` runs from a directory outside any repo with no `--repo` and no `--project`
+- **THEN** it prints the `sw_mismatch` document saying no installed version was found, exits 1, and runs no `but` command
 
 ### Requirement: On GitButler the settings are those the change branch committed
 With `vcs: gitbutler`, the settings SHALL be read only from `pr-pair.sh context --branch <b>` right before each use (each `pr.validate` run, the merge settings), and `vcs.sh push` SHALL check again. Each SHALL stop with `settings_not_pinned` when the work-tree `openspec/specwright.yaml` differs from the file at the tip of `<b>` (after the merge, with `--after-merge`: that tip while `<b>` exists, else GitButler's target ref), or exists on one side only. Branch reads and commits are not pinned.
@@ -608,44 +612,6 @@ With `vcs: gitbutler`, the settings SHALL be read only from `pr-pair.sh context 
 - **WHEN** `vcs` is `git` and the settings file has an uncommitted edit
 - **THEN** no `settings_not_pinned` stop is raised
 
-### Requirement: VCS operations run in the project's sw
-`vcs.sh` SHALL keep its path, arguments and output contract, and SHALL carry out every subcommand by resolving the project's `sw` with the shared resolver and running `sw vcs` with the same arguments. The project is found from `--code`, else `--repo`, else the current directory, with no Git command. Its stdout, stderr and exit status SHALL be those of `sw vcs`. No other implementation of the VCS operations SHALL remain in `vcs.sh`.
-
-#### Scenario: Matching sw installed
-- **WHEN** the project's `VERSION` reads `0.25.0`, the resolver finds a matching `sw` 0.25.0, and `vcs.sh state --repo <r> --role code` runs on a clean Git repo on main
-- **THEN** stdout is the one JSON document `sw vcs state` printed, with `"ok": true`, `"backend": "git"` and `"on_main": true`, and the exit status is 0
-
-#### Scenario: Project found from a subdirectory, without Git
-- **WHEN** `vcs.sh state --repo <r>/sub/dir --role code` runs and `<r>` holds `.git` and `openspec/.specwright/VERSION`
-- **THEN** the resolver reads `<r>/openspec/.specwright/VERSION` (the nearest directory above `sub/dir` holding a `.git` entry), and no `git` command ran before `sw` started
-
-#### Scenario: Arguments reach sw unchanged
-- **WHEN** `vcs.sh commit --repo <r> --role code --branch feat/a --message-file <m> -- "dir with space/a b.txt"` runs
-- **THEN** `sw vcs` receives each argument byte for byte, and the commit holds exactly `dir with space/a b.txt`
-
-#### Scenario: A stop keeps its exit status
-- **WHEN** `vcs.sh push` is refused by the identity fence
-- **THEN** the exit status is 3 and stdout is one JSON document with `"ok": false` and the fence's `error`, as before this change
-
-### Requirement: A missing or mismatched sw stops every VCS operation
-When the resolver stops, `vcs.sh` SHALL print one JSON document on stdout with `"ok": false`, `"error": "sw_missing"` and a `message` that starts with `sw missing or mismatched: rerun the install prompt` and holds the resolver's detail. It SHALL exit 1, run no `git`, `jj` or `but` command, and never fall back to another implementation, another version's binary or an `sw` on `PATH`. Without Python 3.8+ it SHALL instead print the `no_python` document `vcs.sh` printed before this change and exit 2.
-
-#### Scenario: Binary missing
-- **WHEN** the project's `VERSION` reads `0.25.0` and `<home>/.specwright/bin/0.25.0/` holds no `sw`
-- **THEN** `vcs.sh state` exits 1, stdout is one JSON document with `"error": "sw_missing"` naming the expected path, and no Git command ran
-
-#### Scenario: Interface mismatch
-- **WHEN** the installed binary reports another `interface` than the skills expect
-- **THEN** `vcs.sh branch-create --branch feat/a` exits 1 with `"error": "sw_missing"`, and no branch `feat/a` exists
-
-#### Scenario: Project has no VERSION
-- **WHEN** the code checkout has no `openspec/.specwright/VERSION`
-- **THEN** `vcs.sh` exits 1 with `"error": "sw_missing"`, and the message says no installed version was found
-
-#### Scenario: No Python
-- **WHEN** no `python3` or `python` 3.8+ is on `PATH` and a matching `sw` is installed
-- **THEN** `vcs.sh state` exits 2, stdout is `{"ok":false,"error":"no_python","message":"vcs.sh needs python 3.8+"}` as before this change, and `sw` did not run
-
 ### Requirement: sw vcs keeps vcs.sh's output and exit-code contract
 `sw vcs <sub>` SHALL accept the subcommands and options shipped callers pass and SHALL print exactly one JSON document on stdout for each run, with the same parsed fields, error codes and messages as `vcs.sh` for the same inputs, except that the wording of a usage error is free. It SHALL exit 0 on success, 1 on a stop, 2 on a usage error and 3 on a network or fence refusal. An unexpected failure SHALL be the document `"error": "internal_error"` with exit 1, never a stack trace on stdout.
 
@@ -661,47 +627,47 @@ When the resolver stops, `vcs.sh` SHALL print one JSON document on stdout with `
 `sw vcs` SHALL read the backend settings, the main branch and logins, and the GitButler pinned settings in-process, with the rules of `sw pr vcs` and `sw pr context`, starting no `pr-pair.sh`. It SHALL resolve a missing login and run every network command against a github.com remote through the identity fence in its own process, starting no `as.sh` and no second `sw`. It SHALL keep the outputs, stops and exit codes it gave before this change.
 
 #### Scenario: Settings read through pr-pair.sh
-- **WHEN** `openspec/specwright.yaml` sets `vcs: jj` and `vcs.sh state` runs
-- **THEN** the backend is `jj`, as `pr-pair.sh vcs --code <code>` reports it, and no `pr-pair.sh` process was started: the same rules run in `sw`
+- **WHEN** `openspec/specwright.yaml` sets `vcs: jj` and `sw vcs state` runs
+- **THEN** the backend is `jj`, as `sw pr vcs --code <code>` reports it, and no other `sw` process was started: the same rules run in `sw vcs`
 
 #### Scenario: Unknown backend in the settings
 - **WHEN** `openspec/specwright.yaml` sets `vcs: svn`
-- **THEN** `vcs.sh state` stops with the same `error` as before this change and a `message` naming `svn`, and runs no `git`, `jj` or `but` write
+- **THEN** `sw vcs state` stops with the same `error` as before this change and a `message` naming `svn`, and runs no `git`, `jj` or `but` write
 
 #### Scenario: Scripts installed under a non-UTF-8 directory
-- **WHEN** on Linux the skills are installed under a directory whose name holds the byte 0xFF, `openspec/specwright.yaml` sets `vcs: jj`, and `vcs.sh state --repo <r> --role code` runs
-- **THEN** stdout is one JSON document with `"error": "not_utf8"` and a `message` that shows the directory with the byte as `\xFF` and asks to install under a UTF-8 path, the exit status is 1, and no `git`, `jj` or `but` command ran
+- **WHEN** on Linux the skills are installed under a directory whose name holds the byte 0xFF, `openspec/specwright.yaml` sets `vcs: jj`, and `sw vcs state --repo <r> --role code` runs with a UTF-8 `<r>`
+- **THEN** stdout is the usual state document with `"backend": "jj"`, no `not_utf8` stop occurs because `sw` reads no scripts directory, and the exit status is 0
 
 #### Scenario: Unpinned settings stop a GitButler push
-- **WHEN** `vcs` is `gitbutler`, an unassigned work-tree edit changes `openspec/specwright.yaml`, and `vcs.sh push --branch feat/a --login KintsugiBot` runs
+- **WHEN** `vcs` is `gitbutler`, an unassigned work-tree edit changes `openspec/specwright.yaml`, and `sw vcs push --branch feat/a --login KintsugiBot` runs
 - **THEN** it stops with `settings_not_pinned`, naming the file and the ref, with the same exit code as before this change, and nothing is pushed
 
 #### Scenario: Fenced push
-- **WHEN** origin's fetch URL is on github.com, the scripts directory holds a recording `as.sh` sentinel, and `vcs.sh push --branch feat/a --login KintsugiBot` runs on Git
-- **THEN** `git push` runs in the repo with KintsugiBot's verified token and the fence's transport settings, receives the same argument values as before this change, and the sentinel did not run
+- **WHEN** origin's fetch URL is on github.com and `sw vcs push --branch feat/a --login KintsugiBot` runs on Git
+- **THEN** `git push` runs in the repo with KintsugiBot's verified token and the fence's transport settings, receives the same argument values as before this change, and no second `sw` and no `bash` process started
 
 #### Scenario: Refused fence
-- **WHEN** origin's push URL is `https://tok@github.com/o/r.git` and `vcs.sh push --branch feat/a --login KintsugiBot` runs on Git, jj or GitButler
+- **WHEN** origin's push URL is `https://tok@github.com/o/r.git` and `sw vcs push --branch feat/a --login KintsugiBot` runs on Git, jj or GitButler
 - **THEN** the document has `"error": "fence_failed"`, a `message` that starts with `as.sh:` and masks the userinfo as `***`, the exit status is 3, and no push ran
 
 #### Scenario: Login resolved in process
-- **WHEN** origin is on github.com, the active gh account is KintsugiBot, the scripts directory holds a recording `as.sh` sentinel, and `vcs.sh fetch-main --repo <r> --role code` runs without `--login`
-- **THEN** the fetch runs as KintsugiBot, the document reports the fetched `ref`, and the sentinel did not run
+- **WHEN** origin is on github.com, the active gh account is KintsugiBot, and `sw vcs fetch-main --repo <r> --role code` runs without `--login`
+- **THEN** the fetch runs as KintsugiBot, the document reports the fetched `ref`, and no second `sw` process started
 
 #### Scenario: No gh account to resolve
-- **WHEN** origin is on github.com, no gh account is logged in, and `vcs.sh fetch-main --repo <r> --role code` runs without `--login`
+- **WHEN** origin is on github.com, no gh account is logged in, and `sw vcs fetch-main --repo <r> --role code` runs without `--login`
 - **THEN** the document has `"error": "fence_failed"` with the fence's message, the exit status is 3, and no fetch ran
 
 #### Scenario: Store without a Specwright version
-- **WHEN** a planning store whose origin is on github.com has no `openspec/.specwright/VERSION`, and `vcs.sh pull --repo <store> --role store --code <code> --branch main --login store-bot` runs with a matching `sw` installed for `<code>`
-- **THEN** the pull runs in the store as store-bot, and the document is not `sw_missing`
+- **WHEN** a planning store whose origin is on github.com has no `openspec/.specwright/VERSION`, and `sw vcs pull --repo <store> --role store --code <code> --branch main --login store-bot` runs, with `<code>`'s `VERSION` matching the running `sw`
+- **THEN** the version check reads `<code>`'s `VERSION`, the pull runs in the store as store-bot, and the document is not `sw_mismatch`
 
 #### Scenario: Fenced commands stay unbounded
 - **WHEN** `SPECWRIGHT_NET_DEADLINE` is 1 and a fenced `git fetch` against github.com takes 3 seconds before it succeeds
 - **THEN** the document reports success, with no `deadline_exceeded`, while the fence's gh credential and identity lookups keep their own deadline
 
 #### Scenario: Non-GitHub remote runs unfenced
-- **WHEN** origin's fetch URL is not on github.com and `vcs.sh push --branch feat/a` runs
+- **WHEN** origin's fetch URL is not on github.com and `sw vcs push --branch feat/a` runs
 - **THEN** `git push` runs with the caller's environment and no fence lookup, and a failure is `git_network_error` with exit 3
 
 ### Requirement: Directory walks list files in sorted order
@@ -728,23 +694,23 @@ Where `sw vcs` lists the files under a directory, it SHALL list them itself, wit
 - **THEN** the walk reports that file under its name and no `not_utf8` stop occurs
 
 ### Requirement: sw vcs documents keep their values and refuse non-UTF-8 names
-Each document `sw vcs` prints SHALL parse to the same keys, key order and values `vcs.sh` printed for the same inputs. A name that is not valid UTF-8, met in an argument, a directory listing, or `git` or `jj` output where `sw vcs` would report or act on it, SHALL stop the command before any write with `"error": "not_utf8"`, exit 1, and a `message` that shows each invalid byte as `\xHH` (U+FFFD for a walk-found name) and asks for a rename. `but` output is read as before.
+Each `sw vcs` document SHALL parse to the keys, order and values `vcs.sh` printed. A malformed argument SHALL be refused as native-cli "Arguments sw cannot represent are refused" states. A name that is not valid UTF-8, met in a listing or `git` or `jj` output that `sw vcs` reports or acts on, SHALL stop it before any write: `"error": "not_utf8"`, exit 1, a `message` showing each invalid byte as `\xHH` (U+FFFD for a walk-found name) and asking for a rename. `but` output is read as before.
 
 #### Scenario: Line separators parse back
 - **WHEN** a message or path in the output holds U+2028 or U+2029
 - **THEN** the parsed JSON string holds that character
 
 #### Scenario: A non-UTF-8 name from a tool stops by name
-- **WHEN** on Linux, on the Git backend, a tracked file's name holds the byte 0xFF, the file is dirty, and `vcs.sh state` runs
-- **THEN** stdout is one JSON document with `"error": "not_utf8"` naming the file with `\xFF`, and the exit status is 1; a following Git `vcs.sh commit` that names only other files commits them, and other backends keep their existing checks
+- **WHEN** on Linux, on the Git backend, a tracked file's name holds the byte 0xFF, the file is dirty, and `sw vcs state` runs
+- **THEN** stdout is one JSON document with `"error": "not_utf8"` naming the file with `\xFF`, and the exit status is 1; a following Git `sw vcs commit` that names only other files commits them, and other backends keep their existing checks
 
 #### Scenario: A valid U+FFFD in a name is just a character
-- **WHEN** a tracked file is named `a�.txt` (valid UTF-8), no file name in the repo is invalid UTF-8, and `vcs.sh commit -- a�.txt` runs
+- **WHEN** a tracked file is named `a�.txt` (valid UTF-8), no file name in the repo is invalid UTF-8, and `sw vcs commit -- a�.txt` runs
 - **THEN** the commit holds exactly `a�.txt`
 
 #### Scenario: A non-UTF-8 argument from the shim
-- **WHEN** on Linux `vcs.sh commit -- <name holding 0xFF>` runs
-- **THEN** the document has `"error": "not_utf8"`, the exit status is 1, and no `git` or `jj` command ran
+- **WHEN** on Linux `sw vcs commit -- <name holding 0xFF>` runs
+- **THEN** the exit status is non-zero, stdout is empty, and no `git` or `jj` command ran
 
 #### Scenario: Tool input reaches the tool
 - **WHEN** on Windows a jj commit names a directory holding a changed tracked file and an ignored file larger than `snapshot.max-new-file-size`

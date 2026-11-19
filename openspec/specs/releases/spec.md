@@ -470,7 +470,7 @@ When at least one change in V's range has a valid section, the notes SHALL open 
 - **THEN** the notes open with that change's summary and list its items, and `Changes:` lists the first 100 of the other 119 by name only, then `…and 19 more`
 
 ### Requirement: The release summary comes from the bumping change
-The release summary SHALL be the summary of the change in V's range whose archived `tasks.md` has a ticked task running `release.sh bump --to <V>` and whose section is valid. When no change or more than one matches, it SHALL be the summary of the last change with a valid section in the notes' order.
+The release summary SHALL be the summary of the change in V's range whose archived `tasks.md` has a ticked task running `release.sh bump --to <V>` or `sw release bump --to <V>` (the form skills write from this change on; the older form stays recognised for earlier releases and backfills) and whose section is valid. When no change or more than one matches, it SHALL be the summary of the last change with a valid section in the notes' order.
 
 #### Scenario: Bumping change archived with another in the same commit
 - **WHEN** the release commit adds the archives `2026-11-02-b-bump` (its `tasks.md` has `- [x] 3.1 release.sh bump --to 0.9.0`) and `2026-11-02-c-other`, both with valid sections, and `c-other` sorts last
@@ -483,6 +483,10 @@ The release summary SHALL be the summary of the change in V's range whose archiv
 #### Scenario: Bumping change without a valid section
 - **WHEN** the change with the bump task has no section, and an earlier change in the range has one
 - **THEN** the notes open with the earlier change's summary
+
+#### Scenario: Native bump task wins over a later-sorting archive
+- **WHEN** the release commit adds `2026-11-02-b-bump`, whose `tasks.md` has `- [x] 3.1 <sw> release bump --to 0.9.0`, and `2026-11-02-c-other`, both with valid sections, and `c-other` sorts last
+- **THEN** the notes open with `b-bump`'s summary
 
 ### Requirement: An item without a reference gets its change's PR
 An item that names no issue or PR (`#<n>` or `<owner>/<repo>#<n>` outside a code span) SHALL be listed with ` (#<pr>)` appended, `<pr>` being its change's PR from main's commit subject or the store-backed code-merge proof. With no PR known, the item SHALL be listed as written.
@@ -568,23 +572,23 @@ With `release.enabled` true, the task that bumps the version SHALL rewrite the s
 - **THEN** the release skill-text test fails and names that file
 
 ### Requirement: Release operations run in the project's sw
-Each `release.sh` subcommand SHALL run in the project's matching `sw`, resolved as other ported scripts are, keeping its options, JSON fields, error names and exits 0/1/2/3. The operations SHALL NOT start Python, bash, sh or a shipped script for their own work, and SHALL read the code repo's VCS backend in process. With no matching `sw`, the shim SHALL print one `sw_missing` JSON document and exit 1, with no fallback.
+Each `release.sh` subcommand SHALL run as `sw release`, called directly, keeping its options, JSON fields, error names and exits 0/1/2/3. The operations SHALL NOT start Python, bash, sh or a shipped script for their own work, and SHALL read the code repo's VCS backend in process. When the project's `VERSION` is missing or differs from the running `sw`'s version, the command SHALL print one `sw_mismatch` JSON document and exit 1, with no fallback.
 
 #### Scenario: Publish without Python or bash
 - **WHEN** `release.sh publish --version 0.5.0` runs on Linux, Windows and macOS with failing `python`, `python3`, `bash` and `sh` first on `PATH` for `sw`, a merged release commit for 0.5.0, a bare origin and a fake `gh`
 - **THEN** it exits 0 with `tag_local: created`, `tag_remote: pushed` and `github_release: created`, the tag is on origin, and none of the failing programs was started by `sw`
 
 #### Scenario: Check reads the GitButler backend in process
-- **WHEN** `release.sh check --main origin/main` runs without `--branch` in a code repo whose settings select `vcs: gitbutler`, and `pr-pair.sh` is absent from the install
-- **THEN** it exits 2 with the existing usage error asking for `--branch`, and no `pr-pair.sh` or `vcs.sh` process starts
+- **WHEN** `release.sh check --main origin/main` runs without `--branch` in a code repo whose settings select `vcs: gitbutler`, with no shipped script on disk
+- **THEN** it exits 2 with the existing usage error asking for `--branch`, and no `sw vcs` or `sw pr` process starts
 
 #### Scenario: Status keeps its document
 - **WHEN** `release.sh status --version 0.5.0` runs on a repository where the Python `release.sh` printed a status document before the port
 - **THEN** the document has the same fields with the same values, `notes` included, apart from message wording
 
 #### Scenario: No matching sw
-- **WHEN** `release.sh untagged` runs in a project whose `sw` is missing or reports another version
-- **THEN** it prints one `sw_missing` JSON document, exits 1, and reads no tag and starts no `git ls-remote`
+- **WHEN** `sw release untagged --dir <project>` runs and the project's `VERSION` names another version than the running `sw`, or is missing
+- **THEN** it prints one `sw_mismatch` JSON document, exits 1, and reads no tag and starts no `git ls-remote`
 
 ### Requirement: Version file patterns are JavaScript regular expressions
 Each `release.version_files` pattern SHALL be a JavaScript regular expression read in Unicode and multiline mode, so `^` and `$` match at each line, including before a CRLF line end. A pattern that mode refuses, including Python-only syntax such as `(?P<name>`, `\A`, `\Z` and `(?i)`, SHALL stop the run before any read or write with `bad_version_files`, naming the entry. A pattern SHALL never be matched under another meaning than the one it was written for.

@@ -319,15 +319,19 @@ Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready he
 - **THEN** `pr.validate` runs before the push, and the report names the `archive-only` error
 
 ### Requirement: The undo plan runs in the project's sw
-`finish.sh` SHALL keep its path, arguments and output contract, and SHALL build the undo plan by resolving the project's `sw` with the shared resolver and running `sw finish undo-archive-plan` with the same arguments. Its stdout, stderr and exit status SHALL be those of `sw`, and no other implementation of the plan SHALL remain in the script. An argument or archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1, printing no script.
+The skills SHALL run `sw finish undo-archive-plan` directly; it SHALL keep `finish.sh`'s arguments, refusals and exit codes and print its undo as `steps` and `after_rerun_steps`, and no other implementation SHALL remain. A malformed argument SHALL be refused as native-cli "Arguments sw cannot represent are refused" states; an archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1. Neither prints a plan.
 
 #### Scenario: Plan through a matching sw
-- **WHEN** the project's `VERSION` reads `0.27.0`, the resolver finds a matching `sw` 0.27.0, and `finish.sh undo-archive-plan --change add-x --archived-name 2026-11-07-add-x --prefix openspec --main main` runs on a branch whose last commit archived `add-x`
-- **THEN** stdout is the one JSON document `sw finish undo-archive-plan` printed, with `"ok": true`, `"mode": "committed"` and a `script` that begins with `set -euo pipefail`, and the exit status is 0
+- **WHEN** the project's `VERSION` reads `0.27.0`, and `sw` 0.27.0 runs `finish undo-archive-plan --change add-x --archived-name 2026-11-07-add-x --prefix openspec --main main` on a branch whose last commit archived `add-x`
+- **THEN** stdout is one JSON document with `"ok": true`, `"mode": "committed"` and `steps`, a list of `{cwd, argv}` objects, and the exit status is 0
 
 #### Scenario: Arguments reach sw unchanged
-- **WHEN** `finish.sh undo-archive-plan` runs with `--prefix "my plans/openspec"` and a `--change` name holding a non-ASCII letter, both archived on the branch
-- **THEN** `sw finish undo-archive-plan` receives both values unchanged, and the document's member `name` and the printed undo subject name the change as given
+- **WHEN** `sw finish undo-archive-plan` runs with `--prefix "my plans/openspec"` and a `--change` name holding a non-ASCII letter, both archived on the branch
+- **THEN** `sw` reads both values whole and unchanged, and the document's member `name` and the printed undo subject name the change as given
+
+#### Scenario: A non-UTF-8 argument
+- **WHEN** on Linux `sw finish undo-archive-plan` runs with a `--change` value holding the byte 0xFF
+- **THEN** the exit status is non-zero, stdout is empty, no Git command ran, and no plan is printed
 
 #### Scenario: A non-UTF-8 file under the archive
 - **WHEN** on Linux the archived change directory, committed on the branch, holds a file outside its `specs` directory whose name holds the byte 0xFF
@@ -338,81 +342,119 @@ Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready he
 - **THEN** the exit status is 1 and stdout is one JSON document with `"error": "no_archive"`, as before this change
 
 #### Scenario: Git Bash path on Windows
-- **WHEN** on Windows `finish.sh --dir /c/<repo> undo-archive-plan ...` runs
-- **THEN** the document equals the one for the same call with `--dir C:/<repo>`, no `not_a_repo` is reported, and no `cygpath` ran
+- **WHEN** on Windows Git Bash runs `<sw> finish --dir /c/<repo> undo-archive-plan ...`
+- **THEN** `sw` receives `C:/<repo>`, converted by Git Bash, the document equals the one for the same call with `--dir C:/<repo>`, and no `cygpath` ran
 
 #### Scenario: Path conversion fails on Windows
-- **WHEN** on Windows `finish.sh --dir /etc/x undo-archive-plan ...` runs and the Git Bash install root cannot be found from the bash the shim handed over
-- **THEN** it exits 2 with `"error": "bad_path"` naming `/etc/x`, no Git command ran, and no script is printed
+- **WHEN** on Windows a caller that is not Git Bash runs `sw finish --dir /etc/x undo-archive-plan ...` and the current drive holds no repository at `\etc\x`
+- **THEN** `sw` takes the value as given, a root-relative Windows path, stops with the plan's existing error for a directory that is not a repository, prints no `bad_path` and no script, and runs no Git write
 
 ### Requirement: finish.sh finds the project from --code, then --dir
-A relative `--code` SHALL be read from the planning repo (the first directory holding a `.git` entry at or above `--dir`, else at or above the current directory), as before this change. The project whose `sw` runs SHALL be the first directory holding a `.git` entry at or above `--code` when it names a directory, else at or above `--dir` when it names a directory, else at or above the current directory, found with no Git command. `--code` SHALL keep its existing meaning for the plan.
+A relative `--code` SHALL be read from the planning repo (the first directory with a `.git` entry at or above `--dir`, else the current directory), as before. Without a leading `--project`, the checked project SHALL be the first directory with a `.git` entry at or above `--code`, else `--dir`, else the current directory (each only when it names a directory), found with no Git command. `--code` SHALL keep its meaning for the plan.
 
 #### Scenario: Store-backed plan finds the code checkout's sw
-- **WHEN** `finish.sh --dir <store> undo-archive-plan ... --code <code>` runs from inside the store, whose checkout has no `openspec/.specwright/VERSION`, and `<code>` holds a matching one
-- **THEN** the resolver reads `<code>/openspec/.specwright/VERSION`, and the plan probes the store's own backend as before this change
+- **WHEN** `sw finish --dir <store> undo-archive-plan ... --code <code>` runs from inside the store, whose checkout has no `openspec/.specwright/VERSION`, and `<code>` holds one matching the running `sw`
+- **THEN** the check reads `<code>/openspec/.specwright/VERSION`, and the plan probes the store's own backend as before this change
 
 #### Scenario: Store-backed call without --code
-- **WHEN** `finish.sh --dir <store> undo-archive-plan ...` runs from inside the store with no `--code`, and the store has no `openspec/.specwright/VERSION`
-- **THEN** it exits 1 with `"error": "sw_missing"` and a message saying no installed version was found, and no Git command ran
+- **WHEN** `sw finish --dir <store> undo-archive-plan ...` runs from inside the store with no `--code` and no `--project`, and the store has no `openspec/.specwright/VERSION`
+- **THEN** it exits 1 with the `sw_mismatch` document saying no installed version was found, no Git command ran, and no script is printed
 
 #### Scenario: Relative --code is read from the planning repo
-- **WHEN** `finish.sh --dir <store> undo-archive-plan ... --code ../code` runs from a directory other than the store, where `<store>/../code` is the code checkout and `../code` from the caller is another checkout with other settings
-- **THEN** the plan probes with `<store>/../code`'s settings, and its `sw` is the one that checkout's `VERSION` names, as before this change
-
-### Requirement: A missing or mismatched sw stops the undo plan
-When the resolver stops, `finish.sh` SHALL print one JSON document on stdout with `"ok": false`, `"error": "sw_missing"` and a `message` that starts with `sw missing or mismatched: rerun the install prompt`, copy the resolver's detail to stderr, and exit 1. It SHALL run no `git` command and print no script, and SHALL never fall back to another implementation, another version's binary or an `sw` on `PATH`.
-
-#### Scenario: Binary missing
-- **WHEN** the project's `VERSION` reads `0.27.0` and `<home>/.specwright/bin/0.27.0/` holds no `sw`
-- **THEN** `finish.sh undo-archive-plan ...` exits 1, stdout is one JSON document with `"error": "sw_missing"` and no `script`, and no Git command ran
-
-#### Scenario: No Python
-- **WHEN** no `python3` or `python` 3.8+ is on `PATH`
-- **THEN** `finish.sh` exits 2 and stdout is `{"ok":false,"error":"no_python","message":"finish.sh needs python 3.8+"}` as before this change, and `sw` did not run
-
-#### Scenario: vcs.sh missing beside a working resolver
-- **WHEN** `finish.sh` and the resolver are installed, a matching `sw` is found, and `specwright-pr/scripts/vcs.sh` is absent
-- **THEN** it exits 2 with `"error": "vcs_script_missing"` and a message naming `specwright-pr/scripts/vcs.sh`, as before this change
-
-### Requirement: sw finish undo-archive-plan keeps finish.sh's contract
-`sw finish undo-archive-plan` SHALL accept the options shipped callers pass and print a JSON document that parses to the same keys and values for the same repo state and arguments, `script` and `after_rerun` texts on Git, jj and GitButler included, with exit codes 0 to 2. Differences: ASCII-digit task ids and date prefixes, `bad_path` for an unconvertible `/` path on Windows, and `carried_edits` in whole-path UTF-8 byte order. An unexpected failure SHALL print `internal_error` and exit 1.
-
-#### Scenario: Unchanged finish evals pass on sw
-- **WHEN** the `evals/finish` tests run in CI on Linux, Windows and macOS, and the `evals/vcs` GitButler undo tests run on Linux, against the `sw` built from the tree
-- **THEN** every test passes with its assertions unchanged from before this change, apart from assertions on stdout bytes, which compare the parsed value instead
-
-#### Scenario: Output bytes equal the old script's
-- **WHEN** the frozen copy of the old `finish.sh` and the shim plan the same committed, uncommitted and bulk archives, on Git and jj, on GitButler where `but` is installed, and for a refusal such as `target_exists`
-- **THEN** both print stdout that parses to the same JSON value once `carried_edits` is compared as a sorted list, and exit with the same code
-
-#### Scenario: Printed scripts still call vcs.sh by path
-- **WHEN** the plan runs on a GitButler repo for a committed archive
-- **THEN** `script` calls `bash <specwright-pr>/scripts/vcs.sh state` and `commit` by the same absolute path `finish.sh` printed before this change, and names no `sw` binary
-
-#### Scenario: Usage error
-- **WHEN** `sw finish undo-archive-plan` is run without `--main`
-- **THEN** it exits 2 and stdout is one JSON document with `"error": "usage"` and the message `undo-archive-plan needs --main`
-
-#### Scenario: User-task ids are ASCII digits
-- **WHEN** an archived `tasks.md` holds `- [ ] ١.١ [user] Check it` (Arabic-Indic digits) and no other user task
-- **THEN** that member's `waiting_on_user` is `[]`
-
-#### Scenario: Carried edits in sorted order
-- **WHEN** the plan finds an uncommitted archive's carried edits by walking the archive directory, and its copies of `b.md`, `a.md`, `a/z.md` and `sub/c.md` differ from the change at HEAD, on Linux, Windows and macOS
-- **THEN** `carried_edits` lists `a.md`, `a/z.md`, `b.md`, `sub/c.md` under the archive directory in that order on each OS
-
-#### Scenario: Linked files in the archive keep their place
-- **WHEN** on Linux and macOS an archived `specs/foo/spec.md` is a symlink to a readable file, and in an uncommitted archive a changed `notes.md` is a symlink to a file
-- **THEN** capability `foo` is restored or removed as for a regular `spec.md`, `notes.md` is listed in `carried_edits`, and a linked directory is listed but not descended into, as before this change
-
-#### Scenario: A non-UTF-8 name in the archive walk
-- **WHEN** on Linux the archive directory holds a file whose name holds the byte 0xFF
-- **THEN** it exits 1 with `"error": "not_utf8"` naming the file with the byte shown as `\xFF`, and no script is printed
+- **WHEN** `sw finish --dir <store> undo-archive-plan ... --code ../code` runs from a directory other than the store, where `<store>/../code` is the code checkout and `../code` from the caller is another checkout with other settings
+- **THEN** the plan probes with `<store>/../code`'s settings, and the version checked is the one in that checkout's `VERSION`
 
 ### Requirement: Finish stops on a missing sw
-When `finish.sh undo-archive-plan` reports `sw_missing`, `specwright-finish` SHALL stop with the message and the instruction to rerun the install prompt. It SHALL make no commit, merge or push, run no restore, and SHALL NOT present the answer as an undo plan.
+When `sw finish undo-archive-plan` prints `sw_mismatch`, or the project's `sw` is missing and cannot start, `specwright-finish` SHALL stop with the message and the instruction to rerun the install prompt. It SHALL make no commit, merge or push, run no restore, and SHALL NOT present the answer as an undo plan.
+
+#### Scenario: Mismatched sw at the deferred check
+- **WHEN** the deferred check stops on `VERDICT: DEFERRED` and `sw finish undo-archive-plan` exits 1 with a `sw_mismatch` document
+- **THEN** finish reports the version mismatch and says to rerun the install prompt, shows no undo script, and every ref, the index and the working tree are as they were
 
 #### Scenario: Missing sw at the deferred check
-- **WHEN** the deferred check stops on `VERDICT: DEFERRED` and `finish.sh undo-archive-plan` exits 1 with a `sw_missing` document
-- **THEN** finish reports `sw missing or mismatched: rerun the install prompt`, shows no undo script, and every ref, the index and the working tree are as they were
+- **WHEN** the deferred check stops on `VERDICT: DEFERRED` and `<home>/.specwright/bin/<project VERSION>/` holds no `sw`
+- **THEN** finish tells the user to rerun the install prompt, shows no undo steps, and makes no commit, merge or push
+
+#### Scenario: A plan that runs is still shown
+- **WHEN** the deferred check stops on `VERDICT: DEFERRED` and `sw finish undo-archive-plan` exits 0
+- **THEN** finish shows the plan's `steps` in order, each with its working directory, and runs none of them
+
+### Requirement: The undo plan prints steps, not a script
+`sw finish undo-archive-plan` SHALL print `steps` and `after_rerun_steps`: ordered lists of objects with `cwd`, an absolute checkout path, and `argv`, starting with the running `sw`'s absolute path, `git`, `jj` or `openspec`; never a shell script. Guards, backups and file checks SHALL be `sw finish` steps. A runner SHALL run each step in its `cwd` in order and stop at the first non-zero exit.
+
+#### Scenario: A committed archive's plan
+- **WHEN** the plan runs for a committed deferred archive
+- **THEN** stdout holds `steps`, a list of objects each with an absolute `cwd` and an `argv` array, no `script` key, and no element names `bash`, `set -euo pipefail` or a shell operator
+
+#### Scenario: A guard step stops the undo
+- **WHEN** a commit is added to the branch after the plan was printed and the user runs the steps in order
+- **THEN** the guard step exits non-zero, the later steps do not run, no commit is made, and the index and working tree are unchanged
+
+#### Scenario: Steps run from PowerShell
+- **WHEN** on Windows the steps run one by one from PowerShell with no bash installed, from a directory outside the planning checkout
+- **THEN** each step starts in its `cwd` and the undo ends with the same refs and files as the old script gave
+
+#### Scenario: A jj planning checkout's plan
+- **WHEN** the plan runs for a deferred archive in a `vcs: jj` planning checkout
+- **THEN** the jj operations the old script ran (`jj new`, `jj restore`, `jj commit`, `jj bookmark set`) appear as `jj` steps with that checkout as `cwd`, and running them gives the same bookmark and files as the old script
+
+### Requirement: Undo steps do what the old script did
+`steps` SHALL run the old script's operations in its order, with its backups and warnings; each `sw` step carries `--project <code toplevel>`. File operations, `git cat-file --filters` writes and the message write SHALL be `sw finish undo-step` steps (`move`, `remove`, `copy`, `mkdir`, `rmdir-if-empty`, `write-blob`, `write-text`); `vcs.sh` calls become `sw vcs` steps. A failing step stops the runner as `set -e` did; recovery is the plan's `warnings`.
+
+#### Scenario: A store-backed plan run from outside both checkouts
+- **WHEN** the plan for a deferred archive in a planning store is run step by step from a directory outside the store and the code checkout
+- **THEN** every `sw` step passes the version check through its `--project`, and the store ends with the same refs, index and files as the old script gave
+
+#### Scenario: A filtered base written by a step
+- **WHEN** the old script would write `git cat-file --filters <rev>:<path> > <file>`
+- **THEN** the plan has a `write-blob` step with that revision, path and target, and the file ends with the same bytes
+
+#### Scenario: A GitButler plan commits its paths to the branch
+- **WHEN** the plan for a committed deferred archive on a GitButler code repo, with another branch applied that has its own edits, is run step by step
+- **THEN** a `write-text` step writes the undo subject to the message file, an `sw vcs commit --repo <code toplevel> --role code --branch <change branch> --message-file <file> -- <paths>` step, run with its argv unchanged, commits only the touched paths to that branch, and the other branch's edits stay uncommitted
+
+#### Scenario: The branch guard reads the structured branch
+- **WHEN** on jj (code or store role) or GitButler (the named change branch) the checkout is on another branch when the plan's branch `check` step runs
+- **THEN** the step reads the backend's branch value in process, not text of a `vcs state` document, exits non-zero naming both branches, and no later step runs, so none of the writes the old guard prevented happen
+
+#### Scenario: An emptied spec directory that still holds a file
+- **WHEN** the plan removes a new main spec whose directory also holds another file, as the old script's best-effort `rmdir` met it
+- **THEN** the `rmdir-if-empty` step leaves that directory and its file, exits 0, and the later steps, the jj or GitButler commit included, run
+
+#### Scenario: A step fails partway
+- **WHEN** on Git, on jj and on GitButler a step after the first changing step is made to fail
+- **THEN** the runner stops at that step and later steps do not run, and the plan's `warnings` hold the same recovery text the old script's plan printed for that backend
+
+### Requirement: The undo planner keeps its decisions
+Only the rendering of the undo changes. `sw finish undo-archive-plan` SHALL keep reading user-task ids and archive date prefixes as ASCII digits only, list `carried_edits` in whole-path UTF-8 byte order on every OS, treat a linked `spec.md` or carried file as its regular-file counterpart without descending into a linked directory, and print `internal_error`, exit 1, on an unexpected failure.
+
+#### Scenario: Non-ASCII digits are not a user-task id
+- **WHEN** an archived `tasks.md` holds `- [ ] ١.١ [user] Check it` and no other user task
+- **THEN** that member's `waiting_on_user` is `[]`
+
+#### Scenario: Non-ASCII digits are not a date prefix
+- **WHEN** the plan runs for an archived name `２０２６-１１-０７-add-x` (full-width digits)
+- **THEN** no date prefix is stripped, and the active change path the plan restores is `changes/２０２６-１１-０７-add-x`
+
+#### Scenario: Carried edits keep their byte order
+- **WHEN** an uncommitted archive's copies of `b.md`, `a.md`, `a/z.md` and `sub/c.md` differ from the change at HEAD, on Linux, Windows and macOS
+- **THEN** `carried_edits` lists `a.md`, `a/z.md`, `b.md`, `sub/c.md` under the archive directory in that order on each OS
+
+#### Scenario: Linked files are planned as regular files
+- **WHEN** on Linux and macOS an archived `specs/foo/spec.md` is a symlink to a readable file, and in an uncommitted archive a changed `notes.md` is a symlink to a file
+- **THEN** capability `foo` is restored or removed as for a regular `spec.md`, `notes.md` is in `carried_edits`, and a linked directory is listed but not descended into
+
+#### Scenario: An unexpected planner failure
+- **WHEN** the planner hits an error it has no named stop for
+- **THEN** stdout is one JSON document with `"error": "internal_error"`, the exit status is 1, and no steps are printed
+
+### Requirement: Undo requirements that say script mean the steps
+Where a change-finish requirement says the undo script or the after-rerun script, it SHALL mean `steps` or `after_rerun_steps`, with the same outcomes: the same guards, backups, restored files, warnings and refusals.
+
+#### Scenario: A requirement on the undo script's backup
+- **WHEN** a requirement says the undo script copies a spec to a backup path before restoring it
+- **THEN** a step of `steps` makes that copy before the step that restores the spec
+
+#### Scenario: A requirement on an after-rerun refusal
+- **WHEN** a requirement says the after-rerun script exits non-zero at a file
+- **THEN** a step of `after_rerun_steps` exits non-zero at that file and no later step runs

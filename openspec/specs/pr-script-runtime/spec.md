@@ -5,17 +5,6 @@ Keeps the PR scripts working on every Python version they accept, keeps their fa
 
 ## Requirements
 
-### Requirement: Pass records can be written on Python 3.8
-The `pr-pair.sh` shim SHALL still accept Python 3.8 at its existing prerequisite check. `pass write` SHALL write its record through `sw`, as UTF-8 JSON with LF line endings and atomic replacement, without executing embedded Python. The script's prerequisite probe stays until runtime retirement.
-
-#### Scenario: Pass write on Python 3.8
-- **WHEN** the only Python on `PATH` is 3.8, a matching `sw` is installed and a valid store-backed `pass write` runs
-- **THEN** the script exits 0 with `"ok": true`, and the record file exists, parses as JSON and contains no CR bytes
-
-#### Scenario: No Python 3.8 available to the test
-- **WHEN** the minimum-runtime test finds no Python 3.8 interpreter
-- **THEN** it reports that interpreter check as skipped, and an always-run test verifies native pass-write dispatch and UTF-8/LF records without relying on embedded Python source
-
 ### Requirement: Unexpected failures keep the JSON error contract
 `pr-pair.sh`, and each `sw pr` subcommand it hands a call to, SHALL report any unexpected exception as one JSON line on stdout with `"ok": false`, `"error": "internal_error"` and a `message` naming the exception type, and SHALL exit 1. Existing structured stops SHALL keep their own error codes and exit statuses.
 
@@ -32,19 +21,27 @@ The `pr-pair.sh` shim SHALL still accept Python 3.8 at its existing prerequisite
 - **THEN** stdout is a single JSON line with `"error": "internal_error"` and a message naming the exception type, the exit status is 1, and stderr holds no Dart stack trace
 
 ### Requirement: Prerequisites are stated and checked at install
-The README prerequisites and install Step 1 SHALL list `bash` with a POSIX userland, `git` and Python 3.8+ as core requirements (the review scripts run every design and pre-ship review), and `gh` 2.48+ as a requirement of the PR skills. Install SHALL check each one. A missing core requirement SHALL stop the install. A missing PR requirement SHALL be reported as `PR workflow not ready: <missing>` without blocking the install. `specwright-pr` SHALL state the same script dependencies.
+The README prerequisites and install Step 1 SHALL list `git` as the core requirement and `gh` 2.48+ as a requirement of the PR skills. They SHALL list no bash, no POSIX userland and no Python for Specwright's own work. Install SHALL check each listed tool. A missing `git` SHALL stop the install. A missing PR requirement SHALL be reported as `PR workflow not ready: <missing>` without blocking the install. `specwright-pr` SHALL state the same dependencies.
 
 #### Scenario: All prerequisites present
-- **WHEN** install runs where bash, git, gh 2.48 and Python 3.11 are available
+- **WHEN** install runs where `git` and `gh` 2.48 are available, and no `bash`, `python3` or `python` is on `PATH`
 - **THEN** Step 1 passes and the final report shows no `PR workflow not ready` line
 
+#### Scenario: git missing
+- **WHEN** install runs where `git` is not on `PATH`
+- **THEN** the install stops at Step 1 and tells the user to install `git`
+
 #### Scenario: Python missing
-- **WHEN** install runs where neither `python3` nor `python` reports version 3.8 or later
-- **THEN** the install stops at Step 1 and tells the user to install Python 3.8 or later
+- **WHEN** install runs where neither `python3` nor `python` is on `PATH`, and `git` is present
+- **THEN** Step 1 passes and the install asks for no Python
 
 #### Scenario: gh missing
-- **WHEN** install runs where `gh` is missing or older than 2.48, and every core requirement is present
+- **WHEN** install runs where `gh` is missing or older than 2.48, and `git` is present
 - **THEN** the install completes and its report includes `PR workflow not ready: gh 2.48+`
+
+#### Scenario: No bash or Python prerequisite in the docs
+- **WHEN** the README prerequisites, install Step 1 and `specwright-pr` are searched for the tools they require
+- **THEN** none names bash, a POSIX userland or Python as a requirement
 
 ### Requirement: PR scripts remove their temp files on every exit
 Every temp file a PR script creates SHALL be removed when the script exits, whether it succeeds, fails or stops on a structured error. A skill step that tells the agent to write a body or message to a temp file SHALL also tell it to remove that file once the command that reads it has run, whatever that command's outcome.
@@ -141,50 +138,35 @@ When a bounded network command is stopped, or exits while a process it started s
 - **THEN** the poll's deadline is 120 seconds
 
 ### Requirement: PR snapshots and replies run in the project's sw
-`pr-snapshot.sh` and `pr-reply.sh` SHALL keep their paths, arguments and output contracts, and SHALL run every call as `sw pr snapshot` or `sw pr reply` in the project's `sw`, found by the shared resolver. An optional leading `--project <code-checkout>` SHALL select only the project to resolve; without it, the project is the nearest directory holding a `.git` entry, cwd included, found with no Git command. Stdout, stderr and exit status SHALL be `sw`'s; no other implementation SHALL remain.
+`sw pr snapshot` and `sw pr reply` SHALL keep the scripts' arguments and output contracts and run in the project's `sw` after its version check. A leading `--project <code-checkout>` SHALL select only the project whose `VERSION` is checked. Stdout, stderr and exit status SHALL be `sw`'s; no other implementation SHALL remain.
 
 #### Scenario: Snapshot with a matching sw
-- **WHEN** a matching `sw` is installed and `as.sh sh1ny bash pr-snapshot.sh 12 --repo o/r` runs against a PR with one unresolved thread
+- **WHEN** the project's `VERSION` matches the running `sw` and `<sw> as sh1ny <sw> pr snapshot 12 --repo o/r` runs against a PR with one unresolved thread
 - **THEN** stdout is one JSON line listing that thread with its `id`, `rev` and body, and the exit status is 0
 
 #### Scenario: Reply with a matching sw
-- **WHEN** a matching `sw` is installed and `pr-reply.sh 12 thread <thread-id> <root-id> body.md --resolve --repo o/r` runs
+- **WHEN** the project's `VERSION` matches and `<sw> pr reply 12 thread <thread-id> <root-id> body.md --resolve --repo o/r` runs
 - **THEN** one reply is posted whose body is the file's bytes followed by `<!-- specwright:handled <thread-id> resolve -->`, the thread is resolved, and the exit status is 0
 
 #### Scenario: A refusal keeps its exit status
-- **WHEN** `pr-reply.sh 12 comment <id> missing.md --repo o/r` runs and `missing.md` does not exist
-- **THEN** the exit status is 4, stderr names the body file, and no `gh` call was made, as before this change
+- **WHEN** `<sw> pr reply 12 comment <id> missing.md --repo o/r` runs and `missing.md` does not exist
+- **THEN** the exit status is 4, stderr names the body file, and no `gh` call was made
 
 #### Scenario: Store-started snapshot selects the code project
-- **WHEN** a planning store has no `openspec/.specwright/VERSION`, a matching `sw` is installed for the code project `<code>`, and `as.sh store-bot bash pr-snapshot.sh --project <code> 7 --repo o/store` runs inside the store
-- **THEN** the snapshot of `o/store` PR 7 is printed, its gh calls run in the store with store-bot's token, and `--project` reaches `sw` neither as an argument nor as the repository
+- **WHEN** a planning store has no `openspec/.specwright/VERSION`, the code project `<code>` matches the running `sw`, and `<sw> --project <code> as store-bot <sw> --project <code> pr snapshot 7 --repo o/store` runs inside the store
+- **THEN** the snapshot of `o/store` PR 7 is printed, its gh calls run in the store with store-bot's token, and `--project` reaches the subcommand neither as an argument nor as the repository
 
 #### Scenario: Store-started reply selects the code project
-- **WHEN** a planning store has no `openspec/.specwright/VERSION`, and `pr-reply.sh --project <code> 7 comment <id> body.md --repo o/store` runs inside the store with a matching `sw` for `<code>`
+- **WHEN** a planning store has no `openspec/.specwright/VERSION`, and `<sw> --project <code> pr reply 7 comment <id> body.md --repo o/store` runs inside the store with `<code>` matching the running `sw`
 - **THEN** one reply is posted on `o/store` PR 7 and the exit status is 0
 
 #### Scenario: Missing selected binary refuses without fallback
-- **WHEN** `pr-snapshot.sh --project <code> 7` names a project with no matching `sw`, and the current directory's project has one
-- **THEN** stdout is one `sw_missing` document, the exit status is 1, no `gh` call was made, and the other binary was not used
+- **WHEN** `<sw> --project <code> pr snapshot 7` names a project whose `VERSION` differs from the running `sw`, and the current directory's project matches
+- **THEN** stdout is one `sw_mismatch` document, the exit status is 1, no `gh` call was made, and no other binary was used
 
 #### Scenario: Malformed project prefix
-- **WHEN** `pr-reply.sh --project` is given without a value, with an empty value, or with a second leading `--project`
-- **THEN** after the existing Python prerequisite check, the script prints a usage line on stderr, exits with its usage status (2 for `pr-snapshot.sh`, 4 for `pr-reply.sh`) and makes no `gh` call
-
-### Requirement: A missing or mismatched sw stops PR snapshots and replies
-When the resolver stops, `pr-snapshot.sh` and `pr-reply.sh` SHALL print one JSON document on stdout with `"ok": false`, `"error": "sw_missing"` and a `message` that starts with `sw missing or mismatched: rerun the install prompt` and holds the resolver's detail, and exit 1. They SHALL make no `gh` call and never fall back to another implementation, another version's binary or an `sw` on `PATH`.
-
-#### Scenario: Reply with no sw posts nothing
-- **WHEN** no matching `sw` is installed and `pr-reply.sh 12 comment <id> body.md --repo o/r` runs
-- **THEN** the exit status is 1, stdout is one JSON document with `"error": "sw_missing"`, and nothing was posted
-
-#### Scenario: Watch with no sw
-- **WHEN** no matching `sw` is installed and `pr-snapshot.sh 12 --wait` runs
-- **THEN** it exits 1 at once with the `sw_missing` document, and no watch claim file was created
-
-#### Scenario: No Python
-- **WHEN** no `python3` or `python` 3.8+ is on `PATH`
-- **THEN** each script exits 2 with its `no_python` line on stderr, as before this change, and `sw` did not run
+- **WHEN** `<sw> --project` is given without a value or with an empty value before `pr reply`
+- **THEN** `sw` stops with a usage error, exit 2, and makes no `gh` call
 
 ### Requirement: sw pr snapshot and sw pr reply keep the scripts' contracts
 `sw pr snapshot` and `sw pr reply`, run through the scripts' shims, SHALL take the scripts' arguments and print the same stdout bytes, stderr messages and exit statuses for the same GitHub answers: the snapshot line, `--full`, `--wait` wake documents, markers, revision checks, reactions and resolutions included. `sw pr snapshot` has two exceptions: its `reviewer_config` digest is that of the format 2 config, and an evaluator line it relays keeps its `reviewers.py:` prefix, its wording free.
@@ -217,23 +199,23 @@ When the resolver stops, `pr-snapshot.sh` and `pr-reply.sh` SHALL print one JSON
 - **THEN** stderr says `pr-snapshot: cannot create the watch state directory; ownership is off for PR 12 (this watcher polls unowned)` and the watch goes on unowned
 
 ### Requirement: The ported pr-pair subcommands keep the script's contracts
-`sw pr identity`, `vcs`, `tier`, `context` and `policy`, run through the shim, SHALL accept the argument forms shipped callers use, print a JSON line with the same parsed fields and values, and exit with the same status for the same settings files, repositories and GitHub answers, apart from the native-cli JSON, input and option differences. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
+`sw pr identity`, `vcs`, `tier`, `context` and `policy` SHALL accept the argument forms shipped callers use, print a JSON line with the same parsed fields and values, and exit with the same status for the same settings files, repositories and GitHub answers, apart from the native-cli JSON, input and option differences. That covers the settings problems, the reviewer-config bytes (apart from `"format": 2`), path and digest, the GitButler pin, and the policy checks.
 
 #### Scenario: Policy's remote settings read is strict
 - **WHEN** `policy` reads a settings file from the remote and the settings reader refuses it, or it holds a duplicate key, or a section has the wrong shape
 - **THEN** `policy` stops with `lookup_failed` and merges nothing, and never decides from a best-effort parse
 
 #### Scenario: Git Bash path forms
-- **WHEN** on Windows a subcommand is given a directory or snapshot file as a Git Bash path such as `/c/work/repo`
-- **THEN** it reads the same repository or file as with `C:/work/repo`, and a path it reports is in the `C:/` form
+- **WHEN** on Windows Git Bash runs a subcommand with a directory or snapshot file given as `/c/work/repo`
+- **THEN** `sw` receives `C:/work/repo`, converted by Git Bash, reads that repository or file, and a path it reports is in the `C:/` form
 
 #### Scenario: Unchanged black-box evals pass on sw
 - **WHEN** the `evals/pr-pair` and `evals/vcs` tests that run these five subcommands run in CI on Linux, Windows and macOS against the `sw` built from the tree
 - **THEN** every test passes with its assertions unchanged from before this change, apart from the format migration (D10): the expected `"format"` value, the reviewer-config digests and content-addressed paths derived from it, and the format refused by the config check; the regex dialect cases (pr-evidence); assertions on free text, which check its prefix instead (see the message-text requirement); assertions on stdout bytes, which compare the parsed value instead; and the settings cases `native-cli-yaml-settings` changed, which assert the value read or the stop reported. The native-cli JSON/input and option differences have explicit outcome tests; every other field, error code and exit status is compared exactly
 
 #### Scenario: Differential run against the frozen script
-- **WHEN** the parity eval runs a case of each subcommand through the frozen copy of `pr-pair.sh` and through the shim, against the same repositories and fake-gh state
-- **THEN** both exit with the same status and make the same `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals have explicit difference tests. For retained inputs they print stderr with the same lines up to each line's prefix. Their stdout parses to the same JSON value, apart from free text compared by its prefix and except that each `reviewer_config` digest and config path names that side's own file. Each side writes a reviewer config whose bytes are checked exactly on their own: the frozen script's with `"format": 1`, the shim's the same with `"format": 2`. Each file is named by the digest of its own bytes, and each digest field in stdout equals that digest. A settings file the one reader refuses, one holding a plain `yes` or `no`, or valid YAML the frozen script skipped, misread or refused only for that reason (a block sequence, a trailing flow comma), is a listed difference with its own outcome test
+- **WHEN** the parity eval runs each case of each subcommand through `sw pr`, against the repositories and fake-gh state the case builds, and compares it with the record the frozen `pr-pair.sh` produced for that case, captured in the commit before the scripts were removed
+- **THEN** `sw pr` exits with the recorded status and makes the recorded `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals keep their explicit difference tests. Stderr lines match the record up to each line's prefix, and stdout parses to the recorded JSON value apart from free text compared by its prefix, `reviewer_config` digests and paths, which name `sw pr`'s own `"format": 2` file, the listed settings differences with their own outcome tests, and `cleanup-plan`'s printed commands, which this change moves from `bash .../as.sh`, `vcs.sh` and `pr-pair.sh` to `<sw> --project <code> ...`: their decisions, guards, order and `gh` calls match the record, and their argv, working directory and project selection are asserted on their own. Records hold no paths of the machine that made them. A run-generated feedback owner id in `pass write` stdout is checked to equal the owner in the record that run wrote and is then replaced by a placeholder before the comparison, and persisted write and adopt times are checked against the run, as the live matrix did. Fixture commits are made with a pinned author, committer and dates, so their ids repeat across runs and `lacking[].sha` is compared exactly; the final fake-gh state and each written comment body are recorded and compared byte for byte
 
 #### Scenario: A malformed settings file names its line
 - **WHEN** `openspec/specwright.yaml` holds a tab in its indentation on line 7 and `pr-pair.sh context --code <code>` runs
@@ -266,10 +248,10 @@ Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after s
 - **THEN** it exits 1 with nothing on stdout, as `reviewers.py` did
 
 ### Requirement: Snapshots evaluate reviewers through sw
-`sw pr snapshot` SHALL check the `--reviewer-config` file in its own process before any `gh` call. It SHALL decide reviewer states by running its own binary as `sw pr reviewers` under the deadline, byte bound and temp-file rules `reviewers.py` ran under, and SHALL read that child's document by parsing it. It SHALL start no Python evaluator and run no interpreter probe; the `pr-snapshot.sh` shim keeps its own prerequisite check until `native-cli-retire-scripts`.
+`sw pr snapshot` SHALL check the `--reviewer-config` file in its own process before any `gh` call. It SHALL decide reviewer states by running its own binary as `sw pr reviewers` under the deadline, byte bound and temp-file rules `reviewers.py` ran under, and SHALL read that child's document by parsing it. It SHALL start no Python evaluator and run no interpreter probe.
 
 #### Scenario: Reviewer states decided in sw
-- **WHEN** `pr-snapshot.sh 12 --reviewer-config cfg.json` runs and `cfg.json` lists `chatgpt-codex-connector[bot]` as a reviewer that has posted its report
+- **WHEN** `<sw> pr snapshot 12 --reviewer-config cfg.json` runs and `cfg.json` lists `chatgpt-codex-connector[bot]` as a reviewer that has posted its report
 - **THEN** that login's `reviewers` entry has the state `reviewers.py` decided before this change, `reviewer_config` holds the file's digest, and no `reviewers.py` process was started
 
 #### Scenario: A pattern that backtracks past the deadline
@@ -277,11 +259,11 @@ Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after s
 - **THEN** the evaluation is stopped at the deadline, stderr holds the line `bounded: deadline_exceeded: reviewers.py python3`, the poll fails, and no evaluator process or material file is left
 
 #### Scenario: Bad reviewer config
-- **WHEN** `cfg.json` is not valid JSON and `pr-snapshot.sh 12 --reviewer-config cfg.json` runs
+- **WHEN** `cfg.json` is not valid JSON and `<sw> pr snapshot 12 --reviewer-config cfg.json` runs
 - **THEN** the exit status is 2, stderr holds one line prefixed `reviewers.py:` that says the file is not valid JSON, no `gh` call was made, and no child `sw` was started for the check
 
 #### Scenario: No Python on PATH
-- **WHEN** `sw pr snapshot` runs through its handoff with failing `python` and `python3` first on `PATH` and a reviewer config
+- **WHEN** `<sw> pr snapshot` runs directly with failing `python` and `python3` first on `PATH` and a reviewer config
 - **THEN** the snapshot and its reviewer states are printed with exit 0, neither interpreter ran, and stderr holds no `no_python` line
 
 #### Scenario: Evaluator output that is not a document
@@ -289,46 +271,27 @@ Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after s
 - **THEN** the poll fails with exit 1 and prints no snapshot built from that output
 
 ### Requirement: All pr-pair subcommands run in the project's sw
-`pr-pair.sh` SHALL keep its path and arguments and dispatch all nineteen subcommands to the project's matching `sw`. Its stdout, stderr and exit status SHALL be those of `sw`; no embedded Python implementation SHALL remain. The five existing native entry points SHALL stay supported. With a matching binary, missing and unknown commands SHALL retain the script's usage JSON and exit 2.
+`sw pr` SHALL run all nineteen subcommands itself, after the project's version check. Its stdout, stderr and exit status SHALL be its own; no embedded Python implementation SHALL remain. With a matching version, a missing or unknown subcommand SHALL return the usage JSON and exit 2.
 
 #### Scenario: Context with a matching sw
-- **WHEN** a matching `sw` is installed and `pr-pair.sh context --code <code>` runs in a repo-local project
-- **THEN** stdout is one JSON line with `"ok": true`, the code repo's `login`, `main` and `reviewer_config`, and the exit status is 0, as before this change
+- **WHEN** the project's `VERSION` matches the running `sw` and `<sw> pr context --code <code>` runs in a repo-local project
+- **THEN** stdout is one JSON line with `"ok": true`, the code repo's `login`, `main` and `reviewer_config`, and the exit status is 0
 
 #### Scenario: Discovery runs natively
-- **WHEN** a matching `sw` is installed and `pr-pair.sh discover --repo o/r --branch feat/a` runs
-- **THEN** the shim runs the native discovery command and returns the same normalized PR list and exit status as the frozen script
+- **WHEN** the project's `VERSION` matches and `<sw> pr discover --repo o/r --branch feat/a` runs
+- **THEN** it returns the same normalized PR list and exit status as the frozen script's record
 
 #### Scenario: Identity of a store from the code checkout
-- **WHEN** a matching `sw` is installed for the code project, the store checkout has no `openspec/.specwright/VERSION`, and `pr-pair.sh identity <store toplevel>` runs from the code checkout
-- **THEN** stdout is one JSON line with the store's `<owner>/<name>` from its `origin`, and the exit status is 0, as before this change
+- **WHEN** the code project matches the running `sw`, the store checkout has no `openspec/.specwright/VERSION`, and `<sw> pr identity <store toplevel>` runs from the code checkout
+- **THEN** stdout is one JSON line with the store's `<owner>/<name>` from its `origin`, and the exit status is 0
 
 #### Scenario: Missing subcommand
-- **WHEN** a matching `sw` is installed and `pr-pair.sh` runs with no arguments
+- **WHEN** the project's `VERSION` matches and `<sw> pr` runs with no subcommand
 - **THEN** it returns the usage JSON listing all nineteen subcommands and exits 2
 
 #### Scenario: Unknown subcommand
-- **WHEN** a matching `sw` is installed and `pr-pair.sh not-a-command` runs
+- **WHEN** the project's `VERSION` matches and `<sw> pr not-a-command` runs
 - **THEN** it returns the same usage JSON and exit 2, without making a GitHub call or writing state
-
-### Requirement: A missing or mismatched sw stops every pr-pair invocation
-When resolution fails, every `pr-pair.sh` invocation SHALL return one JSON line with `"ok": false`, `"error": "sw_missing"` and a message beginning `sw missing or mismatched: rerun the install prompt`, and exit 1. It SHALL make no GitHub call, write no workflow state and never fall back to embedded Python or another binary. The existing Python prerequisite check SHALL still precede resolution.
-
-#### Scenario: Policy with no sw
-- **WHEN** no matching `sw` is installed and `pr-pair.sh policy --repo o/r --head <sha> --snapshot code=s.json` runs
-- **THEN** the exit status is 1, stdout is one JSON line with `"error": "sw_missing"`, and no `gh` call was made
-
-#### Scenario: Workflow command needs matching sw
-- **WHEN** no matching `sw` is installed and `pr-pair.sh branch-check --dir <d> --branch feat/a --main main` runs
-- **THEN** it exits 1 with `sw_missing`, without reading or deleting the branch
-
-#### Scenario: Matching binary permits dispatch
-- **WHEN** a matching `sw` is installed and a valid branch-check invocation runs
-- **THEN** it returns the native branch-check result rather than `sw_missing`
-
-#### Scenario: No Python
-- **WHEN** no `python3` or `python` 3.8+ is on `PATH` and `pr-pair.sh context --code <code>` runs
-- **THEN** it exits 2 with its `no_python` JSON line, as before this change, and `sw` did not run
 
 ### Requirement: Native PR workflow commands preserve their effects
 The fourteen newly native commands SHALL preserve product workflow outcomes, effects, mutation sequencing, identity and recovery. Producer/consumer representations MAY change together with explicit contract tests and documented differences. The frozen script is comparison evidence, not a byte-format mandate. Printed commands SHALL execute in the intended cwd with correct arguments/login. Failed or limited reads SHALL retain unknown/unreadable/refusal decisions without speculative mutation.
@@ -384,25 +347,6 @@ Write SHALL publish exclusively; adopt and done SHALL hold their own record lock
 - **WHEN** the publication fallback exclusively creates a POSIX record and setting its private permissions fails
 - **THEN** the error is reported, no record content was written, only the created file is removed, and a later `pass write` can create the record
 
-### Requirement: Workflow shims select a binary project explicitly
-`pr-pair.sh` SHALL accept one leading `--project <code-checkout>` prefix for exact-version binary selection, consume it before native dispatch and preserve cwd and remaining arguments. Without it, current project discovery SHALL remain. Store callers and emitted cleanup commands SHALL name the code project where discovery cannot resolve it; every other printed argument and cwd SHALL remain unchanged.
-
-#### Scenario: Workflow command starts in a store
-- **WHEN** a store without VERSION runs pr-pair.sh --project <code> discover with a matching binary for the selected code project
-- **THEN** discovery runs natively with cwd still the store, and the prefix is not passed as a workflow command argument
-
-#### Scenario: Cleanup commands carry the explicit project
-- **WHEN** cleanup-plan emits store branch-check and fenced pull commands
-- **THEN** each shim needing binary resolution carries --project <code>, preserves the store cwd, and retains every other command argument
-
-#### Scenario: Selected project cannot resolve a binary
-- **WHEN** the explicit project has no usable matching binary even though another sw is available from cwd or PATH
-- **THEN** the shim returns sw_missing with exit 1, performs no GitHub call and never falls back to the other binary
-
-#### Scenario: Malformed project prefix is refused
-- **WHEN** the leading --project prefix lacks a nonempty value or is repeated as a leading selector
-- **THEN** after the existing Python prerequisite check, the shim returns one JSON line with `"error": "usage"` and exit 2 before resolution, authentication or state changes
-
 ### Requirement: Paginated GitHub lists read every page or decide nothing
 A list read that decodes whole pages SHALL use `gh api --paginate --slurp`, flatten the returned array of pages into one list in page order, and on any response other than an array of arrays SHALL report the read as unknown. An unknown read SHALL NOT lead to a GitHub mutation. `item-issues` retains `--paginate --jq` per-page output and its existing `unreadable response` refusal.
 
@@ -426,12 +370,12 @@ A list read that decodes whole pages SHALL use `gh api --paginate --slurp`, flat
 Native PR workflow code SHALL call ported settings, fence and VCS operations directly, the non-Git branch-check's VCS fetch-main included. It SHALL retain target-repo checks, per-call credentials, environment restoration and existing bounds. Reads previously bounded as a whole SHALL share that budget. Unbounded VCS reads and planning SHALL stay unbounded.
 
 #### Scenario: Internal scripts are not launched
-- **WHEN** workflow calls need VCS state or plans and fenced reads, and the handoff scripts directory contains recording as.sh and vcs.sh sentinels
-- **THEN** neither sentinel runs, no second sw is launched for those operations, and the workflow returns the expected result
+- **WHEN** workflow calls need VCS state or plans and fenced reads, with no shipped script on disk
+- **THEN** no second `sw` and no script is launched for those operations, and the workflow returns the expected result
 
 #### Scenario: Nested VCS fetch runs the fence in process
-- **WHEN** non-Git branch-check with --code invokes native VCS fetch-main for a store that has no `openspec/.specwright/VERSION`, and the handoff scripts directory contains a recording as.sh sentinel
-- **THEN** login resolution (when no --login was given) and the fetch run in process in the store's directory as the store's login, the sentinel does not run, and the result is not sw_missing
+- **WHEN** non-Git branch-check with --code invokes native VCS fetch-main for a store that has no `openspec/.specwright/VERSION`
+- **THEN** login resolution (when no --login was given) and the fetch run in process in the store's directory as the store's login, no second `sw` is launched, and the result is not `sw_mismatch`
 
 #### Scenario: Fenced read uses one deadline
 - **WHEN** pass-plan performs a fenced Git read, credential checks consume part of its existing outer budget, and the Git command then hangs with a descendant
@@ -439,7 +383,7 @@ Native PR workflow code SHALL call ported settings, fence and VCS operations dir
 
 #### Scenario: Rounds reports an outer read deadline as unreadable
 - **WHEN** a rounds remote_contains read exceeds its enclosing deadline
-- **THEN** rounds returns ok true with remote_unreadable and the same unpushed and round results as the frozen script
+- **THEN** rounds returns ok true with remote_unreadable and the same unpushed and round results as the frozen script's record
 
 #### Scenario: Nested fence lookup limit retains refusal mapping
 - **WHEN** a rounds fenced read has a nested credential or identity lookup reach its own smaller deadline before the outer budget expires
@@ -462,8 +406,8 @@ Native PR workflow code SHALL call ported settings, fence and VCS operations dir
 - **THEN** the invoked tool receives the same argument values as through the old script, with no shell started, without expansion, truncation or credential values in diagnostics
 
 #### Scenario: A non-UTF-8 path argument is refused
-- **WHEN** a direct fenced read is handed a POSIX path argument holding non-UTF-8 bytes
-- **THEN** the workflow stops with `"error": "not_utf8"` and exit 1 before any credential lookup, and the tool does not run
+- **WHEN** on Linux `sw pr rounds` is started with a `--code` argument holding non-UTF-8 bytes in its argument list
+- **THEN** the exit status is non-zero, stdout is empty, no credential lookup ran and the tool does not run (native-cli "Arguments sw cannot represent are refused")
 
 #### Scenario: Unbounded VCS calls remain unbounded
 - **WHEN** a workflow's VCS state or plan call takes longer than the configured network deadline but completes
@@ -473,12 +417,12 @@ Native PR workflow code SHALL call ported settings, fence and VCS operations dir
 Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, ownership, legacy migration and exclusive publication. Interrupted or foreign-owned state SHALL retain the existing recovery result; the port SHALL NOT start a new pass beside an unreadable record or silently adopt another owner. A state-directory or home value that is not valid UTF-8 SHALL stop the call with `"error": "not_utf8"`, exit 1, before any record is read or written.
 
 #### Scenario: Native plan resumes an existing record
-- **WHEN** the frozen script writes a record and native pass-plan reads it with equivalent snapshots, local history and owner
+- **WHEN** native pass-plan reads a record the frozen script wrote, kept as recorded bytes captured before the scripts were removed, with equivalent snapshots, local history and owner
 - **THEN** the native plan returns the same resume rows, owner state and completion decision, without starting a new pass
 
 #### Scenario: Script plan reads a native record
-- **WHEN** native pass-write writes a record and the frozen script reads it
-- **THEN** the script reads the same intent, owner and state, with UTF-8/LF contents and the same record key
+- **WHEN** native pass-write writes a record
+- **THEN** it is UTF-8 with LF line ends under the same record key, its generated owner id, write time, checkout and host are checked for form and against the run, and its intent, owner and state equal the fixture the frozen script read before the scripts were removed, once those generated fields are normalized
 
 #### Scenario: Non-UTF-8 POSIX state directory stops by name
 - **WHEN** a POSIX feedback call uses a process state-directory environment value containing non-UTF-8 path bytes
@@ -652,3 +596,25 @@ A settings file nested beyond any depth a reader can hold SHALL be refused with 
 #### Scenario: A remote file nested 100,000 levels
 - **WHEN** the ready head's settings file on GitHub is nested 100,000 levels deep and `policy` reads it
 - **THEN** `policy` exits 3 with `"error": "lookup_failed"` and merges nothing
+
+### Requirement: sw pr ignores an inherited GH_REPO
+Every `gh` call that one of the nineteen `sw pr` subcommands makes, account-scoped calls such as `gh api user` and `gh auth token` included, SHALL run with `GH_REPO` removed from its environment. Each repository-scoped call SHALL also name its repository (`--repo` or `repos/<owner>/<name>/...`), so an inherited `GH_REPO` never picks the repository. `sw` does this itself, as the `pr-pair.sh` shim's `unset GH_REPO` did.
+
+#### Scenario: GH_REPO not set
+- **WHEN** `GH_REPO` is not set and `<sw> pr discover --repo o/store --branch feat/a` runs
+- **THEN** every `gh` call names `o/store` and the PR list is that repository's
+
+#### Scenario: Inherited GH_REPO names the code repo
+- **WHEN** `GH_REPO` is `o/code` and `<sw> --project <code> pr discover --repo o/store --branch feat/a` runs in the store
+- **THEN** every repository-scoped `gh` call targets `o/store`, no `gh` call sees `GH_REPO`, the account lookups (`gh auth token`, `gh api user`) included, and no PR of `o/code` is listed
+
+### Requirement: Cleanup commands name the code project
+Every `sw` command that `sw pr cleanup-plan` prints for a repository, the branch check and the fenced pull included, SHALL start with the running `sw`'s absolute path and a leading `--project <code>`, keep that repository as its working directory and keep every other argument unchanged.
+
+#### Scenario: Store cleanup after merge
+- **WHEN** a store-backed change's PRs merged and `<sw> pr cleanup-plan` runs
+- **THEN** the store's branch-check and fenced pull commands each start with the running `sw`'s path and `--project <code>`, and their `cwd` is the store
+
+#### Scenario: Store with no VERSION runs a printed command
+- **WHEN** a printed store branch-check command runs in a store that has no `openspec/.specwright/VERSION`
+- **THEN** `sw` checks the code checkout's `VERSION`, the check runs in the store, and the result is not `sw_mismatch`
