@@ -66,7 +66,7 @@ class JjBase(unittest.TestCase):
                               text=True).stdout.strip()
 
     def finish(self, *args):
-        r = vcs_test_support.bash_run([fx.SCRIPT.as_posix(), *args], self.work, self.env)
+        r = vcs_test_support.sw_run(["finish", *args], self.work, self.env, stamp=False)
         try:
             doc = json.loads(r.stdout)
         except ValueError:

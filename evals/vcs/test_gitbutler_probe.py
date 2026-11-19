@@ -4,10 +4,9 @@ Fixtures are real: a managed repo is a scratch clone `but` has opened (butenv). 
 ran, to prove no `but` command runs in the repo (any `but` command there would set the repo up).
 """
 import json
-import shutil
 
 from butenv import Scratch, require_but
-from vcs_test_support import ROOT, VcsTestCase, bash_path_env, bash_run
+from vcs_test_support import VcsTestCase, bash_path_env, sw_run
 
 
 class GitButlerCase(VcsTestCase):
@@ -36,16 +35,10 @@ class GitButlerCase(VcsTestCase):
     def settings(self, repo, text="vcs: gitbutler\nfinish: pr\n"):
         self.set_settings(repo, text)
 
-    def copy_scripts(self, destination):
-        """A copy of the shipped specwright-pr scripts at `destination`; returns its vcs.sh."""
-        shutil.copytree(ROOT / "skills" / "specwright-pr" / "scripts", destination,
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        return destination / "vcs.sh"
-
-    def run_copy(self, script, scratch, repo, expected):
-        """`probe` through the vcs.sh at `script`, with the stub `but` (stub_but() first) on PATH."""
-        result = bash_run([script.as_posix(), "probe", "--repo", str(repo), "--role", "code"], cwd=repo,
-                          env=self.isolated(scratch), shim=self.root / "stub-bin")
+    def probe_from(self, scratch, repo, cwd, expected):
+        """`sw vcs probe` started in `cwd`, with the stub `but` (stub_but() first) on PATH."""
+        stub_env, _ = self.stub_but()
+        result = sw_run(["vcs", "probe", "--repo", repo, "--role", "code"], cwd=cwd, env={**stub_env, **self.isolated(scratch)})
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
@@ -119,8 +112,8 @@ class TestGitButlerProbe(GitButlerCase):
 class TestInstallLocation(GitButlerCase):
     """gitbutler-in-repo-install: the probe passes wherever Specwright is installed, in the work tree or outside it."""
 
-    def passes(self, script, scratch, repo, log):
-        result = self.run_copy(script, scratch, repo, expected=0)
+    def passes(self, scratch, repo, log, cwd):
+        result = self.probe_from(scratch, repo, cwd, expected=0)
         self.assertIs(result["ok"], True)
         self.assertEqual((result["backend"], result["main"]), ("gitbutler", "main"))
         self.assertTrue(log.exists() and log.read_text(encoding="utf-8").split(), "the probe never reached but")
@@ -132,8 +125,9 @@ class TestInstallLocation(GitButlerCase):
             self.settings(repo)
             _, log = self.stub_but()
             self.git(repo, "config", "gitbutler.project.targetRef", "refs/heads/main")
-            script = self.copy_scripts(repo / ".claude" / "skills" / "specwright-pr" / "scripts")
-            self.passes(script, scratch, repo, log)
+            installed = repo / ".claude" / "skills" / "specwright-pr"
+            installed.mkdir(parents=True)
+            self.passes(scratch, repo, log, installed)
 
     def test_user_level_scripts_with_in_repo_copy_probe_passes(self):
         require_but()
@@ -143,8 +137,24 @@ class TestInstallLocation(GitButlerCase):
             _, log = self.stub_but()
             self.git(repo, "config", "gitbutler.project.targetRef", "refs/heads/main")
             (repo / ".claude" / "skills" / "specwright-pr").mkdir(parents=True)
-            script = self.copy_scripts(self.root / "user-level" / "specwright-pr" / "scripts")
-            self.passes(script, scratch, repo, log)
+            outside = self.root / "user-level" / "specwright-pr"
+            outside.mkdir(parents=True)
+            self.passes(scratch, repo, log, outside)
+
+    def test_outside_repo_without_project_is_sw_mismatch(self):
+        require_but()
+        with Scratch() as scratch:
+            repo = scratch.tracked_repo().path
+            self.settings(repo)
+            stub_env, log = self.stub_but()
+            outside = self.root / "outside"
+            outside.mkdir()
+            done = sw_run(["vcs", "probe"], cwd=outside, env={**stub_env, **self.isolated(scratch)}, stamp=False)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            result = json.loads(done.stdout)
+            self.assertEqual((result["ok"], result["error"]), (False, "sw_mismatch"), result)
+            self.assertIn("no installed version found", result["message"])
+            self.assertFalse(log.exists(), "a but command ran")
 
 
 class TestGitBackendRefusesWorkspace(GitButlerCase):

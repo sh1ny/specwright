@@ -1,0 +1,71 @@
+{
+  "change": "add-greeting",
+  "branch": "feat/add-greeting",
+  "round": 2,
+  "code_repo": "acme/code",
+  "prs": {
+    "code": {
+      "repo": "acme/code",
+      "number": 5
+    },
+    "store": {
+      "repo": "acme/plans",
+      "number": 3
+    }
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "source": "code",
+      "destination": "store",
+      "kind": "thread",
+      "item": "T1",
+      "root_id": 11,
+      "edits": [
+        {
+          "file": "openspec/changes/archive/2026-10-07-add-greeting/specs/greeting/spec.md",
+          "contains": [
+            "The system SHALL greet"
+          ],
+          "absent": [
+            "The system SHOULD greet"
+          ]
+        },
+        {
+          "file": "openspec/specs/greeting/spec.md",
+          "contains": [
+            "The system SHALL greet"
+          ],
+          "absent": [
+            "The system SHOULD greet"
+          ]
+        }
+      ],
+      "disposition": {
+        "reply": true,
+        "resolve": true,
+        "react": "+1"
+      },
+      "revision": {
+        "rev": "11@2026-10-08T10:00:00Z",
+        "last_reviewer_comment": {
+          "id": "C11",
+          "at": "2026-10-08T10:00:00Z"
+        }
+      }
+    }
+  ],
+  "version": 2,
+  "owner": {
+    "id": "2731f8a88df48f6d0b9ce4defd7cf23f",
+    "at": "2026-11-19T07:56:25Z",
+    "checkout": "C:/Users/RUNNER~1/AppData/Local/Temp/tmppfb1l477/code",
+    "host": "runnervmm7ud1"
+  },
+  "heads": {
+    "code": "a1611e02cc4256f9ad6072185aec53dd7ecf3fac",
+    "store": "1293d5a8829e52f5252af50f53d90b97b3639746"
+  },
+  "marker": null,
+  "written_at": "2026-11-19T07:56:25Z"
+}

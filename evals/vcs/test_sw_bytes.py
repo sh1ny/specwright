@@ -1,6 +1,6 @@
 """sw vcs output bytes: line separators parse back, a name's bytes round-trip, tool input reaches the tool.
 
-Run through the vcs.sh shim against the tree's sw (design D9)."""
+Run through `sw vcs` directly (evals/swcall.py)."""
 
 import json
 import os
@@ -8,9 +8,10 @@ import subprocess
 import sys
 import unittest
 
+import gitlog
 import jjenv
 from jjenv import Scratch, require_jj
-from vcs_test_support import VcsTestCase
+from vcs_test_support import VcsTestCase, sw_run
 
 LINUX = sys.platform.startswith("linux")
 BRANCH = "feat/bytes"
@@ -108,6 +109,24 @@ class TestSwBytes(VcsTestCase):
         self.assertEqual(self.commit_names(), [valid.encode("utf-8")])
         state, _ = self.invoke("state")
         self.assertEqual(state["dirty_paths"], [])
+
+    @unittest.skipUnless(LINUX, "platform: the runtime refuses a non-UTF-8 argument only on POSIX, and the name needs a Linux file system")
+    def test_non_utf8_argument_is_refused(self):
+        """native-cli A1: the argument never reaches sw's code, so nothing runs; the same call with a valid name does reach git."""
+        self.shim = gitlog.install(self.root / "shim", real_git=jjenv.real_git(), log_path=self.root / "git-calls.jsonl")
+        self.git(self.repo, "checkout", "-b", BRANCH)
+        self.write(b"a\xff.txt", "one\n")
+        self.write("b.txt", "two\n")
+        call = ["vcs", "commit", "--repo", self.repo, "--role", "code", "--branch", BRANCH, "--message-file", self.message(), "--"]
+
+        done = sw_run([*call, b"a\xff.txt"], cwd=self.repo, shim=self.shim)
+
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(done.stdout, "")
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+        control = sw_run([*call, "b.txt"], cwd=self.repo, shim=self.shim)  # the control: a valid name reaches git and commits
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        self.assertTrue([c for c in self.shim.calls() if c["write"]], "the shim sees no git write: the empty log above proves nothing")
 
     @unittest.skipUnless(os.name == "nt", "platform: the check-ignore input travels the Windows transport")
     def test_check_ignore_receives_oversized_name(self):

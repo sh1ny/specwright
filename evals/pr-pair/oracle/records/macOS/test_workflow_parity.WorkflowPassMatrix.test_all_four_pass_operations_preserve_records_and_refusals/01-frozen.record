@@ -1,0 +1,30 @@
+{
+  "change": "add-greeting",
+  "branch": "feat/add-greeting",
+  "round": 2,
+  "code_repo": "acme/code",
+  "prs": {
+    "code": {
+      "repo": "acme/code",
+      "number": 5
+    },
+    "store": {
+      "repo": "acme/plans",
+      "number": 3
+    }
+  },
+  "findings": [],
+  "version": 2,
+  "owner": {
+    "id": "3f9c28b2dd10ed40e52acdb4ad888430",
+    "at": "2026-11-19T07:54:29Z",
+    "checkout": "/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/tmp8f70x9ah/code",
+    "host": "sjc22-bt152-2de6c867-90b8-497e-9f5f-12a00c20ef0c-C65150076593.local"
+  },
+  "heads": {
+    "code": "f68ad7d107fb91d2eac8141771854be87ac488a7",
+    "store": "1293d5a8829e52f5252af50f53d90b97b3639746"
+  },
+  "marker": null,
+  "written_at": "2026-11-19T07:54:29Z"
+}

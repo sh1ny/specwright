@@ -1,0 +1,22 @@
+{
+ "calls": [],
+ "case": "test_parity.AsParity.test_usage_exits",
+ "comment_bodies": {},
+ "exit": 2,
+ "label": "old",
+ "requests": [],
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "sh1ny"
+ },
+ "stderr": {
+  "lines": 1,
+  "prefixes": [
+   "as.sh: "
+  ]
+ },
+ "stdout": ""
+}

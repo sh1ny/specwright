@@ -1,13 +1,12 @@
 """sw vcs fences identity in its own process (native-cli-internal-calls D1, D2, D8).
 
-Every test hands the built `sw` (SPECWRIGHT_SW) the scripts-directory handoff directly (`sw vcs --args-stdin`, the stdin
-records `vcs.sh` writes) and a directory holding recording sentinels for `as.sh`, `vcs.sh`, `pr-pair.sh` and `sw-path.sh`;
+Every test runs the built `sw` (SPECWRIGHT_SW) through evals/swcall.py (direct argument entry) with a directory holding
+recording sentinels for `as.sh`, `vcs.sh`, `pr-pair.sh` and `sw-path.sh`;
 failing recording `python` and `python3` are first on PATH. A sentinel that recorded a run, or an interpreter that ran,
 fails the test before anything else is read. The fake `gh` and a `git` shim that answers `git remote get-url origin` with a
 github.com URL (every real fetch and push still goes to the local bare origin) stand in for GitHub.
 
-Only `test_store_without_version_pulls` goes through the shipped `vcs.sh`: it needs the real shim to start from a store that
-has no installed Specwright version.
+A store has no installed Specwright version: its calls name the code checkout with --code, or --project.
 
 Run: python -m unittest evals/vcs/test_sw_fence.py
 """
@@ -25,10 +24,11 @@ import sentinels
 from butenv import Scratch as ButScratch
 from butenv import require_but
 from jjenv import require_jj
-from vcs_test_support import ROOT, SCRIPTS, bash_path_env, bash_run
+from vcs_test_support import ROOT, STAMP, bash_path_env, native_path, stamp_version, sw_home
 
 sys.path.append(str(ROOT / "evals" / "cli"))
 import swharness  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 
 GITHUB = "https://github.com/o/r.git"
 LOGIN = "KintsugiBot"
@@ -120,22 +120,23 @@ class Harness:
                     "SWF_GIT_LOG": posix(self.git_log), "SWF_REAL_GIT": jjenv.real_git(),
                     "SWF_ORIGIN_URL": self.origin_url or ""})
         env.update(extra or {})
+        env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
         env["PATH"] = bash_path_env(self.sent.bin, extra_path=(self.tools,))["PATH"]
         return env
 
-    def run(self, command, *options, repo, role="code", code=None, env=None, expected=0):
-        """`sw vcs <command>` with the handoff records; returns (document, process). The sentinels are read first."""
-        bash = jjenv.find_bash()
-        args = [posix(self.sent.scripts), bash, command, "--repo", str(repo), "--role", role]
+    def run(self, command, *options, repo, role="code", code=None, env=None, expected=0, project=None, cwd=None):
+        """`sw vcs <command>` entered directly (evals/swcall.py); returns (document, process). The sentinels are read first.
+        `project` is the leading --project of a call started outside the checkout that carries the VERSION."""
+        args = ["vcs", command, "--repo", str(repo), "--role", role]
+        for stamped in (repo if role == "code" else None, code):  # a store carries no VERSION: its code checkout does
+            if stamped is not None and not (Path(stamped) / STAMP).exists():
+                stamp_version(stamped)
         if code is not None:
             args += ["--code", str(code)]
         args += list(map(str, options))
-        shell_env = self.env(env)
-        shell_env["SWF_SEARCH"] = shell_env["PATH"]
-        shell_env["SWF_SW"] = swharness.require_sw()
-        done = subprocess.run([bash, "-c", 'export PATH="$SWF_SEARCH"; exec "$SWF_SW" vcs --args-stdin'],
-                              input=b"".join(arg.encode("utf-8", "surrogateescape") + b"\0" for arg in args),
-                              cwd=str(repo), env=shell_env, capture_output=True, timeout=180)
+        run_env = self.env(env)
+        run_env["PATH"] = native_path(run_env["PATH"])
+        done = swcall.run(args, project=project, cwd=str(cwd or repo), env=run_env, timeout=180, text=False)
         out = done.stdout.decode("utf-8", "surrogateescape")
         err = done.stderr.decode("utf-8", "surrogateescape")
         self.case.assertEqual(self.sent.recorded(), [],
@@ -395,31 +396,54 @@ class FenceCase(gbnet.GitButlerNetworkCase):
         self.assertTrue(doc["message"].startswith("as.sh: no active gh account for github.com"), doc)
         self.assertEqual([c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]], [], "a fetch ran")
 
-    def test_store_without_version_pulls(self):
-        code = self.repo
-        self.set_settings(code, "main_branch: main\n")
+    def store_world(self):
+        """A planning store with a local bare origin and no installed Specwright version; self.repo is its code checkout."""
+        self.set_settings(self.repo, "main_branch: main\n")
         store = self.root / "store"
         self._init_git(store)
         origin = self.root / "store-origin.git"
         self.git(self.root, "init", "-q", "--bare", "-b", "main", str(origin))
         self.git(store, "remote", "add", "origin", origin.as_posix())
         self.assertEqual(self.git(store, "push", "-q", "-u", "origin", "main").returncode, 0)
-        world = World(self, "git", store, origin, {})
-        advanced = world.advance("store")
         self.assertFalse((store / "openspec" / ".specwright" / "VERSION").exists(), "the store has no Specwright version")
+        return World(self, "git", store, origin, {})
+
+    def test_store_without_version_pulls(self):
+        """A store call names the code checkout (--code), whose VERSION the entry check reads."""
+        world = self.store_world()
+        store = world.repo
+        advanced = world.advance("store")
         self.h.set_gh(user="sh1ny")
 
-        done = bash_run([(SCRIPTS / "vcs.sh").as_posix(), "pull", "--repo", str(store), "--role", "store", "--code", str(code),
-                         "--branch", "main", "--login", "store-bot"], cwd=store, env=self.h.env(), shim=self.h.tools,
-                        stamp=False)
+        doc, _ = self.h.run("pull", "--branch", "main", "--login", "store-bot", repo=store, role="store", code=self.repo)
+        self.assertTrue(doc["ok"], doc)
 
-        doc = json.loads(done.stdout)
-        self.assertNotEqual(doc.get("error"), "sw_missing", doc)
-        self.assertEqual((done.returncode, doc.get("ok")), (0, True), doc)
         self.assertEqual(self.git(store, "rev-parse", "HEAD").stdout.strip(), advanced)
         pulls = [call for call in self.h.git_calls() if call["argv"][:1] == ["pull"]]
         self.assertEqual([call["token"] for call in pulls], [TOKENS["store-bot"]])
         self.assertEqual(Path(pulls[0]["cwd"]).resolve(), store.resolve())
+
+    def test_store_push_with_project_passes_check(self):
+        """A store push started in the store, which has no VERSION, passes the entry check with --project <code checkout>."""
+        world = self.store_world()
+        store = world.repo
+        self.git(store, "checkout", "-q", "-b", "feat/a")
+        (store / "plan.txt").write_text("plan\n", encoding="utf-8")
+        self.git(store, "add", "plan.txt")
+        self.git(store, "commit", "-q", "-m", "docs: plan")
+        self.h.set_gh(user="sh1ny")
+
+        refused, _ = self.h.run("push", "--branch", "feat/a", "--login", "store-bot", repo=store, role="store", expected=1)
+        self.assertEqual(refused["error"], "sw_mismatch", refused)
+        self.assertEqual(self.h.git_calls(), [], "git ran before the entry check")
+
+        doc, _ = self.h.run("push", "--branch", "feat/a", "--login", "store-bot", repo=store, role="store",
+                            code=self.repo, project=self.repo)
+
+        self.assertTrue(doc["ok"], doc)
+        self.assertIn("refs/heads/feat/a", world.origin_refs())
+        pushes = [call for call in self.h.git_calls() if call["argv"][:1] == ["push"]]
+        self.assertEqual([call["token"] for call in pushes], [TOKENS["store-bot"]])
 
     def test_fenced_command_has_no_deadline(self):
         world = self.git_world()

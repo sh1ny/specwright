@@ -9,7 +9,7 @@ import sys
 import jjenv
 from jjenv import Scratch, require_jj, real_git
 from fakeexe import write_fake  # after jjenv, which puts evals/ on sys.path
-from vcs_test_support import ROOT, SCRIPTS, VcsTestCase, bash_path_env, bash_run
+from vcs_test_support import ROOT, VcsTestCase, bash_path_env, sw_run
 
 sys.path.append(str(ROOT / "evals" / "cli"))
 import swharness  # noqa: E402
@@ -52,22 +52,16 @@ class TestProbe(VcsTestCase):
     def test_missing_jj_is_tool_missing_without_shell(self):
         """native-cli-launcher D1: a missing `jj` is the same `tool_missing` stop, and no shell looks for it.
 
-        `sw vcs` gets the handoff directly. Recording `bash` and `sh` that fail are first on PATH, and the handoff names the
-        recording `bash` as its shell, so a call that still starts a shell leaves a record and a different stop."""
-        sw = swharness.require_sw()
+        Recording `bash` and `sh` that fail are first on PATH, so a call that still starts a shell leaves a record and a
+        different stop."""
         self.set_settings(self.repo, "vcs: jj\n")
         shells = self.failing_shells()
         log = self.root / "shell.log"
-        shell = shells / ("bash.cmd" if os.name == "nt" else "bash")
         env = swharness.fixture_env()
         env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, SHELL_LOG: log.resolve().as_posix()})
         env["PATH"] = bash_path_env(shells, exclude_tools=("jj",))["PATH"]
-        env["SWP_SEARCH"], env["SWP_SW"] = env["PATH"], sw
-        handoff = [SCRIPTS.resolve().as_posix(), str(shell), "probe", "--repo", str(self.repo), "--role", "code"]
-        done = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$SWP_SEARCH"; exec "$SWP_SW" vcs --args-stdin'],
-                              input=b"".join(arg.encode("utf-8") + b"\0" for arg in handoff), cwd=str(self.repo),
-                              env=env, capture_output=True, timeout=180)
-        out, err = done.stdout.decode("utf-8", "replace"), done.stderr.decode("utf-8", "replace")
+        done = sw_run(["vcs", "probe", "--repo", self.repo, "--role", "code"], cwd=self.repo, env=env)
+        out, err = done.stdout, done.stderr
         shell_runs = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
         self.assertEqual(shell_runs, [], "a shell started: %s %s" % (out, err))
         self.assertEqual(done.returncode, 1, out + err)
@@ -116,8 +110,8 @@ class TestProbe(VcsTestCase):
         """fix-m5-gaps D7 (#150): the workspace check belongs to the GitButler backend; Git keeps in-repo installs."""
         self.set_settings(self.repo, "vcs: git\n")
         scripts = self.repo / ".claude" / "skills" / "specwright-pr" / "scripts"
-        shutil.copytree(ROOT / "skills" / "specwright-pr" / "scripts", scripts,
-                        ignore=shutil.ignore_patterns("__pycache__"))
+        scripts.mkdir(parents=True)
+        (scripts / "placeholder.txt").write_text("an installed copy\n", encoding="utf-8")
         for extra in (".agents/skills/specwright-branch", ".claude/agents/specwright-reviewer.md",
                       ".omp/agents/specwright-implementer.md"):
             path = self.repo / extra
@@ -126,8 +120,5 @@ class TestProbe(VcsTestCase):
                 path.write_text("copy\n", encoding="utf-8")
             else:
                 path.mkdir()
-        result = bash_run([(scripts / "vcs.sh").as_posix(), "probe", "--repo", str(self.repo), "--role", "code"],
-                          cwd=self.repo)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        obj = json.loads(result.stdout)
+        obj, _ = self.invoke("probe", repo=self.repo)
         self.assertEqual((obj["ok"], obj["backend"], obj["main"]), (True, "git", "main"))

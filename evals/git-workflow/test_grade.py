@@ -112,8 +112,7 @@ class WatchMerge(unittest.TestCase):
         # the shim runs `sw` from the stamped project: the fixture repo and the test home
         vcs_test_support.stamp_version(repo)
         snap = json.loads(self.sh(repo, f"export SPECWRIGHT_HOME={fixtures.posix(vcs_test_support.sw_home())} && "
-                                        "bash ../../../skills/specwright-pr/scripts/pr-snapshot.sh 7 --repo acme/greeter "
-                                        f"--reviewer-config {fixtures.posix(config)}".replace("../../../", fixtures.posix(fixtures.ROOT) + "/")))
+                                        f"{sw()} pr snapshot 7 --repo acme/greeter --reviewer-config {fixtures.posix(config)}"))
         self.assertEqual((snap["mergeable"], snap["merge_state"], snap["checks"]["pending"], snap["reviewers"][0]["state"]),
                          ("MERGEABLE", "CLEAN", 0, "reported"))
         before = subprocess.run([bashexe.bash(), "-c", "source eval.env && git checkout -q main && git pull --ff-only"], cwd=repo, capture_output=True, text=True)
@@ -138,8 +137,7 @@ class WatchMerge(unittest.TestCase):
     def test_default_user_ready_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-watch-merge-default-user")
         vcs_test_support.stamp_version(repo)  # the shim runs `sw` from the stamped project and the test home
-        self.sh(repo, f"export SPECWRIGHT_HOME={fixtures.posix(vcs_test_support.sw_home())} && bash "
-                      + fixtures.posix(fixtures.ROOT) + "/skills/specwright-pr/scripts/pr-pair.sh context --code .")
+        self.sh(repo, f"export SPECWRIGHT_HOME={fixtures.posix(vcs_test_support.sw_home())} && {sw()} pr context --code .")
         res = self.grade("eval-watch-merge-default-user", run_dir, "PR #7 is ready to merge.")
         self.assertTrue(res and all(res.values()), [t for t, ok in res.items() if not ok])
 
@@ -851,8 +849,11 @@ class InstallOpenSpecPin(unittest.TestCase):
         self.assertTrue(self.results(name, repo, "OpenSpec 1.15.0 (pinned 1.16.0, override)")[line])
 
 
-RELEASE_SH = fixtures.posix(fixtures.ROOT) + "/skills/specwright-release/scripts/release.sh"
-AS_SH = fixtures.posix(fixtures.ROOT) + "/skills/specwright-pr/scripts/as.sh"
+
+
+def sw():
+    """The built `sw` as a Git Bash path, for a command line a test hands to `self.sh` (skips without the binary)."""
+    return fixtures.posix(vcs_test_support.swharness.require_sw())
 RELEASE_NAMES = ("eval-finish-release-offer", "eval-finish-release-auto", "eval-finish-release-disabled",
                  "eval-finish-local-release-reported", "eval-agent-merge-release-auto")
 OFFER_REPORT = "Cleanup done: main is current.\n\nVersion 0.5.0 has no tag yet. Shall I publish v0.5.0 (tag and GitHub release)?\n\nNext: specwright-roadmap next, or close?"
@@ -911,6 +912,12 @@ class ReleaseEvals(unittest.TestCase):
         (run_dir / "outputs").mkdir()
         return run_dir, repo
 
+    @staticmethod
+    def rewrite(repo):
+        """What the fixture's bin/bash shim gave a `release.sh` run: the git config that reaches the local bare origin.
+        A native `sw release` is not a bash run, so the command line carries it."""
+        return f"GIT_CONFIG_GLOBAL={fixtures.posix(Path(repo) / 'state' / 'gitconfig-release')} "
+
     def sh(self, repo, script):
         env = dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()))
         r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True,
@@ -929,7 +936,7 @@ class ReleaseEvals(unittest.TestCase):
         self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
 
     def publish(self, repo):
-        return json.loads(self.sh(repo, f"bash {AS_SH} eval-bot bash {RELEASE_SH} --dir . publish --version 0.5.0 --main origin/main"))
+        return json.loads(self.sh(repo, f"{self.rewrite(repo)}{sw()} as eval-bot {sw()} release --dir . publish --version 0.5.0 --main origin/main"))
 
     def test_evals_json_lists_the_graders_assertions(self):
         evals = {e["name"]: e for e in json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]}
@@ -943,7 +950,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_pr_fixtures_untagged_lists_0_5_0_on_origins_main(self):
         for name in RELEASE_NAMES[:2]:
             _, repo = self.fixture(name)
-            doc = json.loads(self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main origin/main"))
+            doc = json.loads(self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main origin/main"))
             self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"], name)
             self.assertEqual(grade.git(repo, "log", "-1", "--format=%s", "origin/main"), "Add greeting (#7)")
             self.assertEqual(self.sh(repo, "git remote get-url origin"), "https://github.com/acme/greeter.git", name)
@@ -963,7 +970,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_offer_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-finish-release-offer")
         self.cleanup(repo)
-        self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main origin/main")  # reading the list is allowed
+        self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main origin/main")  # reading the list is allowed
         res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
         self.assertTrue(res and not self.failed(res), self.failed(res))
 
@@ -1099,16 +1106,16 @@ class ReleaseEvals(unittest.TestCase):
     def test_local_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-finish-local-release-reported")
         self.local_run(repo)
-        self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main main")
+        self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main main")
         res = self.grade("eval-finish-local-release-reported", run_dir, self.LOCAL_REPORT)
         self.assertTrue(res and not self.failed(res), self.failed(res))
-        doc = json.loads(self.sh(repo, f"bash {RELEASE_SH} --dir . untagged --main main"))
+        doc = json.loads(self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main main"))
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"], "main's merge commit carries the release")
 
     def test_local_run_that_publishes_fails(self):
         run_dir, repo = self.fixture("eval-finish-local-release-reported")
         self.local_run(repo)
-        self.sh(repo, f"bash {AS_SH} eval-bot bash {RELEASE_SH} --dir . publish --version 0.5.0 --main main")
+        self.sh(repo, f"{self.rewrite(repo)}{sw()} as eval-bot {sw()} release --dir . publish --version 0.5.0 --main main")
         res = self.grade("eval-finish-local-release-reported", run_dir, "Published v0.5.0.")
         for t in ("No tag was created", "Nothing was pushed: origin keeps its main and has no tag, no git push ran, and no gh release call was made",
                   "The report says v0.5.0 can be published after main is pushed"):

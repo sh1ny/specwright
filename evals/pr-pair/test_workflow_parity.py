@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_parity as parity
 import vcs_test_support
+import swcall  # vcs_test_support puts evals/ on sys.path
 import fakeexe
 
 
@@ -35,7 +36,7 @@ class WorkflowParity(parity.PairParity):
     # remain linked to the persisted owner and validated creation interval.
     # All other workflow fields/calls/effects compare without normalization.
     def git(self, directory, *args):
-        return subprocess.run(['git', *args], cwd=directory, env=self.git_env,
+        return subprocess.run(['git', *args], cwd=directory, env={**self.git_env, **parity.PINNED_IDENTITY},
                               capture_output=True, check=True).stdout.decode().strip()
 
     @staticmethod
@@ -61,11 +62,7 @@ class WorkflowParity(parity.PairParity):
         args = args(which) if callable(args) else args
         e = self.env('me', SPECWRIGHT_HOME=str(self.home),
                      GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
-        binary = os.environ['SPECWRIGHT_SW']
-        payload = b''.join(str(x).encode('utf-8') + b'\0' for x in
-                           [parity.fixtures.posix(getattr(self, 'workflow_scripts', parity.SCRIPTS)), parity.bashexe.bash(), *args[1:]])
-        r = subprocess.run([str(binary), 'pr', args[0], '--args-stdin'], input=payload,
-                           cwd=cwd or self.tmp, env=e, capture_output=True, timeout=120)
+        r = swcall.run(['pr', *args], cwd=cwd or self.tmp, env=e, timeout=120, text=False)  # direct entry
         raw_calls = parity.calls_of(self.gh_log, lambda c: c)
         result = {'code': r.returncode, 'stdout': r.stdout, 'stderr': r.stderr,
                 'calls': [self.command_binding(c['argv']) for c in raw_calls],

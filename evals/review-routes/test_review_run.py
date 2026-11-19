@@ -23,6 +23,7 @@ import bashexe  # noqa: E402
 import fakeexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 from vcs_test_support import bash_path_env, stamp_version, sw_home  # noqa: E402
+import swcall  # noqa: E402
 SCRIPT = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
 CHANGE = "demo-change"
@@ -180,11 +181,9 @@ class Base(unittest.TestCase):
         return [c for c in self.calls(cli) if c["argv"][:1] not in (["--version"], ["config"], ["models"])]
 
     def script(self, *args, cwd=None, expect=0):
-        env = bash_path_env(extra_path=(self.bin,), environment=self.env())
-        env["VCS_TEST_SEARCH"] = env["PATH"]
-        r = subprocess.run([bashexe.bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
-                            "review-eval", str(SCRIPT), *map(str, args)], capture_output=True, text=True,
-                           env=env, cwd=cwd or self.code, encoding="utf-8")
+        env = self.env()  # the reviewer fakes (self.bin) are first on its native PATH
+        env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
+        r = swcall.run(["review", *args], cwd=cwd or self.code, env=env)  # direct entry, evals/swcall.py
         lines = r.stdout.strip().splitlines()
         if expect is not None:
             self.assertEqual(r.returncode, expect, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")

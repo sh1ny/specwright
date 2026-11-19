@@ -10,14 +10,14 @@ import shutil
 import gitlog
 import jjenv
 from jjenv import Scratch, require_jj
-from vcs_test_support import VCS, VcsTestCase, bash_path_env, bash_run
+from vcs_test_support import VcsTestCase, bash_path_env, sw_run
 
 BRANCH = "feat/add-x"
 READ_FETCH = "FETCH_HEAD-only read fetch"
 
 
 class GateStop(Exception):
-    """The gate stopped on a vcs.sh error; `result` is the JSON document it printed."""
+    """The gate stopped on an sw vcs error; `result` is the JSON document it printed."""
     def __init__(self, step, result):
         super().__init__("%s: %s" % (step, result))
         self.step, self.result = step, result
@@ -58,19 +58,19 @@ class PairCase(VcsTestCase):
         shutil.rmtree(self.lock_path())
 
     def vcs(self, command, *options, role="code"):
-        """Run vcs.sh as the gate does; returns (exit status, the JSON document it printed)."""
+        """Run `sw vcs` as the gate does; returns (exit status, the JSON document it printed)."""
         repo = self.code if role == "code" else self.store
-        args = [VCS.as_posix(), command, "--repo", str(repo), "--role", role]
+        args = ["vcs", command, "--repo", str(repo), "--role", role]
         if role == "store":
             args += ["--code", str(self.code)]
-        done = bash_run(args + list(map(str, options)), cwd=repo, env=self.env, shim=self.shim.path)
+        done = sw_run(args + list(map(str, options)), cwd=repo, env=self.env, shim=self.shim)
         try:
             return done.returncode, json.loads(done.stdout)
         except ValueError:
-            self.fail("vcs.sh did not emit one JSON document: %r (%s)" % (done.stdout, done.stderr))
+            self.fail("sw vcs did not emit one JSON document: %r (%s)" % (done.stdout, done.stderr))
 
     def step(self, name, command, *options, role="code"):
-        """One gate call; a vcs.sh stop ends the gate."""
+        """One gate call; an sw vcs stop ends the gate."""
         status, result = self.vcs(command, *options, role=role)
         if status or not result.get("ok"):
             raise GateStop(name, result)

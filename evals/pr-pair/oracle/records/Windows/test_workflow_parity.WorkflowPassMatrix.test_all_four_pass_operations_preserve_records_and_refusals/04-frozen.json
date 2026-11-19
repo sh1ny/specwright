@@ -1,0 +1,22 @@
+{
+ "calls": [],
+ "case": "test_workflow_parity.WorkflowPassMatrix.test_all_four_pass_operations_preserve_records_and_refusals",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "deleted": true,
+  "ok": true
+ }
+}

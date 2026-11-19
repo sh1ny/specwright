@@ -148,10 +148,10 @@ class TestNoNetwork(Base):
         fake.chmod(0o755)
         env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""),
                    SPECWRIGHT_HOME=str(fx.vcs_test_support.sw_home()))
-        args = [bashexe.bash(), str(fx.SCRIPT), "undo-archive-plan", "--change", "add-x", "--archived-name", f"{fx.DATE}-add-x",
+        args = ["finish", "undo-archive-plan", "--change", "add-x", "--archived-name", f"{fx.DATE}-add-x",
                 "--prefix", P, "--main", "main"]
         t0 = time.monotonic()
-        r = subprocess.run(args, cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=env, timeout=30)
+        r = fx.swcall.run(args, cwd=self.work, env=env, timeout=30)
         self.assertLess(time.monotonic() - t0, 30)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIs(__import__("json").loads(r.stdout)["ok"], True)

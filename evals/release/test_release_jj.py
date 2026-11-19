@@ -70,7 +70,7 @@ class JjRelease(unittest.TestCase):
 
     def release(self, *args):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=self.env())
+        r = fx.swcall.run(["release", *args], cwd=self.work, env=self.env())
         try:
             doc = json.loads(r.stdout)
         except ValueError:

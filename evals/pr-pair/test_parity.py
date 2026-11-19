@@ -33,6 +33,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.append(str(ROOT / "evals"))
+import oracle_capture  # noqa: E402
 import snapfix  # noqa: E402
 from snapfix import SnapCase, T0, fake_gh, fixtures, rev  # noqa: E402
 import bashexe  # noqa: E402
@@ -109,20 +110,9 @@ def masked(node, digest, mask="DIGEST"):
     return mask if node == digest else node
 
 
-def said(stderr):
-    """stderr with bash's `<script path>: line N:` prefix cut to the script's name: the path and the line differ by design."""
-    return re.sub(rb"(?m)^.*?([a-z-]+\.sh): line \d+: ", rb"\1: line N: ", stderr)
+PINNED_IDENTITY = oracle_capture.PINNED_IDENTITY  # fixture commits repeat their ids in every run and on every OS (D14)
 
-
-def fixed_prefix(text):
-    """The stable leading part of a free-text line: `line N:`, `merge policy unknown:`, else the text up to and including its
-    first `: `, else None (nothing to compare)."""
-    for pat in (r"line \d+:", r"merge policy unknown:"):
-        m = re.match(pat, text)
-        if m:
-            return m.group()
-    i = text.find(": ")
-    return text[:i + 2] if i >= 0 else None
+said, fixed_prefix = oracle_capture.said, oracle_capture.fixed_prefix  # shared with the capture of the frozen side
 
 
 class ParityAsserts:
@@ -159,8 +149,11 @@ class PrParity(SnapCase, ParityAsserts):
             extra["ORACLE_SW_DIR"] = oracle_sw_dir()
         e = self.env(login, **extra)
         code, out, err = run_script((ORACLE if which == "old" else SCRIPTS) / script, args, e, self.tmp, stdin)
-        return {"code": code, "stdout": out, "stderr": err,
+        side = {"code": code, "stdout": out, "stderr": err,
                 "calls": calls_of(self.gh_log, lambda c: temp_names(c["argv"])), "state": self.gh_state.read_bytes()}
+        if which == "old":
+            oracle_capture.record(self, "old", side)
+        return side
 
     def pair(self, script, *args, login="me", env=None, old_args=None):
         """(the tree's script, the oracle) on the same fake-gh state: the state is put back before the second run.
@@ -455,8 +448,9 @@ class AsParity(tas.AsShCase, ParityAsserts):
         self.git(self.work, "config", "http.proxy", self.base.rstrip("/"))
         vcs_test_support.stamp_version(self.work)
 
-    def pair(self, *args, cwd=None, env=None, stdin=None, mask=None):
-        """(as.sh, oracle) in `cwd` (the work repo): a dict per run. `mask` is a text replaced by *** in stdout and stderr."""
+    def pair(self, *args, cwd=None, env=None, stdin=None, mask=None, dump_env=False):
+        """(as.sh, oracle) in `cwd` (the work repo): a dict per run. `mask` is a text replaced by *** in stdout and stderr.
+        `dump_env`: stdout is an environment dump; the oracle record keeps the fence's own variables only (oracle_capture.env_lines)."""
         out = []
         before = (self.tmp / "gh-state.json").read_bytes()
         for which in ("new", "old"):
@@ -473,6 +467,9 @@ class AsParity(tas.AsShCase, ParityAsserts):
             out.append({"code": code, "stdout": so, "stderr": se, "state": (self.tmp / "gh-state.json").read_bytes(),
                         "calls": calls_of(self.tmp / "gh-log.jsonl", lambda c: (temp_names(c["argv"]), c["env"])),
                         "requests": list(Recorder.seen)})
+            if which == "old":
+                shown = dict(out[-1], stdout=oracle_capture.env_lines(so)) if dump_env else out[-1]
+                oracle_capture.record(self, "old", shown, requests=out[-1]["requests"])
         self.assertEqual(out[0]["requests"], out[1]["requests"], "the requests that reached the server differ")
         self.assertEqual(before, out[0]["state"])
         return out[0], out[1]
@@ -551,7 +548,7 @@ class AsParity(tas.AsShCase, ParityAsserts):
                "GIT_CONFIG_VALUE_0": "y"}
         self.git(self.work, "config", f"http.{self.base}.extraheader", "X-A: 1")
         self.git(self.work, "config", f"http.https://example.com/.extraheader", "X-B: 2")
-        new, old = self.pair("sh1ny", "env", env=env, mask="tok-s")
+        new, old = self.pair("sh1ny", "env", env=env, mask="tok-s", dump_env=True)
         # the oracle alone is told where its helpers are, through this variable
         old = dict(old, stdout=b"".join(l for l in old["stdout"].splitlines(True) if not l.startswith(b"ORACLE_SW_DIR=")))
         # the order of an environment dump follows how each program built the block, not what it holds: compare the sets
@@ -601,7 +598,7 @@ class PairParity(PrParity):
 
     def setUp(self):
         super().setUp()
-        self.git_env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        self.git_env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", **PINNED_IDENTITY}
 
     # ---- fixtures ----------------------------------------------------------------------------------------
     def repo(self, name, origin="https://github.com/o/n.git", settings=None, push=()):
@@ -651,8 +648,11 @@ class PairParity(PrParity):
         e = self.env("me", **extra)
         code, out, err = run_script((ORACLE if which == "old" else SCRIPTS) / "pr-pair.sh", args(which) if callable(args) else args,
                                     e, cwd or self.tmp)
-        return {"code": code, "stdout": out, "stderr": err, "calls": calls_of(self.gh_log, lambda c: temp_names(c["argv"])),
+        side = {"code": code, "stdout": out, "stderr": err, "calls": calls_of(self.gh_log, lambda c: temp_names(c["argv"])),
                 "state": self.gh_state.read_bytes()}
+        if which == "old":
+            oracle_capture.record(self, "old", side)
+        return side
 
     def normal(self, side):
         """(the side's JSON document, its `message` or None). In the document a reviewer-config path is replaced by the file's
@@ -1074,7 +1074,10 @@ class ReviewersParity(unittest.TestCase):
     def run_side(self, which, args):
         cmd = [self.sw, "pr", "reviewers", *args] if which == "new" else [sys.executable, "-I", "-X", "utf8", str(ORACLE / "reviewers.py"), *args]
         r = subprocess.run(cmd, capture_output=True, cwd=self.tmp, timeout=60, env=swharness.fixture_env())
-        return {"code": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "doc": parsed(r.stdout)}
+        side = {"code": r.returncode, "stdout": r.stdout, "stderr": r.stderr, "doc": parsed(r.stdout)}
+        if which == "old":
+            oracle_capture.record(self, "old", side)
+        return side
 
     def pair(self, cfg=None, material=None, head=None, code=None, extra=(), raw_config=None, check=False, crash=False,
              refused=False):

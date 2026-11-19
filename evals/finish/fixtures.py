@@ -27,6 +27,7 @@ import fixturecache  # noqa: E402  per-process cache: a path-independent repo is
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
 import bashexe  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 SCRIPT = Path(os.environ.get("FINISH_SH") or ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh")
 ORACLE = HERE / "oracle" / "finish.sh"  # the frozen copy of the old finish.sh (native-cli-finish D9); test-only
 ORACLE_FIN_DIR = ROOT / "skills" / "specwright-finish" / "scripts"  # so the oracle prints the real vcs.sh path
@@ -208,9 +209,8 @@ def fake_bin(tmp):
 
 
 def run_finish(work, *args, cwd=None):
-    """Run finish.sh; returns (exit code, parsed JSON, raw stdout + stderr)."""
-    r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or work, capture_output=True, text=True, encoding="utf-8",
-                       env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
+    """Run `sw finish <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout + stderr)."""
+    r = swcall.run(["finish", *args], cwd=cwd or work, env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
     try:
         doc = json.loads(r.stdout)
     except ValueError:

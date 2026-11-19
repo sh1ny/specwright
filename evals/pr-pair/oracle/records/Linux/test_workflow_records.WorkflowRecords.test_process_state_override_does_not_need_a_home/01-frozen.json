@@ -1,0 +1,39 @@
+{
+ "calls": [],
+ "case": "test_workflow_records.WorkflowRecords.test_process_state_override_does_not_need_a_home",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "branch": "feat/add-greeting",
+  "delete_record": true,
+  "needs_user": false,
+  "new_pass_allowed": false,
+  "ok": true,
+  "owned": false,
+  "owner": {
+   "at": "<time>",
+   "checkout": "<tmp>/code",
+   "host": "<host>",
+   "id": "<owner>"
+  },
+  "path": "<tmp>/no-home-state/feedback/acme.code.add-greeting-92c7463be12bfdbe425b9f0cbbc5ea0b.json",
+  "record": true,
+  "round": 2,
+  "rows": [],
+  "share_by_hand": [],
+  "status": "complete",
+  "stops": []
+ }
+}

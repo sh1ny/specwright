@@ -23,7 +23,8 @@ import gitlog  # noqa: E402
 import jjenv  # noqa: E402
 import fakeexe  # noqa: E402  (jjenv puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402
-from vcs_test_support import STAMP, bash_run, sw_home, stamp_version, tree_version  # noqa: E402
+from vcs_test_support import STAMP, bash_run, sw_env, sw_home, sw_run, stamp_version, tree_version  # noqa: E402
+import swcall  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtures.py")
 fx = importlib.util.module_from_spec(_spec)
@@ -61,6 +62,10 @@ class ShimCase(unittest.TestCase):
         return dest / "specwright-finish" / "scripts" / "finish.sh"
 
     def run_shim(self, *args, cwd=None, env=None, script=None, home=None, shim_dir=None):
+        """`sw finish <args>` entered directly (evals/swcall.py). A test of the shim's own resolver passes `script`, `home`
+        or `shim_dir` and still goes through the shim, which task 7.6 deletes with it."""
+        if script is None and home is None and shim_dir is None:
+            return sw_run(["finish", *args], cwd=cwd or self.work, env=env, shim=self.shim, stamp=False)
         shim_env = {"SPECWRIGHT_HOME": str(home or sw_home()), **self.shim.env, **(env or {})}
         return bash_run([(script or fx.SCRIPT).as_posix(), *map(str, args)], cwd=cwd or self.work, env=shim_env,
                         shim=shim_dir or self.shim.path, stamp=False)
@@ -81,6 +86,13 @@ class ShimCase(unittest.TestCase):
         self.assertTrue(doc["message"].startswith(STOP), doc)
         self.assertIn(STOP, result.stderr)
         self.assertNotIn("script", doc)
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+        return doc
+
+    def mismatch_document(self, result):
+        """The native refusal of a project without a matching VERSION: `sw_mismatch`, exit 1, no git command."""
+        doc = self.document(result, 1)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), doc)
         self.assertEqual(self.shim.calls(), [], "a git command ran")
         return doc
 
@@ -108,6 +120,42 @@ class TestPlanRunsSw(ShimCase):
         self.assertIn(f"undo archive of {name}", steps)
         self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", steps)
 
+    def test_arguments_reach_sw_unchanged(self):
+        """The helper starts sw with the list as given: spaces, non-ASCII text and an empty value arrive as they are."""
+        prefix, name = "my plans/openspec", "add-éx"
+        work = fx.make_repo(self.tmp / "space", prefix=prefix)
+        self.archived(work, name, prefix=prefix)
+        args = self.plan(name, prefix=prefix)
+        self.assertEqual(swcall.argv(["finish", *args])[2:], args, "the helper adds nothing to the list")
+        doc = self.document(self.run_shim(*args, cwd=work))
+        steps = fx.flat(doc["steps"])
+        self.assertIn(f"{prefix}/changes/archive/{fx.DATE}-{name}", steps)
+        self.assertIn(f"undo archive of {name}", steps)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: the runtime refuses a non-UTF-8 argument only on POSIX, and the name needs a Linux file system")
+    def test_non_utf8_argument_is_refused(self):
+        """A --change holding the byte 0xFF is refused before any command: non-zero exit, no output, no git; the valid call runs."""
+        self.archived(self.work)
+        self.no_git_calls()
+        bad = [b"a\xffb" if arg == "add-x" else arg for arg in self.plan()]
+        result = swcall.run(["finish", *bad], cwd=self.work, env=sw_env(shim=self.shim), text=False)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, b"")
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+        control = self.document(self.run_shim(*self.plan()))  # the control: the valid change reaches git
+        self.assertIs(control["ok"], True, control)
+        self.assertTrue(self.shim.calls(), "the control never reached git")
+
+    @unittest.skipUnless(os.name == "nt", "platform: a Git Bash path form only exists on Windows")
+    def test_unconverted_path_on_windows_is_refused(self):
+        """sw reads --dir as given: a Git Bash form it cannot convert is refused, no git command runs."""
+        self.archived(self.work)
+        self.no_git_calls()
+        result = self.run_shim(*self.plan(dir_="/etc/x"), cwd=self.tmp)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("etc", self.document(result, 1)["message"])  # read as C:\etc\x, which holds no project
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: a file name that is not UTF-8 needs a Linux file system")
     def test_non_utf8_committed_name_is_not_utf8(self):
         """A committed archive file whose name holds 0xFF stops the plan by name: no script, exit 1 (D4)."""
@@ -130,7 +178,7 @@ class TestPlanRunsSw(ShimCase):
         self.archived(self.work)
         bash_form = subprocess.run(["cygpath", "-u", str(self.work)], capture_output=True, text=True).stdout.strip()
         self.assertTrue(bash_form.startswith("/"), bash_form)
-        drive = self.run_shim(*self.plan(dir_=Path(self.work).as_posix()), cwd=self.tmp)
+        drive = self.run_shim(*self.plan(dir_=Path(self.work).as_posix()), cwd=self.tmp, shim_dir=self.shim.path)
         # a cygpath that logs its arguments and runs the real one: the shim's own conversions need it,
         # but sw converts the --dir path by its own rules and never runs it for that path
         stub = self.tmp / "stub"
@@ -184,7 +232,7 @@ class TestProjectWalk(ShimCase):
     def test_store_without_code_is_sw_missing(self):
         store, _ = self.store_and_code()
         self.no_git_calls()
-        doc = self.stop_document(self.run_shim(*self.plan(dir_=store), cwd=store))
+        doc = self.mismatch_document(self.run_shim(*self.plan(dir_=store), cwd=store))
         self.assertIn("no installed version found", doc["message"])
 
     def test_relative_code_from_planning_repo(self):
@@ -202,7 +250,8 @@ class TestProjectWalk(ShimCase):
         caller = base / "elsewhere" / "sub"
         caller.mkdir(parents=True)
         self.assertEqual((caller / ".." / "code").resolve(), wrong.resolve())
-        doc = self.document(self.run_shim(*self.plan(dir_=store, code="../code"), cwd=caller))
+        # the shim resolves a relative --code from the planning repo; direct entry reads it from the caller's directory
+        doc = self.document(self.run_shim(*self.plan(dir_=store, code="../code"), cwd=caller, home=sw_home()))
         self.assertIs(doc["ok"], True, doc)
         self.assertEqual(doc["head"], fx.git(store, "rev-parse", "HEAD"))
 

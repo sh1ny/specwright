@@ -1,0 +1,73 @@
+{
+ "calls": [],
+ "case": "test_parity.ReplyParity.test_refused_before_any_gh_call_exits_4",
+ "comment_bodies": {
+  "/repos/o/n/pulls/0/threads/0/comments/0": "please fix"
+ },
+ "exit": 4,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "next_id": 1002,
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "threads": [
+       {
+        "comments": [
+         {
+          "author": "rev",
+          "body": "please fix",
+          "createdAt": "2026-10-10T10:00:00Z",
+          "databaseId": 1002,
+          "id": "PRRC_1002",
+          "lastEditedAt": null,
+          "url": "https://github.com/o/n/pull/7#discussion_r1002"
+         }
+        ],
+        "id": "PRRT_1001",
+        "isOutdated": false,
+        "isResolved": false,
+        "line": 1,
+        "originalLine": 1,
+        "path": "a.py"
+       }
+      ],
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 1,
+  "prefixes": [
+   "pr-reply: "
+  ]
+ },
+ "stdout": ""
+}

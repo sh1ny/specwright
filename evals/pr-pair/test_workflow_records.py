@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_pr_pair as original
+import oracle_capture
 import test_parity as parity
 import fakeexe  # parity puts evals/ on sys.path
 
@@ -25,6 +26,17 @@ def tearDownModule():
 
 
 class NativePass:
+    def capture_frozen(self, args, result, record=True):
+        """The frozen run's record (D14): its calls are read here without consuming the log, which the case reads itself."""
+        if not oracle_capture.enabled():
+            return
+        calls = [json.loads(l)["argv"] for l in self.gh_log.read_text(encoding="utf-8").splitlines()] if self.gh_log.exists() else []
+        kept = None
+        if record and args[:2] == ["pass", "write"] and result.returncode == 0:
+            kept = self.record_path().read_bytes()  # the frozen writer's record, as bytes
+        oracle_capture.record(self, "frozen", {"code": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+                                               "calls": calls, "state": self.gh_state.read_bytes()}, owner_record=kept)
+
     def command(self, args, which="native", env=None, cwd=None):
         environment = {**self.env(), **(env or {})}
         args = list(map(str, args))
@@ -35,8 +47,10 @@ class NativePass:
             return subprocess.run([binary, "pr", args[0], "--args-stdin"], input=payload,
                                   cwd=cwd or self.tmp, env=environment, capture_output=True, timeout=120)
         environment["ORACLE_SW_DIR"] = parity.oracle_sw_dir()
-        return subprocess.run([parity.bashexe.bash(), str(parity.ORACLE / "pr-pair.sh"), *args],
-                              cwd=cwd or self.tmp, env=environment, capture_output=True, timeout=120)
+        result = subprocess.run([parity.bashexe.bash(), str(parity.ORACLE / "pr-pair.sh"), *args],
+                                cwd=cwd or self.tmp, env=environment, capture_output=True, timeout=120)
+        self.capture_frozen(args, result)
+        return result
 
     def pp(self, *args, env=None, expect=0, cwd=None, which="native"):
         result = self.command(args, which, env, cwd)
@@ -150,6 +164,7 @@ class WorkflowRecords(NativePass, original.PassBase):
             environment[b'ORACLE_SW_DIR'] = os.fsencode(parity.oracle_sw_dir())
             result = subprocess.run([parity.bashexe.bash(), str(parity.ORACLE / 'pr-pair.sh'), *args],
                 env=environment, cwd=self.tmp, capture_output=True, timeout=120)
+            self.capture_frozen(args, result, record=False)
         self.assertEqual(result.returncode, expect, (result.stdout, result.stderr))
         return json.loads(result.stdout.decode('utf-8', errors='surrogateescape'))
 
@@ -270,6 +285,7 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertEqual(json.loads(raw)["version"], 2)
         self.compare_plan(original.snap(threads=[original.thread()]))
         self.assertEqual(self.record_path().read_bytes(), raw)
+        oracle_capture.fixture(self, raw)  # the record the frozen reader accepted
 
     def test_concurrent_writers_publish_one_record(self):
         intent = self.write_json("intent.json", self.intent([self.finding()]))

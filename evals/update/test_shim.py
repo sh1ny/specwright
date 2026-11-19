@@ -43,12 +43,12 @@ class TestShim(unittest.TestCase):
         self.assertTrue(sw.is_file())
         args = [*co.args(), "plan"]
         expected = self.direct(sw, [*args, "--download", fx.posix(new)])
-        code, doc, out, err = fx.run_update(new, args, env=self.env())
+        code, doc, out, err = fx.run_update(new, args, env=self.env(), shim=True)
         self.assertEqual((code, out, err), expected)
         self.assertEqual(doc["ok"], True, out)
         self.assertEqual(doc["interface"], 3, out)  # sw's plan, not the script's
         # an explicit --download is handed over as given and not added twice
-        code, _doc, out, err = fx.run_update(new, [*args, "--download", fx.posix(new)], env=self.env())
+        code, _doc, out, err = fx.run_update(new, [*args, "--download", fx.posix(new)], env=self.env(), shim=True)
         self.assertEqual((code, out, err), expected)
 
     def test_shim_without_matching_sw_reports_sw_missing(self):
@@ -64,7 +64,7 @@ class TestShim(unittest.TestCase):
                     fx.provision_sw(home, other)
                 before = fx.snapshot(co.code)
                 env = {**self.env(), "SPECWRIGHT_HOME": str(home)}
-                code, doc, out, err = fx.run_update(new, [*co.args(), "plan"], env=env)
+                code, doc, out, err = fx.run_update(new, [*co.args(), "plan"], env=env, shim=True)
                 self.assertEqual(code, 1, out + err)
                 self.assertEqual(doc["ok"], False, out)
                 self.assertEqual(doc["error"], "sw_missing", out)

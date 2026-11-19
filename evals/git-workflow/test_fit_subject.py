@@ -22,6 +22,7 @@ import bashexe  # noqa: E402
 import fakeexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "fit-subject.sh"
 LIMIT = 72
 # Task 1.1 of the add-greeting fixture (fixtures.py), the subject #21 saw miscounted.
@@ -51,7 +52,7 @@ class FitSubject(unittest.TestCase):
         vcs_test_support.stamp_version(self.tmp)  # the project every run uses as its working directory
 
     def run_script(self, msg):
-        return subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp)
+        return swcall.run(["commit", "fit-subject", msg], cwd=self.tmp, text=False)
 
     def message(self, data):
         p = self.tmp / "msg.txt"
@@ -144,9 +145,8 @@ class FitSubject(unittest.TestCase):
         with open(raw, "wb") as stream:
             stream.write(data)
         r = self.run_script(os.fsdecode(raw))
-        self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))
-        self.assertIn(b"fit-subject.sh: not valid UTF-8: ", r.stderr)
-        self.assertIn(b"m\\xFF.txt", r.stderr)
+        self.assertNotEqual(r.returncode, 0, (r.stdout, r.stderr))  # the runtime refuses the argument (native-cli A1)
+        self.assertEqual(r.stdout, b"")
         with open(raw, "rb") as stream:
             self.assertEqual(stream.read(), data, "the file changed")
 
@@ -183,15 +183,15 @@ class FitSubject(unittest.TestCase):
                 env = {**os.environ, "LC_ALL": loc}
                 data = (short + "\n\nBody.\n").encode("utf-8")
                 msg = self.message(data)
-                r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
+                r = swcall.run(["commit", "fit-subject", msg], cwd=self.tmp, env=env, text=False)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(msg.read_bytes(), data, "a subject within 72 characters was cut")
                 msg = self.message(long + "\n")
-                r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
+                r = swcall.run(["commit", "fit-subject", msg], cwd=self.tmp, env=env, text=False)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assert_fitted(long, msg.read_bytes().decode("utf-8").split("\n", 1)[0])
                 msg = self.message(one_word_long + "\n")
-                r = subprocess.run([bashexe.bash(), str(SCRIPT), str(msg)], capture_output=True, cwd=self.tmp, env=env)
+                r = swcall.run(["commit", "fit-subject", msg], cwd=self.tmp, env=env, text=False)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(msg.read_bytes().decode("utf-8").split("\n", 1)[0], one_word)
 

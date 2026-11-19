@@ -13,13 +13,12 @@ import test_pr_pair as original
 
 class ProjectShims(ShimCase):
     def as_sh(self, cwd, *args, env=None, stdin=None):
-        # Native output is UTF-8; Windows' default ANSI decoder is unsuitable
-        # for this exact argument/stdio test.
+        # This file tests the shipped shim's explicit binary selection (task 7.6 deletes it), so it runs the shim.
+        # Native output is UTF-8; Windows' default ANSI decoder is unsuitable for this exact argument/stdio test.
         e = self.env()
         e.update(env or {})
-        return subprocess.run([bashexe.bash(), str(AS_SH), *args], cwd=cwd,
-                              capture_output=True, text=True, encoding='utf-8',
-                              env=e, input=stdin, timeout=60)
+        return subprocess.run([bashexe.bash(), str(AS_SH), *map(str, args)], cwd=cwd, env=e, input=stdin,
+                              capture_output=True, text=True, encoding='utf-8', timeout=60)
 
     def setUp(self):
         super().setUp()

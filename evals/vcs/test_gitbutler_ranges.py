@@ -12,13 +12,14 @@ from pathlib import Path
 
 from butenv import Scratch, require_but
 from gbnet import GitButlerNetworkCase
+from vcs_test_support import sw_run
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import bashexe  # noqa: E402
-REVIEW = ROOT / "skills" / "specwright-review" / "scripts" / "review-run.sh"
-RELEASE = ROOT / "skills" / "specwright-release" / "scripts" / "release.sh"
+REVIEW = "review"  # the `sw` subcommands the old scripts became
+RELEASE = "release"
 FAKE = ROOT / "evals" / "fakes" / "reviewcli.py"
 CHANGE = "add-c"
 BRANCH = "feat/add-c"
@@ -60,8 +61,7 @@ class GitButlerRangeCase(GitButlerNetworkCase):
         return [c for c in calls if c["argv"][:1] not in (["--version"], ["config"], ["models"])]
 
     def script(self, script, scratch, repo, *args, expected=0, env=None):
-        done = subprocess.run([bashexe.bash(), str(script), *map(str, args)], cwd=repo.path, env=env or self.env(scratch),
-                              capture_output=True, text=True, encoding="utf-8")
+        done = sw_run([script, *args], cwd=repo.path, env=env or self.env(scratch), stamp=False)
         lines = done.stdout.strip().splitlines()
         self.assertEqual(done.returncode, expected, "%s\nstdout: %s\nstderr: %s" % (args, done.stdout, done.stderr))
         self.assertEqual(len(lines), 1, "want one JSON line from %s, got %r / %r" % (args, done.stdout, done.stderr))
@@ -295,7 +295,7 @@ class TestGitButlerRanges(GitButlerRangeCase):
             self.assertEqual(result["version"], "0.3.0")
 
 
-FINISH_SH = ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh"
+FINISH_SH = "finish"
 
 
 class TestGitButlerFinishGuards(GitButlerRangeCase):

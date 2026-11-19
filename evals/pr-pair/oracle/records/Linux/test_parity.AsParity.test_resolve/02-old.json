@@ -1,0 +1,50 @@
+{
+ "calls": [
+  [
+   [
+    "auth",
+    "token",
+    "--help"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "api",
+    "--hostname",
+    "github.com",
+    "user",
+    "--jq",
+    ".login"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ]
+ ],
+ "case": "test_parity.AsParity.test_resolve",
+ "comment_bodies": {},
+ "exit": 3,
+ "label": "old",
+ "requests": [],
+ "state": {
+  "tokens": {}
+ },
+ "stderr": {
+  "lines": 1,
+  "prefixes": [
+   "as.sh: "
+  ]
+ },
+ "stdout": ""
+}

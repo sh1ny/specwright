@@ -1,0 +1,29 @@
+{
+ "calls": [],
+ "case": "test_workflow_parity.WorkflowPassMatrix.test_all_four_pass_operations_preserve_records_and_refusals",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "frozen",
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "KintsugiBot"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "not_owner",
+  "message": "the record at <tmp>/state/feedback/acme.code.add-greeting-92c7463be12bfdbe425b9f0cbbc5ea0b.json is owned by matrix-owner, not foreign; nothing changed",
+  "ok": false,
+  "owner": {
+   "at": "<time>",
+   "checkout": "<tmp>/code",
+   "host": "<host>",
+   "id": "matrix-owner"
+  }
+ }
+}

@@ -29,6 +29,7 @@ if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 import bashexe  # noqa: E402
+import swcall  # noqa: E402
 NAME, EMAIL = "Eval Bot", "eval@example.invalid"
 STORE_ID = "team-plans"
 PREFIXES = ("feat", "bugfix", "refactor", "docs", "chore")
@@ -440,7 +441,7 @@ def archive_change(repo, name, date="2026-10-01", planning="openspec"):
 
 # --- running ----------------------------------------------------------------------------------------------------
 
-def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=None, kill_at=None, sw=None, timeout=300):
+def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=None, kill_at=None, sw=None, timeout=300, shim=False):
     """Run `bash <download>/scripts/update.sh <args>`; returns (exit code, parsed JSON or None, stdout, stderr).
 
     The shim hands over to the sw at $SPECWRIGHT_HOME/.specwright/bin/<download version>/ (default home:
@@ -449,7 +450,8 @@ def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=Non
     SPECWRIGHT_UPDATE_KILL_AT, sw ends with exit 137 before operation n, as if killed between two operations.
     shim_dir goes first on PATH (a tool a test puts in front of the real one; sw's own file operations pass no tool).
     sw: run `<sw> update <args>` directly instead of through the shim (what the prompt does with its checked temporary
-    copy of sw, for sw-install, which places the sw the shim would need)."""
+    copy of sw, for sw-install, which places the sw the shim would need). shim: run the shipped update.sh shim (only the evals of
+    the shim itself, which task 7.6 deletes with it, set it)."""
     script = Path(download) / "scripts" / "update.sh"
     env = dict(env or os.environ)
     env.setdefault("OPENSPEC_TELEMETRY", "0")
@@ -463,9 +465,10 @@ def run_update(download, args, cwd=None, env=None, shim_dir=None, count_file=Non
         env["SPECWRIGHT_UPDATE_COUNT"] = posix(count_file)
     if kill_at is not None:
         env["SPECWRIGHT_UPDATE_KILL_AT"] = str(kill_at)
-    argv = [str(sw), "update", *map(str, args)] if sw else [bashexe.bash(), posix(script), *map(str, args)]
-    if sw:
-        args = list(args)
+    if shim:
+        argv = [bashexe.bash(), posix(script), *map(str, args)]
+    else:  # direct entry (evals/swcall.py): `update` checks no project version; the shim added --download itself
+        argv = [str(sw), "update", *map(str, args)] if sw else swcall.argv(["update", *args])
         if "--download" not in map(str, args):
             argv += ["--download", posix(download)]
     r = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", timeout=timeout)

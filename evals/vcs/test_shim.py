@@ -31,6 +31,7 @@ exit 1
 
 
 class ShimCase(VcsTestCase):
+    via_shim = True  # `invoke` runs vcs.sh, which this suite tests
     def setUp(self):
         super().setUp()
         self.shim = gitlog.install(self.root / "gitshim", real_git=jjenv.real_git(), log_path=self.root / "git.jsonl")

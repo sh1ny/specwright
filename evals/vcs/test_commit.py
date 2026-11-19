@@ -2,16 +2,11 @@
 
 import json
 import os
-import subprocess
-from pathlib import Path
 from unittest import mock
 
 import jjenv
 from jjenv import Scratch, require_jj
-from vcs_test_support import VcsTestCase, bash_path_env, sw_home, stamp_version
-
-
-TASK_COVER = Path(__file__).resolve().parents[2] / "skills" / "specwright-commit" / "scripts" / "task-cover.sh"
+from vcs_test_support import VcsTestCase, stamp_version, sw_run
 
 
 class TestJjCommit(VcsTestCase):
@@ -60,16 +55,10 @@ class TestJjCommit(VcsTestCase):
         tasks = self.root / "tasks.md"
         with tasks.open("w", encoding="utf-8", newline="\n") as stream:
             stream.write("## 3. jj writes\n- [x] 3.1 Write the group tests\n")
-        shell_env = bash_path_env()
-        shell_env.update({key: value for key, value in self.scratch.env.items() if key != "PATH"})
-        shell_env["VCS_TEST_SEARCH"] = shell_env["PATH"]
-        shell_env["SPECWRIGHT_HOME"] = str(sw_home())
         stamp_version(self.repo)
-        cover = subprocess.run(
-            [require_jjenv_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$BASH" "$@"',
-             "task-cover", TASK_COVER.as_posix(), "--repo", self.repo.as_posix(), "--range", "main..HEAD",
-             "--tasks", tasks.as_posix(), "--change", "add-jj-backend"],
-            cwd=self.repo, env=shell_env, capture_output=True, text=True)
+        cover = sw_run(["commit", "task-cover", "--repo", self.repo.as_posix(), "--range", "main..HEAD",
+                        "--tasks", tasks.as_posix(), "--change", "add-jj-backend"],
+                       cwd=self.repo, env=self.scratch.env, stamp=False)
         self.assertEqual(cover.returncode, 0, cover.stdout + cover.stderr)
         coverage = json.loads(cover.stdout)
         self.assertEqual(coverage["uncovered"], [])
@@ -77,8 +66,8 @@ class TestJjCommit(VcsTestCase):
         self.assertEqual(len(covered["commits"]), 1)
         self.assertEqual(covered["commits"][0]["form"], "trailer")
 
-    def test_vcs_sh_jj_reads_the_fixture_config(self):
-        """A CI runner has no jj user config, so the jj that vcs.sh runs must read the fixture's, not the user's."""
+    def test_sw_vcs_jj_reads_the_fixture_config(self):
+        """A CI runner has no jj user config, so the jj that sw vcs runs must read the fixture's, not the user's."""
         (self.repo / "group.txt").write_text("group work\n", encoding="utf-8")
         user = self.root / "user-jj.toml"
         user.write_text('user.name = "Someone Else"\nuser.email = "else@example.invalid"\n', encoding="utf-8")
@@ -244,15 +233,6 @@ class TestJjCommit(VcsTestCase):
         names = self.git(self.repo, "ls-tree", "-r", "--name-only", self.bookmark()).stdout.split()
         self.assertIn("work/small.txt", names)
         self.assertEqual([name for name in names if name.endswith(".bin")], [])
-
-
-def require_jjenv_bash():
-    import jjenv
-
-    bash = jjenv.find_bash()
-    if not bash:
-        raise AssertionError("Git Bash required for task-cover.sh")
-    return bash
 
 
 class TestJjCommitOnMain(VcsTestCase):

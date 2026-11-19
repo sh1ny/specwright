@@ -1,0 +1,31 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_abbreviated_option_is_a_usage_stop_in_sw",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "attn": "QVRUTnw=",
+  "checks": {
+   "advisory_pending": 0,
+   "ci_pending": 0,
+   "failing": [],
+   "pending": 0,
+   "total": 0
+  },
+  "comments": [],
+  "head_cutoff": "2026-01-01T00:10:00Z",
+  "head_oid": "1a2b3c4deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "now": "2026-01-01T00:12:00Z",
+  "number": 7,
+  "reviewer_config": null,
+  "reviewers": [],
+  "sig": "U0lHfA==",
+  "viewer": "me"
+ }
+}

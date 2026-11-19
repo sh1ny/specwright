@@ -1,0 +1,71 @@
+{
+ "calls": [
+  [
+   "api",
+   "-X",
+   "PUT",
+   "repos/o/n/pulls/7/merge",
+   "-f",
+   "merge_method=squash",
+   "-f",
+   "sha=0000000000000000000000000000000000000009"
+  ],
+  [
+   "api",
+   "repos/o/n/pulls/7"
+  ]
+ ],
+ "case": "test_workflow_parity.WorkflowParity.test_merge_is_attempted_once_then_read_back",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "next_id": 1001,
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "0000000000000000000000000000000000000009"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merge_commit_sha": "00000000000000000000000000000000000003e9",
+      "merged_at": "2026-10-10T10:00:00Z",
+      "number": 7,
+      "state": "closed",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "head_sha": "0000000000000000000000000000000000000009",
+  "merge_commit_sha": "00000000000000000000000000000000000003e9",
+  "ok": true,
+  "pr": 7,
+  "repo": "o/n",
+  "status": "merged"
+ }
+}

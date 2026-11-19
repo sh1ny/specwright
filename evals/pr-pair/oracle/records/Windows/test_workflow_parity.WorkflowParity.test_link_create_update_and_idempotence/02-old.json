@@ -1,0 +1,87 @@
+{
+ "calls": [
+  [
+   "api",
+   "repos/o/n/pulls/7"
+  ],
+  [
+   "api",
+   "--paginate",
+   "repos/o/n/issues/7/comments?per_page=100"
+  ],
+  [
+   "api",
+   "-X",
+   "PATCH",
+   "repos/o/n/issues/comments/1001",
+   "--input",
+   "<temp>/<name>"
+  ]
+ ],
+ "case": "test_workflow_parity.WorkflowParity.test_link_create_update_and_idempotence",
+ "comment_bodies": {
+  "/repos/o/n/comments/7/0": "Store PR for this change: https://github.com/o/store/pull/2\n\n<!-- specwright:link store https://github.com/o/store/pull/2 -->\n"
+ },
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "next_id": 1001,
+  "repos": {
+   "o/n": {
+    "comments": {
+     "7": [
+      {
+       "body": "Store PR for this change: https://github.com/o/store/pull/2\n\n<!-- specwright:link store https://github.com/o/store/pull/2 -->\n",
+       "created_at": "2026-10-10T10:00:00Z",
+       "html_url": "https://github.com/o/n/pull/7#issuecomment-1001",
+       "id": 1001,
+       "last_edited_at": "2026-10-10T10:00:00Z",
+       "node_id": "IC_1001",
+       "user": {
+        "login": "me"
+       }
+      }
+     ]
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "action": "updated",
+  "comment_id": 1001,
+  "ok": true
+ }
+}

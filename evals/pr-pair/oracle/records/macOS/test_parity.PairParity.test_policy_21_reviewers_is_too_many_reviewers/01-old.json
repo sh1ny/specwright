@@ -1,0 +1,72 @@
+{
+ "calls": [
+  [
+   "api",
+   "repos/o/n"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=main"
+  ],
+  [
+   "api",
+   "repos/o/n/contents/openspec/specwright.yaml?ref=0000000000000000000000000000000000000009"
+  ]
+ ],
+ "case": "test_parity.PairParity.test_policy_21_reviewers_is_too_many_reviewers",
+ "comment_bodies": {},
+ "exit": 2,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "contents": {
+     "0000000000000000000000000000000000000009": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  merge_method: squash\n  reviewers:\n    rev: { role: required }\n"
+     },
+     "main": {
+      "openspec/specwright.yaml": "pr:\n  merge: agent\n  reviewers:\n    bot-0: { role: advisory }\n    bot-1: { role: advisory }\n    bot-2: { role: advisory }\n    bot-3: { role: advisory }\n    bot-4: { role: advisory }\n    bot-5: { role: advisory }\n    bot-6: { role: advisory }\n    bot-7: { role: advisory }\n    bot-8: { role: advisory }\n    bot-9: { role: advisory }\n    bot-10: { role: advisory }\n    bot-11: { role: advisory }\n    bot-12: { role: advisory }\n    bot-13: { role: advisory }\n    bot-14: { role: advisory }\n    bot-15: { role: advisory }\n    bot-16: { role: advisory }\n    bot-17: { role: advisory }\n    bot-18: { role: advisory }\n    bot-19: { role: advisory }\n    bot-20: { role: advisory }\n"
+     }
+    },
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "too_many_reviewers",
+  "message": "pr.reviewers: 21 reviewers is too_many_reviewers (at most 20)",
+  "ok": false
+ }
+}

@@ -265,6 +265,25 @@ class ExitJudgement(Base):
         self.assertTrue(wait_gone(self.recorded_pid(holder_pid), 5), "the pipe-holding child survived sw")
 
 
+class OutsideRunner(Base):
+    """Outside the eval runner (SPECWRIGHT_TEST_SPAWN_DIR unset) `sw run --bounded` writes no spawn record."""
+
+    def test_bounded_records_nothing_outside_the_runner(self):
+        spawns = self.tmp / "spawns"
+        spawns.mkdir()
+        mine = self.script("mine.py", "import sys\nopen(sys.argv[1], 'w').write('ran')\n")
+        env = self.env()
+        env.pop(swharness.SPAWN_DIR, None)  # the runner that started this file set it; this case runs as if there were none
+        proc = self.sw("--", sys.executable, mine, str(self.pidf), env=env)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "", ""))
+        self.assertEqual(os.listdir(str(spawns)), [], "a spawn record was written with no spawn directory set")
+        if os.name != "nt":
+            # control: with the directory set, the same call records its group, so the empty listing above means something
+            proc = self.sw("--", sys.executable, mine, str(self.pidf), env=self.env(**{swharness.SPAWN_DIR: spawns}))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(len(os.listdir(str(spawns))), 1)
+
+
 class Secret(Base):
     def setUp(self):
         super().setUp()

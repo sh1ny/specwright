@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_review_run import Base, ROOT, VALID, bashexe, bash_path_env
+from test_review_run import Base, ROOT, VALID, bashexe, bash_path_env, stamp_version, sw_home, swcall
 
 sys.path.insert(0, str(ROOT / "evals" / "cli"))
 from swharness import require_sw  # noqa: E402
@@ -17,11 +17,9 @@ from swharness import require_sw  # noqa: E402
 
 class NativeReviewTests(Base):
     def native(self, *args, scripts=None, expect=0, env=None):
-        scripts = scripts or ROOT / "skills" / "specwright-review" / "scripts"
-        records = [str(scripts), "unused-bash", *map(str, args)]
-        data = b"".join(value.encode("utf-8") + b"\0" for value in records)
-        result = subprocess.run([require_sw(), "review", "--args-stdin"], input=data,
-                                cwd=self.code, env=env or self.env(), capture_output=True)
+        run_env = env or self.env()
+        run_env.setdefault("SPECWRIGHT_HOME", str(sw_home()))
+        result = swcall.run(["review", *map(str, args)], cwd=self.code, env=run_env, text=False)  # direct entry
         self.assertEqual(result.returncode, expect, result.stderr.decode("utf-8", "replace") + repr(result.stdout))
         lines = result.stdout.decode("utf-8").splitlines()
         self.assertEqual(len(lines), 1, result.stdout)
@@ -143,6 +141,7 @@ class NativeReviewTests(Base):
         self.commit(repo, data["change"], data["change_subject"])
         self.assertEqual(self.git(repo, "rev-parse", "HEAD"), data["code_head"])
         self.code = repo
+        stamp_version(repo)  # untracked and excluded: the head above is unchanged
         common = self.git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
         key = hashlib.sha256(common.encode("utf-8")).hexdigest()[:16]
         record = self.state_dir / "reviews" / key / "preport-record" / (data["code_head"] + ".json")
@@ -226,8 +225,18 @@ class NativeReviewTests(Base):
         version.write_text("999.0.0\n", encoding="utf-8")
         self.extra_env["SPECWRIGHT_SW"] = require_sw()
         document = self.script("select", "--runtime", "other", "--settings", self.settings, expect=1)
-        self.assertEqual(document["error"], "sw_missing")
+        self.assertEqual(document["error"], "sw_mismatch")
         self.assertEqual(self.calls("codex"), [])
+
+    def test_no_matching_sw_is_sw_mismatch(self):
+        """A project whose VERSION is not the binary's stops at entry (native-cli A4) before any reviewer CLI starts."""
+        self.install("codex")
+        swcall.stamp(self.code, "999.0.0")
+        document = self.script("select", "--runtime", "other", "--settings", self.settings, expect=1)
+        self.assertEqual(document["error"], "sw_mismatch")
+        self.assertEqual(self.calls("codex"), [], "a reviewer CLI started")
+        swcall.stamp(self.code)
+        self.script("select", "--runtime", "other", "--settings", self.settings)  # the control: the matching VERSION selects
 
     def test_missing_sw_encodes_resolver_error(self):
         skills = self.tmp / "error-skills"

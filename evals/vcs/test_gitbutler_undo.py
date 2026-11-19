@@ -1,4 +1,4 @@
-"""finish.sh undo-archive-plan on a GitButler repo (real `but`): the printed steps move the archive back, write the main
+"""sw finish undo-archive-plan on a GitButler repo (real `but`): the printed steps move the archive back, write the main
 specs with `undo-step write-blob`, and commit exactly the touched paths through `sw vcs commit --branch <branch>`; they run no Git write.
 
 `feat/b` stays applied beside the change branch, with a commit and an uncommitted edit of its own, throughout.
@@ -11,10 +11,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import jjenv
 from butenv import Scratch, require_but
 from test_gitbutler_flows import BRANCH, CHANGE, GitButlerFlowCase
-from vcs_test_support import stamp_version, sw_home
+from vcs_test_support import native_path, stamp_version, sw_home
 
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("finish_fixtures", ROOT / "evals" / "finish" / "fixtures.py")
@@ -40,22 +39,21 @@ class TestGitButlerUndoPlan(GitButlerFlowCase):
         return sorted(line for line in out.splitlines() if line)
 
     def plan(self, scratch, wrap, repo):
-        return self.script(scratch, wrap, ROOT / "skills" / "specwright-finish" / "scripts" / "finish.sh", "undo-archive-plan",
+        return self.script(scratch, wrap, "finish", "undo-archive-plan",
                            "--change", CHANGE, "--archived-name", ARCHIVED, "--prefix", P, "--main", "main", "--branch", BRANCH,
                            cwd=repo.path)
 
     def run_script(self, scratch, wrap, repo, steps, name="undo", expected=0):
-        """The printed steps one by one in their own cwd, through bash so the fixture's PATH finds git and but; stops at the
+        """The printed steps one by one in their own cwd, with the fixture's PATH so they find git and but; stops at the
         first failure. Returns the last step's result with `.ran` (the steps started) and the output of all of them."""
         env = self.fenced_env(scratch, wrap)
         env.update({"SPECWRIGHT_STATE_DIR": str(self.root / "state"), "PYTHONIOENCODING": "utf-8",
                     "SPECWRIGHT_HOME": str(sw_home())})
         stamp_version(repo.path)
-        env["VCS_TEST_SEARCH"] = env["PATH"]
+        env["PATH"] = native_path(env["PATH"])
         done = SimpleNamespace(returncode=0, stdout="", stderr="", ran=[])
         for step in steps:
-            r = subprocess.run([jjenv.find_bash(), "-c", 'export PATH="$VCS_TEST_SEARCH"; exec "$@"', name, *step["argv"]],
-                               cwd=step["cwd"], env=env, capture_output=True, text=True, encoding="utf-8")
+            r = subprocess.run(step["argv"], cwd=step["cwd"], env=env, capture_output=True, text=True, encoding="utf-8")
             done.returncode, done.stdout, done.stderr = r.returncode, done.stdout + r.stdout, done.stderr + r.stderr
             done.ran.append(step)
             if r.returncode != 0:

@@ -113,7 +113,7 @@ class TestJjStore(JjStoreBase):
         self.pair(home=False)
         self.store_jj()
         before = self.installed()
-        code, doc, out, err = fx.run_update(self.dl, [*self.a.args(), "plan"], env=self.p.env)
+        code, doc, out, err = fx.run_update(self.dl, [*self.a.args(), "plan"], env=self.p.env, shim=True)  # the shim itself, deleted by 7.6
         self.assertEqual((code, doc["error"]), (1, "sw_missing"), out + err)
         self.assertIn(support.tree_version(), doc["message"])
         self.assertIn("rerun the install prompt", doc["message"])

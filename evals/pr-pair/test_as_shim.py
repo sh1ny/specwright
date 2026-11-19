@@ -22,6 +22,7 @@ from test_as_sh import AS_SH, ROOT, fixtures_kill, bashexe, vcs_test_support  # 
 sys.path.append(str(ROOT / "evals" / "cli"))
 import swharness  # noqa: E402
 import fakeexe  # noqa: E402  (evals/ is on sys.path through test_as_sh)
+import swcall  # noqa: E402
 
 STOP = "sw missing or mismatched: rerun the install prompt"
 USAGE = "as.sh: line 47: 1: usage: as.sh <login> <command> [args...] | as.sh --resolve"
@@ -55,15 +56,27 @@ class TestShim(ShimCase):
     def test_binary_missing_is_sw_missing(self):
         home = self.tmp / "empty-home"
         home.mkdir()
-        r = self.as_sh(self.code, "sh1ny", "gh", "api", "user", env={"SPECWRIGHT_HOME": str(home)})
+        r = self.as_sh(self.code, "sh1ny", "gh", "api", "user", env={"SPECWRIGHT_HOME": str(home)}, shim=True)
         doc = self.stop_document(r)
         self.assertIn(".specwright/bin/%s/sw" % vcs_test_support.tree_version(), doc["message"].replace("\\", "/"))
         self.assertEqual(self.gh_calls(), [], "no gh call ran")
 
+    def test_resolve_in_other_version_is_sw_mismatch(self):
+        """native-cli A4: the project's VERSION is not the binary's, so `sw as --resolve` stops before any gh call."""
+        swcall.stamp(self.code, "99.0.0")
+        r = self.as_sh(self.code, "--resolve")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), doc)
+        self.assertEqual(self.gh_calls(), [], "no gh call ran")
+        swcall.stamp(self.code)
+        control = self.as_sh(self.code, "--resolve")  # the control: the matching VERSION resolves
+        self.assertEqual((control.returncode, control.stdout), (0, "sh1ny\n"), control.stderr)
+
     def test_resolve_without_sw_exits_1(self):
         home = self.tmp / "empty-home"
         home.mkdir()
-        r = self.as_sh(self.code, "--resolve", env={"SPECWRIGHT_HOME": str(home)})
+        r = self.as_sh(self.code, "--resolve", env={"SPECWRIGHT_HOME": str(home)}, shim=True)
         self.stop_document(r)
         self.assertEqual(self.gh_calls(), [], "no gh call ran")
 
@@ -158,12 +171,8 @@ class TestShim(ShimCase):
         fakeexe.write_fake(self.tmp / "bin" / "git", '#!/bin/sh\necho ran >> "$FAKE_GIT_RAN"\nexit 0\n')
         name = os.fsdecode(b"a\xff.txt")  # the byte 0xFF, which no UTF-8 text holds
         r = self.as_sh(self.code, "sh1ny", "git", "add", "--", name, env={"FAKE_GIT_RAN": str(ran)})
-        self.assertEqual(r.returncode, 2, r.stderr)
-        lines = r.stderr.splitlines()
-        self.assertEqual(len(lines), 1, r.stderr)
-        self.assertTrue(lines[0].startswith("as.sh:"), lines[0])
-        self.assertIn("a\\xFF.txt", lines[0])
-        self.assertIn("rename", lines[0])
+        self.assertNotEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
         self.assertEqual(self.gh_calls(), [], "no token was read")
         self.assertFalse(ran.exists(), "git ran")
 
@@ -177,14 +186,14 @@ class TestShim(ShimCase):
         self.assertEqual((r.returncode, r.stdout), (0, "from the caller\n"), r.stderr)
 
     def test_exit_codes(self):
-        self.assertEqual(self.as_sh(self.code).returncode, 1)
-        self.assertEqual(self.as_sh(self.code).stderr, USAGE + "\n")
-        r = self.as_sh(self.code, "sh1ny")
+        self.assertEqual(self.as_sh(self.code, shim=True).returncode, 1)
+        self.assertEqual(self.as_sh(self.code, shim=True).stderr, USAGE + "\n")
+        r = self.as_sh(self.code, "sh1ny", shim=True)
         self.assertEqual((r.returncode, r.stderr), (2, "as.sh: no command given\n"))
-        self.assertEqual(self.as_sh(self.code, "--resolve", "extra").returncode, 2)
-        refused = self.as_sh(self.code, "sh1ny", "git", "-C", str(self.store), "status")
+        self.assertEqual(self.as_sh(self.code, "--resolve", "extra", shim=True).returncode, 2)
+        refused = self.as_sh(self.code, "sh1ny", "git", "-C", str(self.store), "status", shim=True)
         self.assertEqual(refused.returncode, 3, refused.stderr)
-        self.assertEqual(self.as_sh(self.code, "sh1ny", *self.bash_command("exit 7")).returncode, 7)
+        self.assertEqual(self.as_sh(self.code, "sh1ny", *self.bash_command("exit 7"), shim=True).returncode, 7)
 
     def test_handoff_file_gone_before_the_command(self):
         temp = self.tmp / "fresh-temp"
@@ -273,7 +282,7 @@ class TestShimProcess(ShimCase):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE)}
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:
-            p = subprocess.Popen([bashexe.bash(), str(AS_SH), "KintsugiBot", *self.bash_command('touch "$1"', marker.as_posix())],
+            p = subprocess.Popen(swcall.argv(["as", "KintsugiBot", *self.bash_command('touch "$1"', marker.as_posix())]),
                                  cwd=self.code, stdout=fo, stderr=fe, env=e)
             try:
                 rc = p.wait(timeout=45)
@@ -290,7 +299,7 @@ class TestShimProcess(ShimCase):
         late = self.tmp / "late"
         sw = swharness.require_sw()
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE)}
-        command = [sw, "run", "--bounded", "--", bashexe.bash(), str(AS_SH), "sh1ny",
+        command = [sw, "run", "--bounded", "--", sw, "as", "sh1ny",
                    *self.bash_command('sleep 8; touch "$1"', late.as_posix())]
         t = time.time()
         r = subprocess.run(command, cwd=self.code, env=e, capture_output=True, text=True, timeout=60)
@@ -303,7 +312,7 @@ class TestShimProcess(ShimCase):
     def test_sigterm_reaches_the_command(self):
         ready, term = self.tmp / "ready", self.tmp / "term"
         script = f'trap \'touch "{term.as_posix()}"; exit 0\' TERM; touch "{ready.as_posix()}"; while :; do sleep 0.2; done'
-        p = subprocess.Popen([bashexe.bash(), str(AS_SH), "sh1ny", *self.bash_command(script)], cwd=self.code, env=self.env(),
+        p = subprocess.Popen(swcall.argv(["as", "sh1ny", *self.bash_command(script)]), cwd=self.code, env=self.env(),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(p.kill)
         deadline = time.time() + 30

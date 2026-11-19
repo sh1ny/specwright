@@ -1,0 +1,69 @@
+{
+ "calls": [
+  [
+   [
+    "auth",
+    "token",
+    "--help"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "auth",
+    "token",
+    "--hostname",
+    "github.com",
+    "--user",
+    "sh1ny"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": null,
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ],
+  [
+   [
+    "api",
+    "--hostname",
+    "github.com",
+    "user",
+    "--jq",
+    ".login"
+   ],
+   {
+    "GH_ENTERPRISE_TOKEN": null,
+    "GH_HOST": null,
+    "GH_TOKEN": "tok-s",
+    "GITHUB_ENTERPRISE_TOKEN": null,
+    "GITHUB_TOKEN": null
+   }
+  ]
+ ],
+ "case": "test_parity.AsParity.test_env_under_the_fence_with_the_token_masked",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "requests": [],
+ "state": {
+  "tokens": {
+   "KintsugiBot": "tok-k",
+   "sh1ny": "tok-s"
+  },
+  "user": "sh1ny"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": "AS_SH_ORIG_GCM_INTERACTIVE=Never\nAS_SH_ORIG_GH_ENTERPRISE_TOKEN=ent-tok\nAS_SH_ORIG_GH_HOST=corp.example\nAS_SH_ORIG_GITHUB_ENTERPRISE_TOKEN=ent-tok2\nAS_SH_ORIG_GIT_CONFIG_COUNT=1\nAS_SH_ORIG_GIT_CONFIG_KEY_0=core.x\nAS_SH_ORIG_GIT_CONFIG_VALUE_0=y\nAS_SH_ORIG_GIT_TERMINAL_PROMPT=0\nAS_SH_ORIG_SET= GH_HOST GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GIT_TERMINAL_PROMPT GCM_INTERACTIVE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0\nGH_TOKEN=***\nGIT_ASKPASS=\nGIT_CONFIG_COUNT=5\nGIT_CONFIG_GLOBAL=<devnull>\nGIT_CONFIG_KEY_0=http.extraHeader\nGIT_CONFIG_KEY_1=http.http://127.0.0.1:<port>/.extraheader\nGIT_CONFIG_KEY_2=http.https://example.com/.extraheader\nGIT_CONFIG_KEY_3=credential.helper\nGIT_CONFIG_KEY_4=credential.helper\nGIT_CONFIG_NOSYSTEM=1\nGIT_CONFIG_VALUE_0=\nGIT_CONFIG_VALUE_1=\nGIT_CONFIG_VALUE_2=\nGIT_CONFIG_VALUE_3=\nGIT_CONFIG_VALUE_4=!f() { [ \"$1\" = get ] || exit 0; h= p=; while IFS= read -r l && [ -n \"$l\" ]; do case $l in host=*) h=${l#host=} ;; protocol=*) p=${l#protocol=} ;; esac; done; h=$(printf %s \"$h\" | tr A-Z a-z); h=${h%:*}; h=${h%.}; [ \"$h\" = github.com ] && [ \"$p\" = https ] || exit 0; echo username=x-access-token; echo \"password=$GH_TOKEN\"; }; f\nGIT_SSH_COMMAND=sh -c \"echo as.sh: SSH is disabled - push over https://github.com so the identity can be pinned >&2; exit 1\"\nGIT_TERMINAL_PROMPT=0"
+}

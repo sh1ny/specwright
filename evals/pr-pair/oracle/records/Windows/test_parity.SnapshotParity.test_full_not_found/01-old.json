@@ -1,0 +1,61 @@
+{
+ "calls": [
+  [
+   "api",
+   "graphql",
+   "-f",
+   "id=MDNot_Found_1=",
+   "-f",
+   "query=\n    query($id:ID!){ node(id:$id) { __typename\n      ... on IssueComment { id body createdAt lastEditedAt url }\n      ... on PullRequestReview { id body submittedAt lastEditedAt url }\n      ... on PullRequestReviewComment { id body createdAt lastEditedAt url } } }",
+   "--jq",
+   ".data.node as $n\n      | ({IssueComment: \"comment\", PullRequestReview: \"review\", PullRequestReviewComment: \"thread_comment\"}[$n.__typename // \"\"]) as $kind\n      | if $kind == null then {ok: false, error: \"not_found\"}\n        else {ok: true, id: $n.id, kind: $kind, body: ($n.body // \"\"),\n              rev: ($n.lastEditedAt // $n.createdAt // $n.submittedAt), url: $n.url} end\n      | tojson"
+  ]
+ ],
+ "case": "test_parity.SnapshotParity.test_full_not_found",
+ "comment_bodies": {},
+ "exit": 1,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "not_found",
+  "ok": false
+ }
+}

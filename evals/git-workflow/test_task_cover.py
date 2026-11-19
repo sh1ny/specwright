@@ -21,6 +21,7 @@ if str(ROOT / "evals") not in sys.path:
 import bashexe  # noqa: E402
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 SCRIPT = ROOT / "skills" / "specwright-commit" / "scripts" / "task-cover.sh"
 CHANGE = "add-greeting"
 
@@ -104,10 +105,9 @@ class TaskCover(unittest.TestCase):
         tasks = tasks or self.tasks_file()
         e = dict(os.environ, **(env or {}))
         extra = ["--rev", rev] if rev else []
-        return subprocess.run(
-            [bashexe.bash(), str(SCRIPT), "--repo", str(repo or self.repo), "--range", (base or self.base) + "..HEAD",
-             "--tasks", str(tasks), "--change", change, *extra],
-            capture_output=True, env=e)
+        return swcall.run(
+            ["commit", "task-cover", "--repo", repo or self.repo, "--range", (base or self.base) + "..HEAD",
+             "--tasks", tasks, "--change", change, *extra], env=e, text=False)  # runs from the stamped module project
 
     def user_commit(self, subject, task_trailers=(), user_trailers=()):
         """Like commit(), with Specwright-Task and Specwright-User-Task trailers in one block."""
@@ -582,8 +582,8 @@ class TaskCover(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
     def test_bad_range_exits_3(self):
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "--repo", str(self.repo), "--range", "nope..HEAD",
-                            "--tasks", str(self.tasks_file()), "--change", CHANGE], capture_output=True)
+        r = swcall.run(["commit", "task-cover", "--repo", self.repo, "--range", "nope..HEAD",
+                        "--tasks", self.tasks_file(), "--change", CHANGE], text=False)
         self.assertEqual(r.returncode, 3)
 
 

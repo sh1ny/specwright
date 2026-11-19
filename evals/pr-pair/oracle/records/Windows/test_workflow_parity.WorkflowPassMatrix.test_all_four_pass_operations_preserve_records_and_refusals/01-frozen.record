@@ -1,0 +1,30 @@
+{
+  "change": "add-greeting",
+  "branch": "feat/add-greeting",
+  "round": 2,
+  "code_repo": "acme/code",
+  "prs": {
+    "code": {
+      "repo": "acme/code",
+      "number": 5
+    },
+    "store": {
+      "repo": "acme/plans",
+      "number": 3
+    }
+  },
+  "findings": [],
+  "version": 2,
+  "owner": {
+    "id": "9957da86fdb15ed9d05c3ec2a8a41c61",
+    "at": "2026-11-19T07:55:31Z",
+    "checkout": "C:/Users/RUNNER~1/AppData/Local/Temp/tmp3cfgqjk7/code",
+    "host": "runnervmm7ud1"
+  },
+  "heads": {
+    "code": "f68ad7d107fb91d2eac8141771854be87ac488a7",
+    "store": "1293d5a8829e52f5252af50f53d90b97b3639746"
+  },
+  "marker": null,
+  "written_at": "2026-11-19T07:55:31Z"
+}

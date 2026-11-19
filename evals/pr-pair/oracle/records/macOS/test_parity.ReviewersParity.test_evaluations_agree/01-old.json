@@ -1,0 +1,110 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_evaluations_agree",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "attn": "QVRUTnxyZXYtYm90OnJlcG9ydGVkLHNoYS1ib3Q6cmVwb3J0ZWQsbWFyay1ib3Q6cmVwb3J0ZWQsY2hrLWJvdDpyZXBvcnRlZA==",
+  "checks": {
+   "advisory_pending": 0,
+   "ci_pending": 0,
+   "failing": [],
+   "pending": 0,
+   "total": 2
+  },
+  "comments": [],
+  "head_cutoff": "2026-01-01T00:10:00Z",
+  "head_oid": "1a2b3c4deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "now": "2026-01-01T00:12:00Z",
+  "number": 7,
+  "reviewer_config": "3e1d9b45c04025ebcb579fc033c951245c0fe30f3a1eec666764463b77cafd02",
+  "reviewers": [
+   {
+    "by": "review",
+    "evidence": [
+     {
+      "at": "2026-01-01T00:11:30Z",
+      "excerpt": "later",
+      "kind": "comment",
+      "state": null
+     },
+     {
+      "at": "2026-01-01T00:11:00Z",
+      "excerpt": "ok",
+      "kind": "review",
+      "state": "COMMENTED"
+     }
+    ],
+    "login": "rev-bot",
+    "role": "required",
+    "state": "reported",
+    "timeout": 1200
+   },
+   {
+    "by": "sha_pattern",
+    "evidence": [
+     {
+      "at": "2026-01-01T00:10:06Z",
+      "excerpt": "Reviewed commit: aaaaaaaaaaaa",
+      "kind": "comment",
+      "state": null
+     },
+     {
+      "at": "2026-01-01T00:10:05Z",
+      "excerpt": "Reviewed commit: 1a2b3c4deeee",
+      "kind": "comment",
+      "state": null
+     }
+    ],
+    "login": "sha-bot",
+    "role": "required",
+    "state": "reported",
+    "timeout": 1200
+   },
+   {
+    "by": "marker",
+    "evidence": [
+     {
+      "at": "2026-01-01T00:11:00Z",
+      "excerpt": "skip LGTM",
+      "kind": "comment",
+      "state": null
+     },
+     {
+      "at": "2026-01-01T00:10:08Z",
+      "excerpt": "LGTM",
+      "kind": "comment",
+      "state": null
+     }
+    ],
+    "login": "mark-bot",
+    "role": "advisory",
+    "state": "reported",
+    "timeout": 60
+   },
+   {
+    "by": "check",
+    "evidence": [
+     {
+      "at": "2026-01-01T00:10:30Z",
+      "excerpt": "review",
+      "kind": "check",
+      "state": "pass"
+     }
+    ],
+    "login": "chk-bot",
+    "role": "required",
+    "state": "reported",
+    "timeout": 1200
+   }
+  ],
+  "sig": "U0lHfHJldi1ib3Q6cmVwb3J0ZWQsc2hhLWJvdDpyZXBvcnRlZCxtYXJrLWJvdDpyZXBvcnRlZCxjaGstYm90OnJlcG9ydGVk",
+  "viewer": "me"
+ }
+}

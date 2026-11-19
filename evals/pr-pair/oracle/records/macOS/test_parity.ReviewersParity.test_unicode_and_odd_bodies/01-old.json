@@ -1,0 +1,47 @@
+{
+ "calls": null,
+ "case": "test_parity.ReviewersParity.test_unicode_and_odd_bodies",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": null,
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "attn": "QVRUTnxyZXYtYm90OndhaXRpbmc=",
+  "checks": {
+   "advisory_pending": 0,
+   "ci_pending": 0,
+   "failing": [],
+   "pending": 0,
+   "total": 0
+  },
+  "comments": [],
+  "head_cutoff": "2026-01-01T00:10:00Z",
+  "head_oid": "1a2b3c4deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "now": "2026-01-01T00:12:00Z",
+  "number": 7,
+  "reviewer_config": "83c743c71b6373d176b8e49d3fcf9c03cc7b091c04c34e57ba5fce2848d9220d",
+  "reviewers": [
+   {
+    "by": null,
+    "evidence": [
+     {
+      "at": "2026-01-01T00:10:09Z",
+      "excerpt": "café 中文 😀 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "kind": "comment",
+      "state": null
+     }
+    ],
+    "login": "rev-bot",
+    "role": "required",
+    "state": "waiting",
+    "timeout": 1200
+   }
+  ],
+  "sig": "U0lHfHJldi1ib3Q6d2FpdGluZw==",
+  "viewer": "me"
+ }
+}

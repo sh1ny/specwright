@@ -1,0 +1,89 @@
+{
+ "calls": [
+  [
+   "api",
+   "user",
+   "--jq",
+   ".login"
+  ],
+  [
+   "auth",
+   "token",
+   "--hostname",
+   "github.com",
+   "--user",
+   "me"
+  ],
+  [
+   "api",
+   "--hostname",
+   "github.com",
+   "user",
+   "--jq",
+   ".login"
+  ],
+  [
+   "auth",
+   "token",
+   "--help"
+  ]
+ ],
+ "case": "test_workflow_transport.WorkflowTransport.test_nested_fence_lookup_limit_retains_refusal_mapping",
+ "comment_bodies": {},
+ "exit": 3,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "flood": [
+   {
+    "bytes": 4096,
+    "match": "auth token --help"
+   }
+  ],
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merged_at": null,
+      "number": 7,
+      "state": "open",
+      "title": "t7"
+     }
+    ]
+   },
+   "o/plans": {
+    "pulls": []
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "error": "fence_refused",
+  "message": "as.sh refused the read in <tmp>/code: as.sh: response_too_large: gh auth token --help",
+  "ok": false,
+  "repo_dir": "<tmp>/code"
+ }
+}

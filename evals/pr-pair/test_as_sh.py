@@ -34,6 +34,7 @@ import fixtures  # noqa: E402
 sys.path.append(str(ROOT / "evals"))
 import fixturecache  # noqa: E402  per-process cache: the empty repo is built once and copied
 import bashexe  # noqa: E402
+import swcall  # noqa: E402  every call of sw goes through the one helper
 import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 
@@ -139,12 +140,15 @@ class AsShCase(unittest.TestCase):
     def leaked(self, seen):
         return any("x-store-secret" in h for h in seen)
 
-    def as_sh(self, cwd, *args, env=None, stdin=None):
-        """Run `bash as.sh <args>` from `cwd`; the recorder is cleared first."""
+    def as_sh(self, cwd, *args, env=None, stdin=None, shim=False):
+        """Run `sw as <args>` from `cwd`; the recorder is cleared first. `shim` runs the shipped as.sh instead (the evals of
+        the shim itself, which task 7.6 deletes with it)."""
         Recorder.seen = []
         e = self.env()
         e.update(env or {})
-        return subprocess.run([bashexe.bash(), str(AS_SH), *args], cwd=cwd, capture_output=True, text=True, env=e, input=stdin, timeout=60)
+        if shim:
+            return subprocess.run([bashexe.bash(), str(AS_SH), *args], cwd=cwd, capture_output=True, text=True, env=e, input=stdin, timeout=60)
+        return swcall.run(["as", *args], cwd=cwd, env=e, input=stdin, timeout=60)
 
 
 class AsShHeaderScrub(AsShCase):
@@ -155,14 +159,14 @@ class AsShHeaderScrub(AsShCase):
 
     def test_scrubs_header_local_to_the_store(self):
         # planning_store.login unset, github.login = sh1ny: the store push is wrapped as sh1ny, from inside the store
-        seen = self.ls_remote(self.store, [bashexe.bash(), str(AS_SH), "sh1ny", "git", "ls-remote", "origin"])
+        seen = self.ls_remote(self.store, swcall.argv(["as", "sh1ny", "git", "ls-remote", "origin"]))
         self.assertTrue(seen, "git made no request through as.sh")
         self.assertFalse(self.leaked(seen), f"as.sh started in the store must scrub its local header: {seen}")
 
     def test_git_dash_c_into_the_store_refused(self):
         # as.sh in the code repo cannot fence a `git -C <store>` command (it scrubs only the repository it starts in),
         # so it refuses it: no request, so the store's header is never sent (PR #82)
-        seen = self.ls_remote(self.code, [bashexe.bash(), str(AS_SH), "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"])
+        seen = self.ls_remote(self.code, swcall.argv(["as", "sh1ny", "git", "-C", str(self.store), "ls-remote", "origin"]))
         self.assertFalse(seen, f"as.sh must refuse a git command pointed at another repository: {seen}")
 
 
@@ -470,7 +474,7 @@ class Bounded(AsShCase):
         out, err = self.tmp / "as.out", self.tmp / "as.err"
         t = time.time()
         with open(out, "wb") as fo, open(err, "wb") as fe:
-            p = subprocess.Popen([bashexe.bash(), str(AS_SH), *args], cwd=self.code, stdout=fo, stderr=fe, env=e)
+            p = subprocess.Popen(swcall.argv(["as", *args]), cwd=self.code, stdout=fo, stderr=fe, env=e)
             try:
                 rc = p.wait(timeout=45)
             except subprocess.TimeoutExpired:

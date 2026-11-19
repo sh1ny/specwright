@@ -1,8 +1,7 @@
 """release.sh runs in the project's `sw` (native-cli-release): the Test map of openspec/changes/native-cli-release.
 
-Every test runs `skills/specwright-release/scripts/release.sh` (RELEASE_SH overrides the path, as in test_release.py) on the
-fixtures of fixtures.py. Each fixture repository carries the version stamp and the environment names SPECWRIGHT_HOME, so the
-script's `sw` resolves; the script itself is started by an explicit real bash.
+Every test runs `sw release <args>` through evals/swcall.py on the fixtures of fixtures.py. Each fixture repository carries
+the version stamp that sw's entry check reads, and the environment names SPECWRIGHT_HOME.
 
 Needs the binary named by SPECWRIGHT_SW (skips as `sw not built` otherwise; fails under SPECWRIGHT_REQUIRE_SW=1).
 
@@ -97,18 +96,10 @@ class TestRunsInSw(tr.PubFlow):
 
 class TestSwResolution(Sw):
     def test_gitbutler_backend_read_without_pr_pair(self):
-        # a copy of the install without pr-pair.sh (and vcs.sh): the backend is read in process, so nothing looks for them
+        # the backend is read in process, with no install and no pr-pair.sh: nothing looks for them
         self.repo()
         fx.write(self.work, "openspec/specwright.yaml", fx.settings_text(fx.DEFAULT_VERSION_FILES, extra="vcs: gitbutler\n"))
-        skills = tr.SCRIPT.parents[2]
-        copy = self.tmp / "install"
-        for name in ("specwright-release", "specwright-pr"):
-            shutil.copytree(skills / name / "scripts", copy / name / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
-        for gone in ("pr-pair.sh", "vcs.sh"):
-            (copy / "specwright-pr" / "scripts" / gone).unlink()
-        self.assertTrue((copy / "specwright-pr" / "scripts" / "sw-path.sh").is_file())
-        r = subprocess.run([bashexe.bash(), str(copy / "specwright-release" / "scripts" / tr.SCRIPT.name), "check", "--main", "origin/main"],
-                           cwd=self.work, capture_output=True, text=True, encoding="utf-8", env=fx.sw_env())
+        r = fx.swcall.run(["release", "check", "--main", "origin/main"], cwd=self.work, env=fx.sw_env())
         doc = doc_of(r.stdout)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertEqual(doc["error"], "usage", r.stdout)
@@ -141,21 +132,18 @@ class TestSwResolution(Sw):
         self.assertEqual(probe.returncode, 1, probe.stdout + probe.stderr)
         self.assertEqual(log.read_text(encoding="utf-8").strip(), "git ls-remote probe")  # the recorder records
         log.unlink()
-        empty = self.tmp / "empty-home"
-        empty.mkdir()
-        for label, home, version in (("no sw in the home", empty, None), ("a stamp naming another version", None, "9.9.9")):
-            with self.subTest(label):
-                if version:
-                    stamp = self.work / "openspec" / ".specwright" / "VERSION"
-                    stamp.write_text(version + "\n", encoding="utf-8")
-                env = {**os.environ, "SW_FAKE_LOG": str(log), "SPECWRIGHT_HOME": str(home or fx.sw_env()["SPECWRIGHT_HOME"])}
-                env["PATH"] = str(fakes) + os.pathsep + env["PATH"]
-                code, doc, raw = self.release("untagged", env=env)
-                self.assertEqual(code, 1, raw)
-                self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), raw)
-                self.assertEqual(raw.count('"error"'), 1, raw)  # one document
-                started = log.read_text(encoding="utf-8") if log.exists() else ""
-                self.assertEqual(started.strip(), "", "started: " + started)
+        # direct entry has no "no sw in the home" stop (that was the shim's `sw_missing`): a stamp naming another version
+        # is the refusal left, and it comes before any git or gh start
+        stamp = self.work / "openspec" / ".specwright" / "VERSION"
+        stamp.write_text("9.9.9\n", encoding="utf-8")
+        env = {**os.environ, "SW_FAKE_LOG": str(log)}
+        env["PATH"] = str(fakes) + os.pathsep + env["PATH"]
+        code, doc, raw = self.release("untagged", env=env)
+        self.assertEqual(code, 1, raw)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), raw)
+        self.assertEqual(raw.count('"error"'), 1, raw)  # one document
+        started = log.read_text(encoding="utf-8") if log.exists() else ""
+        self.assertEqual(started.strip(), "", "started: " + started)
 
 
 class TestVersionPatterns(Sw):
@@ -354,11 +342,17 @@ class TestMsysPaths(Sw):
 
     def test_dir_and_proposal_in_msys_form(self):
         self.repo()
-        code, doc, raw = self.release("--dir", msys(self.work), "check", cwd=self.tmp)
+
+        def shim(*args):  # the shim converts the Git Bash path; direct entry reads a path as given (task 7.6 deletes this test)
+            r = subprocess.run([bashexe.bash(), str(tr.SCRIPT), *args], cwd=self.tmp, env=fx.sw_env(), capture_output=True,
+                               text=True, encoding="utf-8")
+            return r.returncode, doc_of(r.stdout), r.stdout + r.stderr
+
+        code, doc, raw = shim("--dir", msys(self.work), "check")
         self.assertEqual((code, doc and doc.get("version")), (0, "0.4.2"), raw)
         proposal = self.tmp / "proposal.md"
         proposal.write_text("## Why\n\nx\n\n## Release Notes\n\nS.\n\n### Added\n\n- New flag (#1)\n", encoding="utf-8")
-        code, doc, raw = self.release("notes", "--proposal", msys(proposal))
+        code, doc, raw = shim("--dir", self.work.as_posix(), "notes", "--proposal", msys(proposal))
         self.assertEqual((code, doc and doc.get("summary")), (0, "S."), raw)
 
 

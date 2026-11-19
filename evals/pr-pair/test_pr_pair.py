@@ -28,10 +28,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCRIPT = ROOT / "skills" / "specwright-pr" / "scripts" / "pr-pair.sh"
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import fixtures  # noqa: E402
+from oracle_capture import PINNED_IDENTITY  # noqa: E402  fixture commit ids repeat on every OS (D14)
 import jjenv  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402  the test sw home and the stamped VERSION vcs.sh resolves sw from (native-cli-vcs D9)
 
 sys.path.append(str(ROOT / "evals"))
@@ -58,7 +61,7 @@ def _build_repo(name, dest):
     """A repo on main with the one `chore: initial` commit and no remote: the stage make_repo caches (nothing in it names a path)."""
     env = {k: v for k, v in os.environ.items() if k.startswith(("PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE",
                                                                          "GIT_CONFIG_"))}  # fixturecache: maintenance.auto=false
-    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", **PINNED_IDENTITY})
     dest.mkdir(parents=True)
     for args in (("init", "-q", "-b", "main"), ("config", "user.name", "Eval Bot"), ("config", "user.email", "eval@example.invalid"),
                  ("config", "commit.gpgsign", "false")):
@@ -114,7 +117,7 @@ class Base(unittest.TestCase):
                   "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log),
                   "SPECWRIGHT_STATE_DIR": str(self.state_dir), "GIT_CONFIG_GLOBAL": os.devnull,
                   "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0", "PYTHONIOENCODING": "utf-8",
-                  "SPECWRIGHT_HOME": str(vcs_test_support.sw_home())})
+                  "SPECWRIGHT_HOME": str(vcs_test_support.sw_home()), **PINNED_IDENTITY})
         e.update(self.extra_env)
         return e
 
@@ -128,8 +131,7 @@ class Base(unittest.TestCase):
         """Run pr-pair.sh; return the parsed JSON line. The exit code must be `expect` (None = any)."""
         e = {**self.env(), **(env or {})}
         # UTF-8, not the locale code page: documents hold raw non-ASCII text, U+2028 included
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
-                           errors="surrogateescape", env=e, cwd=cwd or self.tmp)
+        r = swcall.run(["pr", *args], cwd=cwd or self.tmp, env=e)
         lines = r.stdout.strip().split("\n")  # not splitlines(): U+2028 inside a string is data
         if expect is not None:
             self.assertEqual(r.returncode, expect, f"{args}\nstdout: {r.stdout}\nstderr: {r.stderr}")
@@ -677,8 +679,7 @@ class Context(Base):
 
     def test_context_deep_nesting_stops_without_trace(self):
         self.settings("a: " + "{a: " * 100000 + "1" + "}" * 100000 + "\n")
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "context", "--code", str(self.code)], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", env=self.env(), cwd=self.tmp)
+        r = swcall.run(["pr", "context", "--code", str(self.code)], cwd=self.tmp, env=self.env())
         self.assertEqual(r.returncode, 2, r.stdout[:300] + r.stderr[:300])
         doc = json.loads(r.stdout)
         self.assertEqual(doc["error"], "bad_setting")
@@ -1512,10 +1513,9 @@ class Rounds(Base):
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
         seen = self.tmp / "ssh-seen.txt"
         ssh = self.write("user-ssh.sh", f'#!/bin/sh\necho "token=${{GH_TOKEN:-unset}}" >> "{fixtures.posix(seen)}"\nexit 1\n')
-        as_sh = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
         e = {**self.env(), "GIT_SSH_COMMAND": f"sh {fixtures.posix(ssh)}"}
-        r = subprocess.run([bashexe.bash(), str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
-                            "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
+        r = swcall.run(["as", "KintsugiBot", swcall.argv([])[0], "pr", "rounds", "--code", str(self.code),
+                        "--store", str(self.store), "--branch", BRANCH], cwd=self.code, env=e)
         self.assertIs(json.loads(r.stdout)["ok"], True, r.stdout + r.stderr)
         self.assertNotIn("SSH is disabled", r.stdout + r.stderr, "the store read ran inside the outer fence")
         self.assertTrue(seen.exists(), "the user's GIT_SSH_COMMAND did not run for the non-GitHub store")
@@ -1545,10 +1545,9 @@ class Rounds(Base):
         self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
         self.git(self.store, "config", "credential.helper", "!gh auth git-credential")
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
-        as_sh = ROOT / "skills" / "specwright-pr" / "scripts" / "as.sh"
         e = {**self.env(), "NO_PROXY": "", "no_proxy": "", **env}
-        r = subprocess.run([bashexe.bash(), str(as_sh), "KintsugiBot", "bash", str(SCRIPT), "rounds", "--code", str(self.code),
-                            "--store", str(self.store), "--branch", BRANCH], capture_output=True, text=True, env=e, cwd=self.code)
+        r = swcall.run(["as", "KintsugiBot", swcall.argv([])[0], "pr", "rounds", "--code", str(self.code),
+                        "--store", str(self.store), "--branch", BRANCH], cwd=self.code, env=e)
         helper = [c for c in self.gh_calls() if c["argv"][:2] == ["auth", "git-credential"]]
         self.assertTrue(helper, f"the store's credential helper never ran: {r.stdout}{r.stderr}")
         return helper
@@ -2604,7 +2603,7 @@ class PassOwnership(PassBase):
 
     def test_pass_write_is_exclusive_under_concurrency(self):
         f = self.write_json("intent.json", self.intent([self.finding()]))
-        cmd = [bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)]
+        cmd = swcall.argv(["pr", "pass", "write", *self.common(), "--intent", f])
         res = []
         gate = threading.Barrier(2)
 
@@ -2948,8 +2947,7 @@ class PassRuntime(PassBase):
         self.state_dir.mkdir(parents=True)
         (self.state_dir / "feedback").write_text("not a directory\n", encoding="utf-8")  # the record's parent is a file
         f = self.write_json("intent.json", self.intent([self.finding()]))
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "pass", "write", *map(str, self.common()), "--intent", str(f)],
-                           capture_output=True, text=True, env=self.env(), cwd=self.tmp)
+        r = swcall.run(["pr", "pass", "write", *self.common(), "--intent", f], cwd=self.tmp, env=self.env())
         self.assertNotIn("Traceback", r.stdout + r.stderr)
         lines = r.stdout.strip().split("\n")
         self.assertEqual(len(lines), 1, f"want one JSON line, got {r.stdout!r} / {r.stderr!r}")
@@ -2982,7 +2980,7 @@ class Cleanup(Base):
 
     @staticmethod
     def sw_head():
-        return vcs_test_support.home_sw().resolve().as_posix()  # the shim runs the version-matched copy
+        return Path(vcs_test_support.swharness.require_sw()).resolve().as_posix()  # the sw the call ran: direct entry
 
     def same_cmds(self, got, want):
         fold = lambda cs: [[x.lower() if i == 0 and c[1:2] == ["--project"] else x for i, x in enumerate(c)] for c in cs]

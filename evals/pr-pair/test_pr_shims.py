@@ -31,6 +31,7 @@ def setUpModule():
 
 
 class ShimCase(SnapCase):
+    via_shim = True  # run_script starts the shipped shims: this suite tests them (task 7.6 deletes it)
     def no_sw_env(self):
         """An environment whose test home holds no sw."""
         home = self.tmp / "empty-home"

@@ -71,9 +71,8 @@ class Base(unittest.TestCase):
         return self.work
 
     def release(self, *args, cwd=None, env=None):
-        """Run release.sh; returns (exit code, parsed JSON, raw stdout)."""
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), *args], cwd=cwd or self.work, capture_output=True, text=True,
-                           encoding="utf-8", env=fx.sw_env(env))
+        """Run `sw release <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout)."""
+        r = fx.swcall.run(["release", *args], cwd=cwd or self.work, env=fx.sw_env(env))
         try:
             doc = json.loads(r.stdout)
         except ValueError:
@@ -1790,8 +1789,7 @@ class TestBoundedNetwork(PubFlow):
         e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
         t0 = time.time()
         try:
-            r = subprocess.run([bashexe.bash(), str(SCRIPT), "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e),
-                               capture_output=True, text=True, encoding="utf-8", timeout=self.LIMIT)
+            r = fx.swcall.run(["release", "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e), timeout=self.LIMIT)
         except subprocess.TimeoutExpired:
             self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
         try:
@@ -1816,8 +1814,7 @@ class TestBoundedNetwork(PubFlow):
 
     def test_untagged_within_deadline_names_no_limit(self):
         self.save()
-        r = subprocess.run([bashexe.bash(), str(SCRIPT), "untagged"], cwd=self.work, capture_output=True, text=True, encoding="utf-8",
-                           env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
+        r = fx.swcall.run(["release", "untagged"], cwd=self.work, env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         doc = json.loads(r.stdout)
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])

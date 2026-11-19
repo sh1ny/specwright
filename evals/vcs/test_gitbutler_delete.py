@@ -83,12 +83,12 @@ class TestGitButlerDelete(GitButlerNetworkCase):
             self.assertTrue(state["ok"], state)
             self.assertEqual((state["applied"], state["branch"]), (False, ""))
             after = ("context", "--code", repo.path, "--after-merge", "--branch", "feat/add-c")
-            stopped = self.pr_pair(repo.path, *after, env=env, shim=self.shim.path, expected=1)
+            stopped = self.pr_pair(repo.path, *after, env=env, shim=self.shim, expected=1)
             self.assertEqual(stopped["error"], "settings_not_pinned", stopped)
             self.assertIn("but pull", stopped["message"])
 
             self.set_settings(repo.path, "vcs: gitbutler\nfinish: pr\n")
-            passed = self.pr_pair(repo.path, *after, env=env, shim=self.shim.path)
+            passed = self.pr_pair(repo.path, *after, env=env, shim=self.shim)
             self.assertEqual((passed["ok"], passed["merge"], passed["delete_branch"]), (True, "user", True), passed)
 
     def test_delete_unmerged_left_applied(self):

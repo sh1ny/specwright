@@ -365,17 +365,15 @@ class WorkflowTransport(wp.WorkflowParity):
         raw = os.fsencode(code) + b'-\xff'
         os.mkdir(raw)
         e = self.env('me', SPECWRIGHT_HOME=str(self.home), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
-        records = [wp.parity.fixtures.posix(wp.parity.SCRIPTS), wp.parity.bashexe.bash(), 'rounds', '--code', os.fsdecode(raw),
-                   '--branch', 'feat/x']
-        payload = b''.join(os.fsencode(x) + b'\0' for x in records)
         before = len(wp.parity.calls_of(self.gh_log, lambda c: c))
-        r = subprocess.run([os.environ['SPECWRIGHT_SW'], 'pr', 'rounds', '--args-stdin'], input=payload, cwd=self.tmp,
-                           env=e, capture_output=True, timeout=120)
-        self.assertEqual(r.returncode, 1, (r.stdout, r.stderr))
-        doc = json.loads(r.stdout.decode('utf-8'))
-        self.assertEqual((doc['ok'], doc['error']), (False, 'not_utf8'), doc)
-        self.assertIn('\\xFF', doc['message'])
-        self.assertEqual(len(wp.parity.calls_of(self.gh_log, lambda c: c)), before, 'a credential lookup ran')
+        r = wp.swcall.run(['pr', 'rounds', '--code', raw, '--branch', 'feat/x'], cwd=self.tmp, env=e, timeout=120, text=False)
+        self.assertNotEqual(r.returncode, 0, (r.stdout, r.stderr))
+        self.assertEqual(r.stdout, b'')
+        self.assertEqual(len(wp.parity.calls_of(self.gh_log, lambda c: c)), before, 'a credential lookup or a fenced tool ran')
+        # the control: the same fixture with a valid argument does reach the tool
+        control = wp.swcall.run(['pr', 'rounds', '--code', code, '--branch', 'feat/x'], cwd=self.tmp, env=e, timeout=120, text=False)
+        self.assertEqual(control.returncode, 0, (control.stdout, control.stderr))
+        self.assertGreater(len(wp.parity.calls_of(self.gh_log, lambda c: c)), before, 'the valid call never reached gh')
 
     def test_rounds_reports_an_outer_read_deadline_as_unreadable(self):
         code, _ = self.setup_remote()

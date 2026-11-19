@@ -1,0 +1,263 @@
+{
+ "calls": [
+  [
+   "api",
+   "--paginate",
+   "repos/o/n/pulls?state=all&head=o:feat/x&per_page=100"
+  ],
+  [
+   "auth",
+   "token",
+   "--hostname",
+   "github.com",
+   "--user",
+   "other"
+  ],
+  [
+   "api",
+   "--hostname",
+   "github.com",
+   "user",
+   "--jq",
+   ".login"
+  ],
+  [
+   "api",
+   "--paginate",
+   "repos/o/plans/pulls?state=all&head=o:feat/x&per_page=100"
+  ]
+ ],
+ "case": "test_workflow_parity.WorkflowParity.test_cleanup_non_git_plans_preserve_backend_commands",
+ "comment_bodies": {},
+ "exit": 0,
+ "label": "old",
+ "state": {
+  "clock": "2026-10-10T10:00:00Z",
+  "repos": {
+   "o/n": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/n"
+       },
+       "sha": "48dc6c5e7c2085bc55223ce3b2de92fab992226a"
+      },
+      "html_url": "https://github.com/o/n/pull/7",
+      "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merged_at": "2026-10-08T10:00:00Z",
+      "number": 7,
+      "state": "closed",
+      "title": "t7"
+     }
+    ]
+   },
+   "o/plans": {
+    "pulls": [
+     {
+      "author": "me",
+      "base": {
+       "ref": "main"
+      },
+      "body": "",
+      "head": {
+       "label": "o:feat/x",
+       "ref": "feat/x",
+       "repo": {
+        "full_name": "o/plans"
+       },
+       "sha": "48dc6c5e7c2085bc55223ce3b2de92fab992226a"
+      },
+      "html_url": "https://github.com/o/plans/pull/7",
+      "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "merged_at": "2026-10-08T10:00:00Z",
+      "number": 7,
+      "state": "closed",
+      "title": "t7"
+     }
+    ]
+   }
+  },
+  "tokens": {
+   "me": "tok-me",
+   "other": "tok-other",
+   "rev": "tok-rev"
+  },
+  "user": "me"
+ },
+ "stderr": {
+  "lines": 0,
+  "prefixes": []
+ },
+ "stdout": {
+  "branch": "feat/x",
+  "code": {
+   "branch_exists": true,
+   "commands": [
+    {
+     "cmd": [
+      "<temp>/<name>/.specwright/bin/0.37.0/sw",
+      "--project",
+      "<tmp>/code",
+      "vcs",
+      "switch",
+      "--repo",
+      "<tmp>/code",
+      "--role",
+      "code",
+      "--code",
+      "<tmp>/code",
+      "--branch",
+      "main"
+     ],
+     "cwd": "<tmp>/code"
+    },
+    {
+     "cmd": [
+      "<temp>/<name>/.specwright/bin/0.37.0/sw",
+      "--project",
+      "<tmp>/code",
+      "vcs",
+      "pull",
+      "--repo",
+      "<tmp>/code",
+      "--role",
+      "code",
+      "--code",
+      "<tmp>/code",
+      "--branch",
+      "feat/x",
+      "--login",
+      "me"
+     ],
+     "cwd": "<tmp>/code"
+    },
+    {
+     "cmd": [
+      "pr-pair.sh",
+      "branch-check",
+      "--dir",
+      "<tmp>/code",
+      "--branch",
+      "feat/x",
+      "--main",
+      "main",
+      "--head",
+      "48dc6c5e7c2085bc55223ce3b2de92fab992226a",
+      "--code",
+      "<tmp>/code",
+      "--role",
+      "code",
+      "--login",
+      "me"
+     ],
+     "cwd": "<tmp>/code"
+    }
+   ],
+   "delete": [
+    "<temp>/<name>/.specwright/bin/0.37.0/sw",
+    "--project",
+    "<tmp>/code",
+    "vcs",
+    "delete-branch",
+    "--repo",
+    "<tmp>/code",
+    "--role",
+    "code",
+    "--code",
+    "<tmp>/code",
+    "--branch",
+    "feat/x",
+    "--force",
+    "--merged-commit",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "dir": "<tmp>/code",
+   "expected": true,
+   "merged": true,
+   "pr": {
+    "base": "main",
+    "head_sha": "48dc6c5e7c2085bc55223ce3b2de92fab992226a",
+    "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "merged_at": "2026-10-08T10:00:00Z",
+    "number": 7,
+    "state": "MERGED",
+    "title": "t7",
+    "url": "https://github.com/o/n/pull/7"
+   },
+   "repo": "o/n"
+  },
+  "keep": [],
+  "ok": true,
+  "set": [
+   "store",
+   "code"
+  ],
+  "store": {
+   "branch_exists": true,
+   "commands": [
+    {
+     "cmd": [
+      "git",
+      "checkout",
+      "main"
+     ],
+     "cwd": "<tmp>/store"
+    },
+    {
+     "cmd": [
+      "bash",
+      "<temp>/<name>/as.sh",
+      "other",
+      "git",
+      "pull",
+      "--ff-only"
+     ],
+     "cwd": "<tmp>/store"
+    },
+    {
+     "cmd": [
+      "pr-pair.sh",
+      "branch-check",
+      "--dir",
+      "<tmp>/store",
+      "--branch",
+      "feat/x",
+      "--main",
+      "main",
+      "--head",
+      "48dc6c5e7c2085bc55223ce3b2de92fab992226a"
+     ],
+     "cwd": "<tmp>/store"
+    }
+   ],
+   "delete": [
+    "git",
+    "branch",
+    "-D",
+    "feat/x"
+   ],
+   "dir": "<tmp>/store",
+   "expected": true,
+   "merged": true,
+   "pr": {
+    "base": "main",
+    "head_sha": "48dc6c5e7c2085bc55223ce3b2de92fab992226a",
+    "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "merged_at": "2026-10-08T10:00:00Z",
+    "number": 7,
+    "state": "MERGED",
+    "title": "t7",
+    "url": "https://github.com/o/plans/pull/7"
+   },
+   "repo": "o/plans"
+  }
+ }
+}

@@ -20,12 +20,14 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
 SNAPSHOT, REPLY = SCRIPTS / "pr-snapshot.sh", SCRIPTS / "pr-reply.sh"
+SW_COMMANDS = {SNAPSHOT: "snapshot", REPLY: "reply"}
 sys.path.insert(0, str(ROOT / "evals" / "git-workflow"))
 import fixtures  # noqa: E402
 import bashexe  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
 
 sys.path.insert(0, str(ROOT / "evals" / "fakes"))
 import gh as fake_gh  # noqa: E402
@@ -187,6 +189,8 @@ class SnapCase(unittest.TestCase):
         return e
 
     def run_script(self, script, *args, login="me", env=None, cwd=None, stdin=None):
+        if script in SW_COMMANDS and not getattr(self, "via_shim", False):  # the shipped shims are retired: the same call is `sw pr snapshot|reply` (direct entry)
+            return swcall.run(["pr", SW_COMMANDS[script], *args], cwd=cwd or self.tmp, env=self.env(login, **(env or {})), input=stdin)
         return subprocess.run([bashexe.bash(), str(script), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
                               env=self.env(login, **(env or {})), cwd=cwd or self.tmp, input=stdin)
 

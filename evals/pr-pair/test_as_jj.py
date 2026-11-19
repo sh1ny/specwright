@@ -27,6 +27,7 @@ import fixtures  # noqa: E402
 import jjenv  # noqa: E402
 import bashexe  # noqa: E402
 import fakeexe  # noqa: E402  (jjenv puts evals/ on sys.path)
+import swcall  # noqa: E402  (jjenv puts evals/ on sys.path)
 import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
 
 GITHUB = "https://github.com/o/r.git"
@@ -70,8 +71,7 @@ class AsJjCase(unittest.TestCase):
         return env
 
     def as_sh(self, *args, env=None):
-        return subprocess.run([bashexe.bash(), str(AS_SH), "code-bot", *args], cwd=self.repo, env=env or self.env(),
-                              capture_output=True, text=True, timeout=120)
+        return swcall.run(["as", "code-bot", *args], cwd=self.repo, env=env or self.env(), timeout=120)
 
     def gh_calls(self):
         path = self.tmp / "gh-log.jsonl"

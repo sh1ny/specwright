@@ -1,8 +1,6 @@
 """`sw pr snapshot` runs no script, no interpreter and no child `sw` for what it can do itself (native-cli-internal-calls D3, D4, D5).
 
-Every test hands the built `sw` (SPECWRIGHT_SW) the scripts-directory handoff of `pr-snapshot.sh` directly (`sw pr snapshot
---args-stdin`: the scripts directory, the bash and the script's own arguments as NUL-terminated records), against the fake `gh`.
-The shim `pr-snapshot.sh` itself still checks for Python until `native-cli-retire-scripts`, so none of these goes through it.
+Every test runs the built `sw` (SPECWRIGHT_SW) as `sw pr snapshot <args>` through evals/swcall.py, against the fake `gh`.
 
 - A bad reviewer config is refused in the process itself: the handoff names a bash that does not exist, so a child started
   for the check (a tool run goes through bash) could not even start and its error would reach stderr instead of the config's.
@@ -23,6 +21,7 @@ import snapfix
 from snapfix import REPLY, SCRIPTS, SNAPSHOT, T0, SnapCase, fixtures, rev
 import bashexe  # noqa: E402
 import fakeexe  # noqa: E402
+import swcall  # noqa: E402  (snapfix puts evals/ on sys.path through vcs_test_support)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vcs"))
 import sentinels  # noqa: E402
@@ -45,15 +44,12 @@ class NativeSnapshotCase(SnapCase):
         sent.probe(self, env=self.env())
         return sent
 
-    def handoff_run(self, *args, scripts=SCRIPTS, bash=None, path_first=None, env=None):
-        """`sw pr snapshot --args-stdin` for the fixture PR, through the handoff `pr-snapshot.sh` writes; the CompletedProcess."""
-        records = [str(scripts), str(bash or bashexe.bash()), *map(str, args)]
-        payload = b"".join(r.encode("utf-8") + b"\0" for r in records)
+    def handoff_run(self, *args, path_first=None, env=None):
+        """`sw pr snapshot` for the fixture PR, entered directly (evals/swcall.py); the CompletedProcess of bytes."""
         run_env = self.env(**(env or {}))
         if path_first:
             run_env["PATH"] = str(path_first) + os.pathsep + run_env["PATH"]
-        return subprocess.run([self.sw, "pr", "snapshot", "--args-stdin"], input=payload, capture_output=True,
-                              env=run_env, cwd=self.tmp, timeout=120)
+        return swcall.run(["pr", "snapshot", *args], cwd=self.tmp, env=run_env, text=False)
 
     def text(self, data):
         return data.decode("utf-8")
@@ -61,12 +57,10 @@ class NativeSnapshotCase(SnapCase):
 
 class TestReviewerConfigWithoutChild(NativeSnapshotCase):
     def test_bad_config_checked_without_child(self):
-        """The config is checked in the process itself, before any gh call: one `reviewers.py:` line about the JSON and exit 2,
-        with a bash that cannot start (a child `sw` for the check runs through bash, so it would have failed to start)."""
+        """The config is checked in the process itself, before any gh call: one `reviewers.py:` line about the JSON and exit 2."""
         cfg = self.tmp / "cfg.json"
         cfg.write_text("{not json", encoding="utf-8", newline="\n")
-        r = self.handoff_run(self.PR, "--repo", self.SLUG, "--reviewer-config", fixtures.posix(cfg),
-                             bash=self.tmp / "no-such-bash")
+        r = self.handoff_run(self.PR, "--repo", self.SLUG, "--reviewer-config", fixtures.posix(cfg))
         err = self.text(r.stderr)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertEqual(r.stdout, b"")
@@ -103,7 +97,7 @@ class TestNoInterpreter(NativeSnapshotCase):
     def test_retrofitted_snapshot_runs_no_script_or_python(self):
         """With recording sentinels for the shipped scripts in the handoff's scripts directory as well, none recorded a run."""
         sent = self.sentinels()
-        r = self.reported_snapshot(scripts=sent.scripts, path_first=sent.bin, env=sent.env)
+        r = self.reported_snapshot(path_first=sent.bin, env=sent.env)
         self.assert_printed(r)
         self.assertEqual(sent.recorded(), [], "no sentinel recorded a run")
 
@@ -177,6 +171,7 @@ class TestProjectSelector(SnapCase):
     """native-cli-internal-calls D6: one optional leading `--project <dir>` on the shims picks the project whose `sw` runs.
 
     Run through the real shims. `self.tmp` holds the stamped version; `code` is another stamped project, `store` has none."""
+    via_shim = True  # snapfix.run_script starts the shipped shims (task 7.6 deletes this class)
 
     def setUp(self):
         super().setUp()

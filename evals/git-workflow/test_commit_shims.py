@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT / "evals" / "vcs"))
 import gitlog  # noqa: E402
 import jjenv  # noqa: E402
-from vcs_test_support import STAMP, VcsTestCase, bash_run, sw_home, stamp_version, tree_version  # noqa: E402
+import swcall  # noqa: E402  (vcs_test_support puts evals/ on sys.path)
+from vcs_test_support import STAMP, VcsTestCase, bash_run, sw_home, sw_run, stamp_version, tree_version  # noqa: E402
 
 COMMIT_SCRIPTS = ROOT / "skills" / "specwright-commit" / "scripts"
 PR_SCRIPTS = ROOT / "skills" / "specwright-pr" / "scripts"
@@ -47,6 +48,10 @@ class ShimCase(VcsTestCase):
         return ((Path(skills) / "specwright-commit" / "scripts") if skills else COMMIT_SCRIPTS) / name
 
     def run_shim(self, name, *args, cwd=None, env=None, skills=None, home=None):
+        """`sw commit task-cover|fit-subject <args>` entered directly (evals/swcall.py). A test of the shim's own resolver
+        passes `skills` or `home` and still goes through the shim, which task 7.6 deletes with it."""
+        if skills is None and home is None:
+            return sw_run(["commit", name[:-3], *args], cwd=cwd or self.repo, env=env, shim=self.shim, stamp=False)
         shim_env = {"SPECWRIGHT_HOME": str(home or sw_home()), **self.shim.env, **(env or {})}
         return bash_run([self.script(name, skills).as_posix(), *map(str, args)], cwd=cwd or self.repo, env=shim_env,
                         shim=self.shim.path, stamp=False)
@@ -83,6 +88,14 @@ class ShimCase(VcsTestCase):
         self.assertEqual((doc["ok"], doc["error"]), (False, "sw_missing"), doc)
         self.assertTrue(doc["message"].startswith(STOP), doc)
         self.assertIn(STOP, result.stderr)
+        self.assertEqual(self.shim.calls(), [], "no git command ran")
+        return doc
+
+    def mismatch_document(self, result):
+        """The native refusal when the project's VERSION is missing or another version: `sw_mismatch`, exit 1, no git."""
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        doc = json.loads(result.stdout)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "sw_mismatch"), doc)
         self.assertEqual(self.shim.calls(), [], "no git command ran")
         return doc
 
@@ -142,14 +155,24 @@ class TestTaskCoverShim(ShimCase):
         plain = self.run_shim("task-cover.sh", *self.cover_args(repo=store, tasks=tasks), cwd=store)
         self.assertEqual(plain.stdout, result.stdout)
 
-    def test_store_without_code_is_sw_missing(self):
+    def test_another_version_is_sw_mismatch(self):
+        self.branch_commit("feat(a): task 1.1 Add it")
+        self.shim.log_path.unlink(missing_ok=True)
+        swcall.stamp(self.repo, "99.0.0")
+        doc = self.mismatch_document(self.run_shim("task-cover.sh", *self.cover_args()))
+        self.assertIn("99.0.0", doc["message"])
+        swcall.stamp(self.repo)
+        again = self.run_shim("task-cover.sh", *self.cover_args())  # the control: the matching VERSION runs
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+
+    def test_store_without_code_is_sw_mismatch(self):
         store = self.root / "store"
         self._init_git(store)
         self.branch_commit("feat(a): task 1.1 Add it", repo=store)
         tasks = self.tasks_file(store / "openspec" / "changes" / CHANGE)
         self.shim.log_path.unlink(missing_ok=True)
         result = self.run_shim("task-cover.sh", *self.cover_args(repo=store, tasks=tasks), cwd=store)
-        doc = self.stop_document(result)
+        doc = self.mismatch_document(result)
         self.assertIn("no installed version found", doc["message"])
 
     def test_task_cover_binary_missing(self):
