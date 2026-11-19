@@ -638,8 +638,8 @@ void main() {
         ['git', 'restore', '--source=$a^', '--worktree', '--', specA],
       ]);
       expect(doc['warnings'], [
-        'Do not edit files while the script runs.',
-        'If the script fails after it began changing the index and before it '
+        'Do not edit files while the steps run.',
+        'If a step fails after the steps began changing the index and before they '
             'commits, run `git restore --staged -- $ad openspec/changes/add-x '
             '$specA` and plan again; the working tree is untouched until the '
             'commit.',
@@ -808,8 +808,8 @@ void main() {
         'This archive holds add-x, add-y. The whole archive is undone, never '
             "only the deferred change's files; run the archive again without "
             'the deferred change.',
-        'Do not edit files while the script runs.',
-        'Run after_rerun after script: it archives add-y again.',
+        'Do not edit files while the steps run.',
+        'Run after_rerun_steps after steps: they archive add-y again.',
       ]);
     }, skip: skip);
 
@@ -874,7 +874,7 @@ void main() {
         ]);
         final warnings = (doc['warnings']! as List).cast<String>();
         expect(warnings.sublist(warnings.length - 2), [
-          'Run after_rerun after script: it archives add-y again and merges '
+          'Run after_rerun_steps after steps: they archive add-y again and merges '
               'the saved amendments into $specB. On a conflict it stops with '
               'markers in the file; both copies stay in $backup.',
           'Amendments to $specA were made on top of the deferred change\'s '
@@ -905,7 +905,7 @@ void main() {
           'absent',
           'openspec/specs/c/spec.md',
           '--message',
-          'openspec/specs/c/spec.md exists; the after-rerun script would '
+          'openspec/specs/c/spec.md exists; after_rerun_steps would '
               'delete it. Move it away, then run again.',
         ]),
         ['openspec', 'archive', 'add-y', '--yes'],
@@ -916,8 +916,8 @@ void main() {
         warnings,
         contains(
           'openspec/specs/c/spec.md was deleted on feat/x after the archive; '
-          'the undo leaves it deleted, and after_rerun deletes it again after '
-          'it archives add-y.',
+          'the undo leaves it deleted, and after_rerun_steps delete it again after '
+          'they archive add-y.',
         ),
       );
     }, skip: skip);
@@ -1460,7 +1460,7 @@ void main() {
           expect(
             warnings[1],
             startsWith(
-              'The script moves and rewrites files in the shared GitButler',
+              'The steps move and rewrite files in the shared GitButler',
             ),
           );
           expect(warnings[1], contains('(`but commit -b feat/x`)'));
@@ -1590,7 +1590,7 @@ void main() {
           expect(
             warnings[1],
             startsWith(
-              'If the script fails after it began changing the working copy',
+              'If a step fails after the steps began changing the working copy',
             ),
           );
           expect(warnings[1], contains('`jj restore $fs`'));

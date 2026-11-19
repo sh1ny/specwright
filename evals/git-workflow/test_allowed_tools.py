@@ -28,7 +28,10 @@ RUNS_VCS = CUTOVER
 GRANTED = ("branch", "commit", "finish")  # carry an explicit allowed-tools field today
 SEPARATORS = re.compile(r"&&|\|\||\|&|[;|&\n]")
 SW = "/home/eval/.specwright/bin/1.2.3/sw"
+# The skills name `sw.exe` on Windows: every grant must cover that spelling too.
+SW_EXE = "C:/Users/eval/.specwright/bin/1.2.3/sw.exe"
 GRANT = "*/.specwright/bin/*/sw *"
+GRANT_EXE = "*/.specwright/bin/*/sw.exe *"
 
 
 def skill_text(name):
@@ -56,7 +59,7 @@ def allowed(rules, command):
     return bool(subs) and all(any(rule_matches(r, s) for r in rules) for s in subs)
 
 
-def prescribed_script_commands(name):
+def prescribed_script_commands(name, sw=SW):
     """Each `<sw> ...` command line the skill's text prescribes in an inline code span or a code block, with `<sw>`
     expanded to a concrete version-pinned path."""
     text = skill_text(name)
@@ -64,10 +67,10 @@ def prescribed_script_commands(name):
     spans = re.findall(r"`([^`\n]+)`", text) + [line for block in blocks for line in block.splitlines()]
     out = []
     for span in spans:
-        span = span.strip().replace("<sw>", SW)
+        span = span.strip().replace("<sw>", sw)
         for sub in SEPARATORS.split(span):
             sub = sub.strip()
-            if sub.startswith(SW + " "):
+            if sub.startswith(sw + " "):
                 out.append(sub)
     return out
 
@@ -87,7 +90,10 @@ class RuleMatching(unittest.TestCase):
 
     def test_sw_grant_covers_only_a_version_pinned_sw(self):
         self.assertTrue(allowed([GRANT], "/home/u/.specwright/bin/0.38.0-rc.1+b2/sw version --json"))
-        self.assertTrue(allowed([GRANT], "C:/Users/u/.specwright/bin/0.38.0/sw.exe version --json".replace("sw.exe", "sw")))
+        self.assertTrue(allowed([GRANT], "C:/Users/u/.specwright/bin/0.38.0/sw version --json"))
+        self.assertFalse(allowed([GRANT], "C:/Users/u/.specwright/bin/0.38.0/sw.exe version --json"))
+        self.assertTrue(allowed([GRANT_EXE], "C:/Users/u/.specwright/bin/0.38.0/sw.exe version --json"))
+        self.assertFalse(allowed([GRANT_EXE], "C:/Users/u/bin/sw.exe version --json"))
         self.assertFalse(allowed([GRANT], "sw vcs state"))
         self.assertFalse(allowed([GRANT], "/usr/local/bin/sw vcs state"))
 
@@ -105,8 +111,11 @@ class SkillScriptPermissions(unittest.TestCase):
         for name in GRANTED:
             rules = grants(name)
             self.assertIsNotNone(rules, f"specwright-{name} lost its allowed-tools field")
-            for cmd in prescribed_script_commands(name):
-                self.assertTrue(allowed(rules, cmd), f"specwright-{name} grants {rules} but prescribes: {cmd}")
+            for sw in (SW, SW_EXE):
+                cmds = prescribed_script_commands(name, sw)
+                self.assertTrue(cmds, f"specwright-{name} prescribes no `<sw>` call")
+                for cmd in cmds:
+                    self.assertTrue(allowed(rules, cmd), f"specwright-{name} grants {rules} but prescribes: {cmd}")
 
     def test_every_vcs_call_is_covered_where_the_skill_has_a_grant(self):
         for name in RUNS_VCS:
@@ -124,6 +133,7 @@ class SkillScriptPermissions(unittest.TestCase):
             self.assertIn("git *", rules, name)
             self.assertIn("openspec *", rules, name)
             self.assertIn(GRANT, rules, name)
+            self.assertIn(GRANT_EXE, rules, name)
             self.assertNotIn("bash *", rules, name)
 
     def test_skills_without_a_grant_field_stay_unrestricted(self):

@@ -6,9 +6,9 @@ import '../options.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
 
-/// `finish.sh`'s usage text for a missing or unknown subcommand.
+/// `sw finish`'s usage text for a missing or unknown subcommand.
 const String finishUsage =
-    'usage: finish.sh [--dir <planning toplevel>] undo-archive-plan '
+    'usage: sw finish [--dir <planning toplevel>] undo-archive-plan '
     '--change <name> --archived-name <archived> --prefix <P> --main <main> '
     '[--branch <branch>] [--type <type>] [--code <code toplevel>]';
 

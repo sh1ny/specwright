@@ -4,7 +4,7 @@ description: "MANDATORY during the OpenSpec apply phase: /opsx:apply, openspec-a
 metadata:
   version: 0.38.0
 user-invocable: false
-allowed-tools: Bash(git *) Bash(openspec *) Bash(*/.specwright/bin/*/sw *)
+allowed-tools: Bash(git *) Bash(openspec *) Bash(*/.specwright/bin/*/sw *) Bash(*/.specwright/bin/*/sw.exe *)
 ---
 
 # Specwright Commit

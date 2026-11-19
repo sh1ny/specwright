@@ -9,7 +9,7 @@ import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:test/test.dart';
 
 const _usageText =
-    'usage: finish.sh [--dir <planning toplevel>] undo-archive-plan '
+    'usage: sw finish [--dir <planning toplevel>] undo-archive-plan '
     '--change <name> --archived-name <archived> --prefix <P> --main <main> '
     '[--branch <branch>] [--type <type>] [--code <code toplevel>]';
 

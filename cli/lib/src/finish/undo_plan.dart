@@ -781,7 +781,7 @@ class _Planner {
         'again without the deferred change.',
       );
     }
-    warnings.add('Do not edit files while the script runs.');
+    warnings.add('Do not edit files while the steps run.');
 
     // ---- the steps --------------------------------------------------------
     // Each step runs in `top`, where the old script `cd`-ed, so the plan runs
@@ -983,9 +983,9 @@ class _Planner {
 
     if (committed && jj) {
       warnings.add(
-        'If the script fails after it began changing the working copy and '
+        'If a step fails after the steps began changing the working copy and '
         'before it commits, run `jj restore $fsets` and plan again. Unlike '
-        'the Git script, the working tree is NOT untouched until the commit '
+        'the Git steps, the working tree is NOT untouched until the commit '
         'on jj: the moves and restores happen in @ first.',
       );
       final dirtyPaths = (vs['dirty_paths']! as List).cast<String>();
@@ -1004,7 +1004,7 @@ class _Planner {
       }
     } else if (committed && gb) {
       warnings.add(
-        'The script moves and rewrites files in the shared GitButler work '
+        'The steps move and rewrite files in the shared GitButler work '
         'tree first and commits them last, with `sw vcs commit` (`but commit '
         '-b $branch`), naming only the touched paths; no Git write runs. If '
         'it fails before the commit, those files are uncommitted changes: '
@@ -1014,7 +1014,7 @@ class _Planner {
       );
     } else if (committed) {
       warnings.add(
-        'If the script fails after it began changing the index and before it '
+        'If a step fails after the steps began changing the index and before they '
         'commits, run `git restore --staged -- ${touchedAll.join(' ')}` and '
         'plan again; the working tree is untouched until the commit.',
       );
@@ -1084,7 +1084,7 @@ class _Planner {
               'absent',
               f,
               '--message',
-              '$f exists; the after-rerun script would delete it. Move it '
+              '$f exists; after_rerun_steps would delete it. Move it '
                   'away, then run again.',
             ]),
           ),
@@ -1109,7 +1109,7 @@ class _Planner {
         afterSteps.add(mk(undoArgv(['remove', f])));
       }
       warnings.add(
-        'Run after_rerun after script: it archives $names again'
+        'Run after_rerun_steps after steps: they archive $names again'
         '${merge.isNotEmpty ? ' and merges the saved amendments into ${merge.join(', ')}. '
                   'On a conflict it stops with markers in the file; both copies stay in $backupDir.' : '.'}',
       );
@@ -1118,7 +1118,7 @@ class _Planner {
       if (redelete.contains(f)) {
         warnings.add(
           '$f was deleted on $branch after the archive; the undo leaves it '
-          'deleted, and after_rerun deletes it again after it archives '
+          'deleted, and after_rerun_steps delete it again after they archive '
           '$names.',
         );
       } else {

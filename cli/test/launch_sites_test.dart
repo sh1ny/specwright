@@ -1271,9 +1271,6 @@ const launchAllowlist = Allowlist(
     'process/transport.dart': 'Windows bash -c stdin transport (C9)',
   },
   scriptNames: {
-    'commands/finish.dart': {
-      'finish.sh': ScriptSite(1, 'message: usage and argument text'),
-    },
     'fence/exec_inherit.dart': {
       'as.sh': ScriptSite(
         4,

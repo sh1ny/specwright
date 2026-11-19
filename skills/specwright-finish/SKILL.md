@@ -4,7 +4,7 @@ description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:arc
 metadata:
   version: 0.38.0
 user-invocable: false
-allowed-tools: Bash(git *) Bash(openspec *) Bash(*/.specwright/bin/*/sw *)
+allowed-tools: Bash(git *) Bash(openspec *) Bash(*/.specwright/bin/*/sw *) Bash(*/.specwright/bin/*/sw.exe *)
 ---
 
 # Specwright Finish
