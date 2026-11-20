@@ -304,13 +304,13 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 1. ADRs and the facts kept by decision
 
-- [ ] 1.1 Write `docs/adr/0041-a-bounded-launch-reports-a-newly-refused-line-as-a-failed-helper-start.md` as design `## ADRs` and D5 state it: it amends ADR 0034's Refusals clause for bounded launches only. No carried constraint has this ADR as its destination (the related code-side fact is C13). Mark ADR 0034 amended and index 0041 in `openspec/architecture.md`. Verify: the file exists and the index links it.
-- [ ] 1.2 Write `docs/adr/0042-skills-and-sw-move-to-interface-3.md` as design `## ADRs` and D10 state it: it supersedes only ADR 0040's interface-2 pin. No carried constraint has this ADR as its destination (the related code-side fact is C35). Mark ADR 0040, and in `openspec/architecture.md` change "version and interface 2" to 3 and index 0042. Verify: the index links 0042 and no line of `openspec/architecture.md` still says the skills require interface 2.
-- [ ] 1.3 Write `docs/adr/0043-the-undo-planner-checks-the-version-of-the-checkout-it-uses.md` as design `## ADRs` and D2 state it: it amends ADR 0040's entry check for `sw finish undo-archive-plan` only. No carried constraint has this ADR as its destination (the related code-side facts are C36 and C47). Index it in `openspec/architecture.md`. Verify: the file exists and the index links it.
-- [ ] 1.4 C4: doc comment of `gateUnlock` in `cli/lib/src/gate/lock.dart`.
-- [ ] 1.5 C4c: doc comment of `gateLock` in `cli/lib/src/gate/lock.dart`.
-- [ ] 1.6 C4b: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
-- [ ] 1.7 C24: module docstring of `evals/pr-pair/oracle/check_records.py`. Verify: `python -m unittest evals/pr-pair/test_oracle_records.py` passes.
+- [x] 1.1 Write `docs/adr/0041-a-bounded-launch-reports-a-newly-refused-line-as-a-failed-helper-start.md` as design `## ADRs` and D5 state it: it amends ADR 0034's Refusals clause for bounded launches only. No carried constraint has this ADR as its destination (the related code-side fact is C13). Mark ADR 0034 amended and index 0041 in `openspec/architecture.md`. Verify: the file exists and the index links it.
+- [x] 1.2 Write `docs/adr/0042-skills-and-sw-move-to-interface-3.md` as design `## ADRs` and D10 state it: it supersedes only ADR 0040's interface-2 pin. No carried constraint has this ADR as its destination (the related code-side fact is C35). Mark ADR 0040, and in `openspec/architecture.md` change "version and interface 2" to 3 and index 0042. Verify: the index links 0042 and no line of `openspec/architecture.md` still says the skills require interface 2.
+- [x] 1.3 Write `docs/adr/0043-the-undo-planner-checks-the-version-of-the-checkout-it-uses.md` as design `## ADRs` and D2 state it: it amends ADR 0040's entry check for `sw finish undo-archive-plan` only. No carried constraint has this ADR as its destination (the related code-side facts are C36 and C47). Index it in `openspec/architecture.md`. Verify: the file exists and the index links it.
+- [x] 1.4 C4: doc comment of `gateUnlock` in `cli/lib/src/gate/lock.dart`.
+- [x] 1.5 C4c: doc comment of `gateLock` in `cli/lib/src/gate/lock.dart`.
+- [x] 1.6 C4b: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
+- [x] 1.7 C24: module docstring of `evals/pr-pair/oracle/check_records.py`. Verify: `python -m unittest evals/pr-pair/test_oracle_records.py` passes.
 
 ## 2. Windows line check and the bounded launch (D5)
 

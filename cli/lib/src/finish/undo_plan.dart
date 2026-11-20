@@ -73,6 +73,10 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// change, as one document (the caller prints it and exits 0) or a [VcsStop].
 /// It only reads the repository; the scripts it prints are for the user to run.
 ///
+/// #232's non-resumable undo after a failed archive stays open by decision, for
+/// the same reason as the gate-unlock race (`gateUnlock`): each fix found so far
+/// adds a race of its own.
+///
 /// C2: `sw finish` runs `git` with no deadline and no byte bound, as `finish.sh` did
 /// (ADR 0012 exception, #111). Adding bounds is a behaviour change for its own
 /// change.

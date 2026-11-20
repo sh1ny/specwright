@@ -92,6 +92,10 @@ Map<String, Object?> _fail(String error, String message, GateOwner owner) => {
 /// `sw gate lock`: makes [lock] exclusively, then places its owner file whole
 /// by renaming a finished temporary file into it. [beforeRename] runs between
 /// the two (a test stands in for a kill there).
+///
+/// #232's ownerless window stays open by decision: between the exclusive
+/// directory create and the owner-file rename, a lock seen without an owner
+/// file may be a live acquisition, not a stale lock.
 (Map<String, Object?>, int) gateLock(
   String lock,
   String branch,
@@ -140,6 +144,9 @@ Map<String, Object?> gateShow(String lock) {
 /// [stale] it is the user's word that the lock is left over: [ownerless] stands
 /// for a lock without a token, and a store update's lock is refused. The check
 /// and the removal are not atomic, as the `rm -r` they replace was not.
+///
+/// #232's gate-unlock race stays open by decision: each fix found so far adds a
+/// race of its own.
 (Map<String, Object?>, int) gateUnlock(
   String lock, {
   String? token,
