@@ -1,7 +1,10 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/commands/vcs.dart';
+import 'package:specwright_cli/src/process/command_line.dart'
+    show UnsafeBatchArgument;
 import 'package:specwright_cli/src/vcs/args.dart';
 import 'package:specwright_cli/src/vcs/gitbutler_backend.dart';
 import 'package:specwright_cli/src/vcs/probe.dart';
@@ -189,15 +192,8 @@ void main() {
   Future<Map<String, Object?>> op(
     String command,
     VcsSession s, {
-    bool? windows,
-    int? Function()? argMax,
-  }) => runGitbutlerOperation(
-    s,
-    command,
-    windows: windows,
-    environment: environment(),
-    argMax: argMax,
-  );
+    Map<String, String>? env,
+  }) => runGitbutlerOperation(s, command, environment: env ?? environment());
 
   Future<Map<String, Object?>> state(VcsSession s) =>
       GitButler(s, environment: environment()).state();
@@ -564,21 +560,15 @@ void main() {
   });
 
   group('commit', () {
-    Future<VcsStop> commitStop(
-      List<String> paths, {
-      bool? windows,
-      int? Function()? argMax,
-    }) => stopOf(
+    Future<VcsStop> commitStop(List<String> paths, {String? message}) => stopOf(
       () => op(
         'commit',
         session(
           command: 'commit',
           branch: 'feat',
-          messageFile: messageFile(),
+          messageFile: messageFile(message ?? 'a message\n'),
           paths: paths,
         ),
-        windows: windows,
-        argMax: argMax,
       ),
     );
 
@@ -666,46 +656,6 @@ void main() {
       );
     });
 
-    test('a command line over the Windows limit stops', () async {
-      final long = 'a' * 33000;
-      setStatus(stacks: [stack('feat')], uncommitted: [long]);
-      final stop = await commitStop([long], windows: true);
-      expectStop(
-        stop,
-        'too_many_paths',
-        message:
-            'named paths and message exceed the command-line limit; name a '
-            'containing directory instead',
-      );
-    });
-
-    test('with no ARG_MAX from the system the POSIX limit is 100000', () async {
-      final long = 'a' * 100001;
-      setStatus(stacks: [stack('feat')], uncommitted: [long]);
-      final stop = await commitStop([long], windows: false, argMax: () => null);
-      expectStop(
-        stop,
-        'too_many_paths',
-        message:
-            'named paths and message exceed the command-line limit; name a '
-            'containing directory instead',
-      );
-    });
-
-    test(
-      'a given ARG_MAX less the environment and 4096 is the limit',
-      () async {
-        final long = 'a' * 60000;
-        setStatus(stacks: [stack('feat')], uncommitted: [long]);
-        final stop = await commitStop(
-          [long],
-          windows: false,
-          argMax: () => 50000,
-        );
-        expect(stop.error, 'too_many_paths');
-      },
-    );
-
     /// A `but commit` that commits [files] on top of the branch's tip.
     void commitHook(Map<String, String> files, {String? message}) {
       final lines = StringBuffer()
@@ -778,6 +728,252 @@ void main() {
         );
       },
     );
+
+    // D1: the read-back reads the file text and the stored body alike, with
+    // CRLF and a lone CR as LF. The hook stores the file as it is (git
+    // commit-tree -F keeps its CRs); the stored body is read back folded.
+    test('read-back folds a CRLF file to the stored body', () async {
+      commitHook({'f.txt': 'x'});
+      final doc = await op(
+        'commit',
+        session(
+          command: 'commit',
+          branch: 'feat',
+          messageFile: messageFile('docs(x): subject\r\n\r\nBody line\r\n'),
+          paths: ['f.txt'],
+        ),
+      );
+      expect(doc['ok'], true);
+      expect(doc['commit'], gitIn(['rev-parse', 'feat']));
+    });
+
+    test('read-back folds an interior lone CR', () async {
+      commitHook({'f.txt': 'x'});
+      final doc = await op(
+        'commit',
+        session(
+          command: 'commit',
+          branch: 'feat',
+          messageFile: messageFile('one\rtwo\n'),
+          paths: ['f.txt'],
+        ),
+      );
+      expect(doc['ok'], true);
+    });
+
+    test('read-back with a differing body is commit_mismatch', () async {
+      final old = gitIn(['rev-parse', 'feat']);
+      commitHook({
+        'f.txt': 'x',
+      }, message: 'docs(x): subject\\n\\nOther line\\n');
+      final stop = await commitStop([
+        'f.txt',
+      ], message: 'docs(x): subject\r\n\r\nBody line\r\n');
+      final tip = gitIn(['rev-parse', 'feat']);
+      expect(tip, isNot(old), reason: 'the new tip is left in place');
+      expectStop(
+        stop,
+        'commit_mismatch',
+        messageHas: 'its message differs from the message file',
+        extra: {
+          'old_tip': old,
+          'new_tip': tip,
+          'files': ['f.txt'],
+        },
+      );
+    });
+
+    // The old estimate quoted every argument and stopped a Windows commit at
+    // 32,000 bytes; the real `but commit` line of these paths fits the limit.
+    test('paths over the old 32,000-byte estimate commit', () async {
+      final names = [
+        for (var i = 0; i < 1250; i++)
+          'many/${'n' * 14}${i.toString().padLeft(5, '0')}',
+      ];
+      for (final name in names) {
+        write(name, 'x\n');
+      }
+      expect(
+        names.fold<int>(0, (n, p) => n + p.length + 3),
+        greaterThan(32000),
+        reason: 'over the old quoted estimate',
+      );
+      setStatus(stacks: [stack('feat')], uncommitted: names);
+      but('hook.commit', '''
+old=\$(git rev-parse refs/heads/feat)
+export GIT_INDEX_FILE="\$BUT_DIR/idx"
+git read-tree "\$old"
+git add -A -- many
+tree=\$(git write-tree)
+new=\$(git commit-tree "\$tree" -p "\$old" -F "\$5")
+git update-ref refs/heads/feat "\$new"
+unset GIT_INDEX_FILE
+''');
+      final doc = await op(
+        'commit',
+        session(
+          command: 'commit',
+          branch: 'feat',
+          messageFile: messageFile(),
+          paths: names,
+        ),
+      );
+      expect(doc['ok'], true);
+      expect(doc['files'], hasLength(names.length));
+    });
+
+    // D1 on POSIX: no estimate. The OS refuses the start with E2BIG, which
+    // the commit launch reports as too_many_paths; a start that fails for any
+    // other reason stays tool_missing.
+    final posixOnly = Platform.isWindows ? 'POSIX only' : false;
+
+    test(
+      'an environment past ARG_MAX at the commit is too_many_paths',
+      () async {
+        final pads = {for (var i = 0; i < 100; i++) 'SW_PAD_$i': 'x' * 100000};
+        final stop = await stopOf(
+          () => op(
+            'commit',
+            session(
+              command: 'commit',
+              branch: 'feat',
+              messageFile: messageFile(),
+              paths: ['f.txt'],
+            ),
+            // the `but status` read before the commit runs with the plain one
+            env: _LateEnv(
+              environment(),
+              pads,
+              () => butLog().contains('status'),
+            ),
+          ),
+        );
+        expect(stop.error, 'too_many_paths', reason: stop.message);
+        expectStop(
+          stop,
+          'too_many_paths',
+          message:
+              'named paths and message exceed the command-line limit; name a '
+              'containing directory instead',
+        );
+        expect(butLog(), isNot(contains('commit')), reason: 'no start');
+      },
+      skip: posixOnly,
+    );
+
+    test('a but removed after the last read is tool_missing', () async {
+      but('hook.status', 'rm "\$BUT_DIR/but"\n');
+      final stop = await commitStop(['f.txt']);
+      expectStop(stop, 'tool_missing', messageHas: 'but could not run');
+    }, skip: posixOnly);
+
+    test('a but swapped for a script with a missing interpreter is '
+        'tool_missing, not too_many_paths', () async {
+      but('hook.status', r'''
+printf '#!/no/such/interpreter\n' > "$BUT_DIR/but.new"
+chmod +x "$BUT_DIR/but.new"
+mv "$BUT_DIR/but.new" "$BUT_DIR/but"
+''');
+      final stop = await commitStop(['f.txt']);
+      expectStop(stop, 'tool_missing');
+    }, skip: posixOnly);
+
+    // D1 on Windows: no estimate, the launcher's own refusal. `but.exe` is
+    // first on PATH for the `but status` read; the commit's line is the real
+    // one, resolved path and all.
+    final windowsOnly = Platform.isWindows ? false : 'Windows only';
+
+    List<String> manyNames(int count, int width) => [
+      for (var i = 0; i < count; i++)
+        'many/${'n' * (width - 8)}${i.toString().padLeft(3, '0')}',
+    ];
+
+    /// `but.exe` on PATH until a `but status` has been logged, `but.cmd` (the
+    /// only `but` in [cmdDir]) from then on: every read before the commit runs
+    /// through the exe, the commit launch resolves the batch file.
+    Map<String, String> exeThenCmd(Directory cmdDir) {
+      final base = environment();
+      final key = base.keys.firstWhere((k) => k.toUpperCase() == 'PATH');
+      base['PATHEXT'] = '.COM;.EXE;.BAT;.CMD';
+      return _LateEnv(base, {
+        key: cmdDir.path,
+      }, () => butLog().contains('status'));
+    }
+
+    Directory batchBut() {
+      final dir = Directory('${tmp.path}/cmd-bin')..createSync();
+      File(
+        '${dir.path}/but.cmd',
+      ).writeAsStringSync('@echo off\r\necho invoked> "%~dp0invoked.txt"\r\n');
+      return dir;
+    }
+
+    test(
+      'windows: but.exe line over the limit is too_many_paths, no start',
+      () async {
+        // 1,500 paths of 23 units: the real line is over 32,766 units
+        final names = manyNames(1500, 22);
+        setStatus(stacks: [stack('feat')], uncommitted: names);
+        final stop = await commitStop(names);
+        expectStop(stop, 'too_many_paths');
+        expect(butLog(), isNot(contains('commit')), reason: 'no start');
+      },
+      skip: windowsOnly,
+    );
+
+    test(
+      'windows: but.exe then but.cmd over the batch cap is too_many_paths',
+      () async {
+        // 450 paths of 29 units: over the 8,191-unit batch payload cap, under
+        // the native limit
+        final names = manyNames(450, 28);
+        setStatus(stacks: [stack('feat')], uncommitted: names);
+        final cmdDir = batchBut();
+        final stop = await stopOf(
+          () => op(
+            'commit',
+            session(
+              command: 'commit',
+              branch: 'feat',
+              messageFile: messageFile(),
+              paths: names,
+            ),
+            env: exeThenCmd(cmdDir),
+          ),
+        );
+        expectStop(stop, 'too_many_paths');
+        expect(File('${cmdDir.path}/invoked.txt').existsSync(), isFalse);
+        expect(butLog(), isNot(contains('commit')), reason: 'no start');
+      },
+      skip: windowsOnly,
+    );
+
+    test('windows: but.cmd with % in the resolved message path', () async {
+      final cmdDir = batchBut();
+      final work = Directory('${tmp.path}/a%b')..createSync();
+      File('${work.path}/msg.txt').writeAsStringSync('a message\n');
+      final previous = Directory.current;
+      Directory.current = work;
+      try {
+        await expectLater(
+          op(
+            'commit',
+            session(
+              command: 'commit',
+              branch: 'feat',
+              messageFile: 'msg.txt',
+              paths: ['f.txt'],
+            ),
+            env: exeThenCmd(cmdDir),
+          ),
+          throwsA(isA<UnsafeBatchArgument>()),
+        );
+      } finally {
+        Directory.current = previous;
+      }
+      expect(File('${cmdDir.path}/invoked.txt').existsSync(), isFalse);
+      expect(butLog(), isNot(contains('commit')), reason: 'never invoked');
+    }, skip: windowsOnly);
   });
 
   group('pull', () {
@@ -1084,4 +1280,32 @@ void main() {
       expect(gb.gitbutlerPath('a/../b'), 'b');
     });
   });
+}
+
+/// An environment that holds [_late] on top of [_base] once [_on] says so, read
+/// at each lookup, so a test can change what a launch sees between two
+/// launches (what `but` resolves to, or how large the environment is).
+class _LateEnv extends MapBase<String, String> {
+  _LateEnv(this._base, this._late, this._on);
+
+  final Map<String, String> _base;
+  final Map<String, String> _late;
+  final bool Function() _on;
+
+  @override
+  String? operator [](Object? key) =>
+      _on() && _late.containsKey(key) ? _late[key] : _base[key];
+
+  @override
+  void operator []=(String key, String value) => _base[key] = value;
+
+  @override
+  void clear() => _base.clear();
+
+  @override
+  Iterable<String> get keys =>
+      _on() ? {..._base.keys, ..._late.keys} : _base.keys;
+
+  @override
+  String? remove(Object? key) => _base.remove(key);
 }

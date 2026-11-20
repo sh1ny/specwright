@@ -336,14 +336,14 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 4. CRLF message files and the GitButler size guard (D1)
 
-- [ ] 4.1 Write failing tests for the rows of vcs-backends "A CRLF message file commits on every backend", "GitButler reads the message file where sw runs" and the GitButler and jj rows of "Fixed commit defects are exceptions to the backends' unchanged outputs": Dart in `cli/test/vcs/gitbutler_backend_test.dart` and `cli/test/vcs/jj_backend_test.dart`; real tools in `evals/vcs/test_gitbutler_commit.py` (Linux, run from outside the repo), `evals/vcs/test_commit.py` and `evals/vcs/test_git_backend.py`, reading stored messages as raw bytes. Verify they fail for the right reason.
-- [ ] 4.2 Implement: jj folds CRLF to LF on the commit path only; GitButler resolves the message path once against `sw`'s directory and passes it to `but commit -F`, folds the file text before `_rstripNl`, removes `_argvCheck` and its estimator tests and `argMax` seam, and maps only length refusals to `too_many_paths` around the real launch (`lengthRefusals: true`; on POSIX `LaunchResult` keeps the OS error and `runToolCapped` takes the `tooLong` stop for `E2BIG`). Verify: the 4.1 tests pass (Dart locally, evals in PR CI; GitButler fixtures on Linux) and their rows turn green, the "Any other commit" row included.
-- [ ] 4.3 Add the D1 rules to `evals/suites.json`: `cli/lib/src/vcs/**` and `cli/test/vcs/**` to `vcs`; `process/launch.dart`, `command_line.dart`, `resolve.dart` and `bounded_run.dart` to `vcs`; `vcs/git_backend.dart` to `finish` too; `commands/vcs.dart`, `pr/settings_commands.dart` and `evals/finish/fixtures.py` to `vcs` and `finish`. Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
-- [ ] 4.4 C8: doc comment of `_readMessage` in `cli/lib/src/vcs/jj_backend.dart`.
-- [ ] 4.5 C11: doc comment of `commit` in `cli/lib/src/vcs/gitbutler_backend.dart`.
-- [ ] 4.6 C12: doc comment of `commit` in `cli/lib/src/vcs/gitbutler_backend.dart`.
-- [ ] 4.7 C16: doc comment of `commit` in `cli/lib/src/vcs/gitbutler_backend.dart`.
-- [ ] 4.8 C18: doc comment of `butRun` in `cli/lib/src/vcs/gitbutler_backend.dart`.
+- [x] 4.1 Write failing tests for the rows of vcs-backends "A CRLF message file commits on every backend", "GitButler reads the message file where sw runs" and the GitButler and jj rows of "Fixed commit defects are exceptions to the backends' unchanged outputs": Dart in `cli/test/vcs/gitbutler_backend_test.dart` and `cli/test/vcs/jj_backend_test.dart`; real tools in `evals/vcs/test_gitbutler_commit.py` (Linux, run from outside the repo), `evals/vcs/test_commit.py` and `evals/vcs/test_git_backend.py`, reading stored messages as raw bytes. Verify they fail for the right reason.
+- [x] 4.2 Implement: jj folds CRLF to LF on the commit path only; GitButler resolves the message path once against `sw`'s directory and passes it to `but commit -F`, folds the file text before `_rstripNl`, removes `_argvCheck` and its estimator tests and `argMax` seam, and maps only length refusals to `too_many_paths` around the real launch (`lengthRefusals: true`; on POSIX `LaunchResult` keeps the OS error and `runToolCapped` takes the `tooLong` stop for `E2BIG`). Verify: the 4.1 tests pass (Dart locally, evals in PR CI; GitButler fixtures on Linux) and their rows turn green, the "Any other commit" row included.
+- [x] 4.3 Add the D1 rules to `evals/suites.json`: `cli/lib/src/vcs/**` and `cli/test/vcs/**` to `vcs`; `process/launch.dart`, `command_line.dart`, `resolve.dart` and `bounded_run.dart` to `vcs`; `vcs/git_backend.dart` to `finish` too; `commands/vcs.dart`, `pr/settings_commands.dart` and `evals/finish/fixtures.py` to `vcs` and `finish`. Verify: `python -m unittest evals/runner/test_suite_map.py` passes.
+- [x] 4.4 C8: doc comment of `_readMessage` in `cli/lib/src/vcs/jj_backend.dart`.
+- [x] 4.5 C11: doc comment of `commit` in `cli/lib/src/vcs/gitbutler_backend.dart`.
+- [x] 4.6 C12: doc comment of `commit` in `cli/lib/src/vcs/gitbutler_backend.dart`.
+- [x] 4.7 C16: doc comment of `commit` in `cli/lib/src/vcs/gitbutler_backend.dart`.
+- [x] 4.8 C18: doc comment of `butRun` in `cli/lib/src/vcs/gitbutler_backend.dart`.
 
 ## 5. `sw pr snapshot`: `--timeout`, the material file and merged logs (D7, D9, D4)
 

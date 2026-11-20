@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/commands/vcs.dart';
@@ -441,6 +442,59 @@ void main() {
         expect(r.keys.toList(), ['ok', 'backend', 'branch', 'commit']);
         expect(r['commit'], gitIn(['rev-parse', 'refs/heads/feat']));
         expect(gitIn(['show', '--name-only', '--format=', 'feat']), 'a.txt');
+      });
+
+      // D1 / C8: the commit path folds CRLF to LF; jjMerge reads the same
+      // file byte-faithfully, so a merge message keeps its CRLF.
+      test('commit normalises CRLF; merge message keeps its bytes', () async {
+        List<int> stored(String ref) {
+          final r = Process.runSync(
+            'git',
+            ['cat-file', 'commit', ref],
+            workingDirectory: repoDir.path,
+            stdoutEncoding: null,
+          );
+          expect(r.exitCode, 0);
+          final bytes = r.stdout as List<int>;
+          for (var i = 0; i + 1 < bytes.length; i++) {
+            if (bytes[i] == 0x0a && bytes[i + 1] == 0x0a) {
+              return bytes.sublist(i + 2);
+            }
+          }
+          fail('no message in the commit');
+        }
+
+        await onBranch('feat');
+        write('a.txt', 'a\n');
+        await op(
+          'commit',
+          session(
+            command: 'commit',
+            branch: 'feat',
+            messageFile: messageFile('feat(x): subject\r\n\r\nBody line\r\n'),
+            paths: ['a.txt'],
+          ),
+        );
+        final commit = stored('refs/heads/feat');
+        expect(commit, isNot(contains(0x0d)));
+        expect(
+          utf8.decode(commit).trimRight(),
+          'feat(x): subject\n\nBody line',
+        );
+
+        await op('switch', session(command: 'switch', branch: 'main'));
+        await op(
+          'merge',
+          session(
+            command: 'merge',
+            branch: 'feat',
+            messageFile: messageFile('merge feat\r\n\r\nBody line\r\n'),
+          ),
+        );
+        expect(
+          utf8.decode(stored('refs/heads/main')),
+          contains('merge feat\r\n\r\nBody line'),
+        );
       });
 
       test('a path with no change is nothing_to_commit', () async {

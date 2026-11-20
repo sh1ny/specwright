@@ -41,6 +41,9 @@
     {"paths": ["cli/lib/src/finish/**", "cli/lib/src/commands/finish.dart", "cli/test/finish/**"], "suites": ["finish", "vcs"]},
     {"paths": ["cli/lib/src/fs/**", "cli/test/fs/**"], "suites": ["finish", "vcs"]},
     {"paths": ["skills/specwright-pr/SKILL.md", "evals/packs/fixtures/**", "evals/finish/fixtures.py", "evals/fakeexe.py", "evals/runner/test_bare_bash.py", "VERSION"], "suites": ["cli/test_sw_absent.py", "cli/test_skill_probe.py", "cli/test_no_shell.py"]},
+    {"paths": ["cli/lib/src/vcs/**", "cli/test/vcs/**", "cli/lib/src/process/launch.dart", "cli/lib/src/process/command_line.dart", "cli/lib/src/process/resolve.dart", "cli/lib/src/process/bounded_run.dart"], "suites": ["vcs"]},
+    {"paths": ["cli/lib/src/vcs/git_backend.dart"], "suites": ["finish"]},
+    {"paths": ["cli/lib/src/commands/vcs.dart", "cli/lib/src/pr/settings_commands.dart", "evals/finish/fixtures.py"], "suites": ["vcs", "finish"]},
     {"paths": ["evals/vcs/**"], "suites": ["vcs"]}
   ],
   "no_eval": [

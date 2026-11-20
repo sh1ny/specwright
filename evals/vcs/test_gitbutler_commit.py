@@ -1,10 +1,12 @@
 """On GitButler a commit takes only its named paths into the change branch (real `but` in scratch repos)."""
 import json
 import shutil
+from pathlib import Path
 
 from butenv import Scratch, require_but
 from butwrap import ButWrap
 from test_gitbutler_branch import GitButlerWorkspaceCase
+from vcs_test_support import sw_run
 
 ARCHIVE = "openspec/changes/archive/2026-10-30-add-c"
 CHANGE = "openspec/changes/add-c"
@@ -218,3 +220,67 @@ class TestGitButlerCommit(GitButlerWorkspaceCase):
             self.assertEqual(result["old_tip"], old)
             self.assertEqual(result["new_tip"], self.tip(repo, "feat/add-c"))
             self.assertIn(CHANGE + "/proposal.md", result["message"])  # names the file outside the named paths
+
+    def folded(self, raw):
+        """A stored message with every line ending read as LF and the trailing LFs trimmed (the endings `but` stores are its own)."""
+        return raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").rstrip(b"\n")
+
+    def test_gitbutler_commit_with_a_crlf_message_file(self):
+        require_but()
+        with Scratch() as scratch:
+            repo, wrap = self.workspace(scratch)
+            self.write(repo, "src/x.py", "print('x')\n")
+            message_file = self.root / "crlf-message.txt"
+            message_file.write_bytes(b"docs(x): subject\r\n\r\nBody line\r\n")  # bytes: no newline translation
+
+            result, _ = self.invoke("commit", "--branch", "feat/add-c", "--message-file", message_file, "--", "src/x.py",
+                                    repo=repo.path, env=wrap.env(scratch))
+
+            self.assertTrue(result["ok"], result)
+            self.assertNotIn("error", result)
+            new = self.tip(repo, "feat/add-c")
+            self.assertEqual(result["commit"], new)
+            self.assertEqual(self.folded(self.raw_message(repo.path, new)), b"docs(x): subject\n\nBody line")
+
+    def test_a_relative_message_file_named_from_outside_the_repo(self):
+        require_but()
+        outside = self.root / "outside"
+        outside.mkdir()
+        for eol, name in ((b"\n", "lf.py"), (b"\r\n", "crlf.py")):
+            with self.subTest(eol=eol), Scratch() as scratch:
+                repo, wrap = self.workspace(scratch)
+                self.write(repo, "src/" + name, "print('x')\n")
+                (repo.path / "msg.txt").write_bytes(b"from the repo" + eol)  # the wrong file: `but` runs in the repo
+                (outside / "msg.txt").write_bytes(b"from outside" + eol + eol + b"Body" + eol)
+                old = self.tip(repo, "feat/add-c")
+
+                result, _ = self.invoke("commit", "--branch", "feat/add-c", "--message-file", "msg.txt", "--", "src/" + name,
+                                        repo=repo.path, env=wrap.env(scratch), cwd=outside)
+
+                self.assertTrue(result["ok"], result)
+                new = self.tip(repo, "feat/add-c")
+                self.assertNotEqual(new, old)
+                self.assertEqual(self.folded(self.raw_message(repo.path, new)), b"from outside\n\nBody")
+                commits = [call for call in wrap.calls() if call[:1] == ["commit"]]
+                self.assertEqual(len(commits), 1, commits)
+                given = commits[0][commits[0].index("-F") + 1]
+                self.assertTrue(Path(given).is_absolute(), "but commit -F got " + given)
+                self.assertEqual(Path(given).resolve(), (outside / "msg.txt").resolve())
+
+    def test_the_file_exists_only_in_the_repo(self):
+        require_but()
+        outside = self.root / "outside-empty"
+        outside.mkdir()
+        with Scratch() as scratch:
+            repo, wrap = self.workspace(scratch)
+            self.write(repo, "src/x.py", "print('x')\n")
+            (repo.path / "msg.txt").write_text("only in the repo\n", encoding="utf-8")
+            before = (self.tips(repo), self.refs(repo))
+
+            result = sw_run(["vcs", "commit", "--repo", str(repo.path), "--role", "code", "--branch", "feat/add-c",
+                             "--message-file", "msg.txt", "--", "src/x.py"],
+                            cwd=outside, env=wrap.env(scratch))
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual([call for call in wrap.calls() if call[:1] == ["commit"]], [], "but commit ran")
+            self.assertEqual((self.tips(repo), self.refs(repo)), before)

@@ -28,6 +28,8 @@ class LaunchResult {
     this.startFailed = false,
     this.timedOut = false,
     this.streamError,
+    this.startErrorCode,
+    this.lineTooLong = false,
   });
 
   final int exitCode;
@@ -48,6 +50,15 @@ class LaunchResult {
   /// The first error a stdout or stderr pipe reported (C49). It is not a clean
   /// end of stream: [exitCode] and the bytes read stay as they were.
   final Object? streamError;
+
+  /// Only a failed start: the operating system's error code of the refused
+  /// start (`ProcessException.errorCode`; 7, `E2BIG`, on Linux and macOS when
+  /// the arguments and environment are too large), when it gave one.
+  final int? startErrorCode;
+
+  /// Only a failed start: a bounded launch refused the line as too long for
+  /// the Windows limit before any helper was spawned (D5).
+  final bool lineTooLong;
 }
 
 bool _hasNul(String s) => s.contains('\x00');
@@ -106,11 +117,17 @@ void checkLaunchInput(
   checkCommandLine(name, command, windows: windows);
 }
 
-LaunchResult _startFailed(String text) => LaunchResult(
+LaunchResult _startFailed(
+  String text, {
+  int? startErrorCode,
+  bool lineTooLong = false,
+}) => LaunchResult(
   127,
   Uint8List(0),
   Uint8List.fromList(utf8.encode(text)),
   startFailed: true,
+  startErrorCode: startErrorCode,
+  lineTooLong: lineTooLong,
 );
 
 /// Starts [command] (the tool's name or path first) in [cwd] without a shell
@@ -297,7 +314,10 @@ Future<LaunchResult> _batch(
   }
   final startError = result.startError;
   if (startError != null) {
-    return _startFailed('cannot start $name: $startError\n');
+    return _startFailed(
+      'cannot start $name: $startError\n',
+      lineTooLong: result.lineTooLong,
+    );
   }
   if (result.pipesHeld) {
     return _startFailed('$name: stopped: output pipe held after exit\n');
@@ -333,7 +353,7 @@ Future<LaunchResult> _native(
       includeParentEnvironment: environment == null,
     );
   } on ProcessException catch (e) {
-    return _startFailed('${e.toString()}\n');
+    return _startFailed('${e.toString()}\n', startErrorCode: e.errorCode);
   }
 
   final out = BytesBuilder(copy: false);
