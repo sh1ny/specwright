@@ -17,6 +17,11 @@ Hostile-network injection (bound-pr-scripts), matched against the joined argv li
   "delay": [{"match": "regex", "seconds": 2}]                   sleep, then answer normally
   "flood": [{"match": "regex", "bytes": 1000000}]               print that many bytes of JSON array pages, then exit 0
   "tick":  {"match": "regex", "skip": 1, "clock_step": 300, ...} state that moves between a --wait loop's polls; see tick()
+`run view <id> -R <repo> --log-failed` (fail-log-merge) writes the steps of "run_log" in order, flushing after each:
+  {"out": text} | {"err": text} | {"out_bytes": n} | {"err_bytes": n} (n bytes of letters in lines, 64 KiB at a time).
+  "break_launcher": {"match": "regex", "path": "<launcher>"} replaces the launcher file at `path` with one that no OS can start,
+  after the first call whose argv matches: the old file is renamed aside (allowed for a running executable on Windows) and
+  a file no OS can start is written at its place, so a later call finds a command that passes lookup but fails to start.
 `api markdown --input <file>` (POST) serves a recorded GitHub rendering: the file holds {"text", "mode", "context"}; the answer is
   the raw HTML stored in the fixture file $FAKE_GH_MARKDOWN (default evals/pr-pair/fixtures/markdown.json), whose entries are
   {sha256-key: {"mode", "context", "html"}}. The key is markdown_key(mode, text) = sha256((mode + NEWLINE + text).encode("utf-8")).hexdigest(), NEWLINE = chr(10);
@@ -1154,6 +1159,42 @@ def remote_has_tag(repo, tag):
     return r.returncode == 0 and bool(r.stdout.strip())
 
 
+def cmd_run(st, args):
+    """`run view <id> [-R repo] --log-failed`: the steps of the state's "run_log", each flushed as it is written."""
+    if args[:1] != ["view"] or "--log-failed" not in args:
+        raise Fail(f"fake gh: unsupported run command: {' '.join(args)}", 2)
+
+    def blocks(stream, count):
+        block = ("x" * 63 + chr(10)) * 1024  # 64 KiB of 64-byte lines
+        while count > 0:
+            text = block[:count]
+            stream.write(text)
+            count -= len(text)
+        stream.flush()
+
+    for step in st.get("run_log", []):
+        for key, stream in (("out", sys.stdout), ("err", sys.stderr)):
+            if key in step:
+                stream.write(step[key])
+                stream.flush()
+            if key + "_bytes" in step:
+                blocks(stream, int(step[key + "_bytes"]))
+
+
+def break_launcher(st, argv):
+    """The "break_launcher" injection: after a call that matched, the launcher at `path` is no longer startable."""
+    spec = st.get("break_launcher")
+    if not spec or not re.search(spec["match"], " ".join(argv)):
+        return
+    path = spec["path"]
+    os.replace(path, path + ".old")
+    with open(path, "wb") as f:
+        # POSIX: an interpreter line naming no file, so the exec fails (a file with no such line would run under sh);
+        # Windows reads no interpreter line and refuses the file as no program
+        f.write(b"#!/nonexistent/specwright-no-interpreter\n")
+    os.chmod(path, 0o755)
+
+
 def cmd_release(st, args):
     sub, args = (args[:1] or [""])[0], args[1:]
     V = {"--repo": "repo", "-R": "repo", "--title": "title", "-t": "title", "--notes": "notes", "-n": "notes",
@@ -1210,10 +1251,11 @@ def main(argv):
         hostile(st, argv)
         if host_of(argv) != "github.com" and "--help" not in argv:
             raise Fail(f"fake gh: host {host_of(argv)} is not supported (only github.com)", 1)
-        cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo, "release": cmd_release}
+        cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo, "release": cmd_release, "run": cmd_run}
         if not argv or argv[0] not in cmds:
             raise Fail(f"fake gh: unsupported command: {' '.join(argv)}", 2)
         cmds[argv[0]](st, argv[1:])
+        break_launcher(st, argv)
     except Fail as e:
         if e.body is not None:
             print(json.dumps(e.body))

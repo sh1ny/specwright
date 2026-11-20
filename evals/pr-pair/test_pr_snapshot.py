@@ -906,6 +906,77 @@ class LookupLimits(SnapCase):
         self.assert_failed(self.hung("rate_limit"), "gh api")
 
 
+class FailedLogs(SnapCase):
+    """`--logs` through the real bounded helper (fail-log-merge, D4): the failed-job log call merges stdout and stderr in the
+    order they reached sw, keeps the last 80 lines, and counts both streams against one cap. The fake gh writes the log from
+    the state's `run_log` steps (evals/fakes/gh.py)."""
+
+    RUN = 11
+    MARK = "===== failed log: run 11 ====="
+
+    def setUp(self):
+        super().setUp()
+        failing = run("tests", conclusion="FAILURE")
+        failing["checkSuite"] = {"workflowRun": {"databaseId": self.RUN}}
+        self.set_checks([failing])
+
+    def steps(self, *steps):
+        self.mutate(lambda st: st.update({"run_log": list(steps)}))
+
+    def logs(self, env=None):
+        """`sw pr snapshot --logs`: (the CompletedProcess, the text printed after the run's log header)."""
+        r = self.snapshot_run("--logs", env=env)
+        head, sep, rest = r.stdout.partition("\n" + self.MARK + "\n")
+        self.assertTrue(sep, f"no log header in {r.stdout!r} / {r.stderr!r}")
+        return r, rest
+
+    def test_logs_tail_of_101_lines_through_the_helper(self):
+        self.steps({"out": "".join(f"line {i}\n" for i in range(1, 102))})
+        r, log = self.logs()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(log.splitlines(), [f"line {i}" for i in range(22, 102)])
+
+    def test_logs_hold_no_frame_bytes(self):
+        # stdout: lowercase letters and digits, each line ended by LF; stderr: uppercase letters, no LF. Chunks may splice,
+        # so the stdout bytes and the stderr bytes are each checked in order, and nothing else may be in the log.
+        out, err = "ab12\ncd34\nef56\n", "WARNINGTEXT"
+        self.steps({"out": out}, {"err": err})
+        r, log = self.logs()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        stdout_kind = "abcdefghijklmnopqrstuvwxyz0123456789\n"
+        stderr_kind = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        self.assertEqual("".join(c for c in log if c in stdout_kind), out)
+        self.assertEqual("".join(c for c in log if c in stderr_kind), err)
+        self.assertEqual([c for c in log if c not in stdout_kind + stderr_kind], [], "a byte neither stream wrote")
+
+    def test_logs_show_the_start_failure_text(self):
+        # the launcher passes lookup for the polls, and is replaced by a file no OS can start once the PR query has been
+        # answered, so only the log call meets it: the helper starts, then prints its own `cannot start` text
+        launcher = self.tmp / "bin" / ("gh.exe" if os.name == "nt" else "gh")
+        self.mutate(lambda st: st.update({"break_launcher": {"match": "statusCheckRollup", "path": str(launcher)}}))
+        r, log = self.logs()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("bounded: cannot start ", log)
+        self.assertNotIn("\x00", log)
+        self.assertNotIn("sw-hello", log)
+        self.assertNotIn("sw-ready", log)
+
+    def test_logs_over_a_lowered_cap_show_the_limit_line(self):
+        self.steps({"out_bytes": 60000})
+        r, log = self.logs(env={"SPECWRIGHT_NET_MAX_BYTES": "50000"})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(log, "bounded: response_too_large: gh run\n")
+        self.assertIn(f"bounded: response_too_large: gh run view {self.RUN}", r.stderr)
+
+    def test_logs_over_the_shared_cap_are_response_too_large(self):
+        mib = 1 << 20
+        self.steps({"out_bytes": 20 * mib}, {"err_bytes": 20 * mib})
+        r, log = self.logs()
+        self.assertEqual(r.returncode, 1, r.stderr[-300:])
+        self.assertEqual(log, "bounded: response_too_large: gh run\n", "no partial log is printed")
+        self.assertIn(f"bounded: response_too_large: gh run view {self.RUN}", r.stderr)
+
+
 class ClippedBodies(SnapCase):
     """A body the snapshot shortened says so (`clipped`), and --full reads it whole."""
 

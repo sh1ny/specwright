@@ -23,6 +23,7 @@ class BoundedResult {
     this.pipesHeld = false,
     this.lineTooLong = false,
     this.streamError,
+    this.merged,
     this.stdout = const [],
     this.stderr = const [],
   });
@@ -61,6 +62,9 @@ class BoundedResult {
   /// and a caller that needs the whole reply (the inventory reader) fails on
   /// it.
   final Object? streamError;
+
+  /// Merged mode only: stdout and stderr in arrival order.
+  final List<int>? merged;
 
   final List<int> stdout;
   final List<int> stderr;
@@ -138,6 +142,23 @@ const String helperLineTooLong =
 /// selection with today's mapping, and a new refusal is the failed start they
 /// get today.
 ///
+/// Constraint C3: `--logs` merges by arrival order, not by a shared
+/// descriptor, because Windows handle inheritance for such a redirect is not
+/// verified and the owner chose the arrival-order guarantee; the merged buffer
+/// takes every stderr byte the frame parser passes on (the helper's `bounded:
+/// cannot start` text included, frames never), a result with no merged buffer
+/// uses its stderr, and merged mode needs finite bounds. Merged mode is opt-in
+/// ([mergeOutput]): both streams count against one budget, `maxBytes`, and
+/// only [BoundedResult.merged] is kept, not separate copies of stdout and
+/// stderr.
+///
+/// Constraint C3b: the merged buffer joins the two streams by delivered chunk
+/// and the snapshot's tail counts raw LF bytes, so a stderr chunk that lands
+/// inside a stdout line splits that line, possibly inside a UTF-8 sequence;
+/// the spec says so. This is a deliberate gap: the guarantee is the order in
+/// which `sw`'s listeners receive the chunks, not the order the target wrote
+/// them.
+///
 /// Constraint C49: a pipe error is recorded in [BoundedResult.streamError] and
 /// never read as a clean end of stream, and an error on either pipe before the
 /// go byte is a failed start that sends no go byte. See `launch` in
@@ -156,6 +177,7 @@ class BoundedRun {
     this.stdoutSink,
     this.helperArgv,
     this.lineTooLong = false,
+    this.mergeOutput = false,
     this.startProcess = startHelperProcess,
     void Function(String line)? note,
   }) : helperCommand = effectiveHelperCommand(helperCommand),
@@ -185,6 +207,12 @@ class BoundedRun {
   /// `planBoundedLaunch` refused the line: nothing is spawned and the result is
   /// a failed helper start with [BoundedResult.lineTooLong].
   final bool lineTooLong;
+
+  /// Merged mode (C3): stdout and stderr are kept as one buffer in arrival
+  /// order, under the single budget `limits.maxBytes`. It needs a finite
+  /// `maxBytes` and no [stdoutSink]; [run] throws an [ArgumentError] before
+  /// anything starts otherwise.
+  final bool mergeOutput;
 
   /// How the helper is started (`Process.start`; a test injects a stand-in).
   final ProcessStarter startProcess;
@@ -216,6 +244,13 @@ class BoundedRun {
   final void Function(String line) _note;
 
   Future<BoundedResult> run() async {
+    final budget = limits.maxBytes;
+    if (mergeOutput && (budget == null || stdoutSink != null)) {
+      // Not an assertion: the AOT build drops those. Nothing has started yet.
+      throw ArgumentError(
+        'merged output needs a finite maxBytes and no stdoutSink',
+      );
+    }
     final clock = Stopwatch()..start();
     final firstLimit = Completer<BoundedLimit>();
     String? firstLimitStream;
@@ -323,6 +358,9 @@ class BoundedRun {
       }
     }
 
+    // Merged mode (D4): one buffer and one budget for both streams.
+    final mergedOut = BytesBuilder(copy: false);
+    var mergedBytes = 0;
     var outBytes = 0;
     final outBound = limits.stdoutCap ?? limits.maxBytes;
     var errBytes = 0;
@@ -335,6 +373,16 @@ class BoundedRun {
       int? bound,
       String stream,
     ) {
+      if (mergeOutput) {
+        if (firstLimit.isCompleted) return;
+        mergedBytes += chunk.length;
+        if (mergedBytes > budget!) {
+          hit(BoundedLimit.responseTooLarge, stream);
+        } else {
+          mergedOut.add(chunk);
+        }
+        return;
+      }
       if (stream == 'stdout') {
         if (stdoutSink == null) {
           buffer.add(chunk);
@@ -659,6 +707,7 @@ class BoundedRun {
       await cancelReaders();
       return BoundedResult(
         exitCode: await exited.future,
+        merged: mergeOutput ? mergedOut.takeBytes() : null,
         stdout: out.takeBytes(),
         stderr: err.takeBytes(),
         pipesHeld: pipesHeld,

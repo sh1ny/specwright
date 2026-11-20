@@ -24,6 +24,7 @@ class GhResult {
     this.limitLine,
     required this.stdout,
     required this.stderr,
+    this.merged,
   });
 
   final int exitCode;
@@ -35,6 +36,12 @@ class GhResult {
   final String? limitLine;
   final Uint8List stdout;
   final Uint8List stderr;
+
+  /// The output of a call that ran in merged mode (the `--log-failed` call):
+  /// stdout and stderr in the order their chunks reached `sw`. Null for every
+  /// other result, including a call that never started a process, whose own
+  /// output is [stderr].
+  final Uint8List? merged;
 }
 
 /// Runs `gh <args>` in [cwd] under the bounded helper: a deadline, a byte bound
@@ -66,6 +73,8 @@ Future<GhResult> runGh(
   // D8: an inherited GH_REPO never picks the repository of a gh call
   environment: {...(environment ?? Platform.environment)}..remove('GH_REPO'),
   paged: paged,
+  // D4: the failed-job log is one stream in arrival order, under one budget
+  mergeOutput: args.contains('--log-failed'),
   limits: limits,
   helperCommand: helperCommand,
   startProcess: startProcess,
@@ -89,6 +98,7 @@ Future<GhResult> runBoundedCommand(
   command,
   environment: environment,
   paged: paged,
+  mergeOutput: false,
   limits: limits,
   helperCommand: helperCommand,
   startProcess: startProcess,
@@ -106,6 +116,7 @@ Future<GhResult> _run(
   List<String> command, {
   required Map<String, String>? environment,
   required bool paged,
+  required bool mergeOutput,
   required RunLimits? limits,
   required List<String>? helperCommand,
   required ProcessStarter startProcess,
@@ -145,6 +156,7 @@ Future<GhResult> _run(
     rawLine: plan.rawLine,
     helperArgv: launchPlan.helperArgv,
     lineTooLong: launchPlan.lineTooLong,
+    mergeOutput: mergeOutput,
     startProcess: startProcess,
     stdinBytes: plan.stdinBytes,
     workingDirectory: dir,
@@ -184,6 +196,7 @@ Future<GhResult> _run(
     exitCode: result.exitCode ?? 127,
     stdout: Uint8List.fromList(result.stdout),
     stderr: Uint8List.fromList(result.stderr),
+    merged: result.merged == null ? null : Uint8List.fromList(result.merged!),
   );
 }
 
