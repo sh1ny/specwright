@@ -14,6 +14,7 @@ import 'limits.dart';
 import 'missing_directory.dart';
 import 'platform_tree.dart';
 import 'resolve.dart';
+import 'tree_stop.dart' show ProcessTreeFactory;
 
 /// What a launch produced: the exit code and the raw output bytes. Decoding is
 /// the caller's choice. The fields are those of the `ToolResult` the tool
@@ -26,6 +27,7 @@ class LaunchResult {
     this.outputTooLarge = false,
     this.startFailed = false,
     this.timedOut = false,
+    this.streamError,
   });
 
   final int exitCode;
@@ -42,6 +44,10 @@ class LaunchResult {
 
   /// Only a call with a `deadline`: the tool ran past it and was killed.
   final bool timedOut;
+
+  /// The first error a stdout or stderr pipe reported (C49). It is not a clean
+  /// end of stream: [exitCode] and the bytes read stay as they were.
+  final Object? streamError;
 }
 
 bool _hasNul(String s) => s.contains('\x00');
@@ -64,6 +70,13 @@ bool _hasLoneSurrogate(String s) {
   return false;
 }
 
+/// Constraint C25: on Windows the launchers that check the command as given
+/// before lookup keep doing so; a relative spelling over the limit that would
+/// resolve to a short path is refused, because moving the check changes
+/// existing refusals. This is a deliberate gap. The as-given check counts no
+/// terminating NUL (32,767 visible units pass); only a line that is started
+/// does (`planLaunch`, `planBoundedLaunch`).
+///
 /// Throws [Unrepresentable] for a NUL or a lone surrogate in [command] (its
 /// first item is `command`, the others `argument`), in [environment] (key or
 /// value) or in [cwd], and, when [windows] (default: this system), for a
@@ -124,6 +137,15 @@ LaunchResult _startFailed(String text) => LaunchResult(
 /// file that cannot start gives 127 as above. [helperCommand] replaces the
 /// helper (`sw __exec`) for tests.
 ///
+/// Constraint C49: the native and bounded launchers never read a stdout or
+/// stderr stream error as a clean end of stream: they record it on the result
+/// ([LaunchResult.streamError], `BoundedResult.streamError`), and an error on
+/// either pipe before the go byte is a failed start that sends no go byte. Only
+/// the shared inventory reader turns a recorded stream error into a failed
+/// read; every other caller, including `sw run --bounded` and `runGh`, keeps
+/// today's mapping of status and captured output, so the native-cli and
+/// pr-script-runtime contracts are unchanged.
+///
 /// Constraint C9: a [stdoutCap] bounds stdout only. Once stdout holds more than
 /// that many bytes the child is killed, and [LaunchResult.outputTooLarge] is
 /// set. A [stderrCap] does the same for stderr, while it is read; only the
@@ -154,6 +176,8 @@ Future<LaunchResult> launch(
   Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
+  ProcessStarter? startProcess,
+  ProcessTreeFactory? treeFor,
 }) async {
   checkLaunchInput(command, cwd: cwd, environment: environment);
   final name = command.first;
@@ -181,6 +205,8 @@ Future<LaunchResult> launch(
       deadline,
       helperCommand,
       stdoutSink,
+      startProcess ?? startHelperProcess,
+      treeFor,
     );
   }
   // D5: the resolved path's Windows line is checked by planLaunch, the one
@@ -198,8 +224,25 @@ Future<LaunchResult> launch(
     stderrCap,
     deadline,
     stdoutSink,
+    startProcess ?? _startTool,
   );
 }
+
+/// Starts an external tool directly, without a shell: the default
+/// [ProcessStarter] of a native launch.
+Future<Process> _startTool(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+  bool includeParentEnvironment = true,
+  String? workingDirectory,
+}) => Process.start(
+  executable,
+  arguments,
+  environment: environment,
+  includeParentEnvironment: includeParentEnvironment,
+  workingDirectory: workingDirectory,
+);
 
 Future<LaunchResult> _batch(
   String name,
@@ -214,11 +257,22 @@ Future<LaunchResult> _batch(
   Duration? deadline,
   List<String>? helperCommand,
   Future<void> Function(List<int>)? stdoutSink,
+  ProcessStarter startProcess,
+  ProcessTreeFactory? treeFor,
 ) async {
-  final plan = planLaunch(path, command, env);
+  final launchPlan = planBoundedLaunch(
+    path,
+    command,
+    env,
+    effectiveHelperCommand(helperCommand),
+  );
+  final plan = launchPlan.plan;
   final result = await BoundedRun(
     command: plan.command,
     rawLine: plan.rawLine,
+    helperArgv: launchPlan.helperArgv,
+    lineTooLong: launchPlan.lineTooLong,
+    startProcess: startProcess,
     stdinBytes: [...plan.stdinBytes, ...?input],
     // maxBytes bounds stderr (and stdout too when there is no stdoutCap)
     limits: RunLimits(
@@ -226,7 +280,7 @@ Future<LaunchResult> _batch(
       maxBytes: stderrCap,
       deadline: deadline,
     ),
-    treeFor: () => platformTree(env),
+    treeFor: treeFor ?? () => platformTree(env),
     helperCommand: helperCommand,
     environment: environment,
     workingDirectory: dir,
@@ -252,6 +306,7 @@ Future<LaunchResult> _batch(
     result.exitCode ?? 127,
     Uint8List.fromList(result.stdout),
     Uint8List.fromList(result.stderr),
+    streamError: result.streamError,
   );
 }
 
@@ -266,10 +321,11 @@ Future<LaunchResult> _native(
   int? stderrCap,
   Duration? deadline,
   Future<void> Function(List<int>)? stdoutSink,
+  ProcessStarter startProcess,
 ) async {
   final Process process;
   try {
-    process = await Process.start(
+    process = await startProcess(
       path,
       args,
       workingDirectory: dir,
@@ -308,6 +364,7 @@ Future<LaunchResult> _native(
     settleSink();
   }
 
+  Object? streamError; // C49: a pipe error is not a clean end of stream
   var timedOut = false;
   // armed until both readers end, not only until the tool exits
   final timer = deadline == null
@@ -359,7 +416,8 @@ Future<LaunchResult> _native(
       if (!outDone.isCompleted) outDone.complete();
       settleSink();
     },
-    onError: (Object _) {
+    onError: (Object error) {
+      streamError ??= error;
       if (!outDone.isCompleted) outDone.complete();
       settleSink();
     },
@@ -379,7 +437,8 @@ Future<LaunchResult> _native(
     onDone: () {
       if (!errDone.isCompleted) errDone.complete();
     },
-    onError: (Object _) {
+    onError: (Object error) {
+      streamError ??= error;
       if (!errDone.isCompleted) errDone.complete();
     },
     cancelOnError: true,
@@ -422,6 +481,7 @@ Future<LaunchResult> _native(
       err.takeBytes(),
       outputTooLarge: tooLarge,
       timedOut: timedOut,
+      streamError: streamError,
     );
   } catch (_) {
     timer?.cancel();

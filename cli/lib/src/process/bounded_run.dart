@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'command_line.dart' show helperArguments;
 import 'frame.dart';
 import 'limit_line.dart';
 import 'limits.dart';
@@ -20,6 +21,8 @@ class BoundedResult {
     this.helperExited = false,
     this.helperNotStopped = false,
     this.pipesHeld = false,
+    this.lineTooLong = false,
+    this.streamError,
     this.stdout = const [],
     this.stderr = const [],
   });
@@ -49,9 +52,51 @@ class BoundedResult {
   /// [pipesHeld].
   final bool pipesHeld;
 
+  /// [startError] is a line over the Windows limit that a check added by D5
+  /// refused: the helper was never spawned.
+  final bool lineTooLong;
+
+  /// The first error a stdout or stderr pipe reported (C49). It is never read
+  /// as a clean end of stream: [exitCode] and the bytes read stay as they were,
+  /// and a caller that needs the whole reply (the inventory reader) fails on
+  /// it.
+  final Object? streamError;
+
   final List<int> stdout;
   final List<int> stderr;
 }
+
+/// Starts a process: `Process.start`, or a test's stand-in for it.
+typedef ProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+  bool includeParentEnvironment,
+  String? workingDirectory,
+});
+
+/// Starts the bounded helper (`sw __exec`): the default [ProcessStarter].
+Future<Process> startHelperProcess(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+  bool includeParentEnvironment = true,
+  String? workingDirectory,
+}) => Process.start(
+  executable,
+  arguments,
+  environment: environment,
+  includeParentEnvironment: includeParentEnvironment,
+  workingDirectory: workingDirectory,
+);
+
+/// The helper's command line: [helperCommand], else `sw __exec`.
+List<String> effectiveHelperCommand(List<String>? helperCommand) =>
+    helperCommand ?? [Platform.resolvedExecutable, '__exec'];
+
+/// The message of a failed helper start for a line over the limit (D5).
+const String helperLineTooLong =
+    'cannot start the helper: its command line is too long';
 
 /// One bounded run of a command: its deadline, a byte bound on each of stdout
 /// and stderr, and the stop of its whole process tree.
@@ -79,6 +124,24 @@ class BoundedResult {
 ///   the async stdout consumer. If pipes remain held, the tree is stopped and
 ///   [BoundedResult.pipesHeld] is set; the command's own exit result stands.
 /// * Stopping: at most [stopWait] for the helper and pipes, then let go.
+///
+/// Constraint C13: on a bounded launch, a refusal by a check this change adds
+/// (a resolved native line of exactly 32,767 units, the raw `cmd.exe` line, the
+/// helper line) is returned as a failed helper start without spawning, so every
+/// bounded caller, the reviewer included, keeps today's result; refusals by the
+/// checks that existed before keep throwing with today's mappings
+/// (`Unrepresentable` as `not_utf8`, `UnsafeBatchArgument` as `internal_error`
+/// in the review). Route-selection probes skip the route only on an old-check
+/// length refusal (`Unrepresentable` whose `what` is `command line`, or
+/// `UnsafeBatchArgument` whose reason is `line too long`); any other old-check
+/// refusal (a malformed argument, an unsafe batch character) still stops
+/// selection with today's mapping, and a new refusal is the failed start they
+/// get today.
+///
+/// Constraint C49: a pipe error is recorded in [BoundedResult.streamError] and
+/// never read as a clean end of stream, and an error on either pipe before the
+/// go byte is a failed start that sends no go byte. See `launch` in
+/// `launch.dart` for the full statement.
 class BoundedRun {
   BoundedRun({
     required this.command,
@@ -91,8 +154,11 @@ class BoundedRun {
     this.environment,
     this.workingDirectory,
     this.stdoutSink,
+    this.helperArgv,
+    this.lineTooLong = false,
+    this.startProcess = startHelperProcess,
     void Function(String line)? note,
-  }) : helperCommand = helperCommand ?? [Platform.resolvedExecutable, '__exec'],
+  }) : helperCommand = effectiveHelperCommand(helperCommand),
        _note = note ?? stderr.write;
 
   /// The command and its arguments, as the helper starts them.
@@ -110,6 +176,18 @@ class BoundedRun {
   final List<String> helperCommand;
 
   final ProcessTreeFactory treeFor;
+
+  /// The helper's executable and arguments exactly as `planBoundedLaunch`
+  /// checked them (D5). Null: built here from [helperCommand], [rawLine] and
+  /// [command] with the same `helperArguments`.
+  final List<String>? helperArgv;
+
+  /// `planBoundedLaunch` refused the line: nothing is spawned and the result is
+  /// a failed helper start with [BoundedResult.lineTooLong].
+  final bool lineTooLong;
+
+  /// How the helper is started (`Process.start`; a test injects a stand-in).
+  final ProcessStarter startProcess;
 
   /// Test hook `SPECWRIGHT_TEST_PRE_GO`: once the ready frame is consumed, the
   /// parent creates `<file>.reached` and defers the go byte while the file
@@ -196,12 +274,21 @@ class BoundedRun {
             hit(BoundedLimit.deadlineExceeded);
           });
 
+    if (lineTooLong) {
+      deadlineTimer?.cancel();
+      return const BoundedResult(
+        startError: helperLineTooLong,
+        lineTooLong: true,
+      );
+    }
     final tree = treeFor();
     final Process helper;
     try {
-      helper = await Process.start(
-        helperCommand.first,
-        [...helperCommand.skip(1), if (rawLine) '--cmdline', '--', ...command],
+      final argv =
+          helperArgv ?? helperArguments(helperCommand, rawLine, command);
+      helper = await startProcess(
+        argv.first,
+        argv.skip(1).toList(),
         environment: environment,
         includeParentEnvironment: environment == null,
         workingDirectory: workingDirectory,
@@ -223,6 +310,17 @@ class BoundedRun {
     final readersDone = Future.wait([outDone.future, errDone.future]);
     void settle(Completer<void> c) {
       if (!c.isCompleted) c.complete();
+    }
+
+    // C49: the first pipe error; before the go it ends the start.
+    Object? streamError;
+    var goSent = false;
+    void pipeError(Object error) {
+      streamError ??= error;
+      if (!goSent) {
+        settle(helloSettled);
+        settle(frameSettled);
+      }
     }
 
     var outBytes = 0;
@@ -318,7 +416,8 @@ class BoundedRun {
           if (!firstLimit.isCompleted && sinkError == null) outSub.resume();
         }());
       },
-      onError: (Object _) {
+      onError: (Object error) {
+        pipeError(error);
         settle(outDone);
         settleSink();
       },
@@ -338,7 +437,10 @@ class BoundedRun {
         }
         if (rest.isNotEmpty) count(err, rest, limits.maxBytes, 'stderr');
       },
-      onError: (Object _) => settle(errDone),
+      onError: (Object error) {
+        pipeError(error);
+        settle(errDone);
+      },
       onDone: () {
         parser.close();
         settle(helloSettled);
@@ -358,11 +460,25 @@ class BoundedRun {
       }),
     );
 
+    // C49: a pipe error before the go byte is a failed start, no go sent.
+    Future<BoundedResult> failedBeforeGo() async {
+      closeControlPipe();
+      await cancelReaders();
+      await tree.stop(); // acts only on an identified helper (C2, C11)
+      return BoundedResult(
+        startError: 'a pipe failed before the command started: $streamError',
+        streamError: streamError,
+      );
+    }
+
     var letGo = false; // a helper that was never identified: do not signal it
     var sinkFailureStopped = false;
     try {
       // Starting: the hello frame, or a limit or a sink failure.
       await race([helloSettled.future, firstLimit.future]);
+      if (streamError != null && !firstLimit.isCompleted) {
+        return await failedBeforeGo();
+      }
       if (parser.hello == null && parser.state != FrameState.malformed) {
         // A limit before the helper announced itself: close the pipe without
         // the go, and give the helper the stop wait to announce itself or
@@ -411,6 +527,9 @@ class BoundedRun {
 
       // The ready frame, or a limit, or the helper's end.
       await race([frameSettled.future, firstLimit.future, exited.future]);
+      if (streamError != null && !firstLimit.isCompleted) {
+        return await failedBeforeGo();
+      }
       if (firstLimit.isCompleted) {
         await tree.stop();
         closeControlPipe();
@@ -461,6 +580,7 @@ class BoundedRun {
         await waitForExit();
         return await limitedResult();
       }
+      if (streamError != null) return await failedBeforeGo();
       if (exited.isCompleted || tree.helperGone) {
         // The helper ended after its frames and before the go: nothing is
         // written to it, and the command never starts.
@@ -471,6 +591,7 @@ class BoundedRun {
 
       // Go: no limit has hit, and nothing awaits between this check and the
       // write.
+      goSent = true;
       helper.stdin.add([0x67, ...stdinBytes]);
       closeControlPipe();
 
@@ -541,6 +662,7 @@ class BoundedRun {
         stdout: out.takeBytes(),
         stderr: err.takeBytes(),
         pipesHeld: pipesHeld,
+        streamError: streamError,
       );
     } catch (error, stack) {
       closeControlPipe();

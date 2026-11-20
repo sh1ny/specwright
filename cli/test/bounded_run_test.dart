@@ -6,7 +6,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/commands/run.dart';
+import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/process/bounded_run.dart';
+import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:specwright_cli/src/process/frame.dart';
 import 'package:specwright_cli/src/process/limit_line.dart';
 import 'package:specwright_cli/src/process/limits.dart';
@@ -14,7 +16,9 @@ import 'package:specwright_cli/src/process/platform_tree.dart';
 import 'package:specwright_cli/src/process/tree_stop.dart';
 import 'package:test/test.dart';
 
+import 'fake_process.dart';
 import 'helper_support.dart';
+import 'line_support.dart';
 
 /// Records what `BoundedRun` asks of the tree, and stops nothing itself.
 class _RecordingTree implements ProcessTree {
@@ -513,6 +517,218 @@ Future<void> main(List<String> args) async {
       expect(result.limit, isNull);
       expect(result.exitCode, 7);
       expect(result.pipesHeld, isTrue);
+    });
+  });
+
+  // D5 / C1: the helper's own serialized line is checked once, before the
+  // helper starts, so a command that fits behind its name can still be refused
+  // because the helper adds `<helper> __exec --` in front of it.
+  group('the helper line (D5)', () {
+    const helper = [r'C:\sw\sw.exe', '__exec'];
+    final windowsOnly = Platform.isWindows ? null : 'Windows only';
+
+    test('windows: planBoundedLaunch refuses the serialized helper argv', () {
+      const path = r'C:\tools\longtool.exe';
+      BoundedLaunchPlan plan(int units) => planBoundedLaunch(
+        path,
+        [
+          'longtool',
+          fillTo([...helper, '--', path], units),
+        ],
+        const <String, String>{},
+        helper,
+        windows: true,
+      );
+      final fits = plan(32766);
+      expect(fits.lineTooLong, isFalse);
+      expect(fits.helperArgv, [
+        ...helper,
+        '--',
+        path,
+        fillTo([...helper, '--', path], 32766),
+      ]);
+      expect(plan(32767).lineTooLong, isTrue);
+    }, skip: windowsOnly);
+
+    test(
+      'windows: a helper line over the limit is a failed helper start',
+      () async {
+        final bin = Directory('${dir.path}\\bin')..createSync();
+        final path = '${bin.path}\\longtool.exe';
+        File(path).writeAsBytesSync([0]);
+        final env = withEnv({'PATH': bin.path, 'PATHEXT': '.EXE;.CMD'});
+        // the command alone fits; behind the helper it is one unit too long
+        final arg = fillTo([...helper, '--', path], 32767);
+        expect(lineUnits([path, arg]), lessThan(32766));
+        final result = await runBoundedCommand(
+          dir.path,
+          ['longtool', arg],
+          environment: env,
+          helperCommand: helper,
+        );
+        expect(
+          String.fromCharCodes(result.stderr),
+          'bounded: cannot start longtool: cannot start the helper: '
+          'its command line is too long\n',
+        );
+        expect(result.exitCode, 127);
+      },
+      skip: windowsOnly,
+    );
+  });
+
+  // C49: a pipe error is never a clean end of the stream.
+  group('a pipe error after a complete reply (C49)', () {
+    Future<(BoundedResult, FakeProcess)> run(
+      Future<void> Function(FakeProcess) script,
+    ) async {
+      final process = FakeProcess();
+      final future = BoundedRun(
+        command: const ['unused'],
+        limits: const RunLimits(
+          deadline: Duration(seconds: 30),
+          maxBytes: 1 << 20,
+        ),
+        treeFor: NoopTree.new,
+        startProcess: FakeStarter(process).call,
+        helperCommand: const ['fake-helper', '__exec'],
+        note: (_) {},
+      ).run();
+      await script(process);
+      return (await future, process);
+    }
+
+    Future<void> finish(FakeProcess p, int code) async {
+      p.exit(code);
+      await p.stdoutController.close();
+      await p.stderrController.close();
+    }
+
+    test('exit 0, the bytes and a streamError are all kept', () async {
+      final (result, _) = await run((p) async {
+        p.frames();
+        await p.untilGo();
+        p.stdoutController.add(utf8.encode('complete reply'));
+        p.stdoutController.addError(const SocketException('pipe broke'));
+        await finish(p, 0);
+      });
+      expect(result.exitCode, 0);
+      expect(utf8.decode(result.stdout), 'complete reply');
+      expect(result.streamError, isNotNull);
+      expect(result.startError, isNull);
+    });
+
+    test('a stderr pipe error is recorded the same way', () async {
+      final (result, _) = await run((p) async {
+        p.frames();
+        await p.untilGo();
+        p.stdoutController.add(utf8.encode('complete reply'));
+        p.stderrController.addError(const SocketException('pipe broke'));
+        await finish(p, 0);
+      });
+      expect(result.exitCode, 0);
+      expect(utf8.decode(result.stdout), 'complete reply');
+      expect(result.streamError, isNotNull);
+    });
+
+    test('a clean run records no streamError', () async {
+      final (result, _) = await run((p) async {
+        p.frames();
+        await p.untilGo();
+        p.stdoutController.add(utf8.encode('ok'));
+        await finish(p, 0);
+      });
+      expect(result.exitCode, 0);
+      expect(result.streamError, isNull);
+    });
+
+    final windowsOnly = Platform.isWindows ? null : 'Windows only';
+
+    test(
+      'windows: a stdout error before the go byte is a failed start',
+      () async {
+        final (result, process) = await run((p) async {
+          p.stderrController.add(const HelloFrame.none().encode());
+          p.stdoutController.addError(const SocketException('pipe broke'));
+          await p.settle();
+          await finish(p, 1);
+        });
+        expect(result.startError != null || result.helperExited, isTrue);
+        expect(result.exitCode, isNull);
+        expect(process.goWritten, isFalse, reason: 'no go byte');
+      },
+      skip: windowsOnly,
+    );
+
+    test(
+      'windows: a stderr error between hello and ready is a failed start',
+      () async {
+        final (result, process) = await run((p) async {
+          p.stderrController.add(const HelloFrame.none().encode());
+          await p.settle();
+          p.stderrController.addError(const SocketException('pipe broke'));
+          await p.settle();
+          await finish(p, 1);
+        });
+        expect(result.startError != null || result.helperExited, isTrue);
+        expect(result.exitCode, isNull);
+        expect(process.goWritten, isFalse, reason: 'no go byte');
+      },
+      skip: windowsOnly,
+    );
+
+    test(
+      'windows: a helper exit before hello is a failed start, no go byte',
+      () async {
+        final (result, process) = await run((p) async => finish(p, 3));
+        expect(result.startError != null || result.helperExited, isTrue);
+        expect(process.goWritten, isFalse, reason: 'no go byte');
+      },
+      skip: windowsOnly,
+    );
+
+    // Callers other than the inventory reader keep today's mapping: the
+    // child's status and bytes, with streamError ignored.
+    test('sw run --bounded keeps the child status and bytes', () async {
+      final process = FakeProcess();
+      final out = <int>[];
+      final future = runCommand(
+        ['--bounded', '--', Platform.resolvedExecutable],
+        err: StringBuffer(),
+        writeOut: out.addAll,
+        writeErr: (_) {},
+        env: Platform.environment,
+        helperCommand: const ['fake-helper', '__exec'],
+        startProcess: FakeStarter(process).call,
+        treeFor: NoopTree.new,
+      );
+      process.frames();
+      await process.untilGo();
+      process.stdoutController.add(utf8.encode('complete reply'));
+      process.stdoutController.addError(const SocketException('pipe broke'));
+      await finish(process, 0);
+      expect(await future, 0);
+      expect(utf8.decode(out), 'complete reply');
+    });
+
+    test('runBoundedCommand (gh) keeps the child status and bytes', () async {
+      final process = FakeProcess();
+      final future = runBoundedCommand(
+        dir.path,
+        [Platform.resolvedExecutable],
+        environment: Platform.environment,
+        helperCommand: const ['fake-helper', '__exec'],
+        startProcess: FakeStarter(process).call,
+        treeFor: NoopTree.new,
+      );
+      process.frames();
+      await process.untilGo();
+      process.stdoutController.add(utf8.encode('complete reply'));
+      process.stdoutController.addError(const SocketException('pipe broke'));
+      await finish(process, 0);
+      final result = await future;
+      expect(result.exitCode, 0);
+      expect(utf8.decode(result.stdout), 'complete reply');
     });
   });
 }

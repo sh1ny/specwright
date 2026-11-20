@@ -1,15 +1,22 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/commands/vcs.dart';
+import 'package:specwright_cli/src/fence/fenced_text.dart';
+import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
+import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
 import 'package:specwright_cli/src/vcs/git_backend.dart';
 import 'package:specwright_cli/src/vcs/git_common.dart';
 import 'package:specwright_cli/src/vcs/probe.dart';
 import 'package:specwright_cli/src/vcs/scripts.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
+import 'package:specwright_cli/src/vcs/tool_runner.dart' show ToolResult;
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
+import '../line_support.dart';
 import 'fake_fence.dart';
 
 void main() {
@@ -67,6 +74,8 @@ void main() {
     bool remoteBranch = false,
     List<String> paths = const [],
     bool jjPresent = false,
+    VcsScripts? scripts,
+    String main = 'main',
   }) {
     final repo = posix(repoDir.path);
     final request = VcsRequest(
@@ -88,8 +97,8 @@ void main() {
       VcsContext(request),
       repo,
       repo,
-      ProbeInfo('git', 'main', repo, infoLogin, jjPresent: jjPresent),
-      VcsScripts(fence: fakeFence(scriptsDir)),
+      ProbeInfo('git', main, repo, infoLogin, jjPresent: jjPresent),
+      scripts ?? VcsScripts(fence: fakeFence(scriptsDir)),
     );
   }
 
@@ -653,5 +662,181 @@ void main() {
       },
       skip: skip,
     );
+  });
+
+  // D5 / C1: a git line of exactly 32,767 units is refused before the start,
+  // as `not_utf8`, rather than failing inside CreateProcessW.
+  group('the Windows line limit (D5)', () {
+    String? nativeGit() {
+      if (!Platform.isWindows) return null;
+      final path = resolveCommand('git', Platform.environment);
+      if (path == null || !path.toLowerCase().endsWith('.exe')) return null;
+      return path;
+    }
+
+    final windowsSkip = nativeGit() == null
+        ? 'needs a native git.exe on Windows'
+        : false;
+
+    /// The stop a failed [body] ends as: a [VcsStop] as thrown, or an
+    /// [Unrepresentable] mapped the way every vcs command maps it.
+    Future<VcsStop> refusalOf(Future<Object?> Function() body) async {
+      try {
+        await body();
+      } on Object catch (e) {
+        final stop = e is VcsStop ? e : VcsStop.refusal(e);
+        if (stop != null) return stop;
+        rethrow;
+      }
+      fail('expected a refusal');
+    }
+
+    test('windows: a git commit line of 32,767 units is not_utf8', () async {
+      final git = nativeGit()!;
+      final msg = messageFile();
+      gitIn(['checkout', '-q', '-b', 'feature']);
+      // 450 real files with a space in the name: each is quoted on the line
+      // (two more units) and none is counted by the 32,000-byte estimator.
+      // The padding is spread evenly so no name nears the 255-unit file limit.
+      List<String> named(int extra) => [
+        for (var i = 0; i < 450; i++)
+          '${'n' * (55 + extra ~/ 450 + (i < extra % 450 ? 1 : 0))} '
+              '${i.toString().padLeft(4, '0')}',
+      ];
+      final fixed = ['commit', '-F', msg, '--'];
+      final extra = 32767 - lineUnits([git, ...fixed, ...named(0)]);
+      expect(extra, inInclusiveRange(0, 450 * 150));
+      final paths = named(extra);
+      for (final name in paths) {
+        write(name, 'x\n');
+      }
+      expect(lineUnits([git, ...fixed, ...paths]), 32767);
+      final estimate =
+          paths.fold<int>(0, (n, p) => n + utf8.encode(p).length + 1) +
+          utf8.encode(msg).length;
+      expect(estimate, lessThan(32000), reason: 'below the byte estimator');
+
+      final stop = await refusalOf(
+        () => op(
+          'commit',
+          session(
+            command: 'commit',
+            branch: 'feature',
+            messageFile: msg,
+            paths: paths,
+          ),
+        ),
+      );
+      expectStop(stop, 'not_utf8');
+    }, skip: windowsSkip);
+
+    test('windows: a merge line of 32,767 units is not_utf8', () async {
+      final git = nativeGit()!;
+      gitIn(['branch', 'feature']);
+      final prefix = '${posix(tmp.path)}/';
+      final fixed = ['merge', '--no-ff', 'feature', '-F'];
+      final fill = 32767 - lineUnits([git, ...fixed, '${prefix}x']) + 1;
+      final msg = '$prefix${'m' * fill}';
+      expect(lineUnits([git, ...fixed, msg]), 32767);
+      final stop = await refusalOf(
+        () => op(
+          'merge',
+          session(command: 'merge', branch: 'feature', messageFile: msg),
+        ),
+      );
+      expectStop(stop, 'not_utf8');
+    }, skip: windowsSkip);
+
+    test(
+      'windows: fetch-main line of 32,767 units is git_network_error',
+      () async {
+        final git = nativeGit()!;
+        gitIn(['remote', 'add', 'origin', 'https://github.com/o/n.git']);
+        final fixed = [git, 'fetch', 'origin'];
+        final name = 'b' * (32767 - lineUnits([...fixed, 'b']) + 1);
+        expect(lineUnits([...fixed, name]), 32767);
+        // the real fence with its gh lookups answered; the git it starts is the
+        // real resolved git.exe, whose line the plan refuses before any start
+        Future<GhResult> gh(List<String> args, Map<String, String> env) async =>
+            GhResult(
+              exitCode: 0,
+              stdout: utf8.encode(
+                args.contains('--help')
+                    ? '--user'
+                    : args.first == 'auth'
+                    ? 'tok\n'
+                    : 'me\n',
+              ),
+              stderr: Uint8List(0),
+            );
+        Future<ToolResult> outsideWorkTree(
+          List<String> command,
+          Map<String, String> env,
+        ) async => ToolResult(0, utf8.encode('false\n'), Uint8List(0));
+        final scripts = VcsScripts(
+          fence: (repo, argv) => fencedText(
+            repo,
+            argv,
+            environment: withEnv(const {}),
+            gh: gh,
+            git: outsideWorkTree,
+          ),
+        );
+        final stop = await refusalOf(
+          () => op(
+            'fetch-main',
+            session(
+              command: 'fetch-main',
+              infoLogin: 'me',
+              main: name,
+              scripts: scripts,
+            ),
+          ),
+        );
+        expectStop(stop, 'git_network_error', code: 3);
+      },
+      skip: windowsSkip,
+    );
+
+    // The commit's `git add` runs through the real git.exe, the commit through
+    // a git.cmd shim: the interpreter comes from a SYSTEMROOT so long that the
+    // raw `cmd.exe /d /s /c "..."` line is over the limit while the batch
+    // payload is short. Nothing starts, and the stop keeps `git_commit_failed`.
+    test('windows: git.exe then git.cmd raw line over the limit', () async {
+      gitIn(['checkout', '-q', '-b', 'feature']);
+      write('f.txt', 'x\n');
+      final shims = Directory('${tmp.path}/shims')..createSync();
+      File('${shims.path}/git.cmd').writeAsStringSync('@echo off\r\n');
+      final cmdEnv = withEnv({
+        'PATH': shims.path,
+        'PATHEXT': '.CMD;.EXE',
+        'COMSPEC': '${tmp.path}/no-such-cmd.exe',
+        'SYSTEMROOT': r'C:\' + 'r' * 32700,
+      });
+      final scripts = VcsScripts(
+        fence: fakeFence(scriptsDir),
+        environmentFor: (command) => command[1] == 'commit' ? cmdEnv : null,
+      );
+      final stop = await refusalOf(
+        () => op(
+          'commit',
+          session(
+            command: 'commit',
+            branch: 'feature',
+            messageFile: messageFile(),
+            paths: ['f.txt'],
+            scripts: scripts,
+          ),
+        ),
+      );
+      expectStop(
+        stop,
+        'git_commit_failed',
+        messageHas:
+            'cannot start git: cannot start the helper: '
+            'its command line is too long',
+      );
+      expect(sh(repoDir.path, ['status', '--porcelain']), 'A  f.txt');
+    }, skip: Platform.isWindows ? false : 'Windows only');
   });
 }

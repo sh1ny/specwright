@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:specwright_cli/src/pr/context.dart' show PrContext;
-import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
+import 'package:specwright_cli/src/pr/gh.dart' show GhResult, runGh;
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/queries.dart';
 import 'package:specwright_cli/src/pr/snapshot.dart';
 import 'package:test/test.dart';
 
+import '../line_support.dart';
 import 'pr_support.dart';
 
 final oid = 'a' * 40;
@@ -1055,5 +1056,76 @@ void main() {
       );
       expect(f.stderr, 'bounded: deadline_exceeded: gh run view 11\n');
     });
+  });
+
+  // D5 / C1: the GraphQL line, through the real bounded gh. A snapshot whose
+  // resolved line fits, but not once the helper's own prefix is added, fails
+  // the poll with the fixed diagnostic instead of running.
+  group('the GraphQL line (D5)', () {
+    const helper = [r'C:\sw\sw.exe', '__exec'];
+
+    test(
+      'windows: a GraphQL line over the limit only behind the helper',
+      () async {
+        final bin = Directory('${f.tempDir.path}\\bin')..createSync();
+        final path = '${bin.path}\\gh.exe';
+        File(path).writeAsBytesSync([0]);
+        final env = withEnv({
+          'SPECWRIGHT_STATE_DIR': state.path,
+          'HOME': state.path,
+          'PATH': bin.path,
+          'PATHEXT': '.EXE;.CMD',
+        });
+
+        // Runs the snapshot with the owner [owner] and the real gh for the
+        // GraphQL query; [recorded] gets that query's arguments.
+        Future<int> run(String owner, {List<String>? recorded}) {
+          final ctx = PrContext(
+            writeOut: f.out.addAll,
+            writeErr: f.err.addAll,
+            environment: env,
+            helperCommand: helper,
+            cwd: f.tempDir.path,
+            sleep: (_) async {},
+            bounded: (command, {environment}) async => f.onBounded!(command),
+            gh: (args, {environment, paged = false}) async {
+              if (kindOf(args) != 'snapshot') return f.onGh!(args);
+              if (recorded != null) {
+                recorded.addAll(args);
+                return answer('$material\n');
+              }
+              return runGh(
+                f.tempDir.path,
+                args,
+                environment: environment,
+                paged: paged,
+                helperCommand: helper,
+              );
+            },
+          );
+          return runSnapshot(ctx, ['7', '--repo=$owner/n']);
+        }
+
+        final probe = <String>[];
+        expect(await run('o', recorded: probe), 0);
+        final short = lineUnits([path, ...probe]);
+        final owner = 'o' * (1 + 32766 - short);
+        f.out.clear();
+        f.err.clear();
+        final args = [...probe]
+          ..[probe.indexWhere((a) => a.startsWith('owner='))] = 'owner=$owner';
+        expect(lineUnits([path, ...args]), 32766, reason: 'calibration');
+
+        expect(await run(owner), 1);
+        expect(
+          f.stderr,
+          contains(
+            'bounded: cannot start gh: cannot start the helper: '
+            'its command line is too long\n',
+          ),
+        );
+      },
+      skip: Platform.isWindows ? null : 'Windows only',
+    );
   });
 }

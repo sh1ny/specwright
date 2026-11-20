@@ -12,6 +12,7 @@ import '../process/limits.dart';
 import '../process/missing_directory.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
+import '../process/tree_stop.dart' show ProcessTreeFactory;
 
 /// What one bounded `gh` (or `sw pr reviewers`) call ended in. Without a [limit],
 /// the output and [exitCode] are the command's own; a call that could not
@@ -57,6 +58,8 @@ Future<GhResult> runGh(
   bool paged = false,
   RunLimits? limits,
   List<String>? helperCommand,
+  ProcessStarter startProcess = startHelperProcess,
+  ProcessTreeFactory? treeFor,
 }) => _run(
   cwd,
   ['gh', ...args],
@@ -65,6 +68,8 @@ Future<GhResult> runGh(
   paged: paged,
   limits: limits,
   helperCommand: helperCommand,
+  startProcess: startProcess,
+  treeFor: treeFor,
 );
 
 /// Runs `sw pr reviewers <args>` the same way (the caller's [command] starts with
@@ -77,6 +82,8 @@ Future<GhResult> runBoundedCommand(
   bool paged = false,
   RunLimits? limits,
   List<String>? helperCommand,
+  ProcessStarter startProcess = startHelperProcess,
+  ProcessTreeFactory? treeFor,
 }) => _run(
   cwd,
   command,
@@ -84,6 +91,8 @@ Future<GhResult> runBoundedCommand(
   paged: paged,
   limits: limits,
   helperCommand: helperCommand,
+  startProcess: startProcess,
+  treeFor: treeFor,
 );
 
 GhResult _notStarted(String text) => GhResult(
@@ -99,6 +108,8 @@ Future<GhResult> _run(
   required bool paged,
   required RunLimits? limits,
   required List<String>? helperCommand,
+  required ProcessStarter startProcess,
+  required ProcessTreeFactory? treeFor,
 }) async {
   final name = command.first;
   final env = _platformEnv(environment);
@@ -115,17 +126,26 @@ Future<GhResult> _run(
   }
   final path = resolveCommand(name, env, workingDirectory: dir);
   if (path == null) return _notStarted('$name: command not found');
-  final LaunchPlan plan;
+  final BoundedLaunchPlan launchPlan;
   try {
-    plan = planLaunch(path, command, env);
+    launchPlan = planBoundedLaunch(
+      path,
+      command,
+      env,
+      effectiveHelperCommand(helperCommand),
+    );
   } on UnsafeBatchArgument catch (e) {
     return _notStarted('cannot start $name: $e');
   } on Unrepresentable catch (e) {
     return _notStarted('cannot start $name: $e');
   }
+  final plan = launchPlan.plan;
   final result = await BoundedRun(
     command: plan.command,
     rawLine: plan.rawLine,
+    helperArgv: launchPlan.helperArgv,
+    lineTooLong: launchPlan.lineTooLong,
+    startProcess: startProcess,
     stdinBytes: plan.stdinBytes,
     workingDirectory: dir,
     environment: environment,
@@ -134,7 +154,7 @@ Future<GhResult> _run(
         limits ??
         resolveLimits(env, paged: paged || (env['SW_PAGED'] ?? '').isNotEmpty),
     helperCommand: helperCommand,
-    treeFor: () => platformTree(env),
+    treeFor: treeFor ?? () => platformTree(env),
     note: (_) {},
   ).run();
   final limit = result.limit;

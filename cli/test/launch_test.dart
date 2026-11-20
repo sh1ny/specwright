@@ -7,11 +7,14 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:specwright_cli/src/process/command_line.dart';
 import 'package:specwright_cli/src/process/launch.dart';
 import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:test/test.dart';
 
+import 'fake_process.dart';
 import 'helper_support.dart';
+import 'line_support.dart';
 
 const _recorder =
     'import sys, json; sys.stdout.buffer.write('
@@ -95,8 +98,9 @@ void main() {
 /// The environment with `PATH` set to [path] (case-insensitively on Windows,
 /// where the inherited map names it `Path`), plus [extra].
 Map<String, String> _env(String path, [Map<String, String> extra = const {}]) {
+  final names = {'PATH', for (final k in extra.keys) k.toUpperCase()};
   final env = {...Platform.environment}
-    ..removeWhere((k, _) => k.toUpperCase() == 'PATH');
+    ..removeWhere((k, _) => names.contains(k.toUpperCase()));
   return {...env, 'PATH': path, ...extra};
 }
 
@@ -523,5 +527,177 @@ void _launchTests() {
         throwsA(isA<Unrepresentable>()),
       );
     }, skip: Platform.isWindows ? false : _windowsOnly);
+  });
+
+  // D5 / C1: the as-given precheck keeps admitting 32,767 units (it counts no
+  // NUL); the started line, checked by the plan, counts it.
+  group('the 32,767-unit boundary (D5)', () {
+    final windowsSkip = Platform.isWindows ? false : _windowsOnly;
+
+    test('the as-given precheck admits 32,767 units, plain and quoted', () {
+      expect(lineUnits(['a', 'x' * 32765]), 32767);
+      checkLaunchInput(['a', 'x' * 32765], cwd: '/', windows: true);
+      // an argument with a space: two quotes make 32,767 as well
+      expect(lineUnits(['a', '${'x' * 32761} y']), 32767);
+      checkLaunchInput(['a', '${'x' * 32761} y'], cwd: '/', windows: true);
+      expect(
+        () => checkLaunchInput(['a', 'x' * 32766], cwd: '/', windows: true),
+        throwsA(isA<Unrepresentable>()),
+      );
+    });
+
+    test(
+      'windows: 32,767 units to a .cmd over the batch cap is unsafe',
+      () async {
+        File('${dir.path}\\batchy.cmd').writeAsStringSync('@echo off\r\n');
+        final arg = fillTo(['batchy'], 32767);
+        expect(lineUnits(['batchy', arg]), 32767);
+        await expectLater(
+          launch(
+            ['batchy', arg],
+            cwd: dir.path,
+            environment: _env(dir.path, {'PATHEXT': '.CMD;.EXE'}),
+            helperCommand: helper,
+          ),
+          throwsA(
+            isA<UnsafeBatchArgument>().having(
+              (e) => e.reason,
+              'reason',
+              'line too long',
+            ),
+          ),
+        );
+      },
+      skip: windowsSkip,
+    );
+
+    test('windows: 32,767 units as given, resolving shorter, start', () async {
+      // `.\.\...\tool.exe` as given resolves to a short absolute path
+      final system = Platform.environment['SYSTEMROOT'] ?? r'C:\Windows';
+      File('$system\\System32\\cmd.exe').copySync('${dir.path}\\tool.exe');
+      final name = '${r'.\' * 16000}tool.exe';
+      final padded = [
+        name,
+        '/d',
+        '/c',
+        fillTo([name, '/d', '/c'], 32767),
+      ];
+      expect(lineUnits(padded), 32767);
+      final result = await launch(
+        padded,
+        cwd: dir.path,
+        environment: _env(dir.path),
+      );
+      expect(result.startFailed, isFalse, reason: 'the started line is short');
+    }, skip: windowsSkip);
+
+    test(
+      'windows: the raw cmd.exe line fits but the helper line does not',
+      () async {
+        File('${dir.path}\\rawfit.cmd').writeAsStringSync('@echo off\r\n');
+        // COMSPEC names a file that does not exist, so the interpreter is
+        // `$SYSTEMROOT\System32\cmd.exe`; a long SYSTEMROOT makes the raw
+        // `"<shell>" /d /s /c "<payload>"` line exactly 32,766 units while the
+        // payload stays under the 8,191 cap.
+        final payload = quoteBatchLine('${dir.path}\\rawfit.cmd', const []);
+        final rootLength = 32766 - 14 - 17 - payload.length;
+        final root = 'C:\\${'r' * (rootLength - 3)}';
+        final shell = '$root\\System32\\cmd.exe';
+        expect(shell.length + payload.length + 14, 32766);
+        final env = _env(dir.path, {
+          'PATHEXT': '.CMD;.EXE',
+          'COMSPEC': '${dir.path}\\no-such-cmd.exe',
+          'SYSTEMROOT': root,
+        });
+        final result = await launch(
+          ['rawfit'],
+          cwd: dir.path,
+          environment: env,
+          helperCommand: const [r'C:\sw\sw.exe', '__exec'],
+        );
+        expect(result.startFailed, isTrue);
+        expect(
+          utf8.decode(result.stderr),
+          contains(
+            'cannot start rawfit: cannot start the helper: '
+            'its command line is too long',
+          ),
+        );
+      },
+      skip: windowsSkip,
+    );
+  });
+
+  // C49: the native launcher records a pipe error; it is not a clean EOF.
+  group('a pipe error after a complete reply (C49)', () {
+    for (final stream in ['stdout', 'stderr']) {
+      test(
+        'a $stream error keeps exit 0, the bytes and a streamError',
+        () async {
+          final process = FakeProcess();
+          final future = launch(
+            [Platform.resolvedExecutable],
+            cwd: dir.path,
+            startProcess: FakeStarter(process).call,
+          );
+          process.stdoutController.add(utf8.encode('complete reply'));
+          final broken = stream == 'stdout'
+              ? process.stdoutController
+              : process.stderrController;
+          broken.addError(const SocketException('pipe broke'));
+          process.exit(0);
+          await process.stdoutController.close();
+          await process.stderrController.close();
+          final result = await future;
+          expect(result.exitCode, 0);
+          expect(utf8.decode(result.stdout), 'complete reply');
+          expect(result.streamError, isNotNull);
+        },
+      );
+    }
+
+    test('a clean native run has no streamError', () async {
+      final process = FakeProcess();
+      final future = launch(
+        [Platform.resolvedExecutable],
+        cwd: dir.path,
+        startProcess: FakeStarter(process).call,
+      );
+      process.stdoutController.add(utf8.encode('ok'));
+      process.exit(0);
+      await process.stdoutController.close();
+      await process.stderrController.close();
+      final result = await future;
+      expect(result.exitCode, 0);
+      expect(result.streamError, isNull);
+    });
+
+    test(
+      'windows: a .cmd run keeps exit 0, the bytes and a streamError',
+      () async {
+        File('${dir.path}\\batchy.cmd').writeAsStringSync('@echo off\r\n');
+        final process = FakeProcess();
+        final future = launch(
+          ['batchy'],
+          cwd: dir.path,
+          environment: _env(dir.path, {'PATHEXT': '.CMD;.EXE'}),
+          helperCommand: const ['fake-helper', '__exec'],
+          startProcess: FakeStarter(process).call,
+          treeFor: NoopTree.new,
+        );
+        process.frames();
+        await process.untilGo();
+        process.stdoutController.add(utf8.encode('complete reply'));
+        process.stdoutController.addError(const SocketException('pipe broke'));
+        process.exit(0);
+        await process.stdoutController.close();
+        await process.stderrController.close();
+        final result = await future;
+        expect(result.exitCode, 0);
+        expect(utf8.decode(result.stdout), 'complete reply');
+        expect(result.streamError, isNotNull);
+      },
+      skip: Platform.isWindows ? false : _windowsOnly,
+    );
   });
 }

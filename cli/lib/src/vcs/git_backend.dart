@@ -136,6 +136,15 @@ String? _loginFor(VcsSession s) {
 
 /// `vcs.sh`'s `run_git_operation` for `command`. [windows] overrides the OS
 /// for the commit's command-line size check.
+///
+/// Constraint C29: on Windows a resolved line of exactly 32,767 visible units
+/// is now refused before start as `Unrepresentable`, where it used to fail at
+/// start; each caller maps that refusal as it already maps `Unrepresentable`,
+/// and no mapping changes: a direct launch through the VCS mapper reports
+/// `not_utf8` (a Git `commit` refused there leaves what `git add` staged;
+/// `sw vcs merge`, which reported `merge_failed`, now reports `not_utf8`), a
+/// GitButler commit keeps `too_many_paths` (D1), and a fenced Git network call
+/// keeps `git_network_error`, exit 3.
 Future<Map<String, Object?>> runGitOperation(
   VcsSession s,
   String command, {

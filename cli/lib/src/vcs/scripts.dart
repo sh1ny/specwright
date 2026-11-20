@@ -12,8 +12,12 @@ export 'text_result.dart';
 
 /// Runs [command] (tool name first) in [cwd] without a shell and decodes its output
 /// as text. This is `vcs.sh`'s `run`.
-Future<TextResult> runText(String cwd, List<String> command) async {
-  final r = await runTool(cwd, command);
+Future<TextResult> runText(
+  String cwd,
+  List<String> command, {
+  Map<String, String>? environment,
+}) async {
+  final r = await runTool(cwd, command, environment: environment);
   return TextResult(
     r.exitCode,
     decodeText(r.stdout),
@@ -28,7 +32,11 @@ typedef FencedRun = Future<TextResult> Function(String repo, List<String> argv);
 
 /// What the `sw vcs` operations run through: the in-process identity fence.
 class VcsScripts {
-  VcsScripts({this.fence});
+  VcsScripts({this.fence, this.environmentFor});
+
+  /// Test seam: the whole environment of one direct tool run, chosen from its
+  /// command. Null (the default) keeps this process's own environment.
+  final Map<String, String>? Function(List<String> command)? environmentFor;
 
   /// Replaces the in-process fence in a test; null runs [fencedText].
   final FencedRun? fence;

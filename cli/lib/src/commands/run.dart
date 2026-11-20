@@ -7,6 +7,7 @@ import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
+import '../process/tree_stop.dart' show ProcessTreeFactory;
 
 const String runUsage =
     'usage: sw run --bounded [--paged] [--secret] -- cmd [args...]\n';
@@ -55,6 +56,8 @@ Future<int> runCommand(
   required void Function(List<int> bytes) writeErr,
   Map<String, String>? env,
   List<String>? helperCommand,
+  ProcessStarter startProcess = startHelperProcess,
+  ProcessTreeFactory? treeFor,
 }) async {
   final invocation = parseRunArgs(args);
   if (invocation == null) {
@@ -86,9 +89,14 @@ Future<int> runCommand(
     err.write('bounded: cannot start ${command.first}: command not found\n');
     return 127;
   }
-  final LaunchPlan plan;
+  final BoundedLaunchPlan launchPlan;
   try {
-    plan = planLaunch(path, command, environment);
+    launchPlan = planBoundedLaunch(
+      path,
+      command,
+      environment,
+      effectiveHelperCommand(helperCommand),
+    );
   } on UnsafeBatchArgument {
     err.write('bounded: unsafe batch argument: ${command.first}\n');
     return 2;
@@ -97,13 +105,17 @@ Future<int> runCommand(
     err.write('bounded: unrepresentable ${e.what}: ${e.command}\n');
     return 2;
   }
+  final plan = launchPlan.plan;
   final result = await BoundedRun(
     command: plan.command,
+    helperArgv: launchPlan.helperArgv,
+    lineTooLong: launchPlan.lineTooLong,
+    startProcess: startProcess,
     stdinBytes: plan.stdinBytes,
     rawLine: plan.rawLine,
     limits: resolveLimits(environment, paged: invocation.paged),
     helperCommand: helperCommand,
-    treeFor: () => platformTree(environment),
+    treeFor: treeFor ?? () => platformTree(environment),
     preGoFile: environment['SPECWRIGHT_TEST_PRE_GO'],
     note: err.write,
   ).run();

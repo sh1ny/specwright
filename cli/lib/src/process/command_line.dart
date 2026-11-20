@@ -17,7 +17,12 @@ class UnsafeBatchArgument implements Exception {
 
 /// How a resolved command is started.
 class LaunchPlan {
-  const LaunchPlan(this.command, this.stdinBytes, {this.rawLine = false});
+  const LaunchPlan(
+    this.command,
+    this.stdinBytes, {
+    this.rawLine = false,
+    this.lineTooLong = false,
+  });
 
   /// The command and its arguments. With [rawLine] it is the application and
   /// the exact Windows command line, nothing else.
@@ -29,6 +34,11 @@ class LaunchPlan {
   /// The helper hands [command]'s second item to `CreateProcessW` as it is,
   /// because Dart's own quoting would escape the quotes `cmd.exe` must see.
   final bool rawLine;
+
+  /// The started line is over the limit only with its terminating NUL: the
+  /// resolved native line or the raw `cmd.exe` line. Set only when [planLaunch]
+  /// was asked not to throw (a bounded launch, D5).
+  final bool lineTooLong;
 }
 
 /// Quotes a batch path and its arguments for `cmd.exe /d /s /c`: each in double
@@ -123,18 +133,95 @@ int _quotedLength(String arg) {
   return n + slashes;
 }
 
-/// Throws [Unrepresentable] (`command line`, named by [name]) when, on Windows
-/// ([windows], default: this system), [command] would make a command line past
-/// [windowsCommandLineLimit] units.
-void checkCommandLine(String name, List<String> command, {bool? windows}) {
-  if (!(windows ?? Platform.isWindows)) return;
+/// Units [command] takes as one Windows command line: each item quoted, one
+/// space between them, no terminating NUL.
+int commandLineUnits(List<String> command) {
   var units = command.length - 1; // the separating spaces
   for (final item in command) {
     units += _quotedLength(item);
   }
-  if (units > windowsCommandLineLimit) {
+  return units;
+}
+
+/// Whether a line of [units] visible units is too long for `CreateProcessW`,
+/// which takes [windowsCommandLineLimit] units including the terminating NUL.
+bool _tooLong(int units, bool countNul) =>
+    units + (countNul ? 1 : 0) > windowsCommandLineLimit;
+
+/// Throws [Unrepresentable] (`command line`, named by [name]) when, on Windows
+/// ([windows], default: this system), [command] would make a command line past
+/// [windowsCommandLineLimit] units. With [countNul] the terminating NUL counts
+/// too (a line that is started: 32,766 visible units is the longest); without
+/// it the line is the one as given, which keeps today's threshold of 32,767.
+void checkCommandLine(
+  String name,
+  List<String> command, {
+  bool? windows,
+  bool countNul = false,
+}) {
+  if (!(windows ?? Platform.isWindows)) return;
+  if (_tooLong(commandLineUnits(command), countNul)) {
     throw Unrepresentable(name, 'command line');
   }
+}
+
+/// How a bounded launch starts its helper: the helper's own argv, and whether
+/// a check this change adds refused the line (D5, C1).
+class BoundedLaunchPlan {
+  const BoundedLaunchPlan(this.plan, this.helperArgv, this.lineTooLong);
+
+  /// The command's plan, as [planLaunch] gives it.
+  final LaunchPlan plan;
+
+  /// The helper's executable and arguments, exactly as started: the helper
+  /// command, `--cmdline` for a raw line, `--`, then the plan's command.
+  final List<String> helperArgv;
+
+  /// The started line, the raw `cmd.exe` line or the helper's own line is over
+  /// the limit with its terminating NUL.
+  final bool lineTooLong;
+}
+
+/// The helper's argv: [helperCommand], `--cmdline` when [rawLine], `--`, then
+/// [command]. The one place it is built, so what is checked is what starts.
+List<String> helperArguments(
+  List<String> helperCommand,
+  bool rawLine,
+  List<String> command,
+) => [...helperCommand, if (rawLine) '--cmdline', '--', ...command];
+
+/// Plans a bounded launch of [command], whose first item resolved to [path].
+///
+/// Constraint C1: every bounded launch is planned through this function, which
+/// checks the serialized helper argv against the Windows 32,767-unit limit
+/// (the terminating NUL included), after [planLaunch] has checked the started
+/// line. The checks that existed before, the as-given precheck, a NUL or lone
+/// surrogate, the batch payload cap and a resolved native line over 32,767
+/// visible units, still throw. A check this change adds (a resolved line of
+/// exactly 32,767 units, the raw `cmd.exe` line, the helper line) does not
+/// throw: it sets [BoundedLaunchPlan.lineTooLong], and `BoundedRun` returns a
+/// failed helper start without spawning anything.
+BoundedLaunchPlan planBoundedLaunch(
+  String path,
+  List<String> command,
+  Map<String, String> env,
+  List<String> helperCommand, {
+  bool? windows,
+  bool transport = true,
+}) {
+  final win = windows ?? Platform.isWindows;
+  final plan = planLaunch(
+    path,
+    command,
+    env,
+    windows: win,
+    transport: transport,
+    refuseLongLine: false,
+  );
+  final argv = helperArguments(helperCommand, plan.rawLine, plan.command);
+  final tooLong =
+      plan.lineTooLong || (win && _tooLong(commandLineUnits(argv), true));
+  return BoundedLaunchPlan(plan, argv, tooLong);
 }
 
 /// The plan for [command] once its first item resolved to [path]: a batch
@@ -151,21 +238,33 @@ LaunchPlan planLaunch(
   Map<String, String> env, {
   bool? windows,
   bool transport = true,
+  bool refuseLongLine = true,
 }) {
   final win = windows ?? Platform.isWindows;
   if (win && isBatchFile(path)) {
     final line = quoteBatchLine(path, command.skip(1).toList());
     final shell = commandInterpreter(env);
+    final raw = '"$shell" /d /s /c "$line"';
+    final tooLong = _tooLong(raw.length, true);
+    if (tooLong && refuseLongLine) {
+      throw Unrepresentable(command.first, 'command line');
+    }
     return LaunchPlan(
-      [shell, '"$shell" /d /s /c "$line"'],
+      [shell, raw],
       const [],
       rawLine: true,
+      lineTooLong: tooLong,
     );
   }
   final resolved = [path, ...command.skip(1)];
   final started = transport
       ? transportFor(resolved, windows: win)
       : Transport(resolved, const []);
+  // the line over the limit before this change keeps throwing
   checkCommandLine(command.first, started.command, windows: win);
-  return LaunchPlan(started.command, started.stdinBytes);
+  final tooLong = win && _tooLong(commandLineUnits(started.command), true);
+  if (tooLong && refuseLongLine) {
+    throw Unrepresentable(command.first, 'command line');
+  }
+  return LaunchPlan(started.command, started.stdinBytes, lineTooLong: tooLong);
 }
