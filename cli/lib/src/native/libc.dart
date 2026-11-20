@@ -1,4 +1,4 @@
-// The three libc functions sw needs on Linux and macOS (D12, D8): bound by hand over
+// The libc functions sw needs on Linux and macOS (D12, D8): bound by hand over
 // package:ffi. The process's own symbols are used, so no library path differs
 // between the two systems. Opened on first use.
 import 'dart:ffi';
@@ -25,6 +25,12 @@ final int Function(Pointer<Uint8>, int, int) _open = _libc
       Int32 Function(Pointer<Uint8>, Int32, VarArgs<(Int32,)>),
       int Function(Pointer<Uint8>, int, int)
     >('open');
+
+final int Function(int, Pointer<Uint8>, int, int) _faccessat = _libc
+    .lookupFunction<
+      Int32 Function(Int32, Pointer<Uint8>, Int32, Int32),
+      int Function(int, Pointer<Uint8>, int, int)
+    >('faccessat');
 
 final int Function(int) _close = _libc
     .lookupFunction<Int32 Function(Int32), int Function(int)>('close');
@@ -62,4 +68,29 @@ int? argMax() {
   // _SC_ARG_MAX is 0 on Linux and 1 on macOS.
   final value = _sysconf(Platform.isMacOS ? 1 : 0);
   return value > 0 ? value : null;
+}
+
+/// `AT_FDCWD` for [macos] or Linux: -2 or -100.
+int atFdcwdFor({required bool macos}) => macos ? -2 : -100;
+
+/// `AT_EACCESS` for [macos] or Linux: 0x10 or 0x200.
+int atEaccessFor({required bool macos}) => macos ? 0x10 : 0x200;
+
+/// `AT_FDCWD` of the running OS.
+int get atFdcwd => atFdcwdFor(macos: Platform.isMacOS);
+
+/// `AT_EACCESS` of the running OS.
+int get atEaccess => atEaccessFor(macos: Platform.isMacOS);
+
+/// True when the process can execute [path] (NUL-free bytes) by its effective
+/// user and group IDs: `faccessat(AT_FDCWD, path, X_OK, AT_EACCESS) == 0`.
+bool canExecuteEffective(List<int> path) {
+  const xOk = 1;
+  final pointer = calloc<Uint8>(path.length + 1);
+  try {
+    pointer.asTypedList(path.length).setAll(0, path);
+    return _faccessat(atFdcwd, pointer, xOk, atEaccess) == 0;
+  } finally {
+    calloc.free(pointer);
+  }
 }

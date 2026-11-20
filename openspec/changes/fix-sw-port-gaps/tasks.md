@@ -329,10 +329,10 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 3. POSIX command lookup (D6)
 
-- [ ] 3.1 Write failing tests: `evals/cli/test_sw_run.py` rows of native-cli "Command lookup takes only files the user can execute" (non-root; skipped as root) and the Linux `setpriv` real/effective-ID case; `cli/test/resolve_test.dart` with injected `isFile` and access checks; `cli/test/native/libc_test.dart` pinning `AT_FDCWD` and `AT_EACCESS` per OS. Verify they fail for the missing check.
-- [ ] 3.2 Bind `faccessat` in `cli/lib/src/native/libc.dart` and accept a `PATH` candidate only when `faccessat(AT_FDCWD, path, X_OK, AT_EACCESS) == 0`; a name with a separator keeps the execute-bit filter. Add rules for the new test files to `evals/suites.json`. Verify: the 3.1 tests pass (Dart locally, evals in PR CI on Linux and macOS), `python -m unittest evals/runner/test_suite_map.py` passes, and the rows turn green.
-- [ ] 3.3 C22: doc comment of `_isFile` in `cli/lib/src/process/resolve.dart`.
-- [ ] 3.4 C26: doc comment of `resolveCommand` in `cli/lib/src/process/resolve.dart`.
+- [x] 3.1 Write failing tests: `evals/cli/test_sw_run.py` rows of native-cli "Command lookup takes only files the user can execute" (non-root; skipped as root) and the Linux `setpriv` real/effective-ID case; `cli/test/resolve_test.dart` with injected `isFile` and access checks; `cli/test/native/libc_test.dart` pinning `AT_FDCWD` and `AT_EACCESS` per OS. Verify they fail for the missing check.
+- [x] 3.2 Bind `faccessat` in `cli/lib/src/native/libc.dart` and accept a `PATH` candidate only when `faccessat(AT_FDCWD, path, X_OK, AT_EACCESS) == 0`; a name with a separator keeps the execute-bit filter. Add rules for the new test files to `evals/suites.json`. Verify: the 3.1 tests pass (Dart locally, evals in PR CI on Linux and macOS), `python -m unittest evals/runner/test_suite_map.py` passes, and the rows turn green.
+- [x] 3.3 C22: doc comment of `_isFile` in `cli/lib/src/process/resolve.dart`.
+- [x] 3.4 C26: doc comment of `resolveCommand` in `cli/lib/src/process/resolve.dart`.
 
 ## 4. CRLF message files and the GitButler size guard (D1)
 

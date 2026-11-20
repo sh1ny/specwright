@@ -202,6 +202,71 @@ class Invocation(Base):
         self.assertIn("sw-no-such-command-xyz", proc.stderr)
 
 
+def not_root_posix():
+    return os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0
+
+
+SETPRIV = shutil.which("setpriv")
+
+
+def sudo_setpriv_available():
+    if not sys.platform.startswith("linux") or not SETPRIV or not shutil.which("sudo"):
+        return False
+    return subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0
+
+
+class Lookup(Base):
+    """PATH lookup takes a file only when the process can execute it by its effective IDs (design D6)."""
+
+    def tool(self, directory, mode, text):
+        d = self.tmp / directory
+        d.mkdir(exist_ok=True)
+        path = d / "tool"
+        path.write_text("#!/bin/sh\necho %s\n" % text, encoding="utf-8")
+        path.chmod(mode)
+        return d
+
+    @unittest.skipUnless(not_root_posix(), "platform: needs POSIX and a user other than root, who may execute any set bit")
+    def test_lookup_skips_a_file_the_user_cannot_execute(self):
+        a = self.tool("a", 0o070, "a")  # the owner's bits deny execution although a group bit is set
+        b = self.tool("b", 0o755, "b")
+        proc = self.sw("--", "tool", env=self.env(PATH="%s:%s" % (a, b)))
+        self.assertEqual((proc.returncode, proc.stdout), (0, "b\n"), proc.stderr)
+
+    @unittest.skipUnless(not_root_posix(), "platform: needs POSIX and a user other than root, who may execute any set bit")
+    def test_explicit_path_without_execute_keeps_the_start_failure(self):
+        a = self.tool("a", 0o070, "a")
+        proc = swharness.run_sw("run", "--bounded", "--", "./tool", cwd=str(a), env=self.env())
+        self.assertEqual((proc.returncode, proc.stdout), (127, ""))
+        self.assertIn("cannot start ./tool", proc.stderr)
+        self.assertIn("ermission denied", proc.stderr)
+        self.assertNotIn("not found", proc.stderr)
+
+    @unittest.skipUnless(sudo_setpriv_available(), "platform: needs Linux with passwordless sudo and setpriv")
+    def test_lookup_uses_the_effective_ids_not_the_real_ones(self):
+        u1, u2 = 60001, 60002  # real and effective user; neither needs an account
+        self.tmp.chmod(0o755)
+        a = self.tool("a", 0o700, "a")
+        b = self.tool("b", 0o755, "b")
+        for d in (a, b):
+            d.chmod(0o755)
+        # Only the file changes owner: the directory stays the runner's, so cleanup can remove it.
+        subprocess.run(["sudo", "-n", "chown", "%d:%d" % (u1, u1), str(a / "tool")], check=True)
+        # sw reads its own executable to load its snapshot; the runner's home is closed to u2, so run a copy here.
+        sw = self.tmp / "sw"
+        shutil.copyfile(swharness.require_sw(), sw)
+        sw.chmod(0o755)
+        # sudo resets the environment, so PATH goes through env; setpriv is an absolute path because that PATH replaces
+        # the one that would find it.
+        proc = subprocess.run(
+            ["sudo", "-n", "env", "PATH=%s:%s" % (a, b), SETPRIV, "--ruid", str(u1), "--euid", str(u2),
+             "--rgid", str(u1), "--egid", str(u2), "--clear-groups", str(sw), "run", "--bounded",
+             "--", "tool"],
+            env=self.env(), capture_output=True, text=True, timeout=60)
+        # Effective u2 cannot execute /a/tool (owned by u1, 0700) although real u1 can: /b/tool runs.
+        self.assertEqual((proc.returncode, proc.stdout), (0, "b\n"), proc.stderr)
+
+
 class Overrides(Base):
     def test_env_lowers_the_deadline(self):
         script = self.script("hang.py", HANG)
