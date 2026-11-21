@@ -21,9 +21,9 @@ The M8 ports moved every script into `sw` at parity, so they kept the old script
 - **#223** On Windows, the command-line limit check counts the bounded helper's prefix, so an over-long line is refused before anything starts. A direct launch reports it as `Unrepresentable`; a bounded launch reports a line the old checks admitted as the failed helper start it gave before, so callers keep their results.
 - **#224** On POSIX, `PATH` lookup skips a file the current user cannot execute and goes on down `PATH`, as the bash launcher did.
 - **#227, #231** Windows eval flakes:
-  - On Windows, a lock create refused with access denied or a sharing violation while nothing exists at the path, as when the holder's lock file is being deleted, is retried briefly. A Windows test first confirms that a delete-pending lock file is refused that way; an access denied that persists is still reported as it is.
+  - On Windows, a feedback record replace that fails while another process has the record open, as an adopt call's existence check can, is retried briefly. A failure that persists is still reported as it is.
   - `test_parity` names each subtest folder by the case's ordinal instead of by `hash()`, so no two cases share one.
-  - The lock-race test prints the documents when it fails.
+  - The lock-race test checks the record the winner leaves and prints every call's result when it fails.
 - **#235** `sw-install` cleans up its part files on a best-effort basis: a part file that is still locked never replaces the install's own result or error.
 - **#232** is closed with a reason and changes no code (S1).
 - **Interface 3:** several of these fixes change exit codes or results callers could rely on, so `sw version --json` reports `interface` 3 and the skills require it (S5).
@@ -42,7 +42,7 @@ None.
   - snapshot `--timeout` parsing;
   - a write failure names the file;
   - `--logs` keeps stream order;
-  - feedback-record lock creation on Windows retries a create refused with access denied or a sharing violation while the path is empty.
+  - feedback-record replacement on Windows retries a replace that another call's read refuses, briefly, under the record's lock and only while its temporary source exists.
 - `native-cli`:
   - the Windows command-line check includes the helper prefix;
   - command lookup takes only files the current user can execute.
@@ -54,7 +54,7 @@ None.
   - `cli/lib/src/vcs/` (GitButler and jj commit; Git checked by a test only), and a `vcs` suite rule for it in `evals/suites.json`;
   - `cli/lib/src/finish/undo_plan.dart`;
   - `cli/lib/src/pr/snapshot.dart`;
-  - `cli/lib/src/pr/feedback_record_files.dart`;
+  - `cli/lib/src/pr/feedback_record.dart` (and doc comments in `cli/lib/src/pr/feedback_record_files.dart`);
   - `cli/lib/src/process/` (`command_line.dart`, `bounded_run.dart`, `resolve.dart`, `launch.dart`);
   - `cli/lib/src/update/sw_install.dart`.
 - **Evals:**
@@ -97,7 +97,7 @@ DECISION_MAKING: important
 ### S4: the Windows flakes are fixed in `sw` and in the tests
 
 - **Choice:**
-  - `sw`: retry an access-denied exclusive create on a delete-pending lock file (at most 5 times, 20 ms apart, only for access denied or a sharing violation while the path is empty), and report an access denied that persists as it is (design D3, chosen by the user over one retry then `record_busy`);
+  - `sw`: retry a failed feedback record replace on Windows (at most 5 retries, each after a requested 20 ms pause, under the record's lock, only while its temporary source exists; the older publication-rollback window is left to #239), and report a failure that persists as it is (design D3, chosen by the user over retrying the lock create, which a Windows probe showed does not fail in this race);
   - `sw-install`: make part-file cleanup best effort;
   - tests: name the parity subtest folders stably, and print the documents when the lock-race assertion fails.
 - **Rejected:** test-side tolerance only, which would hide a real `record_busy` mismatch that users can hit.
@@ -115,7 +115,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Fixes the gaps the M8 native-CLI ports kept for parity or found. Several fixes change exit codes or results, so `sw` now reports interface 3 and the skills of this release require it: update each project's skills and `sw` together. GitButler commits accept CRLF message files, the archive undo reports paths whole and refuses cases it could not undo safely, `sw pr snapshot` checks `--timeout` and keeps log order, and Windows command-line, `PATH`, lock and install-cleanup handling is fixed.
+Fixes the gaps the M8 native-CLI ports kept for parity or found. Several fixes change exit codes or results, so `sw` now reports interface 3 and the skills of this release require it: update each project's skills and `sw` together. GitButler commits accept CRLF message files, the archive undo reports paths whole and refuses cases it could not undo safely, `sw pr snapshot` checks `--timeout` and keeps log order, and Windows command-line, `PATH`, record-replacement and install-cleanup handling is fixed.
 
 ### Fixed
 
@@ -127,7 +127,7 @@ Fixes the gaps the M8 native-CLI ports kept for parity or found. Several fixes c
 - `sw pr snapshot --logs` merges stdout and stderr in arrival order before taking the tail (#215).
 - The Windows command-line check counts the bounded helper's prefix, so an over-long line is refused cleanly (#223).
 - `PATH` lookup skips files the current user cannot execute (#224).
-- On Windows, a feedback-record lock create refused with access denied or a sharing violation while the old lock is being deleted is retried briefly instead of failing at once (#227), and the `pr-pair` evals no longer collide on temp folders (#231).
+- On Windows, a feedback record replacement that races another call's read of the record is retried briefly instead of failing at once (#227), and the `pr-pair` evals no longer collide on temp folders (#231).
 - A Windows part file that is still locked no longer replaces `sw-install`'s own result (#235).
 
 ### Changed

@@ -1,23 +1,35 @@
 ## ADDED Requirements
 
-### Requirement: Windows lock creation retries a transient denial
-On Windows, taking a feedback record lock whose exclusive create is refused with access denied or a sharing violation while nothing exists at the path SHALL be retried, at most 5 times 20 ms apart; publication's exclusive create SHALL NOT be retried.
+### Requirement: Windows record replacement retries a transient refusal
+On Windows, a failed feedback record replace made under the record's lock SHALL be retried at most 5 times, each after a requested 20 ms pause (not a wall-clock deadline), while its temporary source is known to exist. Otherwise the first replacement error SHALL be reported unchanged. The lock create and publication SHALL NOT be retried.
 
-#### Scenario: A denial that clears within the retry window
-- **WHEN** on Windows a lock create is refused with access denied while nothing exists at the path, and a later create within the 5 retries succeeds
-- **THEN** the call holds the lock
+#### Scenario: A refusal that clears within the retry window
+- **WHEN** on Windows the first replace fails and a retry succeeds while the temporary source exists
+- **THEN** the call writes the record and reports success
 
-#### Scenario: A lock taken by another call during the retries
-- **WHEN** on Windows a lock create is refused with access denied while nothing exists at the path, and a later create within the 5 retries fails because the lock file now exists
-- **THEN** the call reports record_busy without changing the record
+#### Scenario: A refusal that persists
+- **WHEN** on Windows all 6 attempts fail
+- **THEN** the call reports the first replacement error, not record_busy, the failed replaces leave the record as they found it, and the call tries to remove its temporary file; a failure of that removal does not replace the first error
 
-#### Scenario: A denial that persists
-- **WHEN** on Windows every lock create, the first and all 5 retries, is refused with access denied and nothing exists at the path after any of them
-- **THEN** the call reports that file error, not record_busy, and leaves the record unchanged
+#### Scenario: The temporary source is gone after the first attempt
+- **WHEN** the first replace fails and the temporary source no longer exists
+- **THEN** no retry is made and that error is reported
 
-#### Scenario: Publication is not retried
-- **WHEN** on Windows the publication fallback's exclusive create is refused with access denied and nothing exists at the path
+#### Scenario: The temporary source disappears during a pause
+- **WHEN** on Windows the temporary source is removed during a pause between attempts
+- **THEN** no further attempt is made and the first error is reported
+
+#### Scenario: Other platforms
+- **WHEN** on a platform other than Windows the record replace fails
+- **THEN** the error is reported at once, with no retry
+
+#### Scenario: The lock create and publication are not retried
+- **WHEN** a lock create or publication's create fails
 - **THEN** the error is reported at once, as before, with no retry
+
+#### Scenario: Concurrent adoption on Windows
+- **WHEN** several calls adopt one freshly written record at once on Windows, all from its valid current owner, each to its own new owner different from that one, no publication or deletion of the record runs at the same time, and every refusal clears within the retries
+- **THEN** every call reports a result, exactly one succeeds, every other reports record_busy or not_owner, and the record equals the record before the race except for the owner, which is the one that succeeded
 
 ### Requirement: A PR call's new helper refusal keeps its exit with a fixed diagnostic
 On Windows, when a `sw pr reply` or `sw pr snapshot` `gh` call is refused by a launch check this change adds (such as a helper line over the limit), the command SHALL report `cannot start the helper: its command line is too long` where the OS text of the failed start was, with the same exit. An older check SHALL keep its diagnostic (`unrepresentable command line` or `unsafe batch argument`). Where this differs from the two PR parity requirements, it SHALL take precedence.

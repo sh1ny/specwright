@@ -4,9 +4,9 @@
 
 | Trigger | Applies? | Evidence |
 |---|---|---|
-| T1 Components (new component, or 3+ with directed relationships) | no | Each fix stays inside one existing module: `vcs/`, `finish/undo_plan.dart`, `pr/snapshot.dart`, `pr/feedback_record_files.dart`, `process/`, `update/sw_install.dart`. No new component. |
+| T1 Components (new component, or 3+ with directed relationships) | no | Each fix stays inside one existing module: `vcs/`, `finish/undo_plan.dart`, `pr/snapshot.dart`, `pr/feedback_record.dart` (and doc comments in `pr/feedback_record_files.dart`), `process/`, `update/sw_install.dart`. No new component. |
 | T2 State (persistent state, caches, 3+ state machine) | no | No new stored state. The feedback-record lock file keeps its path and protocol (`cli/lib/src/pr/feedback_record_files.dart:48-70`). |
-| T3 Concurrency (background work, workers/isolates, async, retries) | yes | #227 adds a bounded retry to a lock create that races another process's release. #215 merges two concurrently read pipes. |
+| T3 Concurrency (background work, workers/isolates, async, retries) | yes | #227 adds a bounded retry to a record replace that races another process's open of the record. #215 merges two concurrently read pipes. |
 | T4 Boundaries (data format, migration, shared interface, IPC, external) | yes | Exit codes, error codes and stderr of `sw pr snapshot`, `sw finish undo-archive-plan` and `sw vcs commit` change. The helper's command line (the `sw __exec` argv) is now counted. |
 | T5 Volume (grows without a fixed bound) | no | The merged log buffer is bounded by one `maxBytes` budget over both streams (`cli/lib/src/process/bounded_run.dart:229-253`). |
 | T6 Risk (security, money, data loss, unrecoverable user data) | no | No credential, history or user file is rewritten. The retry never removes a lock it did not create. |
@@ -37,7 +37,7 @@ The proposal lists the ten issues and the scope decisions (S1-S5). The current c
   - `runGh` and `runBoundedCommand` reach it through `planLaunch` (`cli/lib/src/pr/gh.dart:120`).
   - `sw run --bounded` and the reviewer runner each call `planLaunch` and build `BoundedRun` themselves (`cli/lib/src/commands/run.dart:91-109`, `cli/lib/src/review/run.dart:1885-1904`). `sw run --bounded` maps `Unrepresentable` to `bounded: unrepresentable <what>: <cmd>`, exit 2 (`cli/lib/src/commands/run.dart:95-99`).
 - **#224 lookup.** `_isFile` accepts any execute bit (`cli/lib/src/process/resolve.dart:105-111`). The libc binding has no `access` or `faccessat` yet (`cli/lib/src/native/libc.dart:12-30`). `package:ffi` is already a dependency (`cli/pubspec.yaml:21`).
-- **#227 lock.** `_create` rethrows a `FileSystemException` when nothing exists at the path (`cli/lib/src/pr/feedback_record_files.dart:48-65`). It serves both `acquireLock` and the publication fallback's exclusive create (`cli/lib/src/pr/feedback_record_files.dart:68`, `:93`). The eval asserts every loser's error is `record_busy` or `not_owner` and prints nothing on failure (`evals/pr-pair/test_workflow_records.py:318-325`).
+- **#227 record replace.** The lock create was suspected first, but a Windows CI probe disproved that: a create after deleting a lock file that another handle holds open succeeds at once (cli run 44814994011). Repeating the concurrent-adoption eval 300 times on `windows-latest` (evals run 44837787942) failed 15 times, each with an `internal_error: atomic replacement failed` from a call that had taken the lock and was replacing the record (`replaceRecord` in `cli/lib/src/pr/feedback_record.dart`, through `MoveFileExW` in `cli/lib/src/fs/link.dart`). The other adopt calls check the record with `File` and `Directory.existsSync` before they take the lock (`_exists` in `cli/lib/src/pr/feedback_pass.dart`). A probe (cli run 44839048731) replaced a file 3,000 times per case. Alone, none failed. With concurrent `File.existsSync` 1,107 failed, with `Directory.existsSync` 1,166, with `Link.existsSync` 1,167, with `statSync` 708 and with reads 2,112. Any open of the record by another process can refuse the replace while it lasts. The replace reports no OS error code (`osError` is null: the FFI call's last error is not captured). The eval asserts every loser's error is `record_busy` or `not_owner` and prints nothing on failure (`evals/pr-pair/test_workflow_records.py:318-325`).
 - **#231 folder names.** Subtest repos are named `w-{len(name)}-{abs(hash(name)) % 1000}` (`evals/pr-pair/test_parity.py:454`), and `hash()` is salted per process, so two cases can share a folder in one run. The fix names each folder by the case's ordinal in `cases` (`w-<n>`), unique within the run and the same in every run.
 - **#235 install cleanup.** The `finally` block deletes the part files with `files.remove` (`cli/lib/src/update/sw_install.dart:248-255`). `remove` deletes with `deleteSync`, which throws (`cli/lib/src/update/file_ops.dart:100-110`), so a throw in `finally` replaces the install's result. Parts older than an hour are swept by a later run (`cli/lib/src/update/sw_install.dart:26`, `:340`).
 
@@ -93,21 +93,25 @@ In-force ADRs:
 - **Important:** no. The behaviour is fixed by the delta spec; this is how.
 - **Chosen by:** agent
 
-### D3: a lock create denied during a release is retried briefly, then reported as it is
+### D3: a record replace refused during a concurrent read is retried briefly, then reported as it is
 
-- **Choice:** only `acquireLock` retries; publication's exclusive create keeps its single attempt. On Windows, when the lock's exclusive create fails with a `FileSystemException`, nothing exists at the path, and the OS error is access denied (5) or sharing violation (32), retry the create up to 5 times, 20 ms apart.
-  - Publication stays single-attempt, though it shares `_create` with acquisition (`cli/lib/src/pr/feedback_record_files.dart:48-69`, `:92-105`): the retry lives in `acquireLock`, not `_create`. A test drives publication with an injected create that is denied with error 5 once and would succeed next, and asserts the original error, exactly one create attempt and no record.
-  - A caller-level test uses the pause seam to create a competing lock between two attempts after a denial, and asserts `record_busy`, an unchanged record and the competing lock still in place.
-  - The OS-error check is a plain function of `FileSystemException.osError`, tested directly with codes 5, 32 and an unrelated code, so the Windows filter itself is covered. The create and the pause are injectable, as `openCreated` already is (`cli/lib/src/pr/feedback_record_files.dart:39-44`), so Dart tests drive a denial that clears and one that persists deterministically on every OS.
-  - A create that then finds the path occupied is `RecordAlreadyExists` (record_busy).
-  - A create that succeeds holds the lock.
-  - An error that persists through the retries is rethrown unchanged.
-  - Before the retry is written, a Windows-only Dart test checks A1 directly: it holds a lock file open with delete sharing, deletes it so it is delete-pending, then tries the exclusive create, and records the OS error and whether the path is visible. It asserts error 5 or 32 and no visible file, then closes the handle within the retry window and asserts the next create succeeds, so the test controls how long the delete-pending state lasts. If it fails, D3 is revisited before #227 is claimed fixed.
-  - The concurrent-adoption stress eval (`evals/pr-pair/test_workflow_records.py:318-325`) accepts only `record_busy` or `not_owner` from the losers today. A loser whose denial outlasts the five retries gets the file error D3 preserves, so the eval keeps its assertion outside Windows (every loser `record_busy` or `not_owner`) and on Windows also allows that one documented error, recognised exactly: an `internal_error` document, exit 1, whose message (`<runtimeType>: ...`, the exception's text that `runPairCommand` puts there, `cli/lib/src/pr/pair.dart:86-111`; the type is `FileSystemException` or one of its public subclasses, such as `PathAccessException`, so the predicate matches the `FileSystemException` family rather than one spelling, and the Windows probe records which one a persistent denial gives) names the exclusive create of that record's `.lock` path and OS error 5 or 32. Any other `internal_error`, such as a failure replacing the record (`cli/lib/src/pr/feedback_pass.dart:1298-1333`), still fails the eval. Each loser's exit status and error document are still checked, and on every OS exactly one winner, the record intact and owned by it, and no lock left.
-  - The promise is limited to the listed errors: a create refused with 5 or 32 while the path is empty is retried. Whether a real delete-pending lock always shows up that way on Windows is A1; the proposal no longer promises that the race always ends as lock taken or `record_busy`.
-- **Rejected:** one retry, then classing the failure as record_busy. A real permission problem on the record directory would then hide behind `record_busy`.
+- **Choice:** on Windows, `FeedbackRecordStore.replaceRecord` (`cli/lib/src/pr/feedback_record.dart`) retries a failed record replace: at most 6 attempts in all, with a requested 20 ms pause and then one check that the temporary source still exists before each of the 5 retries. There is no wall-clock timeout. A missing source, or a check that fails, stops the loop without another replace. When it stops, or every attempt fails, it rethrows the first replacement error unchanged, so the caller reports it as before (`internal_error`). It removes the temporary file on a best-effort basis that never replaces that error, before the caller releases the lock. The pause is synchronous and `replaceRecord` stays synchronous, so `adopt` holds its lock through every attempt and the cleanup, and no caller changes. Every other platform makes one attempt, and `RecordFiles.replace` itself stays a single attempt.
+  - The retry runs inside `withLock`, so no adopt, `done` or write that takes the lock can change the record meanwhile. Publication and legacy migration do not take the lock: publication's fallback writes the canonical path directly and deletes it again if the write or close fails (`publish` in `cli/lib/src/pr/feedback_record.dart`). A replace can therefore overwrite a record that such a rollback and a later publication put in place after the caller's owner check. That window exists for today's single replace; the retry repeats it for at most five 20 ms pauses (I/O not counted) and adds no new case. It needs a publication to roll back a record that had already become readable to the adopt call (a close failure after a successful write is one way, a write error another), and is left to #239 (chosen by the user).
+  - The retry is keyed on the source check, not on an OS error code, because the replace reports none (`osError` is null). A lasting problem, such as a locked directory or a full disk, still fails after at most 5 pauses with its first error.
+  - Only the record replace retries. The lock create (`acquireLock`), publication's hard link and its exclusive-create fallback keep a single attempt: nothing showed them failing in this race. No new lock is taken, so `done`, `plan` and `locate` keep their order.
+  - The retry lives in the store, not in the shared `replaceFile` (`cli/lib/src/fs/link.dart`), so the other callers of `replaceFile` keep their behaviour.
+  - The pause and a Windows switch are injectable on the store, which already takes `RecordFiles`, so Dart tests drive every case on every OS through a fake `RecordFiles`. Red before the fix: a refusal that clears writes the record with one more attempt and one pause; a refusal that persists rethrows the first error after 6 attempts and 5 pauses and leaves the record's bytes unchanged; a source removed during a pause ends the attempts with the first error; a temp cleanup that fails after a persistent refusal still rethrows the first error. Green before and after the fix: a source gone after the first failed attempt is not retried; off Windows a failure is not retried; the lock create and publication make one attempt.
+  - Unchanged by this change: another process's read can still obstruct a Windows delete of the record in `done`, or of a legacy record during migration.
+  - The concurrent-adoption stress eval keeps its assertions on every OS (exactly one winner, every loser `record_busy` or `not_owner`, no lock left). Each worker adopts to its own new owner, different from the starting one. The eval adds that all six workers report a result and that the record is intact and owned by the winner, and it prints every call's raw result (exit status, stdout, stderr, or the exception) when an assertion or a JSON decode fails.
+  - A1 is checked by repeating that eval 300 times on `windows-latest` from a throwaway branch, as the reproduction did, with no failure.
+- **Rejected:**
+  - Retrying the lock create on access denied or a sharing violation (the earlier D3). The Windows probe showed the create does not fail that way, so it would not remove the flake.
+  - Moving adopt's existence check under the lock. Any other process that opens the record outside the lock can still refuse the replace.
+  - Taking the lock in publication. `done` calls `plan`, which calls `locate`, which can publish a migrated record, so a lock there would change the order of every call that writes a record. The rollback window it would close predates this change (#239).
+  - Checking, before each retry, that the record still holds the bytes validated under the lock (review round 143). The replace is by path, so a rollback and republication between that check and the replace still slip through, and the check adds a bounded read and its own errors without closing the window.
+  - Classing a failed replace as record_busy. A lasting problem would then hide behind it.
 - **Reversal cost:** low.
-- **Important:** yes. It changes what users see: which error a lock race reports.
+- **Important:** yes. It changes what users see: a record replacement that raced a read no longer fails.
 - **Chosen by:** user
 
 ### D4: `--logs` merges the two streams in arrival order inside `BoundedRun`
@@ -220,7 +224,7 @@ In-force ADRs:
 | S5 | Release | Minor 0.39.0, interface 3 | Patch 0.38.1 with a closed list of interface-2 exceptions | low | yes | user (round 72) |
 | D1 | CRLF message | jj normalises CRLF; GitButler keeps `-F` with the absolute path and its read-back folds line endings on both sides; Git unchanged | Temp copy for `-F`; `-m` for all or CRLF files; normalise in Git too | low | no | agent (narrowed by user, round 3) |
 | D2 | Undo-plan paths | Lossless `-z` record parser split from `parsePorcelain` (no `pathText`) for the Git dirty and carried reads, with `--untracked-files=all --no-optional-locks`; a failed status read stops; jj and uncommitted archive unchanged; pair rename records (real fixture on resume, unit test for carried); sort after; keep the stop code; staged guard kept | Non-`-z` dirty check with the strip fixed | low | no | agent |
-| D3 | Lock race | `acquireLock` only: 5 retries 20 ms apart, then the real error | One retry then record_busy | low | yes | user |
+| D3 | Record replace race | On Windows, up to 5 retries of the record replace, each after a requested 20 ms pause, while the source exists, then the first error | Retry the lock create; check under the lock; lock publication; byte check; record_busy | low | yes | user |
 | D4 | Log order | Arrival-order merge in `BoundedRun` of stdout and all non-frame stderr (start-failure text included), finite caps required | `dup2`/`SetStdHandle` in the helper; close #215 | low | yes | user |
 | D5 | Windows line limit | `planBoundedLaunch` checks the serialized helper argv, NUL counted, at every `BoundedRun` construction site (gh, `_batch`, `sw run --bounded`, reviewer, checked in `_runNative` so probes are covered); reviewer and probe messages name the refusal | Command over the control pipe | low | no | agent |
 | D6 | POSIX lookup | `faccessat(X_OK, AT_EACCESS)` via libc, effective IDs | `access` (real IDs); continue after EACCES | low | no | agent |
@@ -231,12 +235,12 @@ In-force ADRs:
 
 ## Assumptions
 
-- **A1:** On Windows, a delete-pending lock file makes `createSync(exclusive: true)` fail with OS error 5 or 32 and leaves no visible file to the existence checks. The race reproduces only intermittently on CI runners (the issue's analysis), but the delete-pending state itself can be made on purpose. Depends on it: whether D3 removes the #227 flake. D3 promises only the retry for the listed errors, so a wrong A1 leaves the flake in place, not a wrong result. Checked first by the Windows delete-pending test in D3.
+- **A1:** In the reproduced adoption workload on Windows, a replace refused by another call's open of the record (an existence check, a stat or a read) usually succeeds within 5 retries, each after a requested 20 ms pause. Evidence: the probe and the reproduction in the #227 note show that concurrent opens cause the refusals and that none occur without them; they did not measure how long a refusal lasts. Depends on it: whether D3 removes the #227 flake. A wrong A1 leaves the flake in place, not a wrong result, because a refusal that persists is still reported as before. Checked by repeating the stress eval 300 times on Windows after the fix (D3).
 
 ## Carried constraints
 
 - **C1:** Every bounded launch is planned through `planBoundedLaunch`, which checks the serialized helper argv against the Windows 32,767-unit limit. Kind: invariant. Destination: doc comment: cli/lib/src/process/command_line.dart planBoundedLaunch
-- **C2:** An access-denied lock create is retried only while nothing exists at the path, and a persistent error is never reclassified as record_busy. Kind: invariant. Destination: doc comment: cli/lib/src/pr/feedback_record_files.dart _create
+- **C2:** A failed record replace is retried only on Windows, under the record's lock, and only while its temporary source exists; the first error is rethrown unchanged, never reclassified as record_busy, and temp cleanup never replaces it. Kind: invariant. Destination: doc comment: cli/lib/src/pr/feedback_record.dart replaceRecord
 - **C3:** `--logs` merges by arrival order, not by a shared descriptor, because Windows handle inheritance for such a redirect is not verified and the owner chose the arrival-order guarantee; the merged buffer takes every stderr byte the frame parser passes on (the helper's `bounded: cannot start` text included, frames never), a result with no merged buffer uses its stderr, and merged mode needs finite bounds. Kind: rejected alternative. Destination: doc comment: cli/lib/src/process/bounded_run.dart BoundedRun
 - **C3b:** the merged buffer joins the two streams by delivered chunk (`cli/lib/src/process/bounded_run.dart:295-339`) and the tail counts raw LF bytes (`cli/lib/src/pr/text.dart:62-71`), so a stderr chunk that lands inside a stdout line splits that line, possibly inside a UTF-8 sequence; the spec says so. Kind: deliberate gap. Destination: doc comment: cli/lib/src/process/bounded_run.dart BoundedRun
 - **C5:** on Git, `dirty_tree.files` holds unquoted whole paths, no backslash rewritten, read from `-z` porcelain with all untracked files listed, with both paths of a rename or copy; `carried_edits` is read with the same record reader, and `carried_edits` stays in UTF-8 byte order. Kind: invariant. Destination: spec: specs/change-finish/spec.md → Requirement: The undo planner reports paths whole
@@ -285,7 +289,8 @@ In-force ADRs:
 - **C10:** every `git status` the undo planner causes, its `vcsState` read included, runs with `GIT_OPTIONAL_LOCKS=0`, so the read-only planner never rewrites the index, and with `-c core.fsmonitor=false`, so it never starts a monitor daemon or runs a monitor hook (optional locks do not disable either); the planner passes both to `vcsState` through an option that standalone `sw vcs state` does not set, so that command is unchanged; the same option makes the state read's `git status` bypass `runText` and drain and discard its stdout without buffering or decoding it, checking only the command's result (a failed status still gives `git_error`), and the planner decodes strictly only the records it uses: every path of the resume report, and both ends of a kept carried-edits record, so an unrelated non-UTF-8 name never stops a plan before the member filter (real-CLI Linux fixture: an untracked name with byte `0xFF` beside a tracked `review.md` in an older archive, first checking that the plain `git status --porcelain -z` output holds that byte; the committed undo plans successfully on the change branch and names no such file) (fixture: `core.fsmonitor` set to a hook that records each invocation, planned on a clean checkout; the hook never runs); git calls that cannot refresh the index (`rev-parse`, `config`) keep the caller's environment. Kind: invariant. Destination: doc comment: cli/lib/src/finish/undo_plan.dart undoArchivePlan
 - **C9:** the install's one-hour sweep treats any part or `.stage` directory older than an hour as abandoned, by age alone; a live run paused that long can lose it. Kind: deliberate gap. Destination: doc comment: cli/lib/src/update/sw_install.dart _cleanStale
 - **C8:** jj's `_readMessage` stays byte-faithful, because `jjMerge` uses it too; only the commit path normalises CRLF. Kind: invariant. Destination: doc comment: cli/lib/src/vcs/jj_backend.dart _readMessage
-- **C6:** Only lock acquisition retries a denied create; publication's exclusive create is never retried. Kind: invariant. Destination: doc comment: cli/lib/src/pr/feedback_record_files.dart acquireLock
+- **C6:** The lock create makes one attempt; only the record replace retries. Kind: invariant. Destination: doc comment: cli/lib/src/pr/feedback_record_files.dart acquireLock
+- **C6b:** Publication's hard link and its exclusive-create fallback make one attempt each and are never retried. Kind: invariant. Destination: doc comment: cli/lib/src/pr/feedback_record.dart publish
 - **C4:** #232's gate-unlock race stays open by decision; each fix found so far adds a race of its own. Kind: deliberate gap. Destination: doc comment: cli/lib/src/gate/lock.dart gateUnlock
 - **C4c:** #232's ownerless window in `gateLock`, between the exclusive directory create and the owner-file rename (`cli/lib/src/gate/lock.dart:93-108`), stays open by decision: a lock seen without an owner file there may be a live acquisition, not a stale lock. Kind: deliberate gap. Destination: doc comment: cli/lib/src/gate/lock.dart gateLock
 - **C4b:** #232's non-resumable undo after a failed archive stays open by decision, for the same reason. Kind: deliberate gap. Destination: doc comment: cli/lib/src/finish/undo_plan.dart undoArchivePlan
@@ -294,29 +299,30 @@ In-force ADRs:
 
 ## Diagrams (FULL)
 
-T3: the lock create race (#227).
+T3: the record replace race (#227).
 
 ```mermaid
 sequenceDiagram
-    participant H as Holder
-    participant L as Loser
+    participant H as Lock holder
+    participant O as Other call
     participant FS as Windows FS
-    H->>FS: deleteSync(.lock) (delete pending)
-    L->>FS: createSync(exclusive)
-    FS-->>L: access denied (5/32)
-    L->>FS: exists? link/file/dir
-    FS-->>L: none
-    loop up to 5 times, 20 ms apart
-        L->>FS: createSync(exclusive)
-        alt created
-            FS-->>L: ok (holds lock)
-        else exists
-            FS-->>L: PathExists -> record_busy
-        else still denied
-            FS-->>L: denied (next try)
+    H->>FS: createSync(exclusive .lock)
+    H->>FS: read the record, check the owner
+    O->>FS: existsSync(record), a brief open
+    H->>FS: MoveFileExW(temp, record)
+    FS-->>H: refused while the record is open
+    loop until replaced, at most 5 retries
+        Note over H: requested 20 ms pause
+        H->>FS: temp exists? (one check)
+        alt it does not, or the check fails
+            Note over H: stop retrying
+        else it does
+            H->>FS: MoveFileExW(temp, record)
+            FS-->>H: replaced (stop), or refused again
         end
     end
-    Note over L: still denied after 5 tries -> rethrow original error
+    Note over H: not replaced -> best-effort temp delete, rethrow the first error
+    H->>FS: deleteSync(.lock), attempted; a leftover is reported as lock_left
 ```
 
 T4: the bounded launch line (#223) and merged logs (#215).
@@ -338,6 +344,7 @@ flowchart LR
 | State | Owner (sole writer) | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
 | Feedback-record `.lock` file | the call whose exclusive create succeeded | until that call's `releaseLock` | removed only by its creator | the file at the `.lock` path |
+| Record temporary file (`.tmp-*`) of a replace | the lock holder that wrote it | until its replace succeeds, or a best-effort delete before the lock is released | none; one left by a killed process stays, as today | none (temporary) |
 | Combined log buffer (D4) | the `BoundedRun` instance | one run | none | the run's result |
 | Install part files | `sw-install` run that made them | that run; best-effort delete, else swept after 1 h | sweep by a later run | none (temporary) |
 
@@ -345,9 +352,8 @@ flowchart LR
 
 | Component | Fails / dies mid-operation → | Recovery | Retry safe? | Who finds out |
 |---|---|---|---|---|
-| Lock create retry | process killed while waiting between attempts | nothing was created, so nothing is held | yes | the caller sees no document; the next call proceeds |
-| Lock create retry | process killed after a retry took the lock, before `releaseLock` (`cli/lib/src/pr/feedback_record.dart:76-92`) | none automatic, as for any interrupted holder today | no | the next call reports `record_busy`; the user removes the stale lock |
-| Lock create, persistent denial | error after 5 tries | none needed | yes | the user, through the original file error in the document |
+| Record replace retry | process killed during a pause | none automatic: it holds the lock and its temporary file, as any interrupted holder does today | no | the next call reports `record_busy`; the user removes the stale lock; the temporary file stays |
+| Record replace, persistent refusal | error after 6 attempts | best-effort temp delete, then `withLock` attempts the lock release (a failure is reported as `lock_left`, as today) | yes | the user, through the first file error in the document |
 | Merged log read | both streams together pass the budget | the existing limit line replaces the log | yes | the user, through the limit line (`cli/lib/src/pr/snapshot.dart:337-342`) |
 | Part-file delete | locked on Windows | swept after 1 h by a later run | yes | nobody at the time; the install result is reported unchanged |
 | Helper line check | over the limit | refused before the start | n/a | the caller, through its usual refusal |
@@ -357,11 +363,11 @@ flowchart LR
 | Queue / buffer / cache / transfer | Bound | At the bound | Timeout | At 10x / 100x |
 |---|---|---|---|---|
 | Combined log buffer | `maxBytes` (32 MiB) over both streams | the existing limit stop | the call's deadline | unchanged: the budget bounds it |
-| Lock retries | 5 tries, 20 ms apart (about 100 ms) | rethrow | about 100 ms | per call; six racers add about 100 ms each at worst |
+| Record replace retries | 6 attempts at most, 5 requested pauses of 20 ms, one source check after each pause | rethrow the first error | none (no wall-clock timeout) | per call; only the lock holder retries, so racers do not add up |
 
 ## Flow & State Gaps (FULL)
 
-- **Concurrent lock create:** covered by D3. A loser never removes the holder's lock, and the retry runs only while the path is empty.
+- **Concurrent record replace:** covered by D3. The retry runs inside the held lock, only while the temporary source exists. A fallback publication's rollback followed by another publication can still be overwritten by a replace, as today (#239). Another process's read can still obstruct a Windows delete of the record in `done` or of a legacy record during migration, unchanged by this change.
 - **Interleaved writes at the same instant:** order between the two streams is not guaranteed, which the spec allows.
 - **Restart mid-install:** a part file left by a killed or locked run is removed by a later run's sweep.
 
@@ -369,7 +375,7 @@ flowchart LR
 
 | Mechanism | Built? | Why (harm nobody catches / expensive later) | Evidence that would change the call |
 |---|---|---|---|
-| Bounded lock-create retry | yes | without it, CI fails intermittently on Windows, and users see a raw file error in a normal race | — |
+| Bounded record-replace retry | yes | without it, CI fails intermittently on Windows, and users see a raw file error when another call reads the record during a replace | the 300-run Windows repeat still failing |
 | True fd merge in the helper | no | arrival order fixes the reported case | a log tail shown out of order in practice |
 | Download stop arbitration (first-stop slot, monotonic deadline at one settle point, 10 s bounded shutdown) | yes | waiting for ordinary cancellation and close is not enough: a close that fails replaces the first limit, a close that never settles holds the install before its cleanup, and a callback the isolate runs after the deadline but before the overdue timer reports the wrong bound | — |
 | Delete retry for part files | no | the sweep covers leftovers | leftovers that pile up past the sweep |
@@ -379,7 +385,7 @@ flowchart LR
 
 ## Risks / Trade-offs
 
-- [The retry hides a real but brief permission flap] → It is bounded to about 100 ms, and an error that persists is reported unchanged.
+- [The retry hides a real but brief permission flap] → It is bounded to 6 attempts and at most five requested 20 ms pauses (not a wall-clock deadline), and an error that persists is reported unchanged.
 - [real and effective IDs differ, inherited from the launcher] → lookup uses `faccessat` with `AT_EACCESS`, so it checks the same effective IDs the start uses.
 - [Arrival order differs from write order under heavy concurrent output] → The spec states the guarantee as arrival order, and the reported case is covered by a test on three OSes.
 

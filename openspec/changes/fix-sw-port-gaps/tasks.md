@@ -183,10 +183,15 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | An archived member edited after a GitButler plan |  |  | red |
 |  | A foreign assignment made after a GitButler plan |  |  | red |
 |  | An unassigned member edit on a GitButler undo |  |  | red |
-| Windows lock creation retries a transient denial | A denial that clears within the retry window | `cli/test/pr/feedback_record_test.dart` | a denied create that clears takes the lock | red |
-|  | A lock taken by another call during the retries |  | a competing lock during the retries is record_busy | red |
-|  | A denial that persists |  | a persistent denial is rethrown unchanged | red |
-|  | Publication is not retried |  | publication makes one create attempt | red |
+| Windows record replacement retries a transient refusal | A refusal that clears within the retry window | `cli/test/pr/feedback_record_test.dart` | a refused replace that clears writes the record | red |
+|  | A refusal that persists |  | a persistent replace failure rethrows the first error after 6 attempts | red |
+|  | The temporary source disappears during a pause |  | a source removed during a pause ends the retries | red |
+|  | A refusal that persists |  | a failed temp cleanup keeps the first error | red |
+|  | The temporary source is gone after the first attempt |  | a replace whose source is gone is not retried | green |
+|  | Other platforms |  | off Windows a failed replace is not retried | green |
+|  | The lock create and publication are not retried |  | the lock create and publication make one attempt | green |
+|  | A refusal that clears within the retry window | `cli/test/pr/feedback_pass_test.dart` | adopt holds the lock through a retry pause, and cleans up before the release | red |
+|  | Concurrent adoption on Windows | `evals/pr-pair/test_workflow_records.py` | test_concurrent_mutations_acquire_one_lock | red |
 | A PR call's new helper refusal keeps its exit with a fixed diagnostic | A reaction whose gh line fits only without the helper | `cli/test/pr/reply_test.dart` | windows: react line over the limit only behind the helper exits 127 | red |
 |  | A snapshot query that fits only without the helper | `cli/test/pr/snapshot_test.dart` | windows: GraphQL line over the limit only behind the helper | red |
 |  | A PR call refused by an older check | `cli/test/pr/reply_test.dart` | windows: line over the limit as given is unrepresentable | red |
@@ -355,14 +360,15 @@ Verification: never run an eval suite locally. Locally run only the module being
 - [x] 5.6 C3: doc comment of `BoundedRun` in `cli/lib/src/process/bounded_run.dart`.
 - [x] 5.7 C3b: doc comment of `BoundedRun` in `cli/lib/src/process/bounded_run.dart`.
 
-## 6. Windows lock retry and the `pr-pair` eval flakes (D3, #227, #231)
+## 6. Windows record replace retry and the `pr-pair` eval flakes (D3, #227, #231)
 
-- [ ] 6.1 Verify A1: add a Windows-only test to `cli/test/pr/feedback_record_test.dart` that holds a lock file open with delete sharing, deletes it, tries `createSync(exclusive: true)`, asserts OS error 5 or 32 and no visible file, records which `FileSystemException` type a persistent denial gives, then closes the handle and asserts the next create succeeds. Verify: it passes on the Windows job of `cli.yml` in PR CI. If it fails, A1 is disproved: stop the D3 work as design drift.
-- [ ] 6.2 Write failing tests in `cli/test/pr/feedback_record_test.dart` for the rows of "Windows lock creation retries a transient denial", plus the plain OS-error filter (5, 32, an unrelated code), with an injectable create and pause. Verify they fail because nothing retries.
-- [ ] 6.3 Retry in `acquireLock` only (5 times, 20 ms apart, only for 5 or 32 while the path is empty); publication keeps one attempt; a persistent error is rethrown unchanged. Verify: the 6.2 tests pass locally and their rows turn green.
-- [ ] 6.4 In `evals/pr-pair/test_workflow_records.py`, on Windows also accept the one documented loser error (an `internal_error` naming the `.lock` create and OS error 5 or 32, `FileSystemException` family), keep every other check, and print the documents when the assertion fails; in `evals/pr-pair/test_parity.py`, name subtest folders `w-<ordinal>`. Verify: both modules pass in PR CI on three OSes.
-- [ ] 6.5 C2: doc comment of `_create` in `cli/lib/src/pr/feedback_record_files.dart`.
+- [ ] 6.1 Write failing tests in `cli/test/pr/feedback_record_test.dart` for the red rows of "Windows record replacement retries a transient refusal", through a `FeedbackRecordStore` with a fake `RecordFiles`, an injected pause and a Windows switch, asserting the attempt count, each requested pause duration (20 ms), that the rethrown error is the first replacement error and not a later one (each attempt fails with a distinct error), and the record's bytes; the source-removed case removes it from inside the injected pause; the cleanup case runs the exhausted retry path and asserts the temp delete was attempted after the last attempt. In `cli/test/pr/feedback_pass_test.dart`, drive a refused replace through `FeedbackPass.adopt` with the injected pause, and assert that a competing lock acquisition during the pause gets `record_busy` and that the temp cleanup comes before the lock release attempt. Verify they fail because nothing retries.
+- [ ] 6.2 Write the green rows of that requirement (a source gone after the first failed attempt, other platforms, the lock create and publication making one attempt) in the same file. Verify they pass before the fix.
+- [ ] 6.3 Retry in `FeedbackRecordStore.replaceRecord` only: on Windows, at most 6 attempts, each retry after a requested 20 ms pause and one source check; a missing source or a failed check stops without another replace; rethrow the first error; remove the temporary file on a best-effort basis that never replaces it. The pause is synchronous and `replaceRecord` stays synchronous, so `adopt` holds its lock through every attempt and the cleanup. Verify: the 6.1 and 6.2 tests pass locally and their rows turn green.
+- [ ] 6.4 In `evals/pr-pair/test_workflow_records.py`, keep every check of the concurrent-adoption test and each worker's distinct new owner, capture each worker's raw result (exit status, stdout and stderr, or the exception) before decoding, add that all six workers report a result, that the winner exits 0 and each loser exits 1, and that the stored record equals the pre-race record except for the owner, which is the winner's, and print every raw result when an assertion or a JSON decode fails; in `evals/pr-pair/test_parity.py`, name subtest folders `w-<ordinal>`. Verify: both modules pass in PR CI on three OSes, and the concurrent-adoption test repeated 300 times on `windows-latest` from a throwaway branch fails none (A1). Its red evidence is the baseline repeat (evals run 44837787942: 15 failures in 300), not a deterministic pre-fix assertion.
+- [ ] 6.5 C2: doc comment of `replaceRecord` in `cli/lib/src/pr/feedback_record.dart`.
 - [ ] 6.6 C6: doc comment of `acquireLock` in `cli/lib/src/pr/feedback_record_files.dart`.
+- [ ] 6.7 C6b: doc comment of `publish` in `cli/lib/src/pr/feedback_record.dart`.
 
 ## 7. Bounded download and best-effort install cleanup (D8)
 
