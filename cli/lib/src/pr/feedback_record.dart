@@ -34,10 +34,20 @@ class LocatedRecord {
 /// JSON indentation/key order are not protocol; existing legacy bytes are
 /// copied unchanged when their identity is migrated.
 class FeedbackRecordStore {
-  FeedbackRecordStore(this.directory, {RecordFiles? files})
-    : files = files ?? RecordFiles.native();
+  /// [pause] and [windows] exist so tests run the Windows retry on every OS.
+  FeedbackRecordStore(
+    this.directory, {
+    RecordFiles? files,
+    void Function(Duration)? pause,
+    bool? windows,
+  }) : files = files ?? RecordFiles.native(),
+       _pause = pause ?? _sleep,
+       _windows = windows ?? Platform.isWindows;
   final String directory;
   final RecordFiles files;
+  final void Function(Duration) _pause;
+  final bool _windows;
+  static void _sleep(Duration d) => sleep(d);
   final List<String> leftLocks = [];
   static final _random = Random.secure();
   static String _normal(String value) => value.replaceAll(r'\', '/');
@@ -93,6 +103,8 @@ class FeedbackRecordStore {
     }
   }
 
+  /// C6b: the hard link and the exclusive-create fallback make one attempt
+  /// each and are never retried; only the record replace retries.
   void publish(String source, String destination) {
     try {
       files.link(source, destination);
@@ -215,13 +227,44 @@ class FeedbackRecordStore {
     }
   }
 
+  /// C2: a failed replace is retried only on Windows, under the record's lock
+  /// (the caller holds it), and only while its temporary source exists: at most
+  /// 6 attempts, each retry after a requested 20 ms pause and one source check.
+  /// A missing source, or a check that throws, stops without another replace.
+  /// The first error is rethrown unchanged, never reclassified as record_busy,
+  /// and the best-effort temporary cleanup never replaces it.
   void replaceRecord(String path, Map<String, Object?> record) {
     final temp = _temporary(path, record);
+    Object? first;
+    StackTrace? firstTrace;
+    var replaced = false;
     try {
-      files.replace(temp, path);
+      for (var attempt = 0; attempt < (_windows ? 6 : 1); attempt++) {
+        if (attempt > 0) {
+          _pause(const Duration(milliseconds: 20));
+          try {
+            if (!File(temp).existsSync()) {
+              break;
+            }
+          } on Object {
+            break;
+          }
+        }
+        try {
+          files.replace(temp, path);
+          replaced = true;
+          return;
+        } on Object catch (error, stack) {
+          first ??= error;
+          firstTrace ??= stack;
+        }
+      }
     } finally {
-      _removeTemporary(temp);
+      if (!replaced) {
+        _removeTemporary(temp);
+      }
     }
+    Error.throwWithStackTrace(first!, firstTrace!);
   }
 
   Object? load(String path) {

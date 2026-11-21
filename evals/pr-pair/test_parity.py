@@ -467,9 +467,9 @@ class AsParity(tas.AsShCase, ParityAsserts):
             "jj other subcommand": ([], ("jj", "log")),
             "jj --config": ([], ("jj", "git", "push", "--config", "x=y")),
         }
-        for name, (git_steps, command) in cases.items():
+        for ordinal, (name, (git_steps, command)) in enumerate(cases.items()):
             with self.subTest(name):
-                work = self.repo(f"w-{len(name)}-{abs(hash(name)) % 1000}")
+                work = self.repo(f"w-{ordinal}")
                 self.git(work, "remote", "set-url", "origin", "https://github.com/o/r.git")
                 self.git(work, "config", "http.proxy", self.base.rstrip("/"))
                 vcs_test_support.stamp_version(work)

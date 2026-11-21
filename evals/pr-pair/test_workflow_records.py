@@ -310,19 +310,39 @@ class WorkflowRecords(NativePass, original.PassBase):
 
     def test_concurrent_mutations_acquire_one_lock(self):
         self.write_record([self.finding()])
+        before = json.loads(self.record_path().read_bytes())
         barrier = threading.Barrier(6)
-        results = []
+        raw = {}  # worker index -> (exit status, stdout, stderr) or the exception it raised
         def adopt(index):
             barrier.wait()
-            results.append(self.command(["pass", "adopt", *self.common(), "--owner", f"new-{index}", "--from", self.owner]))
+            try:
+                result = self.command(["pass", "adopt", *self.common(), "--owner", f"new-{index}", "--from", self.owner])
+                raw[index] = (result.returncode, result.stdout, result.stderr)
+            except BaseException as error:
+                raw[index] = error
         workers = [threading.Thread(target=adopt, args=(i,)) for i in range(6)]
         for worker in workers: worker.start()
         for worker in workers: worker.join(timeout=120)
-        self.assertTrue(all(not worker.is_alive() for worker in workers))
-        docs = [json.loads(result.stdout) for result in results]
-        self.assertEqual(sum(doc["ok"] for doc in docs), 1)
-        self.assertTrue(all(doc.get("error") in ("record_busy", "not_owner") for doc in docs if not doc["ok"]))
-        self.assertFalse(Path(str(self.record_path()) + ".lock").exists())
+        shown = chr(10).join(f"worker {i}: {raw.get(i, 'no result')!r}" for i in range(6))
+        self.assertTrue(all(not worker.is_alive() for worker in workers), shown)
+        self.assertEqual(sorted(raw), list(range(6)), shown)
+        self.assertTrue(all(isinstance(value, tuple) for value in raw.values()), shown)
+        try:
+            docs = {i: json.loads(value[1]) for i, value in raw.items()}
+        except ValueError as error:
+            self.fail(f"a worker's stdout is not JSON ({error}), raw results:{chr(10)}{shown}")
+        winners = [i for i in range(6) if docs[i].get("ok") is True]
+        self.assertEqual(len(winners), 1, shown)
+        self.assertEqual(raw[winners[0]][0], 0, shown)
+        for i in range(6):
+            if i != winners[0]:
+                self.assertEqual(raw[i][0], 1, shown)
+                self.assertIn(docs[i].get("error"), ("record_busy", "not_owner"), shown)
+        after = json.loads(self.record_path().read_bytes())
+        expected = dict(before, owner=after["owner"])
+        self.assertEqual(after, expected, shown)
+        self.assertEqual(after["owner"]["id"], f"new-{winners[0]}", shown)
+        self.assertFalse(Path(str(self.record_path()) + ".lock").exists(), shown)
 
     def test_done_replans_under_its_lock_and_blocks_concurrent_adoption(self):
         self.settings("github:\n  login: KintsugiBot\npr:\n  react: false\n")

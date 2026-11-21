@@ -24,6 +24,7 @@ abstract class RecordFiles {
     void Function(String)? makePrivate,
   }) => _SdkFiles(openCreated: openCreated, makePrivate: makePrivate);
 
+  /// C6: the lock create makes one attempt; only the record replace retries.
   void acquireLock(String path);
   void releaseLock(String path);
 
