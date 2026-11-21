@@ -118,7 +118,7 @@ void main() {
       expect(e.toString(), isNot(contains('--args-')));
     });
 
-    test('sw version --json reports interface 2', () async {
+    test('sw version --json reports interface 3', () async {
       final o = StringBuffer();
       final code = await runCli(
         ['version', '--json'],
@@ -126,7 +126,7 @@ void main() {
         err: StringBuffer(),
       );
       expect(code, 0);
-      expect(o.toString(), '{"version":"0.0.0-dev","interface":2}\n');
+      expect(o.toString(), '{"version":"0.0.0-dev","interface":3}\n');
     });
   });
 }

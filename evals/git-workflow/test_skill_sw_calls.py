@@ -146,7 +146,7 @@ class SkillCommands(unittest.TestCase):
                 self.assertRegex(d, r"(?i)10-second (tool )?timeout", "the probe has no 10-second timeout")
                 self.assertRegex(d, r"(?is)exits? 0", "the probe does not require exit 0")
                 self.assertRegex(d, r"(?is)one JSON object", "the probe does not require one JSON object")
-                self.assertRegex(d, r"(?is)interface 2", "the probe does not require interface 2")
+                self.assertRegex(d, r"(?is)interface 3", "the probe does not require interface 3")
                 self.assertRegex(d, r"(?is)before the first other", "the probe does not run before the first other sw command")
                 self.assertRegex(d, r"(?is)no other `?<sw>`? command", "a failed probe does not stop every other sw command")
 
@@ -154,9 +154,10 @@ class SkillCommands(unittest.TestCase):
         for name, path in SKILLS.items():
             d = definition(read(path)) or ""
             with self.subTest(skill=name):
-                self.assertRegex(d, r"(?is)interface 1|older project|reports? (another|an older) interface",
+                self.assertRegex(d, r"(?is)interface (2 or )?1|older project|reports? (another|an older) interface",
                                  "an older project served by newer skills is not told to update")
                 self.assertRegex(d, r"(?is)update this project", "an older project is not told to update this project")
+                self.assertRegex(d, r"(?is)reports? interface 2 or 1", "a binary reporting interface 2 or 1 is not named")
 
     def test_sw_mismatch_stop_is_handled(self):
         for name, path in SKILLS.items():
@@ -168,7 +169,7 @@ class SkillCommands(unittest.TestCase):
 
     def test_pr_skill_has_exactly_one_interface_line(self):
         text = read(SKILLS["pr"])
-        self.assertEqual(re.findall(r"^interface (\d+)\s*$", text, re.M), ["2"])
+        self.assertEqual(re.findall(r"^interface (\d+)\s*$", text, re.M), ["3"])
         for name, path in SKILLS.items():
             if name != "pr":
                 self.assertNotRegex(read(path), r"(?m)^interface \d+\s*$", f"specwright-{name} carries a second interface line")

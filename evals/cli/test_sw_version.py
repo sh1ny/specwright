@@ -17,7 +17,7 @@ class SwVersionTests(unittest.TestCase):
         self.assertEqual(proc.stderr, "")
         self.assertTrue(proc.stdout.endswith("\n"))
         report = json.loads(proc.stdout)
-        self.assertEqual(report, {"version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(), "interface": 2})
+        self.assertEqual(report, {"version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(), "interface": 3})
 
     def test_unknown_command_or_flag_prints_usage_and_exits_2(self):
         for args in ([], ["frobnicate"], ["version", "--bogus"]):

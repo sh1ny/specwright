@@ -11,6 +11,11 @@ void main() {
       });
     });
 
+    test('the interface is 3 (design D10 of fix-sw-port-gaps)', () {
+      expect(interfaceVersion, 3);
+      expect(versionReport(version: '1.2.3')['interface'], 3);
+    });
+
     test('defaults to 0.0.0-dev when no SW_VERSION is defined', () {
       expect(buildVersion, '0.0.0-dev');
     });
@@ -27,14 +32,14 @@ void main() {
     test('version --json prints one JSON object and exits 0', () async {
       final (code, out, err) = await run(['version', '--json']);
       expect(code, 0);
-      expect(out, '{"version":"0.0.0-dev","interface":$interfaceVersion}\n');
+      expect(out, '{"version":"0.0.0-dev","interface":3}\n');
       expect(err, isEmpty);
     });
 
     test('plain version prints the same JSON', () async {
       final (code, out, _) = await run(['version']);
       expect(code, 0);
-      expect(out, '{"version":"0.0.0-dev","interface":$interfaceVersion}\n');
+      expect(out, '{"version":"0.0.0-dev","interface":3}\n');
     });
 
     for (final args in [

@@ -69,7 +69,7 @@ class TestInstallSwWarning(unittest.TestCase):
         # the v0.37.0 tag's skills require interface 1 through sw-path.sh and its binary reports 1: the comparison is
         # against what the installed skills require, never a fixed number
         c = check()
-        self.assertNotRegex(c, r"(?i)interface 2\b", "the check hard-codes the current interface")
+        self.assertNotRegex(c, r"(?i)interface 3\b", "the check hard-codes the current interface")
         self.assertRegex(c, r"(?i)differs", "the check does not compare against the installed skills' interface")
 
     def test_older_tag_gets_no_warning(self):

@@ -237,11 +237,11 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A long argument through bash -c on Windows | `evals/cli/test_sw_args.py` | test_long_argument_through_bash_c_transport | green |
 |  | A missing transport end marker |  | test_missing_transport_marker_exits_126 | green |
 |  | An argument the launcher cannot represent | `cli/test/run_command_test.dart` | a NUL argument is unrepresentable and nothing starts | green |
-| sw reports its version and interface version | Version report of a CI build | `evals/cli/test_sw_version.py` | test_version_json_reports_version_and_interface | red |
+| sw reports its version and interface version | Version report of a CI build | `evals/cli/test_sw_version.py` | test_version_json_reports_version_and_interface | green |
 |  | Unknown command or flag |  | test_unknown_command_or_flag_prints_usage_and_exits_2 | green |
 | Skills check the project version before running sw | VERSION is not a version | `evals/git-workflow/test_skill_sw_calls.py` | test_skills_validate_version_before_building_path | green |
 |  | The version probe hangs or floods |  | test_probe_has_10_second_timeout_and_one_object | green |
-|  | An older project with newer skills | `evals/cli/test_skill_probe.py` | test_older_project_with_newer_skills_stops | red |
+|  | An older project with newer skills | `evals/cli/test_skill_probe.py` | test_older_project_with_newer_skills_stops | green |
 | Project commands check the project's version | Matching version | `evals/cli/test_sw_project_version.py` | test_matching_version_runs | green |
 |  | Another version |  | test_another_version_is_sw_mismatch | green |
 |  | No VERSION |  | test_no_version_is_sw_mismatch | green |
@@ -445,10 +445,10 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 14. Interface 3 (D10)
 
-- [ ] 14.1 Write failing tests: `evals/cli/test_sw_version.py` expecting interface 3, `evals/cli/test_sw_interface_pin.py` with `INTERFACE = ["3"]`, `evals/cli/test_skill_probe.py` with a 0.38.x binary reporting interface 2 and only `version --json` reaching it, the skill-text and install checks in `evals/git-workflow/` and `evals/cli/test_install_sw.py`; move the Dart tests D10 lists (`version_test.dart`, `update/fake_sw.dart`, `update/place_test.dart`, `commit/commit_command_test.dart`, `finish/finish_command_test.dart`) to 3 where they mean the current interface. Verify they fail because `sw` reports 2.
-- [ ] 14.2 Set `interfaceVersion` to 3 in `cli/lib/src/commands/version.dart`; make the `interface` line of `skills/specwright-pr/SKILL.md` read 3 and the `<sw>` paragraph of `specwright-branch`, `-commit`, `-debug`, `-finish`, `-pr`, `-release`, `-review` and `-roadmap` require interface 3 and tell the user to update a project whose binary reports 2 or 1; map `skills/specwright-pr/SKILL.md` to `cli/test_sw_interface_pin.py` in `evals/suites.json`. Verify: the 14.1 tests pass (Dart locally, evals in PR CI), `python -m unittest evals/runner/test_suite_map.py` passes, and the rows turn green.
-- [ ] 14.3 Re-run the green rows "Unknown command or flag", "VERSION is not a version" and "The version probe hangs or floods". Verify: `evals/cli/test_sw_version.py` and `evals/git-workflow/test_skill_sw_calls.py` pass in PR CI.
-- [ ] 14.4 C35: doc comment of `interfaceVersion` in `cli/lib/src/commands/version.dart`.
+- [x] 14.1 Write failing tests: `evals/cli/test_sw_version.py` expecting interface 3, `evals/cli/test_sw_interface_pin.py` with `INTERFACE = ["3"]`, `evals/cli/test_skill_probe.py` with a 0.38.x binary reporting interface 2 and only `version --json` reaching it, the skill-text and install checks in `evals/git-workflow/` and `evals/cli/test_install_sw.py`; move the Dart tests D10 lists (`version_test.dart`, `update/fake_sw.dart`, `update/place_test.dart`, `commit/commit_command_test.dart`, `finish/finish_command_test.dart`) to 3 where they mean the current interface. Verify they fail because `sw` reports 2.
+- [x] 14.2 Set `interfaceVersion` to 3 in `cli/lib/src/commands/version.dart`; make the `interface` line of `skills/specwright-pr/SKILL.md` read 3 and the `<sw>` paragraph of `specwright-branch`, `-commit`, `-debug`, `-finish`, `-pr`, `-release`, `-review` and `-roadmap` require interface 3 and tell the user to update a project whose binary reports 2 or 1; map `skills/specwright-pr/SKILL.md` to `cli/test_sw_interface_pin.py` in `evals/suites.json`. Verify: the 14.1 tests pass (Dart locally, evals in PR CI), `python -m unittest evals/runner/test_suite_map.py` passes, and the rows turn green.
+- [x] 14.3 Re-run the green rows "Unknown command or flag", "VERSION is not a version" and "The version probe hangs or floods". Verify: `evals/cli/test_sw_version.py` and `evals/git-workflow/test_skill_sw_calls.py` pass in PR CI.
+- [x] 14.4 C35: doc comment of `interfaceVersion` in `cli/lib/src/commands/version.dart`.
 
 ## 15. Integration and release
 
