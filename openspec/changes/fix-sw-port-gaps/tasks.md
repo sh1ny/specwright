@@ -452,8 +452,8 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 15. Integration and release
 
-- [ ] 15.1 Every row of the test map is green: `evals.yml`, `cli.yml` and `sw-build.yml` pass on the PR head on Linux, Windows and macOS, and `openspec validate fix-sw-port-gaps --strict` passes.
-- [ ] 15.2 Bump the release: `<sw> release bump --to 0.39.0` (the `release.sh bump --to 0.39.0` step, run with the tree-built `sw` from `mise run install-sw`). Rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `<sw> release check` and `<sw> release notes --proposal openspec/changes/fix-sw-port-gaps/proposal.md` pass.
+- [x] 15.1 Every row of the test map is green: `evals.yml`, `cli.yml` and `sw-build.yml` pass on the PR head on Linux, Windows and macOS, and `openspec validate fix-sw-port-gaps --strict` passes.
+- [x] 15.2 Bump the release: `<sw> release bump --to 0.39.0` (the `release.sh bump --to 0.39.0` step, run with the tree-built `sw` from `mise run install-sw`). Rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `<sw> release check` and `<sw> release notes --proposal openspec/changes/fix-sw-port-gaps/proposal.md` pass.
 
 ## Workflow follow-up
 

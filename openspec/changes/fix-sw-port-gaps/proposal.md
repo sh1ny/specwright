@@ -115,7 +115,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-Fixes the gaps the M8 native-CLI ports kept for parity or found. Several fixes change exit codes or results, so `sw` now reports interface 3 and the skills of this release require it: update each project's skills and `sw` together. GitButler commits accept CRLF message files, the archive undo reports paths whole and refuses cases it could not undo safely, `sw pr snapshot` checks `--timeout` and keeps log order, and Windows command-line, `PATH`, record-replacement and install-cleanup handling is fixed.
+0.39.0 fixes gaps the M8 native-CLI ports kept or found. Some fixes change exit codes or results, so `sw` reports interface 3 and these skills require it: update each project's skills and `sw` together. GitButler accepts CRLF message files, the archive undo reports paths whole and refuses what it cannot undo safely, `sw pr snapshot` checks `--timeout` and keeps log order, `PATH` lookup skips files the user cannot run, and Windows command-line, record and install-cleanup handling is fixed. Downloads must be unencoded; a Git resume undo needs Git 2.40.
 
 ### Fixed
 
