@@ -171,6 +171,18 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// a time, keeps no path list, and stops at the first flagged entry, naming it
 /// in its message; it never collects the whole output through the uncapped
 /// runner (`runTool`).
+///
+/// C39: a resume refuses a decision file with any explicit `filter` or
+/// `working-tree-encoding` assignment on the tip or `HEAD`, an unset
+/// (`-filter`) included, though an unset applies no conversion: `git
+/// check-attr --all` prints an unset as `unset`, the same as the literal value
+/// `filter=unset`, so the two cannot be told apart without parsing attribute
+/// files. Rejected: allowing the rendered value `unset`.
+///
+/// C41: the resume refusals for a non-regular or attribute-converted
+/// `review.md` or `tasks.md` (`unsupported_filter`), and the Git 2.40 floor
+/// they need, apply to Git resumes only; a jj resume keeps today's behaviour,
+/// reading the stored blob, so a stored symlink is read as its link text.
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -366,6 +378,29 @@ class _Planner {
         stop.message.isEmpty ? 'vcs.sh state failed' : stop.message,
         // only a usage error exits 2; `bad_setting` and every other stop is 1
         code: stop.error == 'usage' ? 2 : 1,
+      );
+    }
+  }
+
+  /// Stops with `tool_too_old` unless `git` is 2.40 or later: a Git resume reads
+  /// the attributes of the archive branch's tree with `git check-attr
+  /// --source`, which older versions lack. Only a plan that resumes asks.
+  Future<void> requireAttrSource(String top) async {
+    final r = await git(top, ['version']);
+    checkRead(r, 'git version');
+    final text = textOf(r);
+    final found = RegExp(r'(\d+)\.(\d+)(?:\.(\d+))?').firstMatch(text);
+    if (found == null) {
+      throw VcsStop('vcs_error', 'git version printed no version: $text');
+    }
+    final major = int.parse(found[1]!);
+    final minor = int.parse(found[2]!);
+    if (major < 2 || (major == 2 && minor < 40)) {
+      throw VcsStop(
+        'tool_too_old',
+        'git check-attr --source needs Git 2.40 or later to read the '
+            'archive branch\'s attributes, and this is Git ${found[0]}; '
+            'update Git, then plan again',
       );
     }
   }
@@ -597,6 +632,33 @@ class _Planner {
 
     Uint8List? wdBytes(String path) => _readFile(_under(top, path));
 
+    // A decision file (`review.md`, `tasks.md`) as the work tree holds it:
+    // absent by `lstat` alone, never by a failed read. A link that leads
+    // nowhere, a file that cannot be read and a target that is no regular file
+    // are a `vcs_error` naming the path, so nothing falls back to a copy the
+    // undo does not restore.
+    Uint8List? decisionBytes(String path) {
+      final at = _under(top, path);
+      if (FileSystemEntity.typeSync(at, followLinks: false) ==
+          FileSystemEntityType.notFound) {
+        return null;
+      }
+      try {
+        return readRegularFile(at) ??
+            (throw VcsStop(
+              'vcs_error',
+              'cannot read $path: it is a link to nothing',
+            ));
+      } on NotRegularFile catch (e) {
+        throw notRegularStop(e);
+      } on FileSystemException catch (e) {
+        throw VcsStop(
+          'vcs_error',
+          'cannot read $path: ${e.osError?.message ?? e.message}',
+        );
+      }
+    }
+
     // no index on jj; GitButler never stages
     Future<List<String>> staged() async {
       if (jj || gb) return <String>[];
@@ -615,24 +677,35 @@ class _Planner {
       ];
     }
 
-    // Two archive directories that restore to one changes/<name>/ would nest
-    // one inside the other.
+    /// Two archive directories that restore to one `changes/<name>/` would nest
+    /// one inside the other.
+    ///
+    /// C40: the undo planner refuses bulk members whose restore names are equal
+    /// after `toUpperCase()` or after `toLowerCase()` with
+    /// `duplicate_member` on every file system, case-sensitive ones included,
+    /// since the plan cannot know where the checkout will be used; names that
+    /// differ only by Unicode normalization are not compared (Dart has no
+    /// normalizer, and Git on macOS stores precomposed names by default).
     void uniqueMembers(List<(String, String)> order) {
       final seen = <String, String>{};
       for (final (dname, nm) in order) {
-        if (seen.containsKey(nm)) {
+        final up = seen['u${nm.toUpperCase()}'];
+        final low = seen['l${nm.toLowerCase()}'];
+        final first = up ?? low;
+        if (first != null) {
           final tgt = _joinAll([prefix, 'changes', nm]);
           throw VcsStop(
             'duplicate_member',
-            '${seen[nm]} and $dname both restore to $tgt; move one out of '
+            '$first and $dname both restore to $tgt; move one out of '
                 '${_joinAll([prefix, 'changes', 'archive'])}/, then plan again',
             extra: {
               'path': tgt,
-              'archived_names': [seen[nm], dname],
+              'archived_names': [first, dname],
             },
           );
         }
-        seen[nm] = dname;
+        seen['u${nm.toUpperCase()}'] = dname;
+        seen['l${nm.toLowerCase()}'] = dname;
       }
     }
 
@@ -750,13 +823,13 @@ class _Planner {
       uniqueMembers(order);
       for (final (dname, nm) in order) {
         final mdir = _joinAll([archiveBase, dname]);
-        final rv = wdBytes(_joinAll([mdir, 'review.md']));
+        final rv = decisionBytes(_joinAll([mdir, 'review.md']));
         members.add(
           _Member(
             nm,
             dname,
             isDeferredVerdict(decodeReplacing(rv ?? Uint8List(0))),
-            waitingOnUser(wdBytes(_joinAll([mdir, 'tasks.md']))),
+            waitingOnUser(decisionBytes(_joinAll([mdir, 'tasks.md']))),
             mdir,
           ),
         );
@@ -1007,6 +1080,64 @@ class _Planner {
           extra: {'paths': goneDirs},
         );
       }
+      if (branch != cb && !jj && !gb) {
+        // a Git resume classifies a member from the raw blobs of the tip, which
+        // the checkout writes back unchanged only when no conversion applies
+        await requireAttrSource(top);
+        final decisions = [
+          for (final dn in [archived, ...dnames])
+            for (final f in const ['review.md', 'tasks.md'])
+              _joinAll([archiveBase, dn, f]),
+        ];
+        await refuseConversions((args) => git(top, args), t, decisions);
+        for (final path in decisions) {
+          final held = await entry(t, path);
+          if (held == null) continue;
+          if (held[0] == '120000') {
+            throw VcsStop(
+              'unsupported_filter',
+              '$path is committed as a symlink at tip, so the '
+                  'plan cannot read what a checkout restores; a Git undo '
+                  'does not support that',
+            );
+          }
+          if (held[1] != 'blob') {
+            throw VcsStop(
+              'unsupported_entry',
+              '$path is not a regular file at tip (${held[1]}); a Git undo '
+                  'does not support that',
+            );
+          }
+        }
+        // a `.gitattributes` the work tree has and HEAD does not track would
+        // convert the restored files, and no tree read shows it
+        final dirsOnPath = <String>{
+          '',
+          for (final path in decisions)
+            for (
+              var i = path.indexOf('/');
+              i >= 0;
+              i = path.indexOf('/', i + 1)
+            )
+              path.substring(0, i),
+        };
+        for (final dir in sortedByCodePoint(dirsOnPath)) {
+          final file = dir.isEmpty ? '.gitattributes' : '$dir/.gitattributes';
+          if (FileSystemEntity.typeSync(
+                    _under(top, file),
+                    followLinks: false,
+                  ) !=
+                  FileSystemEntityType.notFound &&
+              !await has(head, file)) {
+            throw VcsStop(
+              'unsupported_filter',
+              '$file is in the work tree but HEAD does not track it, so Git '
+                  'would apply it to the files the checkout restores; remove '
+                  'it or commit it, then plan again',
+            );
+          }
+        }
+      }
       for (final dn in [archived, ...dnames]) {
         final mdir = _joinAll([archiveBase, dn]);
         // a dated name is archived as it is
@@ -1015,11 +1146,13 @@ class _Planner {
             : moved.contains(dn)
             ? dn
             : stripDatePrefix(dn);
-        final rv = await blob(t, _joinAll([mdir, 'review.md']));
-        // on the current branch the undo moves the working-tree folder back,
-        // so its tasks.md is the one rerun reads
-        var tk = branch == cb ? wdBytes(_joinAll([mdir, 'tasks.md'])) : null;
-        tk ??= await blob(t, _joinAll([mdir, 'tasks.md']));
+        // rerun reads the copy the undo restores: on the current branch the
+        // work tree's folder (absent by `lstat` alone, no fallback to the
+        // committed blob), on a resume the tip's raw blob
+        final review = _joinAll([mdir, 'review.md']);
+        final tasks = _joinAll([mdir, 'tasks.md']);
+        final rv = branch == cb ? decisionBytes(review) : await blob(t, review);
+        final tk = branch == cb ? decisionBytes(tasks) : await blob(t, tasks);
         members.add(
           _Member(
             nm,
@@ -1031,6 +1164,30 @@ class _Planner {
         );
       }
       uniqueMembers([for (final m in members) (m.archivedName, m.name)]);
+      if (!jj && !gb) {
+        // a submodule under a member would not come back with its contents
+        for (final m in members) {
+          final listing = await git(top, [
+            'ls-tree',
+            '-r',
+            '-z',
+            t,
+            '--',
+            m.dir,
+          ]);
+          for (final record in readInventory(listing, 'git ls-tree')) {
+            final text = decodeStrict(record.single, 'file name');
+            if (text.startsWith('160000 ')) {
+              final tab = text.indexOf('\t');
+              throw VcsStop(
+                'unsupported_entry',
+                '${tab < 0 ? text : text.substring(tab + 1)} is a submodule '
+                    'at the tip, which a Git undo does not restore',
+              );
+            }
+          }
+        }
+      }
       for (final m in members) {
         final tgt = _joinAll([prefix, 'changes', m.name]);
         if (await has(t, tgt) || (branch == cb && _exists(_under(top, tgt)))) {
@@ -1147,11 +1304,11 @@ class _Planner {
       );
     }
     if (jj || gb) {
-      warnings.add('Do not edit files while the steps run.');
+      warnings.add('Do not edit files after this plan is printed.');
     } else {
       warnings.add(
-        'Do not edit files or start a merge, cherry-pick, revert or rebase '
-        'while the steps run.',
+        'Do not edit files after this plan is printed, and do not start a '
+        'merge, cherry-pick, revert or rebase while the steps run.',
       );
       warnings.add(
         'The index must not be changed by other commands or hooks while the '
@@ -1267,6 +1424,18 @@ class _Planner {
       if (committed && branch != cb) {
         undo(['check', 'clean']);
         undo(['check', 'tip', 'refs/heads/$branch', t]);
+        // the same attribute reads the plan made, under the environment these
+        // steps run in, right before the checkout would apply them
+        for (final m in members) {
+          undo([
+            'check',
+            'attributes',
+            t,
+            '--',
+            _joinAll([m.dir, 'review.md']),
+            _joinAll([m.dir, 'tasks.md']),
+          ]);
+        }
         step(
           gitArgv([
             'checkout',
@@ -1468,8 +1637,17 @@ class _Planner {
     }
 
     // ---- after_rerun ------------------------------------------------------
-    // every bulk member but the deferred ones and those waiting on the user,
-    // the named one included
+    /// C33: the rerun decision (eligibility and delta inventory) is made once,
+    /// at planning, from the copy the undo restores; edits to the archive after
+    /// the plan is printed, including a relative link that resolves differently
+    /// once moved, are outside the contract and are not guarded, and the plan's
+    /// warning says not to edit files after it is printed. Rejected: a
+    /// per-member digest guard, which needed a pinned-tree variant before a
+    /// resume checkout, a post-undo variant without the removed marker, and a
+    /// recovery path the CLI cannot plan once the undo is committed.
+    ///
+    /// Every bulk member but the deferred ones and those waiting on the user,
+    /// the named one included.
     final rerun = [
       for (final m in members)
         if (!m.deferred && m.waiting.isEmpty) m,
@@ -1481,6 +1659,16 @@ class _Planner {
     if (committed && rerun.isNotEmpty) {
       final syncedByRerun = <String>{};
       for (final m in rerun) {
+        if (branch == cb) {
+          // the undo moves the work-tree folder back, so its delta specs are
+          // the ones a rerun syncs
+          for (final w in _walkArchive(top, _joinAll([m.dir, 'specs']))) {
+            if (w.files.contains('spec.md')) {
+              syncedByRerun.add(_joinAll([prefix, 'specs', w.rel, 'spec.md']));
+            }
+          }
+          continue;
+        }
         final listing = nulList(
           await git(top, [
             'ls-tree',

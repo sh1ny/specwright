@@ -578,6 +578,71 @@ void main() {
       expect(doc, contains('never collects the whole output'));
     });
 
+    /// The doc comment above the local declaration that starts with
+    /// [signature] once its indentation is ignored.
+    String docOfLocal(String file, String signature) {
+      final lines = File(file).readAsLinesSync();
+      final at = lines.indexWhere((l) => l.trimLeft().startsWith(signature));
+      expect(at, greaterThan(0), reason: '$signature in $file');
+      final doc = <String>[];
+      for (
+        var i = at - 1;
+        i >= 0 && lines[i].trimLeft().startsWith('///');
+        i--
+      ) {
+        doc.insert(0, lines[i].trimLeft().substring(3).trim());
+      }
+      return doc.join(' ');
+    }
+
+    test('undoArchivePlan carries C39 and C41', () {
+      final doc = docAbove(
+        'lib/src/finish/undo_plan.dart',
+        'Future<Map<String, Object?>> undoArchivePlan(',
+      );
+      expect(doc, contains('C39:'));
+      expect(doc, contains('though an unset applies no conversion'));
+      expect(doc, contains('Rejected: allowing the rendered value `unset`'));
+      expect(doc, contains('C41:'));
+      expect(doc, contains('apply to Git resumes only'));
+      expect(doc, contains('a stored symlink is read as its link text'));
+    });
+
+    test('rerun carries C33', () {
+      final doc = docOfLocal(
+        'lib/src/finish/undo_plan.dart',
+        'final rerun = [',
+      );
+      expect(doc, contains('C33:'));
+      expect(doc, contains('is made once, at planning'));
+      expect(doc, contains('are outside the contract and are not guarded'));
+      expect(doc, contains('Rejected: a per-member digest guard'));
+    });
+
+    test('uniqueMembers carries C40', () {
+      final doc = docOfLocal(
+        'lib/src/finish/undo_plan.dart',
+        'void uniqueMembers(',
+      );
+      expect(doc, contains('C40:'));
+      expect(doc, contains('`duplicate_member` on every file system'));
+      expect(doc, contains('names that differ only by Unicode normalization'));
+    });
+
+    test('README Step 1 names the Git 2.40 floor of a resuming undo', () {
+      final text = File('../README.md').readAsStringSync();
+      final step1 = text.substring(
+        text.indexOf('Step 1 - Check prerequisites'),
+      );
+      final line = step1.substring(0, step1.indexOf('Step 2 - Choose targets'));
+      expect(
+        line.replaceAll(RegExp(r'\s+'), ' '),
+        contains(
+          'a Git undo that resumes the archive branch needs Git 2.40 or later',
+        ),
+      );
+    });
+
     test('_Planner carries C34', () {
       final doc = docAbove('lib/src/finish/undo_plan.dart', 'class _Planner');
       expect(doc, contains('C34:'));
@@ -738,8 +803,8 @@ void main() {
           [..._g, 'restore', '--source=$parent', '--worktree', '--', specA],
         ]);
         expect(doc['warnings'], [
-          'Do not edit files or start a merge, cherry-pick, revert or rebase '
-              'while the steps run.',
+          'Do not edit files after this plan is printed, and do not start a '
+              'merge, cherry-pick, revert or rebase while the steps run.',
           'The index must not be changed by other commands or hooks while the '
               'steps run.',
           'If a step fails after the steps began changing the index and before '
@@ -915,8 +980,8 @@ void main() {
         'This archive holds add-x, add-y. The whole archive is undone, never '
             "only the deferred change's files; run the archive again without "
             'the deferred change.',
-        'Do not edit files or start a merge, cherry-pick, revert or rebase '
-            'while the steps run.',
+        'Do not edit files after this plan is printed, and do not start a '
+            'merge, cherry-pick, revert or rebase while the steps run.',
         'The index must not be changed by other commands or hooks while the '
             'steps run.',
         'Run after_rerun_steps after steps: they archive add-y again.',
@@ -1256,10 +1321,18 @@ void main() {
       final doc = await ok(repo, branch: 'feat/x');
       expect(doc['branch'], 'feat/x');
       expect(doc['head'], a);
-      expect(argvsOf(doc['steps']).take(6), [
+      expect(argvsOf(doc['steps']).take(7), [
         preflightStep(repo),
         undoStep(top, ['check', 'clean']),
         undoStep(top, ['check', 'tip', 'refs/heads/feat/x', a]),
+        undoStep(top, [
+          'check',
+          'attributes',
+          a,
+          '--',
+          '$ad/review.md',
+          '$ad/tasks.md',
+        ]),
         [
           ..._g,
           'checkout',
@@ -2146,9 +2219,13 @@ void main() {
       test('a failed content read of a member file is vcs_error', () async {
         final repo = branchRepo();
         archive(repo, ['add-x'], commitIt: true);
+        // a resume reads the tip's blobs; on the current branch the decision
+        // files come from the work tree (D2)
+        git(repo, ['checkout', '-q', 'main']);
         await refuses(
           repo,
           'vcs_error',
+          branch: 'feat/x',
           ctx: faking(
             (c) => c.contains('cat-file') && c.contains('blob')
                 ? failed(128)
@@ -2198,8 +2275,8 @@ void main() {
         expect(
           warnings,
           contains(
-            'Do not edit files or start a merge, cherry-pick, revert or '
-            'rebase while the steps run.',
+            'Do not edit files after this plan is printed, and do not start a '
+            'merge, cherry-pick, revert or rebase while the steps run.',
           ),
         );
         expect(
@@ -2230,6 +2307,553 @@ void main() {
             'tree and index before switching back to main, never switch '
             'blindly.',
           ),
+        );
+      }, skip: skip);
+    });
+
+    group('Rerun eligibility from the restored copy (D2, group 11)', () {
+      const tasksPath = '$ad/tasks.md';
+      const tasksOfY = 'openspec/changes/archive/$_date-add-y/tasks.md';
+      const pending = '# Tasks\n\n- [ ] 1.1 do it\n- [ ] 1.2 [user] check it\n';
+
+      /// A smudge driver that records each run in a sentinel file; returns the
+      /// sentinel's path. The clean side is the identity, so a tracked file
+      /// stays clean under the attribute.
+      String sentinel(String repo, [String driver = 'sentinel']) {
+        final path = _posix('${tmp.path}/$driver-ran.txt');
+        git(repo, [
+          'config',
+          'filter.$driver.smudge',
+          'echo ran >> "$path"; cat',
+        ]);
+        git(repo, ['config', 'filter.$driver.clean', 'cat']);
+        return path;
+      }
+
+      /// `feat/x` with `add-x` archived (and `add-y` too when [bulk]); on the
+      /// archive branch alone `openspec/.gitattributes` holds [rules]; back on
+      /// a clean `main`.
+      String attrRepo(String rules, {bool bulk = false}) {
+        final repo = branchRepo();
+        if (bulk) {
+          makeChange(
+            repo,
+            'add-y',
+            verdict: 'APPROVE',
+            deltas: {'b': 'B thing'},
+            tasks: pending,
+          );
+        }
+        archive(repo, ['add-x', if (bulk) 'add-y'], commitIt: true);
+        put(repo, 'openspec/.gitattributes', rules);
+        commitAll(repo, 'chore: attributes of the archive branch');
+        git(repo, ['checkout', '-q', 'main']);
+        expect(git(repo, ['status', '--porcelain']), '');
+        return repo;
+      }
+
+      Future<Map<String, Object?>> refused(
+        String repo,
+        String error, {
+        String? branch,
+        List<String> says = const [],
+        FinishContext? ctx,
+      }) async {
+        final r = await plan(rq(repo, branch: branch), ctx);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], error, reason: '${r.doc}');
+        expect(r.doc.containsKey('steps'), isFalse);
+        for (final s in says) {
+          expect(r.doc['message'], contains(s));
+        }
+        return r.doc;
+      }
+
+      Map<String, Object?> member(Map<String, Object?> doc, String name) =>
+          ((doc['members']! as List).cast<Map<String, Object?>>()).firstWhere(
+            (m) => m['name'] == name,
+          );
+
+      test('a checkout filter on a rerun input is unsupported_filter and '
+          'never runs', () async {
+        final repo = attrRepo('tasks.md filter=sentinel\n', bulk: true);
+        final ran = sentinel(repo);
+        expect(
+          git(repo, [
+            'check-attr',
+            '--source=feat/x',
+            'filter',
+            '--',
+            tasksPath,
+          ]),
+          '$tasksPath: filter: sentinel',
+        );
+        await refused(
+          repo,
+          'unsupported_filter',
+          branch: 'feat/x',
+          says: [tasksPath, 'filter'],
+        );
+        expect(File(ran).existsSync(), isFalse);
+      }, skip: skip);
+
+      for (final (rule, shown, attribute) in [
+        ('-filter', 'filter: unset', 'filter'),
+        (
+          '-working-tree-encoding',
+          'working-tree-encoding: unset',
+          'working-tree-encoding',
+        ),
+      ]) {
+        test('an explicit "$rule" is unsupported_filter although no '
+            'conversion would apply', () async {
+          final repo = attrRepo('tasks.md $rule\n');
+          expect(
+            git(repo, [
+              'check-attr',
+              '--source=feat/x',
+              '--all',
+              '--',
+              tasksPath,
+            ]),
+            '$tasksPath: $shown',
+          );
+          await refused(
+            repo,
+            'unsupported_filter',
+            branch: 'feat/x',
+            says: [tasksPath, attribute],
+          );
+        }, skip: skip);
+      }
+
+      test('a filter whose name is unspecified is unsupported_filter and '
+          'the driver never runs', () async {
+        final repo = attrRepo('tasks.md filter=unspecified\n');
+        final ran = sentinel(repo, 'unspecified');
+        expect(
+          git(repo, [
+            'check-attr',
+            '--source=feat/x',
+            '--all',
+            '--',
+            tasksPath,
+          ]),
+          '$tasksPath: filter: unspecified',
+        );
+        await refused(
+          repo,
+          'unsupported_filter',
+          branch: 'feat/x',
+          says: [tasksPath],
+        );
+        expect(File(ran).existsSync(), isFalse);
+      }, skip: skip);
+
+      test('a line-ending conversion alone is accepted', () async {
+        final repo = attrRepo('tasks.md text eol=crlf\n');
+        final doc = await plan(rq(repo, branch: 'feat/x'));
+        expect(doc.code, 0, reason: '${doc.doc}');
+      }, skip: skip);
+
+      test('an untracked attributes file in the work tree is '
+          'unsupported_filter before any checkout', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        File('$repo/.git/info/exclude').writeAsStringSync('.gitattributes\n');
+        put(repo, 'openspec/.gitattributes', 'tasks.md filter=sentinel\n');
+        final ran = sentinel(repo);
+        expect(git(repo, ['status', '--porcelain']), '');
+        expect(
+          git(repo, ['check-ignore', 'openspec/.gitattributes']),
+          'openspec/.gitattributes',
+        );
+        final calls = <List<String>>[];
+        await refused(
+          repo,
+          'unsupported_filter',
+          branch: 'feat/x',
+          says: ['openspec/.gitattributes'],
+          ctx: FinishContext(
+            runner: (cwd, command, env) {
+              calls.add(command);
+              return runTool(cwd, command, environment: env);
+            },
+          ),
+        );
+        expect(git(repo, ['branch', '--show-current']), 'main');
+        expect(File(ran).existsSync(), isFalse);
+        expect(calls.where((c) => c.contains('checkout')), isEmpty);
+      }, skip: skip);
+
+      test('a current-branch filter on an unchanged decision file is '
+          'unsupported_filter naming HEAD', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        git(repo, ['checkout', 'feat/x', '--', tasksPath]);
+        put(repo, 'openspec/.gitattributes', 'tasks.md filter=sentinel\n');
+        commitAll(repo, 'chore: main holds the same tasks.md');
+        final ran = sentinel(repo);
+        expect(
+          git(repo, ['rev-parse', 'HEAD:$tasksPath']),
+          git(repo, ['rev-parse', 'feat/x:$tasksPath']),
+          reason: 'the same blob on both branches',
+        );
+        expect(
+          git(repo, [
+            'check-attr',
+            '--source=feat/x',
+            '--all',
+            '--',
+            tasksPath,
+          ]),
+          '',
+          reason: 'the archive branch gives no attribute',
+        );
+        expect(git(repo, ['status', '--porcelain']), '');
+        await refused(
+          repo,
+          'unsupported_filter',
+          branch: 'feat/x',
+          says: [tasksPath, 'HEAD'],
+        );
+        expect(File(ran).existsSync(), isFalse);
+      }, skip: skip);
+
+      test('a decision file committed as a symlink is unsupported_filter '
+          'naming the path', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        File('${tmp.path}/link-text.txt').writeAsStringSync('elsewhere.md');
+        final oid = git(repo, [
+          'hash-object',
+          '-w',
+          '${tmp.path}/link-text.txt',
+        ]);
+        File('$repo/$tasksPath').deleteSync();
+        git(repo, [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          '120000,$oid,$tasksPath',
+        ]);
+        git(repo, ['commit', '-q', '-m', 'chore: tasks.md becomes a link']);
+        expect(
+          git(repo, ['ls-tree', 'feat/x', '--', tasksPath]),
+          startsWith('120000 blob'),
+        );
+        git(repo, ['checkout', '-q', 'main']);
+        expect(git(repo, ['status', '--porcelain']), '');
+        await refused(
+          repo,
+          'unsupported_filter',
+          branch: 'feat/x',
+          says: [tasksPath, 'symlink'],
+        );
+      }, skip: skip);
+
+      test('a resume under a git older than 2.40 is tool_too_old, and a plan '
+          'that does not resume is not', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        final old = FinishContext(
+          runner: (cwd, command, env) async => command.last == 'version'
+              ? ToolResult(
+                  0,
+                  Uint8List.fromList(
+                    utf8.encode('git version 2.39.1.windows.1\n'),
+                  ),
+                  Uint8List(0),
+                )
+              : await runTool(cwd, command, environment: env),
+        );
+        await refused(
+          repo,
+          'tool_too_old',
+          branch: 'feat/x',
+          ctx: old,
+          says: ['git check-attr --source', '2.40', '2.39.1'],
+        );
+        git(repo, ['checkout', '-q', 'feat/x']);
+        expect((await plan(rq(repo), old)).code, 0);
+      }, skip: skip);
+
+      test('a tasks file deleted from the work tree is decided as absent, '
+          'not from the committed copy', () async {
+        final repo = branchRepo();
+        makeChange(
+          repo,
+          'add-y',
+          verdict: 'APPROVE',
+          deltas: {'b': 'B thing'},
+          tasks: pending,
+        );
+        archive(repo, ['add-x', 'add-y'], commitIt: true);
+        File('$repo/$tasksOfY').deleteSync();
+        expect(git(repo, ['show', 'HEAD:$tasksOfY']), contains('[user]'));
+        final doc = await ok(repo);
+        expect(member(doc, 'add-y')['waiting_on_user'], <String>[]);
+        expect(
+          argvsOf(doc['after_rerun_steps']),
+          contains(equals(['openspec', 'archive', 'add-y', '--yes'])),
+        );
+      }, skip: skip);
+
+      test('a member deferred after its archive commit is restored and not '
+          'archived again', () async {
+        final repo = branchRepo();
+        makeChange(repo, 'add-y', verdict: 'APPROVE', deltas: {'b': 'B thing'});
+        makeChange(repo, 'add-z', verdict: 'APPROVE', deltas: {'a': 'Z thing'});
+        archive(repo, ['add-x', 'add-y', 'add-z'], commitIt: true);
+        put(
+          repo,
+          'openspec/changes/archive/$_date-add-y/review.md',
+          '# Review\n\nVERDICT: DEFERRED\n',
+        );
+        final doc = await ok(repo);
+        expect(member(doc, 'add-y')['deferred'], isTrue);
+        expect(member(doc, 'add-z')['deferred'], isFalse);
+        expect(argvsOf(doc['after_rerun_steps']), [
+          ['openspec', 'archive', 'add-z', '--yes'],
+        ]);
+      }, skip: skip);
+
+      test(
+        'a dangling link at a decision file is vcs_error, not absence',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          File('$repo/$tasksPath').deleteSync();
+          try {
+            Link('$repo/$tasksPath').createSync('missing-target.md');
+          } on FileSystemException {
+            markTestSkipped(
+              'platform: this account cannot create symbolic links',
+            );
+            return;
+          }
+          await refused(repo, 'vcs_error', says: ['tasks.md']);
+        },
+        skip: skip,
+      );
+
+      test('an unreadable work-tree tasks file is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final file = '$repo/$tasksPath';
+        Process.runSync('chmod', ['000', file]);
+        addTearDown(() => Process.runSync('chmod', ['644', file]));
+        if (Process.runSync('sh', [
+              '-c',
+              'cat "$file" >/dev/null 2>&1',
+            ]).exitCode ==
+            0) {
+          markTestSkipped('platform: this account reads every file');
+          return;
+        }
+        await refused(repo, 'vcs_error', says: ['tasks.md']);
+      }, skip: Platform.isWindows ? 'platform: no POSIX permissions' : skip);
+
+      test(
+        'a rerun delta that only the work-tree copy holds is re-deleted',
+        () async {
+          final repo = makeRepo();
+          git(repo, ['checkout', '-q', '-b', 'feat/x']);
+          makeChange(repo, 'add-x', deltas: {'a': 'A thing', 'c': 'C thing'});
+          makeChange(
+            repo,
+            'add-y',
+            verdict: 'APPROVE',
+            deltas: {'b': 'B thing'},
+          );
+          archive(repo, ['add-x', 'add-y'], commitIt: true);
+          File('$repo/openspec/specs/c/spec.md').deleteSync();
+          commitAll(repo, 'drop c');
+          put(
+            repo,
+            'openspec/changes/archive/$_date-add-y/specs/c/spec.md',
+            deltaText('C more'),
+          );
+          final doc = await ok(repo);
+          expect(
+            argvsOf(doc['after_rerun_steps']),
+            contains(
+              equals(
+                undoStep(topOf(repo), ['remove', 'openspec/specs/c/spec.md']),
+              ),
+            ),
+          );
+        },
+        skip: skip,
+      );
+
+      test(
+        'members whose names differ only by case are duplicate_member',
+        () async {
+          final repo = makeRepo();
+          git(repo, ['checkout', '-q', '-b', 'feat/x']);
+          for (final dir in ['$_date-add-x', '2026-10-18-Add-X']) {
+            put(
+              repo,
+              'openspec/changes/archive/$dir/review.md',
+              '# R\n\nVERDICT: DEFERRED\n',
+            );
+          }
+          commitAll(repo, 'chore(add-x): archive change');
+          final doc = await refused(repo, 'duplicate_member');
+          expect(doc['archived_names'], ['$_date-add-x', '2026-10-18-Add-X']);
+        },
+        skip: skip,
+      );
+
+      test('members that sigma and final sigma tell apart only by upper case '
+          'are duplicate_member', () async {
+        final probe = Directory('${tmp.path}/probe-σ')..createSync();
+        if (!Directory('${tmp.path}/probe-ς').existsSync()) {
+          probe.deleteSync();
+          markTestSkipped('platform: this volume is case-sensitive');
+          return;
+        }
+        final repo = makeRepo();
+        git(repo, ['checkout', '-q', '-b', 'feat/x']);
+        for (final dir in ['2026-10-18-add-σ', '2026-10-19-add-ς']) {
+          put(
+            repo,
+            'openspec/changes/archive/$dir/review.md',
+            '# R\n\nVERDICT: DEFERRED\n',
+          );
+        }
+        commitAll(repo, 'chore(add): archive change');
+        final r = await plan(
+          request(
+            repo,
+            change: 'add-σ',
+            archived: '2026-10-18-add-σ',
+            prefix: 'openspec',
+          ),
+        );
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'duplicate_member');
+        expect(r.doc['archived_names'], [
+          '2026-10-18-add-σ',
+          '2026-10-19-add-ς',
+        ]);
+      }, skip: skip);
+
+      test(
+        'a task file hidden by an index flag is git_env naming it',
+        () async {
+          final repo = branchRepo();
+          makeChange(
+            repo,
+            'add-y',
+            verdict: 'APPROVE',
+            deltas: {'b': 'B thing'},
+            tasks: pending,
+          );
+          archive(repo, ['add-x', 'add-y'], commitIt: true);
+          git(repo, ['update-index', '--skip-worktree', tasksOfY]);
+          File('$repo/$tasksOfY').deleteSync();
+          expect(git(repo, ['status', '--porcelain']), '');
+          await refused(repo, 'git_env', says: [tasksOfY]);
+        },
+        skip: skip,
+      );
+
+      for (final resume in [false, true]) {
+        test('a gitlink under an archived member is unsupported_entry '
+            '(${resume ? 'on resume' : 'on the current branch'})', () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          const sub = '$ad/specs/sub';
+          Directory('$repo/$sub').createSync(recursive: true);
+          git(repo, [
+            'update-index',
+            '--add',
+            '--cacheinfo',
+            '160000,${_headOf(repo, 'feat/x')},$sub',
+          ]);
+          git(repo, ['commit', '-q', '-m', 'chore: a submodule in the member']);
+          expect(
+            git(repo, ['ls-tree', '-r', 'feat/x', '--', ad]),
+            contains('160000 commit'),
+          );
+          if (resume) git(repo, ['checkout', '-q', 'main']);
+          expect(git(repo, ['status', '--porcelain']), '');
+          await refused(
+            repo,
+            'unsupported_entry',
+            branch: resume ? 'feat/x' : null,
+            says: [sub],
+          );
+        }, skip: skip);
+      }
+
+      test('GIT_ATTR_SOURCE and attr.tree are git_env at planning', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        await refused(
+          repo,
+          'git_env',
+          ctx: context(
+            environment: {...Platform.environment, 'GIT_ATTR_SOURCE': 'HEAD'},
+          ),
+          says: ['GIT_ATTR_SOURCE'],
+        );
+        git(repo, ['config', 'attr.tree', 'HEAD']);
+        await refused(repo, 'git_env', says: ['attr.tree']);
+      }, skip: skip);
+
+      test('a resume emits one attribute guard per member right before the '
+          'checkout', () async {
+        final repo = attrRepo('tasks.md text\n', bulk: true);
+        final a = _headOf(repo, 'feat/x');
+        final doc = await ok(repo, branch: 'feat/x');
+        final steps = argvsOf(doc['steps']);
+        final top = topOf(repo);
+        final guards = [
+          for (final m in ['add-x', 'add-y'])
+            undoStep(top, [
+              'check',
+              'attributes',
+              a,
+              '--',
+              'openspec/changes/archive/$_date-$m/review.md',
+              'openspec/changes/archive/$_date-$m/tasks.md',
+            ]),
+        ];
+        final checkout = steps.indexWhere(
+          (s) => s.length > 3 && s[3] == 'checkout',
+        );
+        expect(checkout, greaterThan(0));
+        expect(steps.sublist(checkout - 2, checkout), guards);
+        expect(
+          indexOfStep(
+            steps,
+            undoStep(top, ['check', 'tip', 'refs/heads/feat/x', a]),
+          ),
+          lessThan(checkout - 2),
+        );
+      }, skip: skip);
+
+      test('the plan warns not to edit files after it is printed', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final doc = await ok(repo);
+        final warnings = (doc['warnings']! as List).cast<String>();
+        expect(
+          warnings,
+          contains(
+            'Do not edit files after this plan is printed, and do not start a '
+            'merge, cherry-pick, revert or rebase while the steps run.',
+          ),
+        );
+        expect(
+          warnings.where((w) => w.contains('Do not edit files')),
+          hasLength(1),
         );
       }, skip: skip);
     });

@@ -35,8 +35,8 @@ VcsStop _failed(String message) => VcsStop('undo_step_failed', message);
 ///
 /// C5: The undo primitives exist so a plan stays something the user runs step
 /// by step; no command may run a whole undo. Only the kinds below exist (a new
-/// kind needs a design change): `check` (`branch`, `tip`, `index`, `clean`,
-/// `unchanged`, `absent`), `mkdir`, `copy`, `move`, `remove`, `rmdir-if-empty`, `write-blob`,
+/// kind needs a design change): `check` (`branch`, `tip`, `attributes`,
+/// `index`, `clean`, `unchanged`, `absent`), `mkdir`, `copy`, `move`, `remove`, `rmdir-if-empty`, `write-blob`,
 /// `write-text` and `merge-back`. A whole-undo command was rejected because it
 /// would turn a plan the user reviews into an action the agent runs.
 Future<int> runUndoStep(
@@ -235,6 +235,16 @@ class _UndoStep {
             'at ${positional[1]} the plan was made for',
           );
         }
+      case 'attributes':
+        // the attribute view of these steps, read now: a filter or an
+        // encoding that only the steps' environment supplies is seen here,
+        // before the checkout would apply it
+        _count('check attributes', positional, 1);
+        await refuseConversions(
+          (args) => _spawn(['git', ...args]),
+          positional[0],
+          paths,
+        );
       case 'preflight':
         _count('check preflight', positional, 0);
         for (final name in const [

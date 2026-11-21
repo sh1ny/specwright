@@ -544,6 +544,129 @@ void main() {
       await fails(['check', 'index']);
     });
 
+    test('preflight refuses GIT_ATTR_SOURCE and attr.tree', () async {
+      var doc = await stops(
+        ['check', 'preflight', ...view()],
+        'git_env',
+        environment: envWith({'GIT_ATTR_SOURCE': 'HEAD'}),
+      );
+      expect(doc['message'], contains('GIT_ATTR_SOURCE'));
+      _git(repo, ['config', 'attr.tree', 'HEAD']);
+      doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('attr.tree'));
+    });
+
+    group('check attributes', () {
+      /// An archive branch holding `d/tasks.md` and `d/review.md`, with
+      /// [rules] as `d/.gitattributes` when given; back on `main`. Returns
+      /// the tip.
+      String archiveBranch([String? rules]) {
+        _git(repo, ['checkout', '-q', '-b', 'arch']);
+        for (final f in ['review.md', 'tasks.md']) {
+          File('$repo/d/$f')
+            ..createSync(recursive: true)
+            ..writeAsStringSync('$f\n');
+        }
+        if (rules != null) {
+          File('$repo/d/.gitattributes').writeAsStringSync(rules);
+        }
+        _git(repo, ['add', '-A']);
+        _git(repo, ['commit', '-q', '-m', 'archive']);
+        final tip = _git(repo, ['rev-parse', 'HEAD']);
+        _git(repo, ['checkout', '-q', 'main']);
+        return tip;
+      }
+
+      test('passes when neither side converts the files', () async {
+        final tip = archiveBranch('tasks.md text\n');
+        await passes([
+          'check',
+          'attributes',
+          tip,
+          '--',
+          'd/review.md',
+          'd/tasks.md',
+        ]);
+      });
+
+      test('refuses a filter and an unset on the tip', () async {
+        for (final rule in [
+          'tasks.md filter=sentinel',
+          'tasks.md -filter',
+          'tasks.md -working-tree-encoding',
+        ]) {
+          final tip = archiveBranch('$rule\n');
+          final (code, doc) = await step([
+            'check',
+            'attributes',
+            tip,
+            '--',
+            'd/review.md',
+            'd/tasks.md',
+          ]);
+          expect(code, 1, reason: '$rule $doc');
+          expect(doc!['error'], 'unsupported_filter', reason: rule);
+          expect(doc['message'], contains('d/tasks.md'));
+          _git(repo, ['branch', '-q', '-D', 'arch']);
+        }
+      });
+
+      test('reads the attribute view of the steps, not the plan', () async {
+        final tip = archiveBranch();
+        final rules = File('${tmp.path}/attributes')
+          ..writeAsStringSync('tasks.md filter=sentinel\n');
+        final ran = File('${tmp.path}/ran.txt');
+        _git(repo, [
+          'config',
+          'filter.sentinel.smudge',
+          'echo ran > "${ran.path.replaceAll(r'\', '/')}"; cat',
+        ]);
+        final env = envWith({
+          'GIT_CONFIG_COUNT': '1',
+          'GIT_CONFIG_KEY_0': 'core.attributesFile',
+          'GIT_CONFIG_VALUE_0': rules.path.replaceAll(r'\', '/'),
+        });
+        await passes([
+          'check',
+          'attributes',
+          tip,
+          '--',
+          'd/review.md',
+          'd/tasks.md',
+        ]);
+        final (code, doc) = await step([
+          'check',
+          'attributes',
+          tip,
+          '--',
+          'd/review.md',
+          'd/tasks.md',
+        ], environment: env);
+        expect(code, 1, reason: '$doc');
+        expect(doc!['error'], 'unsupported_filter');
+        expect(doc['message'], contains('d/tasks.md'));
+        expect(ran.existsSync(), isFalse);
+      });
+
+      test('refuses what HEAD alone converts', () async {
+        final tip = archiveBranch();
+        File('$repo/.gitattributes').writeAsStringSync('tasks.md -filter\n');
+        _git(repo, ['add', '-A']);
+        _git(repo, ['commit', '-q', '-m', 'main converts']);
+        final (code, doc) = await step([
+          'check',
+          'attributes',
+          tip,
+          '--',
+          'd/review.md',
+          'd/tasks.md',
+        ]);
+        expect(code, 1, reason: '$doc');
+        expect(doc!['error'], 'unsupported_filter');
+        expect(doc['message'], contains('HEAD'));
+      });
+    });
+
     test('unchanged takes a bracketed path literally', () async {
       File('$repo/a1.txt').writeAsStringSync('one\n');
       _git(repo, ['add', '-A']);

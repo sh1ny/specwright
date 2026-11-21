@@ -59,8 +59,8 @@ bool gitTruthy(String? value) {
 }
 
 /// Refuses, with `git_env`, an environment the steps do not support: a true
-/// pathspec mode variable, or a non-empty `GIT_NAMESPACE` or
-/// `GIT_ALTERNATE_OBJECT_DIRECTORIES`.
+/// pathspec mode variable, or a non-empty `GIT_NAMESPACE`,
+/// `GIT_ALTERNATE_OBJECT_DIRECTORIES` or `GIT_ATTR_SOURCE`.
 void refuseGitEnvironment(Map<String, String> env) {
   for (final name in const [
     'GIT_GLOB_PATHSPECS',
@@ -86,6 +86,13 @@ void refuseGitEnvironment(Map<String, String> env) {
             'did; unset it, then plan again',
       );
     }
+  }
+  if ((env['GIT_ATTR_SOURCE'] ?? '').isNotEmpty) {
+    throw VcsStop(
+      'git_env',
+      'GIT_ATTR_SOURCE is set, so Git would read attributes from another '
+          'tree than the plan did; unset it, then plan again',
+    );
   }
 }
 
@@ -277,7 +284,7 @@ Future<void> _refuseConfigured(GitRun run) async {
     'config',
     '-z',
     '--get-regexp',
-    r'^(extensions\.partialclone|core\.sparsecheckout|remote\..*\.promisor)$',
+    r'^(extensions\.partialclone|core\.sparsecheckout|remote\..*\.promisor|attr\.tree)$',
   ]);
   if (r.exitCode == 1 && r.stderr.isEmpty && r.stdout.isEmpty) return;
   checkRead(r, 'git config');
@@ -286,6 +293,13 @@ Future<void> _refuseConfigured(GitRun run) async {
     final at = record.indexOf('\n');
     final key = (at < 0 ? record : record.substring(0, at)).toLowerCase();
     final value = at < 0 ? 'true' : record.substring(at + 1);
+    if (key == 'attr.tree') {
+      throw VcsStop(
+        'git_env',
+        'The repository sets attr.tree, so Git would read attributes from '
+            'another tree than the plan did; unset it, then plan again',
+      );
+    }
     if (key == 'extensions.partialclone' && value.isNotEmpty) {
       throw VcsStop(
         'git_env',
@@ -328,6 +342,52 @@ void _refusePromisorPack(String commonDir) {
   } on FileSystemException {
     // no pack directory: nothing promised
   }
+}
+
+/// Refuses, with `unsupported_filter`, a path of [paths] that has a `filter` or
+/// `working-tree-encoding` attribute at [source] (named [label] in the
+/// message): an unset or an `unspecified` value included, since only the
+/// attribute's name matters. Git reads the attributes of the tree named
+/// [source] with `check-attr --source` (Git 2.40 or later), under the
+/// environment and configuration [run] gives it; no filter command runs.
+Future<void> refuseConversion(
+  GitRun run,
+  String source,
+  String label,
+  List<String> paths,
+) async {
+  final r = await run([
+    'check-attr',
+    '-z',
+    '--all',
+    '--source=$source',
+    '--',
+    ...paths,
+  ]);
+  for (final f in readInventory(r, 'git check-attr', fields: 3)) {
+    final attr = decodeStrict(f[1], 'attribute name');
+    if (attr != 'filter' && attr != 'working-tree-encoding') continue;
+    final path = decodeReplacing(f[0]);
+    final value = decodeReplacing(f[2]);
+    throw VcsStop(
+      'unsupported_filter',
+      '$path has the $attr attribute ($value) at $label, so a checkout would '
+          'convert it and the restored bytes would not be the ones the plan '
+          'read; a Git undo does not support that',
+    );
+  }
+}
+
+/// [refuseConversion] for the tip of the archive branch and for HEAD: the
+/// attributes a resume's checkout applies are the tip's, and the ones it keeps
+/// are HEAD's.
+Future<void> refuseConversions(
+  GitRun run,
+  String tip,
+  List<String> paths,
+) async {
+  await refuseConversion(run, tip, 'tip', paths);
+  await refuseConversion(run, 'HEAD', 'HEAD', paths);
 }
 
 /// The tip of the branch ref [ref] (`refs/heads/<name>`): the exact ref in a

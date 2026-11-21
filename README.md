@@ -84,6 +84,9 @@ Step 1 - Check prerequisites
 - PR workflow (`specwright-pr`): run `gh --version` and check
   it is 2.48 or later. If not, record `gh 2.48+` for Step 8 and continue:
   it does not block the install or the version stamp.
+- Undo (`specwright-finish`): a Git undo that resumes the archive branch
+  needs Git 2.40 or later. An older Git does not block the install or the
+  version stamp; only that undo refuses, saying so.
 - Run `openspec list --json` in the code checkout and read `root`.
   - `"root": null`: if the error names this project's `openspec/config.yaml`
     (it starts with `Declared in` or `Invalid store declaration in`), show

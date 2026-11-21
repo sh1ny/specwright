@@ -488,5 +488,51 @@ class TestRegularFileReads(StepsCase):
         self.assertFalse(self.backups().exists(), "a backup directory was made")
 
 
+class TestRestoredCopy(StepsCase):
+    """The undo's attribute guards and its check of the restored decision files (change fix-sw-port-gaps, group 11, D2)."""
+
+    def resume_plan(self):
+        """The archive on the branch, a clean main, and the resume plan."""
+        build_single(self.work)
+        self.git("checkout", "-q", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+    def backups(self):
+        return Path(fx.git(self.work, "rev-parse", "--absolute-git-dir")) / "specwright-undo"
+
+    def test_a_checkout_filter_configured_only_when_the_steps_run(self):
+        """The plan sees no filter; the steps run with `core.attributesFile` naming one for `tasks.md`: the attribute guard
+        before the checkout stops them with unsupported_filter, the smudge command never runs and main stays checked out."""
+        doc = self.resume_plan()
+        rules = self.tmp / "attributes"
+        rules.write_text("tasks.md filter=sentinel\n", encoding="utf-8", newline="")
+        ran = self.tmp / "ran.txt"
+        self.git("config", "filter.sentinel.smudge", f'echo ran >> "{ran.as_posix()}"; cat')
+        self.git("config", "filter.sentinel.clean", "cat")
+        env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.attributesFile", "GIT_CONFIG_VALUE_0": rules.as_posix()}
+        r = fx.run_steps(self.scripts, doc["steps"], env=env)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("unsupported_filter", r.stdout)
+        self.assertIn(f"{tp.ad('add-x')}/tasks.md", r.stdout)
+        self.assertFalse(ran.exists(), "the smudge command ran")
+        self.assertEqual(self.git("branch", "--show-current"), "main")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+    def test_an_inherited_attribute_source_stops_the_steps_at_the_first_guard(self):
+        doc = self.resume_plan()
+        r = fx.run_steps(self.scripts, doc["steps"], env={"GIT_ATTR_SOURCE": "HEAD"})
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(r.ran), 1, "a step ran after the first guard")
+        self.assertIn("git_env", r.stdout)
+        self.assertIn("GIT_ATTR_SOURCE", r.stdout)
+        self.git("config", "attr.tree", "HEAD")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(r.ran), 1, "a step ran after the first guard")
+        self.assertIn("attr.tree", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

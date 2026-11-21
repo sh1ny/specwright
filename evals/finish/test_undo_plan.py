@@ -7,6 +7,7 @@ stdout per call; exit 0 = done, 1 = stop (the JSON has "error" and "message"), 2
 Run: python -m unittest discover evals/finish
 """
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -23,6 +24,7 @@ _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtur
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
 import bashexe  # noqa: E402
+import fakeexe  # noqa: E402
 import gitlog  # noqa: E402  (fixtures.py puts evals/vcs on sys.path)
 import jjenv  # noqa: E402
 from vcs_test_support import STAMP, sw_home, sw_run  # noqa: E402
@@ -1114,12 +1116,274 @@ class TestGitGuards(Base):
         code, doc, raw = fx.run_plan(self.work, "add-x")
         self.assertEqual(code, 0, raw)
         warnings = doc["warnings"]
-        self.assertIn("Do not edit files or start a merge, cherry-pick, revert or rebase while the steps run.", warnings)
+        self.assertIn("Do not edit files after this plan is printed, and do not start a merge, cherry-pick, revert or rebase while the steps run.", warnings)
         self.assertIn("The index must not be changed by other commands or hooks while the steps run.", warnings)
         recovery = next(w for w in warnings if w.startswith("If a step fails after the steps began"))
         self.assertIn(doc["backup_dir"], recovery)
         self.assertNotIn("git restore", recovery)
         self.assertNotIn("`", recovery)
+
+
+class TestRerunEligibility(Base):
+    """Rerun eligibility is read from the copy the undo restores (change fix-sw-port-gaps, group 11, D2)."""
+
+    PENDING = "# Tasks\n\n- [ ] 1.1 do it\n- [ ] 1.2 [user] check it\n"
+
+    def tasks_of(self, name):
+        return f"{ad(name)}/tasks.md"
+
+    def sentinel(self, driver="sentinel"):
+        """A smudge driver that records each run in a file (its clean side is the identity); returns that file's path."""
+        ran = self.tmp / f"{driver}-ran.txt"
+        self.git("config", f"filter.{driver}.smudge", f'echo ran >> "{ran.as_posix()}"; cat')
+        self.git("config", f"filter.{driver}.clean", "cat")
+        return ran
+
+    def archive_branch_with(self, rules, bulk=False):
+        """The change archived on bugfix/add-x (add-y with it when bulk), then `openspec/.gitattributes` holding `rules` on
+        that branch alone; back on a clean main."""
+        if bulk:
+            self.pair()
+            fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        else:
+            self.single({"a": "New thing"})
+            fx.archive(self.work, "add-x", commit_it=True)
+        fx.commit(self.work, "chore: attributes of the archive branch", {f"{P}/.gitattributes": rules})
+        self.git("checkout", "-q", "main")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def refused(self, error, *needles, branch=BRANCH, **kw):
+        out = fx.run_plan(self.work, "add-x", branch=branch, **kw)
+        self.assertStops(out, error, *needles)
+        return out
+
+    def test_a_checkout_filter_on_a_rerun_input_is_unsupported_filter(self):
+        self.archive_branch_with("tasks.md filter=sentinel\n", bulk=True)
+        ran = self.sentinel()
+        tasks = self.tasks_of("add-x")
+        self.assertEqual(self.git("check-attr", f"--source={BRANCH}", "filter", "--", tasks), f"{tasks}: filter: sentinel")
+        before = fx.state(self.work)
+        self.refused("unsupported_filter", tasks, "filter")
+        self.assertFalse(ran.exists(), "the smudge command ran")
+        self.assertEqual(fx.state(self.work), before)
+
+    def test_an_explicit_filter_unset_is_unsupported_filter(self):
+        for rule in ("filter", "working-tree-encoding"):
+            with self.subTest(rule=rule):
+                self.setUp()
+                self.archive_branch_with(f"tasks.md -{rule}\n")
+                tasks = self.tasks_of("add-x")
+                self.assertEqual(self.git("check-attr", f"--source={BRANCH}", "--all", "--", tasks), f"{tasks}: {rule}: unset")
+                self.refused("unsupported_filter", tasks, rule)
+
+    def test_a_filter_whose_name_is_unspecified_is_unsupported_filter(self):
+        self.archive_branch_with("tasks.md filter=unspecified\n")
+        ran = self.sentinel("unspecified")
+        tasks = self.tasks_of("add-x")
+        self.assertEqual(self.git("check-attr", f"--source={BRANCH}", "--all", "--", tasks), f"{tasks}: filter: unspecified")
+        self.refused("unsupported_filter", tasks)
+        self.assertFalse(ran.exists(), "the driver ran")
+
+    def test_a_line_ending_conversion_alone_is_accepted(self):
+        self.archive_branch_with("tasks.md text eol=crlf\n")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+
+    def test_an_untracked_attributes_file_in_the_work_tree_is_unsupported_filter(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.git("checkout", "-q", "main")
+        exclude = self.work / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text(encoding="utf-8") + ".gitattributes\n", encoding="utf-8")
+        fx.write(self.work, f"{P}/.gitattributes", "tasks.md filter=sentinel\n")
+        ran = self.sentinel()
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertEqual(self.git("check-ignore", f"{P}/.gitattributes"), f"{P}/.gitattributes")
+        before = fx.state(self.work)
+        self.refused("unsupported_filter", f"{P}/.gitattributes")
+        self.assertEqual(fx.state(self.work), before, "something was checked out or written")
+        self.assertFalse(ran.exists(), "the filter ran")
+
+    def test_a_current_branch_filter_on_an_unchanged_decision_file_names_head(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        tasks = self.tasks_of("add-x")
+        self.git("checkout", "-q", "main")
+        self.git("checkout", BRANCH, "--", tasks)
+        fx.commit(self.work, "chore: main holds the same tasks.md", {f"{P}/.gitattributes": "tasks.md filter=sentinel\n"})
+        ran = self.sentinel()
+        self.assertEqual(self.git("rev-parse", f"HEAD:{tasks}"), self.git("rev-parse", f"{BRANCH}:{tasks}"),
+                         "the same blob on both branches")
+        self.assertEqual(self.git("check-attr", f"--source={BRANCH}", "--all", "--", tasks), "")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.refused("unsupported_filter", tasks, "HEAD")
+        self.assertFalse(ran.exists(), "the filter ran")
+
+    def test_a_decision_file_committed_as_a_symlink_is_unsupported_filter(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        tasks = self.tasks_of("add-x")
+        text = self.tmp / "link-text.txt"
+        text.write_text("elsewhere.md", encoding="utf-8", newline="")
+        oid = self.git("hash-object", "-w", str(text))
+        (self.work / tasks).unlink()
+        self.git("update-index", "--add", "--cacheinfo", f"120000,{oid},{tasks}")
+        self.git("commit", "-q", "-m", "chore: tasks.md becomes a link")
+        self.assertTrue(self.git("ls-tree", BRANCH, "--", tasks).startswith("120000 blob"))
+        self.git("checkout", "-q", "main")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.refused("unsupported_filter", tasks, "symlink")
+
+    def test_a_git_older_than_2_40_is_tool_too_old_on_a_resume_only(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.git("checkout", "-q", "main")
+        shim_dir = self.tmp / "oldgit"
+        shim_dir.mkdir()
+        fakeexe.write_python_fake(shim_dir / "git", (
+            "import os, subprocess, sys\n"
+            "args = sys.argv[1:]\n"
+            "if args and args[-1] == 'version':\n"
+            "    print('git version 2.39.0')\n"
+            "    sys.exit(0)\n"
+            "sys.exit(subprocess.call([os.environ['SPECWRIGHT_REAL_GIT'], *args]))\n"))
+        old = gitlog.GitShim(shim_dir, self.tmp / "git.jsonl", jjenv.real_git())
+
+        def plan(**kw):
+            r = sw_run(["finish", *fx.plan_args("add-x", **kw)], cwd=self.work, shim=old, stamp=False)
+            return r.returncode, json.loads(r.stdout), r.stdout + r.stderr
+
+        out = plan(branch=BRANCH)
+        self.assertStops(out, "tool_too_old", "git check-attr --source", "2.40", "2.39.0")
+        self.git("checkout", "-q", BRANCH)
+        code, doc, raw = plan()
+        self.assertEqual(code, 0, raw)
+
+    def test_a_tasks_file_deleted_from_the_work_tree_is_decided_as_absent(self):
+        self.pair()
+        fx.commit(self.work, "docs(add-y): a pending user task", {f"{cd('add-y')}/tasks.md": self.PENDING})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        (self.work / self.tasks_of("add-y")).unlink()
+        self.assertIn("[user]", self.git("show", f"HEAD:{self.tasks_of('add-y')}"))
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual({m["name"]: m["waiting_on_user"] for m in doc["members"]}, {"add-x": [], "add-y": []}, raw)
+        self.assertIn("openspec archive add-y --yes", fx.flat(doc["after_rerun_steps"]))
+
+    def test_a_member_deferred_after_its_archive_commit_is_not_archived_again(self):
+        self.pair()
+        fx.make_change(self.work, "add-z", "APPROVE", {"b": "Z thing"})
+        fx.archive(self.work, ["add-x", "add-y", "add-z"], commit_it=True)
+        fx.write(self.work, f"{ad('add-y')}/review.md", "# Review\n\nVERDICT: DEFERRED\n")
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        self.assertEqual({m["name"]: m["deferred"] for m in doc["members"]}, {"add-x": True, "add-y": True, "add-z": False}, raw)
+        rerun = fx.flat(doc["after_rerun_steps"])
+        self.assertIn("openspec archive add-z --yes", rerun)
+        self.assertNotIn("openspec archive add-y --yes", rerun)
+
+    def test_a_dangling_link_at_a_decision_file_is_not_absence(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        path = self.work / self.tasks_of("add-x")
+        path.unlink()
+        try:
+            path.symlink_to("missing-target.md")
+        except OSError:
+            self.skipTest("platform: this account cannot create symbolic links")
+        self.assertStops(fx.run_plan(self.work, "add-x"), "vcs_error", "tasks.md")
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "platform: needs POSIX permission bits and a user other than root")
+    def test_an_unreadable_work_tree_tasks_file_is_a_vcs_error(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        path = self.work / self.tasks_of("add-x")
+        path.chmod(0)
+        self.addCleanup(path.chmod, 0o644)
+        self.assertStops(fx.run_plan(self.work, "add-x"), "vcs_error", "tasks.md")
+
+    def test_a_rerun_delta_only_the_work_tree_copy_holds_is_deleted_again(self):
+        self.on_branch()
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "A thing", "c": "C thing"})
+        fx.make_change(self.work, "add-y", "APPROVE", {"b": "B thing"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        (self.work / P / "specs" / "c" / "spec.md").unlink()
+        fx.commit(self.work, "chore: drop c")
+        fx.write(self.work, f"{ad('add-y')}/specs/c/spec.md", fx.delta_text("C more"))
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        self.assertIn(f"undo-step remove {P}/specs/c/spec.md", fx.flat(doc["after_rerun_steps"]))
+
+    def two_archives(self, first, second):
+        """On the change branch: two committed archive folders, each with a DEFERRED review."""
+        self.on_branch()
+        for name in (first, second):
+            fx.write(self.work, f"{P}/changes/archive/{name}/review.md", "# Review\n\nVERDICT: DEFERRED\n")
+        fx.commit(self.work, "chore: archive change")
+
+    def test_two_members_whose_names_differ_only_by_case_are_duplicate_member(self):
+        self.two_archives(f"{fx.DATE}-add-x", "2026-10-18-Add-X")
+        before = fx.state(self.work)
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "duplicate_member")
+        self.assertEqual(out[1]["archived_names"], [f"{fx.DATE}-add-x", "2026-10-18-Add-X"])
+        self.assertEqual(fx.state(self.work), before)
+
+    def test_sigma_and_final_sigma_are_duplicate_member_on_a_case_insensitive_volume(self):
+        (self.tmp / "probe-σ").mkdir()
+        if not (self.tmp / "probe-ς").exists():
+            self.skipTest("platform: this volume is case-sensitive")
+        self.two_archives("2026-10-18-add-σ", "2026-10-19-add-ς")
+        before = fx.state(self.work)
+        out = fx.run_plan(self.work, "add-σ", archived="2026-10-18-add-σ")
+        self.assertStops(out, "duplicate_member")
+        self.assertEqual(out[1]["archived_names"], ["2026-10-18-add-σ", "2026-10-19-add-ς"])
+        self.assertEqual(fx.state(self.work), before)
+
+    def test_a_task_file_hidden_by_an_index_flag_is_git_env(self):
+        self.pair()
+        fx.commit(self.work, "docs(add-y): a pending user task", {f"{cd('add-y')}/tasks.md": self.PENDING})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        path = self.tasks_of("add-y")
+        self.git("update-index", "--skip-worktree", path)
+        (self.work / path).unlink()
+        self.assertEqual(self.git("status", "--porcelain"), "", "the flag hides the deletion")
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "git_env", path)
+
+    def test_a_gitlink_under_an_archived_member_is_unsupported_entry(self):
+        for resume in (False, True):
+            with self.subTest(resume=resume):
+                self.setUp()
+                self.single({"a": "New thing"})
+                fx.archive(self.work, "add-x", commit_it=True)
+                sub = f"{ad('add-x')}/specs/sub"
+                (self.work / sub).mkdir(parents=True)  # an uninitialized submodule: `git add -A` would drop the entry
+                self.git("update-index", "--add", "--cacheinfo", f"160000,{self.git('rev-parse', 'HEAD')},{sub}")
+                self.git("commit", "-q", "-m", "chore: a submodule in the member")
+                self.assertIn("160000 commit", self.git("ls-tree", "-r", BRANCH, "--", ad("add-x")))
+                if resume:
+                    self.git("checkout", "-q", "main")
+                self.assertEqual(self.git("status", "--porcelain"), "")
+                out = fx.run_plan(self.work, "add-x", branch=BRANCH if resume else None)
+                self.assertStops(out, "unsupported_entry", sub)
+
+    def test_an_attribute_source_is_git_env_at_planning(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.assertStops(fx.run_plan(self.work, "add-x", env={"GIT_ATTR_SOURCE": "HEAD"}), "git_env", "GIT_ATTR_SOURCE")
+        self.git("config", "attr.tree", "HEAD")
+        self.assertStops(fx.run_plan(self.work, "add-x"), "git_env", "attr.tree")
+
+    def test_the_plan_says_not_to_edit_files_after_it_is_printed(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        edit = [w for w in doc["warnings"] if "Do not edit files" in w]
+        self.assertEqual(edit, ["Do not edit files after this plan is printed, and do not start a merge, cherry-pick, "
+                                "revert or rebase while the steps run."])
 
 
 if __name__ == "__main__":
