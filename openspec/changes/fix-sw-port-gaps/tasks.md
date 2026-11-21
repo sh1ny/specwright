@@ -15,9 +15,9 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A commit whose real command line just exceeds the limit | `cli/test/vcs/gitbutler_backend_test.dart` | windows: but.exe line over the limit is too_many_paths, no start | red |
 |  | A batch-file `but` whose line is over the batch limit |  | windows: but.exe then but.cmd over the batch cap is too_many_paths | red |
 | A committed GitButler undo refuses paths its commit would rename | A bracket in a committed undo's path | `evals/vcs/test_gitbutler_undo.py` |  | red |
-|  | The same path in an uncommitted undo |  |  | red |
+|  | The same path in an uncommitted undo |  |  | green |
 | A GitButler-selected undo reports a failed target read | A failed target read during a GitButler undo | `evals/vcs/test_gitbutler_undo.py` |  | red |
-|  | An unset target during a GitButler undo |  |  | red |
+|  | An unset target during a GitButler undo |  |  | green |
 | Fixed commit defects are exceptions to the backends' unchanged outputs | A CRLF commit that stopped before | `cli/test/vcs/gitbutler_backend_test.dart` | read-back folds a CRLF file to the stored body | red |
 |  | A message file with an interior carriage return |  | read-back folds an interior lone CR | red |
 |  | jj stores LF for a CRLF message | `cli/test/vcs/jj_backend_test.dart` | commit normalises CRLF; merge message keeps its bytes | red |
@@ -32,12 +32,12 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | Store-backed call without --code |  | test_store_without_code_is_sw_mismatch | green |
 |  | Relative --code is read from the planning repo |  | test_relative_code_from_planning_repo | red |
 |  | A missing code directory in a checkout of another version |  | test_missing_code_in_other_version_is_not_repository | red |
-| A deferred archive's undo is planned by a script that runs nothing | Deferred archive found | `evals/finish/test_undo_jj.py` | test_jj_plan_changes_no_file | red |
+| A deferred archive's undo is planned by a script that runs nothing | Deferred archive found | `evals/finish/test_undo_jj.py` | test_jj_plan_changes_no_file | green |
 |  | Plan run on a dirty unrelated path in a resume on main | `evals/finish/test_undo_plan.py` | test_resume_on_dirty_main_refused | red |
 |  | No archive of the change |  | TestUndoPlan.test_no_archive_refused | green |
 |  | Branch moved after the plan |  | TestUndoPlan.test_guard_fails_after_branch_moved | green |
-|  | A jj plan with an unsnapshotted edit | `evals/finish/test_undo_jj.py` |  | red |
-|  | A jj plan with a pending Git ref import |  |  | red |
+|  | A jj plan with an unsnapshotted edit | `evals/finish/test_undo_jj.py` |  | green |
+|  | A jj plan with a pending Git ref import |  |  | green |
 | The undo planner reports paths whole | The first dirty path keeps its first character | `evals/finish/test_undo_plan.py` |  | red |
 |  | A name that porcelain quotes |  |  | red |
 |  | A staged rename on resume |  |  | red |
@@ -49,7 +49,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 | The undo planner's status reads list every untracked file | Untracked files hidden by configuration | `evals/finish/test_undo_plan.py` |  | red |
 | A failed status read stops the undo plan | The resume status read fails | `cli/test/finish/undo_plan_test.dart` | a failed resume status read is vcs_error | red |
 |  | The carried-edits status read fails |  | a failed carried-edits read is vcs_error | red |
-|  | A carried-edits read fails on GitButler | `evals/vcs/test_gitbutler_undo.py` |  | red |
+|  | A carried-edits read fails on GitButler | `evals/vcs/test_gitbutler_undo.py` |  | green |
 |  | A staged change on the change branch | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_staged_changes_refused | green |
 | A failed staged-index read stops the undo plan | The staged-index read fails | `cli/test/finish/undo_plan_test.dart` | a failed staged-index read is vcs_error | red |
 |  | The staged-index read fails for an uncommitted archive |  | a failed staged-index read on an uncommitted archive | red |
@@ -59,10 +59,10 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A gitlink staged after planning | `evals/finish/test_undo_steps.py` |  | red |
 | The resume cleanliness checks see submodule changes | A submodule dirty at planning | `evals/finish/test_undo_plan.py` |  | red |
 |  | A submodule made dirty before the steps run | `evals/finish/test_undo_steps.py` |  | red |
-|  | A dirty submodule under a GitButler undo | `evals/vcs/test_gitbutler_undo.py` |  | red |
+|  | A dirty submodule under a GitButler undo | `evals/vcs/test_gitbutler_undo.py` |  | green |
 | The resume checkout never overwrites an ignored file | An ignored local file the branch tracks | `evals/finish/test_undo_steps.py` |  | red |
-| The GitButler undo guard compares trees itself | Another applied branch's edit with a diff helper that exits 0 | `evals/vcs/test_gitbutler_undo.py` |  | red |
-|  | Another applied branch edits only a sibling path |  |  | red |
+| The GitButler undo guard compares trees itself | Another applied branch's edit with a diff helper that exits 0 | `evals/vcs/test_gitbutler_undo.py` |  | green |
+|  | Another applied branch edits only a sibling path |  |  | green |
 | The Git undo treats each path literally and reads one object view | A Git undo leaves a pattern-matching sibling alone | `evals/finish/test_undo_steps.py` |  | red |
 |  | A replaced archive parent |  |  | red |
 | The Git undo refuses a Git environment that changes what it reads or writes | An inherited attribute source | `evals/finish/test_undo_steps.py` |  | red |
@@ -113,7 +113,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | An unrelated file with a hidden edit on resume |  |  | red |
 |  | Ignored content under the archive root |  |  | red |
 |  | An edit a filesystem monitor missed on resume | `evals/finish/test_undo_steps.py` |  | red |
-|  | A GitButler undo over a hidden edit | `evals/vcs/test_gitbutler_undo.py` |  | red |
+|  | A GitButler undo over a hidden edit | `evals/vcs/test_gitbutler_undo.py` |  | green |
 |  | An archive sibling Git cannot list | `evals/finish/test_undo_plan.py` |  | red |
 |  | A status read that warns and exits 0 | `evals/finish/test_undo_steps.py` |  | red |
 |  | A main spec whose type the archive changed | `evals/finish/test_undo_plan.py` |  | red |
@@ -169,7 +169,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A gitlink only on the archive branch |  | `test_a_gitlink_only_on_the_archive_branch_is_unsupported_entry` | red |
 | An undo writes only the paths it names | A restore destination that is a link | `evals/vcs/test_gitbutler_undo.py` |  | red |
 |  | A removed spec under a linked directory | `evals/finish/test_undo_steps.py` |  | red |
-|  | A hard-linked restore destination | `evals/vcs/test_gitbutler_undo.py` |  | red |
+|  | A hard-linked restore destination | `evals/vcs/test_gitbutler_undo.py` | `test_a_hard_linked_restore_destination` | green |
 |  | A rerun spec under a linked directory |  |  | red |
 |  | A rerun destination linked after the undo | `evals/finish/test_undo_steps.py` |  | red |
 |  | A plain-Git removal under a linked directory |  | `test_a_plain_git_removal_under_a_linked_directory` | red |
@@ -177,12 +177,12 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | Two absent rerun specs where one lies under the other |  |  | red |
 |  | A rerun spec blocked by an existing directory |  |  | red |
 |  | A linked archive directory | `evals/finish/test_undo_steps.py` |  | red |
-|  | Another GitButler branch's edit at a rerun-only spec | `evals/vcs/test_gitbutler_undo.py` |  | red |
+|  | Another GitButler branch's edit at a rerun-only spec | `evals/vcs/test_gitbutler_undo.py` | `test_another_gitbutler_branchs_edit_at_a_rerun_only_spec` | red |
 |  | Another GitButler branch's assigned edit on an uncommitted undo |  |  | red |
 |  | Another GitButler branch's assigned edit at a backslash path |  |  | red |
-|  | An archived member edited after a GitButler plan |  |  | red |
+|  | An archived member edited after a GitButler plan |  |  | green |
 |  | A foreign assignment made after a GitButler plan |  |  | red |
-|  | An unassigned member edit on a GitButler undo |  |  | red |
+|  | An unassigned member edit on a GitButler undo |  |  | green |
 | Windows record replacement retries a transient refusal | A refusal that clears within the retry window | `cli/test/pr/feedback_record_test.dart` | a refused replace that clears writes the record | red |
 |  | A refusal that persists |  | a persistent replace failure rethrows the first error after 6 attempts | red |
 |  | The temporary source disappears during a pause |  | a source removed during a pause ends the retries | red |
