@@ -115,13 +115,14 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-0.39.0 fixes gaps the M8 native-CLI ports kept or found. Some fixes change exit codes or results, so `sw` reports interface 3 and these skills require it: update each project's skills and `sw` together. GitButler accepts CRLF message files, the archive undo reports paths whole and refuses what it cannot undo safely, `sw pr snapshot` checks `--timeout` and keeps log order, `PATH` lookup skips files the user cannot run, and Windows command-line, record and install-cleanup handling is fixed. Downloads must be unencoded; a Git resume undo needs Git 2.40.
+0.39.0 fixes gaps the M8 native-CLI ports kept or found. Some fixes change exit codes or results, so `sw` reports interface 3 and these skills require it: update each project's skills and `sw` together. GitButler accepts CRLF message files, the archive undo reports paths whole and refuses what it cannot undo safely, `sw pr snapshot` checks `--timeout` and keeps log order, `PATH` lookup skips files the user cannot run, and Windows command-line, record and install-cleanup handling is fixed. Downloads must be unencoded; a Git undo that has to switch to the archive branch needs Git 2.40.
 
 ### Fixed
 
 - GitButler `sw vcs commit` accepts a message file with CRLF line endings instead of stopping with `commit_mismatch`, and jj stores such a message with LF line endings (#206). On GitButler a relative `--message-file` is read where `sw` runs.
 - `sw finish undo-archive-plan` keeps the first character of dirty paths, reports both paths of a staged rename, and exits 2 on a usage error from the state read (#209).
 - The archive undo stops at planning, printing no steps, on a sparse checkout or ignored archive content (`git_env`), a filtered or linked rerun input (`unsupported_filter`), a submodule, type change, link, case alias or file/directory clash on a path it writes or moves (`unsupported_entry`), a failed Git read (`vcs_error`), and a commit too long for one command line (`plan_too_large`) (#209).
+- The archive undo on Git stops at planning, and its preflight before any write, while a merge, cherry-pick, revert, rebase or sequence is in progress (`operation_in_progress`): finish or abort it, then plan again (#209).
 - A resume undo whose restored files, archive directory or restore destinations are wrong after its checkout stops before any backup or index write, and leaves the archive branch checked out (#209).
 - `sw pr snapshot` refuses a non-numeric `--timeout`, reads `08` as decimal, and names a material file it cannot write (#214).
 - `sw pr snapshot --logs` merges stdout and stderr in arrival order before taking the tail (#215).
@@ -140,7 +141,7 @@ DECISION_MAKING: important
 - `sw review run` route selection skips `omp` when an `omp.cmd` probe line is over the batch limit and tries the next route, instead of failing with `internal_error`.
 - `sw update sw-install` asks for and requires unencoded downloads: a release asset or `SHA256SUMS` whose final HTTP 200 response has a `Content-Encoding` such as gzip now stops with `download_failed` naming the encoding, where it used to be decoded. GitHub serves release assets unencoded; a mirror or proxy that compresses them must stop doing so. A non-200 answer, such as a compressed 404 for a release not uploaded yet, is reported as before if it ends within the download's byte and time limits.
 - `sw pr snapshot --timeout` now takes decimal digits from 0 to 9223372036854775807 only and exits 2, with no document and no `gh` call, on any other value such as `+5`, `0x10`, `soon` or `9223372036854775808`, which it accepted before.
-- An archive undo on Git that resumes from the archive branch now needs Git 2.40 or later, to read the archive branch's attributes; on an older Git it stops with `tool_too_old` naming the minimum and the version found. No other command needs a newer Git.
+- An archive undo on Git that starts on another branch and switches to the archive branch now needs Git 2.40 or later, to read that branch's attributes; an undo already on the archive branch does not; on an older Git it stops with `tool_too_old` naming the minimum and the version found. No other command needs a newer Git.
 - An archive undo that removes a change marker (`specwright-change.yaml`) first copies it to `markers/` in its backup directory, on Git, jj and GitButler, and its warnings name that copy.
 - `sw finish undo-archive-plan` checks the installed version of the code checkout it plans against, not the one it was started from (ADR 0043): a relative `--code` is anchored at the planning root, and an option error or a `--code` directory that does not exist is reported before the version check, so only the planned checkout can stop it with `sw_mismatch`.
 - On a download, redirect and error response bodies now share the download byte budget with the asset: a mirror's oversized redirect or 404 body stops `sw update sw-install` with `response_too_large`.

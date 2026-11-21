@@ -425,6 +425,10 @@ Future<Map<String, Object?>> runGitOperation(
         'output': r.stdout.trim(),
       };
     case 'commit':
+      // C29: on Windows a resolved `git commit` line of exactly 32,767
+      // visible units is refused before start as `Unrepresentable`, which the
+      // VCS mapper reports as `not_utf8`, as before. The refusal comes after
+      // `git add`, so what it staged stays staged.
       final branch = requireBranch(s);
       final paths = request.paths;
       if (messageFile.isEmpty || paths.isEmpty) {
