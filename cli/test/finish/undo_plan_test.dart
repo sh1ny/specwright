@@ -59,6 +59,10 @@ List<String> swStep(String project, List<String> rest) => [
   ...rest,
 ];
 
+/// The version stamp the running `sw` checks in the project at [dir].
+void stamp(String dir, [String version = buildVersion]) =>
+    put(dir, 'openspec/.specwright/VERSION', '$version\n');
+
 void put(String repo, String rel, String text) {
   final f = File('$repo/$rel');
   f.parent.createSync(recursive: true);
@@ -201,7 +205,12 @@ void main() {
   final skip = bash == null ? 'no bash installed' : false;
   late Directory tmp;
 
-  setUp(() => tmp = Directory.systemTemp.createTempSync('claude-ncf-g3-'));
+  setUp(() {
+    tmp = Directory.systemTemp.createTempSync('claude-ncf-g3-');
+    // the planner checks the version of the project it plans in, also for a
+    // directory that holds no repository
+    stamp(tmp.path);
+  });
   tearDown(() => tmp.deleteSync(recursive: true));
 
   FinishContext context({Map<String, String>? environment, bool? windows}) =>
@@ -330,6 +339,7 @@ void main() {
     test('a repository with no commit is not_a_repo', () async {
       final dir = Directory('${tmp.path}/empty')..createSync();
       git(dir.path, ['init', '-q', '-b', 'main']);
+      stamp(dir.path);
       final r = await plan(request(dir.path));
       expect(r.code, 1);
       expect(r.doc, {
@@ -508,6 +518,9 @@ void main() {
       expect(doc, contains('never `Directory.list()`'));
       expect(doc, contains('GitButler parity'));
       expect(doc, contains('#154'));
+      // ADR 0043 and C36
+      expect(doc, contains('ADR 0043'));
+      expect(doc, contains('does not prove that the project'));
     });
   });
 
@@ -2023,7 +2036,9 @@ void main() {
           final steps = argvsOf(doc['steps']);
           expect(
             steps.first,
-            swStep('$top/codedir', [
+            // the project is the first directory with a `.git` at or above
+            // the code directory: the repo itself
+            swStep(top, [
               'finish',
               'undo-step',
               'check',
@@ -2143,6 +2158,255 @@ void main() {
           hasStep(['jj', 'bookmark', 'set', '"feat/x+y"', '-r', '@-']),
         );
       }, skip: skip);
+    });
+
+    group('the version check and the project root (ADR 0043)', () {
+      FinishContext counting(List<List<String>> calls) => FinishContext(
+        runner: (cwd, command, env) async {
+          calls.add(command);
+          return runTool(cwd, command, environment: env);
+        },
+      );
+
+      /// The value of the leading `--project` of every step that carries one.
+      Set<String> projectsOf(Map<String, Object?> doc) => {
+        for (final key in ['steps', 'after_rerun_steps'])
+          for (final argv in argvsOf(doc[key]))
+            if (argv.length > 2 && argv[1] == '--project') argv[2],
+      };
+
+      String physical(String dir) =>
+          Directory(dir).resolveSymbolicLinksSync().replaceAll(r'\', '/');
+
+      /// A store on `feat/x` whose archive is committed, and a code checkout.
+      (String, String) storeAndCode() {
+        final store = branchRepo(name: 'store');
+        archive(store, ['add-x'], commitIt: true);
+        return (store, makeRepo('code'));
+      }
+
+      test('a checkout of another version is sw_mismatch before any Git '
+          'read', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        stamp(repo, '9.9.9');
+        final calls = <List<String>>[];
+        final r = await plan(rq(repo), counting(calls));
+        expect(r.code, 1);
+        expect(r.doc['error'], 'sw_mismatch');
+        expect(r.doc['message'], contains('9.9.9'));
+        expect(r.doc.containsKey('steps'), isFalse);
+        expect(calls, isEmpty);
+      }, skip: skip);
+
+      test('an empty --code is not_repository, whatever the version '
+          'checked', () async {
+        final repo = branchRepo();
+        stamp(repo, '9.9.9');
+        final r = await plan(rq(repo, code: ''));
+        expect(r.code, 1);
+        expect(r.doc['error'], 'not_repository');
+        expect(r.doc.containsKey('steps'), isFalse);
+      }, skip: skip);
+
+      test('a missing --code is not_repository, not sw_mismatch', () async {
+        final repo = branchRepo();
+        stamp(repo, '9.9.9');
+        final calls = <List<String>>[];
+        final r = await plan(rq(repo, code: 'missing'), counting(calls));
+        expect(r.doc['error'], 'not_repository');
+        expect(calls, isEmpty);
+      }, skip: skip);
+
+      test('an omitted --code in a checkout of another version is '
+          'sw_mismatch', () async {
+        final repo = branchRepo();
+        stamp(repo, '9.9.9');
+        final r = await plan(rq(repo));
+        expect(r.doc['error'], 'sw_mismatch');
+      }, skip: skip);
+
+      test('the code checkout decides the version and every step names its '
+          'root', () async {
+        final (store, code) = storeAndCode();
+        stamp(store, '9.9.9');
+        final doc = await ok(store, code: code);
+        expect(projectsOf(doc), {physical(code)});
+        expect(argvsOf(doc['steps']), isNotEmpty);
+      }, skip: skip);
+
+      test('a relative --code starts at the planning root', () async {
+        final (store, code) = storeAndCode();
+        stamp(store, '9.9.9');
+        // `../code` from the store is the code checkout; from this process it
+        // names nothing
+        final doc = await ok(store, code: '../code');
+        expect(projectsOf(doc), {physical(code)});
+      }, skip: skip);
+
+      test(
+        'only the code checkout being of another version stops the plan',
+        () async {
+          final (store, code) = storeAndCode();
+          stamp(code, '9.9.9');
+          final r = await plan(rq(store, code: code));
+          expect(r.doc['error'], 'sw_mismatch');
+          expect(r.doc['message'], contains('9.9.9'));
+        },
+        skip: skip,
+      );
+
+      test(
+        '--project chooses the version, and every step carries it',
+        () async {
+          final (store, code) = storeAndCode();
+          stamp(code, '9.9.9');
+          final r = await undoArchivePlan(
+            UndoRequest(
+              dir: store,
+              change: 'add-x',
+              archived: '$_date-add-x',
+              prefix: 'openspec',
+              main: 'main',
+              code: code,
+              project: store,
+            ),
+            context(),
+          );
+          expect(projectsOf(r), {topOf(store)});
+        },
+        skip: skip,
+      );
+
+      group('the archive branch stamp (C36)', () {
+        /// A resume from `main` of `feat/x`, whose archive commit is followed
+        /// by [change] on that branch.
+        String resumable(void Function(String repo) change) {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          change(repo);
+          git(repo, ['checkout', '-q', 'main']);
+          return repo;
+        }
+
+        test('another committed version is sw_mismatch naming it, with no '
+            'steps', () async {
+          final repo = resumable((r) {
+            stamp(r, '0.0.1');
+            commitAll(r, 'chore: another stamp');
+          });
+          final out = await plan(rq(repo, branch: 'feat/x'));
+          expect(out.code, 1, reason: '${out.doc}');
+          expect(out.doc['error'], 'sw_mismatch');
+          expect(out.doc['message'], contains('0.0.1'));
+          expect(out.doc.containsKey('steps'), isFalse);
+        }, skip: skip);
+
+        test('a stamp the archive branch deletes is sw_mismatch', () async {
+          final repo = resumable((r) {
+            File('$r/openspec/.specwright/VERSION').deleteSync();
+            commitAll(r, 'chore: drop the stamp');
+          });
+          final out = await plan(rq(repo, branch: 'feat/x'));
+          expect(out.doc['error'], 'sw_mismatch');
+          expect(out.doc['message'], contains('absent'));
+        }, skip: skip);
+
+        test('a stamp over the limit is refused from its size, without '
+            'reading the blob', () async {
+          final repo = resumable((r) {});
+          final reads = <List<String>>[];
+          final ctx = FinishContext(
+            runner: (cwd, command, env) async {
+              if (command.contains('cat-file') && command.contains('-s')) {
+                return ToolResult(
+                  0,
+                  Uint8List.fromList(utf8.encode('10485760\n')),
+                  Uint8List(0),
+                );
+              }
+              // a blob named by its id alone, not by `<tree>:<path>`
+              if (command.contains('cat-file') &&
+                  command.contains('blob') &&
+                  !command.last.contains(':')) {
+                reads.add(command);
+              }
+              return runTool(cwd, command, environment: env);
+            },
+          );
+          final out = await plan(rq(repo, branch: 'feat/x'), ctx);
+          expect(out.doc['error'], 'sw_mismatch', reason: '${out.doc}');
+          expect(reads, isEmpty);
+        }, skip: skip);
+
+        test('a stamp the archive branch keeps still plans', () async {
+          final repo = resumable((r) {});
+          final doc = await ok(repo, branch: 'feat/x');
+          expect(doc['mode'], 'committed');
+        }, skip: skip);
+      });
+
+      group('a work-tree target that is not a regular file', () {
+        test(
+          'a settings path that is a directory is vcs_error naming it',
+          () async {
+            final repo = branchRepo();
+            archive(repo, ['add-x'], commitIt: true);
+            Directory('$repo/openspec/specwright.yaml').createSync();
+            final r = await plan(rq(repo));
+            expect(r.code, 1, reason: '${r.doc}');
+            expect(r.doc['error'], 'vcs_error');
+            expect(r.doc['message'], contains('openspec/specwright.yaml'));
+            expect(r.doc.containsKey('steps'), isFalse);
+          },
+          skip: skip,
+        );
+
+        test(
+          'a settings link to a FIFO does not block (POSIX)',
+          () async {
+            if (Platform.isWindows) {
+              markTestSkipped('no FIFO on Windows');
+              return;
+            }
+            final repo = branchRepo();
+            archive(repo, ['add-x'], commitIt: true);
+            Process.runSync('mkfifo', ['${tmp.path}/pipe']);
+            Link('$repo/openspec/specwright.yaml')
+                .createSync('${tmp.path}/pipe');
+            final r = await plan(rq(repo));
+            expect(r.doc['error'], 'vcs_error', reason: '${r.doc}');
+            expect(r.doc['message'], contains('openspec/specwright.yaml'));
+          },
+          skip: skip,
+          timeout: const Timeout(Duration(seconds: 60)),
+        );
+
+        test(
+          'a work-tree tasks.md that links to a FIFO does not block '
+          '(POSIX)',
+          () async {
+            if (Platform.isWindows) {
+              markTestSkipped('no FIFO on Windows');
+              return;
+            }
+            final repo = branchRepo();
+            archive(repo, ['add-x']);
+            final tasks =
+                '$repo/openspec/changes/archive/$_date-add-x/tasks.md';
+            File(tasks).deleteSync();
+            Process.runSync('mkfifo', ['${tmp.path}/pipe']);
+            Link(tasks).createSync('${tmp.path}/pipe');
+            final r = await plan(rq(repo));
+            expect(r.code, 1, reason: '${r.doc}');
+            expect(r.doc['error'], 'vcs_error');
+            expect(r.doc['message'], contains('tasks.md'));
+            expect(r.doc.containsKey('steps'), isFalse);
+          },
+          skip: skip,
+          timeout: const Timeout(Duration(seconds: 60)),
+        );
+      });
     });
   });
 

@@ -170,5 +170,120 @@ class TestProjectWalk(ShimCase):
         self.assertIn("no installed version found", doc["message"])
 
 
+
+class TestVersionAndCodeDirectory(ShimCase):
+    """The planner runs the one version check, on the checkout its `--code` (else `--dir`) names (ADR 0043)."""
+
+    def store_and_code(self):
+        """A planning store with the archive and no installed version, and a stamped code checkout."""
+        store = fx.make_repo(self.tmp / "store")
+        (store / STAMP).unlink()
+        self.archived(store)
+        return store, fx.make_repo(self.tmp / "code")
+
+    def stamp_as(self, checkout, version):
+        (checkout / STAMP).write_text(version + "\n", encoding="utf-8")
+
+    def test_relative_code_is_anchored_at_the_planning_root(self):
+        """`../../code/work` from the store is checkout B (matching); from the cwd it is checkout A, of another version."""
+        store, code = self.store_and_code()
+        relative = os.path.relpath(code, store)
+        cwd = self.tmp / "e" / "f" / "g"
+        cwd.mkdir(parents=True)
+        other = fx.make_repo(self.tmp / "e" / "code")
+        self.stamp_as(other, "99.0.0")
+        self.assertEqual((cwd / relative).resolve(), other.resolve())
+        doc = self.document(self.run_sw(*self.plan(dir_=store, code=relative), cwd=cwd))
+        self.assertIs(doc["ok"], True, doc)
+
+    def test_a_relative_code_of_another_version_is_the_one_that_stops_the_plan(self):
+        store, code = self.store_and_code()
+        self.stamp_as(code, "99.0.0")
+        relative = os.path.relpath(code, store)
+        self.no_git_calls()
+        doc = self.mismatch_document(self.run_sw(*self.plan(dir_=store, code=relative), cwd=self.tmp))
+        self.assertIn("99.0.0", doc["message"])
+
+    def test_missing_change_is_usage_in_another_version(self):
+        self.stamp_as(self.work, "99.0.0")
+        self.no_git_calls()
+        result = self.run_sw("--dir", str(self.work), "undo-archive-plan")
+        doc = self.document(result, 2)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "usage"), doc)
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+
+    def test_missing_dir_is_not_a_repo_before_any_version_check(self):
+        """A `--dir` that is no directory is `not_a_repo` naming it, although the checkout the call runs in is of another version."""
+        self.stamp_as(self.work, "99.0.0")
+        missing = self.tmp / "no-such-dir"
+        self.no_git_calls()
+        doc = self.document(self.run_sw(*self.plan(dir_=missing), cwd=self.work), 1)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "not_a_repo"), doc)
+        self.assertIn(str(missing), doc["message"])
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+
+    def test_missing_code_is_not_repository(self):
+        """A `--code` that names no directory is `not_repository`, in a matching checkout and in one of another version."""
+        self.archived(self.work)
+        for version in (None, "99.0.0"):
+            if version:
+                self.stamp_as(self.work, version)
+            self.no_git_calls()
+            doc = self.document(self.run_sw(*self.plan(code=self.work / "missing")), 1)
+            self.assertEqual((doc["ok"], doc["error"]), (False, "not_repository"), doc)
+            self.assertNotIn("steps", doc)
+            self.assertEqual(self.shim.calls(), [], "a git command ran")
+
+    def test_empty_code_is_not_repository(self):
+        """An empty `--code` is refused by the planner, whatever the `--dir` checkout's version, and is never an omission."""
+        store, _ = self.store_and_code()
+        self.no_git_calls()
+        doc = self.document(self.run_sw(*self.plan(dir_=store, code=""), cwd=store), 1)
+        self.assertEqual((doc["ok"], doc["error"]), (False, "not_repository"), doc)
+        self.assertNotIn("steps", doc)
+        self.assertEqual(self.shim.calls(), [], "a git command ran")
+
+    def test_emitted_steps_check_the_version_the_planner_checked(self):
+        """`--project A` (matching) with `--code B` (another version): every sw step carries `--project A`, and the steps
+        run as printed pass their own version check."""
+        code = fx.make_repo(self.tmp / "code")
+        self.stamp_as(code, "99.0.0")
+        self.archived(self.work)
+        result = sw_run(["finish", *self.plan(code=code)], cwd=self.work, shim=self.shim, stamp=False, project=self.work)
+        doc = self.document(result)
+        steps = doc["steps"] + doc["after_rerun_steps"]
+        carried = [step["argv"] for step in steps if "--project" in step["argv"]]
+        self.assertTrue(carried, doc)
+        for argv in carried:
+            self.assertTrue(os.path.samefile(argv[argv.index("--project") + 1], self.work), argv)
+        ran = fx.run_steps(self.tmp, doc["steps"])
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+
+    @unittest.skipIf(sys.platform == "win32", "platform: `link/..` names the directory above the link's target only on POSIX")
+    def test_code_directory_reached_through_a_symlink_and_dotdot(self):
+        """`--code <A>/link/..`, with `link` pointing into checkout B: the plan uses B's settings (here a malformed file)."""
+        a = fx.make_repo(self.tmp / "a")
+        b = fx.make_repo(self.tmp / "b")
+        (b / "sub").mkdir()
+        os.symlink(b / "sub", a / "link")
+        fx.write(b, f"{P}/specwright.yaml", "vcs: [unclosed\n")
+        self.archived(self.work)
+        doc = self.document(self.run_sw(*self.plan(code=f"{a}/link/..")), 1)
+        self.assertEqual(doc["error"], "bad_setting", doc)
+
+    @unittest.skipIf(sys.platform == "win32", "platform: `link/..` names the directory above the link's target only on POSIX")
+    def test_the_version_check_names_the_same_checkout(self):
+        """`--code <A>/link/..` with `link` pointing into B: only A's VERSION matches, and B's version is what stops the plan."""
+        a = fx.make_repo(self.tmp / "a")
+        b = fx.make_repo(self.tmp / "b")
+        (b / "sub").mkdir()
+        os.symlink(b / "sub", a / "link")
+        self.stamp_as(b, "99.0.0")
+        self.archived(self.work)
+        self.no_git_calls()
+        doc = self.mismatch_document(self.run_sw(*self.plan(code=f"{a}/link/..")))
+        self.assertIn("99.0.0", doc["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,7 @@ _spec.loader.exec_module(fx)
 import bashexe  # noqa: E402
 import gitlog  # noqa: E402  (fixtures.py puts evals/vcs on sys.path)
 import jjenv  # noqa: E402
-from vcs_test_support import sw_run  # noqa: E402
+from vcs_test_support import STAMP, sw_home, sw_run  # noqa: E402
 
 P = "openspec"
 SPEC_A = f"{P}/specs/a/spec.md"
@@ -950,6 +950,57 @@ class TestUndoPlan(Base):
             code, doc, raw = fx.run_finish(self.work, *args)
             self.assertEqual(code, 2, raw)
             self.assertIs(doc["ok"], False, raw)
+
+
+    # ---- The version stamp and a work-tree file that is not a regular file (ADR 0043, C36, C38) -------------------
+    def track_stamp(self, version=None):
+        """Track the (excluded) VERSION on main with `version`, default the tree's own."""
+        stamp = self.work / STAMP
+        if version is not None:
+            stamp.write_text(version + "\n", encoding="utf-8")
+        self.git("add", "-f", STAMP)
+        self.git("commit", "-q", "-m", "chore: track the stamp")
+
+    def test_archive_branch_with_another_committed_version_is_sw_mismatch(self):
+        """A resume from main whose committed VERSION matches, with the archive branch committing another: sw_mismatch
+        naming the branch's value, no steps, and HEAD, index and work tree as they were."""
+        self.track_stamp()
+        self.single({"a": "New thing"})
+        fx.write(self.work, STAMP, "0.0.1\n")
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.git("checkout", "-q", "main")
+        before = fx.state(self.work)
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "sw_mismatch", raw)
+        self.assertIn("0.0.1", doc["message"])
+        self.assertNotIn("steps", doc)
+        self.assertEqual(fx.state(self.work), before)
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a FIFO needs POSIX")
+    def test_decision_file_that_is_a_fifo_is_vcs_error_without_blocking(self):
+        """On the checked-out archive branch a committed tasks.md that links to an ignored FIFO with no writer: exit 1,
+        vcs_error naming tasks.md, no steps, within the bound."""
+        self.on_branch()
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing"}, commit_it=False)
+        fifo = self.work / "pipe"
+        os.mkfifo(fifo)
+        exclude = self.work / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text(encoding="utf-8") + "pipe\n", encoding="utf-8")
+        tasks = self.work / cd("add-x") / "tasks.md"
+        tasks.unlink()
+        os.symlink(fifo, tasks)
+        fx.commit(self.work, "docs(add-x): planning with a linked task list")
+        fx.archive(self.work, "add-x", commit_it=True)
+        import json
+        import swcall
+        done = swcall.run(["finish", *fx.plan_args("add-x")], cwd=self.work, timeout=60,
+                          env=dict(os.environ, SPECWRIGHT_HOME=str(sw_home())))
+        code, doc, raw = done.returncode, json.loads(done.stdout), done.stdout + done.stderr
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "vcs_error", raw)
+        self.assertIn("tasks.md", doc["message"])
+        self.assertNotIn("steps", doc)
 
 
 if __name__ == "__main__":

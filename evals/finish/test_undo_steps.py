@@ -6,6 +6,7 @@ no archive of it remains (change native-cli-retire-scripts task 7.2; the frozen 
 Run: python -m unittest evals/finish/test_undo_steps.py
 """
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -297,6 +298,88 @@ class TestBranchCheck(tj.JjBase):
         self.assertIn(tj.BRANCH, text)
         self.assertIn("feat/other", text)
         self.assertEqual(self.snapshot(), before)
+
+
+
+class TestRegularFileReads(StepsCase):
+    """A FIFO a branch or a link puts where a step or the version check reads never blocks it (C38, ADR 0043). Each run
+    is bounded to 60 seconds, so a read that blocks fails the test instead of hanging it."""
+
+    def fifo(self, name="pipe"):
+        """An ignored FIFO with no writer in the work tree."""
+        path = self.work / name
+        os.mkfifo(path)
+        exclude = self.work / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text(encoding="utf-8") + name + "\n", encoding="utf-8")
+        return path
+
+    def run_bounded(self, steps):
+        """Run printed steps like fx.run_steps, each bounded to 60 seconds; stop at the first that fails."""
+        env = dict(os.environ, FIXTURE_PREFIX=P, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()))
+        last = None
+        for step in steps:
+            argv = list(step["argv"])
+            if argv[0] == "openspec":
+                argv = [sys.executable, "-X", "utf8", str(HERE / "fixtures.py"), *argv[1:]]
+            last = subprocess.run(argv, cwd=step["cwd"], capture_output=True, text=True, encoding="utf-8", env=env,
+                                  timeout=60)
+            if last.returncode != 0:
+                break
+        return last
+
+    def resume_plan(self, tracked_stamp=False):
+        """Build the archive on the branch, return to main, and plan the resume."""
+        if tracked_stamp:
+            self.git("add", "-f", vcs_test_support.STAMP)
+            self.git("commit", "-q", "-m", "chore: track the stamp")
+        build_single(self.work)
+
+    def finish_resume(self):
+        self.git("checkout", "-q", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+    def backups(self):
+        return Path(fx.git(self.work, "rev-parse", "--absolute-git-dir")) / "specwright-undo"
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a FIFO needs POSIX")
+    def test_version_stamp_that_is_not_a_regular_file(self):
+        """The archive branch makes VERSION a link to a FIFO with no writer: the first sw step after the checkout returns
+        sw_mismatch saying so, and no backup or undo write runs."""
+        self.resume_plan(tracked_stamp=True)
+        self.git("checkout", "-q", BRANCH)
+        pipe = self.fifo()
+        stamp = self.work / vcs_test_support.STAMP
+        stamp.unlink()
+        os.symlink(pipe, stamp)
+        self.git("add", "-f", vcs_test_support.STAMP)
+        self.git("commit", "-q", "-m", "chore: link the stamp to a FIFO")
+        doc = self.finish_resume()
+        result = self.run_bounded(doc["steps"])
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        stop = json.loads(result.stdout)
+        self.assertEqual(stop["error"], "sw_mismatch", stop)
+        self.assertIn("not a regular file", stop["message"])
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a FIFO needs POSIX")
+    def test_settings_file_that_is_not_a_regular_file(self):
+        """The archive branch adds openspec/specwright.yaml as a link to an ignored FIFO: the guard after the checkout stops
+        with vcs_error naming the path, and no backup or undo write runs."""
+        self.resume_plan(tracked_stamp=True)
+        self.git("checkout", "-q", BRANCH)
+        pipe = self.fifo()
+        os.symlink(pipe, self.work / P / "specwright.yaml")
+        self.git("add", "-f", f"{P}/specwright.yaml")
+        self.git("commit", "-q", "-m", "chore: link the settings to a FIFO")
+        doc = self.finish_resume()
+        result = self.run_bounded(doc["steps"])
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        stop = json.loads(result.stdout)
+        self.assertEqual(stop["error"], "vcs_error", stop)
+        self.assertIn(f"{P}/specwright.yaml", stop["message"].replace("\\", "/"))
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
 
 
 if __name__ == "__main__":

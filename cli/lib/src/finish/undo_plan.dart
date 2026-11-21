@@ -2,8 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as pth;
+
 import '../commands/vcs.dart';
+import '../commands/version.dart' show buildVersion;
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
+import '../entry/project_version.dart';
+import '../entry/regular_file.dart';
 import '../fs/walk.dart';
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
@@ -11,6 +16,7 @@ import '../vcs/git_backend.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'script_text.dart';
+import 'settings_guard.dart';
 
 /// What `sw finish undo-archive-plan` was asked, as `finish.sh` parsed it:
 /// [dir] is the planning repo (`--dir`, the current directory when absent or
@@ -25,6 +31,7 @@ class UndoRequest {
     this.branch,
     this.type,
     this.code,
+    this.project,
   });
 
   final String dir;
@@ -37,6 +44,10 @@ class UndoRequest {
   final String? branch;
   final String? type;
   final String? code;
+
+  /// The call's leading `--project`, which chooses only the `VERSION` checked;
+  /// null when the call gave none.
+  final String? project;
 }
 
 /// What a planner runs with: the environment and the test seams.
@@ -121,6 +132,24 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// `git_error`. The planner decodes strictly only the records it uses, so an
 /// unrelated non-UTF-8 name never stops a plan. The `rev-parse` and `config`
 /// calls keep the caller's environment.
+///
+/// ADR 0043: the CLI skips its entry check for this subcommand, so the version
+/// check runs once, here, after option validation and before any Git read, on
+/// the existing, anchored code checkout the plan uses; every emitted step
+/// carries that root as its `--project`.
+///
+/// C36: a resume plan does not prove that the project's `VERSION` stamp survives
+/// its own checkout. It refuses early only a tip stamp that is a regular blob of
+/// another version, or one the checkout would delete; any other change (links,
+/// case aliases, conversions, size) is caught by the next `sw` step's entry
+/// check, which refuses a non-regular stamp without opening it and stops after
+/// only the branch switch and before any backup or undo write, as the
+/// post-checkout `check branch` stop does. The early check reads the tip blob
+/// only when `git cat-file -s` reports at most 4,096 bytes. After such a stop
+/// the warning tells the user to check Git's effective work tree and index
+/// before switching back, never to switch blindly. Rejected: proving survival
+/// from tree and disk shapes, which four review rounds each found another case
+/// for.
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -159,10 +188,15 @@ List<WalkDirectory> _walkArchive(String top, String rel) {
   }
 }
 
-/// A file's bytes, or null when it cannot be read (`wd_bytes`).
+/// A work-tree file's bytes, or null when it is not there or cannot be read
+/// (`wd_bytes`). It goes through [readRegularFile] (C38), so a target that is
+/// not a regular file, such as a FIFO a branch or a link put in its place, is
+/// a `vcs_error` naming the path and is never opened.
 Uint8List? _readFile(String path) {
   try {
-    return File(path).readAsBytesSync();
+    return readRegularFile(path);
+  } on NotRegularFile catch (e) {
+    throw notRegularStop(e);
   } on FileSystemException {
     return null;
   }
@@ -262,6 +296,12 @@ class _Planner {
         : ['--role', 'code'];
     if (branch != null && branch.isNotEmpty) role.addAll(['--branch', branch]);
     try {
+      // the strict settings read: a settings file that is no regular file is
+      // refused before the shared reader can open it
+      requireRegularSettings([
+        if (code != null && code.isNotEmpty) codeFor(top, code),
+        top,
+      ]);
       final reader = ctx.stateReader;
       if (reader != null) {
         return (await reader(top, code, branch)).cast();
@@ -281,6 +321,78 @@ class _Planner {
     }
   }
 
+  /// The early `sw_mismatch` of a resume (C36). When `openspec/.specwright/
+  /// VERSION` is a regular blob at [tip] that is over the reader's limit or
+  /// whose raw bytes are not the running version, or it is tracked at [head]
+  /// and absent at [tip], the plan stops before it prints a script. Any other
+  /// shape is left to the next step's own check. The blob is read only when
+  /// `git cat-file -s` says it fits the reader's limit.
+  Future<void> refuseTipStamp(String top, String head, String tip) async {
+    const path = 'openspec/.specwright/VERSION';
+    Never mismatch({String? found, String? problem}) {
+      final doc = mismatchDocument(
+        found: found,
+        problem: problem,
+        environment: ctx.environment,
+      );
+      throw VcsStop('sw_mismatch', doc['message']! as String);
+    }
+
+    Future<String?> entry(String rev) async {
+      final r = await git(top, ['ls-tree', '-z', rev, '--', path]);
+      if (r.exitCode != 0) {
+        throw VcsStop('vcs_error', 'cannot list $path at $rev');
+      }
+      final text = decodeStrict(r.stdout, 'file name');
+      final end = text.indexOf(String.fromCharCode(0));
+      return end <= 0 ? null : text.substring(0, end);
+    }
+
+    final listed = await entry(tip);
+    if (listed == null) {
+      if (await entry(head) != null) {
+        mismatch(problem: '$path is absent on the archive branch');
+      }
+      return;
+    }
+    final tab = listed.indexOf(String.fromCharCode(9));
+    final fields = (tab < 0 ? listed : listed.substring(0, tab)).split(' ');
+    // only a regular blob (mode 100644 or 100755); a link or other shape is the
+    // step's to refuse
+    if (fields.length != 3 ||
+        fields[1] != 'blob' ||
+        !fields[0].startsWith('100')) {
+      return;
+    }
+    final oid = fields[2];
+    final size = await git(top, ['cat-file', '-s', oid]);
+    final bytes = int.tryParse(textOf(size));
+    if (size.exitCode != 0 || bytes == null) {
+      throw VcsStop('vcs_error', 'cannot read the size of $path at $tip');
+    }
+    if (bytes > maxVersionBytes) {
+      mismatch(
+        problem: '$path on the archive branch is over $maxVersionBytes bytes',
+      );
+    }
+    final blob = await git(top, ['cat-file', 'blob', oid]);
+    if (blob.exitCode != 0) {
+      throw VcsStop('vcs_error', 'cannot read $path at $tip');
+    }
+    String text;
+    try {
+      text = const Utf8Decoder(allowMalformed: false)
+          .convert(blob.stdout)
+          .trim();
+    } on FormatException {
+      text = '';
+    }
+    if (!isVersionText(text)) {
+      mismatch(problem: '$path on the archive branch is not a version');
+    }
+    if (text != buildVersion) mismatch(found: text);
+  }
+
   Future<Map<String, Object?>> run() async {
     if (request.change == null) {
       throw _usage('undo-archive-plan needs --change');
@@ -296,9 +408,31 @@ class _Planner {
     final archived = request.archived!;
     final main = request.main!;
     final d = request.dir;
-    final code = request.code;
     var prefix = request.prefix!.replaceAll(RegExp(r'^/+|/+$'), '');
     if (prefix == '.') prefix = '';
+
+    // ADR 0043, in this order: the planning directory exists (no version
+    // check for one that does not), `--code` is anchored at the planning root
+    // and names a directory, then the one version check, before any Git read.
+    if (!_isDir(d)) {
+      throw VcsStop('not_a_repo', '$d is not inside a git work tree');
+    }
+    final code = request.code;
+    String? codeDir;
+    if (code != null) {
+      codeDir = code.isEmpty ? '' : codeFor(projectRoot(d), code);
+      if (codeDir.isEmpty || !_isDir(codeDir)) {
+        throw VcsStop(
+          'not_repository',
+          '--repo and --code must name existing directories',
+        );
+      }
+    }
+    final checkedRoot = projectRoot(request.project ?? codeDir ?? d);
+    final mismatch = versionMismatch(checkedRoot, environment: ctx.environment);
+    if (mismatch != null) {
+      throw VcsStop('sw_mismatch', mismatch['message']! as String);
+    }
 
     var r = await git(d, ['rev-parse', '--show-toplevel']);
     if (r.exitCode != 0 || textOf(r).isEmpty) {
@@ -575,7 +709,10 @@ class _Planner {
               head,
               _joinAll([prefix, 'changes', m.name, rel]),
             );
-            final cur = File(_under(top, '${m.dir}/$rel')).readAsBytesSync();
+            final at = _under(top, '${m.dir}/$rel');
+            final cur =
+                _readFile(at) ??
+                (throw VcsStop('vcs_error', 'cannot read $at'));
             if (old == null || !_sameBytes(cur, old)) {
               carried.add(_joinAll([m.dir, rel]));
             }
@@ -868,13 +1005,22 @@ class _Planner {
     }
     warnings.add('Do not edit files while the steps run.');
 
+    // a resume that switches the checkout holding the project root may change
+    // the stamp the later steps read: one cheap early refusal (C36)
+    if (mode == 'committed' && branch != cb && !jj && !gb) {
+      if (pth.equals(checkedRoot, top)) await refuseTipStamp(top, head, t);
+    }
+
     // ---- the steps --------------------------------------------------------
     // Each step runs in `top`, where the old script `cd`-ed, so the plan runs
     // from any directory. A step that runs Specwright's own work starts with
     // the running `sw` and carries `--project`, so the version check passes
     // from anywhere (D4, D7).
     final sw = (ctx.sw ?? Platform.resolvedExecutable);
-    final project = code != null && code.isNotEmpty ? codeFor(top, code) : top;
+    // the checked root, in Git's spelling when it is the planned checkout
+    final project = pth.equals(checkedRoot, top)
+        ? top
+        : checkedRoot.replaceAll(r'\', '/');
     Map<String, Object?> mk(List<String> argv) => {'cwd': top, 'argv': argv};
     List<String> swArgv(List<String> rest) => [
       sw,

@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../commands/vcs.dart';
+import '../entry/regular_file.dart';
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
+import 'settings_guard.dart';
 
 /// Answers the state read of a `check branch` step instead of the in-process
 /// state operation, so that a test can check a jj or GitButler branch without
@@ -86,7 +88,13 @@ class _UndoStep {
         }
       case 'copy':
         _count(kind, rest, 2);
-        File(at(rest[0])).copySync(at(rest[1]));
+        // the source is a work-tree file: it is opened only when it is a
+        // regular file (C38), so a FIFO in its place is refused, not waited on
+        try {
+          copyRegularFile(at(rest[0]), at(rest[1]));
+        } on NotRegularFile catch (e) {
+          throw notRegularStop(e);
+        }
       case 'move':
         _count(kind, rest, 2);
         final from = at(rest[0]);
@@ -254,6 +262,9 @@ class _UndoStep {
     String backend,
     String? code,
   ) async {
+    // the strict settings read of the guard (C38): a settings file that is no
+    // regular file is refused before anything reads it
+    requireRegularSettings([if (code != null) at(code), cwd]);
     final String now;
     if (backend == 'git') {
       final r = await _spawn(['git', 'branch', '--show-current']);

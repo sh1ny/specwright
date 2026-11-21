@@ -82,6 +82,34 @@ void main() {
       await fails(['copy', 'nope.txt', 'c.txt']);
     });
 
+    test('copy of a source that is not a regular file is vcs_error naming '
+        'it, and writes nothing', () async {
+      Directory('$repo/dir').createSync();
+      final (code, doc) = await step(['copy', 'dir', 'c.txt']);
+      expect(code, 1);
+      expect(doc!['error'], 'vcs_error');
+      expect(doc['message'], contains('dir'));
+      expect(File('$repo/c.txt').existsSync(), isFalse);
+    });
+
+    test(
+      'copy of a link to a FIFO is vcs_error and does not block (POSIX)',
+      () async {
+        if (Platform.isWindows) {
+          markTestSkipped('no FIFO on Windows');
+          return;
+        }
+        Process.runSync('mkfifo', ['$repo/pipe']);
+        Link('$repo/marker.yaml').createSync('$repo/pipe');
+        final (code, doc) = await step(['copy', 'marker.yaml', 'backup.yaml']);
+        expect(code, 1);
+        expect(doc!['error'], 'vcs_error');
+        expect(doc['message'], contains('marker.yaml'));
+        expect(File('$repo/backup.yaml').existsSync(), isFalse);
+      },
+      timeout: const Timeout(Duration(seconds: 60)),
+    );
+
     test('move renames a directory and a file', () async {
       File('$repo/d/f.txt').createSync(recursive: true);
       await passes(['move', 'd', 'e']);
@@ -240,6 +268,31 @@ void main() {
       expect(doc['message'], contains('main'));
       expect(doc['message'], contains('feat/x'));
     });
+
+    test('branch refuses a settings file that is not a regular file', () async {
+      Directory('$repo/openspec/specwright.yaml').createSync(recursive: true);
+      final (code, doc) = await step(['check', 'branch', 'main']);
+      expect(code, 1);
+      expect(doc!['error'], 'vcs_error');
+      expect(doc['message'], contains('openspec/specwright.yaml'));
+    });
+
+    test(
+      'branch refuses a settings link to a FIFO without blocking (POSIX)',
+      () async {
+        if (Platform.isWindows) {
+          markTestSkipped('no FIFO on Windows');
+          return;
+        }
+        Process.runSync('mkfifo', ['$repo/pipe']);
+        Directory('$repo/openspec').createSync();
+        Link('$repo/openspec/specwright.yaml').createSync('$repo/pipe');
+        final (code, doc) = await step(['check', 'branch', 'main']);
+        expect(code, 1);
+        expect(doc!['error'], 'vcs_error');
+      },
+      timeout: const Timeout(Duration(seconds: 60)),
+    );
 
     for (final backend in ['jj', 'gitbutler']) {
       test('branch on $backend reads the structured branch', () async {
