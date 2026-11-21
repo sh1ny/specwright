@@ -838,6 +838,29 @@ void main() {
       expect(doc['message'], contains('jj'));
     });
 
+    test('a code subdirectory without settings reads its checkout root, '
+        'not the store', () async {
+      final code = Directory('${tmp.path}/code')..createSync();
+      _git(code.path, ['init', '-q', '-b', 'main']);
+      File('${code.path}/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('planning_store:\n  vcs: git\n');
+      final sub = Directory('${code.path}/app')..createSync();
+      // the store's own settings would select jj for the store role
+      File('$repo/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('planning_store:\n  vcs: jj\n');
+      await passes([
+        'check',
+        'branch',
+        'main',
+        '--backend',
+        'git',
+        '--code',
+        sub.path,
+      ]);
+    });
+
     test('branch on git needs Git to read the branch', () async {
       final outside = Directory('${tmp.path}/not-a-repo')..createSync();
       await stops(

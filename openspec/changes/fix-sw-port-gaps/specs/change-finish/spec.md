@@ -581,7 +581,7 @@ The undo-plan requirements above change `finish.sh`'s refusals, exit codes, guar
 - **THEN** its error and exit status are as `finish.sh` gave them
 
 ### Requirement: An undo destination is absent only by evidence
-Each `check absent` guard an undo plan emits SHALL prove its path absent from the nearest existing ancestor: that ancestor SHALL be a directory, not a link, whose listing succeeds and has no entry named as the next component down. An ancestor that is not a directory, cannot be listed, or lists that name SHALL stop the step with `vcs_error` naming the path, before any undo write.
+Each `check absent` guard an undo plan emits SHALL prove its path absent from the nearest existing ancestor: that ancestor SHALL be a directory, not a link, whose listing succeeds and has no entry named as the next component down. An ancestor that is not a directory, cannot be listed, or lists that name SHALL stop the step with `vcs_error` naming the path, before any undo write. This change adds no `check absent` guard to the jj or GitButler restore paths: there the plan's `check absent` steps guard the backup directory and the specs a rerun deletes again, and the destination checks cover the restore destinations.
 
 #### Scenario: The first undo in a fresh checkout
 - **WHEN** the undo runs in a checkout with no `specwright-undo` directory yet

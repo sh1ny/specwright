@@ -1338,6 +1338,49 @@ void main() {
         );
       }, skip: skip);
 
+      test(
+        'a spec only the rerun writes is guarded before the first write',
+        () async {
+          final repo = branchRepo();
+          makeChange(
+            repo,
+            'add-y',
+            verdict: 'APPROVE',
+            deltas: {'b': 'Y thing'},
+          );
+          archiveOne(repo, 'add-x');
+          archiveOne(repo, 'add-y');
+          // a delta spec of the rerun member that the archive left unsynced
+          final arch = 'openspec/changes/archive/$_date-add-y/specs';
+          File('$repo/$arch/d/spec.md')
+            ..createSync(recursive: true)
+            ..writeAsStringSync(read(repo, '$arch/b/spec.md'));
+          commitAll(repo, 'chore(add-x, add-y): archive change');
+          const d = 'openspec/specs/d/spec.md';
+          final doc = await ok(repo);
+          expect(
+            (doc['main_specs']! as Map).values.expand((v) => v as List),
+            isNot(contains(d)),
+          );
+          final steps = argvsOf(doc['steps']);
+          final guard = steps.indexWhere(
+            (s) => isUndo(s, 'check', 'destinations') && s.contains(d),
+          );
+          final firstWrite = steps.indexWhere((s) => isUndo(s, 'mkdir'));
+          expect(guard, isNonNegative, reason: '$steps');
+          expect(guard, lessThan(firstWrite));
+          // and checked again before the rerun
+          final after = argvsOf(doc['after_rerun_steps']);
+          expect(
+            isUndo(after.first, 'check', 'destinations') &&
+                after.first.contains(d),
+            isTrue,
+            reason: '${after.first}',
+          );
+        },
+        skip: skip,
+      );
+
       test('the rerun starts with a destination check', () async {
         final repo = bulkRepo('b');
         final after = argvsOf((await ok(repo))['after_rerun_steps']);
@@ -3617,6 +3660,16 @@ void main() {
           expect(doc['ok'], true);
           final touched = [ad, 'openspec/changes/add-x', specA];
           List<String> u(List<String> rest) => undoStep(top, rest);
+          // C37: the GitButler restore carries no `check absent` on its
+          // destination (the destination checks cover it, C46)
+          expect(
+            argvsOf(doc['steps']),
+            isNot(
+              contains(
+                equals(u(['check', 'absent', 'openspec/changes/add-x'])),
+              ),
+            ),
+          );
           expect(
             argvsOf(doc['steps']),
             containsAllInOrder([
@@ -3981,6 +4034,15 @@ void main() {
               ],
               ['jj', 'bookmark', 'set', 'feat/x', '-r', '@-'],
             ]),
+          );
+          // C37: the jj restore carries no `check absent` on its destination
+          expect(
+            argvsOf(doc['steps']),
+            isNot(
+              contains(
+                equals(u(['check', 'absent', 'openspec/changes/add-x'])),
+              ),
+            ),
           );
           for (final s in doc['steps']! as List) {
             expect((s as Map)['cwd'], top);

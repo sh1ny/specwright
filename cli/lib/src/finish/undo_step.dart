@@ -141,10 +141,10 @@ class _UndoStep {
       {...(environment ?? Platform.environment)}
         ..putIfAbsent('GIT_TERMINAL_PROMPT', () => '0');
 
-  /// Runs [command] in [cwd]; every `git` carries [gitSafety] (literal
-  /// pathspecs, no replace objects) after its name.
-  Future<ToolResult> _spawn(List<String> command) => runTool(
-    cwd,
+  /// Runs [command] in [dir], else [cwd]; every `git` carries [gitSafety]
+  /// (literal pathspecs, no replace objects) after its name.
+  Future<ToolResult> _spawn(List<String> command, {String? dir}) => runTool(
+    dir ?? cwd,
     command.first == 'git'
         ? ['git', ...gitSafety, ...command.sublist(1)]
         : command,
@@ -720,14 +720,29 @@ class _UndoStep {
     return r.exitCode == 0 ? decodeText(r.stdout).trim() : '';
   }
 
-  /// The settings must select Git for the role [code] picks (the store role
-  /// with a code operand, else the code role); another backend is `git_env`.
-  void _requireGitRole(String? code, [String want = 'git']) {
+  /// Where the role [code] picks reads its settings, in the order
+  /// `sw vcs state` reads them: a code operand, then its checkout's top level;
+  /// with no operand, this checkout. A code subdirectory with no settings
+  /// file therefore never falls back to the store's settings.
+  Future<List<String>> _settingsBases(String? code) async {
+    if (code == null) return [cwd];
+    final dir = at(code);
+    final r = await _spawn(['git', 'rev-parse', '--show-toplevel'], dir: dir);
+    final top = r.exitCode == 0 ? decodeText(r.stdout).trim() : '';
+    return [dir, if (top.isNotEmpty) top];
+  }
+
+  /// The settings at [bases] must select Git for the role [code] picks (the
+  /// store role with a code operand, else the code role); another backend is
+  /// `git_env`.
+  void _requireGitRole(
+    String? code,
+    List<String> bases, [
+    String want = 'git',
+  ]) {
     final String chosen;
     try {
-      final settings = loadSettings(
-        readSettingsText([if (code != null) at(code), cwd]),
-      );
+      final settings = loadSettings(readSettingsText(bases));
       final choices = vcsChoices(settings);
       chosen = code != null ? choices.store : choices.code;
     } on SettingsStop catch (e) {
@@ -751,10 +766,11 @@ class _UndoStep {
   ) async {
     // the strict settings read of the guard (C38): a settings file that is no
     // regular file is refused before anything reads it
-    requireRegularSettings([if (code != null) at(code), cwd]);
+    final bases = await _settingsBases(code);
+    requireRegularSettings(bases);
     final String now;
     if (backend == 'git') {
-      _requireGitRole(code);
+      _requireGitRole(code, bases);
       final r = await _spawn(['git', 'branch', '--show-current']);
       checkRead(r, 'git branch --show-current');
       try {
@@ -766,7 +782,7 @@ class _UndoStep {
       // the settings the plan was made under still select jj for the role,
       // read before any jj command runs (a store backend changed after
       // planning stops with no jj invocation)
-      if (backend == 'jj') _requireGitRole(code, 'jj');
+      if (backend == 'jj') _requireGitRole(code, bases, 'jj');
       final repo = cwd;
       final branch = backend == 'gitbutler' ? expected : null;
       final reader = stateReader;

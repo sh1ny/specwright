@@ -1760,6 +1760,11 @@ class _Planner {
     // on GitButler each destination check also re-reads the other applied
     // branches' assigned paths (C46)
     final destFlags = gb ? ['--gitbutler', given!] : <String>[];
+    // specs only the rerun writes: guarded before the first write too, and
+    // checked again before the rerun (C46)
+    final rerunOnly = sortedByCodePoint(
+      syncedByRerun.difference({...mainMod, ...mainNew}),
+    );
     void destinationSteps() {
       for (final m in members) {
         undo([
@@ -1774,11 +1779,13 @@ class _Planner {
       }
       perPath(
         undoArgv(['check', 'destinations', ...destFlags, '--']),
-        sortedByCodePoint({...mainMod, ...mainNew}),
+        sortedByCodePoint({...mainMod, ...mainNew, ...rerunOnly}),
         step,
       );
-      // each restore destination is absent: an ignored directory there
-      // would make the final move fail after the undo commit
+      // on Git each restore destination is absent: an ignored directory there
+      // would make the final move fail after the undo commit. The jj and
+      // GitButler restores carry no such guard (C37).
+      if (jj || gb) return;
       for (final m in members) {
         undo([
           'check',
@@ -1871,11 +1878,14 @@ class _Planner {
           'another applied branch changes a path the undo restores',
           '--',
         ]),
-        touchedAll,
+        [...touchedAll, ...rerunOnly],
         step,
       );
       if (committed) {
-        perPath(undoArgv(['check', 'clean', '--']), touchedAll, step);
+        perPath(undoArgv(['check', 'clean', '--']), [
+          ...touchedAll,
+          ...rerunOnly,
+        ], step);
       }
       destinationSteps();
       undo(['check', 'absent', backupDir]);
