@@ -53,7 +53,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A staged change on the change branch | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_staged_changes_refused | green |
 | A failed staged-index read stops the undo plan | The staged-index read fails | `cli/test/finish/undo_plan_test.dart` | a failed staged-index read is vcs_error | red |
 |  | The staged-index read fails for an uncommitted archive |  | a failed staged-index read on an uncommitted archive | red |
-| The staged-index checks see every staged path | A staged gitlink hidden by configuration before planning | `evals/finish/test_undo_plan.py` |  | red |
+| The staged-index checks see every staged path | A staged gitlink hidden by configuration before planning | `evals/finish/test_undo_plan.py` |  | green |
 |  | A staged path that a diff helper would hide | `evals/finish/test_undo_steps.py` |  | red |
 |  | The plan warns about the index | `cli/test/finish/undo_plan_test.dart` | a Git plan warns that the index must not change | red |
 |  | A gitlink staged after planning | `evals/finish/test_undo_steps.py` |  | red |
@@ -151,7 +151,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 | A usage error from the planner's state read exits 2 | State read refuses its arguments | `cli/test/finish/undo_plan_test.dart` | a usage stop from the state read exits 2 | red |
 |  | State read fails for another reason | `evals/finish/test_undo_plan.py` | test_malformed_settings_state_read_exits_1 | green |
 | Fixed undo-plan defects are exceptions to the script's refusals | A usage error from the state read | `cli/test/finish/undo_plan_test.dart` | an injected usage VcsStop is one usage document, exit 2 | red |
-|  | A guard that now refuses | `evals/finish/test_undo_plan.py` | test_staged_gitlink_hidden_by_config_is_refused | red |
+|  | A guard that now refuses | `evals/finish/test_undo_plan.py` | test_a_staged_gitlink_hidden_by_configuration_is_staged_changes | green |
 |  | A plan carries the new index warning | `cli/test/finish/undo_plan_test.dart` | a clean-index Git plan carries the index warning | red |
 |  | Any other refusal | `evals/finish/test_parity.py` | TestPlanGit.test_refusal_dirty_tree | green |
 | An undo destination is absent only by evidence | The first undo in a fresh checkout | `evals/finish/test_undo_steps.py` |  | red |
