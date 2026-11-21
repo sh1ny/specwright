@@ -61,6 +61,27 @@ class TestGitButlerUndoPlan(GitButlerFlowCase):
         self.assertEqual(done.returncode != 0, expected != 0, done.stdout + done.stderr)
         return done
 
+    def test_a_failed_carried_edits_read_stops_the_plan(self):
+        """The planner's path-limited `git status` failing (C50): `vcs_error`, no steps, never an empty list of edits."""
+        require_but()
+        with Scratch() as scratch:
+            wrap, repo = self.start(scratch)
+            repo.but("branch", "new", BRANCH)
+            work = repo.path
+            fx.write(work, "%s/specs/a/spec.md" % P, fx.base_spec("a"))
+            fx.make_change(work, CHANGE, "DEFERRED", {"a": "New thing"}, commit_it=False)
+            self.commit_paths(scratch, wrap, "docs(add-c): add planning artifacts", "%s/specs/a/spec.md" % P, CHANGE_DIR + "/")
+            fx.archive(work, CHANGE, commit_it=False)
+            self.commit_paths(scratch, wrap, "chore(add-c): archive change", ARCHIVE_DIR + "/", CHANGE_DIR + "/",
+                              "%s/specs/a/spec.md" % P)
+            Path(str(self.shim.log_path) + ".fail-scoped-status").write_text("fail\n", encoding="utf-8")  # see gitlog.install
+            doc = self.script(scratch, wrap, "finish", "undo-archive-plan", "--change", CHANGE, "--archived-name", ARCHIVED,
+                              "--prefix", P, "--main", "main", "--branch", BRANCH, cwd=repo.path, expected=1)
+            self.assertFalse(doc["ok"], doc)
+            self.assertEqual(doc["error"], "vcs_error", doc)
+            self.assertNotIn("steps", doc)
+            self.assertIn("git status", doc["message"])
+
     def test_undo_plan_uses_but_commit(self):
         require_but()
         with Scratch() as scratch:

@@ -45,6 +45,8 @@
     {"paths": ["cli/lib/src/vcs/**", "cli/test/vcs/**", "cli/lib/src/process/launch.dart", "cli/lib/src/process/command_line.dart", "cli/lib/src/process/resolve.dart", "cli/lib/src/process/bounded_run.dart"], "suites": ["vcs"]},
     {"paths": ["cli/lib/src/vcs/git_backend.dart"], "suites": ["finish"]},
     {"paths": ["cli/lib/src/commands/vcs.dart", "cli/lib/src/pr/settings_commands.dart", "evals/finish/fixtures.py"], "suites": ["vcs", "finish"]},
+    {"paths": ["cli/lib/src/vcs/git_common.dart", "cli/lib/src/vcs/scripts.dart", "cli/lib/src/vcs/tool_runner.dart", "cli/lib/src/vcs/codec.dart", "cli/lib/src/vcs/text_result.dart", "cli/lib/src/vcs/probe.dart", "cli/lib/src/vcs/args.dart", "cli/lib/src/vcs/jj_backend.dart", "cli/lib/src/process/launch.dart", "cli/lib/src/process/bounded_run.dart", "cli/lib/src/process/command_line.dart", "cli/lib/src/process/exec_helper.dart", "cli/lib/src/process/frame.dart", "cli/lib/src/process/resolve.dart", "cli/lib/src/process/platform_tree.dart", "cli/lib/src/process/windows_tree.dart", "cli/lib/src/native/kernel32.dart", "cli/lib/src/native/libc.dart", "cli/lib/src/pr/context.dart", "cli/lib/src/settings/rules.dart", "cli/lib/src/fs/walk.dart", "cli/lib/src/entry/project_version.dart", "cli/lib/src/cli.dart", "cli/lib/src/commands/finish.dart", "cli/lib/src/commit/task_cover.dart", "cli/lib/src/options.dart", "evals/vcs/vcs_test_support.py", "evals/vcs/jjenv.py", "evals/vcs/gitlog.py"], "suites": ["finish"]},
+    {"paths": ["cli/lib/src/native/libc.dart"], "suites": ["vcs", "pr-pair"]},
     {"paths": ["evals/vcs/**"], "suites": ["vcs"]}
   ],
   "no_eval": [

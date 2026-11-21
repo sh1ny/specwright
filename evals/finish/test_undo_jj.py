@@ -163,6 +163,9 @@ class TestUndoPlanJj(JjBase):
         self.assertEqual(doc["error"], "dirty_tree", raw)
         self.assertIn("README.md", doc["message"])
         self.assertIn("working copy", doc["message"])
+        # the jj resume stop keeps its message and its files (change-finish: other dirty stops keep their messages)
+        self.assertEqual(doc["message"], f"The working copy @ is not empty, so it cannot move onto {BRANCH} with jj new: README.md")
+        self.assertEqual(doc["files"], ["README.md"])
         self.assertNotIn("steps", doc)
         self.assertEqual(self.snapshot(), before)
 

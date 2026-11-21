@@ -91,7 +91,10 @@ def install(directory, real_git=None, log_path=None):
         "set -e\n"
         "\"${SPECWRIGHT_PYTHON:-python}\" -c '"
         "import json,os,sys; a=sys.argv[1:]; c=__import__(\"vcs.gitlog\",fromlist=[\"classify\"]).classify(a); "
-        "open(os.environ[\"SPECWRIGHT_GIT_LOG\"],\"a\",encoding=\"utf-8\").write(json.dumps({\"argv\":a,**c},ensure_ascii=False)+\"\\n\")' \"$@\"\n"
+        "log=os.environ[\"SPECWRIGHT_GIT_LOG\"]; "
+        "open(log,\"a\",encoding=\"utf-8\").write(json.dumps({\"argv\":a,**c,\"optional_locks\":os.environ.get(\"GIT_OPTIONAL_LOCKS\")},ensure_ascii=False)+\"\\n\"); "
+        "stop=\"status\" in a and \"--\" in a and os.path.exists(log+\".fail-scoped-status\"); "  # a marker file makes a path-limited status fail
+        "stop and (sys.stderr.write(\"fatal: injected status failure\\n\"), sys.exit(128))' \"$@\"\n"
         "exec \"$SPECWRIGHT_REAL_GIT\" \"$@\"\n",
         exe=True,  # sw calls git with `--format=%H`, which a `.cmd` refuses (D9)
     )

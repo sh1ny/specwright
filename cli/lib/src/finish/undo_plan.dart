@@ -1,11 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import '../commands/vcs.dart';
-import '../commit/task_cover.dart' show isPySpace, pyStrip, pySplitLines;
+import '../commit/task_cover.dart' show isPySpace, pyStrip;
 import '../fs/walk.dart';
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
+import '../vcs/git_backend.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'script_text.dart';
@@ -39,7 +41,13 @@ class UndoRequest {
 
 /// What a planner runs with: the environment and the test seams.
 class FinishContext {
-  FinishContext({this.environment, this.windows, this.stateReader, this.sw});
+  FinishContext({
+    this.environment,
+    this.windows,
+    this.stateReader,
+    this.sw,
+    this.runner,
+  });
 
   /// The `sw` the printed steps start; null is the running binary. Tests only.
   final String? sw;
@@ -60,6 +68,16 @@ class FinishContext {
     String? branch,
   )?
   stateReader;
+
+  /// Runs every `git` the planner starts itself (not the state read) instead of
+  /// the process launcher, so that a test answers one read and passes the rest
+  /// through. Tests only.
+  final Future<ToolResult> Function(
+    String cwd,
+    List<String> command,
+    Map<String, String> environment,
+  )?
+  runner;
 }
 
 /// Builds the undo plan: returns the document to print (exit 0) or throws a
@@ -93,6 +111,16 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// C3: the printed `steps` and `after_rerun_steps` are `{cwd, argv}` objects (D7):
 /// Specwright's own work starts with the running `sw` and `--project`, never a
 /// script or `bash`. C1: ids and date prefixes match ASCII digits only.
+///
+/// C10: the planner is read-only, so every `git status` it causes, its own
+/// reads and the one inside the `vcsState` read, runs with `GIT_OPTIONAL_LOCKS=0`
+/// and `-c core.fsmonitor=false`; it never rewrites the index. The option reaches
+/// the state read through a planner-only context option, so standalone
+/// `sw vcs state` is unchanged. That read drains and discards the status output
+/// without decoding it and checks only the result, so a failed status is still
+/// `git_error`. The planner decodes strictly only the records it uses, so an
+/// unrelated non-UTF-8 name never stops a plan. The `rev-parse` and `config`
+/// calls keep the caller's environment.
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -151,13 +179,44 @@ class _Planner {
   final bool windows;
   final Map<String, String> env;
 
-  Future<ToolResult> git(String cwd, List<String> args) async {
+  Future<ToolResult> git(
+    String cwd,
+    List<String> args, {
+    Map<String, String>? environment,
+  }) async {
     try {
-      return await runTool(cwd, ['git', ...args], environment: env);
+      final run = ctx.runner;
+      final command = ['git', ...args];
+      final callEnv = environment ?? env;
+      return run != null
+          ? await run(cwd, command, callEnv)
+          : await runTool(cwd, command, environment: callEnv);
     } on Unrepresentable catch (e) {
       throw VcsStop.unrepresentable(e);
     }
   }
+
+  /// The planner's own `git status` (C10): read-only, with
+  /// `GIT_OPTIONAL_LOCKS=0`, `--no-optional-locks` and `-c core.fsmonitor=false`
+  /// so the plan never rewrites the index or starts a monitor, and every
+  /// untracked file listed whatever `status.showUntrackedFiles` says, in `-z`
+  /// records that [readPorcelain] reads whole. [paths] limits the read.
+  Future<ToolResult> gitStatus(String top, [List<String> paths = const []]) =>
+      git(
+        top,
+        [
+          '-c',
+          'core.fsmonitor=false',
+          '--no-optional-locks',
+          'status',
+          '--porcelain=v1',
+          '-z',
+          '--untracked-files=all',
+          if (paths.isNotEmpty) '--',
+          ...paths,
+        ],
+        environment: {...env, 'GIT_OPTIONAL_LOCKS': '0'},
+      );
 
   String textOf(ToolResult r) => pyStrip(decodeReplacing(r.stdout));
 
@@ -208,12 +267,16 @@ class _Planner {
         return (await reader(top, code, branch)).cast();
       }
       final parsed = parseVcsArguments(['state', '--repo', top, ...role]);
-      final session = await openSession(VcsContext(parsed));
+      final session = await openSession(
+        VcsContext(parsed, readOnlyStatus: true),
+      );
       return (await stateDocument(session)).cast();
     } on VcsStop catch (stop) {
       throw VcsStop(
         stop.error.isEmpty ? 'vcs_error' : stop.error,
         stop.message.isEmpty ? 'vcs.sh state failed' : stop.message,
+        // only a usage error exits 2; `bad_setting` and every other stop is 1
+        code: stop.error == 'usage' ? 2 : 1,
       );
     }
   }
@@ -326,9 +389,21 @@ class _Planner {
     Uint8List? wdBytes(String path) => _readFile(_under(top, path));
 
     // no index on jj; GitButler never stages
-    Future<List<String>> staged() async => jj || gb
-        ? <String>[]
-        : nulList(await git(top, ['diff', '--cached', '--name-only', '-z']));
+    Future<List<String>> staged() async {
+      if (jj || gb) return <String>[];
+      final r = await git(top, [
+        'diff-index',
+        '--cached',
+        '--name-only',
+        '-z',
+        'HEAD',
+        '--',
+      ]);
+      return [
+        for (final record in readInventory(r, 'git diff-index --cached'))
+          decodeStrict(record.single, 'file name'),
+      ];
+    }
 
     // Two archive directories that restore to one changes/<name>/ would nest
     // one inside the other.
@@ -580,16 +655,25 @@ class _Planner {
           );
         }
       } else if (branch != cb) {
-        final dirty = pySplitLines(
-          textOf(await git(top, ['status', '--porcelain'])),
-        );
+        final dirty = [
+          for (final record in readPorcelain(
+            await gitStatus(top),
+            'git status',
+          ))
+            record.decode(),
+        ];
         if (dirty.isNotEmpty) {
           throw VcsStop(
             'dirty_tree',
             'The working tree is dirty, so the branch cannot be checked out: '
-                '${dirty.map(pyStrip).join('; ')}',
+                '${dirty.map(_dirtyLine).join('; ')}',
             extra: {
-              'files': [for (final x in dirty) _dropPoints(x, 3)],
+              'files': [
+                for (final e in dirty) ...[
+                  e.path,
+                  if (e.source != null) e.source!,
+                ],
+              ],
             },
           );
         }
@@ -731,29 +815,26 @@ class _Planner {
             if (members.any((m) => p.startsWith('${m.dir}/'))) p,
         ];
       } else if (branch == cb) {
-        final out = await git(top, [
-          'status',
-          '--porcelain=v1',
-          '-z',
-          '--untracked-files=all',
-          '--',
-          for (final m in members) m.dir,
-        ]);
-        var start = 0;
-        final bytes = out.stdout;
-        for (var i = 0; i <= bytes.length; i++) {
-          if (i == bytes.length || bytes[i] == 0) {
-            if (i - start > 3) {
-              carried.add(
-                _dropPoints(
-                  decodeStrict(bytes.sublist(start, i), 'file name'),
-                  3,
-                ),
-              );
-            }
-            start = i + 1;
+        final out = await gitStatus(top, [for (final m in members) m.dir]);
+        // the records outside the members go first, undecoded: an unrelated
+        // name that is not UTF-8 never stops the plan
+        final prefixes = [for (final m in members) utf8.encode('${m.dir}/')];
+        bool under(List<int> path) => prefixes.any(
+          (p) =>
+              path.length >= p.length &&
+              _sameBytes(path.sublist(0, p.length), p),
+        );
+        for (final record in readPorcelain(out, 'git status')) {
+          final source = record.source;
+          if (!under(record.path) && !(source != null && under(source))) {
+            continue;
           }
+          final e = record.decode();
+          carried.add(e.path);
+          if (e.source != null) carried.add(e.source!);
         }
+        // UTF-8 byte order of the finished list, a rename's source included
+        carried.sort(compareUtf8);
       }
       backupFiles = [
         for (final f in [...mainMod, ...mainNew])
@@ -1177,6 +1258,22 @@ class _Member {
   final bool deferred;
   final List<String> waiting;
   final String dir;
+}
+
+/// One dirty record of the resume `dirty_tree` message: the status with its
+/// spaces trimmed, a space and the path (`<source> -> <path>` for a rename or
+/// copy). A newline, carriage return or tab in a name shows as `\n`, `\r` or
+/// `\t`, so the message stays one line; `files` keeps the bytes.
+String _dirtyLine(ZEntry e) {
+  String shown(String name) => name
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r')
+      .replaceAll('\t', r'\t');
+  final status = e.status.replaceAll(' ', '');
+  final source = e.source;
+  return source == null
+      ? '$status ${shown(e.path)}'
+      : '$status ${shown(source)} -> ${shown(e.path)}';
 }
 
 /// `_type_of`: the commit type of the undo commit from the branch prefix.

@@ -1228,6 +1228,8 @@ const launchAllowlist = Allowlist(
     'process/windows_tree.dart': {
       'Process.start': Call(1, _tool, function: 'killTree'),
     },
+    // `git status --porcelain -z`, drained to a no-op sink
+    'vcs/git_backend.dart': {'launch': Call(1, _tool)},
     'vcs/git_common.dart': {'runText': Call(1, _tool)},
     'vcs/gitbutler_backend.dart': {
       'runTool': Call(1, _tool),

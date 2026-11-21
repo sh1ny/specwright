@@ -23,11 +23,15 @@ _spec = importlib.util.spec_from_file_location("finish_fixtures", HERE / "fixtur
 fx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fx)
 import bashexe  # noqa: E402
+import gitlog  # noqa: E402  (fixtures.py puts evals/vcs on sys.path)
+import jjenv  # noqa: E402
+from vcs_test_support import sw_run  # noqa: E402
 
 P = "openspec"
 SPEC_A = f"{P}/specs/a/spec.md"
 SPEC_B = f"{P}/specs/b/spec.md"
 BRANCH = "bugfix/add-x"
+DIRTY_PREFIX = "The working tree is dirty, so the branch cannot be checked out: "
 
 
 def ad(name):
@@ -230,7 +234,187 @@ class TestUndoPlan(Base):
         before = fx.state(self.work)
         out = fx.run_plan(self.work, "add-x", branch=BRANCH)
         self.assertStops(out, "dirty_tree", "README.md")
+        # D9: the report holds the path whole, and the message reads as it always did
+        self.assertEqual(out[1]["files"], ["README.md"], out[2])
+        self.assertEqual(out[1]["message"], DIRTY_PREFIX + "M README.md", out[2])
         self.assertEqual(fx.state(self.work), before)
+
+    # ---- The undo planner reports paths whole (change-finish, D2) ----------------------------------------------
+    def resume_on_main(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        self.git("checkout", "-q", "main")
+
+    def dirty_doc(self):
+        """The `dirty_tree` document of a resume on `main`, the repository unchanged."""
+        before = fx.state(self.work)
+        out = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertStops(out, "dirty_tree")
+        self.assertEqual(fx.state(self.work), before)
+        return out[1]
+
+    def test_first_dirty_path_keeps_its_first_character(self):
+        self.resume_on_main()
+        fx.edit(self.work, "README.md", "demo", "demo edited")
+        doc = self.dirty_doc()
+        self.assertEqual(doc["files"], ["README.md"])
+        self.assertNotIn("EADME.md", doc["files"])
+
+    def test_a_name_that_porcelain_quotes_is_reported_unquoted(self):
+        self.resume_on_main()
+        fx.write(self.work, "café.md", "x\n")
+        self.assertEqual(self.git("-c", "core.quotePath=true", "status", "--porcelain"), '?? "caf\\303\\251.md"', "the fixture's name is not quoted")
+        doc = self.dirty_doc()
+        self.assertEqual(doc["files"], ["café.md"])
+        self.assertTrue(doc["message"].endswith("?? café.md"), doc["message"])
+
+    def test_a_staged_rename_reports_both_paths(self):
+        fx.commit(self.work, "docs: notes", {"notes.md": "notes\n"})
+        self.resume_on_main()
+        self.git("mv", "notes.md", "old-notes.md")
+        doc = self.dirty_doc()
+        self.assertEqual(sorted(doc["files"]), ["notes.md", "old-notes.md"])
+        self.assertTrue(doc["message"].endswith("R notes.md -> old-notes.md"), doc["message"])
+
+    def test_planner_leaves_a_stale_index_alone(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        index, readme = self.work / ".git" / "index", self.work / "README.md"
+        stat = readme.stat()
+        os.utime(readme, (stat.st_atime, stat.st_mtime + 100))  # the same bytes, another mtime: a stale stat entry
+        before = index.read_bytes()
+        self.git("status", "--porcelain")
+        self.assertNotEqual(index.read_bytes(), before, "the stat entry is not stale: a plain git status leaves the index alone")
+        index.write_bytes(before)
+        shim = gitlog.install(self.tmp / "gitshim", real_git=jjenv.real_git(), log_path=self.tmp / "git.jsonl")
+        r = sw_run(["finish", *fx.plan_args("add-x")], cwd=self.work, env={"GIT_OPTIONAL_LOCKS": "1"}, shim=shim, stamp=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(index.read_bytes(), before, "the plan rewrote the index")
+        calls = shim.calls()
+        status = [c for c in calls if c["action"] == "status"]
+        others = [c for c in calls if c["action"] != "status"]
+        # the settings reader's `show-ref` (detect_main) runs on every plan, `main_branch` set or not
+        for action in ("rev-parse", "show-ref"):
+            self.assertTrue(status and any(c["action"] == action for c in others), f"the shim saw no {action} call of the plan")
+        # every status runs with the optional locks off; every other call keeps the caller's environment
+        self.assertEqual({c["optional_locks"] for c in status}, {"0"}, status)
+        self.assertEqual({c["optional_locks"] for c in others}, {"1"}, others)
+
+    @unittest.skipIf(sys.platform == "win32", "platform: Windows refuses a backslash in a file name")
+    def test_a_name_with_a_backslash_keeps_it(self):
+        self.resume_on_main()
+        fx.write(self.work, "a\\b.md", "x\n")
+        doc = self.dirty_doc()
+        self.assertEqual(doc["files"], ["a\\b.md"])
+        self.assertTrue(doc["message"].endswith("?? a\\b.md"), doc["message"])
+
+    def committed_with_older_archive(self):
+        """On the change branch: add-x archived and committed, beside an older committed archive `add-y`."""
+        self.single({"a": "New thing"})
+        old = f"{P}/changes/archive/2026-10-18-add-y"
+        fx.commit(self.work, "docs(add-y): older archive", {f"{old}/review.md": "# Review\n\nVERDICT: APPROVE\n"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        return self.work / old
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
+    def test_a_non_utf8_name_in_an_unrelated_archive_is_no_obstacle(self):
+        older = self.committed_with_older_archive()
+        bad = os.path.join(os.fsencode(str(older)), b"bad-\xff-name.md")
+        with open(bad, "wb") as f:
+            f.write(b"untracked\n")
+        listed = subprocess.run(["git", "status", "--porcelain", "-z"], cwd=self.work, capture_output=True).stdout
+        self.assertIn(b"\xff", listed, "the plain status read does not list the name")
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        self.assertNotIn("bad-", raw)
+        self.assertEqual(doc["carried_edits"], [])
+
+    @unittest.skipIf(sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0), "platform: needs POSIX modes and a non-root user")
+    def test_an_unreadable_directory_in_an_unrelated_archive_stops_the_plan(self):
+        older = self.committed_with_older_archive()
+        scratch = older / "scratch"
+        scratch.mkdir()
+        (scratch / "x.txt").write_text("x\n", encoding="utf-8")
+        scratch.chmod(0)
+        self.addCleanup(scratch.chmod, 0o700)
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "vcs_error", "git status")
+        self.assertIn("scratch", out[1]["message"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
+    def test_a_dirty_path_that_is_not_utf8_on_resume_stops_with_not_utf8(self):
+        self.resume_on_main()
+        bad = os.path.join(os.fsencode(str(self.work)), b"bad-\xff-name.md")
+        with open(bad, "wb") as f:
+            f.write(b"untracked\n")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "not_utf8", raw)
+        self.assertNotIn("steps", doc, raw)
+
+    def test_untracked_files_hidden_by_configuration_are_listed(self):
+        self.resume_on_main()
+        self.git("config", "status.showUntrackedFiles", "no")
+        fx.write(self.work, "new/notes.md", "x\n")
+        self.assertEqual(self.git("status", "--porcelain"), "", "the fixture's configuration does not hide the file")
+        doc = self.dirty_doc()
+        self.assertEqual(doc["files"], ["new/notes.md"])
+
+    # ---- The dirty_tree message names each record plainly -----------------------------------------------------
+    def test_dirty_stops_keep_their_messages(self):
+        # a committed archive's file missing from the working tree
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        fx.rmtree(self.work / ad("add-x"))
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "dirty_tree")
+        self.assertEqual(out[1]["message"], f"Deleted in the working tree: {ad('add-x')}. Restore them with "
+                                            f"`git restore -- {ad('add-x')}` (or commit the deletion), then plan again.")
+        self.assertEqual(out[1]["files"], [ad("add-x")])
+
+    def test_ordinary_names_read_as_before(self):
+        self.resume_on_main()
+        fx.edit(self.work, "README.md", "demo", "demo edited")
+        fx.write(self.work, "new.txt", "x\n")
+        doc = self.dirty_doc()
+        self.assertEqual(doc["message"], DIRTY_PREFIX + "M README.md; ?? new.txt")
+        self.assertEqual(doc["files"], ["README.md", "new.txt"])
+
+    @unittest.skipIf(sys.platform == "win32", "platform: Windows refuses a tab in a file name")
+    def test_a_rename_and_a_name_with_a_tab(self):
+        fx.commit(self.work, "docs: a", {"a.md": "a\n"})
+        self.resume_on_main()
+        self.git("mv", "a.md", "b.md")
+        fx.write(self.work, "x\ty.md", "x\n")
+        doc = self.dirty_doc()
+        self.assertIn("R a.md -> b.md", doc["message"])
+        self.assertIn("?? x\\ty.md", doc["message"])
+        self.assertNotIn("\t", doc["message"])
+        self.assertEqual(sorted(doc["files"]), ["a.md", "b.md", "x\ty.md"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: only Linux file systems take a carriage return and a trailing space in a name")
+    def test_a_carriage_return_and_a_trailing_space_in_a_name(self):
+        self.resume_on_main()
+        name = "x\ry.md "
+        with open(os.path.join(os.fsencode(str(self.work)), os.fsencode(name)), "wb") as f:
+            f.write(b"x\n")
+        doc = self.dirty_doc()
+        self.assertTrue(doc["message"].endswith("?? x\\ry.md "), repr(doc["message"]))
+        self.assertEqual(doc["files"], [name])
+
+    # ---- A usage error from the planner's state read exits 2; any other stop exits 1 --------------------------
+    def test_malformed_settings_state_read_exits_1(self):
+        """The state read rejects a malformed settings file with `bad_setting` (loadSettings, exit 2 in the settings
+        module); the planner prints its own stop document and exits 1, as every stop but `usage` does."""
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        fx.write(self.work, f"{P}/specwright.yaml", "vcs: [unclosed\n")
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 1, raw)
+        self.assertIs(doc["ok"], False, raw)
+        self.assertEqual(doc["error"], "bad_setting", raw)
+        self.assertIn("specwright.yaml", doc["message"], raw)
+        self.assertNotIn("steps", doc, raw)
 
     def test_no_archive_refused(self):
         self.single({"a": "New thing"})

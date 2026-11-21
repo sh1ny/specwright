@@ -5,7 +5,10 @@ import 'dart:typed_data';
 import 'package:specwright_cli/src/commands/finish.dart';
 import 'package:specwright_cli/src/finish/script_text.dart';
 import 'package:specwright_cli/src/finish/undo_plan.dart';
+import 'package:specwright_cli/src/commands/version.dart' show buildVersion;
 import 'package:specwright_cli/src/vcs/stop.dart';
+import 'package:specwright_cli/src/vcs/tool_runner.dart'
+    show ToolResult, runTool;
 import 'package:test/test.dart';
 
 import '../vcs/bash_support.dart';
@@ -255,6 +258,9 @@ void main() {
       git(dir.path, ['config', kv[0], kv[1]]);
     }
     File('${dir.path}/README.md').writeAsStringSync('# demo\n');
+    // the version the running sw checks, committed in the first commit so it
+    // is never dirty-tree evidence
+    put(dir.path, 'openspec/.specwright/VERSION', '$buildVersion\n');
     for (final cap in ['a', 'b']) {
       put(dir.path, 'openspec/specs/$cap/spec.md', baseSpec(cap));
     }
@@ -1351,6 +1357,400 @@ void main() {
           'No archive of add-x ($ad) found in the working tree or on nowhere',
           {'commits': <String>[]},
         );
+      }, skip: skip);
+    });
+
+    group('status and staged reads (D2)', () {
+      ToolResult fakeResult(
+        List<int> stdout, {
+        int code = 0,
+        List<int> stderr = const [],
+      }) => ToolResult(
+        code,
+        Uint8List.fromList(stdout),
+        Uint8List.fromList(stderr),
+      );
+
+      List<int> z(List<String> fields) => [
+        for (final f in fields) ...[...utf8.encode(f), 0],
+      ];
+
+      bool isStatus(List<String> c) => c.contains('status');
+      bool isCarried(List<String> c) => isStatus(c) && c.contains('--');
+      bool isResumeStatus(List<String> c) => isStatus(c) && !c.contains('--');
+      // the planner's staged-index read, before and after its command changed
+      bool isStaged(List<String> c) =>
+          c.contains('--cached') && c.contains('--name-only');
+
+      /// A context whose runner answers a command with [answer] when it gives
+      /// one and runs every other command for real; [calls] logs each command
+      /// with the environment it ran in.
+      FinishContext faking(
+        ToolResult? Function(List<String> command) answer, {
+        List<(List<String>, Map<String, String>)>? calls,
+      }) => FinishContext(
+        runner: (cwd, command, env) async {
+          calls?.add((command, env));
+          return answer(command) ??
+              await runTool(cwd, command, environment: env);
+        },
+      );
+
+      Future<_Out> resumeOn(String repo, FinishContext ctx) async {
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        return plan(rq(repo, branch: 'feat/x'), ctx);
+      }
+
+      void expectOneStop(_Out r, String error, {int code = 1}) {
+        expect(r.code, code, reason: '${r.doc}');
+        expect(r.doc['ok'], false);
+        expect(r.doc['error'], error, reason: '${r.doc}');
+        expect(r.doc.containsKey('steps'), isFalse);
+      }
+
+      test('a failed resume status read is vcs_error', () async {
+        final repo = branchRepo();
+        final r = await resumeOn(
+          repo,
+          faking((c) => isResumeStatus(c) ? fakeResult([], code: 1) : null),
+        );
+        expectOneStop(r, 'vcs_error');
+        expect(r.doc['message'], contains('git status'));
+        expect(r.doc['message'], contains('exit status 1'));
+      }, skip: skip);
+
+      test('a failed resume status read holds git stderr', () async {
+        final repo = branchRepo();
+        final r = await resumeOn(
+          repo,
+          faking(
+            (c) => isResumeStatus(c)
+                ? fakeResult(
+                    [],
+                    code: 128,
+                    stderr: utf8.encode('fatal: boom\n'),
+                  )
+                : null,
+          ),
+        );
+        expectOneStop(r, 'vcs_error');
+        expect(r.doc['message'], contains('git status'));
+        expect(r.doc['message'], contains('fatal: boom'));
+      }, skip: skip);
+
+      test('a resume status read that writes to stderr is vcs_error', () async {
+        final repo = branchRepo();
+        final r = await resumeOn(
+          repo,
+          faking(
+            (c) => isResumeStatus(c)
+                ? fakeResult(
+                    [],
+                    stderr: utf8.encode('warning: could not open directory\n'),
+                  )
+                : null,
+          ),
+        );
+        expectOneStop(r, 'vcs_error');
+        expect(r.doc['message'], contains('could not open directory'));
+      }, skip: skip);
+
+      test('a failed carried-edits read is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final r = await plan(
+          rq(repo),
+          faking((c) => isCarried(c) ? fakeResult([], code: 1) : null),
+        );
+        expectOneStop(r, 'vcs_error');
+        expect(r.doc['message'], contains('git status'));
+      }, skip: skip);
+
+      test('a failed staged-index read is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final r = await plan(
+          rq(repo),
+          faking((c) => isStaged(c) ? fakeResult([], code: 128) : null),
+        );
+        expectOneStop(r, 'vcs_error');
+        expect(r.doc['message'], contains('git diff-index --cached'));
+      }, skip: skip);
+
+      test('a failed staged-index read on an uncommitted archive', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x']);
+        final r = await plan(
+          rq(repo),
+          faking((c) => isStaged(c) ? fakeResult([], code: 128) : null),
+        );
+        expectOneStop(r, 'vcs_error');
+        expect(r.doc['message'], contains('git diff-index --cached'));
+      }, skip: skip);
+
+      test('both status reads are read-only and list every untracked file', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final calls = <(List<String>, Map<String, String>)>[];
+        await plan(rq(repo), faking((_) => null, calls: calls));
+        git(repo, ['checkout', '-q', 'main']);
+        await plan(
+          rq(repo, branch: 'feat/x'),
+          faking((_) => null, calls: calls),
+        );
+        final statuses = [
+          for (final c in calls)
+            if (isStatus(c.$1)) c,
+        ];
+        expect(statuses.length, 2, reason: '$calls');
+        for (final (command, env) in statuses) {
+          expect(
+            command,
+            containsAllInOrder([
+              '-c',
+              'core.fsmonitor=false',
+              '--no-optional-locks',
+              'status',
+              '--porcelain=v1',
+              '-z',
+              '--untracked-files=all',
+            ]),
+          );
+          expect(env['GIT_OPTIONAL_LOCKS'], '0');
+        }
+        // the calls that cannot refresh the index keep the caller's environment
+        expect(
+          [
+            for (final c in calls)
+              if (!isStatus(c.$1)) c.$2['GIT_OPTIONAL_LOCKS'],
+          ].where((v) => v == '0'),
+          isEmpty,
+        );
+      }, skip: skip);
+
+      test(
+        'the resume report holds each path whole, a rename with both ends',
+        () async {
+          final repo = branchRepo();
+          final r = await resumeOn(
+            repo,
+            faking(
+              (c) => isResumeStatus(c)
+                  ? fakeResult(
+                      z([' M README.md', 'R  b.md', 'a.md', r'?? c\d.md']),
+                    )
+                  : null,
+            ),
+          );
+          expectOneStop(r, 'dirty_tree');
+          expect(r.doc['files'], ['README.md', 'b.md', 'a.md', r'c\d.md']);
+        },
+        skip: skip,
+      );
+
+      test(
+        'the dirty_tree message reads as it did for ordinary names',
+        () async {
+          final repo = branchRepo();
+          final r = await resumeOn(
+            repo,
+            faking(
+              (c) => isResumeStatus(c)
+                  ? fakeResult(z([' M README.md', '?? new.txt']))
+                  : null,
+            ),
+          );
+          expect(
+            r.doc['message'],
+            'The working tree is dirty, so the branch cannot be checked out: '
+            'M README.md; ?? new.txt',
+          );
+        },
+        skip: skip,
+      );
+
+      test(
+        'the message shows a rename as source -> path, a tab as \\t',
+        () async {
+          final repo = branchRepo();
+          final r = await resumeOn(
+            repo,
+            faking(
+              (c) => isResumeStatus(c)
+                  ? fakeResult(z(['R  b.md', 'a.md', '?? x\ty.md']))
+                  : null,
+            ),
+          );
+          expect(r.doc['message'], endsWith(r'R a.md -> b.md; ?? x\ty.md'));
+          expect(r.doc['files'], ['b.md', 'a.md', 'x\ty.md']);
+        },
+        skip: skip,
+      );
+
+      test(
+        'the message keeps a trailing space and shows a CR as \\r',
+        () async {
+          final repo = branchRepo();
+          final r = await resumeOn(
+            repo,
+            faking(
+              (c) => isResumeStatus(c) ? fakeResult(z(['?? x\ry.md '])) : null,
+            ),
+          );
+          expect(r.doc['message'], endsWith('?? x\\ry.md '));
+          expect(r.doc['files'], ['x\ry.md ']);
+        },
+        skip: skip,
+      );
+
+      test(
+        'a dirty resume path that is not UTF-8 is not_utf8, with no steps',
+        () async {
+          final repo = branchRepo();
+          final r = await resumeOn(
+            repo,
+            faking(
+              (c) => isResumeStatus(c)
+                  ? fakeResult([...utf8.encode('?? bad'), 0xff, 0])
+                  : null,
+            ),
+          );
+          expectOneStop(r, 'not_utf8');
+        },
+        skip: skip,
+      );
+
+      test(
+        'a carried edit that is a rename reports both names, in byte order',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final r = await plan(
+            rq(repo),
+            faking(
+              (c) => isCarried(c)
+                  ? fakeResult(
+                      z([
+                        'R  $ad/new.md',
+                        '$ad/a/old.md',
+                        ' M $ad/b.md',
+                        '?? $ad/a.md',
+                      ]),
+                    )
+                  : null,
+            ),
+          );
+          expect(r.code, 0, reason: '${r.doc}');
+          expect((r.doc['carried_edits']! as List).cast<String>(), [
+            '$ad/a.md',
+            '$ad/a/old.md',
+            '$ad/b.md',
+            '$ad/new.md',
+          ]);
+        },
+        skip: skip,
+      );
+
+      test('a carried-edits record outside the members is dropped before it is decoded', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final r = await plan(
+          rq(repo),
+          faking(
+            (c) => isCarried(c)
+                ? fakeResult([
+                    ...utf8.encode('?? openspec/changes/archive/older/bad'),
+                    0xff,
+                    0,
+                    ...z([' M $ad/design.md']),
+                  ])
+                : null,
+          ),
+        );
+        expect(r.code, 0, reason: '${r.doc}');
+        expect((r.doc['carried_edits']! as List).cast<String>(), [
+          '$ad/design.md',
+        ]);
+      }, skip: skip);
+
+      test(
+        'a carried-edits member name that is not UTF-8 is not_utf8',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final r = await plan(
+            rq(repo),
+            faking(
+              (c) => isCarried(c)
+                  ? fakeResult([...utf8.encode('?? $ad/bad'), 0xff, 0])
+                  : null,
+            ),
+          );
+          expectOneStop(r, 'not_utf8');
+        },
+        skip: skip,
+      );
+
+      test('a usage stop from the state read exits 2', () async {
+        final repo = branchRepo();
+        final r = await plan(
+          rq(repo),
+          readerCtx(
+            (top, code, branch) async =>
+                throw VcsStop('usage', 'missing --branch', code: 2),
+          ),
+        );
+        expectOneStop(r, 'usage', code: 2);
+        expect(r.doc['message'], 'missing --branch');
+      }, skip: skip);
+
+      test('an injected usage VcsStop is one usage document, exit 2', () async {
+        final repo = branchRepo();
+        final r = await plan(
+          rq(repo),
+          readerCtx(
+            (top, code, branch) async =>
+                throw VcsStop('usage', 'bad option', code: 2),
+          ),
+        );
+        expect(r.code, 2);
+        expect(r.doc, {'ok': false, 'error': 'usage', 'message': 'bad option'});
+      }, skip: skip);
+
+      test(
+        'any other stop from the state read stays exit 1, bad_setting too',
+        () async {
+          final repo = branchRepo();
+          for (final (error, code) in [
+            ('bad_setting', 2),
+            ('not_repository', 1),
+            ('git_error', 1),
+          ]) {
+            final r = await plan(
+              rq(repo),
+              readerCtx(
+                (top, c, branch) async => throw VcsStop(error, 'm', code: code),
+              ),
+            );
+            expect(r.code, 1, reason: error);
+            expect(r.doc['error'], error);
+          }
+        },
+        skip: skip,
+      );
+
+      test('a failed branch lookup in the state read is git_error', () async {
+        final repo = branchRepo();
+        final r = await plan(
+          rq(repo),
+          readerCtx(
+            (top, code, branch) async =>
+                throw VcsStop('git_error', 'fatal: no branch'),
+          ),
+        );
+        expectOneStop(r, 'git_error');
+        expect(r.doc['message'], 'fatal: no branch');
       }, skip: skip);
     });
 

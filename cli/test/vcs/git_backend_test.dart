@@ -7,6 +7,7 @@ import 'package:specwright_cli/src/fence/fenced_text.dart';
 import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
 import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
+import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/git_backend.dart';
 import 'package:specwright_cli/src/vcs/git_common.dart';
 import 'package:specwright_cli/src/vcs/probe.dart';
@@ -131,6 +132,228 @@ void main() {
     final f = File('${tmp.path}/msg.txt')..writeAsStringSync(text);
     return posix(f.path);
   }
+
+  group('parseZRecords', () {
+    Uint8List z(List<String> fields, {bool end = true}) => Uint8List.fromList([
+      for (var i = 0; i < fields.length; i++) ...[
+        ...utf8.encode(fields[i]),
+        if (end || i < fields.length - 1) 0,
+      ],
+    ]);
+
+    test('frames and pairs the raw records and changes no byte', () {
+      final parsed = parseZRecords(
+        z([' M a\\b.md', 'R  new.md', 'old.md', '?? x y.md ']),
+      );
+      expect(parsed.complete, isTrue);
+      expect(parsed.records.map((r) => r.decode().status), [' M', 'R ', '??']);
+      expect(parsed.records.map((r) => r.decode().path), [
+        r'a\b.md',
+        'new.md',
+        'x y.md ',
+      ]);
+      expect(parsed.records[1].decode().source, 'old.md');
+      expect(parsed.records[0].decode().source, isNull);
+      // the first record keeps its first character
+      expect(utf8.decode(parsed.records[0].path), r'a\b.md');
+    });
+
+    test('a copy takes its source too, whichever column holds the C', () {
+      final parsed = parseZRecords(z(['C  b.md', 'a.md', ' C c.md', 'd.md']));
+      expect(parsed.records.map((r) => r.decode().source), ['a.md', 'd.md']);
+    });
+
+    test('an empty listing is complete and holds no record', () {
+      final parsed = parseZRecords(Uint8List(0));
+      expect(parsed.complete, isTrue);
+      expect(parsed.records, isEmpty);
+    });
+
+    test('a final field with no NUL is not complete', () {
+      expect(
+        parseZRecords(z([' M a.md', ' M b.md'], end: false)).complete,
+        isFalse,
+      );
+    });
+
+    test('a rename cut before its source path is not complete', () {
+      expect(parseZRecords(z(['R  new.md'])).complete, isFalse);
+    });
+
+    test('a record shorter than a status and a path is not complete', () {
+      expect(parseZRecords(z(['ab'])).complete, isFalse);
+    });
+
+    test('a name that is not UTF-8 is read only when it is decoded', () {
+      final bytes = Uint8List.fromList([
+        ...utf8.encode('?? bad'),
+        0xff,
+        0,
+        ...utf8.encode(' M ok.md'),
+        0,
+      ]);
+      final parsed = parseZRecords(bytes);
+      expect(parsed.complete, isTrue);
+      expect(parsed.records[1].decode().path, 'ok.md');
+      expect(
+        () => parsed.records[0].decode(),
+        throwsA(
+          isA<NotUtf8>().having((e) => e.message, 'message', contains(r'\xFF')),
+        ),
+      );
+    });
+  });
+
+  group('readInventory (C50)', () {
+    ToolResult run(
+      List<int> stdout, {
+      int code = 0,
+      List<int> stderr = const [],
+      Object? streamError,
+    }) => ToolResult(
+      code,
+      Uint8List.fromList(stdout),
+      Uint8List.fromList(stderr),
+      streamError: streamError,
+    );
+
+    List<int> joined(List<String> fields, int terminator) => [
+      for (final f in fields) ...[...utf8.encode(f), terminator],
+    ];
+
+    VcsStop failure(void Function() read) {
+      try {
+        read();
+      } on VcsStop catch (stop) {
+        return stop;
+      }
+      fail('the read was not refused');
+    }
+
+    test('NUL with one field: a whole listing passes, a cut one fails', () {
+      final whole = readInventory(
+        run(joined(['a.md', 'b.md'], 0)),
+        'git ls-files',
+      );
+      expect(whole.map((r) => utf8.decode(r.single)), ['a.md', 'b.md']);
+      final cut = joined(['a.md', 'b.md'], 0)..removeLast();
+      final stop = failure(() => readInventory(run(cut), 'git ls-files'));
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('git ls-files'));
+    });
+
+    test('NUL with two fields: a status and a path are one record', () {
+      final pairs = readInventory(
+        run(joined(['M', 'a.md', 'A', 'b.md'], 0)),
+        'git diff-tree',
+        fields: 2,
+      );
+      expect(pairs.length, 2);
+      expect(utf8.decode(pairs[1][1]), 'b.md');
+      final stop = failure(
+        () => readInventory(
+          run(joined(['M', 'a.md', 'A'], 0)),
+          'git diff-tree',
+          fields: 2,
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('cut'));
+    });
+
+    test('LF: a whole listing passes, one cut before its terminator fails', () {
+      final lines = readInventory(
+        run(joined(['abc', 'def'], 0x0a)),
+        'git rev-list',
+        framing: Framing.lf,
+      );
+      expect(lines.map((r) => utf8.decode(r.single)), ['abc', 'def']);
+      final cut = joined(['abc', 'def'], 0x0a)..removeLast();
+      final stop = failure(
+        () => readInventory(run(cut), 'git rev-list', framing: Framing.lf),
+      );
+      expect(stop.error, 'vcs_error');
+    });
+
+    test('zero bytes with exit 0 is a complete, empty listing', () {
+      expect(readInventory(run([]), 'git ls-files'), isEmpty);
+      expect(
+        readInventory(run([]), 'git rev-list', framing: Framing.lf),
+        isEmpty,
+      );
+    });
+
+    test('a non-zero exit names the command and git stderr', () {
+      final stop = failure(
+        () => readInventory(
+          run([], code: 128, stderr: utf8.encode('fatal: not a repo\n')),
+          'git status',
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.code, 1);
+      expect(stop.message, 'git status failed: fatal: not a repo');
+    });
+
+    test('a non-zero exit with empty stderr names the exit status', () {
+      final stop = failure(() => readInventory(run([], code: 3), 'git status'));
+      expect(stop.message, 'git status failed with exit status 3');
+    });
+
+    test('stderr is cut to 4 KiB in the message', () {
+      final stop = failure(
+        () => readInventory(
+          run([], code: 1, stderr: List.filled(10000, 0x78)),
+          'git status',
+        ),
+      );
+      expect(stop.message.length, lessThan(4096 + 100));
+      expect(stop.message, contains('x' * 4096));
+      expect(stop.message, isNot(contains('x' * 4097)));
+    });
+
+    test('any stderr byte at exit 0 fails the read', () {
+      final stop = failure(
+        () => readInventory(
+          run(
+            joined(['a.md'], 0),
+            stderr: utf8.encode('warning: could not open directory\n'),
+          ),
+          'git ls-files',
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('could not open directory'));
+    });
+
+    test('a stream error at exit 0 fails the read, whole records or not', () {
+      final stop = failure(
+        () => readInventory(
+          run(joined(['a.md'], 0), streamError: 'pipe broke'),
+          'git ls-files',
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('pipe broke'));
+    });
+
+    test(
+      'readPorcelain: a rename cut before its source fails, a whole one passes',
+      () {
+        final good = readPorcelain(
+          run(joined(['R  new.md', 'old.md', '?? x.md'], 0)),
+          'git status',
+        );
+        expect(good.length, 2);
+        expect(good.first.decode().source, 'old.md');
+        final stop = failure(
+          () => readPorcelain(run(joined(['R  new.md'], 0)), 'git status'),
+        );
+        expect(stop.error, 'vcs_error');
+        expect(stop.message, contains('git status'));
+      },
+    );
+  });
 
   group('parsePorcelain', () {
     test('plain entries, with a backslash made a slash', () {
