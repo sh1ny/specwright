@@ -151,7 +151,7 @@ On Git, the resume `git status` read, and on Git and GitButler the emitted `chec
 - **THEN** the `check clean` step refuses, and no checkout runs
 
 #### Scenario: A dirty submodule under a GitButler undo
-- **WHEN** on GitButler the archive is committed and a submodule under a path the undo touches has `ignore = all` and an unstaged change when the steps run
+- **WHEN** on GitButler the archive is committed and, after the plan is printed, a submodule with `ignore = all` and an unstaged change is added under an archived member the undo moves (a submodule there at planning is a nested repository, which the plan refuses)
 - **THEN** the `check clean` step refuses, and no move or restore runs
 
 ### Requirement: The resume checkout never overwrites an ignored file
