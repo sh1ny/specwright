@@ -45,7 +45,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A name with a backslash |  |  | red |
 |  | A non-UTF-8 name in an unrelated archive |  |  | red |
 |  | An unreadable directory in an unrelated archive |  |  | red |
-|  | A dirty path that is not UTF-8 on resume |  |  | red |
+|  | A dirty path that is not UTF-8 on resume |  |  | green |
 | The undo planner's status reads list every untracked file | Untracked files hidden by configuration | `evals/finish/test_undo_plan.py` |  | red |
 | A failed status read stops the undo plan | The resume status read fails | `cli/test/finish/undo_plan_test.dart` | a failed resume status read is vcs_error | red |
 |  | The carried-edits status read fails |  | a failed carried-edits read is vcs_error | red |
@@ -144,12 +144,12 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A resumed undo's marker |  |  | red |
 |  | A marker deleted after planning |  |  | red |
 |  | A marker copy that fails | `cli/test/finish/undo_step_test.dart` | a failed marker copy stops before any index change | red |
-| The dirty_tree message names each record plainly | Other dirty stops keep their messages | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_dirty_stops_keep_their_messages | red |
+| The dirty_tree message names each record plainly | Other dirty stops keep their messages | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_dirty_stops_keep_their_messages | green |
 |  | Ordinary names read as before |  |  | red |
 |  | A rename and a name with a tab |  |  | red |
 |  | A carriage return and a trailing space in a name |  |  | red |
 | A usage error from the planner's state read exits 2 | State read refuses its arguments | `cli/test/finish/undo_plan_test.dart` | a usage stop from the state read exits 2 | red |
-|  | State read fails for another reason | `evals/finish/test_undo_plan.py` | test_malformed_settings_state_read_exits_1 | red |
+|  | State read fails for another reason | `evals/finish/test_undo_plan.py` | test_malformed_settings_state_read_exits_1 | green |
 | Fixed undo-plan defects are exceptions to the script's refusals | A usage error from the state read | `cli/test/finish/undo_plan_test.dart` | an injected usage VcsStop is one usage document, exit 2 | red |
 |  | A guard that now refuses | `evals/finish/test_undo_plan.py` | test_staged_gitlink_hidden_by_config_is_refused | red |
 |  | A plan carries the new index warning | `cli/test/finish/undo_plan_test.dart` | a clean-index Git plan carries the index warning | red |
