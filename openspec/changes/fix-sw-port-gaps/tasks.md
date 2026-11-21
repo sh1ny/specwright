@@ -264,10 +264,10 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 | The sw download is bounded | Download completes in time | `evals/update/test_sw_install.py` | test_download_over_http_completes | green |
 |  | A partial file that is slow to open | `cli/test/update/download_test.dart` | the deadline clock starts after the part is open | red |
 |  | A partial file that cannot be created |  | an open failure is download_failed with no request | red |
-|  | Server stalls | `evals/update/test_sw_install.py` | test_stalled_download_hits_deadline | red |
+|  | Server stalls | `evals/update/test_sw_install.py` | test_stalled_download_hits_deadline | green |
 |  | A file mirror that finishes after the deadline | `cli/test/update/download_test.dart` | a late file:// copy is deadline_exceeded | red |
 |  | A file mirror |  | a file:// copy over 64 MiB is response_too_large | red |
-|  | Oversized answer | `evals/update/test_sw_install.py` | test_oversized_download_is_refused | red |
+|  | Oversized answer | `evals/update/test_sw_install.py` | test_oversized_download_is_refused | green |
 |  | An oversized error or redirect body | `cli/test/update/download_test.dart` | a 404 or redirect body over the budget is response_too_large | red |
 |  | Bodies that fit alone but not together |  | a 40 MiB redirect body and a 40 MiB asset share one budget | red |
 |  | The partial file cannot be closed after an oversized answer |  | a failing or held close keeps response_too_large | red |
@@ -288,10 +288,10 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | Interrupted before the rename |  | test_interrupt_before_rename_leaves_no_final_file | green |
 |  | A stale file at the final path |  | test_stale_final_file_is_replaced | green |
 |  | Matching hash but not runnable |  | test_unrunnable_matching_file_is_replaced | green |
-|  | Two installs of one version at once |  | test_concurrent_installs_both_succeed | red |
+|  | Two installs of one version at once |  | test_concurrent_installs_both_succeed | green |
 |  | Rename blocked by a running binary | `cli/test/update/place_test.dart` | a blocked rename leaves the part for the caller | red |
 |  | The final file cannot be read after a blocked rename | `cli/test/update/sw_install_test.dart` | an unreadable final file on recovery is sw_in_use | red |
-|  | A temporary file left by a killed run | `evals/update/test_sw_install.py` | test_only_old_part_files_are_cleaned | red |
+|  | A temporary file left by a killed run | `evals/update/test_sw_install.py` | test_only_old_part_files_are_cleaned | green |
 | A missing or incompatible sw stops a tagged install before any change | Release assets not uploaded yet | `evals/update/test_sw_install.py` | test_unsealed_release_stops_assets_not_uploaded | green |
 |  | Checksum mismatch |  | test_checksum_mismatch_stops_before_stage | green |
 |  | Wrong interface |  | test_wrong_interface_stops_before_stage | green |
@@ -303,7 +303,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A version directory that cannot be listed | `cli/test/update/sw_install_test.dart` | an unlistable version directory skips the sweep | red |
 |  | A source build whose stage cannot be deleted |  | a failed .stage delete keeps the build result | red |
 |  | Cleanup succeeds |  | success removes only this run's parts | red |
-|  | A later run meets the leftover | `evals/update/test_sw_install.py` | test_only_old_part_files_are_cleaned_after_a_held_part | red |
+|  | A later run meets the leftover | `evals/update/test_sw_install.py` | test_only_old_part_files_are_cleaned_after_a_held_part | green |
 
 Verification: never run an eval suite locally. Locally run only the module being written, red then green: `python -m unittest evals/<suite>/test_<x>.py`, or from `cli/` `mise exec -- dart test <file>`; modules that spawn process trees run only in PR CI (`evals.yml`, `cli.yml`, three OSes), and OS-only cases pass on their own CI job. After adding a tracked file, add its rule to `evals/suites.json` and run `python -m unittest evals/runner/test_suite_map.py`. A `Cn:` task writes that carried constraint's fact, as design `## Carried constraints` states it, at the named destination; it is verified by reading the destination and, for Dart, `mise exec -- dart analyze` from `cli/`. Open a draft PR at the first CI-verified task.
 
