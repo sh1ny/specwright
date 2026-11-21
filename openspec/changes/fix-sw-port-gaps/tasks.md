@@ -80,7 +80,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A partial clone | `evals/finish/test_undo_plan.py` |  | red |
 |  | Configuration that reroutes Git only on the archive branch | `evals/finish/test_undo_steps.py` |  | red |
 |  | A resume from main passes both branch guards |  |  | red |
-|  | A code directory reached through a symlink and `..` | `evals/finish/test_finish_shim.py` |  | red |
+|  | A code directory reached through a symlink and `..` | `evals/finish/test_finish_shim.py` |  | green |
 |  | A relative code directory resolved from the store |  |  | red |
 |  | Options are validated before the version check |  |  | red |
 |  | A code directory that does not exist |  |  | red |
